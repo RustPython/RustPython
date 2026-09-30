@@ -557,103 +557,103 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn check_hostname(&self) -> bool {
-            *self.check_hostname.read()
+        fn check_hostname(zelf: &Py<Self>) -> bool {
+            *zelf.check_hostname.read()
         }
 
         #[pygetset(setter)]
-        fn set_check_hostname(&self, value: bool) {
-            *self.check_hostname.write() = value;
+        fn set_check_hostname(zelf: &Py<Self>, value: bool) {
+            *zelf.check_hostname.write() = value;
             // When check_hostname is enabled, ensure verify_mode is at least CERT_REQUIRED
             if value {
-                let current_verify_mode = *self.verify_mode.read();
+                let current_verify_mode = *zelf.verify_mode.read();
                 if current_verify_mode == CERT_NONE {
-                    *self.verify_mode.write() = CERT_REQUIRED;
+                    *zelf.verify_mode.write() = CERT_REQUIRED;
                 }
             }
         }
 
         #[pygetset]
-        fn _host_flags(&self) -> i32 {
-            *self.host_flags.read()
+        fn _host_flags(zelf: &Py<Self>) -> i32 {
+            *zelf.host_flags.read()
         }
 
         #[pygetset(setter)]
-        fn set__host_flags(&self, value: i32) {
-            *self.host_flags.write() = value;
+        fn set__host_flags(zelf: &Py<Self>, value: i32) {
+            *zelf.host_flags.write() = value;
         }
 
         #[pygetset]
-        fn verify_mode(&self) -> i32 {
-            *self.verify_mode.read()
+        fn verify_mode(zelf: &Py<Self>) -> i32 {
+            *zelf.verify_mode.read()
         }
 
         #[pygetset(setter)]
-        fn set_verify_mode(&self, mode: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_verify_mode(zelf: &Py<Self>, mode: i32, vm: &VirtualMachine) -> PyResult<()> {
             if !(CERT_NONE..=CERT_REQUIRED).contains(&mode) {
                 return Err(vm.new_value_error("invalid verify mode"));
             }
             // Cannot set CERT_NONE when check_hostname is enabled
-            if mode == CERT_NONE && *self.check_hostname.read() {
+            if mode == CERT_NONE && *zelf.check_hostname.read() {
                 return Err(vm.new_value_error(
                     "Cannot set verify_mode to CERT_NONE when check_hostname is enabled",
                 ));
             }
-            *self.verify_mode.write() = mode;
+            *zelf.verify_mode.write() = mode;
             Ok(())
         }
 
         #[pygetset]
-        fn protocol(&self) -> i32 {
-            self.protocol
+        fn protocol(zelf: &Py<Self>) -> i32 {
+            zelf.protocol
         }
 
         #[pygetset]
-        fn verify_flags(&self) -> i32 {
-            *self.verify_flags.read()
+        fn verify_flags(zelf: &Py<Self>) -> i32 {
+            *zelf.verify_flags.read()
         }
 
         #[pygetset(setter)]
-        fn set_verify_flags(&self, value: i32) {
-            *self.verify_flags.write() = value;
+        fn set_verify_flags(zelf: &Py<Self>, value: i32) {
+            *zelf.verify_flags.write() = value;
         }
 
         #[pygetset]
-        fn post_handshake_auth(&self) -> bool {
-            *self.post_handshake_auth.read()
+        fn post_handshake_auth(zelf: &Py<Self>) -> bool {
+            *zelf.post_handshake_auth.read()
         }
 
         #[pygetset(setter)]
-        fn set_post_handshake_auth(&self, value: bool) {
-            *self.post_handshake_auth.write() = value;
+        fn set_post_handshake_auth(zelf: &Py<Self>, value: bool) {
+            *zelf.post_handshake_auth.write() = value;
         }
 
         #[pygetset]
-        fn num_tickets(&self) -> i32 {
-            *self.num_tickets.read()
+        fn num_tickets(zelf: &Py<Self>) -> i32 {
+            *zelf.num_tickets.read()
         }
 
         #[pygetset(setter)]
-        fn set_num_tickets(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_num_tickets(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             if value < 0 {
                 return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
             }
-            if self.protocol != PROTOCOL_TLS_SERVER {
+            if zelf.protocol != PROTOCOL_TLS_SERVER {
                 return Err(
                     vm.new_value_error("num_tickets can only be set on server-side contexts")
                 );
             }
-            *self.num_tickets.write() = value;
+            *zelf.num_tickets.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn options(&self) -> i32 {
-            *self.options.read()
+        fn options(zelf: &Py<Self>) -> i32 {
+            *zelf.options.read()
         }
 
         #[pygetset(setter)]
-        fn set_options(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_options(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             // Validate that the value is non-negative
             if value < 0 {
                 return Err(vm.new_value_error("options must be non-negative"));
@@ -668,7 +668,7 @@ mod _ssl {
                 | OP_NO_TLSv1_3;
 
             // Get current options and calculate newly set bits
-            let old_opts = *self.options.read();
+            let old_opts = *zelf.options.read();
             let set = !old_opts & value; // Bits being newly set
 
             // Warn if any deprecated options are being newly set
@@ -681,19 +681,19 @@ mod _ssl {
                 )?;
             }
 
-            *self.options.write() = value;
+            *zelf.options.write() = value;
             Ok(())
         }
 
         #[pygetset]
-        fn minimum_version(&self) -> i32 {
-            let v = *self.minimum_version.read();
+        fn minimum_version(zelf: &Py<Self>) -> i32 {
+            let v = *zelf.minimum_version.read();
             // return MINIMUM_SUPPORTED if value is 0
             if v == 0 { PROTO_MINIMUM_SUPPORTED } else { v }
         }
 
         #[pygetset(setter)]
-        fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_minimum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             // Validate that the value is a valid TLS version constant
             // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
             // or 0x0300-0x0304 (SSLv3-TLSv1.3)
@@ -714,19 +714,19 @@ mod _ssl {
                 PROTO_MAXIMUM_SUPPORTED => MAXIMUM_VERSION, // TLSv1.3
                 _ => value,
             };
-            *self.minimum_version.write() = normalized_value;
+            *zelf.minimum_version.write() = normalized_value;
             Ok(())
         }
 
         #[pygetset]
-        fn maximum_version(&self) -> i32 {
-            let v = *self.maximum_version.read();
+        fn maximum_version(zelf: &Py<Self>) -> i32 {
+            let v = *zelf.maximum_version.read();
             // return MAXIMUM_SUPPORTED if value is 0
             if v == 0 { PROTO_MAXIMUM_SUPPORTED } else { v }
         }
 
         #[pygetset(setter)]
-        fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_maximum_version(zelf: &Py<Self>, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             // Validate that the value is a valid TLS version constant
             // Valid values: 0 (default), -2 (MINIMUM_SUPPORTED), -1 (MAXIMUM_SUPPORTED),
             // or 0x0300-0x0304 (SSLv3-TLSv1.3)
@@ -747,12 +747,16 @@ mod _ssl {
                 PROTO_MINIMUM_SUPPORTED => MINIMUM_VERSION, // TLSv1.2
                 _ => value,
             };
-            *self.maximum_version.write() = normalized_value;
+            *zelf.maximum_version.write() = normalized_value;
             Ok(())
         }
 
         #[pymethod]
-        fn load_cert_chain(&self, args: LoadCertChainArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_cert_chain(
+            zelf: &Py<Self>,
+            args: LoadCertChainArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let crypto_ext = CryptoExt::get_ext();
 
             // Parse certfile argument (str or bytes) to path
@@ -885,7 +889,7 @@ mod _ssl {
             let mut full_chain = certs.clone();
             if full_chain.len() == 1 {
                 // Only have leaf cert, try to build chain from CA certs
-                let ca_certs_der = self.ca_certs_der.read();
+                let ca_certs_der = zelf.ca_certs_der.read();
                 if !ca_certs_der.is_empty() {
                     // Use build_verified_chain to construct full chain
                     let chain_result = cert::build_verified_chain(&full_chain, &ca_certs_der);
@@ -920,7 +924,7 @@ mod _ssl {
             // Add cert/key pair to collection (OpenSSL allows multiple cert/key pairs)
             // Store both CertifiedKey (for server) and PrivateKeyDer (for client mTLS)
             let cert_der = &full_chain[0];
-            let mut cert_keys = self.cert_keys.write();
+            let mut cert_keys = zelf.cert_keys.write();
 
             // Remove any existing cert/key pair with the same certificate
             // (This allows updating cert/key pair without duplicating)
@@ -934,7 +938,7 @@ mod _ssl {
 
         #[pymethod]
         fn load_verify_locations(
-            &self,
+            zelf: &Py<Self>,
             args: LoadVerifyLocationsArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -962,7 +966,7 @@ mod _ssl {
 
             let cadata_parsed = if let Some(ref cadata_obj) = args.cadata {
                 let is_string = matches!(cadata_obj, Either::A(_));
-                let data_vec = self.parse_cadata_arg(cadata_obj, vm)?;
+                let data_vec = zelf.parse_cadata_arg(cadata_obj, vm)?;
                 Some((data_vec, is_string))
             } else {
                 None
@@ -970,7 +974,7 @@ mod _ssl {
 
             // Check for CRL before acquiring main locks
             let (crl_opt, cafile_is_crl) = if let Some(ref path) = cafile_path {
-                let crl = self.load_crl_from_file(path, vm)?;
+                let crl = zelf.load_crl_from_file(path, vm)?;
                 let is_crl = crl.is_some();
                 (crl, is_crl)
             } else {
@@ -979,12 +983,12 @@ mod _ssl {
 
             // If it's a CRL, just add it (separate lock, no conflict with root_store)
             if let Some(crl) = crl_opt {
-                self.crls.write().push(crl);
+                zelf.crls.write().push(crl);
             }
 
             // Now acquire write locks for certificate loading
-            let mut root_store = self.root_certs.write();
-            let mut ca_certs_der = self.ca_certs_der.write();
+            let mut root_store = zelf.root_certs.write();
+            let mut ca_certs_der = zelf.ca_certs_der.write();
 
             // Load from file (if not CRL)
             if let Some(ref path) = cafile_path
@@ -992,28 +996,28 @@ mod _ssl {
             {
                 // Not a CRL, load as certificate
                 let stats =
-                    self.load_certs_from_file_helper(&mut root_store, &mut ca_certs_der, path, vm)?;
-                self.update_cert_stats(stats);
+                    zelf.load_certs_from_file_helper(&mut root_store, &mut ca_certs_der, path, vm)?;
+                zelf.update_cert_stats(stats);
             }
 
             // Load from bytes or str
             if let Some((ref data_vec, is_string)) = cadata_parsed {
-                let stats = self.load_certs_from_bytes_helper(
+                let stats = zelf.load_certs_from_bytes_helper(
                     &mut root_store,
                     &mut ca_certs_der,
                     data_vec,
                     is_string, // PEM only for strings
                     vm,
                 )?;
-                self.update_cert_stats(stats);
+                zelf.update_cert_stats(stats);
             }
 
             drop(root_store);
             drop(ca_certs_der);
             if let Some(dir_path) = capath_dir {
-                self.add_verify_dir(dir_path);
+                zelf.add_verify_dir(dir_path);
             }
-            *self.server_config.write() = None;
+            *zelf.server_config.write() = None;
 
             Ok(())
         }
@@ -1134,35 +1138,35 @@ mod _ssl {
 
         #[pymethod]
         fn load_default_certs(
-            &self,
+            zelf: &Py<Self>,
             _purpose: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let mut store = self.root_certs.write();
+            let mut store = zelf.root_certs.write();
 
             #[cfg(windows)]
             {
                 // Windows: Load system certificates first, then additionally load from env
                 // see: test_load_default_certs_env_windows
-                let _ = self.load_system_certificates(&mut store, vm);
+                let _ = zelf.load_system_certificates(&mut store, vm);
 
-                let _ = self.try_load_from_python_environ(&mut store, vm)?;
+                let _ = zelf.try_load_from_python_environ(&mut store, vm)?;
             }
 
             #[cfg(not(windows))]
             {
                 // Non-Windows: Try env vars first; only fallback to system certs if not set
                 // see: test_load_default_certs_env
-                let loaded = self.try_load_from_python_environ(&mut store, vm)?;
+                let loaded = zelf.try_load_from_python_environ(&mut store, vm)?;
 
                 if !loaded {
-                    let _ = self.load_system_certificates(&mut store, vm);
+                    let _ = zelf.load_system_certificates(&mut store, vm);
                 }
             }
 
             // If no certificates were loaded from system, fallback to webpki-roots (Mozilla CA bundle)
             // This ensures we always have some trusted root certificates even if system cert loading fails
-            if *self.x509_cert_count.read() == 0 {
+            if *zelf.x509_cert_count.read() == 0 {
                 use webpki_roots;
 
                 // webpki_roots provides TLS_SERVER_ROOTS as &[TrustAnchor]
@@ -1170,36 +1174,48 @@ mod _ssl {
                 let webpki_count = webpki_roots::TLS_SERVER_ROOTS.len();
                 store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
-                *self.x509_cert_count.write() += webpki_count;
-                *self.ca_cert_count.write() += webpki_count;
+                *zelf.x509_cert_count.write() += webpki_count;
+                *zelf.ca_cert_count.write() += webpki_count;
             }
 
             drop(store);
-            *self.server_config.write() = None;
+            *zelf.server_config.write() = None;
             Ok(())
         }
 
         #[pymethod]
-        fn set_alpn_protocols(&self, protocols: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_alpn_protocols(
+            zelf: &Py<Self>,
+            protocols: PyListRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut alpn_list = Vec::new();
             for item in protocols.borrow_vec().iter() {
                 let bytes = ArgBytesLike::try_from_object(vm, item.clone())?;
                 alpn_list.push(bytes.borrow_buf().to_vec());
             }
-            *self.alpn_protocols.write() = alpn_list;
+            *zelf.alpn_protocols.write() = alpn_list;
             Ok(())
         }
 
         #[pymethod]
-        fn _set_alpn_protocols(&self, protos: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        fn _set_alpn_protocols(
+            zelf: &Py<Self>,
+            protos: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let bytes = protos.borrow_buf();
             let alpn_list = parse_length_prefixed_alpn(&bytes, vm)?;
-            *self.alpn_protocols.write() = alpn_list;
+            *zelf.alpn_protocols.write() = alpn_list;
             Ok(())
         }
 
         #[pymethod]
-        fn set_ciphers(&self, cipherlist: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ciphers(
+            zelf: &Py<Self>,
+            cipherlist: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             // `SSL_CTX_set_cipher_list` reports one failure for a string it
             // cannot read and for a readable one that selects nothing, and the
             // TLS 1.3 suites are not among what it can select -- they have
@@ -1226,18 +1242,18 @@ mod _ssl {
                 CryptoExt::get_ext().default_ciphers_or_provider(),
             );
 
-            *self.selected_ciphers.write() = Some(selected_ciphers);
-            *self.suite_b_kx_groups.write() = suite_b_kx_groups;
-            *self.server_config.write() = None;
+            *zelf.selected_ciphers.write() = Some(selected_ciphers);
+            *zelf.suite_b_kx_groups.write() = suite_b_kx_groups;
+            *zelf.server_config.write() = None;
 
             Ok(())
         }
 
         #[pymethod]
-        fn get_ciphers(&self, vm: &VirtualMachine) -> PyListRef {
+        fn get_ciphers(zelf: &Py<Self>, vm: &VirtualMachine) -> PyListRef {
             // What the last `set_ciphers` selected, or the provider defaults
             // when no cipher string was given.
-            let selected = self.selected_ciphers.read().clone();
+            let selected = zelf.selected_ciphers.read().clone();
             let suites = selected
                 .unwrap_or_else(|| CryptoExt::get_ext().default_ciphers_or_provider().to_vec());
 
@@ -1265,16 +1281,16 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_default_verify_paths(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_default_verify_paths(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Just call load_default_certs
-            self.load_default_certs(OptionalArg::Missing, vm)
+            Self::load_default_certs(zelf, OptionalArg::Missing, vm)
         }
 
         #[pymethod]
-        fn cert_store_stats(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn cert_store_stats(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             // Use the certificate counters that are updated in load_verify_locations
-            let x509_count = *self.x509_cert_count.read() as i32;
-            let ca_count = *self.ca_cert_count.read() as i32;
+            let x509_count = *zelf.x509_cert_count.read() as i32;
+            let ca_count = *zelf.ca_cert_count.read() as i32;
 
             let dict = vm.ctx.new_dict();
             dict.set_item("x509", vm.ctx.new_int(x509_count).into(), vm)?;
@@ -1284,13 +1300,13 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn session_stats(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn session_stats(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             // Return session statistics
             // NOTE: This is a partial implementation - rustls doesn't expose all OpenSSL stats
             let dict = vm.ctx.new_dict();
 
             // Number of sessions currently in the cache
-            let session_count = self.client_session_cache.read().len() as i32;
+            let session_count = zelf.client_session_cache.read().len() as i32;
             dict.set_item("number", vm.ctx.new_int(session_count).into(), vm)?;
 
             // Client-side statistics (not tracked separately in this implementation)
@@ -1299,13 +1315,13 @@ mod _ssl {
             dict.set_item("connect_renegotiate", vm.ctx.new_int(0).into(), vm)?; // rustls doesn't support renegotiation
 
             // Server-side statistics
-            let accept_count = self.accept_count.load(Ordering::SeqCst) as i32;
+            let accept_count = zelf.accept_count.load(Ordering::SeqCst) as i32;
             dict.set_item("accept", vm.ctx.new_int(accept_count).into(), vm)?;
             dict.set_item("accept_good", vm.ctx.new_int(accept_count).into(), vm)?; // Assume all accepts are good
             dict.set_item("accept_renegotiate", vm.ctx.new_int(0).into(), vm)?; // rustls doesn't support renegotiation
 
             // Session reuse statistics
-            let hits = self.session_hits.load(Ordering::SeqCst) as i32;
+            let hits = zelf.session_hits.load(Ordering::SeqCst) as i32;
             dict.set_item("hits", vm.ctx.new_int(hits).into(), vm)?;
 
             // Misses, timeouts, and cache_full are not tracked in this implementation
@@ -1317,13 +1333,13 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn sni_callback(&self) -> Option<PyObjectRef> {
-            self.sni_callback.read().clone()
+        fn sni_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.sni_callback.read().clone()
         }
 
         #[pygetset(setter)]
         fn set_sni_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -1334,47 +1350,51 @@ mod _ssl {
             {
                 return Err(vm.new_type_error("sni_callback must be callable or None"));
             }
-            *self.sni_callback.write() = callback;
+            *zelf.sni_callback.write() = callback;
             Ok(())
         }
 
         #[pymethod]
         fn set_servername_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Alias for set_sni_callback
-            self.set_sni_callback(callback, vm)
+            Self::set_sni_callback(zelf, callback, vm)
         }
 
         #[pygetset]
-        fn security_level(&self) -> i32 {
+        fn security_level(_zelf: &Py<Self>) -> i32 {
             // rustls uses a fixed security level
             // Return 2 which is a reasonable default (equivalent to OpenSSL 1.1.0+ level 2)
             2
         }
 
         #[pygetset]
-        fn _msg_callback(&self) -> Option<PyObjectRef> {
-            self.msg_callback.read().clone()
+        fn _msg_callback(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.msg_callback.read().clone()
         }
 
         #[pygetset]
-        fn keylog_filename(&self) -> Option<PyObjectRef> {
-            self.keylog_filename.read().clone()
+        fn keylog_filename(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.keylog_filename.read().clone()
         }
 
         #[pygetset(setter)]
-        fn set_keylog_filename(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_keylog_filename(
+            zelf: &Py<Self>,
+            value: PySetterValue,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let PySetterValue::Assign(value) = value else {
                 return Err(vm.new_attribute_error("attribute 'keylog_filename' cannot be deleted"));
             };
             // CPython disables the old destination even if path conversion or
             // opening the replacement fails. Retain the original Python object
             // (including PathLike and str subclasses) for the getter and GC.
-            let old_filename = self.keylog_filename.write().take();
-            self.key_log
+            let old_filename = zelf.keylog_filename.write().take();
+            zelf.key_log
                 .0
                 .set_path(None, super::keylog::HEADER)
                 .map_err(|e| e.into_pyexception(vm))?;
@@ -1383,7 +1403,7 @@ mod _ssl {
                 return Ok(());
             }
             let path = FsPath::try_from_object(vm, value.clone())?.to_path_buf(vm)?;
-            self.key_log
+            zelf.key_log
                 .0
                 .set_path(Some(&path), super::keylog::HEADER)
                 .map_err(|e| {
@@ -1391,14 +1411,14 @@ mod _ssl {
                     let _ = exc.as_object().set_attr("filename", value.clone(), vm);
                     exc
                 })?;
-            let old_filename = self.keylog_filename.write().replace(value);
+            let old_filename = zelf.keylog_filename.write().replace(value);
             drop(old_filename);
             Ok(())
         }
 
         #[pygetset(setter)]
         fn set__msg_callback(
-            &self,
+            zelf: &Py<Self>,
             callback: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -1409,14 +1429,18 @@ mod _ssl {
             {
                 return Err(vm.new_type_error("msg_callback must be callable or None"));
             }
-            *self.msg_callback.write() = callback;
+            *zelf.msg_callback.write() = callback;
             Ok(())
         }
 
         #[pymethod]
-        fn get_ca_certs(&self, args: GetCaCertsArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+        fn get_ca_certs(
+            zelf: &Py<Self>,
+            args: GetCaCertsArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyListRef> {
             let binary_form = args.binary_form;
-            let ca_certs_der = self.ca_certs_der.read();
+            let ca_certs_der = zelf.ca_certs_der.read();
 
             let mut certs = Vec::new();
             for cert_der in ca_certs_der.iter() {
@@ -1440,7 +1464,7 @@ mod _ssl {
                             certs.push(vm.ctx.new_bytes(cert_der.clone()).into());
                         } else {
                             // Return certificate as dict (use helper from _test_decode_cert)
-                            let dict = self.cert_der_to_dict(vm, cert_der)?;
+                            let dict = zelf.cert_der_to_dict(vm, cert_der)?;
                             certs.push(dict);
                         }
                     }
@@ -1455,7 +1479,11 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn load_dh_params(&self, path: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn load_dh_params(
+            _zelf: &Py<Self>,
+            path: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             // Validate filepath is not None
             if vm.is_none(&path) {
                 return Err(vm.new_type_error("DH params filepath cannot be None"));
@@ -1511,7 +1539,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ecdh_curve(&self, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_ecdh_curve(zelf: &Py<Self>, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             // Validate name is not None
             if vm.is_none(&name) {
                 return Err(vm.new_type_error("ECDH curve name cannot be None"));
@@ -1532,7 +1560,7 @@ mod _ssl {
 
             // Store the curve name to be used during handshake
             // This will limit the key exchange groups offered/accepted
-            *self.ecdh_curve.write() = Some(curve_name);
+            *zelf.ecdh_curve.write() = Some(curve_name);
             Ok(())
         }
 
@@ -1611,7 +1639,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                ssl_socket_ref.set_session(session, vm)?;
+                PySSLSocket::set_session(&ssl_socket_ref, session, vm)?;
             }
 
             Ok(ssl_socket_ref)
@@ -1690,7 +1718,7 @@ mod _ssl {
             if let Some(session) = args.session
                 && !vm.is_none(&session)
             {
-                ssl_socket_ref.set_session(session, vm)?;
+                PySSLSocket::set_session(&ssl_socket_ref, session, vm)?;
             }
 
             Ok(ssl_socket_ref)
@@ -2127,7 +2155,7 @@ mod _ssl {
         }
 
         pub(crate) fn transport_eof(&self) -> bool {
-            self.io.incoming().is_none_or(|bio| bio.eof())
+            self.io.incoming().is_none_or(|bio| PyMemoryBIO::eof(&bio))
         }
 
         /// rustls connection lock. Hold only around rustls operations, never
@@ -2548,7 +2576,11 @@ mod _ssl {
                             if bytes.as_bytes().is_empty() {
                                 return Err(
                                     if self.is_bio_mode()
-                                        && !self.io.incoming().as_ref().is_some_and(|bio| bio.eof())
+                                        && !self
+                                            .io
+                                            .incoming()
+                                            .as_ref()
+                                            .is_some_and(|bio| PyMemoryBIO::eof(bio))
                                     {
                                         create_ssl_want_read_error(vm).upcast()
                                     } else {
@@ -3280,10 +3312,10 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn pending(&self) -> usize {
+        fn pending(zelf: &Py<Self>) -> usize {
             // Returns the number of already decrypted bytes available for read
             // This is critical for asyncore's readable() method which checks socket.pending() > 0
-            let mut conn_guard = self.connection.lock();
+            let mut conn_guard = zelf.connection.lock();
             let conn = match conn_guard.as_mut() {
                 Some(c) => c,
                 None => return 0, // No connection established yet
@@ -3345,20 +3377,20 @@ mod _ssl {
 
         #[pymethod]
         fn getpeercert(
-            &self,
+            zelf: &Py<Self>,
             args: GetCertArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
             let binary = args.der;
 
             // Check if handshake is complete
-            if !self.handshake_completed() {
+            if !zelf.handshake_completed() {
                 return Err(vm.new_value_error("handshake not done yet"));
             }
 
             // Extract DER bytes from connection, releasing lock quickly
             let der_bytes = {
-                let conn_guard = self.connection.lock();
+                let conn_guard = zelf.connection.lock();
                 let conn = conn_guard
                     .as_ref()
                     .ok_or_else(|| vm.new_value_error("No TLS connection established"))?;
@@ -3378,7 +3410,7 @@ mod _ssl {
             }
 
             // Dictionary mode: check verify_mode
-            let verify_mode = *self.context.read().verify_mode.read();
+            let verify_mode = *zelf.context.read().verify_mode.read();
 
             if verify_mode == CERT_NONE {
                 // Return empty dict when CERT_NONE
@@ -3389,10 +3421,10 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn cipher(&self) -> Option<(String, String, i32)> {
+        fn cipher(zelf: &Py<Self>) -> Option<(String, String, i32)> {
             // Extract cipher suite, releasing lock quickly
             let suite = {
-                let conn_guard = self.connection.lock();
+                let conn_guard = zelf.connection.lock();
                 conn_guard.as_ref()?.negotiated_cipher_suite()?
             };
 
@@ -3409,10 +3441,10 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn version(&self) -> Option<String> {
+        fn version(zelf: &Py<Self>) -> Option<String> {
             // Extract cipher suite, releasing lock quickly
             let suite = {
-                let conn_guard = self.connection.lock();
+                let conn_guard = zelf.connection.lock();
                 conn_guard.as_ref()?.negotiated_cipher_suite()?
             };
 
@@ -3427,8 +3459,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn selected_alpn_protocol(&self) -> Option<String> {
-            let conn_guard = self.connection.lock();
+        fn selected_alpn_protocol(zelf: &Py<Self>) -> Option<String> {
+            let conn_guard = zelf.connection.lock();
             let conn = conn_guard.as_ref()?;
 
             let alpn_bytes = conn.alpn_protocol()?;
@@ -3443,7 +3475,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn selected_npn_protocol(&self) -> Option<String> {
+        fn selected_npn_protocol(_zelf: &Py<Self>) -> Option<String> {
             // NPN (Next Protocol Negotiation) is the predecessor to ALPN
             // It was deprecated in favor of ALPN (RFC 7301)
             // Rustls doesn't support NPN, only ALPN
@@ -3452,48 +3484,48 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn owner(&self) -> Option<PyObjectRef> {
-            self.owner.read().as_ref().and_then(|owner| owner.upgrade())
+        fn owner(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.owner.read().as_ref().and_then(|owner| owner.upgrade())
         }
 
         #[pygetset(setter)]
-        fn set_owner(&self, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            *self.owner.write() = Some(owner.downgrade(None, vm)?);
+        fn set_owner(zelf: &Py<Self>, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            *zelf.owner.write() = Some(owner.downgrade(None, vm)?);
             Ok(())
         }
 
         #[pygetset]
-        fn server_side(&self) -> bool {
-            self.server_side
+        fn server_side(zelf: &Py<Self>) -> bool {
+            zelf.server_side
         }
 
         #[pygetset]
-        fn context(&self) -> PyRef<PySSLContext> {
-            self.context.read().clone()
+        fn context(zelf: &Py<Self>) -> PyRef<PySSLContext> {
+            zelf.context.read().clone()
         }
 
         #[pygetset(setter)]
-        fn set_context(&self, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
-            self.key_log.set_sink(value.key_log.clone());
+        fn set_context(zelf: &Py<Self>, value: PyRef<PySSLContext>, _vm: &VirtualMachine) {
+            zelf.key_log.set_sink(value.key_log.clone());
             // Update context reference immediately
             // SSL_set_SSL_CTX allows context changes at any time,
             // even after handshake completion
-            *self.context.write() = value;
+            *zelf.context.write() = value;
         }
 
         #[pygetset]
-        fn server_hostname(&self) -> Option<String> {
-            self.server_hostname.read().clone()
+        fn server_hostname(zelf: &Py<Self>) -> Option<String> {
+            zelf.server_hostname.read().clone()
         }
 
         #[pygetset(setter)]
         fn set_server_hostname(
-            &self,
+            zelf: &Py<Self>,
             value: Option<PyUtf8StrRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // Check if handshake is already done
-            if self.handshake_completed() {
+            if zelf.handshake_completed() {
                 return Err(
                     vm.new_value_error("Cannot set server_hostname on socket after handshake")
                 );
@@ -3507,62 +3539,65 @@ mod _ssl {
                 })
                 .transpose()?;
 
-            *self.server_hostname.write() = hostname_string;
+            *zelf.server_hostname.write() = hostname_string;
             Ok(())
         }
 
         #[pygetset]
-        fn session(&self, vm: &VirtualMachine) -> PyObjectRef {
+        fn session(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
             // Return the stored session object if any
-            let sess = self.session.read().clone();
+            let sess = zelf.session.read().clone();
             sess.unwrap_or_else(|| vm.ctx.none())
         }
 
         #[pygetset(setter)]
-        fn set_session(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_session(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let session = value
                 .downcast_ref::<PySSLSession>()
                 .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
 
             if !Arc::ptr_eq(
                 &session.context_identity,
-                &self.context.read().context_identity,
+                &zelf.context.read().context_identity,
             ) {
                 return Err(vm.new_value_error("Session refers to a different SSLContext."));
             }
 
             // Check if this is a client socket
-            if self.server_side {
+            if zelf.server_side {
                 return Err(vm.new_value_error("Cannot set session for server-side SSLSocket"));
             }
 
             // Check if handshake is already done
-            if self.handshake_completed() {
+            if zelf.handshake_completed() {
                 return Err(vm.new_value_error("Cannot set session after handshake."));
             }
 
             // Store the session for potential use during handshake
-            *self.session.write() = Some(value);
+            *zelf.session.write() = Some(value);
 
             Ok(())
         }
 
         #[pygetset]
-        fn session_reused(&self) -> bool {
+        fn session_reused(zelf: &Py<Self>) -> bool {
             // Return the tracked session reuse status
-            *self.session_was_reused.lock()
+            *zelf.session_was_reused.lock()
         }
 
         #[pymethod]
-        fn compression(&self) -> Option<&'static str> {
+        fn compression(_zelf: &Py<Self>) -> Option<&'static str> {
             // rustls doesn't support compression
             None
         }
 
         #[pymethod]
-        fn get_unverified_chain(&self, vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {
+        fn get_unverified_chain(
+            zelf: &Py<Self>,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyListRef>> {
             // Get peer certificates from the connection
-            let conn_guard = self.connection.lock();
+            let conn_guard = zelf.connection.lock();
             let conn = conn_guard
                 .as_ref()
                 .ok_or_else(|| vm.new_value_error("Handshake not completed"))?;
@@ -3590,8 +3625,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_verified_chain(&self, vm: &VirtualMachine) -> Option<PyListRef> {
-            let chain_der = self.verified_chain.read().clone()?;
+        fn get_verified_chain(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyListRef> {
+            let chain_der = zelf.verified_chain.read().clone()?;
 
             // Convert DER chain to Python list of Certificate objects
             let cert_list: Vec<PyObjectRef> = chain_der
@@ -3726,19 +3761,19 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn shared_ciphers(&self, vm: &VirtualMachine) -> Option<PyListRef> {
+        fn shared_ciphers(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyListRef> {
             // Return None for client-side sockets
-            if !self.server_side {
+            if !zelf.server_side {
                 return None;
             }
 
             // Check if handshake completed
-            if !self.handshake_completed() {
+            if !zelf.handshake_completed() {
                 return None;
             }
 
             // Get negotiated cipher suite from rustls
-            let conn_guard = self.connection.lock();
+            let conn_guard = zelf.connection.lock();
             let conn = conn_guard.as_ref()?;
 
             let suite = conn.negotiated_cipher_suite()?;
@@ -3755,26 +3790,26 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn verify_client_post_handshake(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn verify_client_post_handshake(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // TLS 1.3 post-handshake authentication
             // This is only valid for server-side TLS 1.3 connections
 
             // Check if this is a server-side socket
-            if !self.server_side {
+            if !zelf.server_side {
                 return Err(vm.new_value_error(
                     "Cannot perform post-handshake authentication on client-side socket",
                 ));
             }
 
             // Check if handshake has been completed
-            if !self.handshake_completed() {
+            if !zelf.handshake_completed() {
                 return Err(vm.new_value_error(
                     "Handshake must be completed before post-handshake authentication",
                 ));
             }
 
             // Check connection exists and protocol version
-            let conn_guard = self.connection.lock();
+            let conn_guard = zelf.connection.lock();
             if let Some(conn) = conn_guard.as_ref() {
                 let version = match conn.inner() {
                     Connection::Client(_) => {
@@ -3824,7 +3859,7 @@ mod _ssl {
 
         #[pymethod]
         fn get_channel_binding(
-            &self,
+            zelf: &Py<Self>,
             args: ChannelBindingArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyBytesRef>> {
@@ -3832,14 +3867,14 @@ mod _ssl {
             if cb_type_str != "tls-unique" {
                 return Err(super::msg::unknown_binding_type_error(cb_type_str, vm));
             }
-            if !self.handshake_completed() {
+            if !zelf.handshake_completed() {
                 return Ok(None);
             }
-            let master_secret = self.key_log.master_secret();
-            let transcript = self.msg_state.lock().transcript().to_vec();
-            let session_reused = *self.session_was_reused.lock();
+            let master_secret = zelf.key_log.master_secret();
+            let transcript = zelf.msg_state.lock().transcript().to_vec();
+            let session_reused = *zelf.session_was_reused.lock();
             let suite = {
-                let conn_guard = self.connection.lock();
+                let conn_guard = zelf.connection.lock();
                 conn_guard
                     .as_ref()
                     .and_then(|conn| conn.negotiated_cipher_suite())
@@ -3854,7 +3889,7 @@ mod _ssl {
                 suite,
                 &master_secret,
                 &transcript,
-                self.server_side,
+                zelf.server_side,
                 session_reused,
             )
             .map(|bytes| vm.ctx.new_bytes(bytes)))
@@ -3907,8 +3942,8 @@ mod _ssl {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyMemoryBIO {
         #[pymethod]
-        fn read(&self, args: MemoryBioReadArgs, vm: &VirtualMachine) -> PyBytesRef {
-            let mut bio = self.inner.lock();
+        fn read(zelf: &Py<Self>, args: MemoryBioReadArgs, vm: &VirtualMachine) -> PyBytesRef {
+            let mut bio = zelf.inner.lock();
 
             let read_len = if args.size >= 0 {
                 args.size as usize
@@ -3920,7 +3955,7 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write(&self, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        fn write(zelf: &Py<Self>, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
             // Check if it's a memoryview and if it's contiguous
             if let Ok(mem_view) = b.get_attr("c_contiguous", vm) {
                 // It's a memoryview, check if contiguous
@@ -3933,7 +3968,7 @@ mod _ssl {
             // Convert to bytes-like object
             let bytes_like = ArgBytesLike::try_from_object(vm, b)?;
             let data = bytes_like.borrow_buf();
-            self.inner.lock().write(&data).map_err(|err| {
+            zelf.inner.lock().write(&data).map_err(|err| {
                 vm.new_os_subtype_error(
                     PySSLError::class(&vm.ctx).to_owned(),
                     None,
@@ -3944,18 +3979,18 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn write_eof(&self, _vm: &VirtualMachine) {
-            self.inner.lock().write_eof();
+        fn write_eof(zelf: &Py<Self>, _vm: &VirtualMachine) {
+            zelf.inner.lock().write_eof();
         }
 
         #[pygetset]
-        fn pending(&self) -> i32 {
-            self.inner.lock().pending() as i32
+        fn pending(zelf: &Py<Self>) -> i32 {
+            zelf.inner.lock().pending() as i32
         }
 
         #[pygetset]
-        fn eof(&self) -> bool {
-            self.inner.lock().eof()
+        fn eof(zelf: &Py<Self>) -> bool {
+            zelf.inner.lock().eof()
         }
     }
 
@@ -4000,34 +4035,34 @@ mod _ssl {
     #[pyclass(flags(BASETYPE), with(Comparable))]
     impl PySSLSession {
         #[pygetset]
-        fn time(&self) -> i64 {
+        fn time(zelf: &Py<Self>) -> i64 {
             // Return session creation time as Unix timestamp
-            self.creation_time
+            zelf.creation_time
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64
         }
 
         #[pygetset]
-        fn timeout(&self) -> i64 {
+        fn timeout(zelf: &Py<Self>) -> i64 {
             // Return session timeout/lifetime in seconds
-            self.lifetime as i64
+            zelf.lifetime as i64
         }
 
         #[pygetset]
-        fn ticket_lifetime_hint(&self) -> i64 {
+        fn ticket_lifetime_hint(zelf: &Py<Self>) -> i64 {
             // Return ticket lifetime hint (same as timeout for rustls)
-            self.lifetime as i64
+            zelf.lifetime as i64
         }
 
         #[pygetset]
-        fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
-            vm.ctx.new_bytes(self.session_id.clone())
+        fn id(zelf: &Py<Self>, vm: &VirtualMachine) -> PyBytesRef {
+            vm.ctx.new_bytes(zelf.session_id.clone())
         }
 
         #[pygetset]
-        fn has_ticket(&self) -> bool {
-            self.has_ticket
+        fn has_ticket(zelf: &Py<Self>) -> bool {
+            zelf.has_ticket
         }
     }
 
@@ -4337,7 +4372,7 @@ mod _ssl {
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(
-            &self,
+            zelf: &Py<Self>,
             format: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
@@ -4346,11 +4381,11 @@ mod _ssl {
             match format {
                 x if x == ENCODING_DER => {
                     // Return DER bytes directly
-                    Ok(vm.ctx.new_bytes(self.der_bytes.clone()).into())
+                    Ok(vm.ctx.new_bytes(zelf.der_bytes.clone()).into())
                 }
                 x if x == ENCODING_PEM => {
                     // Convert DER to PEM using RFC 7468 compliant encoding
-                    let pem_str = encode_string("CERTIFICATE", LineEnding::LF, &self.der_bytes)
+                    let pem_str = encode_string("CERTIFICATE", LineEnding::LF, &zelf.der_bytes)
                         .map_err(|e| vm.new_value_error(format!("PEM encoding failed: {e}")))?;
                     Ok(vm.ctx.new_str(pem_str).into())
                 }
@@ -4359,8 +4394,8 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn get_info(&self, vm: &VirtualMachine) -> PyResult {
-            cert::cert_der_to_dict_helper(vm, &self.der_bytes)
+        fn get_info(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            cert::cert_der_to_dict_helper(vm, &zelf.der_bytes)
         }
     }
 

@@ -185,10 +185,10 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> Self {
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> Self {
             // Deep copy the vars - clone the underlying Hamt data, not just the PyRef
             let vars_copy = HamtObject {
-                hamt: PyMutex::new(self.inner.vars.hamt.lock().clone()),
+                hamt: PyMutex::new(zelf.inner.vars.hamt.lock().clone()),
             };
             Self {
                 inner: ContextInner {
@@ -213,9 +213,13 @@ mod _contextvars {
         }
 
         #[pymethod]
-        fn get(&self, args: ContextGetArgs, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        fn get(
+            zelf: &Py<Self>,
+            args: ContextGetArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<PyObjectRef>> {
             let key = context_check_key_type(&args.key, vm)?;
-            let found = self.get_inner(key);
+            let found = zelf.get_inner(key);
             if found.is_some() {
                 Ok(found)
             } else {
@@ -618,13 +622,13 @@ mod _contextvars {
     #[pyclass(with(Constructor, Representable))]
     impl ContextToken {
         #[pygetset]
-        fn var(&self, _vm: &VirtualMachine) -> PyRef<ContextVar> {
-            self.var.clone()
+        fn var(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<ContextVar> {
+            zelf.var.clone()
         }
 
         #[pygetset]
-        fn old_value(&self, _vm: &VirtualMachine) -> PyObjectRef {
-            match &self.old_value {
+        fn old_value(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyObjectRef {
+            match &zelf.old_value {
                 Some(value) => value.clone(),
                 None => ContextTokenMissing::static_type().to_owned().into(),
             }
@@ -700,7 +704,7 @@ mod _contextvars {
 
     #[pyfunction]
     fn copy_context(vm: &VirtualMachine) -> PyContext {
-        PyContext::current(vm).copy(vm)
+        PyContext::copy(&PyContext::current(vm), vm)
     }
 
     // Set Token.MISSING attribute

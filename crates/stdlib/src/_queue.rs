@@ -232,33 +232,33 @@ mod _queue {
     )]
     impl PySimpleQueue {
         #[pymethod]
-        fn empty(&self) -> bool {
-            self.buf.lock().is_empty()
+        fn empty(zelf: &Py<Self>) -> bool {
+            zelf.buf.lock().is_empty()
         }
 
         #[pymethod]
-        fn qsize(&self) -> usize {
-            self.buf.lock().len()
+        fn qsize(zelf: &Py<Self>) -> usize {
+            zelf.buf.lock().len()
         }
 
         #[pymethod]
-        fn put(&self, args: PutArgs, vm: &VirtualMachine) {
+        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) {
             let PutArgs { item, .. } = args;
-            self.push(item, vm);
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn put_nowait(&self, ItemArg { item }: ItemArg, vm: &VirtualMachine) {
-            self.push(item, vm);
+        fn put_nowait(zelf: &Py<Self>, ItemArg { item }: ItemArg, vm: &VirtualMachine) {
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
 
             // Non-blocking: just try once
             if !block {
-                return Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm));
+                return Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm));
             }
 
             #[cfg_attr(
@@ -278,24 +278,24 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(block, deadline, vm)? {
+                if !zelf.sem.acquire(block, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pymethod]
-        fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_nowait(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(false, None, vm)? {
+                if !zelf.sem.acquire(false, None, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]

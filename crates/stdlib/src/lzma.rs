@@ -334,22 +334,26 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMADecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressorArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
-            let mut state = self.state.lock();
+            let mut state = zelf.state.lock();
             let result = state.backend.decompress(data, max_length);
-            self.check.store(state.backend.check(), Ordering::Relaxed);
-            self.eof.store(state.backend.eof(), Ordering::Relaxed);
-            self.needs_input
+            zelf.check.store(state.backend.check(), Ordering::Relaxed);
+            zelf.eof.store(state.backend.eof(), Ordering::Relaxed);
+            zelf.needs_input
                 .store(state.backend.needs_input(), Ordering::Relaxed);
-            let stale = self.unused_data.deref().is_none_or(|obj| {
+            let stale = zelf.unused_data.deref().is_none_or(|obj| {
                 obj.downcast_ref::<PyBytes>()
                     .is_none_or(|bytes| bytes.as_bytes() != state.backend.unused_data())
             });
             if stale {
                 let bytes = vm.ctx.new_bytes(state.backend.unused_data().to_vec());
-                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
+                let _previous = unsafe { zelf.unused_data.swap(Some(bytes.into())) };
             }
             result.map_err(|error| map_backend_error(error, vm))
         }
@@ -415,14 +419,14 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMACompressor {
         #[pymethod]
-        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            data.with_ref(|data| self.state.lock().compress(data))
+        fn compress(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            data.with_ref(|data| zelf.state.lock().compress(data))
                 .map_err(|error| map_backend_error(error, vm))
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.state
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.state
                 .lock()
                 .flush()
                 .map_err(|error| map_backend_error(error, vm))

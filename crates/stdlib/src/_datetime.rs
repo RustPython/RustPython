@@ -889,8 +889,8 @@ mod _datetime {
     )]
     impl PyDelta {
         #[pymethod]
-        fn total_seconds(&self, vm: &VirtualMachine) -> PyResult {
-            let us = vm.ctx.new_bigint(&self.to_microseconds_big());
+        fn total_seconds(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            let us = vm.ctx.new_bigint(&zelf.to_microseconds_big());
             let per_second = vm.ctx.new_int(US_PER_SECOND);
             vm._truediv(us.as_object(), per_second.as_object())
         }
@@ -2004,8 +2004,8 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn ctime(&self) -> String {
-            format_ctime(self.y(), self.m(), self.d(), 0, 0, 0)
+        fn ctime(zelf: &Py<Self>) -> String {
+            format_ctime(zelf.y(), zelf.m(), zelf.d(), 0, 0, 0)
         }
 
         #[pymethod]
@@ -2021,15 +2021,15 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn timetuple(&self, vm: &VirtualMachine) -> PyResult {
-            build_struct_time(self.y(), self.m(), self.d(), 0, 0, 0, -1, vm)
+        fn timetuple(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            build_struct_time(zelf.y(), zelf.m(), zelf.d(), 0, 0, 0, -1, vm)
         }
 
         #[pymethod]
-        fn isocalendar(&self, vm: &VirtualMachine) -> PyResult {
-            let mut year = self.y();
+        fn isocalendar(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            let mut year = zelf.y();
             let mut week1_monday = iso_week1_monday(year);
-            let today = self.ordinal();
+            let today = zelf.ordinal();
             let (mut week, mut day) = divmod(i64::from(today - week1_monday), 7);
             if week < 0 {
                 year -= 1;
@@ -2050,23 +2050,23 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn isoformat(&self) -> String {
-            format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+        fn isoformat(zelf: &Py<Self>) -> String {
+            format!("{:04}-{:02}-{:02}", zelf.year, zelf.month, zelf.day)
         }
 
         #[pymethod]
-        fn isoweekday(&self) -> i32 {
-            weekday(self.y(), self.m(), self.d()) + 1
+        fn isoweekday(zelf: &Py<Self>) -> i32 {
+            weekday(zelf.y(), zelf.m(), zelf.d()) + 1
         }
 
         #[pymethod]
-        fn toordinal(&self) -> i32 {
-            self.ordinal()
+        fn toordinal(zelf: &Py<Self>) -> i32 {
+            zelf.ordinal()
         }
 
         #[pymethod]
-        fn weekday(&self) -> i32 {
-            weekday(self.y(), self.m(), self.d())
+        fn weekday(zelf: &Py<Self>) -> i32 {
+            weekday(zelf.y(), zelf.m(), zelf.d())
         }
 
         #[pymethod]
@@ -2305,23 +2305,23 @@ mod _datetime {
     #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
     impl PyIsoCalendarDate {
         #[pygetset]
-        fn year(&self) -> PyObjectRef {
-            self.item(0)
+        fn year(zelf: &Py<Self>) -> PyObjectRef {
+            zelf.item(0)
         }
 
         #[pygetset]
-        fn week(&self) -> PyObjectRef {
-            self.item(1)
+        fn week(zelf: &Py<Self>) -> PyObjectRef {
+            zelf.item(1)
         }
 
         #[pygetset]
-        fn weekday(&self) -> PyObjectRef {
-            self.item(2)
+        fn weekday(zelf: &Py<Self>) -> PyObjectRef {
+            zelf.item(2)
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyRef<PyTuple> {
-            let items = vm.new_tuple((self.item(0), self.item(1), self.item(2)));
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
+            let items = vm.new_tuple((zelf.item(0), zelf.item(1), zelf.item(2)));
             vm.new_tuple((vm.ctx.types.tuple_type.to_owned(), (items,)))
         }
     }
@@ -2348,17 +2348,17 @@ mod _datetime {
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl PyTzInfo {
         #[pymethod]
-        fn tzname(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn tzname(_zelf: &Py<Self>, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("tzname", vm)
         }
 
         #[pymethod]
-        fn utcoffset(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn utcoffset(_zelf: &Py<Self>, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("utcoffset", vm)
         }
 
         #[pymethod]
-        fn dst(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn dst(_zelf: &Py<Self>, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             tzinfo_nogo("dst", vm)
         }
 
@@ -2559,14 +2559,18 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn utcoffset(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyDelta>> {
+        fn utcoffset(
+            zelf: &Py<Self>,
+            object: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<PyDelta>> {
             let dt = object;
             timezone_check_argument(&dt, "utcoffset", vm)?;
-            Ok(self.offset.clone())
+            Ok(zelf.offset.clone())
         }
 
         #[pymethod]
-        fn dst(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn dst(_zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let dt = object;
             timezone_check_argument(&dt, "dst", vm)?;
             Ok(())
@@ -2585,10 +2589,10 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn __getinitargs__(&self, vm: &VirtualMachine) -> PyRef<PyTuple> {
-            match &self.name {
-                None => vm.new_tuple((self.offset.clone(),)),
-                Some(name) => vm.new_tuple((self.offset.clone(), name.clone())),
+        fn __getinitargs__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
+            match &zelf.name {
+                None => vm.new_tuple((zelf.offset.clone(),)),
+                Some(name) => vm.new_tuple((zelf.offset.clone(), name.clone())),
             }
         }
 
@@ -2890,20 +2894,24 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn isoformat(&self, args: TimeIsoformatArgs, vm: &VirtualMachine) -> PyResult<String> {
+        fn isoformat(
+            zelf: &Py<Self>,
+            args: TimeIsoformatArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<String> {
             let spec = args.timespec.into_option().map(|s| s.to_string());
             let mut result = format_time_spec(
                 spec.as_deref(),
-                self.hour,
-                self.minute,
-                self.second,
-                self.microsecond,
+                zelf.hour,
+                zelf.minute,
+                zelf.second,
+                zelf.microsecond,
             )
             .map_err(|()| vm.new_value_error("Unknown timespec value"))?;
-            if self.tzinfo.is_some() {
+            if zelf.tzinfo.is_some() {
                 result.push_str(&format_utcoffset(
                     ":",
-                    self.tzinfo.as_ref(),
+                    zelf.tzinfo.as_ref(),
                     &vm.ctx.none(),
                     vm,
                 )?);
@@ -2944,23 +2952,23 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn utcoffset(&self, vm: &VirtualMachine) -> PyResult {
+        fn utcoffset(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(offset_to_py(
-                call_utcoffset(self.tzinfo.as_ref(), &vm.ctx.none(), vm)?,
+                call_utcoffset(zelf.tzinfo.as_ref(), &vm.ctx.none(), vm)?,
                 vm,
             ))
         }
 
         #[pymethod]
-        fn tzname(&self, vm: &VirtualMachine) -> PyResult {
-            Ok(call_tzname(self.tzinfo.as_ref(), &vm.ctx.none(), vm)?
+        fn tzname(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            Ok(call_tzname(zelf.tzinfo.as_ref(), &vm.ctx.none(), vm)?
                 .map_or_else(|| vm.ctx.none(), Into::into))
         }
 
         #[pymethod]
-        fn dst(&self, vm: &VirtualMachine) -> PyResult {
+        fn dst(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(offset_to_py(
-                call_dst(self.tzinfo.as_ref(), &vm.ctx.none(), vm)?,
+                call_dst(zelf.tzinfo.as_ref(), &vm.ctx.none(), vm)?,
                 vm,
             ))
         }
@@ -3939,45 +3947,45 @@ mod _datetime {
         }
 
         #[pymethod]
-        fn date(&self, vm: &VirtualMachine) -> PyRef<PyDate> {
-            PyDate::new(self.date.y(), self.date.m(), self.date.d()).into_ref(&vm.ctx)
+        fn date(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyDate> {
+            PyDate::new(zelf.date.y(), zelf.date.m(), zelf.date.d()).into_ref(&vm.ctx)
         }
 
         #[pymethod]
-        fn time(&self, vm: &VirtualMachine) -> PyRef<PyTime> {
+        fn time(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyTime> {
             PyTime::new(
-                i32::from(self.hour),
-                i32::from(self.minute),
-                i32::from(self.second),
-                self.microsecond as i32,
+                i32::from(zelf.hour),
+                i32::from(zelf.minute),
+                i32::from(zelf.second),
+                zelf.microsecond as i32,
                 None,
-                i32::from(self.fold),
+                i32::from(zelf.fold),
             )
             .into_ref(&vm.ctx)
         }
 
         #[pymethod]
-        fn timetz(&self, vm: &VirtualMachine) -> PyRef<PyTime> {
+        fn timetz(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyTime> {
             PyTime::new(
-                i32::from(self.hour),
-                i32::from(self.minute),
-                i32::from(self.second),
-                self.microsecond as i32,
-                self.tzinfo.load_owned(),
-                i32::from(self.fold),
+                i32::from(zelf.hour),
+                i32::from(zelf.minute),
+                i32::from(zelf.second),
+                zelf.microsecond as i32,
+                zelf.tzinfo.load_owned(),
+                i32::from(zelf.fold),
             )
             .into_ref(&vm.ctx)
         }
 
         #[pymethod]
-        fn ctime(&self) -> String {
+        fn ctime(zelf: &Py<Self>) -> String {
             format_ctime(
-                self.date.y(),
-                self.date.m(),
-                self.date.d(),
-                self.hour,
-                self.minute,
-                self.second,
+                zelf.date.y(),
+                zelf.date.m(),
+                zelf.date.d(),
+                zelf.hour,
+                zelf.minute,
+                zelf.second,
             )
         }
 
@@ -4008,7 +4016,7 @@ mod _datetime {
                     vm,
                 )?;
                 let delta = Self::subtract_datetime(zelf, &epoch, vm)?;
-                return delta.total_seconds(vm);
+                return PyDelta::total_seconds(&delta, vm);
             }
             let (y, mo, d, h, mi, s, us) = zelf.fields();
             let seconds = local_to_seconds(y, mo, d, h, mi, s, zelf.fold != 0, vm)?;

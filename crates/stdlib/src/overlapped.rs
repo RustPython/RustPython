@@ -262,27 +262,27 @@ mod _overlapped {
     #[pyclass(with(Constructor, Destructor))]
     impl Overlapped {
         #[pygetset]
-        fn address(&self, _vm: &VirtualMachine) -> usize {
-            let inner = self.inner.lock();
+        fn address(zelf: &Py<Self>, _vm: &VirtualMachine) -> usize {
+            let inner = zelf.inner.lock();
             &inner.overlapped as *const _ as usize
         }
 
         #[pygetset]
-        fn pending(&self, _vm: &VirtualMachine) -> bool {
-            let inner = self.inner.lock();
+        fn pending(zelf: &Py<Self>, _vm: &VirtualMachine) -> bool {
+            let inner = zelf.inner.lock();
             !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
                 && !matches!(inner.data, OverlappedData::NotStarted)
         }
 
         #[pygetset]
-        fn error(&self, _vm: &VirtualMachine) -> u32 {
-            let inner = self.inner.lock();
+        fn error(zelf: &Py<Self>, _vm: &VirtualMachine) -> u32 {
+            let inner = zelf.inner.lock();
             inner.error
         }
 
         #[pygetset]
-        fn event(&self, _vm: &VirtualMachine) -> isize {
-            let inner = self.inner.lock();
+        fn event(zelf: &Py<Self>, _vm: &VirtualMachine) -> isize {
+            let inner = zelf.inner.lock();
             inner.overlapped.hEvent as isize
         }
 

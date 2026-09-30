@@ -486,85 +486,85 @@ pub(crate) mod _elementtree {
     )]
     impl PyElement {
         #[pygetset]
-        fn tag(&self) -> PyObjectRef {
-            self.inner.read().tag.clone()
+        fn tag(zelf: &Py<Self>) -> PyObjectRef {
+            zelf.inner.read().tag.clone()
         }
 
         #[pygetset(setter)]
-        fn set_tag(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_tag(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let value = setter_value(value, vm)?;
             // Whatever is replaced may run __del__ on drop, and that code is
             // free to touch this very element, so it must not be dropped
             // while the lock is held (test_bpo_31728).
-            let _recycle = core::mem::replace(&mut self.inner.write().tag, value);
+            let _recycle = core::mem::replace(&mut zelf.inner.write().tag, value);
             Ok(())
         }
 
         #[pygetset]
-        fn text(&self, vm: &VirtualMachine) -> PyResult {
-            self.joined_get(false, vm)
+        fn text(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.joined_get(false, vm)
         }
 
         #[pygetset(setter)]
-        fn set_text(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_text(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let value = setter_value(value, vm)?;
-            let _recycle = core::mem::replace(&mut self.inner.write().text, Joined::plain(value));
+            let _recycle = core::mem::replace(&mut zelf.inner.write().text, Joined::plain(value));
             Ok(())
         }
 
         #[pygetset]
-        fn tail(&self, vm: &VirtualMachine) -> PyResult {
-            self.joined_get(true, vm)
+        fn tail(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.joined_get(true, vm)
         }
 
         #[pygetset(setter)]
-        fn set_tail(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_tail(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let value = setter_value(value, vm)?;
-            let _recycle = core::mem::replace(&mut self.inner.write().tail, Joined::plain(value));
+            let _recycle = core::mem::replace(&mut zelf.inner.write().tail, Joined::plain(value));
             Ok(())
         }
 
         #[pygetset]
-        fn attrib(&self, vm: &VirtualMachine) -> PyDictRef {
-            self.attrib_or_new(vm)
+        fn attrib(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
+            zelf.attrib_or_new(vm)
         }
 
         #[pygetset(setter)]
-        fn set_attrib(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_attrib(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let value = setter_value(value, vm)?;
             let dict = value.downcast::<PyDict>().map_err(|obj| {
                 vm.new_type_error(format!("attrib must be dict, not {}", obj.class().name()))
             })?;
-            let _recycle = self.inner.write().attrib.replace(dict);
+            let _recycle = zelf.inner.write().attrib.replace(dict);
             Ok(())
         }
 
         #[pymethod]
-        fn append(&self, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn append(zelf: &Py<Self>, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_element(&subelement, vm)?;
-            self.inner.write().children.push(subelement);
+            zelf.inner.write().children.push(subelement);
             Ok(())
         }
 
         #[pymethod]
-        fn extend(&self, elements: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(zelf: &Py<Self>, elements: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let items: Vec<PyObjectRef> = elements.try_to_value(vm)?;
             for element in &items {
                 check_element(element, vm)?;
             }
-            self.inner.write().children.extend(items);
+            zelf.inner.write().children.extend(items);
             Ok(())
         }
 
         #[pymethod]
         fn insert(
-            &self,
+            zelf: &Py<Self>,
             index: isize,
             subelement: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             check_element(&subelement, vm)?;
-            let mut inner = self.inner.write();
+            let mut inner = zelf.inner.write();
             let len = inner.children.len();
             let pos = if index < 0 {
                 let i = index + len as isize;
@@ -577,7 +577,7 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn remove(&self, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn remove(zelf: &Py<Self>, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             check_element(&subelement, vm)?;
             // Identity first, then equality, the way `element_remove` does;
             // the equality test can run arbitrary code, so the lock is
@@ -586,7 +586,7 @@ pub(crate) mod _elementtree {
             let mut i = 0;
             loop {
                 let child = {
-                    let inner = self.inner.read();
+                    let inner = zelf.inner.read();
                     match inner.children.get(i) {
                         Some(child) => child.clone(),
                         None => break,
@@ -606,16 +606,16 @@ pub(crate) mod _elementtree {
                 return Err(vm.new_value_error("Element.remove(x): element not found"));
             };
             let _recycle = {
-                let mut inner = self.inner.write();
+                let mut inner = zelf.inner.write();
                 (i < inner.children.len()).then(|| inner.children.remove(i))
             };
             Ok(())
         }
 
         #[pymethod]
-        fn clear(&self, vm: &VirtualMachine) {
+        fn clear(zelf: &Py<Self>, vm: &VirtualMachine) {
             let _recycle = {
-                let mut inner = self.inner.write();
+                let mut inner = zelf.inner.write();
                 (
                     inner.attrib.take(),
                     core::mem::take(&mut inner.children),
@@ -626,31 +626,36 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult {
+        fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult {
             let default = args.default.unwrap_or_else(|| vm.ctx.none());
-            let Some(attrib) = self.attrib_opt() else {
+            let Some(attrib) = zelf.attrib_opt() else {
                 return Ok(default);
             };
             Ok(attrib.get_item_opt(&*args.key, vm)?.unwrap_or(default))
         }
 
         #[pymethod]
-        fn set(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let attrib = self.attrib_or_new(vm);
+        fn set(
+            zelf: &Py<Self>,
+            key: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let attrib = zelf.attrib_or_new(vm);
             attrib.set_item(&*key, value, vm)
         }
 
         #[pymethod]
-        fn keys(&self) -> Vec<PyObjectRef> {
-            let Some(attrib) = self.attrib_opt() else {
+        fn keys(zelf: &Py<Self>) -> Vec<PyObjectRef> {
+            let Some(attrib) = zelf.attrib_opt() else {
                 return vec![];
             };
             attrib.into_iter().map(|(k, _)| k).collect()
         }
 
         #[pymethod]
-        fn items(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            let Some(attrib) = self.attrib_opt() else {
+        fn items(zelf: &Py<Self>, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            let Some(attrib) = zelf.attrib_opt() else {
                 return vec![];
             };
             attrib
@@ -825,8 +830,8 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn __getstate__(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
-            let inner = self.inner.read();
+        fn __getstate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let inner = zelf.inner.read();
             let children = vm.ctx.new_list(inner.children.clone());
             let attrib = inner.attrib.clone().unwrap_or_else(|| vm.ctx.new_dict());
             let text = inner.text.obj.clone();
@@ -843,7 +848,7 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let dict = state.downcast_ref::<PyDict>().ok_or_else(|| {
                 vm.new_type_error(format!(
                     "Don't know how to unpickle \"{}\" as an Element",
@@ -897,7 +902,7 @@ pub(crate) mod _elementtree {
                 None => Joined::plain(vm.ctx.none()),
             };
             let _recycle = {
-                let mut inner = self.inner.write();
+                let mut inner = zelf.inner.write();
                 let old_tag = core::mem::replace(&mut inner.tag, tag);
                 let old_text = core::mem::replace(&mut inner.text, new_text);
                 let old_tail = core::mem::replace(&mut inner.tail, new_tail);
@@ -1761,39 +1766,44 @@ pub(crate) mod _elementtree {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl PyTreeBuilder {
         #[pymethod]
-        fn start(&self, tag: PyObjectRef, attrs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn start(
+            zelf: &Py<Self>,
+            tag: PyObjectRef,
+            attrs: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult {
             let attrs = attrs.downcast::<PyDict>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "start() argument 2 must be dict, not {}",
                     obj.class().name()
                 ))
             })?;
-            self.handle_start(tag, Some(attrs), vm)
+            zelf.handle_start(tag, Some(attrs), vm)
         }
 
         #[pymethod]
-        fn data(&self, data: PyObjectRef, vm: &VirtualMachine) {
-            self.handle_data(data, vm);
+        fn data(zelf: &Py<Self>, data: PyObjectRef, vm: &VirtualMachine) {
+            zelf.handle_data(data, vm);
         }
 
         #[pymethod]
-        fn end(&self, _tag: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            self.handle_end(vm)
+        fn end(zelf: &Py<Self>, _tag: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            zelf.handle_end(vm)
         }
 
         #[pymethod]
-        fn comment(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            self.handle_comment(text, vm)
+        fn comment(zelf: &Py<Self>, text: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            zelf.handle_comment(text, vm)
         }
 
         #[pymethod]
-        fn pi(&self, args: PiArgs, vm: &VirtualMachine) -> PyResult {
-            self.handle_pi(args.target, args.text.unwrap_or_else(|| vm.ctx.none()), vm)
+        fn pi(zelf: &Py<Self>, args: PiArgs, vm: &VirtualMachine) -> PyResult {
+            zelf.handle_pi(args.target, args.text.unwrap_or_else(|| vm.ctx.none()), vm)
         }
 
         #[pymethod]
-        fn close(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.done(vm)
+        fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            zelf.done(vm)
         }
     }
 
@@ -2136,7 +2146,7 @@ pub(crate) mod _elementtree {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl PyXMLParser {
         #[pygetset]
-        fn version(&self, vm: &VirtualMachine) -> PyResult<String> {
+        fn version(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let expat = vm.import("pyexpat", 0)?;
             let info: Vec<PyObjectRef> = expat.get_attr("version_info", vm)?.try_to_value(vm)?;
             let part = |i: usize| -> String {
@@ -2148,17 +2158,17 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn feed(&self, data: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.expat_parse(data, false, vm)
+        fn feed(zelf: &Py<Self>, data: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.expat_parse(data, false, vm)
         }
 
         #[pymethod]
-        fn close(&self, vm: &VirtualMachine) -> PyResult {
-            self.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
-            if let Some(builder) = self.native_target(vm) {
+        fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            zelf.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
+            if let Some(builder) = zelf.native_target(vm) {
                 return Ok(builder.done(vm));
             }
-            let close = self.state.read().handle_close.clone();
+            let close = zelf.state.read().handle_close.clone();
             match close {
                 Some(close) => close.call((), vm),
                 None => Ok(vm.ctx.none()),
@@ -2166,17 +2176,17 @@ pub(crate) mod _elementtree {
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // This backend has no reparse deferral to turn off, so, like the
             // C accelerator built against an expat without
             // XML_SetReparseDeferralEnabled, there is nothing to flush.
-            self.check(vm)?;
+            zelf.check(vm)?;
             Ok(())
         }
 
         #[pymethod]
-        fn _parse_whole(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            self.check(vm)?;
+        fn _parse_whole(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            zelf.check(vm)?;
             let read = file.get_attr("read", vm)?;
             loop {
                 let buffer = read.call((64 * 1024,), vm)?;
@@ -2191,10 +2201,10 @@ pub(crate) mod _elementtree {
                 } else {
                     break;
                 }
-                self.expat_parse(buffer, false, vm)?;
+                zelf.expat_parse(buffer, false, vm)?;
             }
-            self.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
-            if let Some(builder) = self.native_target(vm) {
+            zelf.expat_parse(vm.ctx.new_bytes(vec![]).into(), true, vm)?;
+            if let Some(builder) = zelf.native_target(vm) {
                 return Ok(builder.done(vm));
             }
             Ok(vm.ctx.none())

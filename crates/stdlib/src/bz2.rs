@@ -74,11 +74,15 @@ mod _bz2 {
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressorArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressorArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             if inner.decompress.eof() {
                 return Err(vm.new_eof_error("End of stream already reached"));
             }
@@ -86,23 +90,23 @@ mod _bz2 {
                 return Err(vm.new_value_error("Decompressor is unusable after a previous error"));
             }
             let result = inner.decompress.decompress(data, max_length);
-            self.eof.store(inner.decompress.eof(), Ordering::Relaxed);
-            self.needs_input
+            zelf.eof.store(inner.decompress.eof(), Ordering::Relaxed);
+            zelf.needs_input
                 .store(inner.decompress.needs_input(), Ordering::Relaxed);
-            let stale = self.unused_data.deref().is_none_or(|obj| {
+            let stale = zelf.unused_data.deref().is_none_or(|obj| {
                 obj.downcast_ref::<PyBytes>()
                     .is_none_or(|bytes| bytes.as_bytes() != inner.decompress.unused_data())
             });
             if stale {
                 let bytes = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
                 // The previous bytes object is dropped after the slot is replaced.
-                let _previous = unsafe { self.unused_data.swap(Some(bytes.into())) };
+                let _previous = unsafe { zelf.unused_data.swap(Some(bytes.into())) };
             }
             result.map_err(|error| map_bz2_error(error, vm))
         }
 
         #[pymethod(name = "__reduce__")]
-        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object"))
         }
     }
@@ -145,8 +149,8 @@ mod _bz2 {
     #[pyclass(with(Constructor))]
     impl BZ2Compressor {
         #[pymethod]
-        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let mut compressor = self.state.lock();
+        fn compress(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut compressor = zelf.state.lock();
             if compressor.is_flushed() {
                 return Err(vm.new_value_error("Compressor has been flushed"));
             }
@@ -155,8 +159,8 @@ mod _bz2 {
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let mut compressor = self.state.lock();
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut compressor = zelf.state.lock();
             if compressor.is_flushed() {
                 return Err(vm.new_value_error("Repeated call to flush()"));
             }
@@ -164,7 +168,7 @@ mod _bz2 {
         }
 
         #[pymethod(name = "__reduce__")]
-        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object"))
         }
     }

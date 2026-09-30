@@ -3295,8 +3295,8 @@ mod tests {
         #[pyclass]
         impl LayoutDerived {
             #[pygetset]
-            fn extra(&self) -> Option<u64> {
-                self.extra
+            fn extra(zelf: &Py<Self>) -> Option<u64> {
+                zelf.extra
             }
         }
 

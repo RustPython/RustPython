@@ -872,15 +872,15 @@ pub mod array {
         }
 
         #[pygetset]
-        fn typecode(&self, vm: &VirtualMachine) -> PyStrRef {
+        fn typecode(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
             vm.ctx
-                .intern_str(self.read().typecode().to_string())
+                .intern_str(zelf.read().typecode().to_string())
                 .to_owned()
         }
 
         #[pygetset]
-        fn itemsize(&self) -> usize {
-            self.read().itemsize()
+        fn itemsize(zelf: &Py<Self>) -> usize {
+            zelf.read().itemsize()
         }
 
         #[pymethod]
@@ -897,21 +897,21 @@ pub mod array {
         }
 
         #[pymethod]
-        fn buffer_info(&self) -> (usize, usize) {
-            let array = self.read();
+        fn buffer_info(zelf: &Py<Self>) -> (usize, usize) {
+            let array = zelf.read();
             (array.addr(), array.len())
         }
 
         #[pymethod]
-        fn count(&self, v: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-            let array = self.read();
+        fn count(zelf: &Py<Self>, v: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+            let array = zelf.read();
             if let Some(item) = ArrayContentType::search_item(array.typecode(), &v, vm) {
                 return item.map_or(Ok(0), |item| array.count_item(&item, vm));
             }
             drop(array);
             let mut count = 0;
             for index in 0..usize::MAX {
-                let item = self.read().get(index, vm);
+                let item = zelf.read().get(index, vm);
                 let Some(item) = item else { break };
                 if item?.rich_compare_bool(&v, PyComparisonOp::Eq, vm)? {
                     count += 1;
@@ -1035,15 +1035,15 @@ pub mod array {
         }
 
         #[pymethod]
-        fn tounicode(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let array = self.array.read();
+        fn tounicode(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let array = zelf.array.read();
             if !matches!(array.typecode(), 'u' | 'w') {
                 return Err(vm.new_value_error(
                     "tounicode() may only be called on unicode type arrays ('u' or 'w')",
                 ));
             }
             let bytes = array.get_bytes();
-            Self::_wchar_bytes_to_string(bytes, self.itemsize(), vm)
+            Self::_wchar_bytes_to_string(bytes, Self::itemsize(zelf), vm)
         }
 
         fn _from_bytes(&self, b: &[u8], itemsize: usize, vm: &VirtualMachine) -> PyResult<()> {
@@ -1057,20 +1057,25 @@ pub mod array {
         }
 
         #[pymethod]
-        fn frombytes(&self, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+        fn frombytes(zelf: &Py<Self>, buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
             // The source is read as bytes, so items of any other width would
             // be reinterpreted rather than appended.
             if buffer.itemsize() != 1 {
                 return Err(vm.new_type_error("a bytes-like object is required"));
             }
             let buffer = buffer.borrow_buf();
-            let itemsize = self.read().itemsize();
-            self._from_bytes(&buffer, itemsize, vm)
+            let itemsize = zelf.read().itemsize();
+            zelf._from_bytes(&buffer, itemsize, vm)
         }
 
         #[pymethod]
-        fn fromfile(&self, f: PyObjectRef, n: isize, vm: &VirtualMachine) -> PyResult<()> {
-            let itemsize = self.itemsize();
+        fn fromfile(
+            zelf: &Py<Self>,
+            f: PyObjectRef,
+            n: isize,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let itemsize = Self::itemsize(zelf);
             if n < 0 {
                 return Err(vm.new_value_error("negative count"));
             }
@@ -1084,7 +1089,7 @@ pub mod array {
 
             let not_enough_bytes = b.as_bytes().len() != n_bytes;
 
-            self._from_bytes(b.as_bytes(), itemsize, vm)?;
+            zelf._from_bytes(b.as_bytes(), itemsize, vm)?;
 
             if not_enough_bytes {
                 Err(vm.new_eof_error("read() didn't return enough bytes"))
@@ -1094,18 +1099,18 @@ pub mod array {
         }
 
         #[pymethod]
-        fn byteswap(&self) {
-            self.write().byteswap();
+        fn byteswap(zelf: &Py<Self>) {
+            zelf.write().byteswap();
         }
 
         #[pymethod]
         fn index(
-            &self,
+            zelf: &Py<Self>,
             v: PyObjectRef,
             ArrayIndexArgs { start, stop }: ArrayIndexArgs,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
-            let len = self.__len__();
+            let len = zelf.__len__();
             let bound = |value: ArgIndex| {
                 let value = value.as_ref().as_bigint();
                 value.saturated_at(if value.is_negative() {
@@ -1116,7 +1121,7 @@ pub mod array {
             };
             let start = start.map_or(0, bound);
             let stop = stop.map_or(isize::MAX as usize, bound);
-            self.find(&v, start, stop, vm)?
+            zelf.find(&v, start, stop, vm)?
                 .ok_or_else(|| vm.new_value_error("array.index(x): x not in array"))
         }
 
@@ -1139,18 +1144,18 @@ pub mod array {
         }
 
         #[pymethod]
-        pub(crate) fn tobytes(&self) -> Vec<u8> {
-            self.read().get_bytes().to_vec()
+        pub(crate) fn tobytes(zelf: &Py<Self>) -> Vec<u8> {
+            zelf.read().get_bytes().to_vec()
         }
 
         #[pymethod]
-        fn tofile(&self, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn tofile(zelf: &Py<Self>, f: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             /* Write 64K blocks at a time */
             /* XXX Make the block size settable */
             const BLOCKSIZE: usize = 64 * 1024;
 
             let bytes = {
-                let bytes = self.read();
+                let bytes = zelf.read();
                 bytes.get_bytes().to_vec()
             };
 
@@ -1170,8 +1175,8 @@ pub mod array {
         }
 
         #[pymethod]
-        fn tolist(&self, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            let array = self.read();
+        fn tolist(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            let array = zelf.read();
             let mut v = Vec::with_capacity(array.len());
             for obj in array.iter(vm) {
                 v.push(obj?);
@@ -1185,18 +1190,18 @@ pub mod array {
         }
 
         #[pymethod]
-        fn reverse(&self) {
-            self.write().reverse()
+        fn reverse(zelf: &Py<Self>) {
+            zelf.write().reverse()
         }
 
         #[pymethod]
-        fn __copy__(&self) -> Self {
-            self.array.read().clone().into()
+        fn __copy__(zelf: &Py<Self>) -> Self {
+            zelf.array.read().clone().into()
         }
 
         #[pymethod]
-        fn __deepcopy__(&self, _unused: PyObjectRef) -> Self {
-            self.__copy__()
+        fn __deepcopy__(zelf: &Py<Self>, _unused: PyObjectRef) -> Self {
+            Self::__copy__(zelf)
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -1503,7 +1508,7 @@ pub mod array {
                 if zelf.__len__() == 0 {
                     return Ok(format!("{class_name}('{typecode}')"));
                 }
-                let to_unicode = zelf.tounicode(vm)?;
+                let to_unicode = Self::tounicode(zelf, vm)?;
                 let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
                 return Ok(format!("{class_name}('{typecode}', {})", escape.str_repr()));
             }
@@ -1630,16 +1635,16 @@ pub mod array {
     #[pyclass(with(IterNext, Iterable), flags(HAS_DICT, DISALLOW_INSTANTIATION))]
     impl PyArrayIter {
         #[pymethod]
-        fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.internal
+        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.internal
                 .lock()
                 .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let func = builtins_iter(vm)?;
-            Ok(self.internal.lock().reduce(
+            Ok(zelf.internal.lock().reduce(
                 func,
                 |x| x.clone().into(),
                 |vm| vm.ctx.empty_tuple.clone().into(),

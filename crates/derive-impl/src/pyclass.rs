@@ -72,6 +72,9 @@ struct ImplContext {
     /// Set when the impl has no generic parameters, so `Self` in argument
     /// types can be replaced before it appears in a nested const.
     self_ty_subst: Option<syn::Type>,
+    /// Set when `self` in this impl is the payload rather than the object:
+    /// an impl for `T` rather than `Py<T>` or `PyRef<T>`, or a trait.
+    self_is_payload: bool,
 }
 
 fn extract_items_into_context<'a, Item>(
@@ -108,6 +111,13 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 context.self_ty_subst = Some((*imp.self_ty).clone());
                 context.getset_items.class_ty = context.self_ty_subst.clone();
             }
+            context.self_is_payload = !matches!(
+                imp.self_ty.as_ref(),
+                syn::Type::Path(syn::TypePath { path, .. })
+                    if path.segments.last().is_some_and(|segment| {
+                        segment.ident == "Py" || segment.ident == "PyRef"
+                    })
+            );
             extract_items_into_context(&mut context, imp.items.iter_mut());
 
             let attr_nonempty = !attr.is_empty();
@@ -272,10 +282,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             }
         }
         Item::Trait(mut trai) => {
-            let mut context = ImplContext {
-                is_trait: true,
-                ..Default::default()
-            };
+            context.is_trait = true;
+            context.self_is_payload = true;
             let mut has_extend_slots = false;
             for item in &trai.items {
                 let has = match item {
@@ -1122,6 +1130,25 @@ define_content_item!(
     struct MemberItem
 );
 
+/// Rejects a `self` receiver where `self` is the payload: Python methods and
+/// getset descriptors receive the object, as `&Py<Self>` or `PyRef<Self>`.
+fn check_object_receiver(sig: &syn::Signature, context: &ImplContext, attr: &str) -> Result<()> {
+    if !context.self_is_payload {
+        return Ok(());
+    }
+    match sig.receiver() {
+        Some(receiver) => Err(syn::Error::new_spanned(
+            receiver,
+            format!(
+                "#[{attr}] must receive the object, not the payload. \
+                 Take `zelf: &Py<Self>` or `zelf: PyRef<Self>` instead of `self`, \
+                 or define it in `impl Py<T>`."
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
 struct ImplItemArgs<'a, Item: ItemLike> {
     item: &'a Item,
     attrs: &'a mut Vec<Attribute>,
@@ -1258,6 +1285,10 @@ where
             }
         }
 
+        if matches!(self.inner.attr_name, AttrName::Method) {
+            check_object_receiver(func.sig(), args.context, "pymethod")?;
+        }
+
         let raw = item_meta.raw()?;
         let has_receiver = func
             .sig()
@@ -1331,6 +1362,7 @@ where
         let item_meta = GetSetItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let (py_name, kind) = item_meta.getset_name()?;
+        check_object_receiver(func.sig(), args.context, "pygetset")?;
 
         // Add #[allow(non_snake_case)] for setter methods
         if matches!(kind, GetSetItemKind::Set) {
