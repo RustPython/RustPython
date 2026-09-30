@@ -150,20 +150,36 @@ impl Comparable for PyWeak {
     }
 }
 
+/// `__name__` when that lookup yields a string. A missing name or a non-string
+/// value is left off the repr.
+fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
+    let found =
+        crate::vm::PyMethod::get_special_ex::<false>(obj, identifier!(vm, __name__), vm, true)?;
+    let Some(crate::vm::PyMethod::Attribute(attr)) = found else {
+        return Ok(None);
+    };
+    Ok(attr
+        .downcast_ref::<crate::builtins::PyStr>()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned))
+}
+
 impl Representable for PyWeak {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let id = zelf.get_id();
-        Ok(if let Some(o) = zelf.upgrade() {
-            format!(
-                "<weakref at {:#x}; to '{}' at {:#x}>",
-                id,
-                o.class().name(),
-                o.get_id(),
-            )
-        } else {
-            format!("<weakref at {id:#x}; dead>")
-        })
+        let Some(obj) = zelf.upgrade() else {
+            return Ok(format!("<weakref at {id:#x}; dead>"));
+        };
+        let type_name = obj.class().fully_qualified_name(vm)?;
+        let obj_id = obj.get_id();
+        let suffix = match instance_name(&obj, vm)? {
+            Some(name) => format!(" ({name})"),
+            None => String::new(),
+        };
+        Ok(format!(
+            "<weakref at {id:#x}; to '{type_name}' at {obj_id:#x}{suffix}>"
+        ))
     }
 }
 
