@@ -62,3 +62,45 @@ for text in compressed_lorem_list:
 
 assert_raises(zlib.error, lambda: zlib.compress(b"123", -40))
 assert_raises(zlib.error, lambda: zlib.compress(b"123", 10))
+
+
+# Raw deflate has no trailer, so inflate can consume the last input byte and
+# still hold output. decompress(b"", n) and flush() must return that output.
+def drained_raw_deflate():
+    c = zlib.compressobj(6, zlib.DEFLATED, -15)
+    raw = c.compress(b"x" * 1168) + c.flush()
+    d = zlib.decompressobj(-15)
+    out = d.decompress(raw, 100)
+    while d.unconsumed_tail:
+        out += d.decompress(d.unconsumed_tail, 100)
+    assert len(out) == 1100
+    assert not d.eof
+    return d, out
+
+
+d, out = drained_raw_deflate()
+more = d.decompress(b"", 100)
+assert len(more) == 68
+assert d.eof
+assert d.flush() == b""
+assert out + more == b"x" * 1168
+
+d, out = drained_raw_deflate()
+rest = d.flush()
+assert len(rest) == 68
+assert d.eof
+assert out + rest == b"x" * 1168
+
+# An empty input before any compressed data does not end the stream.
+d = zlib.decompressobj()
+assert d.decompress(b"") == b""
+assert not d.eof
+assert d.flush() == b""
+assert not d.eof
+assert d.decompress(zlib.compress(b"later input")) == b"later input"
+assert d.eof
+
+# The one-shot decompress drains the same pending output with a small bufsize.
+raw = zlib.compress(b"x" * 1168, 6, -15)
+for bufsize in (1, 100):
+    assert zlib.decompress(raw, -15, bufsize) == b"x" * 1168
