@@ -5,7 +5,7 @@
 // cspell:ignore ymd ordinal isocalendar ISO fromisoformat
 // cspell:ignore dnum zreplacement colonzreplacement zname freplacement somezreplacement
 // cspell:ignore tzoffset tzmicrosecond tzsign dtstr nogo dtobj tzusec timet
-pub(crate) use _datetime::module_def;
+pub(crate) use _datetime::{PyTzInfo, datetime_type, module_def, timedelta_from_seconds};
 
 #[pymodule]
 mod _datetime {
@@ -940,8 +940,16 @@ mod _datetime {
         PyDate::static_type()
     }
 
-    fn datetime_type() -> &'static Py<PyType> {
+    pub(crate) fn datetime_type() -> &'static Py<PyType> {
         PyDateTime::static_type()
+    }
+
+    pub(crate) fn timedelta_from_seconds(
+        seconds: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let delta = PyDelta::new_ex(0, seconds, 0, true, vm)?;
+        Ok(delta.into_ref(&vm.ctx).into())
     }
 
     fn time_type() -> &'static Py<PyType> {
@@ -2331,7 +2339,7 @@ mod _datetime {
     #[pyattr]
     #[pyclass(module = "datetime", name = "tzinfo")]
     #[derive(Debug, Default, PyPayload)]
-    pub(super) struct PyTzInfo {}
+    pub(crate) struct PyTzInfo {}
 
     impl Constructor for PyTzInfo {
         type Args = FuncArgs;

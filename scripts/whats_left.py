@@ -414,20 +414,6 @@ def _pure_decimal_baseline(wrapper):
     return result
 
 
-def _use_pure_zoneinfo(dir_result):
-    """Replace the accelerated ZoneInfo with the pure-Python class."""
-    import zoneinfo._zoneinfo as pure_zoneinfo
-
-    cls = pure_zoneinfo.ZoneInfo
-    name = cls.__name__
-    for key in list(dir_result):
-        if key == name or key.startswith(f"{name}."):
-            del dir_result[key]
-    dir_result[name] = extra_info(cls)
-    for attr, info in own_attrs(cls):
-        dir_result[f"{name}.{attr}"] = info
-
-
 def gen_modules():
     # check name because modules listed have side effects on import,
     # e.g. printing something or opening a webpage
@@ -465,8 +451,6 @@ def gen_modules():
             ):
                 for attr, info in own_attrs(item):
                     dir_result[f"{item_name}.{attr}"] = info
-        if mod_name == "zoneinfo":
-            _use_pure_zoneinfo(dir_result)
         modules[mod_name] = dir_result
     return modules
 
