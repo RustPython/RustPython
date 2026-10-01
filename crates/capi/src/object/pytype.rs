@@ -103,6 +103,11 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) ->
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_GetSlot(_ty: *const PyTypeObject, _slot: c_int) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
     with_vm(|vm| {
         let mut name = None;
