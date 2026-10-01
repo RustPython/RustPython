@@ -1212,10 +1212,6 @@ mod builtins {
         start: PyObjectRef,
     }
 
-    #[expect(
-        clippy::redundant_else,
-        reason = "match_class! macro expansion arms has a `return` inside"
-    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         let mut sum = start;

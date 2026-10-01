@@ -1176,7 +1176,7 @@ mod _codecs_windows {
             let res = error_handler.call((exc,), vm)?;
             let tuple_err =
                 || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
-            let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(&tuple_err)?;
+            let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(tuple_err)?;
             let tuple_slice = tuple.as_slice();
             if tuple_slice.len() != 2 {
                 return Err(tuple_err());
@@ -1480,7 +1480,7 @@ mod _codecs_windows {
                         let tuple_err = || {
                             vm.new_type_error("decoding error handler must return (str, int) tuple")
                         };
-                        let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(&tuple_err)?;
+                        let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(tuple_err)?;
                         let tuple_slice = tuple.as_slice();
                         if tuple_slice.len() != 2 {
                             return Err(tuple_err());

@@ -573,9 +573,8 @@ pub(crate) mod _ctypes {
         if hr < 0 {
             // vm.ctx.new_windows_error(hr)
             todo!();
-        } else {
-            hr
         }
+        hr
     }
 
     #[pyfunction]
