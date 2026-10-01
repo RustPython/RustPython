@@ -241,7 +241,7 @@ xz-sys = "0.4.6-rc.0"
 libsqlite3-sys = "0.38"
 libz-rs-sys = "0.6"
 zlib-rs = { version = "=0.6.8", default-features = false, features = ["rust-allocator", "__internal-api"] }
-rusty_zstd = "0.2.5"
+libzstd-rs-sys = { git = "https://github.com/trifectatechfoundation/libzstd-rs-sys", rev = "7afaf79f14f4a5ba4722f66d83791d30ebc47e65" }
 lock_api = "0.4"
 log = "0.4.30"
 lz4_flex = "0.14"
