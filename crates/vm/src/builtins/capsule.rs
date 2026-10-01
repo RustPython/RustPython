@@ -13,8 +13,8 @@ use core::sync::atomic::AtomicPtr;
 pub struct PyCapsule {
     ptr: AtomicPtr<c_void>,
     context: AtomicPtr<c_void>,
-    name: Option<&'static CStr>,
-    destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
+    name: AtomicPtr<core::ffi::c_char>,
+    destructor: AtomicPtr<c_void>,
 }
 
 impl PyPayload for PyCapsule {
@@ -31,11 +31,13 @@ impl PyCapsule {
         name: Option<&'static CStr>,
         destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
     ) -> Self {
+        let name_ptr = name.map_or(core::ptr::null_mut(), |c| c.as_ptr().cast_mut());
+        let destructor_ptr = destructor.map_or(core::ptr::null_mut(), |d| d as *mut c_void);
         Self {
             ptr: ptr.into(),
             context: core::ptr::null_mut::<c_void>().into(),
-            name,
-            destructor,
+            name: name_ptr.into(),
+            destructor: destructor_ptr.into(),
         }
     }
 
@@ -58,11 +60,34 @@ impl PyCapsule {
     }
 
     pub fn name(&self) -> Option<&CStr> {
-        self.name
+        let ptr = self.name.load(core::sync::atomic::Ordering::Relaxed);
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(ptr) })
+        }
     }
 
-    fn destructor(&self) -> Option<unsafe extern "C" fn(_: *mut PyObject)> {
+    pub fn set_name(&self, name: Option<&'static CStr>) {
+        let ptr = name.map_or(core::ptr::null_mut(), |c| c.as_ptr().cast_mut());
+        self.name.store(ptr, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn destructor(&self) -> Option<unsafe extern "C" fn(_: *mut PyObject)> {
+        let ptr = self.destructor.load(core::sync::atomic::Ordering::Relaxed);
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe {
+                core::mem::transmute::<*mut c_void, unsafe extern "C" fn(_: *mut PyObject)>(ptr)
+            })
+        }
+    }
+
+    pub fn set_destructor(&self, destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>) {
+        let ptr = destructor.map_or(core::ptr::null_mut(), |d| d as *mut c_void);
         self.destructor
+            .store(ptr, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
