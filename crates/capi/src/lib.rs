@@ -41,6 +41,7 @@ pub mod pystrcmp;
 pub mod refcount;
 pub mod setobject;
 pub mod sliceobject;
+pub mod slots;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
