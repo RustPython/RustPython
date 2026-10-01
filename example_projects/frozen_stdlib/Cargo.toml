@@ -9,6 +9,3 @@ rustpython-vm = { path = "../../crates/vm", default-features = false, features =
 rustpython-pylib = { path = "../../crates/pylib", default-features = false, features = ["freeze-stdlib"] }
 
 [workspace]
-
-[patch.crates-io]
-bitflagset = { git = "https://github.com/youknowone/bitflagset", branch = "main" }

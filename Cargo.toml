@@ -129,7 +129,6 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
-bitflagset = { git = "https://github.com/youknowone/bitflagset", branch = "main" }
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
