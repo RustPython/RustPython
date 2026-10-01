@@ -365,7 +365,7 @@ impl PyAtomicTypeFlags {
     pub fn replace_masked(&self, mask: PyTypeFlags, value: PyTypeFlags) {
         let mask_bits = mask.bits();
         let value_bits = (value & mask).bits();
-        let _ = self.0.fetch_update(
+        let _ = self.0.try_update(
             core::sync::atomic::Ordering::AcqRel,
             core::sync::atomic::Ordering::Acquire,
             |old| Some((old & !mask_bits) | value_bits),

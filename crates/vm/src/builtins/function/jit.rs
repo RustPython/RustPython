@@ -31,9 +31,9 @@ pub(super) enum ArgsError {
 impl ToPyObject for AbiValue {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.to_pyobject(vm),
-            AbiValue::Float(f) => f.to_pyobject(vm),
-            AbiValue::Bool(b) => b.to_pyobject(vm),
+            Self::Int(i) => i.to_pyobject(vm),
+            Self::Float(f) => f.to_pyobject(vm),
+            Self::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }
@@ -164,20 +164,20 @@ pub(crate) fn get_jit_args<'a>(
     vm: &VirtualMachine,
 ) -> Result<Args<'a>, ArgsError> {
     let mut jit_args = jitted_code.args_builder();
-    let nargs = func_args.args.len();
 
     let code: &Py<PyCode> = &func.code;
     let arg_names = code.arg_names();
     let arg_count = code.arg_count;
     let posonlyarg_count = code.posonlyarg_count;
 
+    let nargs = func_args.args.len();
     if nargs > arg_count as usize || nargs < posonlyarg_count as usize {
         return Err(ArgsError::WrongNumberOfArgs);
     }
 
     // Add positional arguments
-    for i in 0..nargs {
-        jit_args.set(i, get_jit_value(vm, &func_args.args[i])?)?;
+    for (i, args) in func_args.args.iter().enumerate() {
+        jit_args.set(i, get_jit_value(vm, args)?)?;
     }
 
     // Handle keyword arguments
