@@ -514,6 +514,143 @@ pub unsafe extern "C" fn PyUnicode_EqualToUTF8AndSize(
     })
 }
 
+#[allow(non_camel_case_types)]
+pub type Py_UCS4 = u32;
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Tailmatch(
+    str_obj: *mut PyObject,
+    substr: *mut PyObject,
+    start: isize,
+    end: isize,
+    direction: c_int,
+) -> isize {
+    with_vm(|vm| {
+        let str_obj = unsafe { str_obj.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let substr = unsafe { substr.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let method = if direction > 0 {
+            "endswith"
+        } else {
+            "startswith"
+        };
+        let res = vm.call_method(
+            vm.ctx.types.str_type.as_object(),
+            method,
+            (str_obj.to_owned(), substr.to_owned(), start, end),
+        )?;
+        let matched: bool = res.try_to_value(vm)?;
+        Ok(isize::from(matched))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Find(
+    str_obj: *mut PyObject,
+    substr: *mut PyObject,
+    start: isize,
+    end: isize,
+    direction: c_int,
+) -> isize {
+    with_vm(|vm| -> isize {
+        let res: PyResult<isize> = (|| {
+            let str_obj = unsafe { str_obj.assume_borrowed_and_cast::<PyStr>(vm) }?;
+            let substr = unsafe { substr.assume_borrowed_and_cast::<PyStr>(vm) }?;
+            let method = if direction >= 0 { "find" } else { "rfind" };
+            let res = vm.call_method(
+                vm.ctx.types.str_type.as_object(),
+                method,
+                (str_obj.to_owned(), substr.to_owned(), start, end),
+            )?;
+            let idx = res
+                .try_index(vm)?
+                .as_bigint()
+                .try_into()
+                .map_err(|_| vm.new_value_error("index out of range".to_owned()))?;
+            Ok(idx)
+        })();
+        match res {
+            Ok(idx) => idx,
+            Err(e) => {
+                vm.set_exception(Some(e));
+                -2
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Count(
+    str_obj: *mut PyObject,
+    substr: *mut PyObject,
+    start: isize,
+    end: isize,
+) -> isize {
+    with_vm(|vm| {
+        let str_obj = unsafe { str_obj.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let substr = unsafe { substr.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let res = vm.call_method(
+            vm.ctx.types.str_type.as_object(),
+            "count",
+            (str_obj.to_owned(), substr.to_owned(), start, end),
+        )?;
+        let count: isize = res
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_value_error("count out of range".to_owned()))?;
+        Ok(count)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsUCS4(
+    unicode: *mut PyObject,
+    copy: *mut Py_UCS4,
+    maxlen: isize,
+    copy_null: c_int,
+) -> *mut Py_UCS4 {
+    with_vm(|vm| {
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        if copy.is_null() {
+            return Err(vm.new_system_error("NULL copy buffer in PyUnicode_AsUCS4"));
+        }
+        if maxlen < 0 {
+            return Err(vm.new_system_error("maxlen must be non-negative"));
+        }
+        let len = unicode.char_len();
+        let required = len + usize::from(copy_null != 0);
+        if (maxlen as usize) < required {
+            return Err(vm.new_system_error("not enough memory to copy UCS-4 characters"));
+        }
+        for (i, c) in unicode.as_wtf8().code_points().enumerate() {
+            unsafe { *copy.add(i) = c.to_u32() };
+        }
+        if copy_null != 0 {
+            unsafe { *copy.add(len) = 0 };
+        }
+        Ok(copy)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsUCS4Copy(unicode: *mut PyObject) -> *mut Py_UCS4 {
+    with_vm(|vm| {
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let len = unicode.char_len();
+        let buf = unsafe {
+            crate::pymem::PyMem_Malloc((len + 1) * core::mem::size_of::<Py_UCS4>()) as *mut Py_UCS4
+        };
+        if buf.is_null() {
+            return Err(vm.new_memory_error("out of memory".to_owned()));
+        }
+        for (i, c) in unicode.as_wtf8().code_points().enumerate() {
+            unsafe { *buf.add(i) = c.to_u32() };
+        }
+        unsafe { *buf.add(len) = 0 };
+        Ok(buf)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
@@ -579,5 +716,116 @@ mod tests {
             let roundtrip: OsString = py_str.extract().unwrap();
             assert_eq!(roundtrip, original);
         })
+    }
+
+    #[test]
+    fn unicode_search_and_match() {
+        Python::attach(|py| {
+            let s = PyString::new(py, "hello world world");
+            let sub_world = PyString::new(py, "world");
+            let sub_hello = PyString::new(py, "hello");
+
+            unsafe {
+                let startswith = super::PyUnicode_Tailmatch(
+                    s.as_ptr().cast(),
+                    sub_hello.as_ptr().cast(),
+                    0,
+                    17,
+                    -1,
+                );
+                assert_eq!(startswith, 1);
+
+                let endswith = super::PyUnicode_Tailmatch(
+                    s.as_ptr().cast(),
+                    sub_world.as_ptr().cast(),
+                    0,
+                    17,
+                    1,
+                );
+                assert_eq!(endswith, 1);
+
+                let find_idx =
+                    super::PyUnicode_Find(s.as_ptr().cast(), sub_world.as_ptr().cast(), 0, 17, 1);
+                assert_eq!(find_idx, 6);
+
+                let count =
+                    super::PyUnicode_Count(s.as_ptr().cast(), sub_world.as_ptr().cast(), 0, 17);
+                assert_eq!(count, 2);
+
+                let globals = pyo3::types::PyDict::new(py);
+                py.run(
+                    c"
+class MyStr(str):
+    def find(self, *args):
+        return 999
+    def startswith(self, *args):
+        return False
+    def count(self, *args):
+        return 999
+obj = MyStr('hello world')
+",
+                    Some(&globals),
+                    None,
+                )
+                .unwrap();
+                let sub_instance = globals.get_item("obj").unwrap().unwrap();
+                let sub_find = super::PyUnicode_Find(
+                    sub_instance.as_ptr().cast(),
+                    sub_world.as_ptr().cast(),
+                    0,
+                    11,
+                    1,
+                );
+                assert_eq!(sub_find, 6);
+
+                let sub_start = super::PyUnicode_Tailmatch(
+                    sub_instance.as_ptr().cast(),
+                    sub_hello.as_ptr().cast(),
+                    0,
+                    11,
+                    -1,
+                );
+                assert_eq!(sub_start, 1);
+            }
+        });
+    }
+
+    #[test]
+    fn unicode_ucs4_copy() {
+        Python::attach(|py| {
+            let s = PyString::new(py, "abc");
+            unsafe {
+                let mut buf = [0xAAu32; 4];
+                let res = super::PyUnicode_AsUCS4(s.as_ptr().cast(), buf.as_mut_ptr(), 4, 0);
+                assert!(!res.is_null());
+                assert_eq!(&buf[..3], &['a' as u32, 'b' as u32, 'c' as u32]);
+                assert_eq!(buf[3], 0xAAu32); // sentinel unchanged when copy_null == 0
+
+                // Insufficient capacity
+                let res_small = super::PyUnicode_AsUCS4(s.as_ptr().cast(), buf.as_mut_ptr(), 2, 0);
+                assert!(res_small.is_null());
+
+                // Null copy pointer
+                let res_null_copy =
+                    super::PyUnicode_AsUCS4(s.as_ptr().cast(), core::ptr::null_mut(), 4, 0);
+                assert!(res_null_copy.is_null());
+
+                // Embedded null
+                let s_null = PyString::new(py, "a\0b");
+                let mut buf_null = [0u32; 4];
+                let res_null =
+                    super::PyUnicode_AsUCS4(s_null.as_ptr().cast(), buf_null.as_mut_ptr(), 4, 1);
+                assert!(!res_null.is_null());
+                assert_eq!(buf_null, ['a' as u32, 0, 'b' as u32, 0]);
+
+                let copy_buf = super::PyUnicode_AsUCS4Copy(s.as_ptr().cast());
+                assert!(!copy_buf.is_null());
+                assert_eq!(*copy_buf.add(0), 'a' as u32);
+                assert_eq!(*copy_buf.add(1), 'b' as u32);
+                assert_eq!(*copy_buf.add(2), 'c' as u32);
+                assert_eq!(*copy_buf.add(3), 0);
+                crate::pymem::PyMem_Free(copy_buf.cast());
+            }
+        });
     }
 }
