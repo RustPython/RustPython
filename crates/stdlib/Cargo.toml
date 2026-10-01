@@ -70,7 +70,7 @@ constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
-rusty_zstd = { workspace = true }
+libzstd-rs-sys = { workspace = true }
 
 # tkinter
 tk-sys = { workspace = true, optional = true }

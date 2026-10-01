@@ -9,7 +9,7 @@ pub(crate) use _zstd::module_def;
 
 #[pymodule]
 mod _zstd {
-    #![allow(non_upper_case_globals)]
+    #![allow(non_upper_case_globals, clippy::upper_case_acronyms)]
 
     use crate::compression::DecompressorArgs;
     use crate::vm::{
@@ -23,45 +23,60 @@ mod _zstd {
         protocol::PyMappingMethods,
         types::{AsMapping, Constructor, Representable},
     };
-    use alloc::boxed::Box;
+    use core::ffi::{CStr, c_void};
     use core::fmt;
     use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use num_traits::ToPrimitive;
-    use rusty_zstd::{
-        CompressOptions, Compressor, DEFAULT_CLEVEL, DEFAULT_WINDOW_MAX, DecompressOptions,
-        Decompressor, Dictionary, Error, Flush, FrameKind, MAGIC, MAGIC_DICTIONARY,
-        MAGIC_SKIPPABLE_MAX, MAGIC_SKIPPABLE_MIN, MAX_CLEVEL, MIN_CLEVEL, TrainOptions,
-        compress_stream_out_size, compression_params, decompress_stream_out_size,
-        find_frame_compressed_size, get_frame_header, train,
+    use libzstd_rs_sys::lib::zdict::{ZDICT_finalizeDictionary, ZDICT_params_t};
+    use libzstd_rs_sys::lib::zstd::{ZSTD_e_continue, ZSTD_e_end, ZSTD_e_flush};
+    use libzstd_rs_sys::{
+        ZDICT_isError, ZDICT_trainFromBuffer, ZSTD_CCtx, ZSTD_CCtx_loadDictionary,
+        ZSTD_CCtx_refCDict, ZSTD_CCtx_refPrefix, ZSTD_CCtx_reset, ZSTD_CCtx_setParameter,
+        ZSTD_CCtx_setPledgedSrcSize, ZSTD_CONTENTSIZE_ERROR, ZSTD_CONTENTSIZE_UNKNOWN,
+        ZSTD_DCtx_loadDictionary, ZSTD_DCtx_refDDict, ZSTD_DCtx_refPrefix, ZSTD_DCtx_reset,
+        ZSTD_DCtx_setParameter, ZSTD_DStreamOutSize as dstream_out_size, ZSTD_ResetDirective,
+        ZSTD_VERSION_NUMBER, ZSTD_cParam_getBounds, ZSTD_cParameter, ZSTD_compressBound,
+        ZSTD_compressStream2, ZSTD_createCCtx, ZSTD_createCDict, ZSTD_createDCtx, ZSTD_createDDict,
+        ZSTD_dParam_getBounds, ZSTD_dParameter, ZSTD_decompressStream,
+        ZSTD_findFrameCompressedSize, ZSTD_freeCCtx, ZSTD_freeCDict, ZSTD_freeDCtx, ZSTD_freeDDict,
+        ZSTD_getDictID_fromDict, ZSTD_getDictID_fromFrame, ZSTD_getErrorName,
+        ZSTD_getFrameContentSize, ZSTD_inBuffer, ZSTD_isError, ZSTD_maxCLevel, ZSTD_minCLevel,
+        ZSTD_outBuffer,
     };
+    use num_traits::ToPrimitive;
+    use std::collections::HashMap;
+
+    const _: () = assert!(ZSTD_VERSION_NUMBER == 10_508);
+    const _: () = assert!(dstream_out_size() == 131_072);
 
     const MODE_CONTINUE: i32 = 0;
     const MODE_BLOCK: i32 = 1;
     const MODE_FRAME: i32 = 2;
 
-    const LEVEL_MIN: i32 = -131_072;
-    const LEVEL_MAX: i32 = 22;
+    const LEVEL_MIN: i32 = ZSTD_minCLevel();
+    const LEVEL_MAX: i32 = ZSTD_maxCLevel();
     const DIGESTED: i32 = 0;
     const UNDIGESTED: i32 = 1;
     const PREFIX: i32 = 2;
 
-    const WINDOW_LOG_MIN: i32 = 10;
-    const WINDOW_LOG_MAX: i32 = if cfg!(target_pointer_width = "32") {
-        30
-    } else {
-        31
-    };
-    const HASH_LOG_MIN: i32 = 6;
-    const HASH_LOG_MAX: i32 = 30;
-    const CHAIN_LOG_MAX: i32 = if cfg!(target_pointer_width = "32") {
-        29
-    } else {
-        30
-    };
-    const SEARCH_LOG_MIN: i32 = 1;
-    const SEARCH_LOG_MAX: i32 = WINDOW_LOG_MAX - 1;
-    const LDM_HASH_RATE_MAX: i32 = WINDOW_LOG_MAX - HASH_LOG_MIN;
-    const DEFAULT_WINDOW_LOG_MAX: i32 = 27;
+    const OUTPUT_BLOCKS: [usize; 17] = [
+        32 * 1024,
+        64 * 1024,
+        256 * 1024,
+        1024 * 1024,
+        4 * 1024 * 1024,
+        8 * 1024 * 1024,
+        16 * 1024 * 1024,
+        16 * 1024 * 1024,
+        32 * 1024 * 1024,
+        32 * 1024 * 1024,
+        32 * 1024 * 1024,
+        32 * 1024 * 1024,
+        64 * 1024 * 1024,
+        64 * 1024 * 1024,
+        128 * 1024 * 1024,
+        128 * 1024 * 1024,
+        256 * 1024 * 1024,
+    ];
 
     const SAMPLE_MISMATCH: &str = "The samples size tuple doesn't match the concatenation's size.";
     const DICT_SIZE_NONPOSITIVE: &str = "dict_size argument should be positive number.";
@@ -69,15 +84,16 @@ mod _zstd {
         "Failed to create a ZSTD_CDict instance from Zstandard dictionary content.";
     const DIGESTED_DECOMPRESS_FAILED: &str =
         "Failed to create a ZSTD_DDict instance from Zstandard dictionary content.";
+    const BUFFER_FAILED: &str = "Unable to allocate output buffer.";
 
     #[pyattr]
-    const zstd_version: &str = "1.5.7";
+    const zstd_version: &str = "1.5.8";
     #[pyattr]
-    const zstd_version_number: i32 = 10_507;
+    const zstd_version_number: i32 = ZSTD_VERSION_NUMBER as i32;
     #[pyattr]
-    const ZSTD_CLEVEL_DEFAULT: i32 = DEFAULT_CLEVEL;
+    const ZSTD_CLEVEL_DEFAULT: i32 = libzstd_rs_sys::ZSTD_CLEVEL_DEFAULT;
     #[pyattr]
-    const ZSTD_DStreamOutSize: i32 = 131_072;
+    const ZSTD_DStreamOutSize: i32 = dstream_out_size() as i32;
 
     #[pyattr]
     const ZSTD_c_compressionLevel: i32 = 100;
@@ -139,6 +155,19 @@ mod _zstd {
     #[pyattr]
     const ZSTD_btultra2: i32 = 9;
 
+    const _: () = assert!(
+        c_parameter_id(libzstd_rs_sys::ZSTD_cParameter::ZSTD_c_compressionLevel)
+            == ZSTD_c_compressionLevel as u32
+    );
+    const _: () = assert!(
+        c_parameter_id(libzstd_rs_sys::ZSTD_cParameter::ZSTD_c_nbWorkers)
+            == ZSTD_c_nbWorkers as u32
+    );
+    const _: () = assert!(
+        d_parameter_id(libzstd_rs_sys::ZSTD_dParameter::ZSTD_d_windowLogMax)
+            == ZSTD_d_windowLogMax as u32
+    );
+
     #[pyattr(once, name = "ZstdError")]
     fn zstd_error_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type_with_doc(
@@ -153,74 +182,251 @@ mod _zstd {
         vm.new_exception_msg(vm.class("_zstd", "ZstdError"), message.into())
     }
 
-    fn compress_reason(err: Error) -> &'static str {
+    enum CallKind {
+        Compress,
+        Decompress,
+        Pledge,
+        LoadCompress,
+        LoadDecompress,
+        Level,
+        Train,
+        Finalize,
+        BoundsCompress,
+        BoundsDecompress,
+        FrameSize,
+    }
+
+    enum CodecError {
+        NoMemory,
+        Buffer,
+        Static(&'static str),
+        Named(CallKind, usize),
+        Eof,
+    }
+
+    fn error_name(code: usize) -> String {
+        let ptr = ZSTD_getErrorName(code);
+        if ptr.is_null() {
+            return String::new();
+        }
+        unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn raise_codec(err: CodecError, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match err {
-            Error::ContentSizeMismatch | Error::UnexpectedEof => "Src size is incorrect",
-            Error::BadMagic => "Unknown frame descriptor",
-            Error::ChecksumMismatch => "Restored data doesn't match checksum",
-            Error::WindowTooLarge | Error::ContentSizeTooLarge => {
-                "Frame requires too much memory for decoding"
+            CodecError::NoMemory => vm.no_memory_error(),
+            CodecError::Buffer => vm.new_memory_error(BUFFER_FAILED),
+            CodecError::Static(message) => zstd_error(message.to_owned(), vm),
+            CodecError::Eof => vm.new_eof_error("Already at the end of a Zstandard frame."),
+            CodecError::Named(kind, code) => {
+                let name = error_name(code);
+                let message = match kind {
+                    CallKind::Compress => format!("Unable to compress Zstandard data: {name}"),
+                    CallKind::Decompress => {
+                        format!("Unable to decompress Zstandard data: {name}")
+                    }
+                    CallKind::Pledge => {
+                        format!("Unable to set pledged uncompressed content size: {name}")
+                    }
+                    CallKind::LoadCompress => format!(
+                        "Unable to load Zstandard dictionary or prefix for compression: {name}"
+                    ),
+                    CallKind::LoadDecompress => format!(
+                        "Unable to load Zstandard dictionary or prefix for decompression: {name}"
+                    ),
+                    CallKind::Level => format!("Unable to set zstd compression level: {name}"),
+                    CallKind::Train => {
+                        format!("Unable to train the Zstandard dictionary: {name}")
+                    }
+                    CallKind::Finalize => {
+                        format!("Unable to finalize the Zstandard dictionary: {name}")
+                    }
+                    CallKind::BoundsCompress => {
+                        format!("Unable to get zstd compression parameter bounds: {name}")
+                    }
+                    CallKind::BoundsDecompress => {
+                        format!("Unable to get zstd decompression parameter bounds: {name}")
+                    }
+                    CallKind::FrameSize => format!(
+                        "Error when finding the compressed size of a Zstandard frame. \
+                         Ensure the frame_buffer argument starts from the beginning of a frame, \
+                         and its length is not less than this complete frame. \
+                         Zstd error message: {name}."
+                    ),
+                };
+                zstd_error(message, vm)
             }
-            Error::ReservedBitSet | Error::UnusedBitSet => "Unsupported frame parameter",
-            Error::DictionaryNeeded { .. } | Error::DictionaryMismatch { .. } => {
-                "Dictionary mismatch"
-            }
-            Error::ReservedBlockType
-            | Error::BlockTooLarge
-            | Error::TrailingBytes
-            | Error::Unimplemented
-            | Error::Corruption
-            | Error::InvalidLevel => "Data corruption detected",
         }
     }
 
-    fn decompress_reason(err: Error) -> &'static str {
-        match err {
-            Error::BadMagic => "Unknown frame descriptor",
-            Error::ChecksumMismatch => "Restored data doesn't match checksum",
-            Error::WindowTooLarge | Error::ContentSizeTooLarge => {
-                "Frame requires too much memory for decoding"
-            }
-            Error::ReservedBitSet | Error::UnusedBitSet => "Unsupported frame parameter",
-            Error::DictionaryNeeded { .. } | Error::DictionaryMismatch { .. } => {
-                "Dictionary mismatch"
-            }
-            Error::ContentSizeMismatch
-            | Error::UnexpectedEof
-            | Error::ReservedBlockType
-            | Error::BlockTooLarge
-            | Error::TrailingBytes
-            | Error::Unimplemented
-            | Error::Corruption
-            | Error::InvalidLevel => "Data corruption detected",
+    fn is_error(code: usize) -> bool {
+        ZSTD_isError(code) != 0
+    }
+
+    const fn c_parameter_id(param: ZSTD_cParameter) -> u32 {
+        unsafe { core::mem::transmute(param) }
+    }
+
+    const fn d_parameter_id(param: ZSTD_dParameter) -> u32 {
+        unsafe { core::mem::transmute(param) }
+    }
+
+    fn c_parameter(id: i32) -> ZSTD_cParameter {
+        unsafe { core::mem::transmute(id as u32) }
+    }
+
+    fn d_parameter(id: i32) -> ZSTD_dParameter {
+        unsafe { core::mem::transmute(id as u32) }
+    }
+
+    fn end_op(mode: i32) -> libzstd_rs_sys::ZSTD_EndDirective {
+        match mode {
+            MODE_BLOCK => ZSTD_e_flush,
+            MODE_FRAME => ZSTD_e_end,
+            _ => ZSTD_e_continue,
         }
     }
 
-    fn compress_error(err: Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        zstd_error(
-            format!(
-                "Unable to compress Zstandard data: {}",
-                compress_reason(err)
-            ),
-            vm,
-        )
+    fn ffi_bytes(bytes: &[u8], scratch: &u8) -> (*const c_void, usize) {
+        if bytes.is_empty() {
+            (core::ptr::from_ref(scratch).cast(), 0)
+        } else {
+            (bytes.as_ptr().cast(), bytes.len())
+        }
     }
 
-    fn decompress_error(err: Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        zstd_error(
-            format!(
-                "Unable to decompress Zstandard data: {}",
-                decompress_reason(err)
-            ),
-            vm,
-        )
+    fn in_buffer(src: &[u8], scratch: &u8) -> ZSTD_inBuffer {
+        let (ptr, size) = ffi_bytes(src, scratch);
+        ZSTD_inBuffer {
+            src: ptr,
+            size,
+            pos: 0,
+        }
     }
 
-    fn frame_size_reason(err: Error) -> &'static str {
-        match err {
-            Error::BadMagic => "Unknown frame descriptor",
-            Error::UnexpectedEof | Error::ContentSizeMismatch => "Src size is incorrect",
-            other => decompress_reason(other),
+    struct CCtx(*mut ZSTD_CCtx);
+    // The context moves between threads; the owning mutex is what serializes use.
+    unsafe impl Send for CCtx {}
+    impl Drop for CCtx {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    ZSTD_freeCCtx(self.0);
+                }
+                self.0 = core::ptr::null_mut();
+            }
+        }
+    }
+
+    struct DCtx(*mut libzstd_rs_sys::ZSTD_DCtx);
+    unsafe impl Send for DCtx {}
+    impl Drop for DCtx {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    ZSTD_freeDCtx(self.0);
+                }
+                self.0 = core::ptr::null_mut();
+            }
+        }
+    }
+
+    struct CDict(*mut libzstd_rs_sys::ZSTD_CDict);
+    unsafe impl Send for CDict {}
+    impl Drop for CDict {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    ZSTD_freeCDict(self.0);
+                }
+                self.0 = core::ptr::null_mut();
+            }
+        }
+    }
+
+    struct DDict(*mut libzstd_rs_sys::ZSTD_DDict);
+    unsafe impl Send for DDict {}
+    impl Drop for DDict {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe {
+                    ZSTD_freeDDict(self.0);
+                }
+                self.0 = core::ptr::null_mut();
+            }
+        }
+    }
+
+    fn known_parameter_name(compress: bool, key: i32) -> Option<&'static str> {
+        if compress {
+            let name = match key {
+                ZSTD_c_compressionLevel => "compression_level",
+                ZSTD_c_windowLog => "window_log",
+                ZSTD_c_hashLog => "hash_log",
+                ZSTD_c_chainLog => "chain_log",
+                ZSTD_c_searchLog => "search_log",
+                ZSTD_c_minMatch => "min_match",
+                ZSTD_c_targetLength => "target_length",
+                ZSTD_c_strategy => "strategy",
+                ZSTD_c_enableLongDistanceMatching => "enable_long_distance_matching",
+                ZSTD_c_ldmHashLog => "ldm_hash_log",
+                ZSTD_c_ldmMinMatch => "ldm_min_match",
+                ZSTD_c_ldmBucketSizeLog => "ldm_bucket_size_log",
+                ZSTD_c_ldmHashRateLog => "ldm_hash_rate_log",
+                ZSTD_c_contentSizeFlag => "content_size_flag",
+                ZSTD_c_checksumFlag => "checksum_flag",
+                ZSTD_c_dictIDFlag => "dict_id_flag",
+                ZSTD_c_nbWorkers => "nb_workers",
+                ZSTD_c_jobSize => "job_size",
+                ZSTD_c_overlapLog => "overlap_log",
+                _ => return None,
+            };
+            Some(name)
+        } else if key == ZSTD_d_windowLogMax {
+            Some("window_log_max")
+        } else {
+            None
+        }
+    }
+
+    fn query_bounds(compress: bool, key: i32) -> Result<(i32, i32), usize> {
+        let (error, lower, upper) = if compress {
+            let bounds = ZSTD_cParam_getBounds(c_parameter(key));
+            (bounds.error, bounds.lowerBound, bounds.upperBound)
+        } else {
+            let bounds = ZSTD_dParam_getBounds(d_parameter(key));
+            (bounds.error, bounds.lowerBound, bounds.upperBound)
+        };
+        if is_error(error) {
+            Err(error)
+        } else {
+            Ok((lower, upper))
+        }
+    }
+
+    fn parameter_value_error(
+        compress: bool,
+        key: i32,
+        value: i32,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let kind = if compress {
+            "compression"
+        } else {
+            "decompression"
+        };
+        let name = match known_parameter_name(compress, key) {
+            Some(name) => name.to_owned(),
+            None => format!("unknown parameter (key {key})"),
+        };
+        match query_bounds(compress, key) {
+            Err(_) => vm.new_value_error(format!("invalid {kind} parameter '{name}'")),
+            Ok((lower, upper)) => vm.new_value_error(format!(
+                "{kind} parameter '{name}' received an illegal value {value}; \
+                 the valid range is [{lower}, {upper}]"
+            )),
         }
     }
 
@@ -234,166 +440,12 @@ mod _zstd {
             .unwrap_or_else(|_| "object".to_owned())
     }
 
-    fn read_u32_at(buf: &[u8], offset: usize) -> Option<u32> {
-        let end = offset.checked_add(4)?;
-        let bytes = buf.get(offset..end)?;
-        let chunk = <[u8; 4]>::try_from(bytes).ok()?;
-        Some(u32::from_le_bytes(chunk))
-    }
-
-    fn read_dict_id(content: &[u8]) -> u32 {
-        match read_u32_at(content, 0) {
-            Some(magic) if magic == MAGIC_DICTIONARY => read_u32_at(content, 4).unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    fn is_skippable(magic: u32) -> bool {
-        (MAGIC_SKIPPABLE_MIN..=MAGIC_SKIPPABLE_MAX).contains(&magic)
-    }
-
-    const BLOCKSIZE_MAX_BYTES: usize = 128 * 1024;
-
-    fn codec_level(level: i32) -> i32 {
-        level.clamp(MIN_CLEVEL, MAX_CLEVEL)
-    }
-
-    fn block_capacity(level: i32) -> usize {
-        let log =
-            compression_params(codec_level(level), None).map_or(17, |params| params.window_log);
-        let window = 1usize.checked_shl(log.min(31)).unwrap_or(usize::MAX);
-        window.min(BLOCKSIZE_MAX_BYTES)
-    }
-
-    fn window_max_bytes(log: i32) -> u64 {
-        let Ok(log) = u32::try_from(log) else {
-            return DEFAULT_WINDOW_MAX;
-        };
-        1u64.checked_shl(log).unwrap_or(u64::MAX)
-    }
-
-    fn flush_kind(mode: i32) -> Flush {
-        match mode {
-            MODE_BLOCK => Flush::Flush,
-            MODE_FRAME => Flush::End,
-            _ => Flush::Continue,
-        }
-    }
-
-    fn check_compress_mode(mode: i32, vm: &VirtualMachine) -> PyResult<()> {
-        if matches!(mode, MODE_CONTINUE | MODE_BLOCK | MODE_FRAME) {
-            Ok(())
-        } else {
-            Err(vm.new_value_error(
-                "mode argument wrong value, it should be one of ZstdCompressor.CONTINUE, \
-                 ZstdCompressor.FLUSH_BLOCK, ZstdCompressor.FLUSH_FRAME.",
-            ))
-        }
-    }
-
-    fn check_flush_mode(mode: i32, vm: &VirtualMachine) -> PyResult<()> {
-        if matches!(mode, MODE_BLOCK | MODE_FRAME) {
-            Ok(())
-        } else {
-            Err(vm.new_value_error(
-                "mode argument wrong value, it should be ZstdCompressor.FLUSH_FRAME or \
-                 ZstdCompressor.FLUSH_BLOCK.",
-            ))
-        }
-    }
-
-    fn compress_bounds(id: i32) -> Option<(&'static str, i32, i32)> {
-        match id {
-            ZSTD_c_compressionLevel => Some(("compression_level", LEVEL_MIN, LEVEL_MAX)),
-            ZSTD_c_windowLog => Some(("window_log", WINDOW_LOG_MIN, WINDOW_LOG_MAX)),
-            ZSTD_c_hashLog => Some(("hash_log", HASH_LOG_MIN, HASH_LOG_MAX)),
-            ZSTD_c_chainLog => Some(("chain_log", HASH_LOG_MIN, CHAIN_LOG_MAX)),
-            ZSTD_c_searchLog => Some(("search_log", SEARCH_LOG_MIN, SEARCH_LOG_MAX)),
-            ZSTD_c_minMatch => Some(("min_match", 3, 7)),
-            ZSTD_c_targetLength => Some(("target_length", 0, 131_072)),
-            ZSTD_c_strategy => Some(("strategy", ZSTD_fast, ZSTD_btultra2)),
-            ZSTD_c_enableLongDistanceMatching => Some(("enable_long_distance_matching", 0, 2)),
-            ZSTD_c_ldmHashLog => Some(("ldm_hash_log", HASH_LOG_MIN, HASH_LOG_MAX)),
-            ZSTD_c_ldmMinMatch => Some(("ldm_min_match", 4, 4096)),
-            ZSTD_c_ldmBucketSizeLog => Some(("ldm_bucket_size_log", 1, 8)),
-            ZSTD_c_ldmHashRateLog => Some(("ldm_hash_rate_log", 0, LDM_HASH_RATE_MAX)),
-            ZSTD_c_contentSizeFlag => Some(("content_size_flag", 0, 1)),
-            ZSTD_c_checksumFlag => Some(("checksum_flag", 0, 1)),
-            ZSTD_c_dictIDFlag => Some(("dict_id_flag", 0, 1)),
-            ZSTD_c_nbWorkers => Some(("nb_workers", 0, 256)),
-            ZSTD_c_jobSize => Some(("job_size", 0, 1 << 30)),
-            ZSTD_c_overlapLog => Some(("overlap_log", 0, 9)),
-            _ => None,
-        }
-    }
-
-    fn decompress_bounds(id: i32) -> Option<(&'static str, i32, i32)> {
-        match id {
-            ZSTD_d_windowLogMax => Some(("window_log_max", WINDOW_LOG_MIN, WINDOW_LOG_MAX)),
-            _ => None,
-        }
-    }
-
-    struct CompressSettings {
-        level: i32,
-        checksum: bool,
-        content_size: bool,
-        dict_id: bool,
-    }
-
-    impl Default for CompressSettings {
-        fn default() -> Self {
-            Self {
-                level: DEFAULT_CLEVEL,
-                checksum: false,
-                content_size: true,
-                dict_id: true,
-            }
-        }
-    }
-
-    struct DecompressSettings {
-        window_log_max: i32,
-    }
-
-    impl Default for DecompressSettings {
-        fn default() -> Self {
-            Self {
-                window_log_max: DEFAULT_WINDOW_LOG_MAX,
-            }
-        }
-    }
-
-    fn apply_ranged(
-        kind: &str,
-        id: i32,
-        value: i32,
-        bounds: Option<(&'static str, i32, i32)>,
-        vm: &VirtualMachine,
-    ) -> PyResult<i32> {
-        let Some((name, lo, hi)) = bounds else {
-            return Err(vm.new_value_error(format!(
-                "invalid {kind} parameter 'unknown parameter (key {id})'"
-            )));
-        };
-        if value < lo || value > hi {
-            return Err(vm.new_value_error(format!(
-                "{kind} parameter '{name}' received an illegal value {value}; \
-                 the valid range is [{lo}, {hi}]"
-            )));
-        }
-        Ok(id)
-    }
-
     fn parse_level(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
         if !is_pylong(obj, vm) {
             return Err(vm.new_type_error("invalid type for level, expected int"));
         }
         match obj.try_to_value::<i32>(vm) {
-            Ok(level) if (LEVEL_MIN..=LEVEL_MAX).contains(&level) => Ok(level),
-            Ok(level) => Err(vm.new_value_error(format!(
-                "illegal compression level {level}; the valid range is [{LEVEL_MIN}, {LEVEL_MAX}]"
-            ))),
+            Ok(level) => Ok(level),
             Err(err) if err.fast_isinstance(vm.ctx.exceptions.overflow_error) => Err(vm
                 .new_value_error(format!(
                     "illegal compression level; the valid range is [{LEVEL_MIN}, {LEVEL_MAX}]"
@@ -480,57 +532,6 @@ mod _zstd {
         Ok(())
     }
 
-    fn parse_compress_options(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CompressSettings> {
-        let dict = options_dict(obj, true, vm)?;
-        let mut settings = CompressSettings::default();
-        for_each_option(
-            dict,
-            true,
-            |id, value| {
-                if id == ZSTD_c_compressionLevel {
-                    if !(LEVEL_MIN..=LEVEL_MAX).contains(&value) {
-                        return Err(vm.new_value_error(format!(
-                            "illegal compression level {value}; the valid range is [{LEVEL_MIN}, {LEVEL_MAX}]"
-                        )));
-                    }
-                    settings.level = value;
-                    return Ok(());
-                }
-                let id = apply_ranged("compression", id, value, compress_bounds(id), vm)?;
-                match id {
-                    ZSTD_c_checksumFlag => settings.checksum = value != 0,
-                    ZSTD_c_contentSizeFlag => settings.content_size = value != 0,
-                    ZSTD_c_dictIDFlag => settings.dict_id = value != 0,
-                    _ => {}
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        Ok(settings)
-    }
-
-    fn parse_decompress_options(
-        obj: &PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<DecompressSettings> {
-        let dict = options_dict(obj, false, vm)?;
-        let mut settings = DecompressSettings::default();
-        for_each_option(
-            dict,
-            false,
-            |id, value| {
-                let id = apply_ranged("decompression", id, value, decompress_bounds(id), vm)?;
-                if id == ZSTD_d_windowLogMax {
-                    settings.window_log_max = value;
-                }
-                Ok(())
-            },
-            vm,
-        )?;
-        Ok(settings)
-    }
-
     #[pyclass(no_attr, module = "_zstd", name = "_zstd_state", traverse)]
     #[derive(Debug, PyPayload)]
     struct ZstdState {
@@ -586,25 +587,23 @@ mod _zstd {
             parameter,
             is_compress,
         } = args;
-        let bounds = if is_compress {
-            compress_bounds(parameter)
-        } else {
-            decompress_bounds(parameter)
-        };
-        let Some((_, lo, hi)) = bounds else {
+        let (lower, upper) = query_bounds(is_compress, parameter).map_err(|code| {
             let kind = if is_compress {
-                "compression"
+                CallKind::BoundsCompress
             } else {
-                "decompression"
+                CallKind::BoundsDecompress
             };
-            return Err(zstd_error(
-                format!("Unable to get zstd {kind} parameter bounds: Unsupported parameter"),
-                vm,
-            ));
-        };
-        Ok(vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(lo).into(), vm.ctx.new_int(hi).into()]))
+            raise_codec(CodecError::Named(kind, code), vm)
+        })?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_int(lower).into(),
+            vm.ctx.new_int(upper).into(),
+        ]))
+    }
+
+    struct DictCache {
+        cdicts: HashMap<i32, CDict>,
+        ddict: Option<DDict>,
     }
 
     #[derive(FromArgs)]
@@ -619,6 +618,9 @@ mod _zstd {
     #[pyclass(module = "compression.zstd", name = "ZstdDict", traverse)]
     #[derive(PyPayload)]
     struct ZstdDict {
+        // Freed before `dict_content` so digested dictionaries do not outlive the bytes.
+        #[pytraverse(skip)]
+        cache: PyMutex<DictCache>,
         dict_content: PyBytesRef,
         #[pytraverse(skip)]
         dict_id: u32,
@@ -645,11 +647,16 @@ mod _zstd {
                     "Zstandard dictionary content too short (must have at least eight bytes)",
                 ));
             }
-            let dict_id = read_dict_id(&content);
+            let dict_id =
+                unsafe { ZSTD_getDictID_fromDict(content.as_ptr().cast(), content.len()) };
             if !args.is_raw && dict_id == 0 {
                 return Err(vm.new_value_error("invalid Zstandard dictionary"));
             }
             Ok(Self {
+                cache: PyMutex::new(DictCache {
+                    cdicts: HashMap::new(),
+                    ddict: None,
+                }),
                 dict_content: vm.ctx.new_bytes(content),
                 dict_id,
             })
@@ -725,6 +732,18 @@ mod _zstd {
         Marked(PyRef<ZstdDict>, i32),
     }
 
+    impl DictArg {
+        fn parts(self, compress: bool) -> (PyRef<ZstdDict>, i32) {
+            match self {
+                Self::Bare(dict) => {
+                    let marker = if compress { UNDIGESTED } else { DIGESTED };
+                    (dict, marker)
+                }
+                Self::Marked(dict, marker) => (dict, marker),
+            }
+        }
+    }
+
     fn parse_dict_arg(obj: &PyObject, vm: &VirtualMachine) -> PyResult<DictArg> {
         if obj.downcast_ref::<ZstdDict>().is_some() {
             let dict = obj
@@ -758,217 +777,304 @@ mod _zstd {
         Err(zstd_dict_type_error(vm))
     }
 
-    enum LoadedDict {
-        Dict(Box<Dictionary>),
-        Prefix(Vec<u8>),
+    fn cdict_at_level(
+        dict: &ZstdDict,
+        level: i32,
+    ) -> Result<*const libzstd_rs_sys::ZSTD_CDict, CodecError> {
+        {
+            let cache = dict.cache.lock();
+            if let Some(existing) = cache.cdicts.get(&level) {
+                return Ok(existing.0);
+            }
+        }
+        let bytes = dict.dict_content.as_bytes();
+        let created = unsafe { ZSTD_createCDict(bytes.as_ptr().cast(), bytes.len(), level) };
+        if created.is_null() {
+            return Err(CodecError::Static(DIGESTED_COMPRESS_FAILED));
+        }
+        let mut cache = dict.cache.lock();
+        if let Some(existing) = cache.cdicts.get(&level) {
+            unsafe {
+                ZSTD_freeCDict(created);
+            }
+            return Ok(existing.0);
+        }
+        let ptr = created as *const libzstd_rs_sys::ZSTD_CDict;
+        cache.cdicts.insert(level, CDict(created));
+        Ok(ptr)
     }
 
-    fn load_dict(spec: DictArg, compress: bool, vm: &VirtualMachine) -> PyResult<LoadedDict> {
-        let (dict, marker) = match spec {
-            DictArg::Bare(dict) => {
-                let marker = if compress { UNDIGESTED } else { DIGESTED };
-                (dict, marker)
+    fn ddict_of(dict: &ZstdDict) -> Result<*const libzstd_rs_sys::ZSTD_DDict, CodecError> {
+        {
+            let cache = dict.cache.lock();
+            if let Some(existing) = cache.ddict.as_ref() {
+                return Ok(existing.0);
             }
-            DictArg::Marked(dict, marker) => (dict, marker),
+        }
+        let bytes = dict.dict_content.as_bytes();
+        let created = unsafe { ZSTD_createDDict(bytes.as_ptr().cast(), bytes.len()) };
+        if created.is_null() {
+            return Err(CodecError::Static(DIGESTED_DECOMPRESS_FAILED));
+        }
+        let mut cache = dict.cache.lock();
+        if let Some(existing) = cache.ddict.as_ref() {
+            unsafe {
+                ZSTD_freeDDict(created);
+            }
+            return Ok(existing.0);
+        }
+        let ptr = created as *const libzstd_rs_sys::ZSTD_DDict;
+        cache.ddict = Some(DDict(created));
+        Ok(ptr)
+    }
+
+    struct OutBuf {
+        data: Vec<u8>,
+        filled: usize,
+        block_size: usize,
+        written_in_block: usize,
+        blocks: usize,
+        max_length: Option<usize>,
+    }
+
+    impl OutBuf {
+        fn new(block: usize, max_length: Option<usize>) -> Result<Self, CodecError> {
+            let mut buf = Self {
+                data: Vec::new(),
+                filled: 0,
+                block_size: block,
+                written_in_block: 0,
+                blocks: 1,
+                max_length,
+            };
+            buf.reserve()?;
+            Ok(buf)
+        }
+
+        fn reserve(&mut self) -> Result<(), CodecError> {
+            let need = self.filled.saturating_add(self.block_size);
+            if self.data.capacity() < need {
+                let extra = need - self.data.capacity();
+                self.data
+                    .try_reserve(extra)
+                    .map_err(|_| CodecError::Buffer)?;
+            }
+            Ok(())
+        }
+
+        fn as_zstd(&mut self, scratch: &mut u8) -> ZSTD_outBuffer {
+            let dst = if self.block_size == 0 {
+                core::ptr::from_mut(scratch).cast()
+            } else {
+                unsafe { self.data.as_mut_ptr().add(self.filled).cast() }
+            };
+            ZSTD_outBuffer {
+                dst,
+                size: self.block_size,
+                pos: self.written_in_block,
+            }
+        }
+
+        fn sync(&mut self, pos: usize) {
+            let pos = pos.min(self.block_size);
+            self.written_in_block = pos;
+            let new_len = self.filled + pos;
+            if new_len > self.data.len() {
+                // `pos` bytes at the end of the current block were written by zstd.
+                unsafe { self.data.set_len(new_len) };
+            } else if new_len < self.data.len() {
+                self.data.truncate(new_len);
+            }
+        }
+
+        fn grow(&mut self) -> Result<(), CodecError> {
+            self.filled += self.written_in_block;
+            self.written_in_block = 0;
+            self.block_size = next_block(self.blocks, self.max_length, self.filled)?;
+            self.blocks += 1;
+            self.reserve()
+        }
+
+        fn into_vec(self) -> Vec<u8> {
+            self.data
+        }
+    }
+
+    fn next_block(
+        index: usize,
+        max_length: Option<usize>,
+        allocated: usize,
+    ) -> Result<usize, CodecError> {
+        let mut block = OUTPUT_BLOCKS
+            .get(index)
+            .copied()
+            .unwrap_or(OUTPUT_BLOCKS[OUTPUT_BLOCKS.len() - 1]);
+        if let Some(max) = max_length {
+            let rest = max.saturating_sub(allocated);
+            if rest == 0 {
+                return Err(CodecError::Buffer);
+            }
+            block = block.min(rest);
+        }
+        let limit = isize::MAX as usize;
+        if allocated > limit || block > limit - allocated {
+            return Err(CodecError::Buffer);
+        }
+        Ok(block)
+    }
+
+    fn decompressor_out(max_length: Option<usize>) -> Result<OutBuf, CodecError> {
+        let block = match max_length {
+            Some(max) if max < OUTPUT_BLOCKS[0] => max,
+            _ => OUTPUT_BLOCKS[0],
         };
-        let content = dict.dict_content.as_bytes();
-        let loaded = match marker {
-            PREFIX => LoadedDict::Prefix(content.to_vec()),
-            DIGESTED if dict.dict_id == 0 => {
-                LoadedDict::Dict(Box::new(Dictionary::raw(content.to_vec())))
-            }
-            DIGESTED => match Dictionary::from_bytes(content) {
-                Ok(parsed) => LoadedDict::Dict(Box::new(parsed)),
-                Err(_) => {
-                    let message = if compress {
-                        DIGESTED_COMPRESS_FAILED
-                    } else {
-                        DIGESTED_DECOMPRESS_FAILED
-                    };
-                    return Err(zstd_error(message.to_owned(), vm));
-                }
-            },
-            _ => {
-                let parsed = match Dictionary::from_bytes(content) {
-                    Ok(parsed) => parsed,
-                    Err(_) => Dictionary::raw(content.to_vec()),
-                };
-                LoadedDict::Dict(Box::new(parsed))
-            }
-        };
-        Ok(loaded)
-    }
-
-    enum AppliedDict {
-        None,
-        Dict {
-            dict: Box<Dictionary>,
-            write_id: bool,
-        },
-        Prefix(Vec<u8>),
-    }
-
-    struct Session {
-        comp: Box<Compressor>,
-        produced: u64,
+        OutBuf::new(block, max_length)
     }
 
     struct CompState {
-        settings: CompressSettings,
-        applied: AppliedDict,
-        pledge: Option<u64>,
-        session: Option<Session>,
-        pending: Vec<u8>,
-        block_max: usize,
-        last_mode_value: i32,
+        cctx: CCtx,
+        use_multithread: bool,
+        compression_level: i32,
     }
 
     impl CompState {
-        fn fail_session(&mut self) {
-            self.session = None;
-            self.pending.clear();
-            self.last_mode_value = MODE_FRAME;
+        fn new() -> Result<Self, CodecError> {
+            let cctx = unsafe { ZSTD_createCCtx() };
+            if cctx.is_null() {
+                return Err(CodecError::Static("Unable to create ZSTD_CCtx instance."));
+            }
+            Ok(Self {
+                cctx: CCtx(cctx),
+                use_multithread: false,
+                compression_level: ZSTD_CLEVEL_DEFAULT,
+            })
         }
 
-        fn finish_frame(&mut self) {
-            self.session = None;
-            self.pending.clear();
-            self.pledge = None;
-            if matches!(self.applied, AppliedDict::Prefix(_)) {
-                self.applied = AppliedDict::None;
+        fn reset_session(&mut self) {
+            unsafe {
+                ZSTD_CCtx_reset(self.cctx.0, ZSTD_ResetDirective::ZSTD_reset_session_only);
             }
         }
 
-        fn frame_size_header(&self, len: usize) -> Option<u64> {
-            if self.settings.content_size {
-                Some(u64::try_from(len).unwrap_or(u64::MAX))
-            } else {
-                None
+        fn set_level(&mut self, level: i32, vm: &VirtualMachine) -> PyResult<()> {
+            if !(LEVEL_MIN..=LEVEL_MAX).contains(&level) {
+                return Err(vm.new_value_error(format!(
+                    "illegal compression level {level}; the valid range is [{LEVEL_MIN}, {LEVEL_MAX}]"
+                )));
             }
-        }
-
-        fn stream_header(&self) -> Option<u64> {
-            if self.settings.content_size {
-                self.pledge
-            } else {
-                None
-            }
-        }
-
-        fn apply_dict(&self, comp: &mut Compressor) -> Result<(), Error> {
-            match &self.applied {
-                AppliedDict::Dict { dict, write_id } => {
-                    comp.set_dictionary(dict)?;
-                    comp.set_write_dict_id(*write_id && dict.id() != 0);
-                }
-                AppliedDict::Prefix(prefix) => {
-                    comp.set_prefix(prefix)?;
-                }
-                AppliedDict::None => {}
+            self.compression_level = level;
+            let code = unsafe {
+                ZSTD_CCtx_setParameter(self.cctx.0, c_parameter(ZSTD_c_compressionLevel), level)
+            };
+            if is_error(code) {
+                return Err(raise_codec(CodecError::Named(CallKind::Level, code), vm));
             }
             Ok(())
         }
 
-        fn open_session(&mut self, header: Option<u64>) -> Result<(), Error> {
-            let mut comp = Compressor::with_options(
-                CompressOptions {
-                    level: codec_level(self.settings.level),
-                    checksum: self.settings.checksum,
+        fn apply_options(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let dict = options_dict(obj, true, vm)?;
+            for_each_option(
+                dict,
+                true,
+                |key, value| {
+                    if key == ZSTD_c_compressionLevel {
+                        return self.set_level(value, vm);
+                    }
+                    if key == ZSTD_c_nbWorkers && value != 0 {
+                        self.use_multithread = true;
+                    }
+                    let code =
+                        unsafe { ZSTD_CCtx_setParameter(self.cctx.0, c_parameter(key), value) };
+                    if is_error(code) {
+                        return Err(parameter_value_error(true, key, value, vm));
+                    }
+                    Ok(())
                 },
-                None,
-            )?;
-            if let Some(size) = header {
-                comp.set_pledged_src_size(size);
-            }
-            self.apply_dict(&mut comp)?;
-            self.session = Some(Session {
-                comp: Box::new(comp),
-                produced: 0,
-            });
-            Ok(())
+                vm,
+            )
         }
 
-        // Empty input with nothing buffered must not start a frame, except for
-        // an explicit end, which is a one-shot empty frame. A one-shot end
-        // writes the input length into the header and ignores a stored pledge.
-        // Short CONTINUE input stays buffered: the first stream call emits a
-        // header, and a short write has to leave the underlying file untouched.
-        fn compress(&mut self, input: &[u8], mode: i32) -> Result<Vec<u8>, Error> {
-            if input.is_empty()
-                && self.session.is_none()
-                && self.pending.is_empty()
-                && mode != MODE_FRAME
-            {
-                self.last_mode_value = mode;
-                return Ok(Vec::new());
-            }
-            let oneshot = self.session.is_none() && self.pending.is_empty() && mode == MODE_FRAME;
-            if !input.is_empty() {
-                self.pending.extend_from_slice(input);
-            }
-            if self.session.is_none()
-                && mode == MODE_CONTINUE
-                && self.pending.len() < self.block_max
-            {
-                self.last_mode_value = mode;
-                return Ok(Vec::new());
-            }
-            if self.session.is_none() {
-                let header_len = self.pending.len();
-                let header = if oneshot {
-                    self.frame_size_header(header_len)
-                } else {
-                    self.stream_header()
-                };
-                if let Err(err) = self.open_session(header) {
-                    self.fail_session();
-                    return Err(err);
+        fn load_dict(&mut self, dict: &ZstdDict, marker: i32) -> Result<(), CodecError> {
+            let code = match marker {
+                DIGESTED => {
+                    let cdict = cdict_at_level(dict, self.compression_level)?;
+                    unsafe { ZSTD_CCtx_refCDict(self.cctx.0, cdict) }
                 }
-            }
-            let flush = flush_kind(mode);
-            let pending = core::mem::take(&mut self.pending);
-            let pumped = match self.session.as_mut() {
-                Some(session) => pump(session, &pending, flush),
-                None => Err(Error::Corruption),
-            };
-            let bytes = match pumped {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    self.fail_session();
-                    return Err(err);
+                PREFIX => {
+                    let bytes = dict.dict_content.as_bytes();
+                    unsafe { ZSTD_CCtx_refPrefix(self.cctx.0, bytes.as_ptr().cast(), bytes.len()) }
+                }
+                _ => {
+                    let bytes = dict.dict_content.as_bytes();
+                    unsafe {
+                        ZSTD_CCtx_loadDictionary(self.cctx.0, bytes.as_ptr().cast(), bytes.len())
+                    }
                 }
             };
-            if mode == MODE_FRAME {
-                let Some(produced) = self.session.as_ref().map(|session| session.produced) else {
-                    self.fail_session();
-                    return Err(Error::Corruption);
-                };
-                if !oneshot && self.pledge.is_some_and(|pledged| pledged != produced) {
-                    self.fail_session();
-                    return Err(Error::ContentSizeMismatch);
-                }
-                self.finish_frame();
+            if is_error(code) {
+                Err(CodecError::Named(CallKind::LoadCompress, code))
+            } else {
+                Ok(())
             }
-            self.last_mode_value = mode;
-            Ok(bytes)
         }
     }
 
-    fn pump(session: &mut Session, input: &[u8], flush: Flush) -> Result<Vec<u8>, Error> {
-        let added = u64::try_from(input.len()).unwrap_or(u64::MAX);
-        session.produced = session.produced.saturating_add(added);
-        let mut out = Vec::new();
-        let mut buf = vec![0u8; compress_stream_out_size()];
-        let mut pending = input;
+    fn compress_locked(
+        state: &mut CompState,
+        src: &[u8],
+        mode: i32,
+        mt_continue: bool,
+    ) -> Result<Vec<u8>, CodecError> {
+        let in_scratch = 0u8;
+        let mut input = in_buffer(src, &in_scratch);
+        let mut output = if mt_continue {
+            OutBuf::new(OUTPUT_BLOCKS[0], None)?
+        } else {
+            let bound = ZSTD_compressBound(src.len());
+            if is_error(bound) || bound > isize::MAX as usize {
+                return Err(CodecError::NoMemory);
+            }
+            OutBuf::new(bound, None)?
+        };
+        let directive = end_op(mode);
         loop {
-            let status = session.comp.stream(pending, &mut buf, flush)?;
-            pending = &[];
-            out.extend_from_slice(&buf[..status.output_produced]);
-            if status.done || status.output_produced < buf.len() {
+            let mut out_scratch = 0u8;
+            let mut out = output.as_zstd(&mut out_scratch);
+            let before = (input.pos, out.pos);
+            let ret = if mt_continue {
+                loop {
+                    let ret = unsafe {
+                        ZSTD_compressStream2(state.cctx.0, &mut out, &mut input, directive)
+                    };
+                    if is_error(ret) || out.pos == out.size || input.pos == input.size {
+                        break ret;
+                    }
+                }
+            } else {
+                unsafe { ZSTD_compressStream2(state.cctx.0, &mut out, &mut input, directive) }
+            };
+            let pos = out.pos;
+            let filled = pos == out.size;
+            output.sync(pos);
+            if is_error(ret) {
+                return Err(CodecError::Named(CallKind::Compress, ret));
+            }
+            if !mt_continue && ret == 0 {
                 break;
             }
+            if filled {
+                output.grow()?;
+                continue;
+            }
+            if mt_continue {
+                break;
+            }
+            if (input.pos, pos) == before {
+                return Err(CodecError::Named(CallKind::Compress, ret));
+            }
         }
-        Ok(out)
+        Ok(output.into_vec())
     }
 
     #[derive(FromArgs)]
@@ -985,11 +1091,12 @@ mod _zstd {
     #[pyclass(module = "compression.zstd", name = "ZstdCompressor", traverse)]
     #[derive(PyPayload)]
     struct ZstdCompressor {
+        // `state` is first so the context is freed before the dictionary it references.
+        #[pytraverse(skip)]
+        state: PyMutex<CompState>,
         dict_ref: Option<PyRef<ZstdDict>>,
         #[pytraverse(skip)]
         last_mode: AtomicI32,
-        #[pytraverse(skip)]
-        state: PyMutex<CompState>,
     }
 
     impl fmt::Debug for ZstdCompressor {
@@ -1008,43 +1115,25 @@ mod _zstd {
             if level.is_some() && options.is_some() {
                 return Err(vm.new_type_error("Only one of level or options should be used."));
             }
-            let mut settings = CompressSettings::default();
+            let mut dict_ref: Option<PyRef<ZstdDict>> = None;
+            let mut comp = CompState::new().map_err(|err| raise_codec(err, vm))?;
             if let Some(level) = level.as_ref() {
-                settings.level = parse_level(level, vm)?;
+                let level = parse_level(level, vm)?;
+                comp.set_level(level, vm)?;
             }
             if let Some(options) = options.as_ref() {
-                settings = parse_compress_options(options, vm)?;
+                comp.apply_options(options, vm)?;
             }
-            let (dict_ref, applied) = match zstd_dict.as_ref() {
-                Some(obj) => {
-                    let spec = parse_dict_arg(obj, vm)?;
-                    let dict_ref = match &spec {
-                        DictArg::Bare(dict) | DictArg::Marked(dict, _) => dict.clone(),
-                    };
-                    let loaded = load_dict(spec, true, vm)?;
-                    let applied = match loaded {
-                        LoadedDict::Dict(dict) => AppliedDict::Dict {
-                            dict,
-                            write_id: settings.dict_id,
-                        },
-                        LoadedDict::Prefix(bytes) => AppliedDict::Prefix(bytes),
-                    };
-                    (Some(dict_ref), applied)
-                }
-                None => (None, AppliedDict::None),
-            };
+            if let Some(obj) = zstd_dict.as_ref() {
+                let (dict, marker) = parse_dict_arg(obj, vm)?.parts(true);
+                let loaded = vm.allow_threads(|| comp.load_dict(&dict, marker));
+                loaded.map_err(|err| raise_codec(err, vm))?;
+                dict_ref = Some(dict);
+            }
             Ok(Self {
+                state: PyMutex::new(comp),
                 dict_ref,
                 last_mode: AtomicI32::new(MODE_FRAME),
-                state: PyMutex::new(CompState {
-                    block_max: block_capacity(settings.level),
-                    settings,
-                    applied,
-                    pledge: None,
-                    session: None,
-                    pending: Vec::new(),
-                    last_mode_value: MODE_FRAME,
-                }),
             })
         }
     }
@@ -1063,16 +1152,51 @@ mod _zstd {
         mode: i32,
     }
 
+    fn check_compress_mode(mode: i32, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(mode, MODE_CONTINUE | MODE_BLOCK | MODE_FRAME) {
+            Ok(())
+        } else {
+            Err(vm.new_value_error(
+                "mode argument wrong value, it should be one of ZstdCompressor.CONTINUE, \
+                 ZstdCompressor.FLUSH_BLOCK, ZstdCompressor.FLUSH_FRAME.",
+            ))
+        }
+    }
+
+    fn check_flush_mode(mode: i32, vm: &VirtualMachine) -> PyResult<()> {
+        if matches!(mode, MODE_BLOCK | MODE_FRAME) {
+            Ok(())
+        } else {
+            Err(vm.new_value_error(
+                "mode argument wrong value, it should be ZstdCompressor.FLUSH_FRAME or \
+                 ZstdCompressor.FLUSH_BLOCK.",
+            ))
+        }
+    }
+
+    fn drive_compress(
+        zelf: &Py<ZstdCompressor>,
+        src: &[u8],
+        mode: i32,
+        allow_mt: bool,
+    ) -> Result<Vec<u8>, CodecError> {
+        let mut state = zelf.state.lock();
+        let mt_continue = allow_mt && state.use_multithread && mode == MODE_CONTINUE;
+        match compress_locked(&mut state, src, mode, mt_continue) {
+            Ok(bytes) => {
+                zelf.last_mode.store(mode, Ordering::Release);
+                Ok(bytes)
+            }
+            Err(err) => {
+                state.reset_session();
+                zelf.last_mode.store(MODE_FRAME, Ordering::Release);
+                Err(err)
+            }
+        }
+    }
+
     #[pyclass(with(Constructor))]
     impl ZstdCompressor {
-        fn locked_compress(zelf: &Py<Self>, input: &[u8], mode: i32) -> Result<Vec<u8>, Error> {
-            let mut state = zelf.state.lock();
-            let result = state.compress(input, mode);
-            zelf.last_mode
-                .store(state.last_mode_value, Ordering::Relaxed);
-            result
-        }
-
         #[pymethod]
         fn compress(
             zelf: &Py<Self>,
@@ -1082,16 +1206,16 @@ mod _zstd {
             let CompressCallArgs { data, mode } = args;
             check_compress_mode(mode, vm)?;
             let input = data.with_ref(<[u8]>::to_vec);
-            vm.allow_threads(|| Self::locked_compress(zelf, &input, mode))
-                .map_err(|err| compress_error(err, vm))
+            vm.allow_threads(|| drive_compress(zelf, &input, mode, true))
+                .map_err(|err| raise_codec(err, vm))
         }
 
         #[pymethod]
         fn flush(zelf: &Py<Self>, args: FlushCallArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let FlushCallArgs { mode } = args;
             check_flush_mode(mode, vm)?;
-            vm.allow_threads(|| Self::locked_compress(zelf, &[], mode))
-                .map_err(|err| compress_error(err, vm))
+            vm.allow_threads(|| drive_compress(zelf, &[], mode, false))
+                .map_err(|err| raise_codec(err, vm))
         }
 
         #[pymethod]
@@ -1100,28 +1224,31 @@ mod _zstd {
             size: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let pledge = parse_pledge(&size, vm)?;
-            let bad_mode = vm.allow_threads(|| {
-                let mut state = zelf.state.lock();
-                if zelf.last_mode.load(Ordering::Relaxed) != MODE_FRAME {
-                    true
+            let pledged = parse_pledge(&size, vm)?;
+            let result = vm.allow_threads(|| {
+                let state = zelf.state.lock();
+                if zelf.last_mode.load(Ordering::Acquire) != MODE_FRAME {
+                    return Err(None);
+                }
+                let code = unsafe { ZSTD_CCtx_setPledgedSrcSize(state.cctx.0, pledged) };
+                if is_error(code) {
+                    Err(Some(code))
                 } else {
-                    state.pledge = pledge;
-                    false
+                    Ok(())
                 }
             });
-            if bad_mode {
-                Err(vm.new_value_error(
+            match result {
+                Ok(()) => Ok(()),
+                Err(None) => Err(vm.new_value_error(
                     "set_pledged_input_size() method must be called when last_mode == FLUSH_FRAME",
-                ))
-            } else {
-                Ok(())
+                )),
+                Err(Some(code)) => Err(raise_codec(CodecError::Named(CallKind::Pledge, code), vm)),
             }
         }
 
         #[pygetset]
         fn last_mode(zelf: &Py<Self>) -> i32 {
-            zelf.last_mode.load(Ordering::Relaxed)
+            zelf.last_mode.load(Ordering::Acquire)
         }
 
         #[extend_class]
@@ -1141,248 +1268,159 @@ mod _zstd {
         }
     }
 
-    fn parse_pledge(size: &PyObject, vm: &VirtualMachine) -> PyResult<Option<u64>> {
+    fn parse_pledge(size: &PyObject, vm: &VirtualMachine) -> PyResult<u64> {
         if vm.is_none(size) {
-            return Ok(None);
+            return Ok(ZSTD_CONTENTSIZE_UNKNOWN);
         }
         if !is_pylong(size, vm) {
-            return Err(pledge_error(vm));
+            return Err(vm.new_type_error("an integer is required"));
         }
         let int_obj = size.try_index(vm)?;
         match int_obj.as_bigint().to_u64() {
-            Some(value) if value < u64::MAX - 1 => Ok(Some(value)),
-            _ => Err(pledge_error(vm)),
+            Some(value) if value < ZSTD_CONTENTSIZE_ERROR => Ok(value),
+            _ => Err(vm.new_value_error(format!(
+                "size argument should be a positive int less than {ZSTD_CONTENTSIZE_ERROR}"
+            ))),
         }
     }
 
-    fn pledge_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let limit = u64::MAX - 1;
-        vm.new_value_error(format!(
-            "size argument should be a positive int less than {limit}"
-        ))
-    }
-
-    enum DecApplied {
-        None,
-        Dict(Box<Dictionary>),
-        Prefix(Vec<u8>),
-    }
-
     struct DecState {
-        window_max: u64,
-        applied: DecApplied,
-        src: Vec<u8>,
-        fed: usize,
-        dec: Option<Box<Decompressor>>,
-        frame_len: Option<usize>,
-        out: Vec<u8>,
-        out_pos: usize,
-        finished: bool,
-        probed: usize,
+        dctx: DCtx,
+        pending: Vec<u8>,
+        eof: bool,
         needs_input: bool,
     }
 
     impl DecState {
+        fn new() -> Result<Self, CodecError> {
+            let dctx = unsafe { ZSTD_createDCtx() };
+            if dctx.is_null() {
+                return Err(CodecError::Static("Unable to create ZSTD_DCtx instance."));
+            }
+            Ok(Self {
+                dctx: DCtx(dctx),
+                pending: Vec::new(),
+                eof: false,
+                needs_input: true,
+            })
+        }
+
         fn reset_session(&mut self) {
-            self.src.clear();
-            self.fed = 0;
-            self.dec = None;
-            self.frame_len = None;
-            self.out.clear();
-            self.out_pos = 0;
-            self.finished = false;
-            self.probed = 0;
+            self.pending.clear();
+            self.eof = false;
             self.needs_input = true;
-        }
-
-        fn is_eof(&self) -> bool {
-            self.finished && self.out.is_empty()
-        }
-
-        fn unused(&self) -> &[u8] {
-            // Bytes after this frame stay hidden until its output is drained.
-            if !self.is_eof() {
-                return &[];
-            }
-            let start = self.frame_len.unwrap_or(self.src.len()).min(self.src.len());
-            &self.src[start..]
-        }
-
-        fn clear_prefix(&mut self) {
-            if matches!(self.applied, DecApplied::Prefix(_)) {
-                self.applied = DecApplied::None;
+            unsafe {
+                ZSTD_DCtx_reset(self.dctx.0, ZSTD_ResetDirective::ZSTD_reset_session_only);
             }
         }
 
-        fn make_decoder(&self) -> Box<Decompressor> {
-            let mut dec = Decompressor::with_options(DecompressOptions {
-                window_max: self.window_max,
-                force_ignore_checksum: false,
-            });
-            match &self.applied {
-                DecApplied::Dict(dict) => dec.set_dictionary(dict.as_ref().clone()),
-                DecApplied::Prefix(prefix) => dec.set_prefix(prefix),
-                DecApplied::None => {}
-            }
-            Box::new(dec)
+        fn publish(&self, eof: &AtomicBool, needs_input: &AtomicBool) {
+            eof.store(self.eof, Ordering::Release);
+            needs_input.store(self.needs_input, Ordering::Release);
         }
 
-        fn classify(&mut self) -> Result<(), Error> {
-            if self.dec.is_some() || self.finished || self.src.len() < 4 {
-                return Ok(());
-            }
-            let Some(magic) = read_u32_at(&self.src, 0) else {
-                return Err(Error::Corruption);
-            };
-            if is_skippable(magic) {
-                if self.src.len() < 8 {
-                    return Ok(());
-                }
-                let Some(body_len) = read_u32_at(&self.src, 4) else {
-                    return Err(Error::Corruption);
-                };
-                let Ok(body) = usize::try_from(body_len) else {
-                    return Err(Error::Corruption);
-                };
-                let Some(total) = 8usize.checked_add(body) else {
-                    return Err(Error::Corruption);
-                };
-                if self.src.len() < total {
-                    return Ok(());
-                }
-                self.frame_len = Some(total);
-                self.finished = true;
-                self.clear_prefix();
-                return Ok(());
-            }
-            if magic != MAGIC {
-                return Err(Error::BadMagic);
-            }
-            let dec = self.make_decoder();
-            self.dec = Some(dec);
-            Ok(())
-        }
-
-        fn probe(&mut self) -> Result<(), Error> {
-            if self.frame_len.is_some() || self.probed == self.src.len() {
-                return Ok(());
-            }
-            match find_frame_compressed_size(&self.src) {
-                Ok(0) => Err(Error::Corruption),
-                Ok(len) => {
-                    self.frame_len = Some(len);
-                    self.probed = self.src.len();
-                    Ok(())
-                }
-                Err(Error::UnexpectedEof) => {
-                    self.probed = self.src.len();
-                    Ok(())
-                }
-                Err(err) => Err(err),
-            }
-        }
-
-        fn drain(&mut self, chunk: Vec<u8>, end: bool) -> Result<(), Error> {
-            let mut dec = match self.dec.take() {
-                Some(dec) => dec,
-                None => return Err(Error::Corruption),
-            };
-            let mut buf = vec![0u8; decompress_stream_out_size()];
-            let mut input: &[u8] = &chunk;
-            let result = loop {
-                match dec.stream(input, &mut buf, end) {
-                    Ok(status) => {
-                        input = &[];
-                        self.out.extend_from_slice(&buf[..status.output_produced]);
-                        if status.done {
-                            self.finished = true;
-                            break Ok(());
-                        }
-                        if status.output_produced < buf.len() {
-                            break Ok(());
-                        }
+        fn apply_options(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            let dict = options_dict(obj, false, vm)?;
+            for_each_option(
+                dict,
+                false,
+                |key, value| {
+                    let code =
+                        unsafe { ZSTD_DCtx_setParameter(self.dctx.0, d_parameter(key), value) };
+                    if is_error(code) {
+                        return Err(parameter_value_error(false, key, value, vm));
                     }
-                    Err(err) => break Err(err),
-                }
-            };
-            self.dec = Some(dec);
-            if self.finished {
-                self.clear_prefix();
-            }
-            result
+                    Ok(())
+                },
+                vm,
+            )
         }
 
-        fn feed(&mut self) -> Result<(), Error> {
-            if self.dec.is_none() || self.finished {
-                return Ok(());
-            }
-            let (input_end, end_flag) = match self.frame_len {
-                Some(len) => (len.min(self.src.len()), self.src.len() >= len),
-                None => (self.src.len(), false),
+        fn load_dict(&mut self, dict: &ZstdDict, marker: i32) -> Result<(), CodecError> {
+            let code = match marker {
+                UNDIGESTED => {
+                    let bytes = dict.dict_content.as_bytes();
+                    unsafe {
+                        ZSTD_DCtx_loadDictionary(self.dctx.0, bytes.as_ptr().cast(), bytes.len())
+                    }
+                }
+                PREFIX => {
+                    let bytes = dict.dict_content.as_bytes();
+                    unsafe { ZSTD_DCtx_refPrefix(self.dctx.0, bytes.as_ptr().cast(), bytes.len()) }
+                }
+                _ => {
+                    let ddict = ddict_of(dict)?;
+                    unsafe { ZSTD_DCtx_refDDict(self.dctx.0, ddict) }
+                }
             };
-            if self.fed < input_end {
-                let chunk = self.src[self.fed..input_end].to_vec();
-                self.fed = input_end;
-                self.drain(chunk, end_flag)
-            } else if end_flag {
-                self.drain(Vec::new(), true)
+            if is_error(code) {
+                Err(CodecError::Named(CallKind::LoadDecompress, code))
             } else {
                 Ok(())
             }
         }
 
-        fn drive(&mut self) -> Result<(), Error> {
-            if self.finished {
-                return Ok(());
+        fn decompress(
+            &mut self,
+            data: &[u8],
+            max_length: Option<usize>,
+        ) -> Result<Vec<u8>, CodecError> {
+            if self.eof {
+                return Err(CodecError::Eof);
             }
-            self.classify()?;
-            if self.finished || self.dec.is_none() {
-                return Ok(());
-            }
-            self.probe()?;
-            self.feed()
-        }
+            self.pending
+                .try_reserve(data.len())
+                .map_err(|_| CodecError::Buffer)?;
+            self.pending.extend_from_slice(data);
 
-        // needs_input stays true unless this call filled max_length, or the
-        // frame is already finished. Returning b'' with needs_input false and
-        // eof false makes the reader spin.
-        fn take(&mut self, max_length: Option<usize>) -> Vec<u8> {
-            let available = self.out.len().saturating_sub(self.out_pos);
-            let take = match max_length {
-                Some(max) => available.min(max),
-                None => available,
-            };
-            let start = self.out_pos;
-            let end = start + take;
-            let bytes = self.out[start..end].to_vec();
-            self.out_pos = end;
-            if self.out_pos == self.out.len() {
-                self.out.clear();
-                self.out_pos = 0;
-            }
-            self.needs_input = if self.finished {
-                false
-            } else {
-                match max_length {
-                    Some(max) => take != max,
-                    None => true,
+            let in_scratch = 0u8;
+            let mut input = in_buffer(&self.pending, &in_scratch);
+            let mut output = decompressor_out(max_length)?;
+            loop {
+                let mut out_scratch = 0u8;
+                let mut out = output.as_zstd(&mut out_scratch);
+                let ret = unsafe { ZSTD_decompressStream(self.dctx.0, &mut out, &mut input) };
+                let pos = out.pos;
+                let filled = pos == out.size;
+                output.sync(pos);
+                if is_error(ret) {
+                    return Err(CodecError::Named(CallKind::Decompress, ret));
                 }
-            };
-            bytes
-        }
-
-        fn pull(&mut self, input: &[u8], max_length: Option<usize>) -> Result<Vec<u8>, Error> {
-            self.src.extend_from_slice(input);
-            if !self.finished {
-                self.drive()?;
+                if ret == 0 {
+                    self.eof = true;
+                    break;
+                }
+                if filled {
+                    let produced = self_produced(&output);
+                    if max_length.is_some_and(|max| produced == max) {
+                        break;
+                    }
+                    output.grow()?;
+                    continue;
+                }
+                if input.pos == input.size {
+                    break;
+                }
             }
-            Ok(self.take(max_length))
+
+            let produced = output.into_vec();
+            if input.pos == input.size {
+                self.pending.clear();
+                let hit = max_length.is_some_and(|max| produced.len() == max);
+                self.needs_input = !(hit || self.eof);
+            } else {
+                self.needs_input = false;
+                let pos = input.pos;
+                if pos > 0 {
+                    self.pending.drain(..pos);
+                }
+            }
+            Ok(produced)
         }
     }
 
-    enum DecFail {
-        Eof,
-        Codec(Error),
+    fn self_produced(output: &OutBuf) -> usize {
+        output.filled + output.written_in_block
     }
 
     #[derive(FromArgs)]
@@ -1397,6 +1435,9 @@ mod _zstd {
     #[pyclass(module = "compression.zstd", name = "ZstdDecompressor", traverse)]
     #[derive(PyPayload)]
     struct ZstdDecompressor {
+        // `state` is first so the context is freed before the dictionary it references.
+        #[pytraverse(skip)]
+        state: PyMutex<DecState>,
         dict_ref: Option<PyRef<ZstdDict>>,
         #[pymember]
         #[pytraverse(skip)]
@@ -1404,8 +1445,6 @@ mod _zstd {
         #[pymember]
         #[pytraverse(skip)]
         needs_input: AtomicBool,
-        #[pytraverse(skip)]
-        state: PyMutex<DecState>,
     }
 
     impl fmt::Debug for ZstdDecompressor {
@@ -1420,42 +1459,24 @@ mod _zstd {
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let zstd_dict = args.zstd_dict.flatten();
             let options = args.options.flatten();
-            let (dict_ref, applied) = match zstd_dict.as_ref() {
-                Some(obj) => {
-                    let spec = parse_dict_arg(obj, vm)?;
-                    let dict_ref = match &spec {
-                        DictArg::Bare(dict) | DictArg::Marked(dict, _) => dict.clone(),
-                    };
-                    let loaded = load_dict(spec, false, vm)?;
-                    let applied = match loaded {
-                        LoadedDict::Dict(dict) => DecApplied::Dict(dict),
-                        LoadedDict::Prefix(bytes) => DecApplied::Prefix(bytes),
-                    };
-                    (Some(dict_ref), applied)
-                }
-                None => (None, DecApplied::None),
-            };
-            let window_log_max = match options.as_ref() {
-                Some(options) => parse_decompress_options(options, vm)?.window_log_max,
-                None => DEFAULT_WINDOW_LOG_MAX,
-            };
+            let mut dict_ref: Option<PyRef<ZstdDict>> = None;
+            let mut dec = DecState::new().map_err(|err| raise_codec(err, vm))?;
+            if let Some(obj) = zstd_dict.as_ref() {
+                let (dict, marker) = parse_dict_arg(obj, vm)?.parts(false);
+                let loaded = vm.allow_threads(|| dec.load_dict(&dict, marker));
+                loaded.map_err(|err| raise_codec(err, vm))?;
+                dict_ref = Some(dict);
+            }
+            if let Some(options) = options.as_ref() {
+                dec.apply_options(options, vm)?;
+            }
+            let eof = dec.eof;
+            let needs_input = dec.needs_input;
             Ok(Self {
+                state: PyMutex::new(dec),
                 dict_ref,
-                eof: AtomicBool::new(false),
-                needs_input: AtomicBool::new(true),
-                state: PyMutex::new(DecState {
-                    window_max: window_max_bytes(window_log_max),
-                    applied,
-                    src: Vec::new(),
-                    fed: 0,
-                    dec: None,
-                    frame_len: None,
-                    out: Vec::new(),
-                    out_pos: 0,
-                    finished: false,
-                    probed: 0,
-                    needs_input: true,
-                }),
+                eof: AtomicBool::new(eof),
+                needs_input: AtomicBool::new(needs_input),
             })
         }
     }
@@ -1468,44 +1489,35 @@ mod _zstd {
             args: DecompressorArgs,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<u8>> {
-            if zelf.eof.load(Ordering::Relaxed) {
-                return Err(vm.new_eof_error("Already at the end of a Zstandard frame."));
-            }
             let max_length = args.max_length();
             let data = args.data().to_vec();
             let outcome = vm.allow_threads(|| {
                 let mut state = zelf.state.lock();
-                if state.is_eof() {
-                    return Err(DecFail::Eof);
-                }
-                match state.pull(&data, max_length) {
+                match state.decompress(&data, max_length) {
                     Ok(bytes) => {
-                        zelf.eof.store(state.is_eof(), Ordering::Relaxed);
-                        zelf.needs_input.store(state.needs_input, Ordering::Relaxed);
+                        state.publish(&zelf.eof, &zelf.needs_input);
                         Ok(bytes)
                     }
+                    Err(CodecError::Eof) => Err(CodecError::Eof),
                     Err(err) => {
                         state.reset_session();
-                        zelf.eof.store(false, Ordering::Relaxed);
-                        zelf.needs_input.store(true, Ordering::Relaxed);
-                        Err(DecFail::Codec(err))
+                        state.publish(&zelf.eof, &zelf.needs_input);
+                        Err(err)
                     }
                 }
             });
-            match outcome {
-                Ok(bytes) => Ok(bytes),
-                Err(DecFail::Eof) => {
-                    Err(vm.new_eof_error("Already at the end of a Zstandard frame."))
-                }
-                Err(DecFail::Codec(err)) => Err(decompress_error(err, vm)),
-            }
+            outcome.map_err(|err| raise_codec(err, vm))
         }
 
         #[pygetset]
         fn unused_data(zelf: &Py<Self>, vm: &VirtualMachine) -> PyBytesRef {
             let unused = {
                 let state = zelf.state.lock();
-                state.unused().to_vec()
+                if state.eof {
+                    state.pending.clone()
+                } else {
+                    Vec::new()
+                }
             };
             if unused.is_empty() {
                 vm.ctx.empty_bytes.clone()
@@ -1537,19 +1549,16 @@ mod _zstd {
         }
     }
 
-    fn split_samples<'a>(
-        bytes: &'a [u8],
-        sizes: &PyTupleRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<&'a [u8]>> {
-        if u32::try_from(sizes.as_slice().len()).is_err() {
+    fn sample_sizes(bytes: &[u8], sizes: &PyTupleRef, vm: &VirtualMachine) -> PyResult<Vec<usize>> {
+        let items = sizes.as_slice();
+        if u32::try_from(items.len()).is_err() {
             return Err(
                 vm.new_value_error(format!("The number of samples should be <= {}.", u32::MAX))
             );
         }
-        let mut samples = Vec::with_capacity(sizes.as_slice().len());
+        let mut chunks = Vec::with_capacity(items.len());
         let mut offset = 0usize;
-        for item in sizes.as_slice() {
+        for item in items {
             let size = match sample_size(item, vm)? {
                 SampleSize::Mismatch => return Err(vm.new_value_error(SAMPLE_MISMATCH)),
                 SampleSize::Value(size) => size,
@@ -1560,52 +1569,78 @@ mod _zstd {
             if next > bytes.len() {
                 return Err(vm.new_value_error(SAMPLE_MISMATCH));
             }
-            samples.push(&bytes[offset..next]);
+            chunks.push(size);
             offset = next;
         }
         if offset != bytes.len() {
             return Err(vm.new_value_error(SAMPLE_MISMATCH));
         }
-        Ok(samples)
+        Ok(chunks)
     }
 
-    fn dictionary_failure(finalize: bool, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        let verb = if finalize { "finalize" } else { "train" };
-        zstd_error(
-            format!("Unable to {verb} the Zstandard dictionary: Src size is incorrect"),
-            vm,
-        )
-    }
-
-    fn forced_dict_id(custom: &[u8]) -> u32 {
-        let id = read_dict_id(custom).wrapping_add(1);
-        if id == 0 { 1 } else { id }
-    }
-
-    fn train_or_finalize(
+    fn build_dict(
         custom: Option<&[u8]>,
-        samples_bytes: &[u8],
-        samples_sizes: &PyTupleRef,
+        samples: &[u8],
+        sizes: &PyTupleRef,
         dict_size: isize,
+        compression_level: i32,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         if dict_size <= 0 {
             return Err(vm.new_value_error(DICT_SIZE_NONPOSITIVE));
         }
-        let samples = split_samples(samples_bytes, samples_sizes, vm)?;
-        let Ok(max_dict) = usize::try_from(dict_size) else {
+        let chunks = sample_sizes(samples, sizes, vm)?;
+        let Ok(cap) = usize::try_from(dict_size) else {
             return Err(vm.new_value_error(DICT_SIZE_NONPOSITIVE));
         };
-        let dict_id = custom.map(forced_dict_id);
-        let opts = TrainOptions {
-            max_dict,
-            dict_id,
-            ..TrainOptions::fastcover()
-        };
-        match vm.allow_threads(|| train(&samples, opts)) {
-            Ok(bytes) => Ok(bytes),
-            Err(_) => Err(dictionary_failure(custom.is_some(), vm)),
+        let mut dst = Vec::new();
+        dst.try_reserve_exact(cap)
+            .map_err(|_| vm.no_memory_error())?;
+        dst.resize(cap, 0);
+        let nb = u32::try_from(chunks.len()).unwrap_or(0);
+        let code = vm.allow_threads(|| {
+            let scratch = 0u8;
+            let (samples_ptr, _) = ffi_bytes(samples, &scratch);
+            let sizes_ptr = if chunks.is_empty() {
+                core::ptr::null()
+            } else {
+                chunks.as_ptr()
+            };
+            unsafe {
+                if let Some(custom) = custom {
+                    let (custom_ptr, custom_len) = ffi_bytes(custom, &scratch);
+                    ZDICT_finalizeDictionary(
+                        dst.as_mut_ptr().cast(),
+                        cap,
+                        custom_ptr,
+                        custom_len,
+                        samples_ptr,
+                        sizes_ptr,
+                        nb,
+                        ZDICT_params_t {
+                            compressionLevel: compression_level,
+                            notificationLevel: 0,
+                            dictID: 0,
+                        },
+                    )
+                } else {
+                    ZDICT_trainFromBuffer(dst.as_mut_ptr().cast(), cap, samples_ptr, sizes_ptr, nb)
+                }
+            }
+        });
+        if ZDICT_isError(code) != 0 {
+            let kind = if custom.is_some() {
+                CallKind::Finalize
+            } else {
+                CallKind::Train
+            };
+            return Err(raise_codec(CodecError::Named(kind, code), vm));
         }
+        if code > cap {
+            return Err(vm.no_memory_error());
+        }
+        dst.truncate(code);
+        Ok(dst)
     }
 
     #[pyfunction]
@@ -1615,11 +1650,12 @@ mod _zstd {
         dict_size: isize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        train_or_finalize(
+        build_dict(
             None,
             samples_bytes.as_bytes(),
             &samples_sizes,
             dict_size,
+            0,
             vm,
         )
     }
@@ -1633,12 +1669,12 @@ mod _zstd {
         compression_level: i32,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let _ = compression_level;
-        train_or_finalize(
+        build_dict(
             Some(custom_dict_bytes.as_bytes()),
             samples_bytes.as_bytes(),
             &samples_sizes,
             dict_size,
+            compression_level,
             vm,
         )
     }
@@ -1655,36 +1691,37 @@ mod _zstd {
 
     #[pyfunction]
     fn get_frame_info(frame_buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let kind = frame_buffer.with_ref(get_frame_header);
-        let kind = kind.map_err(|_| frame_info_error(vm))?;
-        let (size, dict_id) = match kind {
-            FrameKind::Zstd(header) => {
-                let size = match header.content_size {
-                    Some(value) => vm.ctx.new_int(value).into(),
-                    None => vm.ctx.none(),
-                };
-                (size, header.dict_id.unwrap_or(0))
-            }
-            FrameKind::Skippable { .. } => (vm.ctx.none(), 0),
+        let bytes = frame_buffer.with_ref(<[u8]>::to_vec);
+        let scratch = 0u8;
+        let (ptr, len) = ffi_bytes(&bytes, &scratch);
+        let size = unsafe { ZSTD_getFrameContentSize(ptr, len) };
+        if size == ZSTD_CONTENTSIZE_ERROR {
+            return Err(frame_info_error(vm));
+        }
+        let dict_id = unsafe { ZSTD_getDictID_fromFrame(ptr, len) };
+        let size_obj = if size == ZSTD_CONTENTSIZE_UNKNOWN {
+            vm.ctx.none()
+        } else {
+            vm.ctx.new_int(size).into()
         };
-        Ok(vm.ctx.new_tuple(vec![size, vm.ctx.new_int(dict_id).into()]))
+        Ok(vm
+            .ctx
+            .new_tuple(vec![size_obj, vm.ctx.new_int(dict_id).into()]))
     }
 
     #[pyfunction]
     fn get_frame_size(frame_buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        let result = frame_buffer.with_ref(find_frame_compressed_size);
-        match result {
-            Ok(size) => Ok(size),
-            Err(err) => Err(zstd_error(
-                format!(
-                    "Error when finding the compressed size of a Zstandard frame. \
-                     Ensure the frame_buffer argument starts from the beginning of a frame, \
-                     and its length is not less than this complete frame. \
-                     Zstd error message: {}.",
-                    frame_size_reason(err)
-                ),
+        let bytes = frame_buffer.with_ref(<[u8]>::to_vec);
+        let scratch = 0u8;
+        let (ptr, len) = ffi_bytes(&bytes, &scratch);
+        let size = unsafe { ZSTD_findFrameCompressedSize(ptr, len) };
+        if is_error(size) {
+            Err(raise_codec(
+                CodecError::Named(CallKind::FrameSize, size),
                 vm,
-            )),
+            ))
+        } else {
+            Ok(size)
         }
     }
 }
