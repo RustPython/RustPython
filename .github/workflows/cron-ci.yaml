@@ -14,7 +14,7 @@ on:
       - .github/workflows/cron-ci.yaml
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env,doc
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
@@ -33,7 +33,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+      - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
         with:
           tool: cargo-llvm-cov
 
@@ -42,7 +42,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
       - name: Run cargo-llvm-cov with Rust tests.
-        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi --verbose --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env,doc
 
       - name: Run cargo-llvm-cov with Python snippets.
         run: python scripts/cargo-llvm-cov.py

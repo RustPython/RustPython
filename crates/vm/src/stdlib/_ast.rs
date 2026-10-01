@@ -1813,6 +1813,7 @@ pub(crate) fn parse(
         options.clone(),
         explicit_future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
+    rustpython_compiler::pre_parse_source_error(&source_file)?;
     let parsed = parser::parse_unchecked(barry_source.source(), options);
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
@@ -1881,6 +1882,11 @@ pub(crate) fn parse(
         return Err(error);
     }
     let mut top = parsed.into_syntax();
+    rustpython_compiler::too_deeply_nested_error(
+        &top,
+        &source_file,
+        rustpython_compiler::CompileOpts::default().recursion_limit,
+    )?;
     if let Some(error) = rustpython_compiler::unsupported_grammar_error(&top, &source_file) {
         return Err(error);
     }

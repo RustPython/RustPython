@@ -5,11 +5,11 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, MemberKind, PY_READONLY, PY_RELATIVE_OFFSET,
-    PyDescriptorOwned, PyGetSet, PyMappingProxy, PyMemberDescriptor, PyType,
+    DescriptorMemberDef, MemberAccess, MemberKind, PyDescriptorOwned, PyGetSet, PyMappingProxy,
+    PyMemberDescriptor, PyMemberFlags, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
-use rustpython_vm::function::PySetterValue;
+use rustpython_vm::function::{ItemDoc, PySetterValue};
 use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 #[repr(C)]
@@ -149,17 +149,22 @@ impl PyMemberDef {
                 self.type_code
             )));
         };
-        if self.offset < 0 {
-            return Err(vm.new_system_error("PyDescr_NewMember does not support negative offsets"));
-        }
-        if self.flags & PY_RELATIVE_OFFSET != 0 {
-            return Err(
-                vm.new_system_error("PyDescr_NewMember does not support Py_RELATIVE_OFFSET")
-            );
+        let mut offset = self.offset;
+        // Unknown bits belong to the extension and are kept.
+        let mut flags = PyMemberFlags::from_bits_retain(self.flags);
+        // Extension members never carry the internal atomic-storage bit.
+        flags.remove(PyMemberFlags::ATOMIC);
+        if flags.contains(PyMemberFlags::RELATIVE_OFFSET) {
+            // type creation adds tp_basicsize and clears the flag before GetOne.
+            // `slots.basicsize` is already the full tp_basicsize.
+            offset += ty.slots.basicsize as isize;
+            flags.remove(PyMemberFlags::RELATIVE_OFFSET);
         }
 
-        let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map(str::to_owned);
-        let readonly = self.flags & PY_READONLY != 0;
+        let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map_or(ItemDoc::NONE, |doc| {
+            let text: &'static str = Box::leak(doc.to_owned().into_boxed_str());
+            ItemDoc::static_text(text)
+        });
 
         let descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -170,12 +175,12 @@ impl PyMemberDef {
             member: DescriptorMemberDef {
                 name: name.to_owned(),
                 kind,
-                offset: self.offset,
-                flags: if readonly { PY_READONLY } else { 0 },
+                offset,
+                flags,
                 doc,
             },
-            // Instance members live in the slot array. `offset` is that index.
-            access: MemberAccess::Slot,
+            // `offset` is a byte offset from the object to the field.
+            access: MemberAccess::Offset,
         };
 
         Ok(descriptor.into_ref(&vm.ctx))

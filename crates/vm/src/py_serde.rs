@@ -86,7 +86,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
         } else if let Some(list) = self.pyobject.downcast_ref::<PyList>() {
             serialize_seq_elements(serializer, &list.borrow_vec())
         } else if let Some(tuple) = self.pyobject.downcast_ref::<PyTuple>() {
-            serialize_seq_elements(serializer, tuple)
+            serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();

@@ -18,9 +18,9 @@ mod _weakref {
         vm.ctx.types.weakref_type.to_owned()
     }
 
-    #[pyattr]
-    fn proxy(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+    #[pyfunction]
+    fn proxy(args: crate::builtins::WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult {
+        crate::builtins::PyWeakProxy::from_new_args(args, vm).map(Into::into)
     }
 
     #[pyattr(name = "ReferenceType")]

@@ -344,8 +344,7 @@ impl PyCFuncPtrType {
     }
 }
 
-/// PyCFuncPtr - Function pointer instance
-/// Saved in _base.buffer
+// Saved in _base.buffer
 #[pyclass(
     module = "_ctypes",
     name = "CFuncPtr",
@@ -453,7 +452,7 @@ fn wstring_at_impl(ptr: usize, size: isize, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-/// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
+// A buffer wrapping raw memory at a given pointer, for zero-copy memoryview.
 #[pyclass(name = "_RawMemoryBuffer", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub(super) struct RawMemoryBuffer {
@@ -745,14 +744,15 @@ impl Constructor for PyCFuncPtr {
         // Check if first argument is a tuple (name, dll) form
         if let Some(tuple) = first_arg.downcast_ref::<PyTuple>() {
             let name = tuple
+                .as_slice()
                 .first()
                 .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .downcast_ref::<PyStr>()
                 .ok_or_else(|| vm.new_type_error("Expected a string"))?
                 .to_string();
             let dll = tuple
-                .iter()
-                .nth(1)
+                .as_slice()
+                .get(1)
                 .ok_or_else(|| vm.new_type_error("Expected a tuple with at least 2 elements"))?
                 .clone();
 
@@ -1080,14 +1080,16 @@ fn parse_paramflags(
                 return (direction, None, None);
             };
             let direction = tuple
+                .as_slice()
                 .first()
                 .and_then(|d| d.try_int(vm).ok())
                 .and_then(|i| i.as_bigint().to_u32())
                 .unwrap_or(1);
             let name = tuple
+                .as_slice()
                 .get(1)
                 .and_then(|n| n.downcast_ref::<PyStr>().map(|s| s.to_string()));
-            let default = tuple.get(2).cloned();
+            let default = tuple.as_slice().get(2).cloned();
             (direction, name, default)
         })
         .collect();
@@ -1605,7 +1607,7 @@ impl Callable for PyCFuncPtr {
         };
 
         // 7. Errno / last-error swap options from flags
-        let flags = Self::_flags_(zelf, vm);
+        let flags = Py::<Self>::_flags_(zelf, vm);
         let options = CallOptions {
             use_errno: flags & super::base::StgInfoFlags::FUNCFLAG_USE_ERRNO.bits() != 0,
             use_last_error: flags & super::base::StgInfoFlags::FUNCFLAG_USE_LASTERROR.bits() != 0,
@@ -1672,7 +1674,7 @@ impl AsBuffer for PyCFuncPtr {
     flags(BASETYPE),
     with(Callable, Constructor, AsNumber, Representable, AsBuffer)
 )]
-impl PyCFuncPtr {
+impl Py<PyCFuncPtr> {
     // restype getter/setter
     #[pygetset]
     fn restype(&self) -> Option<PyObjectRef> {
@@ -1731,7 +1733,7 @@ impl PyCFuncPtr {
 
     // _flags_ getter (read-only, from type's class attribute or StgInfo)
     #[pygetset]
-    fn _flags_(zelf: &Py<Self>, vm: &VirtualMachine) -> u32 {
+    fn _flags_(zelf: &Self, vm: &VirtualMachine) -> u32 {
         // First try to get _flags_ from type's class attribute (for dynamically created types)
         // This is how CDLL sets use_errno: class _FuncPtr(_CFuncPtr): _flags_ = flags
         if let Ok(flags_attr) = zelf.class().as_object().get_attr("_flags_", vm)
@@ -1919,7 +1921,7 @@ unsafe extern "C" fn thunk_callback(
     });
 }
 
-/// CThunkObject wraps a Python callable to make it callable from C code.
+// CThunkObject wraps a Python callable to make it callable from C code.
 #[pyclass(name = "CThunkObject", module = "_ctypes")]
 #[derive(PyPayload)]
 pub(super) struct PyCThunk {
@@ -2002,8 +2004,18 @@ impl PyCThunk {
 unsafe impl Send for PyCThunk {}
 unsafe impl Sync for PyCThunk {}
 
-#[pyclass]
-impl PyCThunk {
+/// `ffi_type`: `size_t` size, two `unsigned short`s, then a pointer.
+#[repr(C)]
+#[allow(dead_code)]
+struct FfiTypeLayout {
+    _size: usize,
+    _alignment: u16,
+    _type_code: u16,
+    _elements: *mut *mut u8,
+}
+
+#[pyclass(itemsize = core::mem::size_of::<FfiTypeLayout>())]
+impl Py<PyCThunk> {
     #[pygetset]
     fn callable(&self) -> PyObjectRef {
         self.callable.clone()

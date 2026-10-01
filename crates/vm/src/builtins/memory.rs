@@ -17,7 +17,7 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, NameExcInfo, OptionalArg, PosArgs, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
@@ -385,8 +385,8 @@ impl PyMemoryView {
         self.format_spec
             .unpack(&bytes[pos..pos + self.format_spec.size()], vm)
             .map(|x| {
-                if x.len() == 1 {
-                    x[0].to_owned()
+                if x.as_slice().len() == 1 {
+                    x.as_slice()[0].to_owned()
                 } else {
                     x.into()
                 }
@@ -674,55 +674,7 @@ impl Py<PyMemoryView> {
     }
 }
 
-#[pyclass(
-    with(
-        Py,
-        Hashable,
-        Comparable,
-        AsBuffer,
-        AsMapping,
-        AsSequence,
-        Constructor,
-        Iterable,
-        Representable
-    ),
-    flags(SEQUENCE, HAS_WEAKREF)
-)]
 impl PyMemoryView {
-    #[pyclassmethod]
-    fn __class_getitem__(
-        cls: PyTypeRef,
-        args: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-
-    #[pyclassmethod]
-    fn _from_flags(
-        _cls: PyTypeRef,
-        args: PyMemoryViewFromFlagsArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let flags =
-            BufferFlags::from_bits_retain(args.flags.as_ref().try_to_primitive::<i32>(vm)? as u32);
-        Self::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
-    }
-
-    #[pymethod(name = "release")]
-    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
-        // _memory_release: what still reads this view holds it open.
-        let exports = self.exports.load();
-        if !self.released.load() && exports > 0 {
-            let plural = if exports == 1 { "" } else { "s" };
-            return Err(
-                vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
-            );
-        }
-        self.release();
-        Ok(())
-    }
-
     /// Give up the view's share without asking whether anything is reading it.
     /// The teardown paths have nowhere to report a refusal.
     pub fn release(&self) {
@@ -738,6 +690,180 @@ impl PyMemoryView {
         let result = f();
         self.exports.fetch_sub(1);
         result
+    }
+
+    fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        zelf.try_not_released(vm)?;
+        if zelf.desc.ndim() == 0 {
+            // 0-d memoryview can be referenced using mv[...] or mv[()] only
+            if needle.is(&vm.ctx.ellipsis) {
+                return Ok(zelf.into());
+            }
+            if let Some(tuple) = needle.downcast_ref::<PyTuple>()
+                && tuple.as_slice().is_empty()
+            {
+                return zelf.unpack_single(zelf.desc.offset as usize, vm);
+            }
+            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
+        }
+
+        match SubscriptNeedle::try_from_object(vm, needle)? {
+            SubscriptNeedle::Index(i) => zelf.getitem_by_idx(i, vm),
+            SubscriptNeedle::Slice(slice) => zelf.getitem_by_slice(&slice, vm),
+            SubscriptNeedle::MultiIndex(indices) => zelf.getitem_by_multi_idx(&indices, vm),
+        }
+    }
+
+    fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_not_released(vm)?;
+        // What cannot be written cannot be deleted from either, and that is
+        // the first thing answered.
+        if self.desc.readonly {
+            return Err(vm.new_type_error("cannot modify read-only memory"));
+        }
+        Err(vm.new_type_error("cannot delete memory"))
+    }
+
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        self.try_not_released(vm)?;
+        if self.desc.ndim() == 0 {
+            // 0-dimensional memoryview has no length
+            Err(vm.new_type_error("0-dim memory has no length"))
+        } else {
+            // shape for dim[0]
+            Ok(self.desc.dim_desc[0].0)
+        }
+    }
+
+    fn cast_to_1d(&self, format: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<Self> {
+        let format_str = format.as_str();
+        let Some(dest_char) = Self::native_fmtchar(format_str) else {
+            return Err(vm.new_value_error(
+                "memoryview: destination format must be a native single character format prefixed with an optional '@'",
+            ));
+        };
+        // One side has to be bytes. Casting between two item types would
+        // reinterpret the items rather than re-divide the memory, and the
+        // source items were written by something that chose their type.
+        let source_is_bytes = Self::native_fmtchar(&self.desc.format).is_some_and(is_byte_fmtchar);
+        if !source_is_bytes && !is_byte_fmtchar(dest_char) {
+            return Err(vm.new_type_error("memoryview: cannot cast between two non-byte formats"));
+        }
+        let format_spec = Self::parse_format(format_str, vm)?;
+        let itemsize = format_spec.size();
+        if !self.desc.len.is_multiple_of(itemsize) {
+            return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
+        }
+
+        let zelf = Self {
+            buffer: self.buffer.clone(),
+            released: AtomicCell::new(false),
+            restricted: AtomicCell::new(false),
+            format_spec,
+            desc: BufferDescriptor {
+                len: self.desc.len,
+                offset: self.desc.offset,
+                readonly: self.desc.readonly,
+                itemsize,
+                format: format_str.to_owned().into(),
+                dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
+            },
+            hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
+        };
+        Ok(zelf)
+    }
+}
+
+#[pyclass(
+    itemsize = core::mem::size_of::<isize>(),
+    with(
+        Py,
+        Hashable,
+        Comparable,
+        AsBuffer,
+        AsMapping,
+        AsSequence,
+        Constructor,
+        Iterable,
+        Representable
+    ),
+    flags(SEQUENCE, HAS_WEAKREF)
+)]
+impl PyMemoryView {}
+
+#[pyclass]
+impl Py<PyMemoryView> {
+    fn __setitem__(
+        &self,
+        needle: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.try_not_released(vm)?;
+        if self.desc.readonly {
+            return Err(vm.new_type_error("cannot modify read-only memory"));
+        }
+        if self.desc.ndim() == 0 {
+            // TODO: merge branches when we got conditional if let
+            if needle.is(&vm.ctx.ellipsis) {
+                return self.pack_single(self.desc.offset as usize, value, vm);
+            } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
+                && tuple.as_slice().is_empty()
+            {
+                return self.pack_single(self.desc.offset as usize, value, vm);
+            }
+            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
+        }
+        match SubscriptNeedle::try_from_object(vm, needle)? {
+            SubscriptNeedle::Index(i) => self.setitem_by_idx(i, value, vm),
+            SubscriptNeedle::Slice(slice) => self.setitem_by_slice(&slice, value, vm),
+            SubscriptNeedle::MultiIndex(indices) => self.setitem_by_multi_idx(&indices, value, vm),
+        }
+    }
+
+    #[pymethod]
+    fn __reduce_ex__(&self, _proto: usize, vm: &VirtualMachine) -> PyResult {
+        self.__reduce__(vm)
+    }
+
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("cannot pickle 'memoryview' object"))
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
+    }
+
+    #[pyclassmethod]
+    fn _from_flags(
+        _cls: PyTypeRef,
+        args: PyMemoryViewFromFlagsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyMemoryView>> {
+        let flags =
+            BufferFlags::from_bits_retain(args.flags.as_ref().try_to_primitive::<i32>(vm)? as u32);
+        PyMemoryView::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
+    }
+
+    #[pymethod(name = "release")]
+    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // _memory_release: what still reads this view holds it open.
+        let exports = self.exports.load();
+        if !self.released.load() && exports > 0 {
+            let plural = if exports == 1 { "" } else { "s" };
+            return Err(
+                vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
+            );
+        }
+        self.release();
+        Ok(())
     }
 
     #[pygetset]
@@ -841,57 +967,18 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn __enter__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn __enter__(zelf: PyRef<PyMemoryView>, vm: &VirtualMachine) -> PyResult<PyRef<PyMemoryView>> {
         zelf.try_not_released(vm).map(|_| zelf)
     }
 
     // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn __exit__(
+        &self,
+        _exc_info: PosArgs<PyObjectRef, NameExcInfo>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.py_release(vm)
-    }
-
-    fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        zelf.try_not_released(vm)?;
-        if zelf.desc.ndim() == 0 {
-            // 0-d memoryview can be referenced using mv[...] or mv[()] only
-            if needle.is(&vm.ctx.ellipsis) {
-                return Ok(zelf.into());
-            }
-            if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
-            {
-                return zelf.unpack_single(zelf.desc.offset as usize, vm);
-            }
-            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
-        }
-
-        match SubscriptNeedle::try_from_object(vm, needle)? {
-            SubscriptNeedle::Index(i) => zelf.getitem_by_idx(i, vm),
-            SubscriptNeedle::Slice(slice) => zelf.getitem_by_slice(&slice, vm),
-            SubscriptNeedle::MultiIndex(indices) => zelf.getitem_by_multi_idx(&indices, vm),
-        }
-    }
-
-    fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_not_released(vm)?;
-        // What cannot be written cannot be deleted from either, and that is
-        // the first thing answered.
-        if self.desc.readonly {
-            return Err(vm.new_type_error("cannot modify read-only memory"));
-        }
-        Err(vm.new_type_error("cannot delete memory"))
-    }
-
-    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.try_not_released(vm)?;
-        if self.desc.ndim() == 0 {
-            // 0-dimensional memoryview has no length
-            Err(vm.new_type_error("0-dim memory has no length"))
-        } else {
-            // shape for dim[0]
-            Ok(self.desc.dim_desc[0].0)
-        }
     }
 
     #[pymethod]
@@ -943,7 +1030,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn toreadonly(&self, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn toreadonly(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyMemoryView>> {
         self.try_usable(vm)?;
         let mut other = self.new_view();
         other.desc.readonly = true;
@@ -980,13 +1067,7 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn index(
-        &self,
-        value: PyObjectRef,
-        start: OptionalArg<isize>,
-        stop: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
+    fn index(&self, args: MemoryIndexArgs, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;
         if self.desc.ndim() != 1 {
             return Err(
@@ -994,8 +1075,7 @@ impl PyMemoryView {
             );
         }
         let len = self.desc.dim_desc[0].0;
-        let start = start.unwrap_or(0);
-        let stop = stop.unwrap_or(len as isize);
+        let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
             (start + len as isize).max(0) as usize
@@ -1017,47 +1097,8 @@ impl PyMemoryView {
         Err(vm.new_value_error("memoryview.index(x): x not in memoryview"))
     }
 
-    fn cast_to_1d(&self, format: &Py<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<Self> {
-        let format_str = format.as_str();
-        let Some(dest_char) = Self::native_fmtchar(format_str) else {
-            return Err(vm.new_value_error(
-                "memoryview: destination format must be a native single character format prefixed with an optional '@'",
-            ));
-        };
-        // One side has to be bytes. Casting between two item types would
-        // reinterpret the items rather than re-divide the memory, and the
-        // source items were written by something that chose their type.
-        let source_is_bytes = Self::native_fmtchar(&self.desc.format).is_some_and(is_byte_fmtchar);
-        if !source_is_bytes && !is_byte_fmtchar(dest_char) {
-            return Err(vm.new_type_error("memoryview: cannot cast between two non-byte formats"));
-        }
-        let format_spec = Self::parse_format(format_str, vm)?;
-        let itemsize = format_spec.size();
-        if !self.desc.len.is_multiple_of(itemsize) {
-            return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
-        }
-
-        let zelf = Self {
-            buffer: self.buffer.clone(),
-            released: AtomicCell::new(false),
-            restricted: AtomicCell::new(false),
-            format_spec,
-            desc: BufferDescriptor {
-                len: self.desc.len,
-                offset: self.desc.offset,
-                readonly: self.desc.readonly,
-                itemsize,
-                format: format_str.to_owned().into(),
-                dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
-            },
-            hash: OnceCell::new(),
-            exports: AtomicCell::new(0),
-        };
-        Ok(zelf)
-    }
-
     #[pymethod]
-    fn cast(&self, args: CastArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn cast(&self, args: CastArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyMemoryView>> {
         self.try_usable(vm)?;
         if !self.desc.is_contiguous() {
             return Err(vm.new_type_error("memoryview: casts are restricted to C-contiguous views"));
@@ -1156,50 +1197,21 @@ impl PyMemoryView {
     }
 }
 
-#[pyclass]
-impl Py<PyMemoryView> {
-    fn __setitem__(
-        &self,
-        needle: PyObjectRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        self.try_not_released(vm)?;
-        if self.desc.readonly {
-            return Err(vm.new_type_error("cannot modify read-only memory"));
-        }
-        if self.desc.ndim() == 0 {
-            // TODO: merge branches when we got conditional if let
-            if needle.is(&vm.ctx.ellipsis) {
-                return self.pack_single(self.desc.offset as usize, value, vm);
-            } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
-                && tuple.is_empty()
-            {
-                return self.pack_single(self.desc.offset as usize, value, vm);
-            }
-            return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
-        }
-        match SubscriptNeedle::try_from_object(vm, needle)? {
-            SubscriptNeedle::Index(i) => self.setitem_by_idx(i, value, vm),
-            SubscriptNeedle::Slice(slice) => self.setitem_by_slice(&slice, value, vm),
-            SubscriptNeedle::MultiIndex(indices) => self.setitem_by_multi_idx(&indices, value, vm),
-        }
-    }
-
-    #[pymethod]
-    fn __reduce_ex__(&self, _proto: usize, vm: &VirtualMachine) -> PyResult {
-        self.__reduce__(vm)
-    }
-
-    #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error("cannot pickle 'memoryview' object"))
-    }
+#[derive(FromArgs)]
+struct MemoryIndexArgs {
+    #[pyarg(positional)]
+    value: PyObjectRef,
+    #[pyarg(positional, default)]
+    start: isize,
+    // Omission is clamped to the view length.
+    #[pyarg(positional, default = isize::MAX)]
+    stop: isize,
 }
 
 #[derive(FromArgs)]
 struct ToBytesArgs {
-    #[pyarg(any, default)]
+    // Missing means C order.
+    #[pyarg(any, default, py_default = "'C'")]
     order: Option<PyStrRef>,
 }
 
@@ -1240,16 +1252,17 @@ impl TryFromObject for SubscriptNeedle {
             return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
         }
         if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-            if tuple.iter().all(|x| x.number().is_index()) {
+            if tuple.as_slice().iter().all(|x| x.number().is_index()) {
                 // ptr_from_tuple: each item is converted where it sits, and the
                 // conversion can run Python that releases the view.
                 let indices = tuple
+                    .as_slice()
                     .iter()
                     .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
                     .try_collect()?;
                 return Ok(Self::MultiIndex(indices));
             }
-            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+            if tuple.as_slice().iter().all(|x| x.downcastable::<PySlice>()) {
                 return Err(
                     vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
                 );
@@ -1393,7 +1406,7 @@ impl Hashable for PyMemoryView {
         if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
             zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
         }
-        let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
+        let val = zelf.contiguous_or_collect(|bytes| crate::vm::hash_secret().hash_bytes(bytes));
         let _ = zelf.hash.set(val);
         Ok(*zelf.hash.get().unwrap())
     }
@@ -1474,7 +1487,12 @@ static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
         // A native release runs when the memoryview itself is torn down; only a
         // Python-level hook on a foreign exporter has to be called here.
         if !mv.buffer.obj.is(&wrapper.exporter)
-            && wrapper.exporter.class().slots.python_release_buffer.load()
+            && wrapper
+                .exporter
+                .class()
+                .slots()
+                .python_release_buffer
+                .load()
         {
             call_python_release_buffer(&wrapper.exporter, mv.clone());
         }
@@ -1635,8 +1653,8 @@ fn format_unpack(
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
     format_spec.unpack(bytes, vm).map(|x| {
-        if x.len() == 1 {
-            x[0].to_owned()
+        if x.as_slice().len() == 1 {
+            x.as_slice()[0].to_owned()
         } else {
             x.into()
         }
@@ -1697,7 +1715,7 @@ impl PyPayload for PyMemoryViewIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyMemoryViewIterator {
+impl Py<PyMemoryViewIterator> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let func = builtins_iter(vm)?;

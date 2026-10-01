@@ -7,11 +7,11 @@ mod _queue {
     use std::time::Instant;
 
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::{PyComparisonValue, TimeoutSeconds},
+        function::TimeoutSeconds,
         protocol::PyNumberMethods,
-        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
+        types::{AsNumber, Constructor, Representable},
     };
 
     type BufInner = VecDeque<PyObjectRef>;
@@ -143,7 +143,7 @@ mod _queue {
     }
 
     #[pyattr]
-    #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
+    #[pyclass(module = "_queue", name = "SimpleQueue")]
     #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
         buf: Buf,
@@ -195,14 +195,20 @@ mod _queue {
     }
 
     #[derive(FromArgs)]
+    struct ItemArg {
+        #[pyarg(any)]
+        item: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
     struct PutArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         item: PyObjectRef,
         #[expect(
             dead_code,
             reason = "Intentional. Provide compatibility with the Queue class"
         )]
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[expect(
             dead_code,
@@ -214,45 +220,45 @@ mod _queue {
 
     #[derive(FromArgs)]
     struct GetArgs {
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[pyarg(any, optional)]
         timeout: Option<TimeoutSeconds>,
     }
 
     #[pyclass(
-        with(Constructor, Comparable, Representable),
+        with(Constructor, Representable),
         flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
     )]
     impl PySimpleQueue {
         #[pymethod]
-        fn empty(&self) -> bool {
-            self.buf.lock().is_empty()
+        fn empty(zelf: &Py<Self>) -> bool {
+            zelf.buf.lock().is_empty()
         }
 
         #[pymethod]
-        fn qsize(&self) -> usize {
-            self.buf.lock().len()
+        fn qsize(zelf: &Py<Self>) -> usize {
+            zelf.buf.lock().len()
         }
 
         #[pymethod]
-        fn put(&self, args: PutArgs, vm: &VirtualMachine) {
+        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) {
             let PutArgs { item, .. } = args;
-            self.push(item, vm);
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn put_nowait(&self, item: PyObjectRef, vm: &VirtualMachine) {
-            self.push(item, vm);
+        fn put_nowait(zelf: &Py<Self>, ItemArg { item }: ItemArg, vm: &VirtualMachine) {
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
 
             // Non-blocking: just try once
             if !block {
-                return Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm));
+                return Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm));
             }
 
             #[cfg_attr(
@@ -272,33 +278,33 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(block, deadline, vm)? {
+                if !zelf.sem.acquire(block, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pymethod]
-        fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_nowait(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(false, None, vm)? {
+                if !zelf.sem.acquire(false, None, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyGenericAlias> {
-            PyGenericAlias::from_args(cls, args, vm)
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -320,21 +326,6 @@ mod _queue {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
-        }
-    }
-
-    impl Comparable for PySimpleQueue {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            _vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            Ok(if let Some(res) = op.identical_optimization(zelf, other) {
-                res.into()
-            } else {
-                PyComparisonValue::NotImplemented
-            })
         }
     }
 

@@ -18,14 +18,15 @@ mod _pickle {
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
     };
+    use core::sync::atomic::{AtomicI32, Ordering};
     use malachite_bigint::BigInt;
     use num_traits::{ToPrimitive, Zero};
     use std::collections::HashMap;
 
-    /// The highest protocol number `_pickle` knows how to read.
+    // The highest protocol number `_pickle` knows how to read.
     #[pyattr]
     const HIGHEST_PROTOCOL: u8 = 5;
-    /// The protocol `dumps`/`dump` use when no protocol is given.
+    // The protocol `dumps`/`dump` use when no protocol is given.
     #[pyattr]
     const DEFAULT_PROTOCOL: u8 = 5;
 
@@ -67,7 +68,7 @@ mod _pickle {
     // PickleBuffer
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "PickleBuffer")]
+    #[pyclass(module = "pickle", name = "PickleBuffer")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPickleBuffer {
         buffer: PyRwLock<Option<PyBuffer>>,
@@ -96,11 +97,12 @@ mod _pickle {
             })
         }
 
-        /// Return a memoryview of the raw memory underlying this buffer.
-        /// Will raise BufferError if the buffer isn't contiguous.
         #[pymethod]
-        fn raw(&self, vm: &VirtualMachine) -> PyResult<PyRef<crate::vm::builtins::PyMemoryView>> {
-            let buffer = self.get(vm)?;
+        fn raw(
+            zelf: &Py<Self>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<crate::vm::builtins::PyMemoryView>> {
+            let buffer = zelf.get(vm)?;
             if !buffer.desc.is_contiguous() {
                 return Err(vm.new_buffer_error(
                     "cannot pickle a non-contiguous buffer: PickleBuffer is not contiguous",
@@ -109,10 +111,9 @@ mod _pickle {
             Ok(crate::vm::builtins::PyMemoryView::from_buffer(buffer, vm)?.into_ref(&vm.ctx))
         }
 
-        /// Release the underlying buffer exposed by the PickleBuffer object.
         #[pymethod]
-        fn release(&self) {
-            *self.buffer.write() = None;
+        fn release(zelf: &Py<Self>) {
+            *zelf.buffer.write() = None;
         }
     }
 
@@ -405,14 +406,14 @@ mod _pickle {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl UnpicklerMemoProxy {
         #[pymethod]
-        fn clear(&self) {
-            self.unpickler.memo.write().clear();
+        fn clear(zelf: &Py<Self>) {
+            zelf.unpickler.memo.write().clear();
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
-            for (i, entry) in self.unpickler.memo.read().iter().enumerate() {
+            for (i, entry) in zelf.unpickler.memo.read().iter().enumerate() {
                 if let Some(obj) = entry {
                     let key: PyObjectRef = vm.ctx.new_int(i).into();
                     dict.set_item(&*key, obj.clone(), vm)?;
@@ -422,8 +423,8 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let contents = self.copy(vm)?;
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let contents = Self::copy(zelf, vm)?;
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -475,13 +476,16 @@ mod _pickle {
     pub(super) struct UnpicklerNewArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
@@ -504,21 +508,23 @@ mod _pickle {
             let Some(mut state) = zelf.read_state.try_lock() else {
                 return Err(vm.new_runtime_error("Unpickler.__init__() called recursively"));
             };
-            let encoding = match args.encoding {
-                OptionalArg::Present(o) if !vm.is_none(&o) => o
+            let encoding = if vm.is_none(&args.encoding) {
+                "ASCII".to_owned()
+            } else {
+                args.encoding
                     .downcast_ref::<PyStr>()
                     .and_then(|s| s.to_str())
                     .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                    .to_owned(),
-                _ => "ASCII".to_owned(),
+                    .to_owned()
             };
-            let errors = match args.errors {
-                OptionalArg::Present(o) if !vm.is_none(&o) => o
+            let errors = if vm.is_none(&args.errors) {
+                "strict".to_owned()
+            } else {
+                args.errors
                     .downcast_ref::<PyStr>()
                     .and_then(|s| s.to_str())
                     .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                    .to_owned(),
-                _ => "strict".to_owned(),
+                    .to_owned()
             };
             let buffers = match args.buffers {
                 OptionalArg::Present(o) if !vm.is_none(&o) => {
@@ -546,7 +552,7 @@ mod _pickle {
             *zelf.config.write() = UnpicklerConfig {
                 initialized: true,
                 proto: 0,
-                fix_imports: args.fix_imports.unwrap_or(true),
+                fix_imports: args.fix_imports,
                 encoding,
                 errors,
                 buffers,
@@ -562,9 +568,13 @@ mod _pickle {
             load_impl(zelf, vm)
         }
 
-        /// The default hook: no persistent ids are supported.
+        // The default hook: no persistent ids are supported.
         #[pymethod]
-        fn persistent_load(&self, _pid: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn persistent_load(
+            _zelf: &Py<Self>,
+            _pid: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             Err(new_unpickling_error(
                 vm,
                 "A load persistent id instruction was encountered, but no persistent_load function was specified.",
@@ -574,11 +584,11 @@ mod _pickle {
         #[pymethod]
         fn find_class(
             zelf: &Py<Self>,
-            module: PyObjectRef,
-            name: PyObjectRef,
+            module_name: PyObjectRef,
+            global_name: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            find_class_impl(zelf, module, name, vm)
+            find_class_impl(zelf, module_name, global_name, vm)
         }
 
         #[pygetset]
@@ -660,16 +670,7 @@ mod _pickle {
             let cfg = zelf.config.read();
             (cfg.proto, cfg.fix_imports)
         };
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call(
-                (
-                    vm.ctx.new_str("pickle.find_class"),
-                    module.clone(),
-                    name.clone(),
-                ),
-                vm,
-            )?;
-        }
+        vm.audit("pickle.find_class", || (module.clone(), name.clone()))?;
         let mut module = module
             .downcast::<PyStr>()
             .map_err(|_| vm.new_type_error("module name must be a string"))?;
@@ -687,7 +688,7 @@ mod _pickle {
                 let mapped: PyTupleRef = mapped.downcast().map_err(|_| {
                     vm.new_runtime_error("_compat_pickle.NAME_MAPPING values must be 2-tuples")
                 })?;
-                if mapped.len() != 2 {
+                if mapped.as_slice().len() != 2 {
                     return Err(
                         vm.new_runtime_error("_compat_pickle.NAME_MAPPING values must be 2-tuples")
                     );
@@ -1537,7 +1538,9 @@ mod _pickle {
             return Ok(());
         }
         let (state, slotstate) = match state.downcast_ref::<PyTuple>() {
-            Some(t) if t.len() == 2 => (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone())),
+            Some(t) if t.as_slice().len() == 2 => {
+                (t.as_slice()[0].clone(), Some(t.as_slice()[1].clone()))
+            }
             _ => (state, None),
         };
         if !vm.is_none(&state) && state.try_to_bool(vm)? {
@@ -1596,7 +1599,7 @@ mod _pickle {
         let key: PyTupleRef = key
             .downcast()
             .map_err(|_| vm.new_value_error("_inverted_registry values must be 2-tuples"))?;
-        if key.len() != 2 {
+        if key.as_slice().len() != 2 {
             return Err(vm.new_value_error("_inverted_registry values must be 2-tuples"));
         }
         let module = key.as_slice()[0].clone();
@@ -1616,38 +1619,43 @@ mod _pickle {
     pub(super) struct LoadsArgs {
         #[pyarg(positional)]
         data: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
     fn unpickler_config(
-        fix_imports: OptionalArg<bool>,
-        encoding: OptionalArg<PyObjectRef>,
-        errors: OptionalArg<PyObjectRef>,
+        fix_imports: bool,
+        encoding: PyObjectRef,
+        errors: PyObjectRef,
         buffers: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<UnpicklerConfig> {
-        let encoding = match encoding {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+        let encoding = if vm.is_none(&encoding) {
+            "ASCII".to_owned()
+        } else {
+            encoding
                 .downcast_ref::<PyStr>()
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| vm.new_type_error("encoding must be a string"))?
-                .to_owned(),
-            _ => "ASCII".to_owned(),
+                .to_owned()
         };
-        let errors = match errors {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+        let errors = if vm.is_none(&errors) {
+            "strict".to_owned()
+        } else {
+            errors
                 .downcast_ref::<PyStr>()
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| vm.new_type_error("errors must be a string"))?
-                .to_owned(),
-            _ => "strict".to_owned(),
+                .to_owned()
         };
         let buffers = match buffers {
             OptionalArg::Present(o) if !vm.is_none(&o) => {
@@ -1658,7 +1666,7 @@ mod _pickle {
         Ok(UnpicklerConfig {
             initialized: true,
             proto: 0,
-            fix_imports: fix_imports.unwrap_or(true),
+            fix_imports,
             encoding,
             errors,
             buffers,
@@ -1702,13 +1710,16 @@ mod _pickle {
     pub(super) struct LoadArgs {
         #[pyarg(any)]
         file: PyObjectRef,
-        #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        encoding: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
-        errors: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
+        // None means ASCII.
+        #[pyarg(named, default = "ASCII")]
+        encoding: PyObjectRef,
+        // None means strict.
+        #[pyarg(named, default = "strict")]
+        errors: PyObjectRef,
+        // Missing or None means no buffers.
+        #[pyarg(named, optional, py_default = "()")]
         buffers: OptionalArg<PyObjectRef>,
     }
 
@@ -1869,8 +1880,6 @@ mod _pickle {
     pub(super) struct PicklerConfig {
         initialized: bool,
         proto: u8,
-        bin: bool,
-        fast: bool,
         fix_imports: bool,
         buffer_callback: Option<PyObjectRef>,
     }
@@ -1880,8 +1889,6 @@ mod _pickle {
             Self {
                 initialized: false,
                 proto: DEFAULT_PROTOCOL,
-                bin: true,
-                fast: false,
                 fix_imports: false,
                 buffer_callback: None,
             }
@@ -1898,15 +1905,15 @@ mod _pickle {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PicklerMemoProxy {
         #[pymethod]
-        fn clear(&self) {
-            self.pickler.memo.write().clear();
+        fn clear(zelf: &Py<Self>) {
+            zelf.pickler.memo.write().clear();
         }
 
         #[pymethod]
-        fn copy(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let dict = vm.ctx.new_dict();
             #[allow(clippy::iter_over_hash_type)] // insertion order does not matter here
-            for (id, (idx, obj)) in self.pickler.memo.read().iter() {
+            for (id, (idx, obj)) in zelf.pickler.memo.read().iter() {
                 let key: PyObjectRef = vm.ctx.new_int(*id).into();
                 let value: PyObjectRef = vm
                     .ctx
@@ -1918,8 +1925,8 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            let contents = self.copy(vm)?;
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let contents = Self::copy(zelf, vm)?;
             Ok(vm
                 .ctx
                 .new_tuple(vec![
@@ -1940,6 +1947,10 @@ mod _pickle {
         out: PyMutex<Output>,
         memo: PyRwLock<MemoTable>,
         config: PyRwLock<PicklerConfig>,
+        #[pymember(writable)]
+        bin: AtomicI32,
+        #[pymember(writable)]
+        fast: AtomicI32,
     }
 
     #[derive(FromArgs)]
@@ -1947,21 +1958,21 @@ mod _pickle {
         #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(any, default = true)]
+        fix_imports: bool,
         #[pyarg(any, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(any, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
-    fn resolve_protocol(protocol: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
+    fn resolve_protocol(protocol: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<u8> {
         let value = match protocol {
-            OptionalArg::Present(o) if !vm.is_none(&o) => o
+            Some(o) => o
                 .try_index(vm)?
                 .as_bigint()
                 .to_i64()
                 .unwrap_or_else(|| i64::from(i32::MAX)),
-            _ => i64::from(DEFAULT_PROTOCOL),
+            None => i64::from(DEFAULT_PROTOCOL),
         };
         if value < 0 {
             return Ok(HIGHEST_PROTOCOL);
@@ -1977,7 +1988,7 @@ mod _pickle {
     fn pickler_config(args: &PicklerNewArgs, vm: &VirtualMachine) -> PyResult<PicklerConfig> {
         let proto = resolve_protocol(args.protocol.clone(), vm)?;
         let buffer_callback = match &args.buffer_callback {
-            OptionalArg::Present(o) if !vm.is_none(o) => Some(o.clone()),
+            Some(o) if !vm.is_none(o) => Some(o.clone()),
             _ => None,
         };
         if buffer_callback.is_some() && proto < 5 {
@@ -1986,9 +1997,7 @@ mod _pickle {
         Ok(PicklerConfig {
             initialized: true,
             proto,
-            bin: proto >= 1,
-            fast: false,
-            fix_imports: args.fix_imports.unwrap_or(true) && proto < 3,
+            fix_imports: args.fix_imports && proto < 3,
             buffer_callback,
         })
     }
@@ -2001,6 +2010,8 @@ mod _pickle {
                 out: PyMutex::new(Output::default()),
                 memo: PyRwLock::new(MemoTable::default()),
                 config: PyRwLock::new(PicklerConfig::default()),
+                bin: AtomicI32::new(1),
+                fast: AtomicI32::new(0),
             })
         }
     }
@@ -2025,6 +2036,9 @@ mod _pickle {
                 ..Output::default()
             };
             zelf.memo.write().clear();
+            zelf.bin
+                .store(i32::from(config.proto >= 1), Ordering::Relaxed);
+            zelf.fast.store(0, Ordering::Relaxed);
             *zelf.config.write() = config;
             Ok(())
         }
@@ -2038,13 +2052,13 @@ mod _pickle {
         }
 
         #[pymethod]
-        fn clear_memo(&self) {
-            self.memo.write().clear();
+        fn clear_memo(zelf: &Py<Self>) {
+            zelf.memo.write().clear();
         }
 
-        /// The default hook: nothing has a persistent id.
+        // The default hook: nothing has a persistent id.
         #[pymethod]
-        fn persistent_id(&self, _obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        fn persistent_id(_zelf: &Py<Self>, _obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
 
@@ -2073,7 +2087,7 @@ mod _pickle {
                     let pair: PyTupleRef = val
                         .downcast()
                         .map_err(|_| vm.new_type_error("'memo' values must be 2-item tuples"))?;
-                    if pair.len() != 2 {
+                    if pair.as_slice().len() != 2 {
                         return Err(vm.new_type_error("'memo' values must be 2-item tuples"));
                     }
                     let idx = pair.as_slice()[0]
@@ -2091,42 +2105,6 @@ mod _pickle {
             };
             *zelf.memo.write() = new_memo;
             Ok(())
-        }
-
-        #[pygetset]
-        fn fast(&self) -> bool {
-            self.config.read().fast
-        }
-
-        #[pygetset(setter)]
-        fn set_fast(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-            match value {
-                PySetterValue::Assign(v) => {
-                    self.config.write().fast = v.try_to_bool(vm)?;
-                    Ok(())
-                }
-                PySetterValue::Delete => {
-                    Err(vm.new_type_error("attribute deletion is not supported"))
-                }
-            }
-        }
-
-        #[pygetset]
-        fn bin(&self) -> bool {
-            self.config.read().bin
-        }
-
-        #[pygetset(setter)]
-        fn set_bin(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-            match value {
-                PySetterValue::Assign(v) => {
-                    self.config.write().bin = v.try_to_bool(vm)?;
-                    Ok(())
-                }
-                PySetterValue::Delete => {
-                    Err(vm.new_type_error("attribute deletion is not supported"))
-                }
-            }
         }
     }
 
@@ -2490,7 +2468,7 @@ mod _pickle {
 
         fn save_tuple(&mut self, obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             let tuple = obj.downcast_ref::<PyTuple>().expect("tuple");
-            let n = tuple.len();
+            let n = tuple.as_slice().len();
             if n == 0 {
                 if self.bin {
                     self.write(&[EMPTY_TUPLE as u8]);
@@ -2746,7 +2724,7 @@ mod _pickle {
                             let pair: PyTupleRef = o.downcast().map_err(|_| {
                                 vm.new_type_error("dict items iterator must return 2-tuples")
                             })?;
-                            if pair.len() != 2 {
+                            if pair.as_slice().len() != 2 {
                                 return Err(
                                     vm.new_type_error("dict items iterator must return 2-tuples")
                                 );
@@ -3612,7 +3590,7 @@ mod _pickle {
                         Ok(p) => p,
                         Err(_) => continue,
                     };
-                    if pair.len() != 2 {
+                    if pair.as_slice().len() != 2 {
                         continue;
                     }
                     let (key, module) = (pair.as_slice()[0].clone(), pair.as_slice()[1].clone());
@@ -3706,17 +3684,17 @@ mod _pickle {
         let Some(mut out) = zelf.out.try_lock() else {
             return Err(vm.new_runtime_error("Pickler.dump() called recursively"));
         };
-        let (initialized, proto, bin, fast, fix_imports, buffer_callback) = {
+        let (initialized, proto, fix_imports, buffer_callback) = {
             let cfg = zelf.config.read();
             (
                 cfg.initialized,
                 cfg.proto,
-                cfg.bin,
-                cfg.fast,
                 cfg.fix_imports,
                 cfg.buffer_callback.clone(),
             )
         };
+        let bin = zelf.bin.load(Ordering::Relaxed) != 0;
+        let fast = zelf.fast.load(Ordering::Relaxed) != 0;
         if !initialized {
             return Err(new_pickling_error(
                 vm,
@@ -3771,11 +3749,11 @@ mod _pickle {
         #[pyarg(any)]
         file: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
         #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -3800,6 +3778,8 @@ mod _pickle {
                 ..Output::default()
             }),
             memo: PyRwLock::new(MemoTable::default()),
+            bin: AtomicI32::new(i32::from(config.proto >= 1)),
+            fast: AtomicI32::new(0),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
@@ -3811,11 +3791,11 @@ mod _pickle {
         #[pyarg(any)]
         obj: PyObjectRef,
         #[pyarg(any, optional)]
-        protocol: OptionalArg<PyObjectRef>,
+        protocol: Option<PyObjectRef>,
+        #[pyarg(named, default = true)]
+        fix_imports: bool,
         #[pyarg(named, optional)]
-        fix_imports: OptionalArg<bool>,
-        #[pyarg(named, optional)]
-        buffer_callback: OptionalArg<PyObjectRef>,
+        buffer_callback: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -3830,6 +3810,8 @@ mod _pickle {
         let pickler = PyPickler {
             out: PyMutex::new(Output::default()),
             memo: PyRwLock::new(MemoTable::default()),
+            bin: AtomicI32::new(i32::from(config.proto >= 1)),
+            fast: AtomicI32::new(0),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);

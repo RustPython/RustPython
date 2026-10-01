@@ -1,5 +1,5 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
     iter::{IterStatus, builtins_iter},
 };
@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -327,19 +327,19 @@ impl PyPayload for PyStrIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyStrIterator {
+impl Py<PyStrIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         self.internal.lock().0.length_hint(|obj| obj.char_len())
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut internal = self.internal.lock();
         internal.1 = usize::MAX;
         internal
             .0
-            .set_state(&state, |obj, pos| pos.min(obj.char_len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.char_len()), vm)
     }
 
     #[pymethod]
@@ -629,6 +629,16 @@ impl PyStr {
 }
 
 impl Py<PyStr> {
+    #[inline]
+    pub fn as_wtf8(&self) -> &Wtf8 {
+        self.payload().as_wtf8()
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.payload().as_bytes()
+    }
+
     pub fn as_utf8(&self) -> Option<&Py<PyUtf8Str>> {
         if self.is_utf8() {
             // SAFETY: is_utf8() guarantees the PyUtf8Str invariant.
@@ -644,19 +654,6 @@ impl Py<PyStr> {
     }
 }
 
-#[pyclass(
-    flags(BASETYPE, _MATCH_SELF),
-    with(
-        AsMapping,
-        AsNumber,
-        AsSequence,
-        Representable,
-        Hashable,
-        Comparable,
-        Iterable,
-        Constructor
-    )
-)]
 impl PyStr {
     fn __add__(zelf: PyRef<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult {
         if let Some(other) = other.downcast_ref::<Self>() {
@@ -668,16 +665,6 @@ impl PyStr {
             }
             .to_pyobject(vm))
         } else {
-            // hack to get around not distinguishing number add from seq concat
-            if let Some(radd) = vm.get_method(other.to_owned(), identifier!(vm, __radd__)) {
-                let result = radd?.call((zelf,), vm)?;
-                // CPython reaches `str`'s sq_concat once the reflected call declines, so a
-                // `__radd__` returning NotImplemented must still report the concat error
-                // rather than the generic binary-op one.
-                if !result.is(&vm.ctx.not_implemented) {
-                    return Ok(result);
-                }
-            }
             Err(vm.new_type_error(format!(
                 r#"can only concatenate str (not "{}") to str"#,
                 other.class().slot_name()
@@ -721,8 +708,8 @@ impl PyStr {
     }
 
     #[cold]
-    fn _compute_hash(&self, vm: &VirtualMachine) -> hash::PyHash {
-        let hash_val = vm.state.hash_secret.hash_bytes(self.as_bytes());
+    fn _compute_hash(&self, _vm: &VirtualMachine) -> hash::PyHash {
+        let hash_val = crate::vm::hash_secret().hash_bytes(self.as_bytes());
         debug_assert_ne!(hash_val, hash::SENTINEL);
         // spell-checker:ignore cmpxchg
         // like with char_len, we don't need a cmpxchg loop, since it'll always be the same value
@@ -759,19 +746,8 @@ impl PyStr {
         self.data.byte_to_char_index(bytepos)
     }
 
-    #[pymethod]
-    #[inline(always)]
-    pub const fn isascii(&self) -> bool {
-        matches!(self.kind(), StrKind::Ascii)
-    }
-
-    #[pymethod]
-    fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>() + self.byte_len() * core::mem::size_of::<u8>()
-    }
-
-    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.into(), vm)
+    fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value, vm)
     }
 
     #[inline]
@@ -783,8 +759,135 @@ impl PyStr {
             .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr"))
     }
 
+    /// Return `zelf` when it is an exact str; otherwise a new str copy.
+    fn result_unchanged(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        if zelf.class().is(vm.ctx.types.str_type) {
+            zelf
+        } else {
+            vm.ctx.new_str(zelf.as_wtf8())
+        }
+    }
+
+    pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        cformat_string(vm, self.as_wtf8(), &values)
+    }
+
+    /// `join` over already-materialized items: checks them and sizes the result before copying.
+    fn join_items(
+        zelf: &Py<Self>,
+        items: &[PyObjectRef],
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        fn item_str<'a>(
+            i: usize,
+            obj: &'a PyObject,
+            vm: &VirtualMachine,
+        ) -> PyResult<&'a Py<PyStr>> {
+            obj.downcast_ref::<PyStr>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "sequence item {i}: expected str instance, {} found",
+                    obj.class().slot_name()
+                ))
+            })
+        }
+        let sep = zelf.as_wtf8();
+        let mut len = sep.len().saturating_mul(items.len().saturating_sub(1));
+        for (i, obj) in items.iter().enumerate() {
+            len = len.saturating_add(item_str(i, obj, vm)?.as_wtf8().len());
+        }
+        if let [only] = items {
+            let only = item_str(0, only, vm)?;
+            if only.class().is(vm.ctx.types.str_type) {
+                return Ok(only.to_owned());
+            }
+        }
+        let mut joined = Wtf8Buf::with_capacity(len);
+        for (i, obj) in items.iter().enumerate() {
+            if i > 0 {
+                joined.push_wtf8(sep);
+            }
+            joined.push_wtf8(item_str(i, obj, vm)?.as_wtf8());
+        }
+        Ok(vm.ctx.new_str(joined))
+    }
+
+    /// The bytes the character range `range` spans and the byte offset it
+    /// starts at, or `None` if the range is inverted.
+    ///
+    /// The bounds go through the string's character index, so reaching a range
+    /// deep in the subject costs a lookup rather than a walk to it.
+    #[inline]
+    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
+        if !range.is_normal() {
+            return None;
+        }
+        let bytes = self.data.char_range_to_bytes(range);
+        Some((bytes.start, &self.as_wtf8()[bytes]))
+    }
+
+    /// Searches the character range `range` with `find`, which answers in bytes
+    /// relative to the range, and reports the hit as a character index.
+    #[inline]
+    fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
+    where
+        F: Fn(&Wtf8, &Wtf8) -> Option<usize>,
+    {
+        let (sub, range) = args.get_value(self.len());
+        let (start, haystack) = self.char_range_bytes(range)?;
+        let found = find(haystack, sub.as_wtf8())?;
+        Some(self.byte_to_char_index(start + found))
+    }
+
+    #[inline]
+    fn _pad(
+        &self,
+        width: isize,
+        fillchar: PyStrRef,
+        pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Wtf8Buf> {
+        let fillchar = fillchar
+            .as_wtf8()
+            .code_points()
+            .exactly_one()
+            .map_err(|_| {
+                vm.new_type_error("The fill character must be exactly one character long")
+            })?;
+        if self.len() as isize >= width {
+            return Ok(self.as_wtf8().to_owned());
+        }
+        pad(self.as_wtf8(), width as usize, fillchar, self.len())
+            .ok_or_else(|| vm.no_memory_error())
+    }
+}
+
+#[pyclass(
+    flags(BASETYPE, _MATCH_SELF),
+    with(
+        AsMapping,
+        AsNumber,
+        AsSequence,
+        Representable,
+        Hashable,
+        Comparable,
+        Iterable,
+        Constructor
+    )
+)]
+impl Py<PyStr> {
     #[pymethod]
-    fn lower(&self) -> Self {
+    #[inline(always)]
+    pub fn isascii(&self) -> bool {
+        matches!(self.kind(), StrKind::Ascii)
+    }
+
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
+        core::mem::size_of::<PyStr>() + self.byte_len() * core::mem::size_of::<u8>()
+    }
+
+    #[pymethod]
+    fn lower(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => s.to_lowercase().into(),
@@ -798,7 +901,7 @@ impl PyStr {
     // differences. For ASCII, case folding is the same as lower case but other scripts have
     // their own, well-defined mappings.
     #[pymethod]
-    fn casefold(&self) -> Self {
+    fn casefold(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => unicode::case::casefold_str(s).into(),
@@ -807,7 +910,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn upper(&self) -> Self {
+    fn upper(&self) -> PyStr {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
             PyKindStr::Utf8(s) => s.to_uppercase().into(),
@@ -832,7 +935,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn split(zelf: &Py<Self>, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn split(zelf: &Self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let elements = match zelf.as_str_kind() {
             PyKindStr::Ascii(s) => s.py_split(
                 args,
@@ -877,7 +980,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn rsplit(zelf: &Py<Self>, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn rsplit(zelf: &Self, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let mut elements = zelf.as_wtf8().py_split(
             args,
             vm,
@@ -893,9 +996,10 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyStrRef>) -> Self {
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => s
+    fn strip(zelf: PyRef<PyStr>, args: StripArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
+        let chars = args.chars;
+        let stripped: &Wtf8 = match zelf.as_str_kind() {
+            PyKindStr::Ascii(s) if chars.as_ref().is_none_or(|c| c.kind().is_ascii()) => s
                 .py_strip(
                     chars,
                     |s, chars| {
@@ -909,66 +1013,55 @@ impl PyStr {
                         unsafe { AsciiStr::from_ascii_unchecked(s.as_bytes()) }
                     },
                 )
+                .as_str()
                 .into(),
-            PyKindStr::Utf8(s) => s
+            PyKindStr::Utf8(s) if chars.as_ref().is_none_or(|c| c.kind().is_utf8()) => s
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.contains(c)),
                     |s| s.trim_matches(unicode::classify::is_space),
                 )
                 .into(),
-            PyKindStr::Wtf8(w) => w
-                .py_strip(
-                    chars,
-                    |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
-                    |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
-                )
-                .into(),
-        }
-    }
-
-    /// Return `zelf` when it is an exact str; otherwise a new str copy.
-    fn result_unchanged(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.class().is(vm.ctx.types.str_type) {
-            zelf
+            _ => zelf.as_wtf8().py_strip(
+                chars,
+                |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
+                |s| s.trim_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
+            ),
+        };
+        if zelf.byte_len() == stripped.len() {
+            PyStr::result_unchanged(zelf, vm)
         } else {
-            vm.ctx.new_str(zelf.as_wtf8())
+            vm.ctx.new_str(zelf.new_substr(stripped.to_owned()))
         }
     }
 
     #[pymethod]
-    fn lstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    fn lstrip(zelf: PyRef<PyStr>, args: StripArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
+        let chars = args.chars;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_start_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
-        if s == stripped {
-            Self::result_unchanged(zelf, vm)
+        if s.len() == stripped.len() {
+            PyStr::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
         }
     }
 
     #[pymethod]
-    fn rstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    fn rstrip(zelf: PyRef<PyStr>, args: StripArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
+        let chars = args.chars;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_end_matches(|c: CodePoint| c.is_char_and(unicode::classify::is_space)),
         );
-        if s == stripped {
-            Self::result_unchanged(zelf, vm)
+        if s.len() == stripped.len() {
+            PyStr::result_unchanged(zelf, vm)
         } else {
             vm.ctx.new_str(stripped)
         }
@@ -986,7 +1079,7 @@ impl PyStr {
             &affix,
             "endswith",
             "str",
-            |s, x: &Py<Self>| s.ends_with(x.as_wtf8()),
+            |s, x: &Self| s.ends_with(x.as_wtf8()),
             vm,
         )
     }
@@ -1007,7 +1100,7 @@ impl PyStr {
             &affix,
             "startswith",
             "str",
-            |s, x: &Py<Self>| s.starts_with(x.as_wtf8()),
+            |s, x: &Self| s.starts_with(x.as_wtf8()),
             vm,
         )
     }
@@ -1046,10 +1139,6 @@ impl PyStr {
         !self.data.is_empty() && self.char_all(unicode::classify::is_decimal)
     }
 
-    pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        cformat_string(vm, self.as_wtf8(), &values)
-    }
-
     #[pymethod]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let format_str =
@@ -1066,10 +1155,10 @@ impl PyStr {
 
     #[pymethod]
     fn __format__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyStr>,
         format_spec: PyUtf8StrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyResult<PyRef<PyStr>> {
         if format_spec.is_empty() {
             return if zelf.class().is(vm.ctx.types.str_type) {
                 Ok(zelf)
@@ -1115,28 +1204,28 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
-        use core::cmp::Ordering;
-
-        let s = self.as_wtf8();
+    fn replace(zelf: PyRef<PyStr>, args: ReplaceArgs, vm: &VirtualMachine) -> PyRef<PyStr> {
         let ReplaceArgs { old, new, count } = args;
-
-        match count.cmp(&0) {
-            Ordering::Less => s.replace(old.as_wtf8(), new.as_wtf8()),
-            Ordering::Equal => s.to_owned(),
-            Ordering::Greater => {
-                let s_is_empty = s.is_empty();
-                let old_is_empty = old.is_empty();
-
-                if s_is_empty && !old_is_empty {
-                    s.to_owned()
-                } else if s_is_empty && old_is_empty {
-                    new.as_wtf8().to_owned()
-                } else {
-                    s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
-                }
-            }
+        if count == 0 || old.byte_len() > zelf.byte_len() || old.as_wtf8() == new.as_wtf8() {
+            return PyStr::result_unchanged(zelf, vm);
         }
+
+        let s = zelf.as_wtf8();
+        let replaced = if count < 0 {
+            s.replace(old.as_wtf8(), new.as_wtf8())
+        } else {
+            let s_is_empty = s.is_empty();
+            let old_is_empty = old.is_empty();
+
+            if s_is_empty && !old_is_empty {
+                s.to_owned()
+            } else if s_is_empty && old_is_empty {
+                new.as_wtf8().to_owned()
+            } else {
+                s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
+            }
+        };
+        vm.ctx.new_str(replaced)
     }
 
     #[pymethod]
@@ -1206,58 +1295,21 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(zelf: PyRef<Self>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn join(zelf: PyRef<PyStr>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // `PySequence_Fast()` hands a list or tuple over as-is.
+        if let Some(list) = iterable.downcast_ref_if_exact::<PyList>(vm) {
+            return PyStr::join_items(&zelf, &list.borrow_vec(), vm);
+        }
+        if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            return PyStr::join_items(&zelf, tuple.as_slice(), vm);
+        }
         // `PyUnicode_Join()` reaches its elements through `PySequence_Fast()`,
         // which fills a list from the iterator and so asks it how long it is,
         // and which has its own wording for what it cannot iterate.
         let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
             .map_err(|_| vm.new_type_error("can only join an iterable"))?;
-        let iter = iterable.iter_sized(vm)?.enumerate().map(|(i, obj)| {
-            obj?.downcast::<Self>().map_err(|obj| {
-                vm.new_type_error(format!(
-                    "sequence item {i}: expected str instance, {} found",
-                    obj.class().slot_name()
-                ))
-            })
-        });
-        let joined = match iter.exactly_one() {
-            Ok(first) => {
-                let first = first?;
-                if first.as_object().class().is(vm.ctx.types.str_type) {
-                    return Ok(first);
-                }
-                first.as_wtf8().to_owned()
-            }
-            Err(iter) => zelf.as_wtf8().py_join(iter)?,
-        };
-        Ok(vm.ctx.new_str(joined))
-    }
-
-    /// The bytes the character range `range` spans and the byte offset it
-    /// starts at, or `None` if the range is inverted.
-    ///
-    /// The bounds go through the string's character index, so reaching a range
-    /// deep in the subject costs a lookup rather than a walk to it.
-    #[inline]
-    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
-        if !range.is_normal() {
-            return None;
-        }
-        let bytes = self.data.char_range_to_bytes(range);
-        Some((bytes.start, &self.as_wtf8()[bytes]))
-    }
-
-    /// Searches the character range `range` with `find`, which answers in bytes
-    /// relative to the range, and reports the hit as a character index.
-    #[inline]
-    fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
-    where
-        F: Fn(&Wtf8, &Wtf8) -> Option<usize>,
-    {
-        let (sub, range) = args.get_value(self.len());
-        let (start, haystack) = self.char_range_bytes(range)?;
-        let found = find(haystack, sub.as_wtf8())?;
-        Some(self.byte_to_char_index(start + found))
+        let items = iterable.iter_sized(vm)?.collect::<PyResult<Vec<_>>>()?;
+        PyStr::join_items(&zelf, &items, vm)
     }
 
     #[pymethod]
@@ -1366,7 +1418,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn zfill(&self, width: PySsize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let filled = self
             .as_wtf8()
             .py_zfill(width)
@@ -1375,54 +1427,19 @@ impl PyStr {
         Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
     }
 
-    #[inline]
-    fn _pad(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
-            s.as_wtf8().code_points().exactly_one().map_err(|_| {
-                vm.new_type_error("The fill character must be exactly one character long")
-            })
-        })?;
-        if self.len() as isize >= width {
-            return Ok(self.as_wtf8().to_owned());
-        }
-        pad(self.as_wtf8(), width as usize, fillchar, self.len())
-            .ok_or_else(|| vm.no_memory_error())
+    #[pymethod]
+    fn center(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
-    fn center(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_center, vm)
+    fn ljust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
-    fn ljust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_ljust, vm)
-    }
-
-    #[pymethod]
-    fn rjust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
-        self._pad(width, fillchar, AnyStr::py_rjust, vm)
+    fn rjust(&self, args: PadArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        self._pad(args.width, args.fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
@@ -1444,36 +1461,36 @@ impl PyStr {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-        vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
-            format!(
-                "'{}' object is not subscriptable",
-                table.class().slot_name()
-            )
-        })?;
-
-        let mut translated = Wtf8Buf::new();
+        let dict = table.downcast_ref_if_exact::<PyDict>(vm);
+        let mut translated = Wtf8Buf::with_capacity(self.as_wtf8().len());
         for cp in self.as_wtf8().code_points() {
-            match table.get_item(&*cp.to_u32().to_pyobject(vm), vm) {
-                Ok(value) => {
-                    if let Some(text) = value.downcast_ref::<Self>() {
-                        translated.push_wtf8(text.as_wtf8());
-                    } else if let Some(bigint) = value.downcast_ref::<PyInt>() {
-                        let mapped = bigint
-                            .as_bigint()
-                            .to_u32()
-                            .and_then(CodePoint::from_u32)
-                            .ok_or_else(|| {
-                                vm.new_value_error("character mapping must be in range(0x110000)")
-                            })?;
-                        translated.push(mapped);
-                    } else if !vm.is_none(&value) {
-                        return Err(
-                            vm.new_type_error("character mapping must return integer, None or str")
-                        );
-                    }
-                }
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => translated.push(cp),
-                Err(e) => return Err(e),
+            let key = cp.to_u32().to_pyobject(vm);
+            // `charmaptranslate_lookup`: a missing key or any `LookupError` leaves `cp` unchanged.
+            let value = match dict {
+                Some(dict) => dict.get_item_opt(&*key, vm)?,
+                None => match table.get_item(&*key, vm) {
+                    Ok(value) => Some(value),
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.lookup_error) => None,
+                    Err(e) => return Err(e),
+                },
+            };
+            let Some(value) = value else {
+                translated.push(cp);
+                continue;
+            };
+            if let Some(text) = value.downcast_ref::<PyStr>() {
+                translated.push_wtf8(text.as_wtf8());
+            } else if let Some(bigint) = value.downcast_ref::<PyInt>() {
+                let mapped = bigint
+                    .as_bigint()
+                    .to_u32()
+                    .and_then(CodePoint::from_u32)
+                    .ok_or_else(|| {
+                        vm.new_value_error("character mapping must be in range(0x110000)")
+                    })?;
+                translated.push(mapped);
+            } else if !vm.is_none(&value) {
+                return Err(vm.new_type_error("character mapping must return integer, None or str"));
             }
         }
         Ok(translated)
@@ -1488,7 +1505,7 @@ impl PyStr {
     ) -> PyResult {
         let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
-            match dict_or_str.downcast::<Self>() {
+            match dict_or_str.downcast::<PyStr>() {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
                         for (c1, c2) in from_str
@@ -1530,7 +1547,7 @@ impl PyStr {
                                 val,
                                 vm,
                             )?;
-                        } else if let Some(string) = key.downcast_ref::<Self>() {
+                        } else if let Some(string) = key.downcast_ref::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value =
                                     string.as_wtf8().code_points().next().unwrap().to_u32();
@@ -1556,23 +1573,23 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+    fn encode(zelf: PyRef<PyStr>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         encode_string(zelf, args.encoding.as_deref(), args.errors, vm)
     }
 
     #[pymethod]
-    fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+    fn __getnewargs__(zelf: PyRef<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
         (zelf.as_wtf8(),).to_pyobject(vm)
     }
 
     #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+    fn __str__(zelf: &Self, vm: &VirtualMachine) -> PyStrRef {
         if zelf.class().is(vm.ctx.types.str_type) {
             // Already exact str, just return a reference
             zelf.to_owned()
         } else {
             // Subclass, create a new exact str
-            Self::from(zelf.data.clone()).into_ref(&vm.ctx)
+            PyStr::from(zelf.data.clone()).into_ref(&vm.ctx)
         }
     }
 }
@@ -1684,20 +1701,6 @@ impl AsMapping for PyStr {
 impl AsNumber for PyStr {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|a, b, vm| {
-                let Some(a) = a.downcast_ref::<PyStr>() else {
-                    return Ok(vm.ctx.not_implemented());
-                };
-                let Some(b) = b.downcast_ref::<PyStr>() else {
-                    return Ok(vm.ctx.not_implemented());
-                };
-                let bytes = a.as_wtf8().py_add(b.as_wtf8());
-                Ok(unsafe {
-                    let kind = a.kind() | b.kind();
-                    PyStr::new_str_unchecked(bytes.into(), kind)
-                }
-                .to_pyobject(vm))
-            }),
             remainder: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyStr>() {
                     a.__mod__(b.to_owned(), vm).to_pyresult(vm)
@@ -1738,10 +1741,26 @@ impl AsSequence for PyStr {
 
 #[derive(FromArgs)]
 struct EncodeArgs {
-    #[pyarg(any, default)]
+    // None is filled in as utf-8 when encoding.
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
-    #[pyarg(any, default)]
+    // None is filled in as strict when encoding.
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
+}
+
+#[derive(FromArgs)]
+struct StripArgs {
+    #[pyarg(positional, optional)]
+    chars: Option<PyStrRef>,
+}
+
+#[derive(FromArgs)]
+struct PadArgs {
+    #[pyarg(positional)]
+    width: PySsize,
+    #[pyarg(positional, default = " ")]
+    fillchar: PyStrRef,
 }
 
 pub(crate) fn encode_string(
@@ -2683,7 +2702,7 @@ impl AsRef<str> for PyUtf8StrInterned {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Interpreter;
+    use crate::{Context, Interpreter, Py};
     use rustpython_common::wtf8::Wtf8Buf;
 
     #[test]
@@ -2705,7 +2724,10 @@ mod tests {
             ("\u{01C5}", "\u{01C4}"),
         ];
         for (title, input) in tests {
-            assert_eq!(PyStr::from(input).title().as_str(), Ok(title));
+            assert_eq!(
+                Context::genesis().new_str(input).title().as_str(),
+                Ok(title)
+            );
         }
     }
 
@@ -2723,7 +2745,7 @@ mod tests {
         ];
 
         for s in pos {
-            assert!(PyStr::from(s).istitle());
+            assert!(Context::genesis().new_str(s).istitle());
         }
 
         let neg = vec![
@@ -2736,7 +2758,7 @@ mod tests {
             "NOT",
         ];
         for s in neg {
-            assert!(!PyStr::from(s).istitle());
+            assert!(!Context::genesis().new_str(s).istitle());
         }
     }
 
@@ -2751,10 +2773,14 @@ mod tests {
             table
                 .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), vm)
                 .unwrap();
-            let translated =
-                PyStr::maketrans(table.into(), OptionalArg::Missing, OptionalArg::Missing, vm)
-                    .unwrap();
-            let text = PyStr::from("abc");
+            let translated = Py::<PyStr>::maketrans(
+                table.into(),
+                OptionalArg::Missing,
+                OptionalArg::Missing,
+                vm,
+            )
+            .unwrap();
+            let text = vm.ctx.new_str("abc");
             let translated = text.translate(translated, vm).unwrap();
             assert_eq!(translated, Wtf8Buf::from("🎅xda"));
             let translated = text.translate(vm.ctx.new_int(3).into(), vm);
@@ -2770,15 +2796,15 @@ mod tests {
         // Now fixed by migrating to icu_properties with up-to-date Unicode data.
 
         // Characters that should be printable
-        assert!(PyStr::from("\u{0B55}").isprintable());
-        assert!(PyStr::from("A").isprintable());
-        assert!(PyStr::from(" ").isprintable());
-        assert!(PyStr::from("").isprintable());
+        assert!(Context::genesis().new_str("\u{0B55}").isprintable());
+        assert!(Context::genesis().new_str("A").isprintable());
+        assert!(Context::genesis().new_str(" ").isprintable());
+        assert!(Context::genesis().new_str("").isprintable());
 
         // Characters that should NOT be printable
-        assert!(!PyStr::from("\x00").isprintable());
-        assert!(!PyStr::from("\u{200B}").isprintable());
-        assert!(!PyStr::from("\u{E000}").isprintable());
-        assert!(!PyStr::from("\u{00A0}").isprintable());
+        assert!(!Context::genesis().new_str("\x00").isprintable());
+        assert!(!Context::genesis().new_str("\u{200B}").isprintable());
+        assert!(!Context::genesis().new_str("\u{E000}").isprintable());
+        assert!(!Context::genesis().new_str("\u{00A0}").isprintable());
     }
 }

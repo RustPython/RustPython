@@ -8,7 +8,7 @@ pub(crate) use _imp::module_def;
 pub(super) use crate::vm::resolve_frozen_alias;
 
 #[cfg(feature = "threading")]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::{PyResult, VirtualMachine, stdlib::_thread::RawRMutex};
     use core::cell::Cell;
@@ -125,7 +125,7 @@ pub(crate) unsafe fn after_fork_child_imp_lock_release() {
 }
 
 #[cfg(not(feature = "threading"))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_imp")]
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]
@@ -195,7 +195,6 @@ mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef, ModuleCreate,},
-        function::OptionalArg,
         import, version,
     };
 
@@ -269,13 +268,18 @@ mod _imp {
         0
     }
 
-    #[pyfunction]
-    fn get_frozen_object(
+    #[derive(FromArgs)]
+    struct FrozenObjectArgs {
+        #[pyarg(positional)]
         name: PyUtf8StrRef,
-        data: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyCode>> {
-        if let OptionalArg::Present(data) = data
+        #[pyarg(positional, optional)]
+        data: Option<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_frozen_object(args: FrozenObjectArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+        let FrozenObjectArgs { name, data } = args;
+        if let Some(data) = data
             && !vm.is_none(&data)
         {
             let invalid_err = || {
@@ -316,8 +320,8 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _override_frozen_modules_for_tests(value: isize, vm: &VirtualMachine) {
-        vm.state.override_frozen_modules.store(value);
+    fn _override_frozen_modules_for_tests(r#override: isize, vm: &VirtualMachine) {
+        vm.state.override_frozen_modules.store(r#override);
     }
 
     #[pyfunction]
@@ -340,7 +344,7 @@ mod _imp {
     struct FindFrozenArgs {
         #[pyarg(positional)]
         name: PyUtf8StrRef,
-        #[pyarg(named, default = false)]
+        #[pyarg(named, default)]
         withdata: bool,
     }
 
@@ -384,8 +388,16 @@ mod _imp {
         Ok(Some((data, info.package, origname)))
     }
 
+    #[derive(FromArgs)]
+    struct SourceHashArgs {
+        #[pyarg(any)]
+        key: u64,
+        #[pyarg(any)]
+        source: PyBytesRef,
+    }
+
     #[pyfunction]
-    fn source_hash(key: u64, source: PyBytesRef) -> Vec<u8> {
+    fn source_hash(SourceHashArgs { key, source }: SourceHashArgs) -> Vec<u8> {
         let hash: u64 = crate::common::hash::keyed_hash(key, source.as_bytes());
         hash.to_le_bytes().to_vec()
     }

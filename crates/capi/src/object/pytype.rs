@@ -9,8 +9,8 @@ use crate::util::FfiPtrExt;
 use core::ffi::{c_char, c_int, c_ulong, c_void};
 use dashmap::DashMap;
 use rustpython_vm::builtins::{PyDict, PyStr, PyType, PyTypeRef};
-use rustpython_vm::function::{FuncArgs, PyMethodFlags};
-use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
+use rustpython_vm::function::{FuncArgs, ItemDoc, PyMethodFlags};
+use rustpython_vm::types::{PyAtomicTypeFlags, PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Py, PyObject, PyResult, VirtualMachine};
 use std::any::{Any, TypeId};
 use std::sync::LazyLock;
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) ->
     with_vm(|vm| {
         let ty = unsafe { ptr.assume_borrowed() };
         let qualname = ty.__qualname__(vm).try_downcast::<PyStr>(vm)?;
-        let module = ty.__module__(vm);
+        let module = ty.__module__(vm)?;
 
         if let Some(module) = module.downcast_ref::<PyStr>()
             && module.as_wtf8() != "builtins"
@@ -182,11 +182,12 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                     match type_slot {
                         PySlotType::Name(value) => name = Some(value),
                         PySlotType::Flags(value) => {
-                            type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
+                            let flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
                                 vm.new_value_error(format!(
                                     "Invalid type flags: {value:#x} for PyType_FromSlots"
                                 ))
                             })?;
+                            type_slots.flags = PyAtomicTypeFlags::new(flags);
                         }
                         PySlotType::BasicSize(size) | PySlotType::ExtraBasicSize(size) => {
                             if size != 0 {
@@ -202,7 +203,10 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                     SlotAccessor::TpDoc => {
                                         let doc = unsafe {
                                             slot.pfunc.cast::<c_char>().try_as_str_opt(vm)?
-                                        };
+                                        }.map_or(ItemDoc::NONE, |doc| {
+                                            let text: &'static str = Box::leak(doc.to_owned().into_boxed_str());
+                                            ItemDoc::static_text(text)
+                                        });
                                         type_slots.doc = doc;
                                     }
                                     SlotAccessor::TpNew => {

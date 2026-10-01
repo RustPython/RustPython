@@ -242,7 +242,6 @@ class BaseUnicodeFunctionsTest:
         self.assertRaises(TypeError, self.db.digit, 'xx')
         self.assertRaises(ValueError, self.db.digit, 'x')
 
-    @unittest.skip  # TODO: RUSTPYTHON; None != 1e+20 (for 3.2.0; passes on latest)
     def test_numeric(self):
         self.assertEqual(self.db.numeric('A',None), None)
         self.assertEqual(self.db.numeric('9'), 9)

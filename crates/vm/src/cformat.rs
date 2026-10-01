@@ -26,6 +26,35 @@ use crate::{
     stdlib::builtins,
 };
 
+fn format_decimal_object(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    obj: &PyObject,
+) -> PyResult<String> {
+    let type_error = || {
+        vm.new_type_error(format!(
+            "%{} format: a real number is required, not {}",
+            spec.format_type.to_char(),
+            obj.class().slot_name()
+        ))
+    };
+    // Decimal conversions prefer __int__; __index__ is only a fallback when absent.
+    let i = obj
+        .number()
+        .int(vm)
+        .or_else(|| obj.try_index_opt(vm))
+        .ok_or_else(type_error)?
+        .map_err(|error| {
+            if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                type_error()
+            } else {
+                error
+            }
+        })?;
+    check_int_to_str_digits(i.as_bigint(), vm)?;
+    Ok(spec.format_number(i.as_bigint()))
+}
+
 fn spec_format_bytes(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
@@ -69,40 +98,16 @@ fn spec_format_bytes(
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
-                match_class!(match &obj {
-                    ref i @ PyInt => {
-                        check_int_to_str_digits(i.as_bigint(), vm)?;
-                        Ok(spec.format_number(i.as_bigint()).into_bytes())
-                    }
-                    ref f @ PyFloat => {
-                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
-                        check_int_to_str_digits(&bigint, vm)?;
-                        Ok(spec.format_number(&bigint).into_bytes())
-                    }
-                    obj => {
-                        // CPython parity: `%d` / `%i` / `%u` accept any object
-                        // with `__index__` (preferred) or `__int__`.
-                        if let Some(int_result) = obj.try_index_opt(vm) {
-                            let i = int_result?;
-                            check_int_to_str_digits(i.as_bigint(), vm)?;
-                            return Ok(spec.format_number(i.as_bigint()).into_bytes());
-                        }
-
-                        if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                            let result = method?.call((), vm)?;
-                            if let Some(i) = result.downcast_ref::<PyInt>() {
-                                check_int_to_str_digits(i.as_bigint(), vm)?;
-                                return Ok(spec.format_number(i.as_bigint()).into_bytes());
-                            }
-                        }
-
-                        Err(vm.new_type_error(format!(
-                            "%{} format: a real number is required, not {}",
-                            spec.format_type.to_char(),
-                            obj.class().slot_name()
-                        )))
-                    }
-                })
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    check_int_to_str_digits(i.as_bigint(), vm)?;
+                    Ok(spec.format_number(i.as_bigint()).into_bytes())
+                } else if let Some(f) = obj.downcast_ref_if_exact::<PyFloat>(vm) {
+                    let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                    check_int_to_str_digits(&bigint, vm)?;
+                    Ok(spec.format_number(&bigint).into_bytes())
+                } else {
+                    format_decimal_object(vm, spec, &obj).map(String::into_bytes)
+                }
             }
             _ => {
                 // CPython parity: `%x` / `%o` / `%X` accept any object with
@@ -138,7 +143,7 @@ fn spec_format_bytes(
             // CPython parity: bytes `%c` accepts a single byte or any object
             // with `__index__` in range(256).
             if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                if b.len() == 1 {
+                if b.as_bytes().len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
                 }
             } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
@@ -155,7 +160,7 @@ fn spec_format_bytes(
                 // A bytes-like argument that is not one byte long is named by
                 // its length rather than by its type.
                 let what = if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                    format!("a bytes object of length {}", b.len())
+                    format!("a bytes object of length {}", b.as_bytes().len())
                 } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
                     format!("a bytearray object of length {}", ba.borrow_buf().len())
                 } else {
@@ -198,38 +203,16 @@ fn spec_format_string(
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
-                match_class!(match &obj {
-                    ref i @ PyInt => {
-                        check_int_to_str_digits(i.as_bigint(), vm)?;
-                        Ok(spec.format_number(i.as_bigint()).into())
-                    }
-                    ref f @ PyFloat => {
-                        let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
-                        check_int_to_str_digits(&bigint, vm)?;
-                        Ok(spec.format_number(&bigint).into())
-                    }
-                    obj => {
-                        // CPython parity: `%d` / `%i` / `%u` accept any object
-                        // with `__index__` (preferred) or `__int__`.
-                        if let Some(int_result) = obj.try_index_opt(vm) {
-                            let i = int_result?;
-                            check_int_to_str_digits(i.as_bigint(), vm)?;
-                            return Ok(spec.format_number(i.as_bigint()).into());
-                        }
-                        if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                            let result = method?.call((), vm)?;
-                            if let Some(i) = result.downcast_ref::<PyInt>() {
-                                check_int_to_str_digits(i.as_bigint(), vm)?;
-                                return Ok(spec.format_number(i.as_bigint()).into());
-                            }
-                        }
-                        Err(vm.new_type_error(format!(
-                            "%{} format: a real number is required, not {}",
-                            spec.format_type.to_char(),
-                            obj.class().slot_name()
-                        )))
-                    }
-                })
+                if let Some(i) = obj.downcast_ref::<PyInt>() {
+                    check_int_to_str_digits(i.as_bigint(), vm)?;
+                    Ok(spec.format_number(i.as_bigint()).into())
+                } else if let Some(f) = obj.downcast_ref_if_exact::<PyFloat>(vm) {
+                    let bigint = try_f64_to_bigint(f.to_f64(), vm)?;
+                    check_int_to_str_digits(&bigint, vm)?;
+                    Ok(spec.format_number(&bigint).into())
+                } else {
+                    format_decimal_object(vm, spec, &obj).map(Into::into)
+                }
             }
             _ => {
                 // CPython parity: `%x` / `%o` / `%X` accept any object with
@@ -285,37 +268,11 @@ fn spec_format_string(
     }
 }
 
-fn try_update_quantity_from_element(
-    vm: &VirtualMachine,
-    element: Option<&PyObject>,
-) -> PyResult<CFormatQuantity> {
+fn get_star_arg(vm: &VirtualMachine, element: Option<&PyObject>) -> PyResult<i32> {
     match element {
-        Some(width_obj) => {
-            if let Some(i) = width_obj.downcast_ref::<PyInt>() {
-                let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
-                Ok(CFormatQuantity::Amount(i as usize))
-            } else {
-                Err(vm.new_type_error("* wants int"))
-            }
-        }
-        None => Err(vm.new_type_error("not enough arguments for format string")),
-    }
-}
-
-fn try_conversion_flag_from_tuple(
-    vm: &VirtualMachine,
-    element: Option<&PyObject>,
-) -> PyResult<CConversionFlags> {
-    match element {
-        Some(width_obj) => {
-            if let Some(i) = width_obj.downcast_ref::<PyInt>() {
-                let i = i.try_to_primitive::<i32>(vm)?;
-                let flags = if i < 0 {
-                    CConversionFlags::LEFT_ADJUST
-                } else {
-                    CConversionFlags::from_bits(0).unwrap()
-                };
-                Ok(flags)
+        Some(obj) => {
+            if let Some(i) = obj.downcast_ref::<PyInt>() {
+                i.try_to_primitive::<i32>(vm)
             } else {
                 Err(vm.new_type_error("* wants int"))
             }
@@ -334,10 +291,11 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObject>>(
         return Ok(());
     };
 
-    let element = elements.next();
-    f.insert(try_conversion_flag_from_tuple(vm, element)?);
-    let quantity = try_update_quantity_from_element(vm, element)?;
-    *q = Some(quantity);
+    let width = get_star_arg(vm, elements.next())?;
+    if width < 0 {
+        f.insert(CConversionFlags::LEFT_ADJUST);
+    }
+    *q = Some(CFormatQuantity::Amount(width.unsigned_abs() as usize));
     Ok(())
 }
 
@@ -350,8 +308,10 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObject>>(
         return Ok(());
     };
 
-    let quantity = try_update_quantity_from_element(vm, elements.next())?;
-    *p = Some(CFormatPrecision::Quantity(quantity));
+    let precision = get_star_arg(vm, elements.next())?.max(0) as usize;
+    *p = Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(
+        precision,
+    )));
     Ok(())
 }
 
@@ -381,7 +341,7 @@ pub(crate) fn cformat_bytes(
         if !is_mapping
             && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_none_or(|e| !e.is_empty())
+                .is_none_or(|e| !e.as_slice().is_empty())
         {
             return Err(vm.new_type_error("not all arguments converted during bytes formatting"));
         }
@@ -482,7 +442,7 @@ pub(crate) fn cformat_string(
         if !is_mapping
             && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_none_or(|e| !e.is_empty())
+                .is_none_or(|e| !e.as_slice().is_empty())
         {
             return Err(vm.new_type_error("not all arguments converted during string formatting"));
         }

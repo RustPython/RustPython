@@ -1,5 +1,73 @@
 pub(crate) use _multiprocessing::module_def;
 
+#[cfg(any(unix, windows))]
+const _: () = assert!(
+    core::mem::size_of::<rustpython_host_env::multiprocessing::SemHandle>()
+        == core::mem::size_of::<usize>()
+        && core::mem::align_of::<rustpython_host_env::multiprocessing::SemHandle>()
+            == core::mem::align_of::<usize>()
+);
+
+/// `SemLock.handle` is one pointer-sized word (`sem_t *` or `HANDLE`).
+#[cfg(any(unix, windows))]
+#[repr(transparent)]
+struct SemHandleWord(rustpython_host_env::multiprocessing::SemHandle);
+
+#[cfg(any(unix, windows))]
+impl core::ops::Deref for SemHandleWord {
+    type Target = rustpython_host_env::multiprocessing::SemHandle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[cfg(any(unix, windows))]
+impl core::fmt::Debug for SemHandleWord {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(any(unix, windows))]
+impl crate::vm::builtins::descriptor::MemberLayout for SemHandleWord {
+    const KIND: crate::vm::builtins::descriptor::MemberKind = {
+        if cfg!(all(windows, target_pointer_width = "64")) {
+            crate::vm::builtins::descriptor::MemberKind::ULongLong
+        } else {
+            crate::vm::builtins::descriptor::MemberKind::ULong
+        }
+    };
+}
+
+#[cfg(any(unix, windows))]
+fn semlock_name(
+    name: Option<String>,
+) -> (
+    Option<alloc::ffi::CString>,
+    crate::vm::builtins::descriptor::CStrMember,
+) {
+    let Some(name) = name else {
+        return (
+            None,
+            crate::vm::builtins::descriptor::CStrMember::new(core::ptr::null()),
+        );
+    };
+    let owner = match alloc::ffi::CString::new(name) {
+        Ok(owner) => owner,
+        Err(err) => {
+            let bytes: Vec<u8> = err
+                .into_vec()
+                .into_iter()
+                .filter(|byte| *byte != 0)
+                .collect();
+            alloc::ffi::CString::new(bytes).unwrap_or_default()
+        }
+    };
+    let member = crate::vm::builtins::descriptor::CStrMember::new(owner.as_ptr());
+    (Some(owner), member)
+}
+
 #[cfg(windows)]
 #[pymodule]
 mod _multiprocessing {
@@ -7,12 +75,31 @@ mod _multiprocessing {
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDict, PyType, PyTypeRef},
         convert::ToPyException,
-        function::{ArgBytesLike, FuncArgs, KwArgs},
+        function::ArgBytesLike,
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU32, Ordering};
     use rustpython_common::lock::PyMutex;
     use rustpython_host_env::multiprocessing as host_multiprocessing;
+
+    #[derive(FromArgs)]
+    struct AcquireArgs {
+        #[pyarg(any, default = true)]
+        block: bool,
+        #[pyarg(any, optional)]
+        timeout: Option<crate::vm::PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        exc_type: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_value: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_tb: Option<crate::vm::PyObjectRef>,
+    }
 
     // These match the values in Lib/multiprocessing/synchronize.py
     const RECURSIVE_MUTEX: i32 = 0;
@@ -44,10 +131,17 @@ mod _multiprocessing {
     #[pyclass(name = "SemLock", module = "_multiprocessing")]
     #[derive(Debug, PyPayload)]
     struct SemLock {
-        handle: SemHandle,
+        #[pymember]
+        handle: super::SemHandleWord,
+        #[pymember]
         kind: i32,
+        #[pymember]
         maxvalue: i32,
-        name: Option<String>,
+        /// Owns the bytes `name` points at.
+        #[expect(dead_code, reason = "keeps the semaphore name allocation alive")]
+        name_owner: Option<alloc::ffi::CString>,
+        #[pymember]
+        name: crate::vm::builtins::descriptor::CStrMember,
         last_tid: AtomicU32,
         count: AtomicI32,
         /// Serializes owner bookkeeping. Dropped around blocking waits.
@@ -58,41 +152,10 @@ mod _multiprocessing {
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
-        #[pygetset]
-        fn handle(&self) -> isize {
-            self.handle.as_handle_int()
-        }
-
-        #[pygetset]
-        fn kind(&self) -> i32 {
-            self.kind
-        }
-
-        #[pygetset]
-        fn maxvalue(&self) -> i32 {
-            self.maxvalue
-        }
-
-        #[pygetset]
-        fn name(&self) -> Option<String> {
-            self.name.clone()
-        }
-
         #[pymethod]
-        fn acquire(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            let blocking: bool = args
-                .kwargs
-                .get("block")
-                .or_else(|| args.args.first())
-                .map(|o| o.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(true);
-
-            let timeout_obj = args
-                .kwargs
-                .get("timeout")
-                .or_else(|| args.args.get(1))
-                .cloned();
+        fn acquire(zelf: &Py<Self>, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let blocking = args.block;
+            let timeout_obj = args.timeout;
 
             // Calculate timeout in milliseconds
             let full_msecs: u32 = if !blocking {
@@ -113,18 +176,18 @@ mod _multiprocessing {
 
             // Check whether we already own the lock
             {
-                let _crit = self.crit.lock();
-                if self.kind == RECURSIVE_MUTEX && ismine!(self) {
-                    self.count.fetch_add(1, Ordering::Release);
+                let _crit = zelf.crit.lock();
+                if zelf.kind == RECURSIVE_MUTEX && ismine!(zelf) {
+                    zelf.count.fetch_add(1, Ordering::Release);
                     return Ok(true);
                 }
 
                 // Check whether we can acquire without blocking
-                match self.handle.wait(0) {
+                match zelf.handle.wait(0) {
                     x if x == host_multiprocessing::wait_object_0() => {
-                        self.last_tid
+                        zelf.last_tid
                             .store(host_multiprocessing::current_thread_id(), Ordering::Release);
-                        self.count.fetch_add(1, Ordering::Release);
+                        zelf.count.fetch_add(1, Ordering::Release);
                         return Ok(true);
                     }
                     x if x == host_multiprocessing::wait_failed() => {
@@ -148,15 +211,15 @@ mod _multiprocessing {
                     remaining.min(poll_ms)
                 };
 
-                let handle = &self.handle;
+                let handle = &zelf.handle;
                 let res = vm.allow_threads(|| handle.wait(wait_ms));
 
                 match res {
                     x if x == host_multiprocessing::wait_object_0() => {
-                        let _crit = self.crit.lock();
-                        self.last_tid
+                        let _crit = zelf.crit.lock();
+                        zelf.last_tid
                             .store(host_multiprocessing::current_thread_id(), Ordering::Release);
-                        self.count.fetch_add(1, Ordering::Release);
+                        zelf.count.fetch_add(1, Ordering::Release);
                         return Ok(true);
                     }
                     x if x == host_multiprocessing::wait_timeout() => {
@@ -178,45 +241,46 @@ mod _multiprocessing {
         }
 
         #[pymethod]
-        fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let _crit = self.crit.lock();
-            if self.kind == RECURSIVE_MUTEX {
-                if !ismine!(self) {
+        fn release(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = zelf.crit.lock();
+            if zelf.kind == RECURSIVE_MUTEX {
+                if !ismine!(zelf) {
                     return Err(vm.new_assertion_error(
                         "attempt to release recursive lock not owned by thread",
                     ));
                 }
-                if self.count.load(Ordering::Acquire) > 1 {
-                    self.count.fetch_sub(1, Ordering::Release);
+                if zelf.count.load(Ordering::Acquire) > 1 {
+                    zelf.count.fetch_sub(1, Ordering::Release);
                     return Ok(());
                 }
             }
 
-            if let Err(err) = self.handle.release() {
+            if let Err(err) = zelf.handle.release() {
                 if host_multiprocessing::is_too_many_posts(err) {
                     return Err(vm.new_value_error("semaphore or lock released too many times"));
                 }
                 return Err(vm.new_last_os_error());
             }
 
-            self.count.fetch_sub(1, Ordering::Release);
+            zelf.count.fetch_sub(1, Ordering::Release);
             Ok(())
         }
 
         #[pymethod(name = "__enter__")]
-        fn enter(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            self.acquire(
-                FuncArgs::new::<Vec<_>, KwArgs>(
-                    vec![vm.ctx.new_bool(true).into()],
-                    KwArgs::default(),
-                ),
+        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
+            Self::acquire(
+                zelf,
+                AcquireArgs {
+                    block: true,
+                    timeout: None,
+                },
                 vm,
             )
         }
 
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            self.release(vm)
+        fn __exit__(zelf: &Py<Self>, _args: ExitArgs, vm: &VirtualMachine) -> PyResult<()> {
+            Self::release(zelf, vm)
         }
 
         #[pyclassmethod(name = "_rebuild")]
@@ -229,11 +293,15 @@ mod _multiprocessing {
             vm: &VirtualMachine,
         ) -> PyResult {
             // On Windows, _rebuild receives the handle directly (no sem_open)
+            let (name_owner, name_member) = super::semlock_name(name);
             let zelf = Self {
-                handle: SemHandle::from_raw(handle as host_multiprocessing::RawHandle),
+                handle: super::SemHandleWord(SemHandle::from_raw(
+                    handle as host_multiprocessing::RawHandle,
+                )),
                 kind,
                 maxvalue,
-                name,
+                name_owner,
+                name: name_member,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
                 crit: PyMutex::new(()),
@@ -242,36 +310,36 @@ mod _multiprocessing {
         }
 
         #[pymethod]
-        fn _after_fork(&self) {
-            let _crit = self.crit.lock();
-            self.count.store(0, Ordering::Release);
-            self.last_tid.store(0, Ordering::Release);
+        fn _after_fork(zelf: &Py<Self>) {
+            let _crit = zelf.crit.lock();
+            zelf.count.store(0, Ordering::Release);
+            zelf.last_tid.store(0, Ordering::Release);
         }
 
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
         #[pymethod]
-        fn _count(&self) -> i32 {
-            let _crit = self.crit.lock();
-            self.count.load(Ordering::Acquire)
+        fn _count(zelf: &Py<Self>) -> i32 {
+            let _crit = zelf.crit.lock();
+            zelf.count.load(Ordering::Acquire)
         }
 
         #[pymethod]
-        fn _is_mine(&self) -> bool {
-            ismine!(self)
+        fn _is_mine(zelf: &Py<Self>) -> bool {
+            ismine!(zelf)
         }
 
         #[pymethod]
-        fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
-            self.handle.value().map_err(|_| vm.new_last_os_error())
+        fn _get_value(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+            zelf.handle.value().map_err(|_| vm.new_last_os_error())
         }
 
         #[pymethod]
-        fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {
-            let val = self.handle.value().map_err(|_| vm.new_last_os_error())?;
+        fn _is_zero(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
+            let val = zelf.handle.value().map_err(|_| vm.new_last_os_error())?;
             Ok(val == 0)
         }
 
@@ -303,14 +371,17 @@ mod _multiprocessing {
                 return Err(vm.new_value_error("invalid value"));
             }
 
-            let handle =
-                SemHandle::create(args.value, args.maxvalue).map_err(|e| e.to_pyexception(vm))?;
-            let name = if args.unlink { None } else { Some(args.name) };
+            let handle = super::SemHandleWord(
+                SemHandle::create(args.value, args.maxvalue).map_err(|e| e.to_pyexception(vm))?,
+            );
+            let (name_owner, name) =
+                super::semlock_name(if args.unlink { None } else { Some(args.name) });
 
             Ok(Self {
                 handle,
                 kind: args.kind,
                 maxvalue: args.maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU32::new(0),
                 count: AtomicI32::new(0),
@@ -359,7 +430,6 @@ mod _multiprocessing {
         Context, FromArgs, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyDict, PyType, PyTypeRef},
         convert::ToPyException,
-        function::{FuncArgs, KwArgs},
         types::Constructor,
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
@@ -368,6 +438,25 @@ mod _multiprocessing {
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
     use rustpython_vm::exceptions;
+
+    #[derive(FromArgs)]
+    struct AcquireArgs {
+        #[pyarg(any, default = true)]
+        block: bool,
+        #[pyarg(any, optional)]
+        timeout: Option<crate::vm::PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        exc_type: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_value: Option<crate::vm::PyObjectRef>,
+        #[pyarg(positional, optional)]
+        exc_tb: Option<crate::vm::PyObjectRef>,
+    }
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
@@ -436,10 +525,17 @@ mod _multiprocessing {
     #[pyclass(name = "SemLock", module = "_multiprocessing")]
     #[derive(Debug, PyPayload)]
     struct SemLock {
-        handle: SemHandle,
+        #[pymember]
+        handle: super::SemHandleWord,
+        #[pymember]
         kind: i32,
+        #[pymember]
         maxvalue: i32,
-        name: Option<String>,
+        /// Owns the bytes `name` points at.
+        #[expect(dead_code, reason = "keeps the semaphore name allocation alive")]
+        name_owner: Option<alloc::ffi::CString>,
+        #[pymember]
+        name: crate::vm::builtins::descriptor::CStrMember,
         last_tid: AtomicU64, // unsigned long
         count: AtomicI32,    // int
         /// Serializes owner bookkeeping. Dropped around blocking waits.
@@ -450,49 +546,15 @@ mod _multiprocessing {
 
     #[pyclass(with(Constructor), flags(BASETYPE))]
     impl SemLock {
-        #[pygetset]
-        fn handle(&self) -> isize {
-            self.handle.as_handle_int()
-        }
-
-        #[pygetset]
-        fn kind(&self) -> i32 {
-            self.kind
-        }
-
-        #[pygetset]
-        fn maxvalue(&self) -> i32 {
-            self.maxvalue
-        }
-
-        #[pygetset]
-        fn name(&self) -> Option<String> {
-            self.name.clone()
-        }
-
-        /// Acquire the semaphore/lock.
         // _multiprocessing_SemLock_acquire_impl
         #[pymethod]
-        fn acquire(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            // block=True, timeout=None
+        fn acquire(zelf: &Py<Self>, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let blocking = args.block;
+            let timeout_obj = args.timeout;
 
-            let blocking: bool = args
-                .kwargs
-                .get("block")
-                .or_else(|| args.args.first())
-                .map(|o| o.try_to_bool(vm))
-                .transpose()?
-                .unwrap_or(true);
-
-            let timeout_obj = args
-                .kwargs
-                .get("timeout")
-                .or_else(|| args.args.get(1))
-                .cloned();
-
-            let _crit = self.crit.lock();
-            if self.kind == RECURSIVE_MUTEX && ismine!(self) {
-                self.count.fetch_add(1, Ordering::Release);
+            let _crit = zelf.crit.lock();
+            if zelf.kind == RECURSIVE_MUTEX && ismine!(zelf) {
+                zelf.count.fetch_add(1, Ordering::Release);
                 return Ok(true);
             }
 
@@ -513,7 +575,7 @@ mod _multiprocessing {
 
             // Check whether we can acquire without releasing the GIL and blocking
             let try_status = loop {
-                match self.handle.trywait() {
+                match zelf.handle.trywait() {
                     TryAcquireStatus::Interrupted => {
                         vm.check_signals()?;
                     }
@@ -529,7 +591,7 @@ mod _multiprocessing {
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     loop {
-                        let handle = &self.handle;
+                        let handle = &zelf.handle;
                         match vm.allow_threads(|| handle.wait(deadline.as_ref())) {
                             WaitStatus::Acquired => break,
                             WaitStatus::Interrupted => {
@@ -545,7 +607,7 @@ mod _multiprocessing {
                 {
                     // macOS: use polled fallback since sem_timedwait is not available
                     if let Some(ref dl) = deadline {
-                        match sem_timedwait_polled(&self.handle, dl, vm) {
+                        match sem_timedwait_polled(&zelf.handle, dl, vm) {
                             Ok(()) => {}
                             Err(SemWaitError::Timeout) => {
                                 return Ok(false);
@@ -560,7 +622,7 @@ mod _multiprocessing {
                     } else {
                         // No timeout: use sem_wait (available on macOS)
                         loop {
-                            let handle = &self.handle;
+                            let handle = &zelf.handle;
                             match vm.allow_threads(|| handle.wait(None)) {
                                 WaitStatus::Acquired => break,
                                 WaitStatus::Interrupted => {
@@ -573,8 +635,8 @@ mod _multiprocessing {
                         }
                     }
                 }
-                let _crit = self.crit.lock();
-                self.mark_acquired();
+                let _crit = zelf.crit.lock();
+                zelf.mark_acquired();
                 return Ok(true);
             } else if !matches!(try_status, TryAcquireStatus::Acquired) {
                 // Non-blocking path failed, or blocking=false
@@ -586,7 +648,7 @@ mod _multiprocessing {
                 }
             }
 
-            self.mark_acquired();
+            zelf.mark_acquired();
             Ok(true)
         }
 
@@ -596,21 +658,20 @@ mod _multiprocessing {
                 .store(host_multiprocessing::current_thread_id(), Ordering::Release);
         }
 
-        /// Release the semaphore/lock.
         // _multiprocessing_SemLock_release_impl
         #[pymethod]
-        fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let _crit = self.crit.lock();
-            if self.kind == RECURSIVE_MUTEX {
+        fn release(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let _crit = zelf.crit.lock();
+            if zelf.kind == RECURSIVE_MUTEX {
                 // if (!ISMINE(self))
-                if !ismine!(self) {
+                if !ismine!(zelf) {
                     return Err(vm.new_assertion_error(
                         "attempt to release recursive lock not owned by thread",
                     ));
                 }
                 // if (self->count > 1) { --self->count; Py_RETURN_NONE; }
-                if self.count.load(Ordering::Acquire) > 1 {
-                    self.count.fetch_sub(1, Ordering::Release);
+                if zelf.count.load(Ordering::Acquire) > 1 {
+                    zelf.count.fetch_sub(1, Ordering::Release);
                     return Ok(());
                 }
                 // assert(self->count == 1);
@@ -619,8 +680,8 @@ mod _multiprocessing {
                 #[cfg(not(target_vendor = "apple"))]
                 {
                     // Linux: use sem_getvalue
-                    let sval = self.handle.value().map_err(|err| os_error(vm, err))?;
-                    if sval >= self.maxvalue {
+                    let sval = zelf.handle.value().map_err(|err| os_error(vm, err))?;
+                    if sval >= zelf.maxvalue {
                         return Err(vm.new_value_error("semaphore or lock released too many times"));
                     }
                 }
@@ -628,12 +689,12 @@ mod _multiprocessing {
                 {
                     // macOS: HAVE_BROKEN_SEM_GETVALUE
                     // We will only check properly the maxvalue == 1 case
-                    if self.maxvalue == 1 {
+                    if zelf.maxvalue == 1 {
                         // make sure that already locked
-                        match self.handle.trywait() {
+                        match zelf.handle.trywait() {
                             TryAcquireStatus::WouldBlock => {}
                             TryAcquireStatus::Acquired => {
-                                if let Err(err) = self.handle.post() {
+                                if let Err(err) = zelf.handle.post() {
                                     return Err(os_error(vm, err));
                                 }
                                 return Err(
@@ -649,36 +710,35 @@ mod _multiprocessing {
                 }
             }
 
-            if let Err(err) = self.handle.post() {
+            if let Err(err) = zelf.handle.post() {
                 return Err(os_error(vm, err));
             }
 
-            self.count.fetch_sub(1, Ordering::Release);
+            zelf.count.fetch_sub(1, Ordering::Release);
             Ok(())
         }
 
-        /// Enter the semaphore/lock (context manager).
         // _multiprocessing_SemLock___enter___impl
         #[pymethod(name = "__enter__")]
-        fn enter(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
             // return _multiprocessing_SemLock_acquire_impl(self, 1, Py_None);
-            self.acquire(
-                FuncArgs::new::<Vec<_>, KwArgs>(
-                    vec![vm.ctx.new_bool(true).into()],
-                    KwArgs::default(),
-                ),
+            Self::acquire(
+                zelf,
+                AcquireArgs {
+                    block: true,
+                    timeout: None,
+                },
                 vm,
             )
         }
 
-        /// Exit the semaphore/lock (context manager).
         // _multiprocessing_SemLock___exit___impl
         #[pymethod]
-        fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            self.release(vm)
+        fn __exit__(zelf: &Py<Self>, _args: ExitArgs, vm: &VirtualMachine) -> PyResult<()> {
+            Self::release(zelf, vm)
         }
 
-        /// Rebuild a SemLock from pickled state.
+        // Rebuild a SemLock from pickled state.
         // _multiprocessing_SemLock__rebuild_impl
         #[pyclassmethod(name = "_rebuild")]
         fn rebuild(
@@ -692,12 +752,16 @@ mod _multiprocessing {
             let Some(ref name_str) = name else {
                 return Err(vm.new_value_error("cannot rebuild SemLock without name"));
             };
-            let handle = SemHandle::open_existing(name_str).map_err(|err| os_error(vm, err))?;
+            let handle = super::SemHandleWord(
+                SemHandle::open_existing(name_str).map_err(|err| os_error(vm, err))?,
+            );
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
+            let (name_owner, name) = super::semlock_name(name);
             let zelf = Self {
                 handle,
                 kind,
                 maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
@@ -706,46 +770,44 @@ mod _multiprocessing {
             zelf.into_ref_with_type(vm, cls).map(Into::into)
         }
 
-        /// Rezero the net acquisition count after fork().
         // _multiprocessing_SemLock__after_fork_impl
         #[pymethod]
-        fn _after_fork(&self) {
-            let _crit = self.crit.lock();
-            self.count.store(0, Ordering::Release);
+        fn _after_fork(zelf: &Py<Self>) {
+            let _crit = zelf.crit.lock();
+            zelf.count.store(0, Ordering::Release);
             // Also reset last_tid for safety
-            self.last_tid.store(0, Ordering::Release);
+            zelf.last_tid.store(0, Ordering::Release);
         }
 
-        /// SemLock objects cannot be pickled directly.
-        /// Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
+        // SemLock objects cannot be pickled directly.
+        // Use multiprocessing.synchronize.SemLock wrapper which handles pickling.
         #[pymethod]
-        fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot pickle 'SemLock' object"))
         }
 
-        /// Num of `acquire()`s minus num of `release()`s for this process.
         // _multiprocessing_SemLock__count_impl
         #[pymethod]
-        fn _count(&self) -> i32 {
-            let _crit = self.crit.lock();
-            self.count.load(Ordering::Acquire)
+        fn _count(zelf: &Py<Self>) -> i32 {
+            let _crit = zelf.crit.lock();
+            zelf.count.load(Ordering::Acquire)
         }
 
-        /// Whether the lock is owned by this thread.
         // _multiprocessing_SemLock__is_mine_impl
         #[pymethod]
-        fn _is_mine(&self) -> bool {
-            ismine!(self)
+        fn _is_mine(zelf: &Py<Self>) -> bool {
+            ismine!(zelf)
         }
 
-        /// Get the value of the semaphore.
         // _multiprocessing_SemLock__get_value_impl
         #[pymethod]
-        fn _get_value(&self, vm: &VirtualMachine) -> PyResult<i32> {
+        fn _get_value(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+            #[cfg(target_vendor = "apple")]
+            let _ = zelf;
             #[cfg(not(target_vendor = "apple"))]
             {
                 // Linux: use sem_getvalue
-                self.handle.value().map_err(|err| os_error(vm, err))
+                zelf.handle.value().map_err(|err| os_error(vm, err))
             }
             #[cfg(target_vendor = "apple")]
             {
@@ -754,19 +816,18 @@ mod _multiprocessing {
             }
         }
 
-        /// Return whether semaphore has value zero.
         // _multiprocessing_SemLock__is_zero_impl
         #[pymethod]
-        fn _is_zero(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        fn _is_zero(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<bool> {
             #[cfg(not(target_vendor = "apple"))]
             {
-                Ok(self._get_value(vm)? == 0)
+                Ok(Self::_get_value(zelf, vm)? == 0)
             }
             #[cfg(target_vendor = "apple")]
             {
                 // macOS: HAVE_BROKEN_SEM_GETVALUE
                 // Try to acquire - if EAGAIN, value is 0
-                match self.handle.trywait() {
+                match zelf.handle.trywait() {
                     TryAcquireStatus::WouldBlock => return Ok(true),
                     TryAcquireStatus::Interrupted => {
                         return Err(os_error(vm, SemError::Interrupted));
@@ -775,7 +836,7 @@ mod _multiprocessing {
                     TryAcquireStatus::Acquired => {}
                 }
                 // Successfully acquired - undo and return false
-                if let Err(err) = self.handle.post() {
+                if let Err(err) = zelf.handle.post() {
                     return Err(os_error(vm, err));
                 }
                 Ok(false)
@@ -824,10 +885,12 @@ mod _multiprocessing {
                 })?;
 
             // return newsemlockobject(type, handle, kind, maxvalue, name_copy);
+            let (name_owner, name) = super::semlock_name(name);
             Ok(Self {
-                handle,
+                handle: super::SemHandleWord(handle),
                 kind: args.kind,
                 maxvalue: args.maxvalue,
+                name_owner,
                 name,
                 last_tid: AtomicU64::new(0),
                 count: AtomicI32::new(0),
@@ -836,7 +899,7 @@ mod _multiprocessing {
         }
     }
 
-    /// Function to unlink semaphore names.
+    // Function to unlink semaphore names.
     // _PyMp_sem_unlink.
     #[pyfunction]
     fn sem_unlink(name: String, vm: &VirtualMachine) -> PyResult<()> {
@@ -849,7 +912,7 @@ mod _multiprocessing {
         })
     }
 
-    /// Module-level flags dict.
+    // Module-level flags dict.
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyRef<PyDict> {
         let flags = vm.ctx.new_dict();

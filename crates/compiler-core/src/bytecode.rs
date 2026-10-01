@@ -520,6 +520,11 @@ bitflags! {
     }
 }
 
+const _: () = {
+    assert!(core::mem::size_of::<CodeFlags>() == core::mem::size_of::<i32>());
+    assert!(core::mem::align_of::<CodeFlags>() == core::mem::align_of::<i32>());
+};
+
 impl CodeFlags {
     /// The `__future__` flags that `compile()` accepts and that a compiled code
     /// object inherits from its caller. Mirrors `PyCF_MASK`.

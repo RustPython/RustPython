@@ -27,6 +27,42 @@ pub(crate) fn cold_downcast_type_error(
     vm.new_downcast_type_error(class, obj)
 }
 
+/// Native subclasses declared with `#[pyclass(base = Base)]` share the base's
+/// payload type ID. Their base field must start at offset zero, and their
+/// payload must start at the same offset inside `Py<T>` as the base payload.
+/// The derived object must also meet the base object's alignment requirement.
+/// The macro checks these conditions at compile time. `repr(C)` on the payload
+/// alone does not guarantee the second condition:
+///
+/// ```compile_fail,E0080
+/// use rustpython_vm::{builtins::PyDict, pyclass};
+///
+/// #[pyclass(module = false, name = "MisalignedDict", base = PyDict)]
+/// #[derive(Debug)]
+/// #[repr(C, align(64))]
+/// struct MisalignedDict {
+///     base: PyDict,
+/// }
+///
+/// #[pyclass]
+/// impl MisalignedDict {}
+/// ```
+///
+/// An enum cannot provide the required base field layout:
+///
+/// ```compile_fail
+/// use rustpython_vm::{builtins::PyDict, pyclass};
+///
+/// #[pyclass(module = false, name = "EnumDict", base = PyDict)]
+/// #[derive(Debug)]
+/// enum EnumDict {
+///     Dict(PyDict),
+///     Empty,
+/// }
+///
+/// #[pyclass]
+/// impl EnumDict {}
+/// ```
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<Self>();
 
@@ -69,7 +105,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// must not rely on its pre-clear contents.
     ///
     /// # Safety
-    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0
+    /// `obj` must be a valid pointer to a `Py<Self>` with refcount 0
     /// whose tp_clear has already run, with no outstanding borrows into the
     /// payload (`PyRef::new_ref` may pop and reuse the husk immediately).
     #[inline]
@@ -82,7 +118,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// reinitialize `ref_count`, `gc_bits`, and `payload`.
     ///
     /// # Safety
-    /// The returned pointer (if Some) must point to a valid `PyInner<Self>`
+    /// The returned pointer (if Some) must point to a valid `Py<Self>`
     /// whose payload is still initialized from a previous allocation. The caller
     /// will drop and overwrite `payload` before reuse.
     #[inline]

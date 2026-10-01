@@ -113,7 +113,7 @@ impl PyMapping<'_> {
     #[inline]
     #[must_use]
     pub fn slots(&self) -> &PyMappingSlots {
-        &self.obj.class().slots.as_mapping
+        &self.obj.class().slots().as_mapping
     }
 
     #[inline]

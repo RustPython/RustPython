@@ -2,7 +2,7 @@ use crate::util::{ItemMeta, ItemMetaInner};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{DeriveInput, Ident, Item, Result};
-use syn_ext::ext::{AttributeExt, GetIdent};
+use syn_ext::ext::{AttributeExt, AttributeIteratorExt, GetIdent};
 use syn_ext::types::{Meta, PunctuatedNestedMeta};
 
 // #[pystruct_sequence_data] - For Data structs
@@ -524,6 +524,16 @@ pub(crate) fn impl_pystruct_sequence(
     } else {
         class_name.clone()
     };
+    let db_doc = if let Some(module) = module_name.as_deref() {
+        rustpython_doc::get_qualified(module, &class_name, None, false)
+    } else {
+        rustpython_doc::get(&class_name)
+    };
+    let rust_doc = struct_item.attrs.doc().filter(|doc| !doc.is_empty());
+    let db = if rust_doc.is_some() { None } else { db_doc };
+    let doc = crate::class_docs::item_doc_tokens(db, rust_doc);
+    let (attr_docs, attr_names) =
+        crate::class_docs::attr_docs_tokens(module_name.as_deref(), &class_name);
 
     let output = quote! {
         // The Python type struct - newtype wrapping PyTuple
@@ -536,7 +546,12 @@ pub(crate) fn impl_pystruct_sequence(
             const NAME: &'static str = #class_name;
             const MODULE_NAME: Option<&'static str> = #module_name_tokens;
             const TP_NAME: &'static str = #module_class_name;
-            const DOC: Option<&'static str> = None;
+            const DOC: ::rustpython_vm::function::ItemDoc = #doc;
+            ::rustpython_vm::__cfg_doc! {{
+                const ATTR_DOCS: &'static [(&'static str, u32, u32)] = #attr_docs;
+            } else {
+                const ATTR_DOCS: &'static [&'static str] = #attr_names;
+            }}
             const BASICSIZE: usize = 0;
             const UNHASHABLE: bool = false;
 

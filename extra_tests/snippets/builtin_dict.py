@@ -291,6 +291,25 @@ assert x["c"] is None
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
 
+for source in ({i: -1 for i in range(128)}, set(range(128)), frozenset(range(128))):
+    shared_value = []
+    result = dict.fromkeys(source, shared_value)
+    assert list(result) == list(source)
+    assert all(value is shared_value for value in result.values())
+
+
+class UnsizedFromKeys:
+    def __iter__(self):
+        return iter((1, 1, 2))
+
+    def __len__(self):
+        raise AssertionError("fromkeys must not request a length hint")
+
+    __length_hint__ = __len__
+
+
+assert dict.fromkeys(UnsizedFromKeys()) == {1: None, 2: None}
+
 x = {"a": 1, "b": 1, "c": 1}
 y = {"b": 2, "c": 2, "d": 2}
 z = {"c": 3, "d": 3, "e": 3}
@@ -408,3 +427,321 @@ expected_keys = ["x", "y", "w", "z"]
 assert list(result.keys()) == expected_keys, (
     f"Expected {expected_keys}, got {list(result.keys())}"
 )
+
+
+def check_view_comparisons(view, other, expected):
+    assert (
+        view == other,
+        view != other,
+        view < other,
+        view <= other,
+        view > other,
+        view >= other,
+    ) == expected
+    assert (
+        other == view,
+        other != view,
+        other > view,
+        other >= view,
+        other < view,
+        other <= view,
+    ) == expected
+
+
+# Dictionary views support the same comparisons with mutable and frozen sets.
+config = {"host": "localhost", "port": 8080}
+for view in (config.keys(), config.items()):
+    for set_type in (set, frozenset):
+        schema = set_type(view)
+        check_view_comparisons(view, schema, (True, False, False, True, False, True))
+        smaller_schema = schema - {next(iter(schema))}
+        check_view_comparisons(
+            view, smaller_schema, (False, True, False, False, True, True)
+        )
+        larger_schema = schema | {("extra",)}
+        check_view_comparisons(
+            view, larger_schema, (False, True, True, True, False, False)
+        )
+        check_view_comparisons(
+            view, set_type({("other",)}), (False, True, False, False, False, False)
+        )
+
+# Mixed keys/items views compare their members regardless of insertion order.
+indexed_settings = {("port", 8080): None, ("host", "localhost"): None}
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (True, False, False, True, False, True)
+)
+del indexed_settings[("port", 8080)]
+check_view_comparisons(
+    config.items(), indexed_settings.keys(), (False, True, False, False, True, True)
+)
+
+# Testing for common settings does not require hashable values.
+left_settings = {"ports": [80, 443], "hosts": ["localhost"]}
+right_settings = {"ports": [80, 443], "timeout": 30}
+assert not left_settings.items().isdisjoint(right_settings.items())
+assert not right_settings.items().isdisjoint(left_settings.items())
+assert not left_settings.items().isdisjoint([("ports", [80, 443])])
+assert left_settings.items().isdisjoint({"ports": [8080]}.items())
+assert left_settings.items().isdisjoint(())
+assert left_settings.items().isdisjoint({"timeout": 30}.items())
+assert left_settings.items() != frozenset()
+assert left_settings.items() >= frozenset()
+assert not left_settings.items() <= frozenset()
+settings_view = left_settings.items()
+assert not settings_view.isdisjoint(settings_view)
+assert {}.items().isdisjoint({}.items())
+
+
+def settings_then_error(setting):
+    yield setting
+    raise ValueError("remaining settings unavailable")
+
+
+# A match stops consumption, while an error before a match still propagates.
+assert not config.keys().isdisjoint(settings_then_error("host"))
+assert not left_settings.items().isdisjoint(settings_then_error(("ports", [80, 443])))
+with assert_raises(ValueError):
+    config.keys().isdisjoint(settings_then_error("missing"))
+with assert_raises(TypeError):
+    config.keys().isdisjoint(42)
+
+
+class ViewMembershipKey:
+    hash_calls = 0
+
+    def __hash__(self):
+        self.hash_calls += 1
+        return 42
+
+
+# Successful item membership needs one dictionary lookup.
+membership_key = ViewMembershipKey()
+membership_dict = {membership_key: [1, 2]}
+membership_key.hash_calls = 0
+assert (membership_key, [1, 2]) in membership_dict.items()
+assert membership_key.hash_calls == 1
+
+for set_type in (set, frozenset):
+
+    class ViewSetSubclass(set_type):
+        events = []
+
+        def __iter__(self):
+            self.events.append("iter")
+            return super().__iter__()
+
+        def __contains__(self, item):
+            self.events.append("contains")
+            return super().__contains__(item)
+
+    # View operations preserve a set subclass's iteration and membership hooks.
+    schema = ViewSetSubclass({"host", "port"})
+    schema.events.clear()
+    assert config.keys() == schema
+    assert schema.events == ["contains", "contains"]
+    schema.events.clear()
+    assert config.keys() >= schema
+    assert schema.events == ["iter"]
+    schema.events.clear()
+    assert not config.keys().isdisjoint(schema)
+    assert schema.events == ["iter"]
+    larger_schema = ViewSetSubclass({"host", "port", "timeout"})
+    schema.events.clear()
+    assert not config.keys().isdisjoint(larger_schema)
+    assert schema.events == ["contains"]
+
+# An empty view must still consume arbitrary iterables and validate their keys.
+with assert_raises(TypeError):
+    {}.keys().isdisjoint([[]])
+with assert_raises(ValueError):
+    {}.keys().isdisjoint(settings_then_error("missing"))
+
+for set_type in (set, frozenset):
+
+    class ClearingLengthSet(set_type):
+        def __len__(self):
+            changing_config.clear()
+            return 1
+
+        def __iter__(self):
+            raise ValueError("settings unavailable")
+
+    # The view's size is captured before calling the other operand's __len__.
+    changing_config = {"host": "localhost", "port": 8080}
+    with assert_raises(ValueError):
+        changing_config.keys().isdisjoint(ClearingLengthSet({"host"}))
+    assert changing_config == {}
+
+
+class ItemLookupDict(dict):
+    def __getitem__(self, key):
+        raise AssertionError("item membership called __getitem__")
+
+    def __missing__(self, key):
+        raise AssertionError("item membership called __missing__")
+
+
+# Item views inspect dictionary storage without invoking subclass lookup hooks.
+lookup_items = ItemLookupDict(ports=[80, 443]).items()
+assert ("ports", [80, 443]) in lookup_items
+assert ("ports", [8080]) not in lookup_items
+assert ("missing", []) not in lookup_items
+
+
+class LookupOrderKey:
+    calls = []
+
+    def __init__(self, name, equal):
+        self.name = name
+        self.equal = equal
+
+    def __hash__(self):
+        return 17
+
+    def __eq__(self, other):
+        self.calls.append(self.name)
+        return self.equal
+
+
+stored = LookupOrderKey("stored", True)
+lookup = LookupOrderKey("lookup", False)
+mapping = {stored: 1}
+assert mapping[lookup] == 1
+mapping[lookup] = 2
+assert len(mapping) == 1
+assert next(iter(mapping)) is stored
+del mapping[lookup]
+assert not mapping
+assert LookupOrderKey.calls == ["stored", "stored", "stored"]
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", NotImplemented)
+lookup = LookupOrderKey("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["stored", "lookup"]
+
+
+class LookupOrderSubclass(LookupOrderKey):
+    __hash__ = LookupOrderKey.__hash__
+
+    def __eq__(self, other):
+        return super().__eq__(other)
+
+
+LookupOrderKey.calls.clear()
+stored = LookupOrderKey("stored", False)
+lookup = LookupOrderSubclass("lookup", True)
+assert {stored: 1}[lookup] == 1
+assert LookupOrderKey.calls == ["lookup"]
+
+
+class MergeHashKey:
+    hash_disabled = False
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        assert not self.hash_disabled, "dictionary merge rehashed a stored key"
+        return 42
+
+    def __eq__(self, other):
+        if not isinstance(other, MergeHashKey):
+            return NotImplemented
+        return self.value == other.value
+
+
+def merge_with_update(source):
+    result = {}
+    result.update(source)
+    return result
+
+
+def merge_with_ior(source):
+    result = {}
+    result |= source
+    return result
+
+
+# Exact dictionary merges reuse hashes, including colliding keys and holes.
+merge_keys = [MergeHashKey(i) for i in range(3)]
+merge_source = dict(zip(merge_keys, ("first", "removed", "last")))
+del merge_source[merge_keys[1]]
+existing_merge_key = MergeHashKey(2)
+merge_target = {existing_merge_key: "old"}
+MergeHashKey.hash_disabled = True
+for merge in (
+    dict,
+    merge_with_update,
+    merge_with_ior,
+    lambda source: {} | source,
+    lambda source: dict.__ror__(source, {}),
+    lambda source: {**source},
+):
+    assert list(merge(merge_source).items()) == list(merge_source.items())
+
+# Overwriting a matching key keeps its identity and position.
+merge_target.update(merge_source)
+assert next(iter(merge_target)) is existing_merge_key
+assert list(merge_target.values()) == ["last", "first"]
+merge_source.update(merge_source)
+merge_source |= merge_source
+assert list(merge_source.values()) == ["first", "last"]
+MergeHashKey.hash_disabled = False
+
+
+# Compact copies preserve order, key identity and stored hashes after deletions.
+copy_keys = [MergeHashKey(i) for i in range(32)]
+copy_source = {key: key.value for key in copy_keys}
+for key in copy_keys[:-3]:
+    del copy_source[key]
+MergeHashKey.hash_disabled = True
+copy_result = copy_source.copy()
+assert list(copy_result.values()) == [29, 30, 31]
+assert all(actual is expected for actual, expected in zip(copy_result, copy_keys[-3:]))
+copy_result.clear()
+assert len(copy_source) == 3
+MergeHashKey.hash_disabled = False
+
+
+class MergeMapping(dict):
+    def __iter__(self):
+        return iter(("virtual",))
+
+    def keys(self):
+        return ["virtual"]
+
+    def __getitem__(self, key):
+        assert key == "virtual"
+        return 42
+
+
+# Generic mappings retain their lookup hooks instead of exposing dict storage.
+for merge in (dict, merge_with_update, merge_with_ior):
+    assert merge(MergeMapping(stored=0)) == {"virtual": 42}
+
+# Test hashability of dict and OrderedDict views
+import collections.abc
+
+d = {"a": 1, "b": 2}
+assert type(d.keys()).__hash__ is None
+assert type(d.items()).__hash__ is None
+assert type(d.values()).__hash__ is not None
+assert not isinstance(d.keys(), collections.abc.Hashable)
+assert not isinstance(d.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(d.keys())
+with assert_raises(TypeError):
+    hash(d.items())
+
+od = collections.OrderedDict([("a", 1)])
+assert type(od.keys()).__hash__ is None
+assert type(od.items()).__hash__ is None
+assert type(od.values()).__hash__ is not None
+assert not isinstance(od.keys(), collections.abc.Hashable)
+assert not isinstance(od.items(), collections.abc.Hashable)
+with assert_raises(TypeError):
+    hash(od.keys())
+with assert_raises(TypeError):
+    hash(od.items())

@@ -9,7 +9,6 @@ use crate::{
     protocol::PyIterReturn,
     vm::GenFrameLink,
 };
-use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 
 impl ExecutionResult {
@@ -522,7 +521,7 @@ impl Coro {
     }
 
     pub fn frame_opt(&self) -> Option<FrameObjectRef> {
-        self.frame.try_to_owned(Ordering::Acquire)
+        self.frame.load_owned()
     }
 
     pub fn code(&self) -> PyRef<PyCode> {
@@ -655,10 +654,10 @@ pub(crate) fn unraisable_while_closing(
 ) {
     // Explicit close() leaves the traceback to the caller frame.
     // Finalize has no caller frame, so attach the generator site here.
-    if e.__traceback__().is_none()
+    if e.traceback().is_none()
         && let Some(frame) = coro.frame_opt()
     {
-        let lasti = frame.lasti().saturating_mul(2);
+        let lasti = frame.lasti().saturating_mul(2) as i32;
         let lineno = rustpython_compiler_core::OneIndexed::new(frame.lineno().max(1) as usize)
             .unwrap_or(rustpython_compiler_core::OneIndexed::MIN);
         let tb = PyTraceback::new(None, frame, lasti, lineno);

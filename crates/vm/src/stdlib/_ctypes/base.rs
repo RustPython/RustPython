@@ -5,11 +5,11 @@ use crate::builtins::{
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
-use crate::function::{ArgBytesLike, OptionalArg, PySetterValue};
+use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -401,7 +401,7 @@ pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef,
     (holder, ptr)
 }
 
-/// PyCData - base type for all ctypes data types
+// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCData {
@@ -940,7 +940,7 @@ impl PyCData {
         {
             let items: Option<Vec<PyObjectRef>> =
                 if let Some(tuple) = value.downcast_ref::<PyTuple>() {
-                    Some(tuple.to_vec())
+                    Some(tuple.as_slice().to_vec())
                 } else {
                     value
                         .downcast_ref::<crate::builtins::PyList>()
@@ -953,6 +953,7 @@ impl PyCData {
                     let exc_name = e.class().name().to_string();
                     let exc_args = e.args();
                     let exc_msg = exc_args
+                        .as_slice()
                         .first()
                         .and_then(|a| a.downcast_ref::<PyStr>().map(|s| s.to_string()))
                         .unwrap_or_default();
@@ -1119,7 +1120,7 @@ impl PyCData {
 }
 
 #[pyclass(flags(BASETYPE))]
-impl PyCData {
+impl Py<PyCData> {
     #[pygetset]
     fn _objects(&self) -> Option<PyObjectRef> {
         self.objects.read().clone()
@@ -1128,6 +1129,11 @@ impl PyCData {
     #[pygetset]
     fn _b_base_(&self) -> Option<PyObjectRef> {
         self.base.read().clone()
+    }
+
+    #[pymethod]
+    fn __ctypes_from_outparam__(zelf: PyRef<PyCData>, _vm: &VirtualMachine) -> PyObjectRef {
+        zelf.into()
     }
 
     #[pygetset]
@@ -1146,7 +1152,7 @@ impl PyCData {
         offset: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let cdata = Self::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
+        let cdata = PyCData::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1158,12 +1164,17 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult {
         let cdata =
-            Self::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
+            PyCData::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pyclassmethod]
-    pub(super) fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn from_address(
+        cls: PyTypeRef,
+        address: ArgStrictInt<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let address = address.value;
         let size = {
             let stg_info = cls.stg_info(vm)?;
             stg_info.size
@@ -1174,7 +1185,7 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(address as *const u8, size) };
+        let cdata = unsafe { PyCData::at_address(address as *const u8, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1232,15 +1243,14 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(ptr, size) };
+        let cdata = unsafe { PyCData::at_address(ptr, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 
 // PyCField - Field descriptor for Structure/Union types
 
-/// CField descriptor for Structure/Union field access
-#[pyclass(name = "CField", module = "_ctypes")]
+#[pyclass(name = "CField", module = "ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
     /// Field name
@@ -1688,7 +1698,6 @@ impl PyCField {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
     fn get_cdata_from_obj<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
@@ -1703,8 +1712,11 @@ impl PyCField {
             )))
         }
     }
+}
 
-    /// PyCField_set
+#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
+impl Py<PyCField> {
+    // PyCField_set
     #[pyslot]
     fn descr_set(
         zelf: &PyObject,
@@ -1713,14 +1725,14 @@ impl PyCField {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = zelf
-            .downcast_ref::<Self>()
+            .downcast_ref::<PyCField>()
             .ok_or_else(|| vm.new_type_error("expected CField"))?;
 
         let offset = zelf.offset as usize;
         let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
-        let cdata = Self::get_cdata_from_obj(&obj, vm)?;
+        let cdata = PyCField::get_cdata_from_obj(&obj, vm)?;
 
         match value {
             PySetterValue::Assign(value) => {
@@ -2191,7 +2203,7 @@ fn make_fields(
     let fieldlist: Vec<PyObjectRef> = if let Some(list) = fields.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = fields.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_fields_ must be a sequence"));
     };
@@ -2201,11 +2213,12 @@ fn make_fields(
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
-        if field_tuple.len() < 2 {
+        if field_tuple.as_slice().len() < 2 {
             continue;
         }
 
         let fname = field_tuple
+            .as_slice()
             .first()
             .expect("len checked")
             .downcast_ref::<PyUtf8Str>()
@@ -2250,7 +2263,7 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
     let anon_names: Vec<PyObjectRef> = if let Some(list) = anon.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = anon.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_anonymous_ must be a sequence"));
     };

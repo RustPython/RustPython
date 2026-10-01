@@ -18,6 +18,7 @@ const CLS_ATTRS: &[&str] = &["__module__"];
 
 #[pyclass(module = "typing", name = "Union", traverse)]
 pub struct PyUnion {
+    #[pymember(name = "__args__")]
     args: PyTupleRef,
     /// Frozenset of hashable args, or None if all args were hashable
     hashable_args: Option<PyRef<PyFrozenSet>>,
@@ -91,6 +92,7 @@ impl PyUnion {
 
         Ok(self
             .args
+            .as_slice()
             .iter()
             .map(|o| repr_item(o, vm))
             .collect::<PyResult<Vec<_>>>()?
@@ -98,11 +100,17 @@ impl PyUnion {
     }
 }
 
+impl PyUnion {
+    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        type_::or_(zelf, other, vm)
+    }
+}
+
 #[pyclass(
     flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
     with(Hashable, Comparable, AsMapping, AsNumber, Representable)
 )]
-impl PyUnion {
+impl Py<PyUnion> {
     #[pygetset]
     fn __name__(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str("Union").into()
@@ -123,69 +131,66 @@ impl PyUnion {
         self.parameters.clone().into()
     }
 
-    #[pygetset]
-    fn __args__(&self) -> PyObjectRef {
-        self.args.clone().into()
-    }
-
     #[pymethod]
     fn __instancecheck__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyUnion>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         if zelf
             .args
+            .as_slice()
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
             Err(vm.new_type_error("isinstance() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_instance(zelf.__args__().as_object(), vm)
+            obj.is_instance(zelf.args.as_object(), vm)
         }
     }
 
     #[pymethod]
     fn __subclasscheck__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PyUnion>,
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         if zelf
             .args
+            .as_slice()
             .iter()
             .any(|x| x.class().is(vm.ctx.types.generic_alias_type))
         {
             Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
         } else {
-            obj.is_subclass(zelf.__args__().as_object(), vm)
+            obj.is_subclass(zelf.args.as_object(), vm)
         }
     }
 
-    fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        type_::or_(zelf, other, vm)
-    }
-
     #[pymethod]
-    fn __mro_entries__(zelf: PyRef<Self>, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __mro_entries__(
+        zelf: PyRef<PyUnion>,
+        _object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         Err(vm.new_type_error(format!("Cannot subclass {}", zelf.repr(vm)?)))
     }
 
     #[pyclassmethod]
     fn __class_getitem__(
         _cls: crate::builtins::PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
         // Convert args to tuple if not already
-        let args_tuple = if let Some(tuple) = args.downcast_ref::<PyTuple>() {
+        let args_tuple = if let Some(tuple) = object.downcast_ref::<PyTuple>() {
             tuple.to_owned()
         } else {
-            PyTuple::new_ref(vec![args], &vm.ctx)
+            PyTuple::new_ref(vec![object], &vm.ctx)
         };
 
         // Check for empty union
-        if args_tuple.is_empty() {
+        if args_tuple.as_slice().is_empty() {
             return Err(vm.new_type_error("Cannot create empty Union"));
         }
 
@@ -243,7 +248,7 @@ fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut total_args = 0;
     for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            total_args += pyref.args.len();
+            total_args += pyref.args.as_slice().len();
         } else {
             total_args += 1;
         };
@@ -252,7 +257,7 @@ fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut flattened_args = Vec::with_capacity(total_args);
     for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
-            flattened_args.extend(pyref.args.iter().cloned());
+            flattened_args.extend(pyref.args.as_slice().iter().cloned());
         } else if vm.is_none(arg) {
             flattened_args.push(vm.ctx.types.none_type.to_owned().into());
         } else if arg.downcast_ref::<PyStr>().is_some() {
@@ -296,7 +301,7 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
     // This avoids calling __eq__ when hashes differ, so `int | BadType`
     // doesn't raise even if BadType.__eq__ raises.
 
-    let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
+    let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.as_slice().len());
 
     // Track hashable elements using a Python set (uses hash + equality)
     let hashable_set = PySet::default().into_ref(&vm.ctx);
@@ -364,8 +369,8 @@ fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<U
 
 pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult {
     let result = dedup_and_flatten_args(args, vm)?;
-    Ok(match result.args.len() {
-        1 => result.args[0].to_owned(),
+    Ok(match result.args.as_slice().len() {
+        1 => result.args.as_slice()[0].to_owned(),
         _ => PyUnion::from_components(result, vm)?.to_pyobject(vm),
     })
 }
@@ -380,11 +385,11 @@ impl PyUnion {
             vm,
         )?;
 
-        Ok(if new_args.is_empty() {
+        Ok(if new_args.as_slice().is_empty() {
             make_union(&new_args, vm)?
         } else {
-            let mut tmp = new_args[0].to_owned();
-            for arg in new_args.iter().skip(1) {
+            let mut tmp = new_args.as_slice()[0].to_owned();
+            for arg in new_args.as_slice().iter().skip(1) {
                 tmp = vm._or(&tmp, arg)?;
             }
             tmp
@@ -426,7 +431,7 @@ impl Comparable for PyUnion {
             let other = class_or_notimplemented!(Self, other);
 
             // Check if lengths are equal
-            if zelf.args.len() != other.args.len() {
+            if zelf.args.as_slice().len() != other.args.as_slice().len() {
                 return Ok(PyComparisonValue::Implemented(false));
             }
 
@@ -489,9 +494,9 @@ impl Hashable for PyUnion {
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         // If there are any unhashable args from creation time, the union is unhashable
         if let Some(ref unhashable_args) = zelf.unhashable_args {
-            let n = unhashable_args.len();
+            let n = unhashable_args.as_slice().len();
             // Try to hash each previously unhashable arg to get an error
-            for arg in unhashable_args.iter() {
+            for arg in unhashable_args.as_slice() {
                 arg.hash(vm)?;
             }
             // All previously unhashable args somehow became hashable

@@ -670,8 +670,8 @@ pub(crate) mod _interpchannels {
         with(Representable, Hashable, AsNumber),
         flags(BASETYPE, IMMUTABLETYPE, DISALLOW_INSTANTIATION)
     )]
-    impl ChannelID {
-        /// `channelid_richcompare`.
+    impl Py<ChannelID> {
+        // `channelid_richcompare`.
         #[pyslot]
         fn slot_richcompare(
             zelf: &PyObject,
@@ -682,10 +682,10 @@ pub(crate) mod _interpchannels {
             if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
                 return Ok(Either::B(PyComparisonValue::NotImplemented));
             }
-            let Some(zelf) = zelf.downcast_ref::<Self>() else {
+            let Some(zelf) = zelf.downcast_ref::<ChannelID>() else {
                 return Ok(Either::B(PyComparisonValue::NotImplemented));
             };
-            let equal = if let Some(o) = other.downcast_ref::<Self>() {
+            let equal = if let Some(o) = other.downcast_ref::<ChannelID>() {
                 zelf.end == o.end && zelf.cid == o.cid
             } else if let Some(n) = other.downcast_ref::<PyInt>() {
                 // Fast path
@@ -850,13 +850,7 @@ pub(crate) mod _interpchannels {
     }
 
     #[pyfunction]
-    fn list_all(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.args.is_empty() || !args.kwargs.is_empty() {
-            return Err(vm.new_type_error(format!(
-                "_interpchannels.list_all() takes no arguments ({} given)",
-                args.args.len() + args.kwargs.len()
-            )));
-        }
+    fn list_all(vm: &VirtualMachine) -> PyResult {
         let chans: Vec<(i64, UnboundOp, i32)> = channels()
             .lock()
             .refs

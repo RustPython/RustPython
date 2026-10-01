@@ -4,11 +4,13 @@ pub(crate) use _lzma::module_def;
 
 #[pymodule]
 mod _lzma {
-    use crate::compression::DecompressArgs;
+    use crate::compression::DecompressorArgs;
     use alloc::fmt;
+    use core::sync::atomic::{AtomicBool, AtomicI32, Ordering};
     use rustpython_common::{compression::lzma as backend, lock::PyMutex};
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
-    use rustpython_vm::function::ArgBytesLike;
+    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytes, PyDict, PyType, PyTypeRef};
+    use rustpython_vm::function::{ArgBytesLike, ItemDoc};
+    use rustpython_vm::object::PyAtomicRef;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 
@@ -76,10 +78,11 @@ mod _lzma {
 
     #[pyattr(once, name = "LZMAError")]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_exception_type(
-            "lzma",
+        vm.ctx.new_exception_type_with_doc(
+            "_lzma",
             "LZMAError",
             Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+            const { ItemDoc::db("_lzma.LZMAError") },
         )
     }
 
@@ -246,11 +249,8 @@ mod _lzma {
     }
 
     #[pyfunction]
-    fn _encode_filter_properties(
-        filter_spec: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        let spec = parse_filter_properties(&filter_spec, vm)?;
+    fn _encode_filter_properties(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let spec = parse_filter_properties(&filter, vm)?;
         backend::encode_filter_properties(&spec).map_err(|error| map_backend_error(error, vm))
     }
 
@@ -267,22 +267,25 @@ mod _lzma {
 
     struct DecompressorInner {
         backend: backend::Decompressor,
-        unused_data: PyBytesRef,
-    }
-
-    impl DecompressorInner {
-        fn sync_visible_state(&mut self, vm: &VirtualMachine) {
-            if self.unused_data.as_bytes() != self.backend.unused_data() {
-                self.unused_data = vm.ctx.new_bytes(self.backend.unused_data().to_vec());
-            }
-        }
     }
 
     #[pyattr]
-    #[pyclass(name = "LZMADecompressor")]
+    #[pyclass(name = "LZMADecompressor", traverse)]
     #[derive(PyPayload)]
     struct LZMADecompressor {
+        #[pytraverse(skip)]
         state: PyMutex<DecompressorInner>,
+        #[pymember]
+        #[pytraverse(skip)]
+        check: AtomicI32,
+        #[pymember]
+        #[pytraverse(skip)]
+        eof: AtomicBool,
+        #[pymember]
+        #[pytraverse(skip)]
+        needs_input: AtomicBool,
+        #[pymember(type = "object_ex")]
+        unused_data: PyAtomicRef<Option<PyObject>>,
     }
 
     impl fmt::Debug for LZMADecompressor {
@@ -293,7 +296,7 @@ mod _lzma {
 
     #[derive(FromArgs)]
     pub(super) struct LZMADecompressorConstructorArgs {
-        #[pyarg(any, default = FORMAT_AUTO)]
+        #[pyarg(any, default = ::FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
         memlimit: Option<u64>,
@@ -317,11 +320,13 @@ mod _lzma {
             let filters = filters_to_backend(args.filters, vm)?;
             let backend = backend::Decompressor::new(args.format, args.memlimit, filters)
                 .map_err(|error| map_backend_error(error, vm))?;
+            let check = backend.check();
             Ok(Self {
-                state: PyMutex::new(DecompressorInner {
-                    backend,
-                    unused_data: vm.ctx.empty_bytes.clone(),
-                }),
+                state: PyMutex::new(DecompressorInner { backend }),
+                check: AtomicI32::new(check),
+                eof: AtomicBool::new(false),
+                needs_input: AtomicBool::new(true),
+                unused_data: PyAtomicRef::from(Some(vm.ctx.empty_bytes.clone().into())),
             })
         }
     }
@@ -329,33 +334,28 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMADecompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressorArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
-            let mut state = self.state.lock();
+            let mut state = zelf.state.lock();
             let result = state.backend.decompress(data, max_length);
-            state.sync_visible_state(vm);
+            zelf.check.store(state.backend.check(), Ordering::Relaxed);
+            zelf.eof.store(state.backend.eof(), Ordering::Relaxed);
+            zelf.needs_input
+                .store(state.backend.needs_input(), Ordering::Relaxed);
+            let stale = zelf.unused_data.deref().is_none_or(|obj| {
+                obj.downcast_ref::<PyBytes>()
+                    .is_none_or(|bytes| bytes.as_bytes() != state.backend.unused_data())
+            });
+            if stale {
+                let bytes = vm.ctx.new_bytes(state.backend.unused_data().to_vec());
+                let _previous = unsafe { zelf.unused_data.swap(Some(bytes.into())) };
+            }
             result.map_err(|error| map_backend_error(error, vm))
-        }
-
-        #[pygetset]
-        fn check(&self) -> i32 {
-            self.state.lock().backend.check()
-        }
-
-        #[pygetset]
-        fn eof(&self) -> bool {
-            self.state.lock().backend.eof()
-        }
-
-        #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.state.lock().unused_data.clone()
-        }
-
-        #[pygetset]
-        fn needs_input(&self) -> bool {
-            self.state.lock().backend.needs_input()
         }
     }
 
@@ -374,7 +374,7 @@ mod _lzma {
 
     #[derive(FromArgs)]
     pub(super) struct LZMACompressorConstructorArgs {
-        #[pyarg(any, default = FORMAT_XZ)]
+        #[pyarg(any, default = ::FORMAT_XZ)]
         format: i32,
         #[pyarg(any, default = -1)]
         check: i32,
@@ -419,14 +419,14 @@ mod _lzma {
     #[pyclass(with(Constructor))]
     impl LZMACompressor {
         #[pymethod]
-        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            data.with_ref(|data| self.state.lock().compress(data))
+        fn compress(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            data.with_ref(|data| zelf.state.lock().compress(data))
                 .map_err(|error| map_backend_error(error, vm))
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.state
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.state
                 .lock()
                 .flush()
                 .map_err(|error| map_backend_error(error, vm))

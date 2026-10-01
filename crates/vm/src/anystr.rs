@@ -7,20 +7,20 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyInt, PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
-    function::OptionalOption,
+    function::PySsize,
 };
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
-    maxsplit: isize,
+    maxsplit: PySsize,
 }
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = false)]
+    #[pyarg(any, default)]
     pub keepends: bool,
 }
 
@@ -200,7 +200,9 @@ pub(crate) trait AnyStr {
             if args.maxsplit < 0 {
                 split(self, pattern, vm)
             } else {
-                splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
+                // Widen before adding: `isize::MAX + 1` overflows, and `sys.maxsize`
+                // is a legitimate maxsplit.
+                splitn(self, pattern, args.maxsplit as usize + 1, vm)
             }
         } else {
             split_whitespace(self, args.maxsplit, vm)
@@ -246,7 +248,7 @@ pub(crate) trait AnyStr {
     #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
-        chars: OptionalOption<S>,
+        chars: Option<S>,
         func_chars: FC,
         func_default: FD,
     ) -> &'a Self
@@ -255,7 +257,6 @@ pub(crate) trait AnyStr {
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flatten();
         match chars {
             Some(chars) => {
                 if let Some(chars) = chars.as_ref() {
@@ -318,23 +319,6 @@ pub(crate) trait AnyStr {
 
     fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(width - len, 0, fillchar)
-    }
-
-    fn py_join(
-        &self,
-        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
-    ) -> PyResult<Self::Container> {
-        let mut joined = if let Some(elem) = iter.next() {
-            elem?.as_ref().unwrap().to_container()
-        } else {
-            return Ok(Self::Container::new());
-        };
-        for elem in iter {
-            let elem = elem?;
-            joined.push_str(self);
-            joined.push_str(elem.as_ref().unwrap());
-        }
-        Ok(joined)
     }
 
     fn py_partition<'a, F, S>(

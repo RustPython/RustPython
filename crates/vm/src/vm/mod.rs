@@ -123,8 +123,9 @@ pub struct VirtualMachine {
     pub asyncio_running_loop: RefCell<Option<PyObjectRef>>,
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
+    /// Active Context stack for this thread and interpreter (PEP 567 / contextvars)
+    pub context_stack: RefCell<Vec<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
-    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
     /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
@@ -816,13 +817,18 @@ pub struct PyGlobalState {
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
-    pub hash_secret: HashSecret,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
     pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
+    /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
+    pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
+    /// The thread performing finalization, which need not be the process main thread.
+    #[cfg(feature = "threading")]
+    pub(crate) finalizing_thread_ident: AtomicCell<u64>,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
     pub before_forkers: PyMutex<Vec<PyObjectRef>>,
@@ -913,11 +919,31 @@ impl PyGlobalState {
     }
 }
 
-pub fn process_hash_secret_seed() -> u32 {
-    use std::sync::OnceLock;
-    static SEED: OnceLock<u32> = OnceLock::new();
-    // os_random is expensive, but this is only ever called once
-    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
+/// Process-wide `_Py_HashSecret`. The first top-level interpreter sets it;
+/// later calls keep that value.
+static HASH_SECRET: std::sync::OnceLock<HashSecret> = std::sync::OnceLock::new();
+
+/// Set the process-wide hash secret from the first top-level interpreter.
+///
+/// `hash_seed` is used only when the secret is not set yet. `None` draws a
+/// random seed. A later call keeps the existing secret and ignores `hash_seed`.
+pub(crate) fn init_hash_secret(hash_seed: Option<u32>) {
+    let _ = HASH_SECRET.get_or_init(|| {
+        let seed = hash_seed.unwrap_or_else(|| {
+            // os_random is expensive, but this runs only once per process.
+            u32::from_ne_bytes(rustpython_common::rand::os_random())
+        });
+        HashSecret::new(seed)
+    });
+}
+
+/// Process-wide `_Py_HashSecret` used for str/bytes hashing.
+#[inline]
+#[must_use]
+pub(crate) fn hash_secret() -> &'static HashSecret {
+    HASH_SECRET
+        .get()
+        .expect("hash secret is set by the first top-level interpreter")
 }
 
 /// A `NonNull<T>` wrapper that implements `Send + Sync`.
@@ -1253,32 +1279,24 @@ impl VirtualMachine {
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
+            context_stack: RefCell::default(),
             callable_cache: CallableCache::default(),
-            audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
             pending_tailcall_owner: core::cell::UnsafeCell::new(None),
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
 
-        if vm.state.hash_secret.hash_str("")
-            != vm
-                .ctx
-                .interned_str("")
-                .expect("empty str must be interned")
-                .hash(&vm)
-        {
-            panic!("Interpreters in same process must share the hash seed");
-        }
-
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
-            Some(vm.ctx.intern_str(stdlib::builtins::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::builtins::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         vm.sys_module.init_dict(
             vm.ctx.intern_str("sys"),
-            Some(vm.ctx.intern_str(stdlib::sys::DOC.unwrap()).to_owned()),
+            crate::function::plain_doc(stdlib::sys::DOC)
+                .map(|doc| vm.ctx.intern_str(doc).to_owned()),
             &vm,
         );
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
@@ -1618,7 +1636,9 @@ impl VirtualMachine {
 
         // Create a function object for module code, similar to PyEval_EvalCode
         let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
-        func.closure = closure;
+        if let Some(closure) = closure {
+            func.closure = Some(closure);
+        }
         let func = func.into_ref(&self.ctx);
         func.invoke_with_locals(FuncArgs::default(), scope.locals, self)
     }
@@ -1637,7 +1657,7 @@ impl VirtualMachine {
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().to_owned();
-        let exc_traceback = e.__traceback__().to_pyobject(self); // TODO: actual traceback
+        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
         let exc_value = e.into();
         let args = stdlib::sys::UnraisableHookArgsData {
             exc_type,
@@ -3007,6 +3027,21 @@ impl VirtualMachine {
         }
     }
 
+    /// `PySys_Audit`: raise audit `event` to the registered hooks. `args` is only built when a hook
+    /// is registered.
+    pub fn audit<A: crate::function::IntoFuncArgs>(
+        &self,
+        event: &str,
+        args: impl FnOnce() -> A,
+    ) -> PyResult<()> {
+        if self.state.audit_hooks.lock().is_empty() {
+            return Ok(());
+        }
+        let event = self.ctx.new_str(event);
+        let args = self.ctx.new_tuple(args().into_args(self).args);
+        crate::stdlib::sys::sys::run_audit_hooks(&event, args.as_object(), self)
+    }
+
     #[inline]
     pub(crate) fn enter_tracing(&self) {
         self.tracing_depth.set(self.tracing_depth.get() + 1);
@@ -3127,7 +3162,7 @@ impl VirtualMachine {
         let fromlist_empty = self.is_none(&from_list)
             || from_list
                 .downcast_ref::<PyTuple>()
-                .is_some_and(|tuple| tuple.is_empty());
+                .is_some_and(|tuple| tuple.as_slice().is_empty());
         if level == 0
             && fromlist_empty
             && builtins.is(self.builtins.dict().as_object())
@@ -3377,7 +3412,7 @@ impl VirtualMachine {
                     i += 1;
                 }
             }
-            ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
+            ref t @ PyTuple => Ok(t.as_slice().iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
                 Ok(self.map_py_iter(obj, hint, f))
@@ -3439,7 +3474,7 @@ impl VirtualMachine {
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
-        let getattro = obj.class().slots.getattro.load().unwrap();
+        let getattro = obj.class().slots().getattro.load().unwrap();
         let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
             obj.generic_getattr_opt(attr_name, None, self)
         } else {
@@ -3514,7 +3549,7 @@ impl VirtualMachine {
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() {
+        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
             return true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -3532,7 +3567,9 @@ impl VirtualMachine {
     /// platforms where signals are not supported.
     pub fn check_signals(&self) -> PyResult<()> {
         #[cfg(feature = "threading")]
-        if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
+        if self.state.finalizing.load(Ordering::Acquire)
+            && stdlib::_thread::get_ident() != self.state.finalizing_thread_ident.load()
+        {
             // `_PyThreadState_MustExit` → `_PyThreadState_HangThread`.
             // Do not return SystemExit: that would mark the handle done and
             // make `Thread.is_alive()` false for a daemon still forced off
@@ -3563,7 +3600,7 @@ impl VirtualMachine {
     /// against a thread blocked on a lock this thread would otherwise hold.
     #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
-        if crate::signal::take_gc_scheduled() {
+        if self.state.gc.collection_ready() {
             self.state.gc.collect(0);
         }
     }
@@ -3824,6 +3861,7 @@ impl VirtualMachine {
             .state
             .codec_registry
             .encode_text(s.to_owned(), "utf-8", Some(errors), self)?
+            .as_bytes()
             .to_vec();
         // XXX: this is sketchy on windows; it's not guaranteed that the
         //      OsStr encoding will always be compatible with WTF-8.

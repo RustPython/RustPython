@@ -328,7 +328,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['', ''], ',')
         self._write_test([None, None], ',')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_empty_fields_space_delimiter(self):
         self._write_test([''], '""', delimiter=' ', skipinitialspace=False)
         self._write_test([''], '""', delimiter=' ', skipinitialspace=True)

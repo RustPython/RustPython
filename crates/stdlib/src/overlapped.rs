@@ -208,11 +208,11 @@ mod _overlapped {
 
     /// Parse a Python address tuple to SOCKADDR
     fn parse_address(addr_obj: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
-        match addr_obj.len() {
+        match addr_obj.as_slice().len() {
             2 => {
                 // IPv4: (host, port)
-                let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
-                let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
+                let host: PyStrRef = addr_obj.as_slice()[0].clone().try_into_value(vm)?;
+                let port: u16 = addr_obj.as_slice()[1].clone().try_to_value(vm)?;
                 let host_wide = host
                     .as_wtf8()
                     .to_wide_cstring()
@@ -222,10 +222,10 @@ mod _overlapped {
             }
             4 => {
                 // IPv6: (host, port, flowinfo, scope_id)
-                let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
-                let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
-                let flowinfo: u32 = addr_obj[2].clone().try_to_value(vm)?;
-                let scope_id: u32 = addr_obj[3].clone().try_to_value(vm)?;
+                let host: PyStrRef = addr_obj.as_slice()[0].clone().try_into_value(vm)?;
+                let port: u16 = addr_obj.as_slice()[1].clone().try_to_value(vm)?;
+                let flowinfo: u32 = addr_obj.as_slice()[2].clone().try_to_value(vm)?;
+                let scope_id: u32 = addr_obj.as_slice()[3].clone().try_to_value(vm)?;
                 let host_wide = host
                     .as_wtf8()
                     .to_wide_cstring()
@@ -262,27 +262,27 @@ mod _overlapped {
     #[pyclass(with(Constructor, Destructor))]
     impl Overlapped {
         #[pygetset]
-        fn address(&self, _vm: &VirtualMachine) -> usize {
-            let inner = self.inner.lock();
+        fn address(zelf: &Py<Self>, _vm: &VirtualMachine) -> usize {
+            let inner = zelf.inner.lock();
             &inner.overlapped as *const _ as usize
         }
 
         #[pygetset]
-        fn pending(&self, _vm: &VirtualMachine) -> bool {
-            let inner = self.inner.lock();
+        fn pending(zelf: &Py<Self>, _vm: &VirtualMachine) -> bool {
+            let inner = zelf.inner.lock();
             !host_overlapped::has_overlapped_io_completed(&inner.overlapped)
                 && !matches!(inner.data, OverlappedData::NotStarted)
         }
 
         #[pygetset]
-        fn error(&self, _vm: &VirtualMachine) -> u32 {
-            let inner = self.inner.lock();
+        fn error(zelf: &Py<Self>, _vm: &VirtualMachine) -> u32 {
+            let inner = zelf.inner.lock();
             inner.error
         }
 
         #[pygetset]
-        fn event(&self, _vm: &VirtualMachine) -> isize {
-            let inner = self.inner.lock();
+        fn event(zelf: &Py<Self>, _vm: &VirtualMachine) -> isize {
+            let inner = zelf.inner.lock();
             inner.overlapped.hEvent as isize
         }
 

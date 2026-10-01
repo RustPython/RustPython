@@ -115,4 +115,24 @@ def collects_exporter():
 
 assert collects_exporter()
 
+
+def collects_function_annotate():
+    from dataclasses import dataclass
+
+    def create():
+        @dataclass
+        class Example:
+            value: int
+
+        return weakref.ref(Example), weakref.ref(Example.__init__)
+
+    class_ref, init_ref = create()
+    for _ in range(3):
+        gc.collect()
+
+    return class_ref() is None and init_ref() is None
+
+
+assert collects_function_annotate()
+
 print("ok")

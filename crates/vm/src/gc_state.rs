@@ -135,9 +135,7 @@ impl GcGeneration {
 /// empties its own interpreter's objects; another interpreter's stay behind with
 /// the count already zeroed, and untracking one of those must not wrap.
 fn release_count(count: &AtomicUsize) {
-    if count.load(Ordering::Relaxed) > 0 {
-        count.fetch_sub(1, Ordering::Relaxed);
-    }
+    let _ = count.try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1));
 }
 
 /// Whether `owner`'s collections act on `obj`.
@@ -408,7 +406,7 @@ impl GcState {
     ///
     /// Like [`Self::track_object`], but for the hot allocation path only:
     /// `obj`'s `gc_bits` must still hold its freshly-initialized value of `0`
-    /// (true right after `PyInner::new` or a freelist pop, both of which zero
+    /// (true right after `Py::new` or a freelist pop, both of which zero
     /// it), so the tracked bit can go in with a plain store instead of the
     /// `fetch_or` `set_gc_tracked()` needs to be safe for the general case
     /// (e.g. re-tracking a resurrected object, whose bits are not zero — it
@@ -552,7 +550,7 @@ impl GcState {
                 // (e.g. a lazily-initialized frame locals cell) that another
                 // thread is blocked on with no way to reach a safepoint —
                 // a deadlock. At a safepoint no such lock is held.
-                crate::signal::schedule_gc();
+                gc.scheduled.store(true, Ordering::Relaxed);
                 return false;
             }
             // Without threading there is no safepoint to defer to and no other
@@ -574,6 +572,8 @@ impl GcState {
         force: bool,
     ) -> CollectResult {
         if !force && !gc.is_enabled() {
+            #[cfg(feature = "threading")]
+            gc.scheduled.store(false, Ordering::Relaxed);
             return CollectResult::default();
         }
 
@@ -581,6 +581,12 @@ impl GcState {
         let Some(_guard) = self.collecting.try_lock() else {
             return CollectResult::default();
         };
+
+        // A busy collector must not consume another interpreter's request.
+        // Clear only after acquiring the lock, before callbacks can request
+        // a later collection.
+        #[cfg(feature = "threading")]
+        gc.scheduled.store(false, Ordering::Relaxed);
 
         let start_time = cfg_select! {
             target_arch = "wasm32" => (),
@@ -1268,6 +1274,9 @@ pub struct GcInterpreterState {
     pub generations: [GcGeneration; 3],
     /// GC enabled flag
     enabled: AtomicBool,
+    /// Automatic collection requested at this interpreter's next safepoint.
+    #[cfg(feature = "threading")]
+    scheduled: AtomicBool,
     /// Debug flags
     debug: AtomicU32,
     /// Uncollectable objects saved by this interpreter's collections, drained
@@ -1289,6 +1298,8 @@ impl GcInterpreterState {
                 GcGeneration::new(0),    // old[1]
             ],
             enabled: AtomicBool::new(true),
+            #[cfg(feature = "threading")]
+            scheduled: AtomicBool::new(false),
             debug: AtomicU32::new(0),
             garbage: PyMutex::new(Vec::new()),
             py_garbage: ctx.new_list(Vec::new()),
@@ -1302,6 +1313,14 @@ impl GcInterpreterState {
     /// allocation, and an allocation racing `gc.disable()` may use either value.
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Leave requests pending while a collector is busy, without repeatedly
+    /// entering the bytecode loop's slow path during its Python callbacks.
+    #[cfg(feature = "threading")]
+    #[inline]
+    pub(crate) fn collection_ready(&self) -> bool {
+        self.scheduled.load(Ordering::Relaxed) && !gc_state().collecting.is_locked()
     }
 
     /// Enable GC
@@ -1523,5 +1542,77 @@ mod tests {
         assert_ne!(first.owner, second.owner);
         assert_ne!(first.owner, GC_NO_OWNER);
         assert_ne!(second.owner, GC_NO_OWNER);
+    }
+
+    #[cfg(feature = "threading")]
+    #[test]
+    fn automatic_gc_request_stays_with_allocating_interpreter() {
+        let first = crate::Interpreter::without_stdlib(Default::default());
+        let second = crate::Interpreter::without_stdlib(Default::default());
+        first.enter(|vm| vm.state.gc.scheduled.store(false, Ordering::Relaxed));
+        second.enter(|vm| vm.state.gc.scheduled.store(false, Ordering::Relaxed));
+        // An isolated allocation counter makes crossing the threshold
+        // deterministic without depending on the rest of the test process.
+        let allocations = GcState::new();
+        allocations.counts[0].store(1, Ordering::Relaxed);
+        first.enter(|vm| {
+            vm.state.gc.set_threshold(1, None, None);
+            assert!(!allocations.maybe_collect(&vm.state.gc));
+        });
+        second.enter(|vm| {
+            assert!(!vm.state.gc.scheduled.load(Ordering::Relaxed));
+            vm.run_scheduled_gc();
+        });
+        first.enter(|vm| {
+            assert!(vm.state.gc.scheduled.swap(false, Ordering::Relaxed));
+        });
+    }
+
+    #[cfg(feature = "threading")]
+    #[test]
+    fn automatic_gc_request_survives_busy_collector() {
+        let state = interpreter_state();
+        let _guard = gc_state().collecting.lock();
+        state.scheduled.store(true, Ordering::Relaxed);
+        state.collect(0);
+        assert!(state.scheduled.load(Ordering::Relaxed));
+        assert!(!state.collection_ready());
+
+        state.disable();
+        state.collect(0);
+        assert!(!state.scheduled.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn release_count_does_not_wrap_during_reset() {
+        use std::sync::Barrier;
+
+        let count = AtomicUsize::new(1);
+        let start = Barrier::new(3);
+        let finish = Barrier::new(3);
+        let mut underflows = 0;
+        std::thread::scope(|scope| {
+            for reset in [false, true] {
+                let (count, start, finish) = (&count, &start, &finish);
+                scope.spawn(move || {
+                    for _ in 0..10_000 {
+                        start.wait();
+                        if reset {
+                            count.store(0, Ordering::Relaxed);
+                        } else {
+                            release_count(count);
+                        }
+                        finish.wait();
+                    }
+                });
+            }
+            for _ in 0..10_000 {
+                count.store(1, Ordering::Relaxed);
+                start.wait();
+                finish.wait();
+                underflows += usize::from(count.load(Ordering::Relaxed) > 1);
+            }
+        });
+        assert_eq!(underflows, 0);
     }
 }

@@ -132,7 +132,7 @@ macro_rules! create_property {
 
 macro_rules! create_readonly_int_property {
     ($ctx: expr, $attributes: expr, $name: expr, $class: expr, $element: ident) => {
-        let getset = crate::vm::builtins::PyGetSet::new($name, $class).with_get(
+        let getset = crate::vm::builtins::PyGetSet::new($name, $class, $ctx).with_get(
             move |this: &Py<PyExpatLikeXmlParser>, vm: &VirtualMachine| -> PyObjectRef {
                 vm.ctx.new_int(*this.$element.read()).into()
             },
@@ -170,7 +170,7 @@ mod _pyexpat {
         VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg, OptionalOption},
         types::Constructor,
     };
     use alloc::collections::VecDeque;
@@ -211,7 +211,7 @@ mod _pyexpat {
 
     #[pyattr]
     #[pyattr(name = "XMLParserType")]
-    #[pyclass(name = "xmlparser", module = false, traverse)]
+    #[pyclass(name = "xmlparser", traverse)]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
@@ -255,7 +255,8 @@ mod _pyexpat {
         namespace_prefixes: MutableObject,
         ordered_attributes: MutableObject,
         specified_attributes: MutableObject,
-        intern: MutableObject,
+        #[pymember]
+        intern: PyObjectRef,
         // Additional handlers (stubs for compatibility)
         processing_instruction: MutableObject,
         unparsed_entity_decl: MutableObject,
@@ -805,10 +806,14 @@ mod _pyexpat {
     impl PyExpatLikeXmlParser {
         fn new(
             namespace_separator: Option<String>,
-            intern: Option<PyObjectRef>,
+            intern: OptionalOption<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyExpatLikeXmlParserRef {
-            let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
+            let intern_dict = match intern {
+                OptionalArg::Missing => vm.ctx.new_dict().into(),
+                OptionalArg::Present(Some(obj)) => obj,
+                OptionalArg::Present(None) => vm.ctx.none(),
+            };
             Self {
                 namespace_separator,
                 base: PyRwLock::new(None),
@@ -826,7 +831,7 @@ mod _pyexpat {
                 namespace_prefixes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 ordered_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
                 specified_attributes: MutableObject::new(vm.ctx.new_bool(false).into()),
-                intern: MutableObject::new(intern_dict),
+                intern: intern_dict,
                 // Additional handlers (stubs for compatibility)
                 processing_instruction: MutableObject::new(vm.ctx.none()),
                 unparsed_entity_decl: MutableObject::new(vm.ctx.none()),
@@ -886,7 +891,6 @@ mod _pyexpat {
                 class,
                 specified_attributes
             );
-            create_property!(ctx, attributes, "intern", class, intern);
             create_readonly_int_property!(
                 ctx,
                 attributes,
@@ -1010,14 +1014,14 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetParamEntityParsing")]
-        fn set_param_entity_parsing(&self, _flag: ArgPrimitiveIndex<i32>) -> i32 {
+        fn set_param_entity_parsing(_zelf: &Py<Self>, _flag: i32) -> i32 {
             // Compatibility shim: xml.sax requires this setup API, but xml-rs
             // does not expose Expat parameter entity parsing configuration.
             1
         }
 
         #[pymethod(name = "UseForeignDTD")]
-        fn use_foreign_dtd(&self, _flag: OptionalArg<bool>) {
+        fn use_foreign_dtd(_zelf: &Py<Self>, _flag: OptionalArg<bool>) {
             // Compatibility shim: CPython's implementation forwards the flag to
             // libexpat's XML_UseForeignDTD, which lets a DTD handler splice in an
             // external subset for documents that only declare one (e.g. via
@@ -1028,16 +1032,16 @@ mod _pyexpat {
         }
 
         #[pymethod(name = "SetBase")]
-        fn set_base(&self, base: PyStrRef) {
+        fn set_base(zelf: &Py<Self>, base: PyStrRef) {
             // Store-only compatibility state for xml.sax locator APIs. The
             // xml-rs backend still does not perform Expat-style base URI
             // resolution for external entities.
-            *self.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+            *zelf.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
         }
 
         #[pymethod(name = "GetBase")]
-        fn get_base(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.base.read().as_ref().map_or_else(
+        fn get_base(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
+            zelf.base.read().as_ref().map_or_else(
                 || vm.ctx.none(),
                 |base| vm.ctx.new_str(base.as_str()).into(),
             )
@@ -1062,7 +1066,7 @@ mod _pyexpat {
         /// Attribute *values* are intentionally left out of this cache, same
         /// as libexpat: they vary far more than names and rarely repeat.
         fn intern_name(&self, vm: &VirtualMachine, name: String) -> PyStrRef {
-            let intern_obj = self.intern.read().clone();
+            let intern_obj = self.intern.clone();
             if let Ok(dict) = intern_obj.downcast::<crate::vm::builtins::PyDict>() {
                 if let Ok(Some(existing)) = dict.get_item_opt(name.as_str(), vm)
                     && let Ok(existing) = existing.downcast::<PyStr>()
@@ -1394,7 +1398,7 @@ mod _pyexpat {
 
         #[pymethod(name = "Parse")]
         fn parse(
-            &self,
+            zelf: &Py<Self>,
             data: Either<PyStrRef, PyBytesRef>,
             isfinal: OptionalArg<bool>,
             vm: &VirtualMachine,
@@ -1403,18 +1407,18 @@ mod _pyexpat {
                 Either::A(s) => s.as_bytes().to_vec(),
                 Either::B(b) => b.as_bytes().to_vec(),
             };
-            self.feed(vm, &bytes, isfinal.unwrap_or(false))?;
+            zelf.feed(vm, &bytes, isfinal.unwrap_or(false))?;
             Ok(1)
         }
 
         #[pymethod(name = "ParseFile")]
-        fn parse_file(&self, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+        fn parse_file(zelf: &Py<Self>, file: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
             let read_res = vm.call_method(&file, "read", ())?;
             let bytes_like = ArgBytesLike::try_from_object(vm, read_res)?;
             let buf = bytes_like.borrow_buf().to_vec();
             // `file.read()` with no argument reads to EOF, so this chunk is
             // always the last one.
-            self.feed(vm, &buf, true)?;
+            zelf.feed(vm, &buf, true)?;
             Ok(1)
         }
     }
@@ -1426,7 +1430,7 @@ mod _pyexpat {
         #[pyarg(any, optional)]
         namespace_separator: Option<PyUtf8StrRef>,
         #[pyarg(any, optional)]
-        intern: Option<PyObjectRef>,
+        intern: OptionalOption<PyObjectRef>,
     }
 
     #[pyfunction(name = "ParserCreate")]
@@ -1456,7 +1460,7 @@ mod _pyexpat {
     // TODO: Tie this exception to the module's state.
     #[pyattr]
     #[pyattr(name = "error")]
-    #[pyexception(name = "ExpatError", base = PyException)]
+    #[pyexception(name = "ExpatError", module = "xml.parsers.expat", base = PyException)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(super) struct PyExpatError(PyException);

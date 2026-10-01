@@ -874,7 +874,6 @@ unsafe impl Traverse for FrameLocals {
 /// to keep the hot InterpreterFrame small.
 pub(crate) struct FrameColdData {
     pub trace: PyMutex<Option<PyObjectRef>>,
-    pub trace_lines: PyMutex<bool>,
     pub trace_opcodes: PyMutex<bool>,
     pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
     pub f_extra_locals: PyMutex<Option<PyDictRef>>,
@@ -897,7 +896,6 @@ impl Default for FrameColdData {
     fn default() -> Self {
         Self {
             trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(Vec::new()),
             f_extra_locals: PyMutex::new(None),
@@ -1320,6 +1318,7 @@ impl InterpreterFrame {
         };
 
         let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
             owned_code: Some(code),
             owned_globals: Some(globals),
             owned_builtins: Some(builtins),
@@ -1397,6 +1396,7 @@ impl InterpreterFrame {
         };
 
         let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
             owned_code: Some(code),
             owned_globals: Some(globals),
             owned_builtins: Some(builtins),
@@ -1492,6 +1492,20 @@ impl InterpreterFrame {
         self.cold.get().map(|b| &**b)
     }
 
+    /// `f_trace_lines` of the materialized frame object. True when the frame
+    /// has not been materialized.
+    pub(crate) fn trace_lines_flag(&self) -> bool {
+        let mat = self.materialized.load(atomic::Ordering::Relaxed);
+        if mat != 0 {
+            // SAFETY: `materialized` holds a `Py<FrameObject>` that stays
+            // allocated while the pointer is published.
+            return unsafe { &*(mat as *const Py<FrameObject>) }
+                .f_trace_lines
+                .load(core::sync::atomic::Ordering::Relaxed);
+        }
+        true
+    }
+
     /// Thread still running the frame this one was materialized from, or 0.
     #[inline]
     pub(crate) fn attached_tid(&self) -> u64 {
@@ -1509,10 +1523,12 @@ impl InterpreterFrame {
     }
 }
 
-/// Python-visible frame object. Currently always wraps an `InterpreterFrame`.
-/// Analogous to CPython's `PyFrameObject`.
+// Python-visible frame object (`PyFrameObject`). Currently always wraps an `InterpreterFrame`.
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
+    // The executing iframe reads this when it points at the frame object.
+    #[pymember(name = "f_trace_lines", writable)]
+    pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
@@ -1590,7 +1606,7 @@ fn cleared_frame_access() -> ! {
 thread_local! {
     /// Free list of dead frame objects for reuse. Entries are cleared husks
     /// (`iframe == None`) whose child references were already released.
-    /// PyInner<FrameObject> is fixed-size (localsplus storage is out-of-line),
+    /// Py<FrameObject> is fixed-size (localsplus storage is out-of-line),
     /// so a single bucket suffices.
     static FRAME_FREELIST: core::cell::Cell<crate::object::FreeList<FrameObject>> =
         const { core::cell::Cell::new(crate::object::FreeList::new()) };
@@ -1821,6 +1837,7 @@ impl FrameObject {
             )
         };
         Self {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(true),
             owned_code: Some(code),
             owned_globals: Some(scope.globals),
             owned_builtins: Some(builtins),
@@ -2670,8 +2687,8 @@ pub(crate) fn trampoline_handle_exception(
 
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
-        let next = exception.__traceback__();
-        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
+        let next = exception.traceback();
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as i32 * 2, loc.line);
         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
     }
 
@@ -3353,12 +3370,10 @@ impl ExecutingFrame<'_> {
             .is_some_and(|c| *c.trace_opcodes.lock())
     }
 
-    /// f_trace_lines, defaulting to true when cold data is not allocated.
+    /// f_trace_lines, defaulting to true when no frame object exists.
     #[inline]
     fn trace_lines_is_set(&self) -> bool {
-        self.iframe()
-            .cold_opt()
-            .is_none_or(|c| *c.trace_lines.lock())
+        self.iframe().trace_lines_flag()
     }
 
     /// Get pending_stack_pops from the frame.
@@ -3513,7 +3528,7 @@ impl ExecutingFrame<'_> {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
             let exc_value: PyObjectRef = exc.to_owned().into();
             let exc_tb: PyObjectRef = exc
-                .__traceback__()
+                .traceback()
                 .map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
             let tuple = vm.ctx.new_tuple(vec![exc_type, exc_value, exc_tb]).into();
             vm.trace_event(crate::protocol::TraceEvent::Exception, Some(tuple))?;
@@ -3588,11 +3603,11 @@ impl ExecutingFrame<'_> {
                         Ok(_) => {}
                         Err(exception) => {
                             if let Some((loc, _end_loc)) = self.code.locations.get(idx) {
-                                let next = exception.__traceback__();
+                                let next = exception.traceback();
                                 let new_traceback = PyTraceback::new(
                                     next,
                                     self.frame_object(vm),
-                                    idx as u32 * 2,
+                                    idx as i32 * 2,
                                     loc.line,
                                 );
                                 exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -3697,11 +3712,11 @@ impl ExecutingFrame<'_> {
                     vm: &VirtualMachine,
                 ) -> FrameResult {
                     if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                        let next = exception.__traceback__();
+                        let next = exception.traceback();
                         let new_traceback = PyTraceback::new(
                             next,
                             frame.frame_object(vm),
-                            idx as u32 * 2,
+                            idx as i32 * 2,
                             loc.line,
                         );
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -3780,19 +3795,19 @@ impl ExecutingFrame<'_> {
                             // Check if the exception already has traceback entries before
                             // we add ours. If it does, it was propagated from a callee
                             // function and we should not re-contextualize it.
-                            let had_prior_traceback = exception.__traceback__().is_some();
+                            let had_prior_traceback = exception.traceback().is_some();
 
                             // PyTraceBack_Here always adds a new entry without
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
                             // a new traceback entry is added.
                             if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                                let next = exception.__traceback__();
+                                let next = exception.traceback();
 
                                 let new_traceback = PyTraceback::new(
                                     next,
                                     frame.frame_object(vm),
-                                    idx as u32 * 2,
+                                    idx as i32 * 2,
                                     loc.line,
                                 );
                                 vm_trace!(
@@ -3999,9 +4014,9 @@ impl ExecutingFrame<'_> {
                     let idx = self.lasti().saturating_sub(1) as usize;
                     if idx < self.code.locations.len() {
                         let (loc, _end_loc) = self.code.locations[idx];
-                        let next = err.__traceback__();
+                        let next = err.traceback();
                         let new_traceback =
-                            PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
+                            PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
                         err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 
@@ -4057,11 +4072,11 @@ impl ExecutingFrame<'_> {
                         let idx = self.lasti().saturating_sub(1) as usize;
                         if idx < self.code.locations.len() {
                             let (loc, _end_loc) = self.code.locations[idx];
-                            let next = err.__traceback__();
+                            let next = err.traceback();
                             let new_traceback = PyTraceback::new(
                                 next,
                                 self.frame_object(vm),
-                                idx as u32 * 2,
+                                idx as i32 * 2,
                                 loc.line,
                             );
                             err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
@@ -4106,9 +4121,9 @@ impl ExecutingFrame<'_> {
         let idx = self.lasti().saturating_sub(1) as usize;
         if idx < self.code.locations.len() {
             let (loc, _end_loc) = self.code.locations[idx];
-            let next = exception.__traceback__();
+            let next = exception.traceback();
             let new_traceback =
-                PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
+                PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
             exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
@@ -4495,7 +4510,8 @@ impl ExecutingFrame<'_> {
                     let fastlocals = self.localsplus.fastlocals_mut();
                     if let Some(closure) = closure {
                         for i in 0..n {
-                            fastlocals[freevar_start + i] = Some(closure[i].clone().into());
+                            fastlocals[freevar_start + i] =
+                                Some(closure.as_slice()[i].clone().into());
                         }
                     }
                 }
@@ -4907,7 +4923,7 @@ impl ExecutingFrame<'_> {
                 // Only rewrite the error if the type is truly not iterable
                 // (no __iter__ and no __getitem__). Preserve original TypeError
                 // from custom iterables that raise during iteration.
-                let not_iterable = iterable.class().slots.iter.load().is_none()
+                let not_iterable = iterable.class().slots().iter.load().is_none()
                     && iterable
                         .get_class_attr(vm.ctx.intern_str("__getitem__"))
                         .is_none();
@@ -5235,12 +5251,16 @@ impl ExecutingFrame<'_> {
                             };
 
                             // Check if we have enough match args
-                            if match_args.len() < nargs_val {
+                            if match_args.as_slice().len() < nargs_val {
                                 let type_name = type_name();
-                                let plural = if match_args.len() == 1 { "" } else { "s" };
+                                let plural = if match_args.as_slice().len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                };
                                 return Err(vm.new_type_error(format!(
                                     "{type_name}() accepts {} positional sub-pattern{} ({} given)",
-                                    match_args.len(),
+                                    match_args.as_slice().len(),
                                     plural,
                                     nargs_val
                                 )));
@@ -5248,7 +5268,7 @@ impl ExecutingFrame<'_> {
 
                             // Extract positional attributes
                             for i in 0..nargs_val {
-                                let attr_name = &match_args[i];
+                                let attr_name = &match_args.as_slice()[i];
                                 let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
                                     Some(s) => s,
                                     None => {
@@ -6004,7 +6024,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     let owner = self.pop_stackref();
@@ -6023,7 +6043,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
@@ -6043,7 +6063,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Check instance dict doesn't shadow the method.
                     let shadowed = match self.shadowing_instance_attr(cache_base, attr_name, vm) {
                         Ok(shadowed) => shadowed.is_some(),
@@ -6071,7 +6092,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Type version matches — no data descriptor for this attr.
                     // Try direct dict lookup, skipping full descriptor protocol.
                     if let Some(dict) = owner.dict()
@@ -6094,7 +6116,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     // Try the cached entry index first; a hit is an identity
@@ -6127,14 +6149,19 @@ impl ExecutingFrame<'_> {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
-
                 let owner = self.top_value();
-                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let type_version = self.code.instructions.read_cache_ptr(cache_base + 6);
+                let keys_version = self.code.instructions.read_cache_ptr(cache_base + 7);
+                let index = self.code.instructions.read_cache_ptr(cache_base + 8);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && keys_version != 0
+                    && owner.class().tp_version_tag().load(Acquire) as usize == type_version
                     && let Some(module) = owner.downcast_ref_if_exact::<PyModule>(vm)
-                    && let Ok(value) = module.get_attr(attr_name, vm)
+                    && let Some(value) =
+                        module
+                            .dict()
+                            .get_cached_module_attr(attr_name, keys_version, index, vm)
                 {
                     self.pop_stackref();
                     if oparg.is_method() {
@@ -6155,7 +6182,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
@@ -6177,7 +6204,8 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Instance dict has priority — check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_stackref();
@@ -6240,7 +6268,7 @@ impl ExecutingFrame<'_> {
                     && metaclass_version != 0
                     && let Some(owner_type) = owner.downcast_ref::<PyType>()
                     && owner_type.tp_version_tag.load(Acquire) == type_version
-                    && owner.class().tp_version_tag.load(Acquire) == metaclass_version
+                    && owner.class().tp_version_tag().load(Acquire) == metaclass_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     self.pop_stackref();
@@ -6265,7 +6293,7 @@ impl ExecutingFrame<'_> {
                     && !self.specialization_eval_frame_active(vm)
                     && type_version != 0
                     && func_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -6289,9 +6317,10 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     let slot_offset =
-                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u32(cache_base + 3) as i32 as isize;
                     if let Some(value) = owner.get_slot(slot_offset) {
                         self.pop_stackref();
                         if oparg.is_method() {
@@ -6315,7 +6344,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && !self.specialization_eval_frame_active(vm)
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(fget_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = fget_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -6338,7 +6367,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     self.pop_stackref(); // owner
@@ -6360,7 +6389,7 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
                     self.pop_stackref(); // owner
@@ -6376,12 +6405,12 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let version_match = type_version != 0 && {
                     let owner = self.top_value();
-                    owner.class().tp_version_tag.load(Acquire) == type_version
+                    owner.class().tp_version_tag().load(Acquire) == type_version
                 };
 
                 if version_match {
                     let slot_offset =
-                        self.code.instructions.read_cache_u16(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u16(cache_base + 3) as i16 as isize;
                     let owner = self.pop_value();
                     let value = self.pop_value();
                     owner.set_slot(slot_offset, Some(value));
@@ -6462,7 +6491,7 @@ impl ExecutingFrame<'_> {
                 let owner = self.nth_value(1);
                 if !self.specialization_eval_frame_active(vm)
                     && type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some((func, func_version)) =
                         owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
@@ -7026,7 +7055,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7067,7 +7096,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7108,7 +7137,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7128,7 +7157,7 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.slots.vectorcall.load().is_some()
+                    && cls.slots().vectorcall.load().is_some()
                 {
                     let (callable, args_vec) = self.take_call_args(nargs as usize);
                     let effective_nargs = args_vec.len();
@@ -7153,12 +7182,12 @@ impl ExecutingFrame<'_> {
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.tp_version_tag.load(Acquire) == cached_version
+                    && cls.tp_version_tag().load(Acquire) == cached_version
                     && let Some((init_func, init_func_version)) =
                         cls.get_cached_init_for_specialization(cached_version)
                     && init_func.func_version() == init_func_version
                     && init_func.has_exact_argcount(nargs + 1)
-                    && let Some(cls_alloc) = cls.slots.alloc.load()
+                    && let Some(cls_alloc) = cls.slots().alloc.load()
                 {
                     // The specialization runs `__init__` directly with no
                     // interpreter-visible trampoline frame. Deopt when the
@@ -7214,7 +7243,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7308,7 +7337,7 @@ impl ExecutingFrame<'_> {
                     let kwarg_names_tuple = kwarg_names_obj
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
-                    let kw_count = kwarg_names_tuple.len();
+                    let kw_count = kwarg_names_tuple.as_slice().len();
                     let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -7366,7 +7395,7 @@ impl ExecutingFrame<'_> {
                         let kwarg_names_tuple = kwarg_names_obj
                             .downcast_ref::<PyTuple>()
                             .expect("kwarg names should be tuple");
-                        let kw_count = kwarg_names_tuple.len();
+                        let kw_count = kwarg_names_tuple.as_slice().len();
                         let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                         self.pop_stackref_opt(); // null (self_or_null)
                         self.pop_stackref(); // callable (bound method)
@@ -7408,7 +7437,7 @@ impl ExecutingFrame<'_> {
                 let kwarg_names_tuple = kwarg_names_obj
                     .downcast_ref::<PyTuple>()
                     .expect("kwarg names should be tuple");
-                let kw_count = kwarg_names_tuple.len();
+                let kw_count = kwarg_names_tuple.as_slice().len();
                 let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                 let self_or_null = self.pop_value_opt();
                 let callable = self.pop_value();
@@ -7510,14 +7539,14 @@ impl ExecutingFrame<'_> {
                         if let Some(descr) = cls.get_direct_attr(attr_name) {
                             let descr_cls = descr.class();
                             if descr_cls
-                                .slots
+                                .slots()
                                 .flags
                                 .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
                             {
                                 // Method descriptor: push unbound func + self
                                 // CALL will prepend self as first positional arg
                                 found = Some((descr, true));
-                            } else if let Some(descr_get) = descr_cls.slots.descr_get.load() {
+                            } else if let Some(descr_get) = descr_cls.slots().descr_get.load() {
                                 // Has __get__ but not METHOD_DESCRIPTOR: bind it
                                 let bound = descr_get(
                                     &descr,
@@ -7695,7 +7724,8 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let obj = self.top_value();
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
+                if cached_version != 0
+                    && obj.class().tp_version_tag().load(Acquire) == cached_version
                 {
                     self.pop_stackref();
                     self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);
@@ -8775,7 +8805,7 @@ impl ExecutingFrame<'_> {
             // Stack: [callable, self_or_null]
             let callable = self.nth_value(1);
             let func_str = Self::object_function_str(callable, vm);
-            let not_iterable = args_obj.class().slots.iter.load().is_none()
+            let not_iterable = args_obj.class().slots().iter.load().is_none()
                 && args_obj
                     .get_class_attr(vm.ctx.intern_str("__getitem__"))
                     .is_none();
@@ -8926,7 +8956,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names_tuple = kwarg_names_obj
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
-        let kw_count = kwarg_names_tuple.len();
+        let kw_count = kwarg_names_tuple.as_slice().len();
         debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.localsplus.stack_len();
@@ -9157,7 +9187,7 @@ impl ExecutingFrame<'_> {
     fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u32) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
@@ -9686,7 +9716,7 @@ impl ExecutingFrame<'_> {
 
         // General path — iterate up to `size + 1` elements to avoid
         // consuming the entire iterator (fixes hang on infinite sequences).
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
@@ -10072,8 +10102,40 @@ impl ExecutingFrame<'_> {
             return;
         }
 
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Match CPython: only specialize module attribute loads when the
+        // current module dict has no __getattr__ override and the attribute is
+        // already present. Modules have their own getattro, so this comes first.
+        // The module type must not define the name either, so reading the dict
+        // entry directly gives what the generic lookup would.
+        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let module_dict = module.dict();
+            if cls.get_attr(attr_name).is_none()
+                && let Some((keys_version, index)) = module_dict.module_attr_cache(attr_name, _vm)
+            {
+                // Keep module guards atomic and separate from every other LOAD_ATTR
+                // payload: a concurrent reader may already be executing another kind.
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 6, type_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 7, keys_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 8, usize::from(index));
+                }
+                self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
+            } else {
+                self.cooldown_adaptive_at(cache_base);
+            }
+            return;
+        }
+
         // Only specialize if getattro is the default (PyBaseObject::getattro)
-        let is_default_getattro = cls.slots.getattro.load().is_some_and(|f| {
+        let is_default_getattro = cls.slots().getattro.load().is_some_and(|f| {
             crate::types::fn_addr(f)
                 == crate::types::fn_addr(PyBaseObject::getattro as crate::types::GetattroFunc)
         });
@@ -10114,40 +10176,8 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let attr_name = self.code.names[oparg.name_idx() as usize];
-
-        // Match CPython: only specialize module attribute loads when the
-        // current module dict has no __getattr__ override and the attribute is
-        // already present.
-        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
-            let module_dict = module.dict();
-            match (
-                module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
-                module_dict.get_item_opt(attr_name, _vm),
-            ) {
-                (Ok(None), Ok(Some(_))) => {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
-                    }
-                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
-                }
-                (Ok(_), Ok(_)) => self.cooldown_adaptive_at(cache_base),
-                _ => unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                },
-            }
-            return;
-        }
-
         let cls_attr = cls.get_attr(attr_name);
-        let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+        let class_has_dict = cls.slots().flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
             // Method specialization
@@ -10186,12 +10216,12 @@ impl ExecutingFrame<'_> {
             // Regular attribute access
             let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
                 let descr_cls = descr.class();
-                descr_cls.slots.descr_get.load().is_some()
-                    && descr_cls.slots.descr_set.load().is_some()
+                descr_cls.slots().descr_get.load().is_some()
+                    && descr_cls.slots().descr_set.load().is_some()
             });
             let has_descr_get = cls_attr
                 .as_ref()
-                .is_some_and(|descr| descr.class().slots.descr_get.load().is_some());
+                .is_some_and(|descr| descr.class().slots().descr_get.load().is_some());
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
@@ -10202,6 +10232,7 @@ impl ExecutingFrame<'_> {
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                     && let Some(offset) = member_descr.slot_offset()
+                    && !member_descr.member.audit_read()
                     && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
@@ -10332,7 +10363,7 @@ impl ExecutingFrame<'_> {
         let (mcl_attr, mut metaclass_version) = mcl.lookup_ref_and_version_interned(attr_name, _vm);
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class.slots.descr_set.load().is_some() {
+            if attr_class.slots().descr_set.load().is_some() {
                 // Data descriptor on metaclass — can't specialize
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -10549,7 +10580,7 @@ impl ExecutingFrame<'_> {
                     let cls = a.class();
                     // Check the cheap gates before the __getitem__ lookup, which
                     // takes the global type lock and may allocate a version tag.
-                    if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                    if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
                     {
                         let (getitem, type_version) =
@@ -11058,7 +11089,7 @@ impl ExecutingFrame<'_> {
 
         // type/str/tuple(x) and class-call specializations
         if let Some(cls) = callable.downcast_ref::<PyType>() {
-            if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            if cls.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
                 if !self_or_null_is_some && nargs == 1 {
                     let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
                         Some(Instruction::CallType1)
@@ -11074,7 +11105,7 @@ impl ExecutingFrame<'_> {
                         return;
                     }
                 }
-                if cls.slots.vectorcall.load().is_some() {
+                if cls.slots().vectorcall.load().is_some() {
                     self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                     return;
                 }
@@ -11090,15 +11121,15 @@ impl ExecutingFrame<'_> {
             }
 
             // CallAllocAndEnterInit: heap type with default __new__
-            if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            if !self_or_null_is_some && cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
                 // Capture the version before inspecting tp_new/tp_alloc so a
                 // concurrently installed __new__ invalidates the version this
                 // specialization is cached against.
                 let type_version = cls.version_for_specialization(vm);
-                let object_new = vm.ctx.types.object_type.slots.new.load();
-                let cls_new = cls.slots.new.load();
-                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
-                let cls_alloc = cls.slots.alloc.load();
+                let object_new = vm.ctx.types.object_type.slots().new.load();
+                let cls_new = cls.slots().new.load();
+                let object_alloc = vm.ctx.types.object_type.slots().alloc.load();
+                let cls_alloc = cls.slots().alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
                     && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
@@ -11502,14 +11533,14 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
-        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+        } else if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
             // Capture the version before inspecting the bool/len slots so a
             // concurrently installed __bool__/__len__ invalidates the version
             // the ToBoolAlwaysTrue guard is cached against.
             let type_version = cls.version_for_specialization(vm);
-            let has_bool_or_len = cls.slots.as_number.boolean.load().is_some()
-                || cls.slots.as_mapping.length.load().is_some()
-                || cls.slots.as_sequence.length.load().is_some();
+            let has_bool_or_len = cls.slots().as_number.boolean.load().is_some()
+                || cls.slots().as_mapping.length.load().is_some()
+                || cls.slots().as_sequence.length.load().is_some();
             if !has_bool_or_len {
                 if type_version != 0 {
                     unsafe {
@@ -11923,7 +11954,7 @@ impl ExecutingFrame<'_> {
         }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            if tuple.len() != expected_count as usize {
+            if tuple.as_slice().len() != expected_count as usize {
                 None
             } else if expected_count == 2 {
                 Some(Instruction::UnpackSequenceTwoTuple)
@@ -11977,7 +12008,7 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if setattr is the default (generic_setattr)
-        let is_default_setattr = cls.slots.setattro.load().is_some_and(|f| {
+        let is_default_setattr = cls.slots().setattro.load().is_some_and(|f| {
             crate::types::fn_addr(f)
                 == crate::types::fn_addr(PyBaseObject::slot_setattro as crate::types::SetattroFunc)
         });
@@ -11997,7 +12028,8 @@ impl ExecutingFrame<'_> {
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
-            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
+            descr_cls.slots().descr_get.load().is_some()
+                && descr_cls.slots().descr_set.load().is_some()
         });
 
         if has_data_descr {
@@ -12286,10 +12318,10 @@ impl ExecutingFrame<'_> {
                     .downcast()
                     .map_err(|_| vm.new_type_error("TypeAlias expects a tuple argument"))?;
 
-                if tuple.len() != 3 {
+                if tuple.as_slice().len() != 3 {
                     return Err(vm.new_type_error(format!(
                         "TypeAlias expects exactly 3 arguments, got {}",
-                        tuple.len()
+                        tuple.as_slice().len()
                     )));
                 }
 

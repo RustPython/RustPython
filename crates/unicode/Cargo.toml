@@ -21,6 +21,7 @@ writeable = { workspace = true }
 [build-dependencies]
 icu_properties = { workspace = true }
 unicode_names2 = { workspace = true }
+zlib-rs = { workspace = true }
 
 [lints]
 workspace = true

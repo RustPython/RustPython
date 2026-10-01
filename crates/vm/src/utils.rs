@@ -10,7 +10,7 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObject>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
+    crate::vm::hash_secret().hash_iter(iter, |obj| obj.hash(vm))
 }
 
 impl ToPyObject for core::convert::Infallible {

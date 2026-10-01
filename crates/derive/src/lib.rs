@@ -17,24 +17,79 @@ use syn::punctuated::Punctuated;
 /// - `flatten`: take this field from the same argument list. No other keys.
 /// - `name = "..."`: Python parameter name. The field name is used when omitted.
 /// - `default`: missing argument stores `Default::default()`. Affects parsing.
+///   The signature text is `0`, `False` or `0.0` for a primitive integer, `bool`
+///   or float field, and `<unrepresentable>` otherwise, unless `py_default` is set.
 /// - `default = <expr>`: missing argument stores that Rust value. Affects parsing.
-/// - `optional`: same as a bare `default`.
+///   A string, byte-string, integer (optionally negated), float, or bool literal
+///   on any field that is not a Rust primitive (`i8`..`i128`, `u8`..`u128`,
+///   `isize`, `usize`, `f32`, `f64`, `bool`), `&'static str`, `Option<T>`, or
+///   `OptionalArg<T>` is converted only when the argument is missing:
+///   `<FieldTy as TryFromObject>::try_from_object(vm, ToPyObject::to_pyobject(LIT, vm))?`.
+///   A byte-string literal becomes a Python `bytes` object.
+/// - `default = ::NAME`: `NAME` is one identifier. The signature copies that
+///   name, and the missing argument stores `Into::into(NAME)` (the leading
+///   `::` is not Rust syntax for a local constant). A longer `::` path is a
+///   compile error. An explicit `py_default` still wins. A path without a
+///   leading `::` stays a typed value.
+/// - `optional`: same parsing as a bare `default`. The field type must implement
+///   `OptionalArgDefault`. `Option<T>` renders `None`; `OptionalArg<T>` renders
+///   `<unrepresentable>`. Any other type is rejected.
 /// - `py_default = "<python source>"`: text copied verbatim into `__text_signature__`.
-///   Never affects parsing.
+///   Never affects parsing. Overrides every other signature default.
+///   `py_default = "<unrepresentable>"` is a compile error. Use `OptionalArg`
+///   when a missing argument is a distinct state, or give the default's type a
+///   real `py_default()`.
 /// - `error_msg = "..."`: type-error text when conversion fails.
 /// # Signature default
-/// An explicit `py_default` is used as written. Otherwise a Rust literal is
-/// converted to its Python repr (`True`/`False`, an int, a float, a quoted
-/// str, and the path `None`). Anything else renders `<unrepresentable>`, and
-/// `inspect.signature` raises `ValueError`.
+/// An explicit `py_default` is used as written. Otherwise:
+/// - a literal, a negative literal, or the path `None` becomes a typed default
+///   (`None`, `True`/`False`, an int, a quoted str, a bytes literal, a char;
+///   a float literal keeps its source text);
+/// - a non-literal on a primitive integer field becomes that value as a decimal int;
+/// - a path on a `bool` field becomes `True` or `False`;
+/// - `::NAME` is the name, verbatim;
+/// - any other expression uses `const V: FieldTy = <expr>; V.py_default()`.
 ///
-/// Prefer `default = <literal>` when that literal is the Python default.
-/// Use `py_default` only when the Rust value must differ.
+/// A function argument whose pattern is a one-field tuple struct takes the
+/// parameter name from that field. `Fildes(fd): Fildes` is `fd`. A reference
+/// or parentheses around the inner pattern are skipped. When the argument
+/// type supplies parameters, this name is ignored.
+///
+/// `py_default` is an inherent `pub const fn py_default(&self) -> DefaultRepr`.
+/// A type defines it once, and every `default = <expr>` of that type reuses it:
+///
+/// ```rust, ignore
+/// impl ArgByteOrder {
+///     pub const fn py_default(&self) -> DefaultRepr {
+///         match self {
+///             Self::Big => DefaultRepr::Str("big"),
+///             Self::Little => DefaultRepr::Str("little"),
+///         }
+///     }
+/// }
+///
+/// #[pyarg(any, default = ArgByteOrder::Big)]
+/// byteorder: ArgByteOrder, // signature shows 'big'
+/// ```
+///
+/// A bare `optional` renders the field type's default:
+///
+/// | Rust type | Meaning | Clinic equivalent | Signature default |
+/// | --- | --- | --- | --- |
+/// | `OptionalArg<T>` | the argument may be omitted (`Missing`). That is distinct from every Python value, including `None` | `= NULL` | `<unrepresentable>` |
+/// | `Option<T>` | `None` or a value. A missing argument and an explicit `None` are the same | `= None` | `None` |
+/// | `OptionalOption<T>` (`OptionalArg<Option<T>>`) | missing, `None`, and a value are all distinct | `= NULL`, and `None` is accepted | `<unrepresentable>` |
+///
+/// Keep `py_default` when the expression needs `vm` (so it is not const), or
+/// when an `OptionalArg` is missing in the body and the shown default is a
+/// concrete value the Rust type cannot store.
 /// ```rust, ignore
 /// #[derive(FromArgs)]
 /// struct OpenArgs {
 ///     #[pyarg(any, default = 0o777)]
 ///     mode: i32, // signature shows 511
+///     #[pyarg(named, default = "main")]
+///     name: PyStrRef, // signature shows 'main'
 /// }
 ///
 /// #[derive(FromArgs)]
@@ -61,6 +116,9 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `name`: the name of the Python class, by default it is the name of the struct.
 /// - `base`: the base class of the Python class.
 ///   This does not cause inheritance of functions or attributes that must be done by a separate trait.
+///   The native payload must be a struct with the base as its first field.
+///   The macro adds `repr(C)` if no explicit representation is present and
+///   checks the base field offset, the payload offset in `Py<T>`, and object alignment.
 /// # Impl
 /// This part implements `PyClassImpl` for the struct.
 /// This includes methods, getters/setters, etc.; only annotated methods will be included.
@@ -87,6 +145,11 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///    ...
 /// }
 /// ```
+/// ## Docstrings
+/// A `///` doc comment on the struct, or on a `#[pymethod]` / `#[pyclassmethod]` /
+/// `#[pystaticmethod]` / `#[pygetset]` / `#[pymember]` item, is the Python
+/// docstring and overrides the stored documentation. The stored documentation
+/// is used only when that item has no `///` comment. Use `//` for developer notes.
 /// ## Inner markers
 /// ### pymethod/pyclassmethod/pystaticmethod
 /// `pymethod` is used to mark a method of the Python class.
@@ -155,6 +218,42 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// ### pymember
+/// Declares an offset member on a payload field. The struct `#[pyclass]` builds
+/// a `PyClassDef::MEMBERS` table and `extend_class` registers one
+/// `member_descriptor` per entry. The member kind is inferred from the field
+/// type: `bool` / `AtomicBool`, `u8` / `AtomicU8`, `i32` / `AtomicI32`, `u32` / `AtomicU32`,
+/// `isize` / `AtomicIsize`, `f64` / `AtomicF64`, or an object pointer
+/// (`PyObjectRef`, `PyRef<T>`, `Option` of those, `PyObjectCell`, `PyAtomicRef<PyObject>`,
+/// `PyAtomicRef<Option<PyObject>>`, `PyAtomicRef<Option<T>>`,
+/// `&'static Py<T>`, `&'static PyStrInterned`).
+///
+/// - `type`: only `"object_ex"`, on an object field or a struct-level offset
+///   member. `"object"`, `"bool"`, `"int"`, `"uint"`, `"double"`, and
+///   `"py_ssize_t"` are rejected because those kinds are inferred.
+/// - `writable`: accept stores. Members are readonly without it. A writable
+///   object member must be `PyAtomicRef<PyObject>` (never null) or
+///   `PyAtomicRef<Option<PyObject>>` (nullable), a writable bool must be
+///   `AtomicBool`, a writable unsigned byte must be `AtomicU8`, a writable int
+///   must be `AtomicI32`, a writable uint must be
+///   `AtomicU32`, a writable double must be `AtomicF64`, and a writable
+///   py_ssize_t must be `AtomicIsize`.
+/// - `audit_read`: audit `object.__getattr__` before the load.
+/// - `name`: Python attribute name. Defaults to the field name.
+/// - `path`: subfield of the annotated field (`value` with `path = "re"`).
+/// - `doc`: only `doc = false`, which stores no docstring. Otherwise the
+///   docstring is the field's `///` comment when present, and the stored
+///   attribute documentation when the field has no `///` comment. Every
+///   `#[pymember]` on one field shares that comment. A string `doc` is rejected.
+///
+/// A struct-level `#[pymember]` (after `#[pyclass]`) has no field. `offset` is
+/// required there and rejected on a field. `///` lines placed immediately above
+/// that attribute are its docstring; otherwise the stored attribute
+/// documentation is used. One field may carry several `#[pymember]` attributes.
+/// A `#[cfg]` on the field gates that entry.
+/// ```rust, ignore
+/// #[pymember(name = "fget")]
+/// getter: PyAtomicRef<Option<PyObject>>,
+/// ```
 /// # Trait
 /// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.
 /// Note that associated functions that are annotated with `#[pymethod]` or similar **must**
@@ -168,6 +267,8 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Helper macro to define `Exception` types.
 /// More-or-less is an alias to `pyclass` macro.
+/// A `///` comment on the exception type is its docstring and overrides the
+/// stored documentation. Use `//` for developer notes.
 ///
 /// This macro serves a goal of generating multiple
 /// `BaseException` / `Exception`
@@ -185,6 +286,10 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// It defines a Python module in the form of a `module_def` function in the module;
 /// this has to be used in a `add_native_module` to properly register the module.
 /// Additionally, this macro defines 'MODULE_NAME' and 'DOC' in the module.
+/// A `///` comment on the module is its docstring and overrides the stored
+/// module documentation. `#[pyfunction]` works the same way: its `///` comment
+/// is the function docstring and overrides the stored function documentation.
+/// Use `//` for developer notes.
 /// # Arguments
 /// - `name`: the name of the python module,
 ///   by default, it is the name of the module, but this can be configured.
@@ -194,9 +299,11 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// mod module {
 /// }
 /// ```
-/// - `sub`: declare the module as a submodule of another module.
+/// - `sub`: declare the module as a submodule merged into another module.
+///   `name` is that Python module. Doc lookup uses it; without `name`, the
+///   doc DB is not consulted.
 /// ```rust, ignore
-/// #[pymodule(sub)]
+/// #[pymodule(sub, name = "my_module")]
 /// mod submodule {
 /// }
 ///
@@ -256,7 +363,8 @@ pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Attribute macro for defining Python struct sequence types.
 ///
 /// This macro is applied to an empty struct to create a Python type
-/// that wraps a Data struct.
+/// that wraps a Data struct. A `///` comment on that struct is the type's
+/// docstring and overrides the stored documentation. Use `//` for developer notes.
 ///
 /// # Example
 /// ```ignore

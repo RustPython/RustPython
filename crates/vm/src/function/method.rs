@@ -59,6 +59,12 @@ macro_rules! define_methods {
             name: $name,
             func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
             doc: None,
         }),+ ]
     };
@@ -69,22 +75,63 @@ pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
     pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
-    pub doc: Option<&'static str>, // TODO: interned
+    /// Start of the database body. Read only when `doc_len != 0`.
+    /// Absent when the `doc` feature is off, as are `doc_len` and `doc_body_pending`.
+    #[cfg(feature = "doc")]
+    pub doc_off: u32,
+    /// Length of the database body.
+    /// `0` means the body is not a database span: `doc` is the whole text, or there is no body.
+    #[cfg(feature = "doc")]
+    pub doc_len: u32,
+    /// The body is still taken from the owning class's attribute table.
+    /// True only when the method has no Rust doc body and expansion did not
+    /// resolve a database span. `concat_with_attr_docs` copies that span into
+    /// `doc_off`/`doc_len` when the table has one, then sets this to false.
+    /// False means the body is already settled: a Rust doc, a span resolved
+    /// while expanding the method, or no body at all.
+    #[cfg(feature = "doc")]
+    pub doc_body_pending: bool,
+    /// Static text beside the database span.
+    /// `None` when there is no static text: the body is the `doc_len` span, or there is no docstring.
+    /// `Some` is a plain docstring, a full internal docstring, or only the
+    /// signature prefix while the body is the `doc_len` span or still pending.
+    pub doc: Option<&'static str>,
 }
 
 impl PyMethodDef {
+    #[must_use]
+    pub fn item_doc(&self) -> super::ItemDoc {
+        super::ItemDoc {
+            text: self.doc,
+            #[cfg(feature = "doc")]
+            offset: self.doc_off,
+            #[cfg(feature = "doc")]
+            len: self.doc_len,
+            #[cfg(not(feature = "doc"))]
+            offset: 0,
+            #[cfg(not(feature = "doc"))]
+            len: 0,
+        }
+    }
+
     #[inline]
     pub const fn new_const<Kind>(
         name: &'static str,
         func: impl IntoPyNativeFn<Kind>,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_func(func),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
+            doc: doc.text,
         }
     }
 
@@ -93,13 +140,19 @@ impl PyMethodDef {
         name: &'static str,
         func: impl PyNativeFn,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_raw_func(func),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
+            doc: doc.text,
         }
     }
 
@@ -125,7 +178,7 @@ impl PyMethodDef {
             zelf: None,
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         }
     }
@@ -148,7 +201,7 @@ impl PyMethodDef {
                 zelf: Some(obj),
                 value: self,
                 module_object: None,
-                module: None,
+                module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
             class,
@@ -168,7 +221,7 @@ impl PyMethodDef {
             zelf: Some(obj),
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         };
         PyRef::new_ref(
@@ -222,10 +275,35 @@ impl PyMethodDef {
             zelf: Some(class.to_owned().into()),
             value: self,
             module_object: None,
-            module: None,
+            module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         };
         PyNativeMethod { func, class }.into_ref(ctx)
+    }
+
+    /// Concatenate method groups. A pending body is copied from `docs`, then cleared.
+    #[cfg(feature = "doc")]
+    #[must_use]
+    pub const fn concat_with_attr_docs<const N: usize>(
+        method_groups: &[&[Self]],
+        docs: &[(&str, u32, u32)],
+    ) -> [Self; N] {
+        let combined = Self::__const_concat_arrays::<N>(method_groups);
+        let mut i = 0;
+        let mut out = combined;
+        while i < N {
+            if out[i].doc_body_pending {
+                if let Some((offset, len)) = crate::class::attr_doc(docs, out[i].name)
+                    && len != 0
+                {
+                    out[i].doc_off = offset;
+                    out[i].doc_len = len;
+                }
+                out[i].doc_body_pending = false;
+            }
+            i += 1;
+        }
+        out
     }
 
     #[doc(hidden)]
@@ -237,6 +315,12 @@ impl PyMethodDef {
             name: "",
             func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
+            #[cfg(feature = "doc")]
+            doc_off: 0,
+            #[cfg(feature = "doc")]
+            doc_len: 0,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
             doc: None,
         };
         let mut all_methods = [NULL_METHOD; SUM_LEN];
@@ -261,6 +345,12 @@ impl PyMethodDef {
             name: self.name,
             func: self.func,
             flags: self.flags,
+            #[cfg(feature = "doc")]
+            doc_off: self.doc_off,
+            #[cfg(feature = "doc")]
+            doc_len: self.doc_len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: self.doc_body_pending,
             doc: self.doc,
         }
     }

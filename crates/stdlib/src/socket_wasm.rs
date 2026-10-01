@@ -199,7 +199,7 @@ mod _socket {
         #[pyarg(any, optional)]
         proto: OptionalArg<i32>,
         #[pyarg(any, optional)]
-        fileno: OptionalArg<Option<PyObjectRef>>,
+        fileno: Option<PyObjectRef>,
     }
 
     #[pyattr(name = "socket")]
@@ -207,8 +207,11 @@ mod _socket {
     #[pyclass(name = "socket")]
     #[derive(Debug, PyPayload)]
     struct PySocket {
+        #[pymember]
         family: AtomicI32,
+        #[pymember(name = "type")]
         kind: AtomicI32,
+        #[pymember]
         proto: AtomicI32,
         timeout: PyMutex<Option<f64>>,
         closed: PyMutex<bool>,
@@ -235,45 +238,34 @@ mod _socket {
             Ok(())
         }
 
-        #[pygetset]
-        fn family(&self) -> i32 {
-            self.family.load(Ordering::Relaxed)
-        }
-
-        #[pygetset]
-        fn r#type(&self) -> i32 {
-            self.kind.load(Ordering::Relaxed)
-        }
-
-        #[pygetset]
-        fn proto(&self) -> i32 {
-            self.proto.load(Ordering::Relaxed)
+        #[pymethod]
+        fn fileno(zelf: &Py<Self>) -> i32 {
+            if *zelf.closed.lock() { -1 } else { 0 }
         }
 
         #[pymethod]
-        fn fileno(&self) -> i32 {
-            if *self.closed.lock() { -1 } else { 0 }
+        fn close(zelf: &Py<Self>) {
+            *zelf.closed.lock() = true;
         }
 
         #[pymethod]
-        fn close(&self) {
-            *self.closed.lock() = true;
-        }
-
-        #[pymethod]
-        fn detach(&self) -> i32 {
-            *self.closed.lock() = true;
+        fn detach(zelf: &Py<Self>) -> i32 {
+            *zelf.closed.lock() = true;
             -1
         }
 
         #[pymethod]
-        fn gettimeout(&self) -> Option<f64> {
-            *self.timeout.lock()
+        fn gettimeout(zelf: &Py<Self>) -> Option<f64> {
+            *zelf.timeout.lock()
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-            *self.timeout.lock() = match timeout {
+        fn settimeout(
+            zelf: &Py<Self>,
+            timeout: Option<ArgIntoFloat>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            *zelf.timeout.lock() = match timeout {
                 None => None,
                 Some(value) => {
                     let value = value.into_float();
@@ -290,20 +282,25 @@ mod _socket {
         }
 
         #[pymethod]
-        fn setblocking(&self, blocking: bool) {
-            *self.timeout.lock() = if blocking { None } else { Some(0.0) };
+        fn setblocking(zelf: &Py<Self>, blocking: bool) {
+            *zelf.timeout.lock() = if blocking { None } else { Some(0.0) };
         }
 
         #[pymethod]
-        fn getblocking(&self) -> bool {
-            !matches!(*self.timeout.lock(), Some(t) if t == 0.0)
+        fn getblocking(zelf: &Py<Self>) -> bool {
+            !matches!(*zelf.timeout.lock(), Some(t) if t == 0.0)
         }
 
         #[pymethod]
-        fn getsockopt(&self, level: i32, optname: i32, vm: &VirtualMachine) -> PyResult<i32> {
-            self.ensure_open(vm)?;
+        fn getsockopt(
+            zelf: &Py<Self>,
+            level: i32,
+            optname: i32,
+            vm: &VirtualMachine,
+        ) -> PyResult<i32> {
+            zelf.ensure_open(vm)?;
             if level == SOL_SOCKET && optname == SO_TYPE {
-                return Ok(self.kind.load(Ordering::Relaxed));
+                return Ok(zelf.kind.load(Ordering::Relaxed));
             }
             if level == SOL_SOCKET && optname == SO_ERROR {
                 return Ok(0);
@@ -313,67 +310,71 @@ mod _socket {
 
         #[pymethod]
         fn setsockopt(
-            &self,
+            zelf: &Py<Self>,
             _level: i32,
             _optname: i32,
             _value: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.ensure_open(vm)?;
+            zelf.ensure_open(vm)?;
             Ok(())
         }
 
         #[pymethod]
-        fn bind(&self, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.ensure_open(vm)?;
+        fn bind(zelf: &Py<Self>, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "bind").into())
         }
 
         #[pymethod]
-        fn connect(&self, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.ensure_open(vm)?;
+        fn connect(zelf: &Py<Self>, _address: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "connect").into())
         }
 
         #[pymethod]
-        fn listen(&self, _backlog: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
-            self.ensure_open(vm)?;
+        fn listen(
+            zelf: &Py<Self>,
+            _backlog: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "listen").into())
         }
 
         #[pymethod]
-        fn _accept(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
-            self.ensure_open(vm)?;
+        fn _accept(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "accept").into())
         }
 
         #[pymethod]
-        fn send(&self, _data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-            self.ensure_open(vm)?;
+        fn send(zelf: &Py<Self>, _data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "send").into())
         }
 
         #[pymethod]
-        fn recv(&self, _bufsize: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.ensure_open(vm)?;
+        fn recv(zelf: &Py<Self>, _bufsize: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "recv").into())
         }
 
         #[pymethod]
-        fn shutdown(&self, _how: i32, vm: &VirtualMachine) -> PyResult<()> {
-            self.ensure_open(vm)?;
+        fn shutdown(zelf: &Py<Self>, _how: i32, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "shutdown").into())
         }
 
         #[pymethod]
-        fn getsockname(&self, vm: &VirtualMachine) -> PyResult<(String, i32)> {
-            self.ensure_open(vm)?;
+        fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
+            zelf.ensure_open(vm)?;
             Ok(("0.0.0.0".to_owned(), 0))
         }
 
         #[pymethod]
-        fn getpeername(&self, vm: &VirtualMachine) -> PyResult<(String, i32)> {
-            self.ensure_open(vm)?;
+        fn getpeername(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<(String, i32)> {
+            zelf.ensure_open(vm)?;
             Err(unsupported(vm, "getpeername").into())
         }
     }

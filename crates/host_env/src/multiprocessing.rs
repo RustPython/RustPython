@@ -18,6 +18,7 @@ use libc::sem_t;
 use nix::errno::Errno;
 
 #[cfg(unix)]
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct SemHandle {
     raw: *mut sem_t,
@@ -118,6 +119,7 @@ pub type RawSocket = SOCKET;
 pub const INFINITE_TIMEOUT: u32 = INFINITE;
 
 #[cfg(windows)]
+#[repr(transparent)]
 #[derive(Debug)]
 pub struct SemHandle {
     raw: HANDLE,

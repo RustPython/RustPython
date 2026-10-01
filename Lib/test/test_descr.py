@@ -3694,7 +3694,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                            encoding='latin1', errors='replace')
         self.assertEqual(ba, b'abc\xbd?')
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
     @support.skip_if_huge_c_stack()
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
@@ -3977,7 +3976,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         # it as a leak.
         del C.__del__
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_slots_trash(self):
@@ -4559,7 +4557,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         o.whatever = Provoker(o)
         del o
 
-    @unittest.skip("TODO: RUSTPYTHON; rustpython segmentation fault")
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     @support.requires_resource('cpu')

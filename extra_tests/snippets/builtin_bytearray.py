@@ -3,6 +3,9 @@ import sys
 
 from testutils import assert_raises
 
+with assert_raises(MemoryError):
+    bytearray(b"ab").resize(sys.maxsize)
+
 # new
 assert bytearray([1, 2, 3])
 assert bytearray((1, 2, 3))
@@ -314,6 +317,29 @@ with assert_raises(TypeError):
 assert bytearray(b"abc").join((bytearray(b"123"), bytearray(b"xyz"))) == bytearray(
     b"123abcxyz"
 )
+
+join_separator = bytearray(b",")
+
+
+def join_mutate_separator():
+    yield b"a"
+    join_separator[0] = ord(":")
+    yield b"b"
+
+
+assert join_separator.join(join_mutate_separator()) == b"a:b"
+
+
+def join_resize_separator():
+    yield b"a"
+    join_separator.extend(b"!")
+    yield b"b"
+
+
+with assert_raises(BufferError):
+    join_separator.join(join_resize_separator())
+join_separator.extend(b"!")
+assert join_separator == b":!"
 
 
 # endswith startswith
@@ -882,3 +908,8 @@ for i in range(-1, 2, 1):
     assert_raises(
         IndexError, lambda: a[-sys.maxsize - i], _msg="bytearray index out of range"
     )
+
+# Repeating an empty bytearray by a huge count returns at once
+empty = bytearray()
+empty *= sys.maxsize
+assert empty == bytearray()

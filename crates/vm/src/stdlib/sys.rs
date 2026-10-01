@@ -9,22 +9,22 @@ pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, modul
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
-    /// Return True if the current Python executable supports JIT compilation,
-    /// and False otherwise.
+    // Return True if the current Python executable supports JIT compilation,
+    // and False otherwise.
     #[pyfunction]
     const fn is_available() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if JIT compilation is enabled for the current Python process,
-    /// and False otherwise.
+    // Return True if JIT compilation is enabled for the current Python process,
+    // and False otherwise.
     #[pyfunction]
     const fn is_enabled() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if the topmost Python frame is currently executing JIT code,
-    /// and False otherwise.
+    // Return True if the topmost Python frame is currently executing JIT code,
+    // and False otherwise.
     #[pyfunction]
     const fn is_active() -> bool {
         false // RustPython has no JIT
@@ -75,8 +75,11 @@ pub mod sys {
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
+    #[pyclass(with(Py))]
+    impl BootstrapStderr {}
+
     #[pyclass]
-    impl BootstrapStderr {
+    impl Py<BootstrapStderr> {
         #[pymethod]
         fn write(&self, s: PyStrRef) -> usize {
             let bytes = s.as_bytes();
@@ -90,8 +93,8 @@ pub mod sys {
         }
     }
 
-    /// Lightweight stdio wrapper for sandbox mode (no host_env).
-    /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    // Lightweight stdio wrapper for sandbox mode (no host_env).
+    // Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
     #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
@@ -100,8 +103,11 @@ pub mod sys {
         pub mode: String,
     }
 
+    #[pyclass(with(Py))]
+    impl SandboxStdio {}
+
     #[pyclass]
-    impl SandboxStdio {
+    impl Py<SandboxStdio> {
         #[pymethod]
         fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fd == 0 {
@@ -764,15 +770,50 @@ pub mod sys {
         false // RustPython has no GIL (like free-threaded Python)
     }
 
-    /// Return True if remote debugging is enabled, False otherwise.
     #[pyfunction]
     const fn is_remote_debug_enabled() -> bool {
         false // RustPython does not support remote debugging
     }
 
+    #[derive(FromArgs)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        status: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameArgs {
+        #[pyarg(positional, default)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameModuleNameArgs {
+        #[pyarg(any, default)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetMaxDigitsArgs {
+        #[pyarg(any)]
+        maxdigits: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetDepthArgs {
+        #[pyarg(any)]
+        depth: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct AuditHookArgs {
+        #[pyarg(any)]
+        hook: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn exit(status: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let status = status.unwrap_or_none(vm);
+    fn exit(args: ExitArgs, vm: &VirtualMachine) -> PyResult {
+        let status = args.status.unwrap_or_else(|| vm.ctx.none());
         let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
             status_tuple.as_slice().to_vec()
         } else {
@@ -991,26 +1032,22 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
+    fn _getframe(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
+        let depth = args.depth;
         let frame_ref = crate::frame::frame_at_offset(depth, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
-        }
+        vm.audit("sys._getframe", || (frame_ref.to_owned(),))?;
 
         Ok(frame_ref)
     }
 
     #[pyfunction]
     fn _getframemodulename(
-        depth: OptionalArg<usize>,
+        args: GetFrameModuleNameArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
-        }
+        let depth = args.depth;
+        vm.audit("sys._getframemodulename", || (depth,))?;
 
         // Get the frame at the specified depth
         let func_obj = match crate::frame::frame_at_offset(depth, vm) {
@@ -1031,8 +1068,6 @@ pub mod sys {
         })
     }
 
-    /// Return a dictionary mapping each thread's identifier to the topmost stack frame
-    /// currently active in that thread at the time the function is called.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1050,8 +1085,6 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Return a dictionary mapping each thread's identifier to its currently
-    /// active exception, or None if no exception is active.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1077,7 +1110,7 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Stub for non-threading builds - returns empty dict
+    // Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
@@ -1159,15 +1192,20 @@ pub mod sys {
                 .fast_issubclass(vm.ctx.exceptions.base_exception_type)
         );
 
-        // Print module name (if not builtins or __main__)
-        let module_name = unraisable.exc_type.__module__(vm);
-        if let Ok(module_str) = module_name.downcast::<PyStr>() {
+        // Print module name (if not builtins or __main__).
+        // A failed lookup or a non-str `__module__` is discarded: print
+        // `<unknown>` with no trailing `.`, then the qualname.
+        let module_name = unraisable.exc_type.__module__(vm).ok();
+        if let Some(module_str) = module_name
+            .as_ref()
+            .and_then(|name| name.downcast_ref::<PyStr>())
+        {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
                 write!(stderr, "{module}.");
             }
         } else {
-            write!(stderr, "<unknown>.");
+            write!(stderr, "<unknown>");
         }
 
         // Print qualname
@@ -1229,7 +1267,7 @@ pub mod sys {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
     }
 
-    /// Private function for getting PyConfig.cpu_count
+    // Private function for getting PyConfig.cpu_count
     #[pyfunction]
     fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
         vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())
@@ -1241,7 +1279,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_int_max_str_digits(
+        SetMaxDigitsArgs { maxdigits }: SetMaxDigitsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let threshold = IntInfoData::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
@@ -1357,7 +1398,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_coroutine_origin_tracking_depth(
+        SetDepthArgs { depth }: SetDepthArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
@@ -1547,7 +1591,7 @@ pub mod sys {
     pub(super) struct PyFlags;
 
     #[pyclass(with(PyStructSequence))]
-    impl PyFlags {
+    impl Py<PyFlags> {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
@@ -1785,7 +1829,7 @@ pub mod sys {
         args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
+        let hooks = vm.state.audit_hooks.lock().clone();
 
         if hooks.is_empty() {
             return Ok(());
@@ -1842,7 +1886,7 @@ pub mod sys {
 
     #[pyfunction]
     fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.audit_hooks.borrow().is_empty() {
+        if vm.state.audit_hooks.lock().is_empty() {
             return Ok(());
         }
 
@@ -1851,32 +1895,59 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
-
-        if hooks.is_empty() {
-            vm.audit_hooks.borrow_mut().push(hook);
-            return Ok(());
-        }
-
+    fn addaudithook(AuditHookArgs { hook }: AuditHookArgs, vm: &VirtualMachine) -> PyResult<()> {
         let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
-        for existing_hook in hooks {
-            let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) else {
-                continue;
+        // Hooks are append-only: append only once every hook present has been notified,
+        // notifying any added by other threads meanwhile. Python hooks run unlocked.
+        let mut notified = 0;
+        loop {
+            let pending = {
+                let mut hooks = vm.state.audit_hooks.lock();
+                if hooks.len() == notified {
+                    hooks.push(hook);
+                    return Ok(());
+                }
+                hooks[notified..].to_vec()
             };
-            if exc
-                .class()
-                .fast_issubclass(vm.ctx.exceptions.exception_type)
-            {
-                return Ok(());
+            for existing_hook in pending {
+                if let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) {
+                    return if exc
+                        .class()
+                        .fast_issubclass(vm.ctx.exceptions.exception_type)
+                    {
+                        Ok(())
+                    } else {
+                        Err(exc)
+                    };
+                }
+                notified += 1;
             }
-            return Err(exc);
         }
+    }
+}
 
-        vm.audit_hooks.borrow_mut().push(hook);
-        Ok(())
+fn sys_module_doc() -> Option<&'static str> {
+    let raw = crate::function::plain_doc(sys::DOC)?;
+    #[cfg(windows)]
+    {
+        Some(raw)
+    }
+    #[cfg(not(windows))]
+    {
+        use std::sync::OnceLock;
+        static FILTERED: OnceLock<String> = OnceLock::new();
+        let filtered = FILTERED.get_or_init(|| {
+            let mut out = String::new();
+            for line in raw.split_inclusive('\n') {
+                if !line.contains("[Windows only]") {
+                    out.push_str(line);
+                }
+            }
+            out
+        });
+        Some(filtered.as_str())
     }
 }
 
@@ -1897,7 +1968,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
     let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
-        "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
+        "__doc__" => sys_module_doc().to_pyobject(vm),
         "modules" => modules,
         "_jit" => jit_module,
     });

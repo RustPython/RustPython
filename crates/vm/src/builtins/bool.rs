@@ -52,7 +52,7 @@ impl PyObject {
     #[cold]
     #[inline(never)]
     fn try_to_bool_slow(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        let slots = &self.class().slots;
+        let slots = self.class().slots();
 
         // 1. Try nb_bool slot first
         if let Some(nb_bool) = slots.as_number.boolean.load() {
@@ -87,11 +87,19 @@ impl Debug for PyBool {
     }
 }
 
+#[derive(FromArgs)]
+pub struct BoolArgs {
+    // Missing skips conversion and is False.
+    #[pyarg(positional, default, py_default = "False")]
+    object: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyBool {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = BoolArgs;
 
     fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let x: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let x = x.object;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",

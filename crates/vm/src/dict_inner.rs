@@ -204,8 +204,30 @@ unsafe impl<T: Traverse> Traverse for DictInner<T> {
 
 impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
+        let inner = self.read();
+        if inner.used == 0 {
+            return Self::default();
+        }
+        // Keep dense copies cheap, but do not carry mostly empty storage into
+        // a new dictionary. pop_back can leave oversized indices without holes.
+        let inner = if inner.used >= inner.entries.len() - inner.entries.len() / 3
+            && (inner.indices.len() <= 8 || inner.used >= inner.indices.len() / 4)
+        {
+            inner.clone()
+        } else {
+            let mut copy = DictInner {
+                used: inner.used,
+                filled: inner.used,
+                indices: Vec::new(),
+                entries: Vec::with_capacity(inner.used),
+            };
+            copy.entries
+                .extend(inner.entries.iter().flatten().cloned().map(Some));
+            copy.resize(inner.used * 2);
+            copy
+        };
         Self {
-            inner: PyRwLock::new(self.inner.read().clone()),
+            inner: PyRwLock::new(inner),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -396,6 +418,59 @@ impl<T: Clone> Dict<T> {
         self.keys_version.load(Acquire)
     }
 
+    /// Capture a module attribute's entry index and layout stamp together.
+    /// Exact string keys and an absent `__getattr__` permit direct indexed reads.
+    pub(crate) fn module_attr_cache(
+        &self,
+        name: &PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> Option<(u32, u16)> {
+        self.assign_keys_version();
+        let inner = self.read();
+        // Shared shape stamps can recur after an A -> B -> A layout change.
+        // Read the stamp and resolve the index under the same guard.
+        let version = self.keys_version.load(Acquire);
+        if version == 0 {
+            return None;
+        }
+        let mut index = None;
+        for (entry_index, entry) in inner.entries.iter().enumerate() {
+            let Some(entry) = entry else { continue };
+            let key = entry.key.downcast_ref_if_exact::<PyStr>(vm)?;
+            if key.as_wtf8().as_bytes() == b"__getattr__" {
+                return None;
+            }
+            if key.as_wtf8() == name.as_wtf8() {
+                index = Some(u16::try_from(entry_index).ok()?);
+            }
+        }
+        Some((version, index?))
+    }
+
+    /// Concurrent specializations can publish an index from a different layout.
+    /// Validate the name as well as the stamp before reading the cached entry.
+    #[inline]
+    pub(crate) fn get_cached_module_attr(
+        &self,
+        name: &PyStrInterned,
+        version: usize,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> Option<T> {
+        let inner = self.read();
+        if version == 0 || self.keys_version.load(Acquire) as usize != version {
+            return None;
+        }
+        let entry = inner.entries.get(index)?.as_ref()?;
+        if !name.key_is(&entry.key) {
+            let key = entry.key.downcast_ref_if_exact::<PyStr>(vm)?;
+            if key.as_wtf8() != name.as_wtf8() {
+                return None;
+            }
+        }
+        Some(entry.value.clone())
+    }
+
     /// Return the current keys-version stamp, assigning one if none is set.
     /// Returns 0 only if no stamp could be allocated.
     ///
@@ -460,8 +535,8 @@ impl<T: Clone> Dict<T> {
     /// old key set is linearizable. A stamp assigned concurrently (between
     /// this reset and the mutation) can only be trusted by a caller whose
     /// subsequent probe serializes after the mutation through the inner
-    /// lock, which then reflects the new key set. Since stamps are never
-    /// reused, a cached stamp can never spuriously match again.
+    /// lock, which then reflects the new key set. A nonzero stamp can match
+    /// again only after the exact key layout it attests has been restored.
     fn invalidate_keys_version(&self) {
         self.keys_version.store(0, Release);
     }
@@ -472,6 +547,35 @@ impl<T: Clone> Dict<T> {
 
     fn write(&self) -> PyRwLockWriteGuard<'_, DictInner<T>> {
         self.inner.write()
+    }
+
+    /// Reserve space for known keys without changing an existing key layout.
+    /// Only use on an unpublished dictionary: resizing must not race with a
+    /// lookup that has already probed the old index table.
+    pub(crate) fn reserve_for_empty(&self, capacity: usize) {
+        if capacity == 0 {
+            return;
+        }
+        let Some(index_capacity) = capacity
+            .checked_add(capacity.div_ceil(2))
+            .and_then(usize::checked_next_power_of_two)
+        else {
+            return;
+        };
+        let mut inner = self.write();
+        if inner.filled != 0 || !inner.entries.is_empty() {
+            return;
+        }
+        // Keep the usual incremental growth path if preallocation fails.
+        if inner.entries.try_reserve_exact(capacity).is_err() {
+            return;
+        }
+        let additional = index_capacity.saturating_sub(inner.indices.len());
+        if additional != 0 && inner.indices.try_reserve_exact(additional).is_ok() {
+            // Every existing index is FREE, so extending needs no rehash and
+            // leaves the empty key layout and its version unchanged.
+            inner.indices.resize(index_capacity, IndexEntry::FREE);
+        }
     }
 
     /// Store a key
@@ -485,9 +589,10 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key whose hash the caller already knows.
     ///
-    /// `hash` must equal `key.key_hash(vm)`; a wrong one lands the entry in a
-    /// bucket no lookup probes, silently losing the key. Only pass a hash from
-    /// [`Self::keys_with_hashes`] on a container holding this same key.
+    /// `hash` must be computed for `key` or read from [`Self::keys_with_hashes`]
+    /// or [`Self::next_entry_with_hash`] on a container holding this same key.
+    /// A wrong hash lands the entry in a bucket no lookup probes, silently
+    /// losing the key.
     pub(crate) fn insert_known_hash<K>(
         &self,
         vm: &VirtualMachine,
@@ -777,6 +882,16 @@ impl<T: Clone> Dict<T> {
         };
     }
 
+    /// Install an owned table, releasing the old entries after unlocking.
+    pub(crate) fn replace_contents(&self, other: Self) {
+        let replacement = other.inner.into_inner();
+        let _removed = {
+            let mut inner = self.write();
+            self.invalidate_keys_version();
+            core::mem::replace(&mut *inner, replacement)
+        };
+    }
+
     /// Delete a key
     pub(crate) fn delete<K>(&self, vm: &VirtualMachine, key: &K) -> PyResult<()>
     where
@@ -865,18 +980,8 @@ impl<T: Clone> Dict<T> {
         Ok(removed.map(|entry| entry.value))
     }
 
-    pub(crate) fn delete_or_insert(
-        &self,
-        vm: &VirtualMachine,
-        key: &PyObject,
-        value: T,
-    ) -> PyResult<()> {
-        let hash = key.key_hash(vm)?;
-        self.delete_or_insert_known_hash(vm, key, hash, value)
-    }
-
-    /// [`Self::delete_or_insert`] with a known hash. Same contract as
-    /// [`Self::insert_known_hash`].
+    /// Delete an existing key or insert a missing key using its known hash.
+    /// Same contract as [`Self::insert_known_hash`].
     pub(crate) fn delete_or_insert_known_hash(
         &self,
         vm: &VirtualMachine,
@@ -1037,13 +1142,21 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+    pub(crate) fn next_entry(&self, position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
+        self.next_entry_with_hash(position)
+            .map(|(position, key, value, _)| (position, key, value))
+    }
+
+    pub(crate) fn next_entry_with_hash(
+        &self,
+        mut position: EntryIndex,
+    ) -> Option<(usize, PyObjectRef, T, HashValue)> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
             position += 1;
             if let Some(entry) = entry {
-                break Some((position, entry.key.clone(), entry.value.clone()));
+                break Some((position, entry.key.clone(), entry.value.clone(), entry.hash));
             }
         }
     }
@@ -1105,15 +1218,16 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    pub(crate) fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
+    /// Fold stored hashes under the read lock; the callback must not run Python.
+    pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
     where
-        Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
+        Fold: FnMut(Acc, HashValue) -> Acc,
     {
         self.read()
             .entries
             .iter()
-            .filter_map(|v| v.as_ref().map(|v| v.key.as_object()))
-            .try_fold(init, f)
+            .filter_map(|v| v.as_ref().map(|v| v.hash))
+            .fold(init, f)
     }
 
     /// Lookup the index for the given key.
@@ -1330,6 +1444,7 @@ pub trait DictKey {
     }
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue>;
     fn key_is(&self, other: &PyObject) -> bool;
+    /// Compare the stored entry (`other_key`) with this lookup key, in that order.
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool>;
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize>;
 }
@@ -1369,7 +1484,7 @@ impl DictKey for PyObject {
             let b = unsafe { other_key.downcast_unchecked_ref::<PyInt>() };
             return Ok(a.as_bigint() == b.as_bigint());
         }
-        vm.bool_eq(self, other_key)
+        vm.bool_eq(other_key, self)
     }
 
     #[inline]
@@ -1401,7 +1516,7 @@ impl DictKey for Py<PyStr> {
         } else if let Some(pystr) = other_key.downcast_ref_if_exact::<PyStr>(vm) {
             Ok(self.as_wtf8() == pystr.as_wtf8())
         } else {
-            vm.bool_eq(self.as_object(), other_key)
+            vm.bool_eq(other_key, self.as_object())
         }
     }
 
@@ -1510,9 +1625,9 @@ impl DictKey for str {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_str(self))
+        Ok(crate::vm::hash_secret().hash_str(self))
     }
 
     #[inline(always)]
@@ -1571,9 +1686,9 @@ impl DictKey for Wtf8 {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self.as_bytes()))
+        Ok(crate::vm::hash_secret().hash_bytes(self.as_bytes()))
     }
 
     #[inline(always)]
@@ -1632,9 +1747,9 @@ impl DictKey for [u8] {
     }
 
     #[inline]
-    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+    fn key_hash(&self, _vm: &VirtualMachine) -> PyResult<HashValue> {
         // follow a similar route as the hashing of PyStrRef
-        Ok(vm.state.hash_secret.hash_bytes(self))
+        Ok(crate::vm::hash_secret().hash_bytes(self))
     }
 
     #[inline(always)]
@@ -1650,7 +1765,7 @@ impl DictKey for [u8] {
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_bytes(self.to_vec());
-            s.key_eq(vm, other_key)
+            s.as_object().key_eq(vm, other_key)
         }
     }
 
@@ -1709,7 +1824,7 @@ impl DictKey for usize {
             }
         } else {
             let int = vm.ctx.new_int(*self);
-            vm.bool_eq(int.as_ref(), other_key)
+            vm.bool_eq(other_key, int.as_ref())
         }
     }
 
@@ -1722,6 +1837,125 @@ impl DictKey for usize {
 mod tests {
     use super::*;
     use crate::{Interpreter, common::ascii};
+
+    #[test]
+    fn clone_compacts_deleted_entries() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, key).unwrap();
+            }
+            for key in 0..120usize {
+                dict.delete(vm, &key).unwrap();
+            }
+            let version = dict.assign_keys_version();
+            let copied = dict.clone();
+            assert_eq!(copied.keys_version(), 0);
+            assert_eq!(dict.keys_version(), version);
+            {
+                let source = dict.read();
+                let result = copied.read();
+                assert_eq!(source.entries.len(), 128);
+                assert_eq!(result.entries.len(), result.used);
+                assert!(result.indices.len() < source.indices.len());
+                assert!(result.entries.capacity() < source.entries.capacity());
+                assert_eq!(result.filled, result.used);
+            }
+            assert_eq!(copied.values(), (120..128).collect::<Vec<_>>());
+            for key in 120..128usize {
+                assert_eq!(copied.get(vm, &key).unwrap(), Some(key));
+            }
+            copied.insert(vm, &0usize, 0).unwrap();
+            assert!(!dict.contains(vm, &0usize).unwrap());
+        });
+    }
+
+    #[test]
+    fn clone_shrinks_indices_after_pop_back() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            for key in 0..128usize {
+                dict.insert(vm, &key, ()).unwrap();
+            }
+            for _ in 0..124 {
+                dict.pop_back().unwrap();
+            }
+            let copied = dict.clone();
+            assert_eq!(copied.len(), 4);
+            assert!(copied.read().indices.len() < dict.read().indices.len());
+            for key in 0..4usize {
+                assert!(copied.contains(vm, &key).unwrap());
+                dict.delete(vm, &key).unwrap();
+            }
+            let empty = dict.clone();
+            assert_eq!(dict.len(), 0);
+            assert_eq!(empty.len(), 0);
+            assert_eq!(
+                empty.read().indices.len(),
+                Dict::<()>::default().read().indices.len()
+            );
+            assert_eq!(empty.read().entries.capacity(), 0);
+        });
+    }
+
+    #[test]
+    fn module_attr_cache_rejects_mixed_entries_and_unsafe_layouts() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let name = vm.ctx.intern_str("target");
+            let padding = vm.ctx.intern_str("padding");
+            let first: Dict<i32> = Dict::default();
+            let second: Dict<i32> = Dict::default();
+            first.insert(vm, name, 10).unwrap();
+            first.insert(vm, padding, 20).unwrap();
+            second.insert(vm, padding, 30).unwrap();
+            second.insert(vm, name, 40).unwrap();
+            let (first_version, first_index) = first.module_attr_cache(name, vm).unwrap();
+            let (second_version, second_index) = second.module_attr_cache(name, vm).unwrap();
+            assert_ne!(first_version, second_version);
+            assert_ne!(first_index, second_index);
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, first_index.into(), vm),
+                Some(10)
+            );
+            // These pairs model cache fields published by different writers.
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, second_index.into(), vm),
+                None
+            );
+            assert_eq!(
+                second.get_cached_module_attr(
+                    name,
+                    second_version as usize,
+                    first_index.into(),
+                    vm
+                ),
+                None
+            );
+
+            let foreign_key: PyObjectRef = vm.ctx.new_int(7).into();
+            first.insert(vm, &*foreign_key, 50).unwrap();
+            assert!(first.module_attr_cache(name, vm).is_none());
+            assert_eq!(
+                first.get_cached_module_attr(name, first_version as usize, first_index.into(), vm),
+                None
+            );
+            first.delete(vm, &*foreign_key).unwrap();
+            first
+                .insert(vm, vm.ctx.intern_str("__getattr__"), 60)
+                .unwrap();
+            assert!(first.module_attr_cache(name, vm).is_none());
+
+            let noninterned: Dict<i32> = Dict::default();
+            noninterned
+                .insert(vm, &*vm.ctx.new_str("target"), 70)
+                .unwrap();
+            let (version, index) = noninterned.module_attr_cache(name, vm).unwrap();
+            assert_eq!(
+                noninterned.get_cached_module_attr(name, version as usize, index.into(), vm),
+                Some(70)
+            );
+        });
+    }
 
     #[test]
     fn insert_basic() {
@@ -1757,6 +1991,45 @@ mod tests {
         })
     }
 
+    #[test]
+    fn reserve_empty_avoids_growth() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.reserve_for_empty(usize::MAX);
+            assert_eq!(dict.read().indices.len(), 8);
+            assert_eq!(dict.read().entries.capacity(), 0);
+
+            let version = dict.assign_keys_version();
+            let count = 1000;
+            dict.reserve_for_empty(count);
+            assert_eq!(dict.keys_version(), version);
+            let capacity = {
+                let inner = dict.read();
+                (inner.indices.len(), inner.entries.capacity())
+            };
+            for key in 0..count {
+                dict.insert(vm, &key, vm.ctx.none()).unwrap();
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            assert_eq!(dict.len(), count);
+            assert!(dict.contains(vm, &(count - 1)).unwrap());
+
+            // Existing and tombstoned layouts are left intact.
+            dict.reserve_for_empty(count * 4);
+            {
+                let inner = dict.read();
+                assert_eq!((inner.indices.len(), inner.entries.capacity()), capacity);
+            }
+            for key in 0..count {
+                dict.delete(vm, &key).unwrap();
+            }
+            let old_size = dict.read().size();
+            dict.reserve_for_empty(count * 4);
+            assert_eq!(dict.read().size(), old_size);
+        })
+    }
+
     macro_rules! hash_tests {
         ($($name:ident: $example_hash:expr,)*) => {
             $(
@@ -1782,5 +2055,25 @@ mod tests {
             let hash2 = value2.key_hash(vm).expect("Hash should not fail.");
             assert_eq!(hash1, hash2);
         })
+    }
+
+    #[test]
+    fn replace_contents_invalidates_cached_indices() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            dict.insert(vm, &1usize, ()).unwrap();
+            let old_version = dict.assign_keys_version();
+            assert_ne!(old_version, 0);
+
+            let replacement = Dict::default();
+            replacement.insert(vm, &2usize, ()).unwrap();
+            assert_ne!(replacement.assign_keys_version(), 0);
+            dict.replace_contents(replacement);
+
+            assert_eq!(dict.keys_version(), 0);
+            assert_eq!(dict.get_index_if_keys_version(old_version, 0), None);
+            assert!(!dict.contains(vm, &1usize).unwrap());
+            assert!(dict.contains(vm, &2usize).unwrap());
+        });
     }
 }

@@ -10,9 +10,11 @@ use rustpython_compiler_core::OneIndexed;
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
+    #[pymember(name = "tb_frame", audit_read)]
     pub frame: FrameObjectRef,
+    #[pymember(name = "tb_lasti")]
     #[pytraverse(skip)]
-    pub lasti: u32,
+    pub lasti: i32,
     #[pytraverse(skip)]
     pub lineno: OneIndexed,
 }
@@ -26,13 +28,12 @@ impl PyPayload for PyTraceback {
     }
 }
 
-#[pyclass(with(Constructor))]
 impl PyTraceback {
     #[must_use]
     pub const fn new(
         next: Option<PyRef<Self>>,
         frame: FrameObjectRef,
-        lasti: u32,
+        lasti: i32,
         lineno: OneIndexed,
     ) -> Self {
         Self {
@@ -42,24 +43,17 @@ impl PyTraceback {
             lineno,
         }
     }
+}
 
+#[pyclass(with(Constructor))]
+impl Py<PyTraceback> {
     #[pygetset]
-    fn tb_frame(&self) -> FrameObjectRef {
-        self.frame.clone()
-    }
-
-    #[pygetset]
-    const fn tb_lasti(&self) -> u32 {
-        self.lasti
-    }
-
-    #[pygetset]
-    const fn tb_lineno(&self) -> usize {
+    fn tb_lineno(&self) -> usize {
         self.lineno.get()
     }
 
     #[pygetset]
-    fn tb_next(&self) -> Option<PyRef<Self>> {
+    fn tb_next(&self) -> Option<PyRef<PyTraceback>> {
         self.next.lock().as_ref().cloned()
     }
 
@@ -75,8 +69,8 @@ impl PyTraceback {
 
     #[pygetset(setter)]
     fn set_tb_next(
-        zelf: &Py<Self>,
-        value: PySetterValue<Option<PyRef<Self>>>,
+        zelf: &Self,
+        value: PySetterValue<Option<PyRef<PyTraceback>>>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let value = match value {
@@ -104,7 +98,7 @@ impl PyTraceback {
 }
 
 impl Constructor for PyTraceback {
-    type Args = (Option<PyRef<Self>>, FrameObjectRef, u32, usize);
+    type Args = (Option<PyRef<Self>>, FrameObjectRef, i32, usize);
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;

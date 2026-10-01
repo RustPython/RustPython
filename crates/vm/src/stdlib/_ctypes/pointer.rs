@@ -131,7 +131,13 @@ impl PyCPointerType {
             && value.is_instance(type_ref.as_object(), vm)?
         {
             // Return byref(value)
-            return super::_ctypes::byref(value, crate::function::OptionalArg::Missing, vm);
+            return super::_ctypes::byref(
+                super::_ctypes::ByRefArgs {
+                    obj: value,
+                    offset: 0,
+                },
+                vm,
+            );
         }
 
         // 4. Array/Pointer instances with compatible proto
@@ -243,8 +249,7 @@ impl AsNumber for PyCPointerType {
     }
 }
 
-/// PyCPointer - Pointer instance
-/// `contents` is a computed property, not a stored field.
+// `contents` is a computed property, not a stored field.
 #[pyclass(
     name = "_Pointer",
     base = PyCData,
@@ -314,7 +319,7 @@ impl PyCPointer {
         );
     }
 
-    /// contents getter - reads address from b_ptr and creates an instance of the pointed-to type
+    // contents getter - reads address from b_ptr and creates an instance of the pointed-to type
     #[pygetset]
     fn contents(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Pointer_get_contents
@@ -338,8 +343,8 @@ impl PyCPointer {
             .map(Into::into)
     }
 
-    /// contents setter - stores address in b_ptr and keeps reference
-    /// Pointer_set_contents
+    // contents setter - stores address in b_ptr and keeps reference
+    // Pointer_set_contents
     #[pygetset(setter)]
     fn set_contents(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Get stginfo and proto for type validation

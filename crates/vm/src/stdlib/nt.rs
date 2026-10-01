@@ -147,7 +147,7 @@ pub(crate) mod module {
         mode: u32,
         #[pyarg(flatten)]
         dir_fd: DirFd<'static, 0>,
-        #[pyarg(named, name = "follow_symlinks", optional)]
+        #[pyarg(named, optional)]
         follow_symlinks: OptionalArg<bool>,
     }
 
@@ -203,8 +203,7 @@ pub(crate) mod module {
         }
     }
 
-    /// Get the real file name (with correct case) without accessing the file.
-    /// Uses FindFirstFileW to get the name as stored on the filesystem.
+    // Uses FindFirstFileW to get the name as stored on the filesystem.
     #[pyfunction]
     fn _findfirstfile(path: OsPath, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let wide = path.to_wide_cstring(vm)?;
@@ -305,55 +304,48 @@ pub(crate) mod module {
         }
     }
 
-    /// Check if a path is a directory.
-    /// return _testFileType(path, PY_IFDIR)
+    // return _testFileType(path, PY_IFDIR)
     #[pyfunction]
     fn _path_isdir(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFDIR))
     }
 
-    /// Check if a path is a regular file.
-    /// return _testFileType(path, PY_IFREG)
+    // return _testFileType(path, PY_IFREG)
     #[pyfunction]
     fn _path_isfile(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFREG))
     }
 
-    /// Check if a path is a symbolic link.
-    /// return _testFileType(path, PY_IFLNK)
+    // return _testFileType(path, PY_IFLNK)
     #[pyfunction]
     fn _path_islink(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFLNK))
     }
 
-    /// Check if a path is a junction (mount point).
-    /// return _testFileType(path, PY_IFMNT)
+    // return _testFileType(path, PY_IFMNT)
     #[pyfunction]
     fn _path_isjunction(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_type(&p, PY_IFMNT))
     }
 
-    /// Check if a path exists (follows symlinks).
-    /// return _testFileExists(path, TRUE)
+    // return _testFileExists(path, TRUE)
     #[pyfunction]
     fn _path_exists(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_exists(&p, true))
     }
 
-    /// Check if a path exists (does not follow symlinks).
-    /// return _testFileExists(path, FALSE)
+    // return _testFileExists(path, FALSE)
     #[pyfunction]
     fn _path_lexists(args: PathArg, vm: &VirtualMachine) -> bool {
         args.to_path_or_fd(vm)
             .is_some_and(|p| _test_file_exists(&p, false))
     }
 
-    /// Check if a path is on a Windows Dev Drive.
     #[pyfunction]
     fn _path_isdevdrive(path: OsPath, vm: &VirtualMachine) -> PyResult<bool> {
         let path = path.to_wide_cstring(vm)?;
@@ -1037,8 +1029,7 @@ pub(crate) mod module {
         host_nt::dup2(args.fd, args.fd2, args.inheritable).map_err(|e| e.to_pyexception(vm))
     }
 
-    /// Windows-specific readlink that preserves \\?\ prefix for junctions
-    /// returns the substitute name from reparse data which includes the prefix
+    // returns the substitute name from reparse data which includes the prefix
     #[pyfunction]
     fn readlink(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode();

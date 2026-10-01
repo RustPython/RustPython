@@ -2,7 +2,7 @@
 
 pub(crate) use ssl_error::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 pub(crate) mod ssl_error {
     use crate::vm::{
         Py, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -18,7 +18,7 @@ pub(crate) mod ssl_error {
     };
 
     #[pyattr]
-    #[pyexception(name = "SSLError", base = PyOSError)]
+    #[pyexception(name = "SSLError", module = "ssl", base = PyOSError)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLError(PyOSError);
@@ -38,7 +38,7 @@ pub(crate) mod ssl_error {
 
             // Otherwise return str(args)
             let args = zelf.args();
-            if args.len() == 1 {
+            if args.as_slice().len() == 1 {
                 args.as_slice()[0].str(vm)
             } else {
                 args.as_object().str(vm)
@@ -47,7 +47,7 @@ pub(crate) mod ssl_error {
     }
 
     #[pyattr]
-    #[pyexception(name = "SSLZeroReturnError", base = PySSLError)]
+    #[pyexception(name = "SSLZeroReturnError", module = "ssl", base = PySSLError)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLZeroReturnError(PySSLError);
@@ -56,31 +56,31 @@ pub(crate) mod ssl_error {
     impl PySSLZeroReturnError {}
 
     #[pyattr]
-    #[pyexception(name = "SSLWantReadError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLWantReadError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLWantReadError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLWantWriteError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLWantWriteError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLWantWriteError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLSyscallError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLSyscallError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLSyscallError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLEOFError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLEOFError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLEOFError(PySSLError);
 
     #[pyattr]
-    #[pyexception(name = "SSLCertVerificationError", base = PySSLError, impl)]
+    #[pyexception(name = "SSLCertVerificationError", module = "ssl", base = PySSLError, impl)]
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PySSLCertVerificationError(PySSLError);

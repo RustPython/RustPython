@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObject, PyResult, VirtualMachine,
+    AsObject, PyObject,
     builtins::{
         PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
         PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
@@ -7,8 +7,8 @@ use crate::{
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
-            MemberAccess, MemberKind, MemberSetterFunc, PY_READONLY, PyDescriptorOwned,
-            PyMemberDef, PyMemberDescriptor,
+            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
+            PyMemberFlags,
         },
         getset::PyGetSet,
         object, pystr,
@@ -18,8 +18,8 @@ use crate::{
     common::rc::PyRc,
     exceptions,
     function::{
-        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
-        PyMethodFlags,
+        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, ItemDoc, PyMethodDef,
+        PyMethodFlags, plain_doc,
     },
     intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
@@ -361,7 +361,7 @@ impl Context {
             names.__new__.as_str(),
             PyType::__new__,
             PyMethodFlags::METHOD,
-            Some(
+            ItemDoc::static_text(
                 "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object.  See help(type) for accurate signature.",
             ),
         );
@@ -521,7 +521,9 @@ impl Context {
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         let s = s.into();
-        if let Some(ch) = Self::latin1_singleton_index(&s) {
+        if s.is_empty() {
+            self.empty_str.to_owned()
+        } else if let Some(ch) = Self::latin1_singleton_index(&s) {
             self.latin1_char(ch)
         } else {
             s.into_ref(self)
@@ -612,15 +614,31 @@ impl Context {
         name: &str,
         bases: Option<Vec<PyTypeRef>>,
     ) -> PyTypeRef {
+        self.new_exception_type_with_doc(module, name, bases, ItemDoc::NONE)
+    }
+
+    /// Like `new_exception_type`, with `doc` as the new type's `__doc__`.
+    pub fn new_exception_type_with_doc(
+        &self,
+        module: &str,
+        name: &str,
+        bases: Option<Vec<PyTypeRef>>,
+        doc: ItemDoc,
+    ) -> PyTypeRef {
         let bases = bases.unwrap_or_else(|| vec![self.exceptions.exception_type.to_owned()]);
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
+        if let Some(text) = plain_doc(doc) {
+            attrs.insert(identifier!(self, __doc__), self.new_str(text).into());
+        }
 
         let interned_name = self.intern_str(name);
         let slots = PyTypeSlots {
             name: interned_name.as_str(),
             basicsize: 0,
-            flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            flags: crate::types::PyAtomicTypeFlags::new(
+                PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+            ),
             ..PyTypeSlots::default()
         };
         PyType::new_heap(
@@ -639,7 +657,7 @@ impl Context {
         name: &'static str,
         f: F,
         flags: PyMethodFlags,
-        doc: Option<&'static str>,
+        doc: ItemDoc,
     ) -> PyRef<HeapMethodDef>
     where
         F: IntoPyNativeFn<FKind>,
@@ -648,7 +666,13 @@ impl Context {
             name,
             func: Box::leak(Box::new(f.into_func())),
             flags,
-            doc,
+            #[cfg(feature = "doc")]
+            doc_off: doc.offset,
+            #[cfg(feature = "doc")]
+            doc_len: doc.len,
+            #[cfg(feature = "doc")]
+            doc_body_pending: false,
+            doc: doc.text,
         };
         let payload = HeapMethodDef::new(def);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
@@ -659,12 +683,11 @@ impl Context {
         &self,
         name: &str,
         kind: MemberKind,
-        getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
-        setter: MemberSetterFunc,
+        offset: isize,
+        flags: PyMemberFlags,
         class: &'static Py<PyType>,
-        doc: Option<&str>,
+        doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
-        let flags = if setter.is_none() { PY_READONLY } else { 0 };
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
                 typ: class.to_owned(),
@@ -674,14 +697,11 @@ impl Context {
             member: PyMemberDef {
                 name: name.to_owned(),
                 kind,
-                offset: 0,
+                offset,
                 flags,
-                doc: doc.map(str::to_owned),
+                doc,
             },
-            access: MemberAccess::Func {
-                get: getter,
-                set: setter,
-            },
+            access: MemberAccess::Offset,
         };
         member_descriptor.into_ref(self)
     }
@@ -691,6 +711,7 @@ impl Context {
         name: &str,
         class: &'static Py<PyType>,
         index: usize,
+        doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
         let member_descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -702,8 +723,8 @@ impl Context {
                 name: name.to_owned(),
                 kind: MemberKind::Object,
                 offset: index as isize,
-                flags: PY_READONLY,
-                doc: None,
+                flags: PyMemberFlags::READONLY,
+                doc,
             },
             access: MemberAccess::TupleItem,
         };
@@ -719,7 +740,7 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        let getset = PyGetSet::new(name, class).with_get(f);
+        let getset = PyGetSet::new(name, class, self).with_get(f);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -734,7 +755,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -750,7 +771,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class, self).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 

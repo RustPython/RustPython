@@ -35,9 +35,9 @@ mod _string {
     }
 
     #[pyfunction]
-    fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    fn formatter_parser(object: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
-            FormatString::from_str(text.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
+            FormatString::from_str(object.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
 
         let mut result: Vec<PyObjectRef> = Vec::new();
         let mut literal = Wtf8Buf::new();
@@ -73,10 +73,10 @@ mod _string {
 
     #[pyfunction]
     fn formatter_field_name_split(
-        text: PyStrRef,
+        object: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(text.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
+        let field_name = FieldName::parse(object.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),

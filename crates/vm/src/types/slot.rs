@@ -7,7 +7,9 @@ use crate::{
     bytecode::ComparisonOperator,
     common::hash::{PyHash, fix_sentinel, hash_bigint},
     convert::ToPyObject,
-    function::{Callee, Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
+    function::{
+        Callee, Either, FromArgs, FuncArgs, ItemDoc, PyComparisonValue, PyMethodDef, PySetterValue,
+    },
     protocol::{
         BufferFlags, PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
@@ -132,6 +134,8 @@ pub struct PyTypeSlots {
     /// For heap types, `__name__` must alive
     pub(crate) name: &'static str, // tp_name with <module>.<class> for print, not class name
 
+    /// Full `tp_basicsize`: object header plus payload. `0` before type
+    /// creation means "inherit the base size".
     pub basicsize: usize,
     pub itemsize: usize, // tp_itemsize
 
@@ -169,11 +173,12 @@ pub struct PyTypeSlots {
 
     pub methods: &'static [PyMethodDef],
 
-    // Flags to define presence of optional/expanded features
-    pub flags: PyTypeFlags,
+    // Flags to define presence of optional/expanded features.
+    // One atomic word: runtime code sets and clears bits in place.
+    pub flags: PyAtomicTypeFlags,
 
     // tp_doc
-    pub doc: Option<&'static str>,
+    pub doc: ItemDoc,
 
     // Strong reference on a heap type, borrowed reference on a static type
     // tp_base
@@ -213,7 +218,7 @@ impl PyTypeSlots {
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
             name,
-            flags,
+            flags: PyAtomicTypeFlags::new(flags),
             ..Default::default()
         }
     }
@@ -298,6 +303,108 @@ impl Default for PyTypeFlags {
     }
 }
 
+/// `tp_flags` as one atomic word. Reads match [`PyTypeFlags`]; bits that change
+/// after the type is published are set and cleared in place.
+#[repr(transparent)]
+pub struct PyAtomicTypeFlags(core::sync::atomic::AtomicU64);
+
+impl core::fmt::Debug for PyAtomicTypeFlags {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.load().fmt(f)
+    }
+}
+
+impl Default for PyAtomicTypeFlags {
+    fn default() -> Self {
+        Self::new(PyTypeFlags::DEFAULT)
+    }
+}
+
+impl PyAtomicTypeFlags {
+    #[must_use]
+    pub const fn new(flags: PyTypeFlags) -> Self {
+        Self(core::sync::atomic::AtomicU64::new(flags.bits()))
+    }
+
+    #[must_use]
+    pub fn load(&self) -> PyTypeFlags {
+        PyTypeFlags::from_bits_truncate(self.bits())
+    }
+
+    #[must_use]
+    pub fn bits(&self) -> u64 {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    #[must_use]
+    pub fn has_feature(&self, flag: PyTypeFlags) -> bool {
+        self.load().has_feature(flag)
+    }
+
+    #[must_use]
+    pub fn contains(&self, flag: PyTypeFlags) -> bool {
+        self.load().contains(flag)
+    }
+
+    #[must_use]
+    pub fn intersects(&self, flag: PyTypeFlags) -> bool {
+        self.load().intersects(flag)
+    }
+
+    pub fn remove(&self, flag: PyTypeFlags) {
+        self.0
+            .fetch_and(!flag.bits(), core::sync::atomic::Ordering::AcqRel);
+    }
+
+    pub fn set(&self, flag: PyTypeFlags) {
+        self.0
+            .fetch_or(flag.bits(), core::sync::atomic::Ordering::AcqRel);
+    }
+
+    /// Replace `mask` bits with `value & mask`.
+    pub fn replace_masked(&self, mask: PyTypeFlags, value: PyTypeFlags) {
+        let mask_bits = mask.bits();
+        let value_bits = (value & mask).bits();
+        let _ = self.0.try_update(
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+            |old| Some((old & !mask_bits) | value_bits),
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[must_use]
+    pub fn is_created_with_flags(&self) -> bool {
+        self.load().is_created_with_flags()
+    }
+}
+
+impl core::ops::BitOrAssign<PyTypeFlags> for PyAtomicTypeFlags {
+    fn bitor_assign(&mut self, rhs: PyTypeFlags) {
+        self.set(rhs);
+    }
+}
+
+// `__flags__` is `PyMemberFlags::ATOMIC`, so the load reads this field as an `AtomicU64`.
+// A plain `u64` may be less aligned; the load does not use that alignment.
+const _: () = assert!(
+    core::mem::size_of::<PyAtomicTypeFlags>()
+        == core::mem::size_of::<core::sync::atomic::AtomicU64>()
+        && core::mem::align_of::<PyAtomicTypeFlags>()
+            == core::mem::align_of::<core::sync::atomic::AtomicU64>()
+);
+
+impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
+    const KIND: crate::builtins::descriptor::MemberKind = {
+        if core::mem::size_of::<core::ffi::c_ulong>() == 8 {
+            crate::builtins::descriptor::MemberKind::ULong
+        } else {
+            crate::builtins::descriptor::MemberKind::ULongLong
+        }
+    };
+    const ATOMIC: bool = true;
+}
+
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 /// Vectorcall function pointer (PEP 590).
 /// args: owned positional args followed by kwarg values.
@@ -362,12 +469,8 @@ pub(crate) fn python_as_buffer(
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
     let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
-    let len = ret.downcast_ref::<PyInt>().ok_or_else(|| {
-        vm.new_type_error(format!(
-            "'{}' object cannot be interpreted as an integer",
-            ret.class()
-        ))
-    })?;
+    // `__len__` may return any object with `__index__`, not only `int`.
+    let len = ret.try_index(vm)?;
     let len = len.as_bigint();
     if len.is_negative() {
         return Err(vm.new_value_error("__len__() should return >= 0"));
@@ -494,16 +597,6 @@ fn sequence_contains_wrapper(
     contains_wrapper(seq.obj, needle, vm)
 }
 
-#[inline(never)]
-fn sequence_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(seq.obj, identifier!(vm, __mul__), (n,))
-}
-
-#[inline(never)]
-fn sequence_inplace_repeat_wrapper(seq: PySequence<'_>, n: isize, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(seq.obj, identifier!(vm, __imul__), (n,))
-}
-
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     ret.downcast::<PyStr>().map_err(|obj| {
@@ -549,18 +642,51 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
     })
 }
 
+// slot_tp_getattr_hook in CPython
 fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
     let __getattribute__ = identifier!(vm, __getattribute__);
     let __getattr__ = identifier!(vm, __getattr__);
-    match vm.call_special_method(zelf, __getattribute__, (name.to_owned(),)) {
-        Ok(r) => Ok(r),
-        Err(e)
-            if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
-                && zelf.class().has_attr(__getattr__) =>
-        {
-            vm.call_special_method(zelf, __getattr__, (name.to_owned(),))
-        }
-        Err(e) => Err(e),
+    let class = zelf.class();
+    // Keep the original hook if attribute lookup replaces or removes it.
+    let Some(getattr) = class.get_attr(__getattr__) else {
+        return vm.call_special_method(zelf, __getattribute__, (name.to_owned(),));
+    };
+    let generic = class
+        .get_attr(__getattribute__)
+        .is_some_and(|getattribute| {
+            vm.ctx
+                .types
+                .object_type
+                .get_attr(__getattribute__)
+                .is_some_and(|generic| getattribute.is(&generic))
+        });
+    // A generic miss does not need an AttributeError before calling the hook.
+    let result = if generic {
+        zelf.generic_getattr_opt(name, None, vm)
+    } else {
+        vm.call_special_method(zelf, __getattribute__, (name.to_owned(),))
+            .map(Some)
+    };
+    match result {
+        Ok(Some(value)) => return Ok(value),
+        Ok(None) => {}
+        Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+        Err(e) => return Err(e),
+    }
+    // Bind only after lookup, using the instance's current class.
+    if getattr
+        .class()
+        .slots
+        .flags
+        .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+    {
+        getattr.call((zelf.to_owned(), name.to_owned()), vm)
+    } else {
+        let bound = vm.call_get_descriptor(&getattr, zelf).transpose()?;
+        bound
+            .as_ref()
+            .unwrap_or(&getattr)
+            .call((name.to_owned(),), vm)
     }
 }
 
@@ -603,7 +729,7 @@ pub(crate) fn hackcheck_setattro(
                 obj_cls.slot_name()
             )));
         }
-        base = b.base.deref().map(|cls| cls.to_owned());
+        base = b.base.load_owned();
     }
     Ok(())
 }
@@ -1564,21 +1690,57 @@ impl PyType {
             SlotAccessor::SqLength => {
                 update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
-            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat if !ADD => {
+            SlotAccessor::SqConcat => {
+                // Python __add__ overrides use nb_add, not the inherited sq_concat.
+                let concat = match self.lookup_slot_in_mro(name, ctx, |sf| {
+                    if let SlotFunc::SeqConcat(f) = sf {
+                        Some(*f)
+                    } else {
+                        None
+                    }
+                }) {
+                    SlotLookupResult::NativeSlot(func) => Some(func),
+                    SlotLookupResult::PythonMethod | SlotLookupResult::NotFound => None,
+                };
+                self.slots.as_sequence.concat.store(concat);
+            }
+            SlotAccessor::SqInplaceConcat if !ADD => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
                 accessor.inherit_from_mro(self);
             }
-            SlotAccessor::SqRepeat => {
-                update_sub_slot!(as_sequence, repeat, sequence_repeat_wrapper, SeqRepeat)
-            }
-            SlotAccessor::SqInplaceRepeat => {
-                update_sub_slot!(
-                    as_sequence,
-                    inplace_repeat,
-                    sequence_inplace_repeat_wrapper,
-                    SeqRepeat
-                )
+            SlotAccessor::SqRepeat | SlotAccessor::SqInplaceRepeat => {
+                // Python `__mul__`/`__rmul__`/`__imul__` overrides use the number slots and
+                // leave no sequence repeat, as with `sq_concat`.
+                let (names, field) = if matches!(accessor, SlotAccessor::SqRepeat) {
+                    (
+                        &[identifier!(ctx, __mul__), identifier!(ctx, __rmul__)][..],
+                        &self.slots.as_sequence.repeat,
+                    )
+                } else {
+                    (
+                        &[identifier!(ctx, __imul__)][..],
+                        &self.slots.as_sequence.inplace_repeat,
+                    )
+                };
+                let mut repeat = None;
+                for &name in names {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::SeqRepeat(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        SlotLookupResult::NativeSlot(func) => repeat = repeat.or(Some(func)),
+                        SlotLookupResult::PythonMethod => {
+                            repeat = None;
+                            break;
+                        }
+                        SlotLookupResult::NotFound => {}
+                    }
+                }
+                field.store(repeat);
             }
             SlotAccessor::SqItem => {
                 update_sub_slot!(as_sequence, item, sequence_getitem_wrapper, SeqItem)

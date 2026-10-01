@@ -1,3 +1,9 @@
+import dis
+import sys
+import types
+
+from testutils import assert_raises
+
 ## BinaryOp inplace-add unicode: deopt falls back to __add__/__iadd__
 
 
@@ -211,3 +217,128 @@ def holey_dict_falls_back():
 
 
 holey_dict_falls_back()
+
+
+## LOAD_ATTR_MODULE: cached entries and generic-lookup guards
+
+
+def module_attribute_cache_guards():
+    module = types.ModuleType("cached_module")
+    module.x = 1
+    module.f = lambda: 10
+    # CPython's module cache bypasses these descriptors when already shadowed.
+    if sys.implementation.name == "rustpython":
+        module.__dict__.update(__class__="shadow", __dict__="shadow")
+
+    def read():
+        return module.x
+
+    def call():
+        return module.f()
+
+    def name():
+        return module.__name__
+
+    def cls():
+        return module.__class__
+
+    def namespace():
+        return module.__dict__
+
+    for _ in range(300):
+        assert read() == 1
+        assert call() == 10
+        assert name() == "cached_module"
+        assert cls() is types.ModuleType
+        assert namespace() is vars(module)
+    for func in (read, call, name):
+        assert any(
+            op.opname == "LOAD_ATTR_MODULE"
+            for op in dis.get_instructions(func, adaptive=True)
+        )
+
+    module.x = 2
+    module.f = lambda: 11
+    assert read() == 2
+    assert call() == 11
+    del module.x
+    with assert_raises(AttributeError):
+        read()
+    module.x = 3
+    assert read() == 3
+
+    module.__getattr__ = lambda attr: "hook"
+    del module.x
+    assert read() == "hook"
+    del module.__getattr__
+    module.x = 4
+    for _ in range(300):
+        assert read() == 4
+    module.__dict__["__name__"] = "renamed"
+    assert name() == "renamed"
+    module.__dict__["__class__"] = 5
+    module.__dict__["__dict__"] = 6
+    assert cls() is types.ModuleType
+    assert namespace() is vars(module)
+    for i in range(200):
+        setattr(module, f"k{i}", i)
+        assert read() == 4
+
+    module.__dict__.clear()
+    module.__dict__.update(x=5, f=lambda: 12)
+    assert read() == 5
+    assert call() == 12
+
+    # Replace the actual binding used at the warmed cache site.
+    module_name = "_module_attr_specialization_test"
+    previous = sys.modules.get(module_name)
+    replacement = types.ModuleType(module_name)
+    replacement.padding = None
+    replacement.x = 6
+    try:
+        sys.modules[module_name] = replacement
+        module = __import__(module_name)
+        assert read() == 6
+    finally:
+        if previous is None:
+            del sys.modules[module_name]
+        else:
+            sys.modules[module_name] = previous
+
+    class CustomModule(types.ModuleType):
+        @property
+        def x(self):
+            return "descriptor"
+
+    module.__class__ = CustomModule
+    assert read() == "descriptor"
+
+
+module_attribute_cache_guards()
+
+
+def module_attribute_custom_dict_key():
+    class Key:
+        matches = True
+
+        def __hash__(self):
+            return hash("x")
+
+        def __eq__(self, other):
+            return self.matches and other == "x"
+
+    module = types.ModuleType("custom_key")
+    key = Key()
+    module.__dict__[key] = 1
+
+    def read():
+        return module.x
+
+    for _ in range(300):
+        assert read() == 1
+    key.matches = False
+    with assert_raises(AttributeError):
+        read()
+
+
+module_attribute_custom_dict_key()

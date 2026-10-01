@@ -366,7 +366,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
                         obj.class().name()
                     ))
                 })?;
-            for item in tuple.iter() {
+            for item in tuple.as_slice() {
                 if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
                     return Ok(invalid_type);
                 }
@@ -430,8 +430,8 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
         )
         .unwrap()
         .into_pyobject(vm),
-        ConstantData::Float { value } => vm.ctx.new_float(value).into_pyobject(vm),
-        ConstantData::Complex { value } => vm.ctx.new_complex(value).into_pyobject(vm),
+        ConstantData::Float { value } => vm.ctx.new_float(value).into(),
+        ConstantData::Complex { value } => vm.ctx.new_complex(value).into(),
         ConstantData::Ellipsis => vm.ctx.ellipsis.clone().into(),
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
             unreachable!("ast.Constant values cannot contain code objects or slices")
@@ -525,11 +525,11 @@ impl Node for ConstantLiteral {
             )
             .unwrap()
             .into_pyobject(vm),
-            Self::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
+            Self::Float(value) => vm.ctx.new_float(value).into(),
             Self::Complex { real, imag } => vm
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
-                .into_pyobject(vm),
+                .into(),
             Self::Ellipsis => vm.ctx.ellipsis.clone().into(),
         }
     }

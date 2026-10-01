@@ -291,6 +291,7 @@ mod _testinternalcapi {
         }
     }
 
+    /// C implementation of inspect.cleandoc().
     #[pyfunction]
     fn compiler_cleandoc(doc: PyStrRef) -> String {
         clean_doc(doc.to_str().unwrap_or(""))
@@ -342,6 +343,7 @@ mod _testinternalcapi {
         dict_inner::peek_next_keys_version()
     }
 
+    /// forcefully assign type->tp_version_tag
     #[pyfunction]
     fn type_assign_specific_version_unsafe(ty: PyTypeRef, version: u32) {
         ty.assign_specific_version(version);
@@ -571,7 +573,6 @@ mod _testinternalcapi {
         pos: AtomicUsize,
     }
 
-    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
     impl Hamt {
         fn find(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
             let hash = key.hash(vm)?;
@@ -608,14 +609,17 @@ mod _testinternalcapi {
                 len: self.len,
             }
         }
+    }
 
+    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
+    impl Py<Hamt> {
         #[pymethod]
         fn set(
-            zelf: PyRef<Self>,
+            zelf: PyRef<Hamt>,
             key: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<PyRef<Hamt>> {
             let hash = key.hash(vm)?;
             if let Some(bucket) = zelf.buckets.get(&hash) {
                 for (k, slot) in bucket {
@@ -656,10 +660,10 @@ mod _testinternalcapi {
 
         #[pymethod]
         fn delete(
-            zelf: PyRef<Self>,
+            zelf: PyRef<Hamt>,
             key: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyResult<PyRef<Self>> {
+        ) -> PyResult<PyRef<Hamt>> {
             let hash = key.hash(vm)?;
             let Some(bucket) = zelf.buckets.get(&hash) else {
                 return Ok(zelf);
@@ -800,12 +804,18 @@ mod _testinternalcapi {
         }
     }
 
+    /// Return a new, empty InstructionSequence.
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn new_instruction_sequence(vm: &VirtualMachine) -> PyRef<PyInstructionSequence> {
         PyInstructionSequence::empty().into_ref(&vm.ctx)
     }
 
+    /// Apply compiler code generation to an AST.
+    ///
+    /// Return (instruction_sequence, metadata).  metadata maps "argcount",
+    /// "posonlyargcount", "kwonlyargcount" to ints and "consts" to the list of
+    /// constants in LOAD_CONST index order (for use with optimize_cfg).
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn compiler_codegen(
@@ -856,6 +866,10 @@ mod _testinternalcapi {
         Ok(vm.ctx.new_tuple(vec![seq.into(), metadata.into()]).into())
     }
 
+    /// Apply compiler optimizations to an instruction list.
+    ///
+    /// consts must be a list aligned with LOAD_CONST opargs (the "consts" entry
+    /// from the metadata dict returned by compiler_codegen for the same unit).
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn optimize_cfg(
@@ -893,6 +907,7 @@ mod _testinternalcapi {
         Ok(PyInstructionSequence::from_rust(optimized, vm))
     }
 
+    /// Create a code object for the given instructions.
     #[cfg(feature = "codegen")]
     #[pyfunction]
     fn assemble_code_object(
@@ -935,8 +950,12 @@ mod _testinternalcapi {
     }
 
     #[cfg(feature = "codegen")]
+    #[pyclass(with(Py))]
+    impl PyInstructionSequence {}
+
+    #[cfg(feature = "codegen")]
     #[pyclass]
-    impl PyInstructionSequence {
+    impl Py<PyInstructionSequence> {
         #[pymethod]
         #[allow(clippy::too_many_arguments)]
         fn addop(
@@ -977,7 +996,7 @@ mod _testinternalcapi {
 
         #[pymethod]
         fn add_nested(&self, nested: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let nested = nested.downcast::<Self>().map_err(|obj| {
+            let nested = nested.downcast::<PyInstructionSequence>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "expected an instruction sequence, not {}",
                     obj.class().name()
@@ -1756,7 +1775,7 @@ fn py_to_constant_data(
     }
     if let Ok(complex) = obj.clone().downcast::<crate::builtins::PyComplex>() {
         return Ok(ConstantData::Complex {
-            value: complex.to_complex(),
+            value: complex.as_complex(),
         });
     }
     if obj.class().is(vm.ctx.types.str_type) {
@@ -1774,8 +1793,8 @@ fn py_to_constant_data(
     }
     if obj.class().is(vm.ctx.types.tuple_type) {
         let tuple = obj.downcast::<crate::builtins::PyTuple>().unwrap();
-        let mut elements = Vec::with_capacity(tuple.len());
-        for item in tuple.iter() {
+        let mut elements = Vec::with_capacity(tuple.as_slice().len());
+        for item in tuple.as_slice() {
             elements.push(py_to_constant_data(item.clone(), vm)?);
         }
         return Ok(ConstantData::Tuple { elements });

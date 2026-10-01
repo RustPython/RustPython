@@ -57,7 +57,7 @@ fn collect_bytes(
         // which knows what it was being asked to do, rather than by the
         // iteration protocol saying the object is not iterable.
         let cls = obj.class();
-        if cls.slots.iter.load().is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
+        if cls.slots().iter.load().is_none() && !cls.has_attr(identifier!(vm, __getitem__)) {
             return Err(vm.new_type_error(unusable(&cls.name())));
         }
         let value = |x: PyObjectRef| value_from_object_with(vm, &x, element);

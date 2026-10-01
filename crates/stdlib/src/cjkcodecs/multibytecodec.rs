@@ -12,7 +12,7 @@ mod _multibytecodec {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyStr, PyStrRef, PyTuple, PyType},
         class::PyClassImpl,
-        function::{ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PySetterValue},
+        function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue},
         protocol::PySequence,
         types::{Constructor, Initializer},
     };
@@ -557,33 +557,33 @@ mod _multibytecodec {
     #[pyclass(flags(DISALLOW_INSTANTIATION, IMMUTABLETYPE))]
     impl MultibyteCodec {
         #[pymethod]
-        fn encode(&self, args: CodecEncodeArgs, vm: &VirtualMachine) -> PyResult {
+        fn encode(zelf: &Py<Self>, args: CodecEncodeArgs, vm: &VirtualMachine) -> PyResult {
             let CodecEncodeArgs { input, errors } = args;
             let input = to_text(input, vm)?;
             let chars = input.char_len();
-            let errors = ErrorHandler::new(errors.flatten());
-            let mut state = cjk::initial_state(self.codec.codec, false);
-            let (out, _) = encode(self.codec, &mut state, input, &errors, true, true, vm)?;
+            let errors = ErrorHandler::new(errors);
+            let mut state = cjk::initial_state(zelf.codec.codec, false);
+            let (out, _) = encode(zelf.codec, &mut state, input, &errors, true, true, vm)?;
             Ok(vm.new_tuple((vm.ctx.new_bytes(out), chars)).into())
         }
 
         #[pymethod]
-        fn decode(&self, args: CodecDecodeArgs, vm: &VirtualMachine) -> PyResult {
+        fn decode(zelf: &Py<Self>, args: CodecDecodeArgs, vm: &VirtualMachine) -> PyResult {
             let CodecDecodeArgs { input, errors } = args;
             let data = input.borrow_buf().to_vec();
             let len = data.len();
             if len == 0 {
                 return Ok(vm.new_tuple((vm.ctx.new_str(""), 0)).into());
             }
-            let errors = ErrorHandler::new(errors.flatten());
-            let mut state = cjk::initial_state(self.codec.codec, true);
+            let errors = ErrorHandler::new(errors);
+            let mut state = cjk::initial_state(zelf.codec.codec, true);
             let mut buf = DecodeBuffer {
                 data,
                 pos: 0,
                 out: Wtf8Buf::new(),
                 exception: None,
             };
-            decode_into(self.codec, &mut state, &mut buf, &errors, false, vm)?;
+            decode_into(zelf.codec, &mut state, &mut buf, &errors, false, vm)?;
             Ok(vm.new_tuple((vm.ctx.new_str(buf.out), len)).into())
         }
     }
@@ -614,9 +614,9 @@ mod _multibytecodec {
         Ok(PyRef::new_ref(payload, class, None).into())
     }
 
-    /// `__create_codec`, which turns the capsule `getcodec` hands it into a
-    /// codec object. Nothing here carries a codec in a capsule, so the argument
-    /// check rejects everything a caller can pass.
+    // `__create_codec`, which turns the capsule `getcodec` hands it into a
+    // codec object. Nothing here carries a codec in a capsule, so the argument
+    // check rejects everything a caller can pass.
     #[pyfunction(name = "__create_codec")]
     fn create_codec(_arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_value_error("argument type invalid"))
@@ -663,7 +663,7 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: PyObjectRef,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
@@ -671,32 +671,31 @@ mod _multibytecodec {
         #[pyarg(any)]
         input: ArgBytesLike,
         #[pyarg(any, optional)]
-        errors: OptionalOption<PyStrRef>,
+        errors: Option<PyStrRef>,
     }
 
     #[derive(FromArgs)]
     struct IncrementalEncodeArgs {
         #[pyarg(any)]
         input: PyObjectRef,
-        #[pyarg(any, optional, name = "final")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     #[derive(FromArgs)]
     struct IncrementalDecodeArgs {
         #[pyarg(any)]
         input: ArgBytesLike,
-        #[pyarg(any, optional, name = "final")]
-        final_input: OptionalArg<PyObjectRef>,
+        // Any object is accepted by truthiness.
+        #[pyarg(any, name = "final", default = false)]
+        final_input: PyObjectRef,
     }
 
     /// The `bool(accept={int})` conversion the `final` arguments share, which
     /// takes any object and can run `__bool__`.
-    fn final_arg(final_input: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<bool> {
-        match final_input {
-            OptionalArg::Present(obj) => obj.try_to_bool(vm),
-            OptionalArg::Missing => Ok(false),
-        }
+    fn final_arg(final_input: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        final_input.try_to_bool(vm)
     }
 
     #[pyattr]
@@ -734,33 +733,33 @@ mod _multibytecodec {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteIncrementalEncoder {
         #[pygetset]
-        fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
-            self.inner.lock().errors.name(vm)
+        fn errors(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            zelf.inner.lock().errors.name(vm)
         }
 
         #[pygetset(setter)]
         fn set_errors(
-            &self,
+            zelf: &Py<Self>,
             value: PySetterValue<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.inner.lock().errors = set_errors(value, vm)?;
+            zelf.inner.lock().errors = set_errors(value, vm)?;
             Ok(())
         }
 
         #[pymethod]
         fn encode(
-            &self,
+            zelf: &Py<Self>,
             args: IncrementalEncodeArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
             let final_input = final_arg(args.final_input, vm)?;
             // Driven on a detached copy: an error handler can re-enter this object.
-            let mut local = self.inner.lock().clone();
-            let result = self
+            let mut local = zelf.inner.lock().clone();
+            let result = zelf
                 .codec
                 .encode_stateful(&mut local, args.input, final_input, vm);
-            self.commit(local);
+            zelf.commit(local);
             Ok(vm.ctx.new_bytes(result?).into())
         }
 
@@ -771,15 +770,15 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn getstate(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
-            let inner = self.inner.lock();
+        fn getstate(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<BigInt> {
+            let inner = zelf.inner.lock();
             let mut statebytes = Vec::with_capacity(ENCODER_STATE_SIZE);
             match &inner.pending {
                 Some(pending) => {
                     let bytes = pending.as_wtf8().as_bytes();
                     if bytes.len() > MAXENCPENDING * 4 {
                         return Err(vm.new_unicode_encode_error(
-                            vm.ctx.new_str(self.codec.encoding),
+                            vm.ctx.new_str(zelf.codec.encoding),
                             pending.clone(),
                             0,
                             pending.char_len(),
@@ -796,7 +795,7 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn setstate(&self, state: PyRef<PyInt>, vm: &VirtualMachine) -> PyResult<()> {
+        fn setstate(zelf: &Py<Self>, state: PyRef<PyInt>, vm: &VirtualMachine) -> PyResult<()> {
             let statebytes = int_to_state(&state, ENCODER_STATE_SIZE, vm)?;
             let pending_size = statebytes[0] as usize;
             if pending_size > MAXENCPENDING * 4 {
@@ -814,7 +813,7 @@ mod _multibytecodec {
                 vm,
             )?;
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             inner.pending = (!pending.is_empty()).then_some(pending);
             inner
                 .state
@@ -823,9 +822,9 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn reset(&self) {
-            let mut inner = self.inner.lock();
-            let _ = cjk::encode_reset(self.codec.codec, &mut inner.state);
+        fn reset(zelf: &Py<Self>) {
+            let mut inner = zelf.inner.lock();
+            let _ = cjk::encode_reset(zelf.codec.codec, &mut inner.state);
             inner.pending = None;
         }
     }
@@ -865,25 +864,29 @@ mod _multibytecodec {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteIncrementalDecoder {
         #[pygetset]
-        fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
-            self.inner.lock().errors.name(vm)
+        fn errors(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            zelf.inner.lock().errors.name(vm)
         }
 
         #[pygetset(setter)]
         fn set_errors(
-            &self,
+            zelf: &Py<Self>,
             value: PySetterValue<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.inner.lock().errors = set_errors(value, vm)?;
+            zelf.inner.lock().errors = set_errors(value, vm)?;
             Ok(())
         }
 
         #[pymethod]
-        fn decode(&self, args: IncrementalDecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn decode(
+            zelf: &Py<Self>,
+            args: IncrementalDecodeArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyStrRef> {
             let final_input = final_arg(args.final_input, vm)?;
             // Driven on a detached copy: an error handler can re-enter this object.
-            let mut local = self.inner.lock().clone();
+            let mut local = zelf.inner.lock().clone();
             let original_pending = core::mem::take(&mut local.pending);
             let mut data = original_pending.clone();
             data.extend_from_slice(&args.input.borrow_buf());
@@ -896,23 +899,23 @@ mod _multibytecodec {
 
             let errors = local.errors.clone();
             let mut error = None;
-            if let Err(e) = decode_into(self.codec, &mut local.state, &mut buf, &errors, true, vm) {
+            if let Err(e) = decode_into(zelf.codec, &mut local.state, &mut buf, &errors, true, vm) {
                 error = Some(e);
             } else if final_input
                 && buf.pos < buf.data.len()
-                && let Err(e) = decode_incomplete(self.codec.encoding, &mut buf, &errors, vm)
+                && let Err(e) = decode_incomplete(zelf.codec.encoding, &mut buf, &errors, vm)
             {
                 // Only the final flush hands the caller its pending bytes back.
                 local.pending = original_pending;
                 error = Some(e);
             } else if buf.pos < buf.data.len()
-                && let Err(e) = self.codec.append_pending(&mut local, &buf, vm)
+                && let Err(e) = zelf.codec.append_pending(&mut local, &buf, vm)
             {
                 error = Some(e);
             }
 
             {
-                let mut inner = self.inner.lock();
+                let mut inner = zelf.inner.lock();
                 inner.state = local.state;
                 inner.pending = local.pending;
             }
@@ -923,8 +926,8 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn getstate(&self, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
-            let inner = self.inner.lock();
+        fn getstate(zelf: &Py<Self>, vm: &VirtualMachine) -> (PyObjectRef, BigInt) {
+            let inner = zelf.inner.lock();
             (
                 vm.ctx.new_bytes(inner.pending.clone()).into(),
                 state_to_int(&inner.state),
@@ -932,7 +935,7 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn setstate(&self, state: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<()> {
+        fn setstate(zelf: &Py<Self>, state: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<()> {
             let [buffer, flags] = state.as_slice() else {
                 return Err(vm.new_type_error("setstate(): illegal state argument"));
             };
@@ -947,7 +950,7 @@ mod _multibytecodec {
             let pending = buffer.as_bytes();
             if pending.len() > MAXDECPENDING {
                 return Err(vm.new_unicode_decode_error(
-                    vm.ctx.new_str(self.codec.encoding),
+                    vm.ctx.new_str(zelf.codec.encoding),
                     buffer.to_owned(),
                     0,
                     pending.len(),
@@ -955,16 +958,16 @@ mod _multibytecodec {
                 ));
             }
 
-            let mut inner = self.inner.lock();
+            let mut inner = zelf.inner.lock();
             inner.pending = pending.to_vec();
             inner.state.copy_from_slice(&statebytes);
             Ok(())
         }
 
         #[pymethod]
-        fn reset(&self) {
-            let mut inner = self.inner.lock();
-            cjk::decode_reset(self.codec.codec, &mut inner.state);
+        fn reset(zelf: &Py<Self>) {
+            let mut inner = zelf.inner.lock();
+            cjk::decode_reset(zelf.codec.codec, &mut inner.state);
             inner.pending.clear();
         }
     }
@@ -975,6 +978,7 @@ mod _multibytecodec {
     struct MultibyteStreamReader {
         #[pytraverse(skip)]
         codec: CodecRef,
+        #[pymember]
         stream: PyObjectRef,
         #[pytraverse(skip)]
         inner: PyMutex<DecoderState>,
@@ -1008,22 +1012,17 @@ mod _multibytecodec {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteStreamReader {
         #[pygetset]
-        fn stream(&self) -> PyObjectRef {
-            self.stream.clone()
-        }
-
-        #[pygetset]
-        fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
-            self.inner.lock().errors.name(vm)
+        fn errors(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            zelf.inner.lock().errors.name(vm)
         }
 
         #[pygetset(setter)]
         fn set_errors(
-            &self,
+            zelf: &Py<Self>,
             value: PySetterValue<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.inner.lock().errors = set_errors(value, vm)?;
+            zelf.inner.lock().errors = set_errors(value, vm)?;
             Ok(())
         }
 
@@ -1103,32 +1102,32 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn read(&self, size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let size = size_hint(size, vm)?;
-            Ok(vm.ctx.new_str(self.iread("read", size, vm)?))
+        fn read(zelf: &Py<Self>, args: StreamReadArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let size = size_hint(args.sizeobj, vm)?;
+            Ok(vm.ctx.new_str(zelf.iread("read", size, vm)?))
         }
 
         #[pymethod]
         fn readline(
-            &self,
-            size: OptionalArg<PyObjectRef>,
+            zelf: &Py<Self>,
+            args: StreamReadArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyStrRef> {
-            let size = size_hint(size, vm)?;
-            Ok(vm.ctx.new_str(self.iread("readline", size, vm)?))
+            let size = size_hint(args.sizeobj, vm)?;
+            Ok(vm.ctx.new_str(zelf.iread("readline", size, vm)?))
         }
 
         #[pymethod]
-        fn readlines(&self, size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-            let size = size_hint(size, vm)?;
-            let text = vm.ctx.new_str(self.iread("read", size, vm)?);
+        fn readlines(zelf: &Py<Self>, args: StreamReadLinesArgs, vm: &VirtualMachine) -> PyResult {
+            let size = size_hint(args.sizehintobj, vm)?;
+            let text = vm.ctx.new_str(zelf.iread("read", size, vm)?);
             vm.call_method(text.as_object(), "splitlines", (true,))
         }
 
         #[pymethod]
-        fn reset(&self) {
-            let mut inner = self.inner.lock();
-            cjk::decode_reset(self.codec.codec, &mut inner.state);
+        fn reset(zelf: &Py<Self>) {
+            let mut inner = zelf.inner.lock();
+            cjk::decode_reset(zelf.codec.codec, &mut inner.state);
             inner.pending.clear();
         }
     }
@@ -1139,6 +1138,7 @@ mod _multibytecodec {
     struct MultibyteStreamWriter {
         #[pytraverse(skip)]
         codec: CodecRef,
+        #[pymember]
         stream: PyObjectRef,
         #[pytraverse(skip)]
         inner: PyMutex<EncoderState>,
@@ -1172,22 +1172,17 @@ mod _multibytecodec {
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl MultibyteStreamWriter {
         #[pygetset]
-        fn stream(&self) -> PyObjectRef {
-            self.stream.clone()
-        }
-
-        #[pygetset]
-        fn errors(&self, vm: &VirtualMachine) -> PyStrRef {
-            self.inner.lock().errors.name(vm)
+        fn errors(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            zelf.inner.lock().errors.name(vm)
         }
 
         #[pygetset(setter)]
         fn set_errors(
-            &self,
+            zelf: &Py<Self>,
             value: PySetterValue<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            self.inner.lock().errors = set_errors(value, vm)?;
+            zelf.inner.lock().errors = set_errors(value, vm)?;
             Ok(())
         }
 
@@ -1209,12 +1204,12 @@ mod _multibytecodec {
         }
 
         #[pymethod]
-        fn write(&self, text: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.iwrite(text, vm)
+        fn write(zelf: &Py<Self>, strobj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.iwrite(strobj, vm)
         }
 
         #[pymethod]
-        fn writelines(&self, lines: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn writelines(zelf: &Py<Self>, lines: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let sequence = PySequence { obj: &lines };
             if !sequence.check() {
                 return Err(vm.new_type_error("arg must be a sequence object"));
@@ -1222,22 +1217,22 @@ mod _multibytecodec {
             let mut i = 0;
             while i < sequence.length(vm)? {
                 let line = sequence.get_item(i as isize, vm)?;
-                self.iwrite(line, vm)?;
+                zelf.iwrite(line, vm)?;
                 i += 1;
             }
             Ok(())
         }
 
         #[pymethod]
-        fn reset(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut local = self.inner.lock().clone();
+        fn reset(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            let mut local = zelf.inner.lock().clone();
             let Some(pending) = local.pending.take() else {
                 return Ok(());
             };
             let errors = local.errors.clone();
             // A strict failure drops the pending text: reset exists to clear it.
             let result = encode(
-                self.codec,
+                zelf.codec,
                 &mut local.state,
                 pending,
                 &errors,
@@ -1245,10 +1240,10 @@ mod _multibytecodec {
                 true,
                 vm,
             );
-            self.commit(local);
+            zelf.commit(local);
             let encoded = result?.0;
             if !encoded.is_empty() {
-                vm.call_method(&self.stream, "write", (vm.ctx.new_bytes(encoded),))?;
+                vm.call_method(&zelf.stream, "write", (vm.ctx.new_bytes(encoded),))?;
             }
             Ok(())
         }
@@ -1269,8 +1264,20 @@ mod _multibytecodec {
     }
 
     /// The `sizeobj` conversion the stream reader's methods share.
-    fn size_hint(size: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
-        let Some(size) = size.into_option() else {
+    #[derive(FromArgs)]
+    struct StreamReadArgs {
+        #[pyarg(positional, optional)]
+        sizeobj: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct StreamReadLinesArgs {
+        #[pyarg(positional, optional)]
+        sizehintobj: Option<PyObjectRef>,
+    }
+
+    fn size_hint(size: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<isize> {
+        let Some(size) = size else {
             return Ok(-1);
         };
         if vm.is_none(&size) {

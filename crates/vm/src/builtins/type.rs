@@ -9,17 +9,20 @@ use crate::{
         PyBaseExceptionRef,
         descriptor::{
             MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
+            PyMemberFlags,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
     },
     class::{PyClassDef, PyClassImpl, StaticType},
     common::{
-        ascii,
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
+    function::{
+        ArgumentError, FromArgs, FuncArgs, ItemDoc, KwArgs, Param, PyMethodDef, PySetterValue,
+        db_doc,
+    },
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -34,7 +37,7 @@ use core::{
     cell::Cell,
     ops::Deref,
     pin::Pin,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -46,17 +49,20 @@ pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
-    /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    // tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    #[pymember(name = "__base__", doc = false)]
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<PyTypeTupleRef>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
+    #[pymember(name = "__itemsize__", path = "itemsize")]
+    #[pymember(name = "__basicsize__", path = "basicsize")]
+    #[pymember(name = "__flags__", path = "flags")]
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
-    pub abc_tpflags: AtomicU64,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -329,7 +335,7 @@ impl TypeSpecializationCache {
             new.as_object().mark_cache_published();
         }
         // SAFETY: reclamation of published objects is deferred via QSBR;
-        // racing try_to_owned readers never touch freed memory.
+        // racing load_owned readers never touch freed memory.
         let old = unsafe { self.init.swap(new_init) };
         if let Some(old) = old {
             // Dropping may run arbitrary Python; defer past the type lock.
@@ -567,7 +573,7 @@ impl TypeNamespace {
             }
             Self::Dict(dict) => {
                 out.extend((&**dict).into_iter().map(|(_, value)| value));
-                PyDict::clear(dict);
+                Py::<PyDict>::clear(dict);
             }
         }
     }
@@ -668,7 +674,7 @@ impl PyType {
         }
 
         // Assign versions to all direct bases first (MRO invariant).
-        for base in self.bases.read().iter() {
+        for base in self.bases.read().as_slice() {
             if base.assign_version_tag_inner() == 0 {
                 return 0;
             }
@@ -797,7 +803,7 @@ impl PyType {
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
-        let base = bases[0].clone();
+        let base = bases.as_slice()[0].clone();
 
         Self::new_heap_inner(
             base,
@@ -847,9 +853,7 @@ impl PyType {
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = (base.slots.flags
-                | PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire)))
-                & COLLECTION_FLAGS;
+            let base_flags = base.slots.flags.load() & COLLECTION_FLAGS;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
@@ -857,40 +861,21 @@ impl PyType {
         }
     }
 
-    fn inherited_abc_tpflags(bases: &[PyRef<Self>]) -> u64 {
-        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
-            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
-        );
-        for base in bases {
-            let base_flags =
-                PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire))
-                    & COLLECTION_FLAGS;
-            if !base_flags.is_empty() {
-                return base_flags.bits();
-            }
-        }
-        0
-    }
-
     pub fn has_patma_collection_flag(&self, flag: PyTypeFlags) -> bool {
         debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
         const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
             PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
         );
-        let slot_flags = self.slots.flags & COLLECTION_FLAGS;
-        if !slot_flags.is_empty() {
-            return slot_flags.contains(flag);
-        }
-        PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
+        let slot_flags = self.slots.flags.load() & COLLECTION_FLAGS;
+        slot_flags.contains(flag)
     }
 
     pub fn set_is_abstract(&self, is_abstract: bool) {
-        const MASK: u64 = PyTypeFlags::IS_ABSTRACT.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some(if is_abstract { old | MASK } else { old & !MASK })
-            });
+        if is_abstract {
+            self.slots.flags.set(PyTypeFlags::IS_ABSTRACT);
+        } else {
+            self.slots.flags.remove(PyTypeFlags::IS_ABSTRACT);
+        }
         self.modified();
     }
 
@@ -902,13 +887,7 @@ impl PyType {
         if flags.is_empty() {
             return;
         }
-        let collection_bits = COLLECTION_FLAGS.bits();
-        let flags_bits = flags.bits();
-        let _ = self
-            .abc_tpflags
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                Some((old & !collection_bits) | flags_bits)
-            });
+        self.slots.flags.replace_masked(COLLECTION_FLAGS, flags);
         self.modified();
         for weak_ref in self.subclasses.read().iter() {
             if let Some(subclass) = weak_ref.upgrade()
@@ -996,18 +975,20 @@ impl PyType {
             // Leave tp_mro unset so a custom metaclass mro() sees __mro__ is None.
             Vec::new()
         } else {
-            Self::resolve_mro(&bases)?
+            Self::resolve_mro(bases.as_slice())?
         };
 
         // Layout flags come from each direct base's own flags. A custom
         // mro() can omit a physical base from the stored MRO.
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_DICT))
         {
             slots.flags |= PyTypeFlags::HAS_DICT;
         }
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::MANAGED_DICT))
         {
@@ -1015,6 +996,7 @@ impl PyType {
         }
 
         if bases
+            .as_slice()
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
         {
@@ -1022,10 +1004,10 @@ impl PyType {
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
-        Self::inherit_patma_flags(&mut slots, &bases);
+        Self::inherit_patma_flags(&mut slots, bases.as_slice());
 
         // Check for __abc_tpflags__ from ABCMeta (for collections.abc.Sequence, Mapping, etc.)
-        Self::check_abc_tpflags(&mut slots, &attrs, &bases, ctx)?;
+        Self::check_abc_tpflags(&mut slots, &attrs, bases.as_slice(), ctx)?;
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -1045,7 +1027,6 @@ impl PyType {
             ));
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(&bases);
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
@@ -1056,7 +1037,6 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1067,7 +1047,7 @@ impl PyType {
         }
 
         let weakref_type = super::PyWeak::static_type();
-        for base in new_type.bases.read().iter() {
+        for base in new_type.bases.read().as_slice() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -1105,7 +1085,6 @@ impl PyType {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
         }
 
-        let inherited_abc_tpflags = Self::inherited_abc_tpflags(core::slice::from_ref(&base));
         let bases =
             PyTuple::new_ref_typed_with_type(vec![base.clone()], PyTuple::static_type().to_owned());
         let mro = base.mro_map_collect(|x| x.to_owned());
@@ -1120,7 +1099,6 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
-                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -1146,7 +1124,7 @@ impl PyType {
         Self::set_alloc(&new_type.slots, new_type.base.deref());
 
         let weakref_type = super::PyWeak::static_type();
-        for base in new_type.bases.read().iter() {
+        for base in new_type.bases.read().as_slice() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -1395,10 +1373,7 @@ impl PyType {
             return None;
         }
         // Check order: pointer (Acquire) then function version.
-        let init = ext
-            .specialization_cache
-            .init
-            .try_to_owned(Ordering::Acquire)?;
+        let init = ext.specialization_cache.init.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .init_version
@@ -1443,10 +1418,7 @@ impl PyType {
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
         // Check order: pointer (Acquire) then function version.
-        let getitem = ext
-            .specialization_cache
-            .getitem
-            .try_to_owned(Ordering::Acquire)?;
+        let getitem = ext.specialization_cache.getitem.load_owned()?;
         let cached_version = ext
             .specialization_cache
             .getitem_version
@@ -1583,19 +1555,47 @@ impl PyType {
         )
     }
 
+    pub fn __qualname__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        if let Some(ref heap_type) = self.heaptype_ext {
+            heap_type.qualname.read().clone().into()
+        } else {
+            // For static types, return the name
+            vm.ctx.new_str(self.name().deref()).into()
+        }
+    }
+    pub fn __module__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        // Heap types store the module in the type dict. Static types take the
+        // text before the last `.` of the type name, or `builtins`.
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return self
+                .attributes
+                .get(identifier!(vm, __module__))
+                .ok_or_else(|| vm.new_attribute_error("__module__"));
+        }
+        let slot_name = self.slot_name();
+        let module = if let Some((module, _)) = slot_name.rsplit_once('.') {
+            vm.ctx.intern_str(module)
+        } else {
+            vm.ctx.intern_str("builtins")
+        };
+        Ok(module.to_object())
+    }
+
     /// The type's fully qualified name, the way the `%T` format code prints it:
     /// `module.qualname`, with a `builtins` or `__main__` module left off.
-    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> String {
+    pub fn fully_qualified_name(&self, vm: &VirtualMachine) -> PyResult<String> {
         let qualname = self.__qualname__(vm);
         let qualname = qualname
             .downcast_ref::<PyStr>()
             .and_then(|qualname| qualname.to_str())
             .map_or_else(|| self.name().to_string(), str::to_owned);
-        let module = self.__module__(vm);
-        match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
-            Some("builtins" | "__main__") | None => qualname,
-            Some(module) => format!("{module}.{qualname}"),
-        }
+        let module = self.__module__(vm)?;
+        Ok(
+            match module.downcast_ref::<PyStr>().and_then(|m| m.to_str()) {
+                Some("builtins" | "__main__") | None => qualname,
+                Some(module) => format!("{module}.{qualname}"),
+            },
+        )
     }
 
     pub fn name(&self) -> BorrowedValue<'_, str> {
@@ -1651,6 +1651,26 @@ impl PyType {
 }
 
 impl Py<PyType> {
+    #[inline]
+    pub fn slots(&self) -> &PyTypeSlots {
+        &self.payload().slots
+    }
+
+    #[inline]
+    pub fn attributes(&self) -> &TypeNamespace {
+        &self.payload().attributes
+    }
+
+    #[inline]
+    pub fn tp_version_tag(&self) -> &AtomicU32 {
+        &self.payload().tp_version_tag
+    }
+
+    #[inline]
+    pub fn heaptype_ext(&self) -> Option<&HeapTypeExt> {
+        self.payload().heaptype_ext.as_deref()
+    }
+
     pub fn is_subtype(&self, other: &Self) -> bool {
         is_subtype_with_mro(&self.mro.read(), self, other)
     }
@@ -1700,605 +1720,13 @@ impl Py<PyType> {
     }
 }
 
-#[pyclass(
-    with(
-        Py,
-        Constructor,
-        Initializer,
-        GetAttr,
-        SetAttr,
-        Callable,
-        AsNumber,
-        Representable
-    ),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
-)]
 impl PyType {
-    #[pygetset]
-    fn __bases__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        Self::with_type_lock(vm, || self.bases.read().clone().into_untyped())
-    }
-    #[pygetset(setter, name = "__bases__")]
-    fn set_bases(zelf: &Py<Self>, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
-        // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
-        // Rather than correctly re-initializing the class, we are skipping a few steps for now
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error(format!(
-                "cannot set '__bases__' attribute of immutable type '{}'",
-                zelf.name()
-            )));
-        }
-        if bases_tuple.is_empty() {
-            return Err(vm.new_type_error(format!(
-                "can only assign non-empty tuple to {}.__bases__, not ()",
-                zelf.name()
-            )));
-        }
-        for base in bases_tuple.iter() {
-            if base.downcast_ref::<Self>().is_none() {
-                return Err(vm.new_type_error(format!(
-                    "{}.__bases__ must be tuple of classes, not '{}'",
-                    zelf.name(),
-                    base.class().name()
-                )));
-            }
-        }
-        let bases = bases_tuple.try_into_typed::<Self>(vm)?;
-
-        // Compute the new solid base before committing anything. This also
-        // validates the new bases (BASETYPE flag, no instance layout
-        // conflict), the same checks type creation performs.
-        let new_base = best_base(&bases, vm)?.to_owned();
-
-        // Reject reparenting onto a base whose instances have an incompatible
-        // object layout.
-        let old_base = zelf.base.deref().unwrap_or(vm.ctx.types.object_type);
-        compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
-
-        // References released inside the critical section are collected here
-        // and dropped after the lock: dropping them inside can run arbitrary
-        // code that re-acquires the non-reentrant type mutex.
-        let mut retired: Vec<PyObjectRef> = Vec::new();
-
-        // A base swapped out of `zelf.base` may still be observed by
-        // concurrent lock-free readers; keep it alive in the frame's
-        // temporary refs so they never see a dangling pointer.
-        let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
-            if let Some(frame) = vm.current_frame() {
-                frame
-                    .iframe()
-                    .cold()
-                    .temporary_refs
-                    .lock()
-                    .push(type_ref.into());
-            } else {
-                retired.push(type_ref.into());
-            }
-        };
-
-        let add_as_subclass = |bases: &[PyTypeRef]| {
-            let weakref_type = super::PyWeak::static_type();
-            for base in bases {
-                base.subclasses.write().push(
-                    zelf.as_object()
-                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                        .unwrap(),
-                );
-            }
-        };
-
-        let remove_as_subclass = |bases: &[PyTypeRef], retired: &mut Vec<PyObjectRef>| {
-            for base in bases {
-                let mut subclasses = base.subclasses.write();
-                let mut kept = Vec::with_capacity(subclasses.len());
-                for weak in subclasses.drain(..) {
-                    match weak.upgrade() {
-                        Some(obj) if obj.is(zelf.as_object()) => {
-                            retired.push(obj);
-                            retired.push(weak.into());
-                        }
-                        Some(obj) => {
-                            retired.push(obj);
-                            kept.push(weak);
-                        }
-                        None => retired.push(weak.into()),
-                    }
-                }
-                *subclasses = kept;
-            }
-        };
-
-        let result = Self::with_type_lock(vm, || {
-            for base in bases.iter() {
-                if is_subtype_with_mro(&base.mro.read(), base, zelf)
-                    || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
-                {
-                    return Err(vm.new_type_error("a __bases__ item causes an inheritance cycle"));
-                }
-            }
-
-            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases.clone());
-            let old_base = unsafe { zelf.base.swap(Some(new_base.clone())) };
-
-            // Recursively update the mros of this class and all subclasses,
-            // recording the previous mros so a failure can be rolled back.
-            fn update_mro_recursively(
-                cls: &Py<PyType>,
-                undo: &mut Vec<(PyTypeRef, Vec<PyTypeRef>)>,
-                vm: &VirtualMachine,
-            ) -> PyResult<i32> {
-                let old_ptr = cls.mro.read().as_ptr();
-                let new_mro = mro_invoke(cls, vm)?;
-                if cls.mro.read().as_ptr() != old_ptr {
-                    // A nested custom mro() already replaced tp_mro.
-                    return Ok(0);
-                }
-                let old_mro = core::mem::replace(&mut *cls.mro.write(), new_mro);
-                undo.push((cls.to_owned(), old_mro));
-                cls.modified_inner();
-                let subclasses: Vec<PyTypeRef> = cls
-                    .subclasses
-                    .read()
-                    .iter()
-                    .filter_map(|subclass| subclass.upgrade())
-                    .filter_map(|subclass| subclass.downcast::<PyType>().ok())
-                    .collect();
-                for subclass in subclasses {
-                    update_mro_recursively(&subclass, undo, vm)?;
-                }
-                Ok(1)
-            }
-            let mut undo = Vec::new();
-            if let Err(err) = update_mro_recursively(zelf, &mut undo, vm) {
-                // Roll back to the previous state. A class reachable through
-                // multiple bases is recorded once per visit, so restore in
-                // reverse to end with the first-recorded (original) mro.
-                for (cls, old_mro) in undo.into_iter().rev() {
-                    let failed_mro = core::mem::replace(&mut *cls.mro.write(), old_mro);
-                    retired.extend(failed_mro.into_iter().map(Into::into));
-                    retired.push(cls.into());
-                }
-                // Take no action if tp_bases was replaced through reentrance.
-                if core::ptr::eq(&**zelf.bases.read(), &*bases) {
-                    let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
-                    if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
-                        keep_alive(failed_base, &mut retired);
-                    }
-                    retired.push(failed_bases.into_untyped().into());
-                    zelf.modified_inner();
-                } else {
-                    retired.push(old_bases.into_untyped().into());
-                    if let Some(old_base) = old_base {
-                        keep_alive(old_base, &mut retired);
-                    }
-                }
-                return Err(err);
-            }
-            // Retire the replaced mros as well; dropping them here would
-            // release them while the lock is held.
-            for (cls, old_mro) in undo {
-                retired.extend(old_mro.into_iter().map(Into::into));
-                retired.push(cls.into());
-            }
-
-            // Take no action if tp_bases was replaced through reentrance.
-            if core::ptr::eq(&**zelf.bases.read(), &*bases) {
-                remove_as_subclass(&old_bases, &mut retired);
-                add_as_subclass(&bases);
-                zelf.update_all_slots(&vm.ctx);
-            }
-
-            retired.push(old_bases.into_untyped().into());
-            if let Some(old_base) = old_base {
-                keep_alive(old_base, &mut retired);
-            }
-            crate::stdlib::_testinternalcapi::note_set_bases();
-            Ok(())
-        });
-        drop(retired);
-        result
-    }
-
-    #[pygetset]
-    fn __base__(&self) -> Option<PyTypeRef> {
-        self.base.to_owned()
-    }
-
-    #[pygetset]
-    fn __flags__(&self) -> u64 {
-        self.slots.flags.bits()
-            | (self.abc_tpflags.load(Ordering::Acquire) & PyTypeFlags::IS_ABSTRACT.bits())
-    }
-
-    #[pygetset]
-    fn __abstractmethods__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
-        if zelf.is(vm.ctx.types.type_type) {
-            return Err(vm.new_attribute_error("__abstractmethods__"));
-        }
-        zelf.get_direct_attr(identifier!(vm, __abstractmethods__))
-            .ok_or_else(|| vm.new_attribute_error("__abstractmethods__"))
-    }
-
-    #[pygetset(setter)]
-    fn set___abstractmethods__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let key = identifier!(vm, __abstractmethods__);
-        let is_abstract = match &value {
-            PySetterValue::Assign(val) => val.try_to_bool(vm)?,
-            PySetterValue::Delete => false,
-        };
-        match value {
-            PySetterValue::Assign(val) => {
-                Self::with_type_lock(vm, || {
-                    self.modified_inner();
-                    let _prev = self.attributes.insert(key, val);
-                    self.set_is_abstract(is_abstract);
-                });
-            }
-            PySetterValue::Delete => {
-                let removed = Self::with_type_lock(vm, || {
-                    self.modified_inner();
-                    let removed = self.attributes.remove(key);
-                    if removed.is_some() {
-                        self.set_is_abstract(false);
-                    }
-                    removed
-                });
-                if removed.is_none() {
-                    return Err(vm.new_attribute_error("__abstractmethods__"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __basicsize__(&self) -> usize {
-        crate::object::SIZEOF_PYOBJECT_HEAD + self.slots.basicsize
-    }
-
-    #[pygetset]
-    fn __itemsize__(&self) -> usize {
-        self.slots.itemsize
-    }
-
-    #[pygetset]
-    pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
-        self.name_inner(
-            |name| {
-                vm.ctx
-                    .interned_str(name.rsplit_once('.').map_or(name, |(_, name)| name))
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "static type name must be already interned but {} is not",
-                            self.slot_name()
-                        )
-                    })
-                    .to_owned()
-            },
-            |ext| ext.name.read().clone().into_wtf8(),
-        )
-    }
-
-    #[pygetset]
-    pub fn __qualname__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        if let Some(ref heap_type) = self.heaptype_ext {
-            heap_type.qualname.read().clone().into()
-        } else {
-            // For static types, return the name
-            vm.ctx.new_str(self.name().deref()).into()
-        }
-    }
-
-    #[pygetset(setter)]
-    fn set___qualname__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __qualname__), vm)?;
-        let value = value.ok_or_else(|| {
-            vm.new_type_error(format!(
-                "cannot delete '__qualname__' attribute of immutable type '{}'",
-                self.name()
-            ))
-        })?;
-
-        let str_value = downcast_qualname(value, vm)?;
-
-        let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "cannot set '__qualname__' attribute of immutable type '{}'",
-                self.name()
-            ))
-        })?;
-
-        // Use std::mem::replace to swap the new value in and get the old value out,
-        // then drop the old value after releasing the lock
-        let _old_qualname = {
-            let mut qualname_guard = heap_type.qualname.write();
-            core::mem::replace(&mut *qualname_guard, str_value)
-        };
-        // old_qualname is dropped here, outside the lock scope
-
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            return Err(vm.new_attribute_error(format!(
-                "type object '{}' has no attribute '__annotate__'",
-                self.name()
-            )));
-        }
-
-        let annotate_key = identifier!(vm, __annotate__);
-        let annotate_func_key = identifier!(vm, __annotate_func__);
-        if let Some(annotate) = self.attributes.get(annotate_key) {
-            return Ok(annotate);
-        }
-        if let Some(annotate) = self.attributes.get(annotate_func_key) {
-            return Ok(annotate);
-        }
-
-        let none = vm.ctx.none();
-        let (result, _prev) = Self::with_type_lock(vm, || {
-            if let Some(annotate) = self.attributes.get(annotate_key) {
-                return (annotate, None);
-            }
-            if let Some(annotate) = self.attributes.get(annotate_func_key) {
-                return (annotate, None);
-            }
-            self.modified_inner();
-            let prev = self.attributes.insert(annotate_func_key, none.clone());
-            (none, prev)
-        });
-        Ok(result)
-    }
-
-    #[pygetset(setter)]
-    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let value = match value {
-            PySetterValue::Delete => {
-                return Err(vm.new_type_error("cannot delete __annotate__ attribute"));
-            }
-            PySetterValue::Assign(v) => v,
-        };
-
-        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error(format!(
-                "cannot set '__annotate__' attribute of immutable type '{}'",
-                self.name()
-            )));
-        }
-
-        if !vm.is_none(&value) && !value.is_callable() {
-            return Err(vm.new_type_error("__annotate__ must be callable or None"));
-        }
-
-        let _prev_values = Self::with_type_lock(vm, || {
-            self.modified_inner();
-            // Clear cached annotations only when setting to a new callable
-            let removed = if !vm.is_none(&value) {
-                self.attributes
-                    .remove(identifier!(vm, __annotations_cache__))
-            } else {
-                None
-            };
-            let prev = self
-                .attributes
-                .insert(identifier!(vm, __annotate_func__), value);
-            (removed, prev)
-        });
-
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let annotations_key = identifier!(vm, __annotations__);
-        let annotations_cache_key = identifier!(vm, __annotations_cache__);
-        if let Some(annotations) = self.attributes.get(annotations_key) {
-            // Ignore the __annotations__ descriptor stored on type itself.
-            if !annotations.class().is(vm.ctx.types.getset_type) {
-                if vm.is_none(&annotations)
-                    || annotations.class().is(vm.ctx.types.dict_type)
-                    || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-                {
-                    return Ok(annotations);
-                }
-                return Err(vm.new_attribute_error(format!(
-                    "type object '{}' has no attribute '__annotations__'",
-                    self.name()
-                )));
-            }
-        }
-        if let Some(annotations) = self.attributes.get(annotations_cache_key) {
-            if vm.is_none(&annotations)
-                || annotations.class().is(vm.ctx.types.dict_type)
-                || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            {
-                return Ok(annotations);
-            }
-            return Err(vm.new_attribute_error(format!(
-                "type object '{}' has no attribute '__annotations__'",
-                self.name()
-            )));
-        }
-
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            return Err(vm.new_attribute_error(format!(
-                "type object '{}' has no attribute '__annotations__'",
-                self.name()
-            )));
-        }
-
-        // Get __annotate__ and call it if callable
-        let annotate = self.__annotate__(vm)?;
-        let annotations = if annotate.is_callable() {
-            // Call __annotate__(1) where 1 is FORMAT_VALUE
-            let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
-                return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
-                )));
-            }
-            result
-        } else {
-            vm.ctx.new_dict().into()
-        };
-
-        let (result, _prev) = Self::with_type_lock(vm, || {
-            if let Some(existing) = self.attributes.get(annotations_key)
-                && !existing.class().is(vm.ctx.types.getset_type)
-            {
-                return (existing, None);
-            }
-            if let Some(existing) = self.attributes.get(annotations_cache_key) {
-                return (existing, None);
-            }
-            self.modified_inner();
-            let prev = self
-                .attributes
-                .insert(annotations_cache_key, annotations.clone());
-            (annotations, prev)
-        });
-        Ok(result)
-    }
-
-    #[pygetset(setter)]
-    fn set___annotations__(
-        &self,
-        value: crate::function::PySetterValue<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error(format!(
-                "cannot set '__annotations__' attribute of immutable type '{}'",
-                self.name()
-            )));
-        }
-
-        let _prev_values = Self::with_type_lock(vm, || {
-            self.modified_inner();
-            let has_annotations = self.attributes.contains(identifier!(vm, __annotations__));
-
-            let mut prev = Vec::new();
-            match value {
-                crate::function::PySetterValue::Assign(value) => {
-                    let key = if has_annotations {
-                        identifier!(vm, __annotations__)
-                    } else {
-                        identifier!(vm, __annotations_cache__)
-                    };
-                    prev.extend(self.attributes.insert(key, value));
-                    if has_annotations {
-                        prev.extend(
-                            self.attributes
-                                .remove(identifier!(vm, __annotations_cache__)),
-                        );
-                    }
-                }
-                crate::function::PySetterValue::Delete => {
-                    let removed = if has_annotations {
-                        self.attributes.remove(identifier!(vm, __annotations__))
-                    } else {
-                        self.attributes
-                            .remove(identifier!(vm, __annotations_cache__))
-                    };
-                    if removed.is_none() {
-                        return Err(vm.new_attribute_error("__annotations__"));
-                    }
-                    prev.extend(removed);
-                    if has_annotations {
-                        prev.extend(
-                            self.attributes
-                                .remove(identifier!(vm, __annotations_cache__)),
-                        );
-                    }
-                }
-            }
-            prev.extend(self.attributes.remove(identifier!(vm, __annotate_func__)));
-            prev.extend(self.attributes.remove(identifier!(vm, __annotate__)));
-            Ok(prev)
-        })?;
-
-        Ok(())
-    }
-
-    #[pygetset]
-    pub fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.attributes
-            .get(identifier!(vm, __module__))
-            // We need to exclude this method from going into recursion:
-            .filter(|found| !found.fast_isinstance(vm.ctx.types.getset_type))
-            .unwrap_or_else(|| {
-                // For non-heap types, extract module from tp_name (e.g. "typing.TypeAliasType" -> "typing")
-                let slot_name = self.slot_name();
-                if let Some((module, _)) = slot_name.rsplit_once('.') {
-                    vm.ctx.intern_str(module).to_object()
-                } else {
-                    vm.ctx.new_str(ascii!("builtins")).into()
-                }
-            })
-    }
-
-    #[pygetset(setter)]
-    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
-        let _prev_values = Self::with_type_lock(vm, || {
-            self.modified_inner();
-            let removed = self.attributes.remove(identifier!(vm, __firstlineno__));
-            let prev = self.attributes.insert(identifier!(vm, __module__), value);
-            (removed, prev)
-        });
-        Ok(())
-    }
-
-    #[pyclassmethod]
-    fn __prepare__(
-        _cls: PyTypeRef,
-        _name: OptionalArg<PyObjectRef>,
-        _bases: OptionalArg<PyObjectRef>,
-        _kwargs: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyDictRef {
-        vm.ctx.new_dict()
-    }
-
-    #[pymethod]
-    fn __subclasses__(&self, vm: &VirtualMachine) -> PyList {
-        let mut subclasses = self.subclasses.write();
-        subclasses.retain(|x| x.upgrade().is_some());
-        let interpreter_id = vm.state.interpreter_id;
-        PyList::from(
-            subclasses
-                .iter()
-                .filter_map(|x| x.upgrade())
-                .filter(|obj| {
-                    obj.downcast_ref::<Self>()
-                        .is_none_or(|typ| typ.is_visible_to_interpreter(interpreter_id))
-                })
-                .collect::<Vec<_>>(),
-        )
-    }
-
     pub fn __ror__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         or_(other, zelf, vm)
     }
 
     pub fn __or__(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         or_(zelf, other, vm)
-    }
-
-    #[pygetset]
-    fn __dict__(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf)
-    }
-
-    #[pygetset(setter)]
-    fn set___dict__(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_attribute_error(format!(
-            "attribute '__dict__' of '{}' objects is not writable",
-            self.name()
-        )))
     }
 
     fn check_set_special_type_attr(
@@ -2315,88 +1743,37 @@ impl PyType {
         }
         Ok(())
     }
+}
 
-    #[pygetset(setter)]
-    fn set___name__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(identifier!(vm, __name__), vm)?;
-        let name = value.downcast::<PyStr>().map_err(|value| {
-            vm.new_type_error(format!(
-                "can only assign string to {}.__name__, not '{}'",
-                self.slot_name(),
-                value.class().slot_name(),
-            ))
-        })?;
-        if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters"));
-        }
-        let name = name.try_into_utf8(vm)?;
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::builtins::descriptor::PyMemberDefLayout>(),
+    with(
+        Py,
+        Constructor,
+        Initializer,
+        GetAttr,
+        SetAttr,
+        Callable,
+        AsNumber,
+        Representable
+    ),
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+)]
+impl PyType {}
 
-        let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "cannot set '__name__' attribute of immutable type '{}'",
-                self.slot_name()
-            ))
-        })?;
+/// Accepts and ignores any arguments.
+struct PrepareArgs;
 
-        // Use std::mem::replace to swap the new value in and get the old value out,
-        // then drop the old value after releasing the lock
-        let _old_name = {
-            let mut name_guard = heap_type.name.write();
-            core::mem::replace(&mut *name_guard, name)
-        };
-        // old_name is dropped here, outside the lock scope
+impl FromArgs for PrepareArgs {
+    const PARAMS: Option<&'static [Param]> = Some(&[
+        Param::positional_only("name"),
+        Param::positional_only("bases"),
+        Param::var_keyword("kwds"),
+    ]);
 
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __text_signature__(&self, vm: &VirtualMachine) -> Option<String> {
-        let name = self.name();
-        if let Some(doc) = self.slots.doc
-            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
-        {
-            return Some(signature.to_string());
-        }
-        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            && let Some(doc_attr) = self.get_direct_attr(identifier!(vm, __doc__))
-            && let Some(doc) = doc_attr.downcast_ref::<PyStr>()
-            && let Some(doc) = doc.to_str()
-            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
-        {
-            return Some(signature.to_string());
-        }
-        None
-    }
-
-    #[pygetset]
-    fn __type_params__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        let key = identifier!(vm, __type_params__);
-        if let Some(params) = self.attributes.get(key)
-            // Builtin type namespaces store the getset wrapper under this
-            // name; heap types store the actual value.
-            && !params.class().is(vm.ctx.types.getset_type)
-        {
-            return params;
-        }
-        vm.ctx.empty_tuple.clone().into()
-    }
-
-    #[pygetset(setter)]
-    fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-        let key = identifier!(vm, __type_params__);
-        match value {
-            PySetterValue::Assign(val) => {
-                self.check_set_special_type_attr(key, vm)?;
-                let _prev_value = Self::with_type_lock(vm, || {
-                    self.modified_inner();
-                    self.attributes.insert(key, val)
-                });
-            }
-            PySetterValue::Delete => {
-                return Err(vm.new_type_error("cannot delete '__type_params__'"));
-            }
-        }
-        Ok(())
+    fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+        core::mem::take(args);
+        Ok(Self)
     }
 }
 
@@ -2441,12 +1818,12 @@ impl Constructor for PyType {
         }
         let name = name.try_into_utf8(vm)?;
 
-        let (metatype, base, bases, base_is_type) = if bases.is_empty() {
+        let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
             let bases = PyTuple::new_ref_typed(vec![base.clone()], &vm.ctx);
             (metatype, base, bases, false)
         } else {
-            for obj in bases.iter() {
+            for obj in bases.as_slice() {
                 if obj.downcast_ref::<Self>().is_none() {
                     if vm
                         .get_attribute_opt(obj, identifier!(vm, __mro_entries__))?
@@ -2463,7 +1840,7 @@ impl Constructor for PyType {
             let bases = bases.try_into_typed::<Self>(vm)?;
 
             // Search the bases for the proper metatype to deal with this:
-            let winner = calculate_meta_class(metatype.clone(), &bases, vm)?;
+            let winner = calculate_meta_class(metatype.clone(), bases.as_slice(), vm)?;
             let metatype = if !winner.is(&metatype) {
                 if let Some(ref slot_new) = winner.slots.new.load() {
                     // Pass it to the winner
@@ -2474,7 +1851,7 @@ impl Constructor for PyType {
                 metatype
             };
 
-            let base = best_base(&bases, vm)?;
+            let base = best_base(bases.as_slice(), vm)?;
             let base_is_type = base.is(vm.ctx.types.type_type);
 
             (metatype, base.to_owned(), bases, base_is_type)
@@ -2526,10 +1903,10 @@ impl Constructor for PyType {
 
         if let Some(globals) = crate::frame::current_globals() {
             let entry = attributes.entry(identifier!(vm, __module__));
-            if matches!(entry, Entry::Vacant(_)) {
-                let module_name =
-                    vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-                entry.or_insert(module_name);
+            if let Entry::Vacant(entry) = entry
+                && let Some(module_name) = globals.get_item_opt(identifier!(vm, __name__), vm)?
+            {
+                entry.insert(module_name);
             }
         }
 
@@ -2573,13 +1950,10 @@ impl Constructor for PyType {
                 tuple.try_into_typed(vm)?
             };
 
-            // Check if base has itemsize > 0 - can't add arbitrary slots to variable-size types
-            // Types like int, bytes, tuple have itemsize > 0 and don't allow custom slots
-            // But types like weakref.ref have itemsize = 0 and DO allow slots
-            let has_custom_slots = slots
-                .iter()
-                .any(|s| !matches!(s.as_bytes(), b"__dict__" | b"__weakref__"));
-            if has_custom_slots && base.slots.itemsize > 0 {
+            // Any nonempty __slots__ is rejected when the base has a variable
+            // item size, including a tuple of only `__dict__` or `__weakref__`.
+            // Types like weakref.ref have itemsize 0 and do allow slots.
+            if !slots.as_slice().is_empty() && base.slots.itemsize > 0 {
                 return Err(vm.new_type_error(format!(
                     "nonempty __slots__ not supported for subtype of '{}'",
                     base.name()
@@ -2589,7 +1963,7 @@ impl Constructor for PyType {
             // Validate slot names and track duplicates
             let mut seen_dict = false;
             let mut seen_weakref = false;
-            for slot in slots.iter() {
+            for slot in slots.as_slice() {
                 // Use isidentifier for validation (handles Unicode properly)
                 if !slot.isidentifier() {
                     return Err(vm.new_type_error("__slots__ must be identifiers"));
@@ -2644,13 +2018,14 @@ impl Constructor for PyType {
             // Check if __dict__ or __weakref__ is in slots
             let dict_name = "__dict__";
             let weakref_name = "__weakref__";
-            let has_dict = slots.iter().any(|s| s.as_wtf8() == dict_name);
+            let has_dict = slots.as_slice().iter().any(|s| s.as_wtf8() == dict_name);
             let add_weakref = seen_weakref;
 
             // Filter out __dict__ and __weakref__ from slots
             // (they become descriptors, not member slots), then sort so
             // __class__ assignment can compare layouts by slot name.
             let mut filtered: Vec<PyStrRef> = slots
+                .as_slice()
                 .iter()
                 .filter(|s| s.as_wtf8() != dict_name && s.as_wtf8() != weakref_name)
                 .cloned()
@@ -2665,11 +2040,12 @@ impl Constructor for PyType {
 
         // FIXME: this is a temporary fix. multi bases with multiple slots will break object
         let base_member_count = bases
+            .as_slice()
             .iter()
             .map(|base| base.slots.member_count)
             .max()
             .unwrap();
-        let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.len());
+        let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.as_slice().len());
         let member_count: usize = base_member_count + heaptype_member_count;
 
         let mut flags = PyTypeFlags::heap_type_flags();
@@ -2694,14 +2070,16 @@ impl Constructor for PyType {
         // Add HAS_WEAKREF if:
         // 1. __slots__ is not defined (automatic weakref support), OR
         // 2. __weakref__ is in __slots__
-        let may_add_weakref = !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
+        // A variable-size base does not gain a weakref slot.
+        let may_add_weakref =
+            base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
             flags |= PyTypeFlags::HAS_WEAKREF | PyTypeFlags::MANAGED_WEAKREF;
         }
 
         let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
-                flags,
+                flags: crate::types::PyAtomicTypeFlags::new(flags),
                 member_count,
                 itemsize: base.slots.itemsize,
                 ..PyTypeSlots::heap_default()
@@ -2782,9 +2160,9 @@ impl Constructor for PyType {
                 let member_def = PyMemberDef {
                     name: mangled_name.clone(),
                     kind: MemberKind::ObjectEx,
-                    offset: offset as isize,
-                    flags: 0,
-                    doc: None,
+                    offset: crate::object::slot_member_offset(offset),
+                    flags: PyMemberFlags::empty(),
+                    doc: ItemDoc::NONE,
                 };
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());
                 let member_descriptor: PyRef<PyMemberDescriptor> =
@@ -2795,7 +2173,7 @@ impl Constructor for PyType {
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,
-                        access: MemberAccess::Slot,
+                        access: MemberAccess::Offset,
                     });
                 // __slots__ attributes always get a member descriptor
                 // (this overrides any inherited attribute from MRO)
@@ -2832,9 +2210,11 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__dict__));
             if !typ.attributes.contains(__dict__) && !has_inherited_dict {
-                let descriptor =
-                    vm.ctx
-                        .new_getset("__dict__", &typ, subtype_get_dict, subtype_set_dict);
+                let getset = super::PyGetSet::new("__dict__", &typ, &vm.ctx)
+                    .with_get(subtype_get_dict)
+                    .with_set(subtype_set_dict)
+                    .with_doc(ItemDoc::static_text("dictionary for instance variables"));
+                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
                 typ.attributes.set(__dict__, descriptor.into());
             }
         }
@@ -2848,12 +2228,13 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__weakref__));
             if !typ.attributes.contains(__weakref__) && !has_inherited_weakref {
-                let descriptor = vm.ctx.new_getset(
-                    "__weakref__",
-                    &typ,
-                    subtype_get_weakref,
-                    subtype_set_weakref,
-                );
+                let getset = super::PyGetSet::new("__weakref__", &typ, &vm.ctx)
+                    .with_get(subtype_get_weakref)
+                    .with_set(subtype_set_weakref)
+                    .with_doc(ItemDoc::static_text(
+                        "list of weak references to the object",
+                    ));
+                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
                 typ.attributes.set(__weakref__, descriptor.into());
             }
         }
@@ -2954,6 +2335,14 @@ pub(crate) fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -
     (!doc.is_empty()).then_some(doc)
 }
 
+pub(crate) fn rendered_item_doc(name: &str, doc: ItemDoc) -> Option<&'static str> {
+    if doc.len != 0 {
+        return db_doc(doc.offset, doc.len);
+    }
+    doc.text
+        .and_then(|text| get_doc_from_internal_doc(name, text))
+}
+
 impl Initializer for PyType {
     type Args = FuncArgs;
 
@@ -3015,7 +2404,7 @@ impl GetAttr for PyType {
         let zelf_attr = zelf.get_attr(name);
 
         if let Some(attr) = zelf_attr {
-            let descr_get = attr.class().slots.descr_get.load();
+            let descr_get = attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(attr.as_object(), None, Some(zelf.as_object()), vm)
             } else {
@@ -3046,11 +2435,11 @@ impl Py<PyType> {
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         // Similar to CPython's type_get_doc
         // For non-heap types (static types), check if there's an internal doc
+        let internal_doc = self.slots.doc;
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            && let Some(internal_doc) = self.slots.doc
+            && (internal_doc.text.is_some() || internal_doc.len != 0)
         {
-            // Process internal doc, removing signature if present
-            let doc_str = get_doc_from_internal_doc(&self.name(), internal_doc);
+            let doc_str = rendered_item_doc(&self.name(), internal_doc);
             return Ok(doc_str.map_or_else(|| vm.ctx.none(), |doc| vm.ctx.new_str(doc).into()));
         }
 
@@ -3058,7 +2447,7 @@ impl Py<PyType> {
         // CPython returns None if __doc__ is not in the type's own dict
         if let Some(doc_attr) = self.get_direct_attr(vm.ctx.intern_str("__doc__")) {
             // If it's a descriptor, call its __get__ method
-            let descr_get = doc_attr.class().slots.descr_get.load();
+            let descr_get = doc_attr.class().slots().descr_get.load();
             if let Some(descr_get) = descr_get {
                 descr_get(doc_attr.as_object(), None, Some(self.as_object()), vm)
             } else {
@@ -3125,6 +2514,627 @@ impl Py<PyType> {
             .map(Into::into)
             .collect())
     }
+
+    #[pygetset]
+    fn __bases__(&self, vm: &VirtualMachine) -> PyTupleRef {
+        PyType::with_type_lock(vm, || self.bases.read().clone().into_untyped())
+    }
+    #[pygetset(setter, name = "__bases__")]
+    fn set_bases(zelf: &Self, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
+        // Rather than correctly re-initializing the class, we are skipping a few steps for now
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__bases__' attribute of immutable type '{}'",
+                zelf.name()
+            )));
+        }
+        if bases_tuple.as_slice().is_empty() {
+            return Err(vm.new_type_error(format!(
+                "can only assign non-empty tuple to {}.__bases__, not ()",
+                zelf.name()
+            )));
+        }
+        for base in bases_tuple.as_slice() {
+            if base.downcast_ref::<PyType>().is_none() {
+                return Err(vm.new_type_error(format!(
+                    "{}.__bases__ must be tuple of classes, not '{}'",
+                    zelf.name(),
+                    base.class().name()
+                )));
+            }
+        }
+        let bases = bases_tuple.try_into_typed::<PyType>(vm)?;
+
+        // Compute the new solid base before committing anything. This also
+        // validates the new bases (BASETYPE flag, no instance layout
+        // conflict), the same checks type creation performs.
+        let new_base = best_base(bases.as_slice(), vm)?.to_owned();
+
+        // Reject reparenting onto a base whose instances have an incompatible
+        // object layout.
+        let old_base_owned = zelf.base.load_owned();
+        let old_base = old_base_owned
+            .as_deref()
+            .unwrap_or(vm.ctx.types.object_type);
+        compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
+
+        // References released inside the critical section are collected here
+        // and dropped after the lock: dropping them inside can run arbitrary
+        // code that re-acquires the non-reentrant type mutex.
+        let mut retired: Vec<PyObjectRef> = Vec::new();
+
+        // A base swapped out of `zelf.base` may still be observed by
+        // concurrent lock-free readers; keep it alive in the frame's
+        // temporary refs so they never see a dangling pointer.
+        let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
+            if let Some(frame) = vm.current_frame() {
+                frame
+                    .iframe()
+                    .cold()
+                    .temporary_refs
+                    .lock()
+                    .push(type_ref.into());
+            } else {
+                retired.push(type_ref.into());
+            }
+        };
+
+        let add_as_subclass = |bases: &[PyTypeRef]| {
+            let weakref_type = super::PyWeak::static_type();
+            for base in bases {
+                base.subclasses.write().push(
+                    zelf.as_object()
+                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                        .unwrap(),
+                );
+            }
+        };
+
+        let remove_as_subclass = |bases: &[PyTypeRef], retired: &mut Vec<PyObjectRef>| {
+            for base in bases {
+                let mut subclasses = base.subclasses.write();
+                let mut kept = Vec::with_capacity(subclasses.len());
+                for weak in subclasses.drain(..) {
+                    match weak.upgrade() {
+                        Some(obj) if obj.is(zelf.as_object()) => {
+                            retired.push(obj);
+                            retired.push(weak.into());
+                        }
+                        Some(obj) => {
+                            retired.push(obj);
+                            kept.push(weak);
+                        }
+                        None => retired.push(weak.into()),
+                    }
+                }
+                *subclasses = kept;
+            }
+        };
+
+        let result = PyType::with_type_lock(vm, || {
+            for base in bases.as_slice() {
+                if is_subtype_with_mro(&base.mro.read(), base, zelf)
+                    || (!base.mro.read().is_empty() && type_is_subtype_base_chain(base, zelf, vm))
+                {
+                    return Err(vm.new_type_error("a __bases__ item causes an inheritance cycle"));
+                }
+            }
+
+            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases.clone());
+            let old_base = unsafe { zelf.base.swap(Some(new_base.clone())) };
+
+            // Recursively update the mros of this class and all subclasses,
+            // recording the previous mros so a failure can be rolled back.
+            fn update_mro_recursively(
+                cls: &Py<PyType>,
+                undo: &mut Vec<(PyTypeRef, Vec<PyTypeRef>)>,
+                vm: &VirtualMachine,
+            ) -> PyResult<i32> {
+                let old_ptr = cls.mro.read().as_ptr();
+                let new_mro = mro_invoke(cls, vm)?;
+                if cls.mro.read().as_ptr() != old_ptr {
+                    // A nested custom mro() already replaced tp_mro.
+                    return Ok(0);
+                }
+                let old_mro = core::mem::replace(&mut *cls.mro.write(), new_mro);
+                undo.push((cls.to_owned(), old_mro));
+                cls.modified_inner();
+                let subclasses: Vec<PyTypeRef> = cls
+                    .subclasses
+                    .read()
+                    .iter()
+                    .filter_map(|subclass| subclass.upgrade())
+                    .filter_map(|subclass| subclass.downcast::<PyType>().ok())
+                    .collect();
+                for subclass in subclasses {
+                    update_mro_recursively(&subclass, undo, vm)?;
+                }
+                Ok(1)
+            }
+            let mut undo = Vec::new();
+            if let Err(err) = update_mro_recursively(zelf, &mut undo, vm) {
+                // Roll back to the previous state. A class reachable through
+                // multiple bases is recorded once per visit, so restore in
+                // reverse to end with the first-recorded (original) mro.
+                for (cls, old_mro) in undo.into_iter().rev() {
+                    let failed_mro = core::mem::replace(&mut *cls.mro.write(), old_mro);
+                    retired.extend(failed_mro.into_iter().map(Into::into));
+                    retired.push(cls.into());
+                }
+                // Take no action if tp_bases was replaced through reentrance.
+                if core::ptr::eq(&**zelf.bases.read(), &*bases) {
+                    let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
+                    if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
+                        keep_alive(failed_base, &mut retired);
+                    }
+                    retired.push(failed_bases.into_untyped().into());
+                    zelf.modified_inner();
+                } else {
+                    retired.push(old_bases.into_untyped().into());
+                    if let Some(old_base) = old_base {
+                        keep_alive(old_base, &mut retired);
+                    }
+                }
+                return Err(err);
+            }
+            // Retire the replaced mros as well; dropping them here would
+            // release them while the lock is held.
+            for (cls, old_mro) in undo {
+                retired.extend(old_mro.into_iter().map(Into::into));
+                retired.push(cls.into());
+            }
+
+            // Take no action if tp_bases was replaced through reentrance.
+            if core::ptr::eq(&**zelf.bases.read(), &*bases) {
+                remove_as_subclass(old_bases.as_slice(), &mut retired);
+                add_as_subclass(bases.as_slice());
+                zelf.update_all_slots(&vm.ctx);
+            }
+
+            retired.push(old_bases.into_untyped().into());
+            if let Some(old_base) = old_base {
+                keep_alive(old_base, &mut retired);
+            }
+            crate::stdlib::_testinternalcapi::note_set_bases();
+            Ok(())
+        });
+        drop(retired);
+        result
+    }
+
+    #[pygetset]
+    fn __abstractmethods__(zelf: &Self, vm: &VirtualMachine) -> PyResult {
+        if zelf.is(vm.ctx.types.type_type) {
+            return Err(vm.new_attribute_error("__abstractmethods__"));
+        }
+        zelf.get_direct_attr(identifier!(vm, __abstractmethods__))
+            .ok_or_else(|| vm.new_attribute_error("__abstractmethods__"))
+    }
+
+    #[pygetset(setter)]
+    fn set___abstractmethods__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let key = identifier!(vm, __abstractmethods__);
+        let is_abstract = match &value {
+            PySetterValue::Assign(val) => val.try_to_bool(vm)?,
+            PySetterValue::Delete => false,
+        };
+        match value {
+            PySetterValue::Assign(val) => {
+                PyType::with_type_lock(vm, || {
+                    self.modified_inner();
+                    let _prev = self.attributes.insert(key, val);
+                    self.set_is_abstract(is_abstract);
+                });
+            }
+            PySetterValue::Delete => {
+                let removed = PyType::with_type_lock(vm, || {
+                    self.modified_inner();
+                    let removed = self.attributes.remove(key);
+                    if removed.is_some() {
+                        self.set_is_abstract(false);
+                    }
+                    removed
+                });
+                if removed.is_none() {
+                    return Err(vm.new_attribute_error("__abstractmethods__"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
+        self.name_inner(
+            |name| {
+                vm.ctx
+                    .interned_str(name.rsplit_once('.').map_or(name, |(_, name)| name))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "static type name must be already interned but {} is not",
+                            self.slot_name()
+                        )
+                    })
+                    .to_owned()
+            },
+            |ext| ext.name.read().clone().into_wtf8(),
+        )
+    }
+
+    #[pygetset]
+    pub fn __qualname__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.payload.__qualname__(vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___qualname__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(identifier!(vm, __qualname__), vm)?;
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '__qualname__' attribute of immutable type '{}'",
+                self.name()
+            ))
+        })?;
+
+        let str_value = downcast_qualname(value, vm)?;
+
+        let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot set '__qualname__' attribute of immutable type '{}'",
+                self.name()
+            ))
+        })?;
+
+        // Use std::mem::replace to swap the new value in and get the old value out,
+        // then drop the old value after releasing the lock
+        let _old_qualname = {
+            let mut qualname_guard = heap_type.qualname.write();
+            core::mem::replace(&mut *qualname_guard, str_value)
+        };
+        // old_qualname is dropped here, outside the lock scope
+
+        Ok(())
+    }
+
+    #[pygetset]
+    fn __annotate__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotate__'",
+                self.name()
+            )));
+        }
+
+        let annotate_key = identifier!(vm, __annotate__);
+        let annotate_func_key = identifier!(vm, __annotate_func__);
+        if let Some(annotate) = self.attributes.get(annotate_key) {
+            return Ok(annotate);
+        }
+        if let Some(annotate) = self.attributes.get(annotate_func_key) {
+            return Ok(annotate);
+        }
+
+        let none = vm.ctx.none();
+        let (result, _prev) = PyType::with_type_lock(vm, || {
+            if let Some(annotate) = self.attributes.get(annotate_key) {
+                return (annotate, None);
+            }
+            if let Some(annotate) = self.attributes.get(annotate_func_key) {
+                return (annotate, None);
+            }
+            self.modified_inner();
+            let prev = self.attributes.insert(annotate_func_key, none.clone());
+            (none, prev)
+        });
+        Ok(result)
+    }
+
+    #[pygetset(setter)]
+    fn set___annotate__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let value = match value {
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("cannot delete __annotate__ attribute"));
+            }
+            PySetterValue::Assign(v) => v,
+        };
+
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__annotate__' attribute of immutable type '{}'",
+                self.name()
+            )));
+        }
+
+        if !vm.is_none(&value) && !value.is_callable() {
+            return Err(vm.new_type_error("__annotate__ must be callable or None"));
+        }
+
+        let _prev_values = PyType::with_type_lock(vm, || {
+            self.modified_inner();
+            // Clear cached annotations only when setting to a new callable
+            let removed = if !vm.is_none(&value) {
+                self.attributes
+                    .remove(identifier!(vm, __annotations_cache__))
+            } else {
+                None
+            };
+            let prev = self
+                .attributes
+                .insert(identifier!(vm, __annotate_func__), value);
+            (removed, prev)
+        });
+
+        Ok(())
+    }
+
+    #[pygetset]
+    fn __annotations__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let annotations_key = identifier!(vm, __annotations__);
+        let annotations_cache_key = identifier!(vm, __annotations_cache__);
+        if let Some(annotations) = self.attributes.get(annotations_key) {
+            // Ignore the __annotations__ descriptor stored on type itself.
+            if !annotations.class().is(vm.ctx.types.getset_type) {
+                if vm.is_none(&annotations)
+                    || annotations.class().is(vm.ctx.types.dict_type)
+                    || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                {
+                    return Ok(annotations);
+                }
+                return Err(vm.new_attribute_error(format!(
+                    "type object '{}' has no attribute '__annotations__'",
+                    self.name()
+                )));
+            }
+        }
+        if let Some(annotations) = self.attributes.get(annotations_cache_key) {
+            if vm.is_none(&annotations)
+                || annotations.class().is(vm.ctx.types.dict_type)
+                || self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            {
+                return Ok(annotations);
+            }
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotations__'",
+                self.name()
+            )));
+        }
+
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotations__'",
+                self.name()
+            )));
+        }
+
+        // Get __annotate__ and call it if callable
+        let annotate = self.__annotate__(vm)?;
+        let annotations = if annotate.is_callable() {
+            // Call __annotate__(1) where 1 is FORMAT_VALUE
+            let result = annotate.call((1i32,), vm)?;
+            if !result.class().is(vm.ctx.types.dict_type) {
+                return Err(vm.new_type_error(format!(
+                    "__annotate__ returned non-dict of type '{}'",
+                    result.class().name()
+                )));
+            }
+            result
+        } else {
+            vm.ctx.new_dict().into()
+        };
+
+        let (result, _prev) = PyType::with_type_lock(vm, || {
+            if let Some(existing) = self.attributes.get(annotations_key)
+                && !existing.class().is(vm.ctx.types.getset_type)
+            {
+                return (existing, None);
+            }
+            if let Some(existing) = self.attributes.get(annotations_cache_key) {
+                return (existing, None);
+            }
+            self.modified_inner();
+            let prev = self
+                .attributes
+                .insert(annotations_cache_key, annotations.clone());
+            (annotations, prev)
+        });
+        Ok(result)
+    }
+
+    #[pygetset(setter)]
+    fn set___annotations__(
+        &self,
+        value: crate::function::PySetterValue<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__annotations__' attribute of immutable type '{}'",
+                self.name()
+            )));
+        }
+
+        let _prev_values = PyType::with_type_lock(vm, || {
+            self.modified_inner();
+            let has_annotations = self.attributes.contains(identifier!(vm, __annotations__));
+
+            let mut prev = Vec::new();
+            match value {
+                crate::function::PySetterValue::Assign(value) => {
+                    let key = if has_annotations {
+                        identifier!(vm, __annotations__)
+                    } else {
+                        identifier!(vm, __annotations_cache__)
+                    };
+                    prev.extend(self.attributes.insert(key, value));
+                    if has_annotations {
+                        prev.extend(
+                            self.attributes
+                                .remove(identifier!(vm, __annotations_cache__)),
+                        );
+                    }
+                }
+                crate::function::PySetterValue::Delete => {
+                    let removed = if has_annotations {
+                        self.attributes.remove(identifier!(vm, __annotations__))
+                    } else {
+                        self.attributes
+                            .remove(identifier!(vm, __annotations_cache__))
+                    };
+                    if removed.is_none() {
+                        return Err(vm.new_attribute_error("__annotations__"));
+                    }
+                    prev.extend(removed);
+                    if has_annotations {
+                        prev.extend(
+                            self.attributes
+                                .remove(identifier!(vm, __annotations_cache__)),
+                        );
+                    }
+                }
+            }
+            prev.extend(self.attributes.remove(identifier!(vm, __annotate_func__)));
+            prev.extend(self.attributes.remove(identifier!(vm, __annotate__)));
+            Ok(prev)
+        })?;
+
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn __module__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        self.payload.__module__(vm)
+    }
+
+    #[pygetset(setter)]
+    fn set___module__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(identifier!(vm, __module__), vm)?;
+        let _prev_values = PyType::with_type_lock(vm, || {
+            self.modified_inner();
+            let removed = self.attributes.remove(identifier!(vm, __firstlineno__));
+            let prev = self.attributes.insert(identifier!(vm, __module__), value);
+            (removed, prev)
+        });
+        Ok(())
+    }
+
+    #[pyclassmethod]
+    fn __prepare__(_cls: PyTypeRef, _args: PrepareArgs, vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
+    }
+
+    #[pymethod]
+    fn __subclasses__(&self, vm: &VirtualMachine) -> PyList {
+        let mut subclasses = self.subclasses.write();
+        subclasses.retain(|x| x.upgrade().is_some());
+        let interpreter_id = vm.state.interpreter_id;
+        PyList::from(
+            subclasses
+                .iter()
+                .filter_map(|x| x.upgrade())
+                .filter(|obj| {
+                    obj.downcast_ref::<PyType>()
+                        .is_none_or(|typ| typ.is_visible_to_interpreter(interpreter_id))
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[pygetset]
+    fn __dict__(zelf: PyRef<PyType>) -> PyMappingProxy {
+        PyMappingProxy::from(zelf)
+    }
+
+    #[pygetset(setter)]
+    fn set___dict__(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_attribute_error(format!(
+            "attribute '__dict__' of '{}' objects is not writable",
+            self.name()
+        )))
+    }
+
+    #[pygetset(setter)]
+    fn set___name__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(identifier!(vm, __name__), vm)?;
+        let name = value.downcast::<PyStr>().map_err(|value| {
+            vm.new_type_error(format!(
+                "can only assign string to {}.__name__, not '{}'",
+                self.slot_name(),
+                value.class().slot_name(),
+            ))
+        })?;
+        if name.as_bytes().contains(&0) {
+            return Err(vm.new_value_error("type name must not contain null characters"));
+        }
+        let name = name.try_into_utf8(vm)?;
+
+        let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot set '__name__' attribute of immutable type '{}'",
+                self.slot_name()
+            ))
+        })?;
+
+        // Use std::mem::replace to swap the new value in and get the old value out,
+        // then drop the old value after releasing the lock
+        let _old_name = {
+            let mut name_guard = heap_type.name.write();
+            core::mem::replace(&mut *name_guard, name)
+        };
+        // old_name is dropped here, outside the lock scope
+
+        Ok(())
+    }
+
+    #[pygetset]
+    fn __text_signature__(&self, vm: &VirtualMachine) -> Option<String> {
+        let name = self.name();
+        if let Some(text) = self.slots.doc.text
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, text)
+        {
+            return Some(signature.to_string());
+        }
+        if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+            && let Some(doc_attr) = self.get_direct_attr(identifier!(vm, __doc__))
+            && let Some(doc) = doc_attr.downcast_ref::<PyStr>()
+            && let Some(doc) = doc.to_str()
+            && let Some(signature) = get_text_signature_from_internal_doc(&name, doc)
+        {
+            return Some(signature.to_string());
+        }
+        None
+    }
+
+    #[pygetset]
+    fn __type_params__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let key = identifier!(vm, __type_params__);
+        if let Some(params) = self.attributes.get(key)
+            // Builtin type namespaces store the getset wrapper under this
+            // name; heap types store the actual value.
+            && !params.class().is(vm.ctx.types.getset_type)
+        {
+            return params;
+        }
+        vm.ctx.empty_tuple.clone().into()
+    }
+
+    #[pygetset(setter)]
+    fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let key = identifier!(vm, __type_params__);
+        match value {
+            PySetterValue::Assign(val) => {
+                self.check_set_special_type_attr(key, vm)?;
+                let _prev_value = PyType::with_type_lock(vm, || {
+                    self.modified_inner();
+                    self.attributes.insert(key, val)
+                });
+            }
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("cannot delete '__type_params__'"));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl SetAttr for PyType {
@@ -3135,7 +3145,7 @@ impl SetAttr for PyType {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr_name = vm.ctx.intern_str(attr_name.as_wtf8());
-        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
                 attr_name,
@@ -3143,7 +3153,7 @@ impl SetAttr for PyType {
             )));
         }
         if let Some(attr) = zelf.get_class_attr(attr_name) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
@@ -3160,9 +3170,9 @@ impl SetAttr for PyType {
             zelf.modified_inner();
 
             let prev_value = if let PySetterValue::Assign(value) = value {
-                zelf.attributes.insert(attr_name, value)
+                zelf.attributes().insert(attr_name, value)
             } else {
-                let prev_value = zelf.attributes.remove(attr_name);
+                let prev_value = zelf.attributes().remove(attr_name);
                 if prev_value.is_none() {
                     return Err(vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",
@@ -3203,8 +3213,10 @@ impl Callable for PyType {
             }
         }
 
-        let Some(slot_new) = zelf.slots.new.load() else {
-            return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
+        let Some(slot_new) = zelf.slots().new.load() else {
+            return Err(
+                vm.new_type_error(format!("cannot create '{}' instances", zelf.slots().name))
+            );
         };
 
         // Both the new and init slots consume args, so the init call gets a
@@ -3223,7 +3235,7 @@ impl Callable for PyType {
             // so a mismatch is conservative: if it ever compared unequal for the
             // wrapper it would only take the slower cloning path, never the fast
             // path incorrectly.
-            if zelf.slots.init.load().is_none()
+            if zelf.slots().init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
                 && crate::types::fn_addr(slot_new)
                     != crate::types::fn_addr(crate::types::new_wrapper as crate::types::NewFunc)
@@ -3239,7 +3251,7 @@ impl Callable for PyType {
             return Ok(obj);
         }
 
-        if let Some(init_method) = obj.class().slots.init.load() {
+        if let Some(init_method) = obj.class().slots().init.load() {
             init_method(&obj, init_args, vm)?;
         }
         Ok(obj)
@@ -3259,8 +3271,12 @@ impl AsNumber for PyType {
 impl Representable for PyType {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let module = zelf.__module__(vm);
-        let module = module.downcast_ref::<PyStr>().map(|m| m.as_wtf8());
+        // A missing `__module__` is not an error here.
+        let module = zelf.__module__(vm).ok();
+        let module = module
+            .as_ref()
+            .and_then(|m| m.downcast_ref::<PyStr>())
+            .map(|m| m.as_wtf8());
 
         let repr = match module {
             Some(module) if module != "builtins" => {
@@ -3291,7 +3307,7 @@ fn get_builtin_base_with_dict(typ: &Py<PyType>, vm: &VirtualMachine) -> Option<P
         {
             return Some(t);
         }
-        current = t.__base__();
+        current = t.base.load_owned();
     }
     None
 }
@@ -3406,10 +3422,10 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
-    } else if zelf.slots.call.load().is_none() && zelf.slots.new.load().is_some() {
+    } else if zelf.slots().call.load().is_none() && zelf.slots().new.load().is_some() {
         // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
         // Also guard on slots.new to avoid dispatching for DISALLOW_INSTANTIATION types.
-        if let Some(type_vc) = zelf.slots.vectorcall.load() {
+        if let Some(type_vc) = zelf.slots().vectorcall.load() {
             return type_vc(zelf_obj, args, nargs, kwnames, vm);
         }
     }
@@ -3453,7 +3469,7 @@ pub(crate) fn call_slot_new(
         .load()
         .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
     {
-        match staticbase.base.to_owned() {
+        match staticbase.base.load_owned() {
             Some(base) => staticbase = base,
             None => break,
         }
@@ -3590,7 +3606,7 @@ fn type_is_subtype_base_chain(a: &Py<PyType>, b: &Py<PyType>, vm: &VirtualMachin
 }
 
 fn mro_implementation(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyTypeRef>> {
-    for base in typ.bases.read().iter() {
+    for base in typ.bases.read().as_slice() {
         if base.mro.read().is_empty() {
             return Err(vm.new_type_error(format!(
                 "Cannot extend an incomplete type '{}'",
@@ -3598,7 +3614,8 @@ fn mro_implementation(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyT
             )));
         }
     }
-    let mut mro = PyType::resolve_mro(&typ.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+    let mut mro =
+        PyType::resolve_mro(typ.bases.read().as_slice()).map_err(|msg| vm.new_type_error(msg))?;
     mro.insert(0, typ.to_owned());
     Ok(mro)
 }
@@ -3660,7 +3677,7 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.__basicsize__() != t2.__basicsize__() || t1.slots.itemsize != t2.slots.itemsize
+    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
@@ -3753,9 +3770,10 @@ fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
         b.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
     ) {
         (Some(x), Some(y)) => {
-            x.len() == y.len()
-                && x.iter()
-                    .zip(y.iter())
+            x.as_slice().len() == y.as_slice().len()
+                && x.as_slice()
+                    .iter()
+                    .zip(y.as_slice().iter())
                     .all(|(p, q)| p.as_wtf8() == q.as_wtf8())
         }
         _ => true,

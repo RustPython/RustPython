@@ -3142,7 +3142,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
         self.assertEqual([c.tag for c in children[3:]],
                          [a.tag, b.tag, a.tag, b.tag])
 
-    @unittest.skip("TODO: RUSTPYTHON; stack overflow")
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; stack overflow on Windows")
     @support.skip_if_unlimited_stack_size
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()

@@ -1,5 +1,6 @@
 //! Infamous code object. The python class `code`
 
+use super::descriptor::{MemberKind, MemberLayout};
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
 #[cfg(feature = "host_env")]
@@ -216,7 +217,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         ref f @ super::float::PyFloat => BorrowedConstant::Float { value: f.to_f64() },
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
-            value: c.to_complex()
+            value: c.as_complex()
         },
         ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_wtf8() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
@@ -471,12 +472,22 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
+    #[pymember(name = "co_argcount", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", path = "max_stackdepth")]
+    #[pymember(name = "co_name", path = "obj_name")]
+    #[pymember(name = "co_qualname", path = "qualname")]
+    #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
     /// merged cell variables.
     localsplus_names: Box<[&'static PyStrInterned]>,
+    #[pymember(name = "co_filename")]
     source_path: AtomicPtr<PyStrInterned>,
+    #[pymember(name = "co_nlocals")]
+    nlocals: i32,
     /// Version counter for lazy re-instrumentation.
     /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
     pub instrumentation_version: AtomicU64,
@@ -576,9 +587,14 @@ fn build_localspluskinds(
     Ok(kinds.into_boxed_slice())
 }
 
+impl MemberLayout for CodeFlags {
+    const KIND: MemberKind = MemberKind::Int;
+}
+
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
+        let nlocals = i32::try_from(code.varnames.len()).unwrap_or(i32::MAX);
         let localsplus_names = {
             let varname_ids = code
                 .varnames
@@ -616,6 +632,7 @@ impl PyCode {
             code,
             localsplus_names,
             source_path: AtomicPtr::new(sp),
+            nlocals,
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
@@ -884,6 +901,7 @@ impl Constructor for PyCode {
         // Convert names tuple to vector of interned strings
         let names: Box<[&'static PyStrInterned]> = args
             .names
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -896,6 +914,7 @@ impl Constructor for PyCode {
 
         let varnames: Box<[&'static PyStrInterned]> = args
             .varnames
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -908,6 +927,7 @@ impl Constructor for PyCode {
 
         let cellvars: Box<[&'static PyStrInterned]> = args
             .cellvars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -920,6 +940,7 @@ impl Constructor for PyCode {
 
         let freevars: Box<[&'static PyStrInterned]> = args
             .freevars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -947,6 +968,7 @@ impl Constructor for PyCode {
         // Convert constants
         let constants = args
             .consts
+            .as_slice()
             .iter()
             .map(|obj| {
                 // Convert PyObject to Literal constant. For now, just wrap it
@@ -1018,31 +1040,18 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(
-    with(Representable, Constructor, Comparable, Hashable),
-    flags(HAS_WEAKREF)
-)]
 impl PyCode {
-    #[pygetset]
-    const fn co_posonlyargcount(&self) -> usize {
-        self.code.posonlyarg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_argcount(&self) -> usize {
-        self.code.arg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_stacksize(&self) -> u32 {
-        self.code.max_stackdepth
-    }
-
-    #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
+}
 
+#[pyclass(
+    itemsize = core::mem::size_of::<u16>(),
+    with(Representable, Constructor, Comparable, Hashable),
+    flags(HAS_WEAKREF)
+)]
+impl Py<PyCode> {
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let cellvars = self
@@ -1054,33 +1063,14 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_nlocals(&self) -> usize {
-        self.code.varnames.len()
-    }
-
-    #[pygetset]
     fn co_firstlineno(&self) -> u32 {
         self.code.first_line_number.map_or(0, |n| n.get() as _)
-    }
-
-    #[pygetset]
-    const fn co_kwonlyargcount(&self) -> usize {
-        self.code.kwonlyarg_count as usize
     }
 
     #[pygetset]
     fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
-    }
-
-    #[pygetset]
-    fn co_name(&self) -> PyStrRef {
-        self.code.obj_name.to_owned()
-    }
-    #[pygetset]
-    fn co_qualname(&self) -> PyStrRef {
-        self.code.qualname.to_owned()
     }
 
     #[pygetset]
@@ -1093,11 +1083,6 @@ impl PyCode {
             .map(|name| name.to_pyobject(vm))
             .collect();
         vm.ctx.new_tuple(names)
-    }
-
-    #[pygetset]
-    const fn co_flags(&self) -> u32 {
-        self.code.flags.bits()
     }
 
     #[pygetset]
@@ -1423,12 +1408,12 @@ impl PyCode {
     }
 
     #[pymethod]
-    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         self.replace(args, vm)
     }
 
     #[pymethod]
-    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         let ReplaceArgs {
             co_posonlyargcount,
             co_argcount,
@@ -1614,7 +1599,7 @@ impl PyCode {
             exceptiontable,
         };
 
-        Ok(Self::new(new_code))
+        Ok(PyCode::new(new_code))
     }
 
     #[pymethod]

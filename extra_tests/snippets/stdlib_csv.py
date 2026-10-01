@@ -313,3 +313,51 @@ test_reader_skipinitialspace_preserves_quoted_spaces()
 
 with assert_raises(StopIteration):
     next(_csv.reader([]))
+
+
+def test_quote_nonnumeric_writer():
+    class CustomInt:
+        def __int__(self):
+            return 42
+
+        def __str__(self):
+            return "42"
+
+    class NumberWithDelimiter:
+        def __int__(self):
+            return 1
+
+        def __str__(self):
+            return "1,2"
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_NONNUMERIC)
+    writer.writerow(["123", 123, "a"])
+    writer.writerow([12.5, "12.5", True, False, None])
+    writer.writerow([CustomInt(), NumberWithDelimiter()])
+    writer.writerow([""])
+    writer.writerow([None])
+    writer.writerow([])
+    writer.writerow(["", ""])
+    assert buf.getvalue() == (
+        '"123",123,"a"\r\n'
+        '12.5,"12.5",True,False,""\r\n'
+        '42,"1,2"\r\n'
+        '""\r\n'
+        '""\r\n'
+        "\r\n"
+        '"",""\r\n'
+    ), repr(buf.getvalue())
+
+    # QUOTE_NONNUMERIC with space delimiter and skipinitialspace
+    sp_buf = io.StringIO()
+    csv.writer(
+        sp_buf,
+        delimiter=" ",
+        skipinitialspace=True,
+        quoting=csv.QUOTE_NONNUMERIC,
+    ).writerow(["a", "", "b"])
+    assert sp_buf.getvalue() == '"a" "" "b"\r\n', repr(sp_buf.getvalue())
+
+
+test_quote_nonnumeric_writer()

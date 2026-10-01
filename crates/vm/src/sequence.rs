@@ -1,6 +1,5 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult,
-    builtins::PyIntRef,
     function::OptionalArg,
     sliceable::SequenceIndexOp,
     types::PyComparisonOp,
@@ -99,6 +98,9 @@ where
 {
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+        if self.as_ref().is_empty() {
+            return Ok(Vec::new());
+        }
 
         if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
             return Err(vm.no_memory_error());
@@ -135,7 +137,7 @@ where
 
         if n == 0 {
             self.as_vec_mut().clear();
-        } else if n != 1 {
+        } else if n != 1 && !self.as_ref().is_empty() {
             let len = self.as_ref().len();
             let v = self.as_vec_mut();
             v.try_reserve_exact(len * (n - 1))
@@ -156,19 +158,19 @@ impl<T: Clone> SequenceMutExt<T> for Vec<T> {
 
 #[derive(FromArgs)]
 pub struct OptionalRangeArgs {
-    #[pyarg(positional, optional)]
-    start: OptionalArg<PyObjectRef>,
-    #[pyarg(positional, optional)]
+    #[pyarg(positional, default = 0)]
+    start: PyObjectRef,
+    // Platform ssize maximum. Missing is clamped to the sequence length.
+    #[pyarg(positional, optional, py_default = "9223372036854775807")]
     stop: OptionalArg<PyObjectRef>,
 }
 
 impl OptionalRangeArgs {
     pub fn saturate(self, len: usize, vm: &VirtualMachine) -> PyResult<(usize, usize)> {
         let saturate = |obj: PyObjectRef| -> PyResult<_> {
-            obj.try_into_value(vm)
-                .map(|int: PyIntRef| int.as_bigint().saturated_at(len))
+            Ok(obj.try_index(vm)?.as_bigint().saturated_at(len))
         };
-        let start = self.start.map_or(Ok(0), saturate)?;
+        let start = saturate(self.start)?;
         let stop = self.stop.map_or(Ok(len), saturate)?;
         Ok((start, stop))
     }

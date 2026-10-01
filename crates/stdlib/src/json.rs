@@ -626,7 +626,7 @@ mod _json {
                             Ok(tuple) => {
                                 use crate::vm::builtins::PyTupleRef;
                                 let tuple: PyTupleRef = tuple.try_into_value(vm)?;
-                                if tuple.len() != 2 {
+                                if tuple.as_slice().len() != 2 {
                                     return Err(vm.new_value_error("scan_once must return 2-tuple"));
                                 }
                                 let value = tuple.as_slice()[0].clone();
@@ -694,13 +694,13 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), false)
+    fn encode_basestring(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), false)
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
-        json::encode_string(s.as_wtf8(), true)
+    fn encode_basestring_ascii(object: PyStrRef) -> Wtf8Buf {
+        json::encode_string(object.as_wtf8(), true)
     }
 
     /// Which Rust-native string escaper (if any) the `encoder` callable is
@@ -754,12 +754,12 @@ mod _json {
         Ok(result)
     }
 
-    /// `_json.make_encoder`, mirroring CPython's `Modules/_json.c` `PyEncoderObject`.
-    ///
-    /// Encodes directly into a single growable buffer instead of building a
-    /// generator of chunks, then returns that buffer as a one-element tuple
-    /// (matching what `json/encoder.py`'s `encode()` does with the result:
-    /// `''.join(chunks)`).
+    // `_json.make_encoder` (`PyEncoderObject`).
+    //
+    // Encodes directly into a single growable buffer instead of building a
+    // generator of chunks, then returns that buffer as a one-element tuple
+    // (matching what `json/encoder.py`'s `encode()` does with the result:
+    // `''.join(chunks)`).
     #[pyattr(name = "make_encoder")]
     #[pyclass(name = "Encoder", traverse)]
     #[derive(Debug, PyPayload)]
@@ -1144,7 +1144,7 @@ mod _json {
             vm.extract_elements_with(&items_obj, |item| {
                 use crate::vm::builtins::PyTupleRef;
                 let tuple: PyTupleRef = item.try_into_value(vm)?;
-                if tuple.len() != 2 {
+                if tuple.as_slice().len() != 2 {
                     return Err(vm.new_value_error("items() must return 2-tuples"));
                 }
                 let slice = tuple.as_slice();

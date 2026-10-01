@@ -1,10 +1,10 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
+use super::{PyStr, PyStrRef, PyType, PyWeak};
 use crate::common::lock::LazyLock;
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    class::{PyClassDef, PyClassImpl},
+    class::PyClassImpl,
     common::hash::PyHash,
-    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true)]
+#[pyclass(module = "weakref", name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct PyWeakProxy(PyWeak);
@@ -23,7 +23,7 @@ impl PyPayload for PyWeakProxy {
 
     #[inline]
     unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
-        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize
+        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots().basicsize
             && obj
                 .class()
                 .fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
@@ -38,30 +38,26 @@ impl PyPayload for PyWeakProxy {
 #[derive(FromArgs)]
 pub struct WeakProxyNewArgs {
     #[pyarg(positional)]
-    referent: PyObjectRef,
+    object: PyObjectRef,
     #[pyarg(positional, optional)]
-    callback: OptionalArg<PyObjectRef>,
+    callback: Option<PyObjectRef>,
 }
 
 impl Constructor for PyWeakProxy {
-    type Args = WeakProxyNewArgs;
+    type Args = ();
 
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _ = cls;
-        let Self::Args { referent, callback } = args.bind_for(vm, Self::NAME)?;
-        let callback = callback
-            .into_option()
-            .filter(|callback| !vm.is_none(callback));
-        let proxy = Self::new_weakproxy(referent.as_ref(), callback, vm)?;
-        Ok(proxy.into())
-    }
-
-    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        unimplemented!("use slot_new")
+    fn py_new(cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
     }
 }
 
 impl PyWeakProxy {
+    pub fn from_new_args(args: WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult<PyRef<PyWeak>> {
+        let WeakProxyNewArgs { object, callback } = args;
+        let callback = callback.filter(|callback| !vm.is_none(callback));
+        Self::new_weakproxy(object.as_ref(), callback, vm)
+    }
+
     pub fn new_weakproxy(
         referent: &PyObject,
         callback: Option<PyObjectRef>,
@@ -82,7 +78,7 @@ impl PyWeakProxy {
 }
 
 #[pyclass(
-    module = false,
+    module = "weakref",
     name = "weakcallableproxy",
     base = PyWeakProxy,
     ctx = "weakcallableproxy_type",
@@ -92,8 +88,16 @@ impl PyWeakProxy {
 #[repr(transparent)]
 pub struct PyWeakCallableProxy(PyWeakProxy);
 
-#[pyclass(with(Callable))]
+#[pyclass(with(Callable, Constructor))]
 impl PyWeakCallableProxy {}
+
+impl Constructor for PyWeakCallableProxy {
+    type Args = ();
+
+    fn py_new(cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        Err(vm.new_type_error(format!("cannot create '{}' instances", cls.slot_name())))
+    }
+}
 
 impl Callable for PyWeakCallableProxy {
     type Args = FuncArgs;
@@ -103,40 +107,13 @@ impl Callable for PyWeakCallableProxy {
     }
 }
 
-#[pyclass(with(
-    GetAttr,
-    SetAttr,
-    Constructor,
-    Comparable,
-    AsNumber,
-    AsSequence,
-    AsMapping,
-    Representable,
-    IterNext
-))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
         self.0.upgrade().ok_or_else(|| new_reference_error(vm))
     }
 
-    #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.try_upgrade(vm)?.str(vm)
-    }
-
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_upgrade(vm)?.length(vm)
-    }
-
-    #[pymethod]
-    fn __bytes__(&self, vm: &VirtualMachine) -> PyResult {
-        self.try_upgrade(vm)?.bytes(vm)
-    }
-
-    #[pymethod]
-    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
-        let obj = self.try_upgrade(vm)?;
-        reversed(obj, vm)
     }
     fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?
@@ -160,6 +137,36 @@ impl PyWeakProxy {
     }
 }
 
+#[pyclass(with(
+    GetAttr,
+    SetAttr,
+    Constructor,
+    Comparable,
+    AsNumber,
+    AsSequence,
+    AsMapping,
+    Representable,
+    IterNext
+))]
+impl Py<PyWeakProxy> {
+    /// Return str(self).
+    #[pymethod]
+    fn __str__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.try_upgrade(vm)?.str(vm)
+    }
+
+    #[pymethod]
+    fn __bytes__(&self, vm: &VirtualMachine) -> PyResult {
+        self.try_upgrade(vm)?.bytes(vm)
+    }
+
+    #[pymethod]
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.try_upgrade(vm)?;
+        reversed(obj, vm)
+    }
+}
+
 impl Iterable for PyWeakProxy {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let obj = zelf.try_upgrade(vm)?;
@@ -170,7 +177,7 @@ impl Iterable for PyWeakProxy {
 impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
-        if obj.class().slots.iternext.load().is_none() {
+        if obj.class().slots().iternext.load().is_none() {
             return Err(vm.new_type_error("Weakref proxy referenced a non-iterator"));
         }
         PyIter::new(obj).next(vm)

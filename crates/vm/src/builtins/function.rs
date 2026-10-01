@@ -65,8 +65,11 @@ fn format_missing_args(
 #[derive(Debug)]
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
+    #[pymember(name = "__globals__")]
     pub(crate) globals: PyDictRef,
+    #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
+    #[pymember(name = "__closure__")]
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -74,8 +77,10 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     annotations: PyMutex<Option<PyDictRef>>,
     annotate: PyMutex<Option<PyObjectRef>>,
-    module: PyMutex<PyObjectRef>,
-    doc: PyMutex<PyObjectRef>,
+    #[pymember(name = "__module__", writable)]
+    module: PyAtomicRef<Option<PyObject>>,
+    #[pymember(name = "__doc__", writable)]
+    doc: PyAtomicRef<Option<PyObject>>,
     func_version: AtomicU32,
     #[cfg(feature = "jit")]
     jitted_code: PyMutex<Option<CompiledCode>>,
@@ -106,8 +111,11 @@ unsafe impl Traverse for PyFunction {
         // Traverse additional fields that may contain references
         self.type_params.lock().traverse(tracer_fn);
         self.annotations.lock().traverse(tracer_fn);
-        self.module.lock().traverse(tracer_fn);
-        self.doc.lock().traverse(tracer_fn);
+        self.annotate.lock().traverse(tracer_fn);
+        self.module.traverse(tracer_fn);
+        self.doc.traverse(tracer_fn);
+        self.name.lock().traverse(tracer_fn);
+        self.qualname.lock().traverse(tracer_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
@@ -139,14 +147,10 @@ unsafe impl Traverse for PyFunction {
         }
 
         // Clear module, doc, and type_params (Py_CLEAR)
-        if let Some(mut guard) = self.module.try_lock() {
-            let old_module =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_module) = self.module.store(Some(Context::genesis().none())) {
             out.push(old_module);
         }
-        if let Some(mut guard) = self.doc.try_lock() {
-            let old_doc =
-                core::mem::replace(&mut *guard, Context::genesis().none.to_owned().into());
+        if let Some(old_doc) = self.doc.store(Some(Context::genesis().none())) {
             out.push(old_doc);
         }
         if let Some(mut guard) = self.type_params.try_lock() {
@@ -213,8 +217,8 @@ impl PyFunction {
             type_params: PyMutex::new(vm.ctx.empty_tuple.clone()),
             annotations: PyMutex::new(None),
             annotate: PyMutex::new(None),
-            module: PyMutex::new(module),
-            doc: PyMutex::new(doc),
+            module: PyAtomicRef::from(Some(module)),
+            doc: PyAtomicRef::from(Some(doc)),
             func_version: AtomicU32::new(next_func_version()),
             #[cfg(feature = "jit")]
             jitted_code: PyMutex::new(None),
@@ -324,7 +328,7 @@ impl PyFunction {
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
                         "{}() got multiple values for argument '{}'",
-                        self.__qualname__(),
+                        self.qualname.lock().clone(),
                         name
                     )));
                 }
@@ -347,13 +351,13 @@ impl PyFunction {
                 if !posonly.is_empty() {
                     return Err(vm.new_type_error(format!(
                         "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                        self.__qualname__(),
+                        self.qualname.lock().clone(),
                         posonly.into_iter().format(", "),
                     )));
                 }
                 return Err(vm.new_type_error(format!(
                     "{}() got an unexpected keyword argument '{}'",
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     name
                 )));
             }
@@ -366,7 +370,7 @@ impl PyFunction {
                 .lock()
                 .0
                 .as_ref()
-                .map_or(0, |d| d.len());
+                .map_or(0, |d| d.as_slice().len());
             let n_required = n_expected_args - n_defaults;
             let (takes_msg, plural) = if n_defaults > 0 {
                 (format!("from {n_required} to {n_expected_args}"), true)
@@ -388,7 +392,7 @@ impl PyFunction {
 
             return Err(vm.new_type_error(format!(
                 "{}() takes {} positional argument{} but {} given",
-                self.__qualname__(),
+                self.qualname.lock().clone(),
                 takes_msg,
                 if plural { "s" } else { "" },
                 given_msg,
@@ -426,7 +430,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "positional",
                     &mut missing,
                 )));
@@ -470,7 +474,7 @@ impl PyFunction {
 
             if !missing.is_empty() {
                 return Err(vm.new_type_error(format_missing_args(
-                    self.__qualname__(),
+                    self.qualname.lock().clone(),
                     "keyword-only",
                     &mut missing,
                 )));
@@ -536,7 +540,8 @@ impl PyFunction {
                     })?
                     .into_pyref();
 
-                self.closure = Some(closure_tuple.try_into_typed::<PyCell>(vm)?);
+                let typed = closure_tuple.try_into_typed::<PyCell>(vm)?;
+                self.closure = Some(typed);
             }
             bytecode::MakeFunctionFlag::TypeParams => {
                 let type_params = attr_value.clone().downcast::<PyTuple>().map_err(|_| {
@@ -993,7 +998,7 @@ impl PyPayload for PyFunction {
     with(GetDescriptor, Callable, Representable, Constructor),
     flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
 )]
-impl PyFunction {
+impl Py<PyFunction> {
     #[pygetset]
     fn __code__(&self) -> PyRef<PyCode> {
         (*self.code).to_owned()
@@ -1002,7 +1007,7 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
         let n_free = code.freevars.len();
-        let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
+        let n_closure = self.closure.as_ref().map_or(0, |c| c.as_slice().len());
         if n_closure != n_free {
             return Err(vm.new_value_error(format!(
                 "{}() requires a code object with {} free vars, not {}",
@@ -1051,29 +1056,6 @@ impl PyFunction {
         crate::stdlib::_testinternalcapi::note_func_modification();
     }
 
-    // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},
-    // {"__doc__",       T_OBJECT,     OFF(func_doc), 0},
-    // {"__globals__",   T_OBJECT,     OFF(func_globals), READONLY},
-    // {"__module__",    T_OBJECT,     OFF(func_module), 0},
-    // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
-    #[pymember]
-    fn __globals__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.globals.clone().into())
-    }
-
-    #[pymember]
-    fn __closure__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.into())))
-    }
-
-    #[pymember]
-    fn __builtins__(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_as_pyref(&zelf, vm)?;
-        Ok(zelf.builtins.clone())
-    }
-
     #[pygetset]
     fn __name__(&self) -> PyStrRef {
         self.name.lock().clone()
@@ -1082,38 +1064,6 @@ impl PyFunction {
     #[pygetset(setter)]
     fn set___name__(&self, name: PyStrRef) {
         *self.name.lock() = name;
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember]
-    fn __doc__(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult {
-        // When accessed from instance, obj is the PyFunction instance
-        if let Ok(func) = obj.downcast::<Self>() {
-            let doc = func.doc.lock();
-            Ok(doc.clone())
-        } else {
-            // When accessed from class, return None as there's no instance
-            Ok(vm.ctx.none())
-        }
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(setter)]
-    fn set___doc__(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let value = value.unwrap_or_none(vm);
-        *zelf.doc.lock() = value;
-        Ok(())
-    }
-
-    #[pygetset]
-    fn __module__(&self) -> PyObjectRef {
-        self.module.lock().clone()
-    }
-
-    #[pygetset(setter)]
-    fn set___module__(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
-        *self.module.lock() = module.unwrap_or_none(vm);
     }
 
     #[pygetset]
@@ -1189,12 +1139,12 @@ impl PyFunction {
     }
 
     #[pygetset]
-    fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    fn __dict__(zelf: &Self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         object::object_get_dict(zelf.as_object().to_owned(), vm)
     }
 
     #[pygetset(setter)]
-    fn set___dict__(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___dict__(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         object::object_generic_set_dict(zelf.as_object().to_owned(), value, vm)
     }
 
@@ -1275,7 +1225,7 @@ impl PyFunction {
 
     #[cfg(feature = "jit")]
     #[pymethod]
-    fn __jit__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+    fn __jit__(zelf: PyRef<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
         let mut jit_guard = zelf.jitted_code.lock();
         if jit_guard.is_some() {
             return Ok(());
@@ -1350,12 +1300,12 @@ impl Constructor for PyFunction {
         // Handle closure - must be a tuple of cells
         let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.len() != args.code.freevars.len() {
+            if closure_tuple.as_slice().len() != args.code.freevars.len() {
                 return Err(vm.new_value_error(format!(
                     "{} requires closure of length {}, not {}",
                     args.code.obj_name,
                     args.code.freevars.len(),
-                    closure_tuple.len()
+                    closure_tuple.as_slice().len()
                 )));
             }
 
@@ -1393,7 +1343,9 @@ impl Constructor for PyFunction {
 #[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
+    #[pymember(name = "__self__")]
     object: PyObjectRef,
+    #[pymember(name = "__func__")]
     function: PyObjectRef,
 }
 
@@ -1514,7 +1466,7 @@ impl PyBoundMethod {
     ),
     flags(IMMUTABLETYPE, HAS_WEAKREF)
 )]
-impl PyBoundMethod {
+impl Py<PyBoundMethod> {
     #[pymethod]
     fn __reduce__(
         &self,
@@ -1529,16 +1481,6 @@ impl PyBoundMethod {
     #[pygetset]
     fn __doc__(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
-    }
-
-    #[pygetset]
-    fn __func__(&self) -> PyObjectRef {
-        self.function.clone()
-    }
-
-    #[pygetset(name = "__self__")]
-    fn get_self(&self) -> PyObjectRef {
-        self.object.clone()
     }
 
     #[pygetset]
@@ -1635,26 +1577,7 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
 impl PyCell {
-    #[pyslot]
-    fn slot_richcompare(
-        zelf: &PyObject,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
-        else {
-            return Ok(Either::B(PyComparisonValue::NotImplemented));
-        };
-        // compare cells by contents; empty cells come before anything else
-        match (zelf.get(), other.get()) {
-            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
-            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
-        }
-    }
-
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1671,6 +1594,29 @@ impl PyCell {
         // that reads this cell wait on a lock this call still holds.
         let replaced = core::mem::replace(&mut *self.contents.lock(), x);
         drop(replaced);
+    }
+}
+
+#[pyclass(with(Constructor, Representable))]
+impl Py<PyCell> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (
+            zelf.downcast_ref::<PyCell>(),
+            other.downcast_ref::<PyCell>(),
+        ) else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
     }
 
     #[pygetset]

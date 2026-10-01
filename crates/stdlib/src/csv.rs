@@ -7,12 +7,11 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
-        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
-        protocol::{PyIter, PyIterReturn},
+        function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
+        protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
     use alloc::fmt;
-    use csv_core::Terminator;
     use itertools::Itertools;
     use parking_lot::Mutex;
     use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
@@ -75,7 +74,7 @@ mod _csv {
     }
 
     #[pyattr]
-    #[pyclass(module = "csv", name = "Dialect")]
+    #[pyclass(module = "_csv", name = "Dialect")]
     #[derive(Debug, PyPayload, Clone)]
     struct PyDialect {
         delimiter: u8,
@@ -87,15 +86,6 @@ mod _csv {
         quoting: QuoteStyle,
         strict: bool,
     }
-
-    /// Placeholder single-byte terminator for the csv-core writer paths
-    /// (`QUOTE_ALL` / `QUOTE_NONNUMERIC`). csv-core can only emit a single byte
-    /// for the record terminator, but its `terminator()` call also performs
-    /// essential bookkeeping — closing the final quote and emitting `""` for an
-    /// empty record — that must not be bypassed. So the writer emits this
-    /// sentinel byte, and `writerow` strips it and appends the real (possibly
-    /// multi-character) line terminator afterwards.
-    const CSV_CORE_TERMINATOR_SENTINEL: u8 = b'\n';
 
     impl Constructor for PyDialect {
         type Args = PyObjectRef;
@@ -110,43 +100,43 @@ mod _csv {
     #[pyclass(with(Constructor))]
     impl PyDialect {
         #[pygetset]
-        fn delimiter(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
-            vm.ctx.new_str(format!("{}", self.delimiter as char))
+        fn delimiter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(format!("{}", zelf.delimiter as char))
         }
 
         #[pygetset]
-        fn quotechar(&self, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", self.quotechar? as char)))
+        fn quotechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
+            Some(vm.ctx.new_str(format!("{}", zelf.quotechar? as char)))
         }
 
         #[pygetset]
-        const fn doublequote(&self) -> bool {
-            self.doublequote
+        fn doublequote(zelf: &Py<Self>) -> bool {
+            zelf.doublequote
         }
 
         #[pygetset]
-        const fn skipinitialspace(&self) -> bool {
-            self.skipinitialspace
+        fn skipinitialspace(zelf: &Py<Self>) -> bool {
+            zelf.skipinitialspace
         }
 
         #[pygetset]
-        fn lineterminator(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
-            vm.ctx.new_str(self.lineterminator.clone())
+        fn lineterminator(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+            vm.ctx.new_str(zelf.lineterminator.clone())
         }
 
         #[pygetset]
-        fn quoting(&self) -> isize {
-            self.quoting.into()
+        fn quoting(zelf: &Py<Self>) -> isize {
+            zelf.quoting.into()
         }
 
         #[pygetset]
-        fn escapechar(&self, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
-            Some(vm.ctx.new_str(format!("{}", self.escapechar? as char)))
+        fn escapechar(zelf: &Py<Self>, vm: &VirtualMachine) -> Option<PyRef<PyStr>> {
+            Some(vm.ctx.new_str(format!("{}", zelf.escapechar? as char)))
         }
 
         #[pygetset(name = "strict")]
-        const fn get_strict(&self) -> bool {
-            self.strict
+        fn get_strict(zelf: &Py<Self>) -> bool {
+            zelf.strict
         }
     }
 
@@ -323,13 +313,16 @@ mod _csv {
         }
     }
 
+    #[derive(FromArgs)]
+    struct DialectName {
+        #[pyarg(any)]
+        name: PyObjectRef,
+    }
+
     #[pyfunction]
     fn register_dialect(
         name: PyObjectRef,
-        dialect: OptionalArg<PyObjectRef>,
         opts: FormatOptions,
-        // TODO: handle quote style, etc
-        mut _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let name = name
@@ -338,13 +331,7 @@ mod _csv {
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
 
-        let dialect = match dialect {
-            OptionalArg::Present(d) => PyDialect::try_from_object(vm, d)
-                .map_err(|_| vm.new_type_error("argument 1 must be a dialect object"))?,
-            OptionalArg::Missing => opts.result(vm)?,
-        };
-
-        let dialect = opts.update_py_dialect(dialect);
+        let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
         GLOBAL_HASHMAP
             .lock()
@@ -354,11 +341,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn get_dialect(
-        name: PyObjectRef,
-        mut _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyDialect> {
+    fn get_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<PyDialect> {
         let name = name.downcast::<PyStr>().map_err(|obj| {
             new_csv_error(
                 vm,
@@ -377,11 +360,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn unregister_dialect(
-        name: PyObjectRef,
-        mut _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn unregister_dialect(DialectName { name }: DialectName, vm: &VirtualMachine) -> PyResult<()> {
         let name = name.downcast::<PyStr>().map_err(|obj| {
             new_csv_error(
                 vm,
@@ -400,13 +379,7 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn list_dialects(
-        rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<rustpython_vm::builtins::PyListRef> {
-        if !rest.args.is_empty() || !rest.kwargs.is_empty() {
-            return Err(vm.new_type_error("too many argument"));
-        }
+    fn list_dialects(vm: &VirtualMachine) -> rustpython_vm::builtins::PyListRef {
         let g = GLOBAL_HASHMAP.lock();
         let t = g
             .keys()
@@ -414,20 +387,20 @@ mod _csv {
             .map(|x| vm.ctx.new_str(x).into())
             .collect_vec();
         // .iter().map(|x| vm.ctx.new_str(x.clone()).into_pyobject(vm)).collect_vec();
-        Ok(vm.ctx.new_list(t))
+        vm.ctx.new_list(t)
+    }
+
+    #[derive(FromArgs)]
+    struct FieldSizeLimitArgs {
+        #[pyarg(any, optional)]
+        new_limit: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
-    fn field_size_limit(rest: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+    fn field_size_limit(args: FieldSizeLimitArgs, vm: &VirtualMachine) -> PyResult<isize> {
         let old_size = GLOBAL_FIELD_LIMIT.lock().to_owned();
-        if !rest.args.is_empty() {
-            let arg_len = rest.args.len();
-            if arg_len != 1 {
-                return Err(vm.new_type_error(format!(
-                    "field_size_limit() takes at most 1 argument ({arg_len} given)"
-                )));
-            }
-            let Ok(new_size) = rest.args.first().unwrap().try_int(vm) else {
+        if let OptionalArg::Present(limit) = args.new_limit {
+            let Ok(new_size) = limit.try_int(vm) else {
                 return Err(vm.new_type_error("limit must be an integer"));
             };
             *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;
@@ -436,16 +409,10 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn reader(
-        iter: PyIter,
-        options: FormatOptions,
-        // TODO: handle quote style, etc
-        _rest: FuncArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<Reader> {
+    fn reader(iterable: PyIter, options: FormatOptions, vm: &VirtualMachine) -> PyResult<Reader> {
         let dialect = options.result(vm)?;
         Ok(Reader {
-            iter,
+            iter: iterable,
             state: PyMutex::new(ReadState {
                 line_num: 0,
                 generation: 0,
@@ -456,15 +423,13 @@ mod _csv {
 
     #[pyfunction]
     fn writer(
-        file: PyObjectRef,
+        fileobj: PyObjectRef,
         options: FormatOptions,
-        // TODO: handle quote style, etc
-        _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Writer> {
-        let write = match vm.get_attribute_opt(&file, "write")? {
+        let write = match vm.get_attribute_opt(&fileobj, "write")? {
             Some(write_meth) => write_meth,
-            None if file.is_callable() => file,
+            None if fileobj.is_callable() => fileobj,
             None => {
                 return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
             }
@@ -473,18 +438,9 @@ mod _csv {
 
         Ok(Writer {
             write,
-            state: PyMutex::new(WriteState {
-                buffer: vec![0; 1024],
-                writer: FormatOptions::to_writer(&dialect),
-            }),
+            state: PyMutex::new(()),
             dialect,
         })
-    }
-
-    #[inline]
-    fn resize_buf<T: num_traits::PrimInt>(buf: &mut Vec<T>) {
-        let new_size = buf.len() * 2;
-        buf.resize(new_size, T::zero());
     }
 
     #[repr(i32)]
@@ -496,18 +452,6 @@ mod _csv {
         None = 3,
         Strings = 4,
         Notnull = 5,
-    }
-
-    impl From<QuoteStyle> for csv_core::QuoteStyle {
-        fn from(val: QuoteStyle) -> Self {
-            match val {
-                QuoteStyle::Minimal => Self::Necessary,
-                QuoteStyle::All => Self::Always,
-                QuoteStyle::Nonnumeric => Self::NonNumeric,
-                QuoteStyle::None => Self::Never,
-                QuoteStyle::Strings | QuoteStyle::Notnull => Self::Necessary,
-            }
-        }
     }
 
     impl TryFromObject for QuoteStyle {
@@ -624,11 +568,18 @@ mod _csv {
     }
 
     impl FromArgs for FormatOptions {
+        const PARAMS: Option<&'static [Param]> = Some(&[
+            Param {
+                name: "dialect",
+                kind: rustpython_vm::function::ParamKind::PositionalOrKeyword,
+                default: Some(rustpython_vm::function::DefaultRepr::Str("excel")),
+            },
+            Param::var_keyword("fmtparams"),
+        ]);
+
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let dialect = if let Some(dialect) = args.kwargs.swap_remove("dialect") {
+            let dialect = if let Some(dialect) = args.take_positional_keyword("dialect") {
                 prase_dialect_item_from_arg(vm, dialect)?
-            } else if let Some(dialect) = args.args.first() {
-                prase_dialect_item_from_arg(vm, dialect.clone())?
             } else {
                 DialectItem::None
             };
@@ -854,27 +805,6 @@ mod _csv {
             validate_dialect(vm, &dialect)?;
             Ok(dialect)
         }
-
-        fn to_writer(dialect: &PyDialect) -> csv_core::Writer {
-            let mut builder = csv_core::WriterBuilder::new();
-            let mut writer = builder
-                .delimiter(dialect.delimiter)
-                .double_quote(dialect.doublequote);
-
-            if let Some(t) = dialect.quotechar {
-                writer = writer.quote(t);
-            }
-
-            writer = writer.terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
-
-            if let Some(e) = dialect.escapechar {
-                writer = writer.escape(e);
-            }
-
-            writer = writer.quote_style(dialect.quoting.into());
-
-            writer.build()
-        }
     }
 
     struct ReadState {
@@ -901,13 +831,13 @@ mod _csv {
     #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl Reader {
         #[pygetset]
-        fn line_num(&self) -> u64 {
-            self.state.lock().line_num
+        fn line_num(zelf: &Py<Self>) -> u64 {
+            zelf.state.lock().line_num
         }
 
         #[pygetset]
-        fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect.clone()
+        fn dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
+            zelf.dialect.clone()
         }
     }
 
@@ -1228,17 +1158,12 @@ mod _csv {
         }
     }
 
-    struct WriteState {
-        buffer: Vec<u8>,
-        writer: csv_core::Writer,
-    }
-
     #[pyclass(no_attr, module = "_csv", name = "writer", traverse)]
     #[derive(PyPayload)]
     pub(super) struct Writer {
         write: PyObjectRef,
         #[pytraverse(skip)]
-        state: PyMutex<WriteState>,
+        state: PyMutex<()>,
         #[pytraverse(skip)]
         dialect: PyDialect,
     }
@@ -1342,12 +1267,13 @@ mod _csv {
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
         #[pygetset(name = "dialect")]
-        fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect.clone()
+        fn get_dialect(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyDialect {
+            zelf.dialect.clone()
         }
 
-        fn writerow_quoted_strings(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
-            let _state = self.state.lock();
+        #[pymethod]
+        fn writerow(zelf: &Py<Self>, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let _state = zelf.state.lock();
             let row: ArgIterable =
                 ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
                     new_csv_error(
@@ -1361,7 +1287,7 @@ mod _csv {
 
             for (index, field) in fields.into_iter().enumerate() {
                 if index > 0 {
-                    output.push(self.dialect.delimiter);
+                    output.push(zelf.dialect.delimiter);
                 }
 
                 let stringified;
@@ -1374,216 +1300,72 @@ mod _csv {
                     }
                 });
 
-                let should_quote = match self.dialect.quoting {
-                    QuoteStyle::Strings => is_str || field_needs_quotes(data, &self.dialect),
+                if single_field
+                    && data.is_empty()
+                    && (zelf.dialect.quoting == QuoteStyle::None
+                        || (is_none
+                            && matches!(
+                                zelf.dialect.quoting,
+                                QuoteStyle::Strings | QuoteStyle::Notnull
+                            )))
+                {
+                    return Err(new_csv_error(
+                        vm,
+                        "single empty field record must be quoted",
+                    ));
+                }
+
+                if data.is_empty()
+                    && zelf.dialect.delimiter == b' '
+                    && zelf.dialect.skipinitialspace
+                    && (zelf.dialect.quoting == QuoteStyle::None
+                        || (is_none
+                            && matches!(
+                                zelf.dialect.quoting,
+                                QuoteStyle::Strings | QuoteStyle::Notnull
+                            )))
+                {
+                    return Err(new_csv_error(
+                        vm,
+                        "empty field must be quoted if delimiter is a space and skipinitialspace is true",
+                    ));
+                }
+
+                let mut should_quote = match zelf.dialect.quoting {
+                    QuoteStyle::All => true,
+                    QuoteStyle::Nonnumeric => !PyNumber::check(&field),
+                    QuoteStyle::Strings => is_str,
                     QuoteStyle::Notnull => !is_none,
-                    _ => unreachable!(),
+                    QuoteStyle::Minimal | QuoteStyle::None => false,
                 };
+
+                if zelf.dialect.quoting != QuoteStyle::None
+                    && ((data.is_empty()
+                        && zelf.dialect.delimiter == b' '
+                        && zelf.dialect.skipinitialspace)
+                        || (single_field && data.is_empty())
+                        || (!should_quote && field_needs_quotes(data, &zelf.dialect)))
+                {
+                    should_quote = true;
+                }
+
                 if should_quote {
-                    write_quoted_field(&mut output, data, &self.dialect, vm)?;
-                } else if single_field && data.is_empty() {
-                    return Err(new_csv_error(
-                        vm,
-                        "single empty field record must be quoted",
-                    ));
+                    write_quoted_field(&mut output, data, &zelf.dialect, vm)?;
                 } else {
-                    output.extend_from_slice(data);
+                    write_unquoted_field(&mut output, data, &zelf.dialect, vm)?;
                 }
             }
 
-            write_lineterminator(&mut output, &self.dialect.lineterminator);
+            write_lineterminator(&mut output, &zelf.dialect.lineterminator);
             let s =
                 core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-            self.write.call((s,), vm)
-        }
-
-        fn writerow_quote_none(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
-            let _state = self.state.lock();
-
-            let row: ArgIterable =
-                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
-                    new_csv_error(
-                        vm,
-                        format!("'{}' object is not iterable", row.class().name()),
-                    )
-                })?;
-
-            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-            let single_field = fields.len() == 1;
-            let mut output = Vec::new();
-
-            for (index, field) in fields.into_iter().enumerate() {
-                if index > 0 {
-                    output.push(self.dialect.delimiter);
-                }
-
-                let stringified;
-                let data: &[u8] = match_class!(match field {
-                    ref s @ PyStr => s.as_bytes(),
-                    crate::builtins::PyNone => b"",
-                    ref obj => {
-                        stringified = obj.str(vm)?;
-                        stringified.as_bytes()
-                    }
-                });
-
-                if single_field && data.is_empty() {
-                    return Err(new_csv_error(
-                        vm,
-                        "single empty field record must be quoted",
-                    ));
-                }
-
-                write_unquoted_field(&mut output, data, &self.dialect, vm)?;
-            }
-
-            write_lineterminator(&mut output, &self.dialect.lineterminator);
-
-            let s =
-                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-
-            self.write.call((s,), vm)
-        }
-
-        fn writerow_minimal(&self, row: &PyObject, vm: &VirtualMachine) -> PyResult {
-            let _state = self.state.lock();
-
-            let row: ArgIterable =
-                ArgIterable::try_from_object(vm, row.to_owned()).map_err(|_e| {
-                    new_csv_error(
-                        vm,
-                        format!("'{}' object is not iterable", row.class().name()),
-                    )
-                })?;
-
-            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-            let single_field = fields.len() == 1;
-            let mut output = Vec::new();
-
-            for (index, field) in fields.into_iter().enumerate() {
-                if index > 0 {
-                    output.push(self.dialect.delimiter);
-                }
-
-                let stringified;
-                let data: &[u8] = match_class!(match field {
-                    ref s @ PyStr => s.as_bytes(),
-                    crate::builtins::PyNone => b"",
-                    ref obj => {
-                        stringified = obj.str(vm)?;
-                        stringified.as_bytes()
-                    }
-                });
-
-                // CPython quotes a QUOTE_MINIMAL field if it contains the
-                // delimiter, the quote character, '\r', '\n', or the line
-                // terminator, regardless of which line terminator is
-                // configured. A row with a single empty field is also quoted
-                // so that it is not read back as an empty line.
-                if field_needs_quotes(data, &self.dialect) || (single_field && data.is_empty()) {
-                    write_quoted_field(&mut output, data, &self.dialect, vm)?;
-                } else {
-                    output.extend_from_slice(data);
-                }
-            }
-
-            write_lineterminator(&mut output, &self.dialect.lineterminator);
-
-            let s =
-                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-
-            self.write.call((s,), vm)
+            zelf.write.call((s,), vm)
         }
 
         #[pymethod]
-        fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            match self.dialect.quoting {
-                QuoteStyle::None => return self.writerow_quote_none(&row, vm),
-                QuoteStyle::Strings | QuoteStyle::Notnull => {
-                    return self.writerow_quoted_strings(&row, vm);
-                }
-                QuoteStyle::Minimal => return self.writerow_minimal(&row, vm),
-                _ => {}
-            }
-
-            let mut state = self.state.lock();
-            let WriteState { buffer, writer } = &mut *state;
-
-            let mut buffer_offset = 0;
-
-            macro_rules! handle_res {
-                ($x:expr) => {{
-                    let (res, n_written) = $x;
-                    buffer_offset += n_written;
-                    match res {
-                        csv_core::WriteResult::InputEmpty => break,
-                        csv_core::WriteResult::OutputFull => resize_buf(buffer),
-                    }
-                }};
-            }
-
-            let row = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
-                new_csv_error(
-                    vm,
-                    format!("'{}' object is not iterable", row.class().name()),
-                )
-            })?;
-
-            let mut first_flag = true;
-            for field in row.iter(vm)? {
-                let field: PyObjectRef = field?;
-                let stringified;
-                let data: &[u8] = match_class!(match field {
-                    ref s @ PyStr => s.as_bytes(),
-                    crate::builtins::PyNone => b"",
-                    ref obj => {
-                        stringified = obj.str(vm)?;
-                        stringified.as_bytes()
-                    }
-                });
-                let mut input_offset = 0;
-
-                if first_flag {
-                    first_flag = false;
-                } else {
-                    loop {
-                        handle_res!(writer.delimiter(&mut buffer[buffer_offset..]));
-                    }
-                }
-
-                loop {
-                    let (res, n_read, n_written) =
-                        writer.field(&data[input_offset..], &mut buffer[buffer_offset..]);
-                    input_offset += n_read;
-                    handle_res!((res, n_written));
-                }
-            }
-
-            loop {
-                handle_res!(writer.terminator(&mut buffer[buffer_offset..]));
-            }
-
-            // csv-core just emitted the single-byte sentinel terminator (after
-            // closing the final quote / emitting an empty record as needed).
-            // Drop that sentinel byte and append the real, possibly
-            // multi-character, line terminator.
-            let emitted = &buffer[..buffer_offset];
-            let body = emitted
-                .strip_suffix(&[CSV_CORE_TERMINATOR_SENTINEL])
-                .ok_or_else(|| new_csv_error(vm, "internal error: missing record terminator"))?;
-            let mut output = body.to_vec();
-            output.extend_from_slice(self.dialect.lineterminator.as_bytes());
-
-            let s =
-                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
-
-            self.write.call((s,), vm)
-        }
-
-        #[pymethod]
-        fn writerows(&self, rows: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
+        fn writerows(zelf: &Py<Self>, rows: ArgIterable, vm: &VirtualMachine) -> PyResult<()> {
             for row in rows.iter(vm)? {
-                self.writerow(row?, vm)?;
+                Self::writerow(zelf, row?, vm)?;
             }
             Ok(())
         }

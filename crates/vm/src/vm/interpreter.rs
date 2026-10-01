@@ -72,7 +72,6 @@ where
         interp_config,
     } = opts;
     use crate::codecs::CodecsRegistry;
-    use crate::common::hash::HashSecret;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
     use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
@@ -82,66 +81,54 @@ where
     #[cfg(feature = "threading")]
     thread::install_blocking_wait_hook();
 
-    let (config, all_module_defs, frozen, hash_secret, int_max_str_digits) =
-        if let Some(parent) = parent_state {
-            // Subinterpreter: clone config and module tables from parent, fresh runtime state.
-            let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
-            (
-                parent.config.clone(),
-                parent.module_defs.clone(),
-                parent.frozen.clone(),
-                parent.hash_secret,
-                int_max_str_digits,
-            )
-        } else {
-            let paths = getpath::init_path_config(&settings);
-            let config = PyConfig::new(settings, paths);
+    let (config, all_module_defs, frozen, int_max_str_digits) = if let Some(parent) = parent_state {
+        // Subinterpreter: clone config and module tables from parent, fresh runtime state.
+        let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
+        (
+            parent.config.clone(),
+            parent.module_defs.clone(),
+            parent.frozen.clone(),
+            int_max_str_digits,
+        )
+    } else {
+        // First top-level interpreter wins. Later seeds are ignored.
+        super::init_hash_secret(settings.hash_seed);
+        let paths = getpath::init_path_config(&settings);
+        let config = PyConfig::new(settings, paths);
 
-            // Build module_defs map from builtin modules + additional modules
-            let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
-                crate::stdlib::builtin_module_defs(&ctx)
-                    .into_iter()
-                    .chain(module_defs)
-                    .map(|def| (def.name.as_str(), def))
-                    .collect();
+        // Build module_defs map from builtin modules + additional modules
+        let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
+            crate::stdlib::builtin_module_defs(&ctx)
+                .into_iter()
+                .chain(module_defs)
+                .map(|def| (def.name.as_str(), def))
+                .collect();
 
-            // Register sysconfigdata under platform-specific name as well
-            if let Some(&sysconfigdata_def) = all_module_defs.get("_sysconfigdata") {
-                use std::sync::OnceLock;
-                static SYSCONFIGDATA_NAME: OnceLock<&'static str> = OnceLock::new();
-                let leaked_name = *SYSCONFIGDATA_NAME.get_or_init(|| {
-                    let name = crate::stdlib::sys::sysconfigdata_name();
-                    Box::leak(name.into_boxed_str())
-                });
-                all_module_defs.insert(leaked_name, sysconfigdata_def);
-            }
+        // Register sysconfigdata under platform-specific name as well
+        if let Some(&sysconfigdata_def) = all_module_defs.get("_sysconfigdata") {
+            use std::sync::OnceLock;
+            static SYSCONFIGDATA_NAME: OnceLock<&'static str> = OnceLock::new();
+            let leaked_name = *SYSCONFIGDATA_NAME.get_or_init(|| {
+                let name = crate::stdlib::sys::sysconfigdata_name();
+                Box::leak(name.into_boxed_str())
+            });
+            all_module_defs.insert(leaked_name, sysconfigdata_def);
+        }
 
-            let seed = match config.settings.hash_seed {
-                Some(seed) => seed,
-                None => super::process_hash_secret_seed(),
-            };
-            let hash_secret = HashSecret::new(seed);
+        let int_max_str_digits = AtomicCell::new(match config.settings.int_max_str_digits {
+            -1 => 4300,
+            other => other,
+        } as usize);
 
-            let int_max_str_digits = AtomicCell::new(match config.settings.int_max_str_digits {
-                -1 => 4300,
-                other => other,
-            } as usize);
+        let mut frozen: std::collections::HashMap<
+            &'static str,
+            FrozenModule,
+            rapidhash::quality::RandomState,
+        > = core_frozen_inits().collect();
+        frozen.extend(frozen_modules);
 
-            let mut frozen: std::collections::HashMap<
-                &'static str,
-                FrozenModule,
-                rapidhash::quality::RandomState,
-            > = core_frozen_inits().collect();
-            frozen.extend(frozen_modules);
-
-            (
-                config,
-                all_module_defs,
-                frozen,
-                hash_secret,
-                int_max_str_digits,
-            )
-        };
+        (config, all_module_defs, frozen, int_max_str_digits)
+    };
 
     // Per-interpreter ephemeral state (must not be shared across interpreters).
     let codec_registry = CodecsRegistry::new(&ctx);
@@ -171,10 +158,13 @@ where
         frozen,
         stacksize: AtomicCell::new(0),
         thread_count: AtomicCell::new(0),
-        hash_secret,
         atexit_funcs: PyMutex::default(),
+        audit_hooks: PyMutex::default(),
         codec_registry,
+        struct_format_cache: crate::buffer::FormatSpecCache::default(),
         finalizing: AtomicBool::new(false),
+        #[cfg(feature = "threading")]
+        finalizing_thread_ident: AtomicCell::new(0),
         warnings,
         override_frozen_modules: AtomicCell::new(0),
         before_forkers: PyMutex::default(),
@@ -696,7 +686,12 @@ impl Interpreter {
             // running). Their `_ThreadHandle` stays not-done so `is_alive()`
             // is still true for `join()` during the GC that follows.
             #[cfg(feature = "threading")]
-            vm.state.stop_the_world.stop_the_world(&vm.state);
+            {
+                vm.state.stop_the_world.stop_the_world(&vm.state);
+                vm.state
+                    .finalizing_thread_ident
+                    .store(crate::stdlib::_thread::get_ident());
+            }
             vm.state.finalizing.store(true, Ordering::Release);
             #[cfg(feature = "threading")]
             {
@@ -2127,5 +2122,45 @@ for _ in range(40):
         let _sub = main.create_subinterpreter();
         let _main2 = Interpreter::without_stdlib(Default::default());
         assert_eq!(runtime::main_interpreter_id(), Some(recorded));
+    }
+
+    /// A second top-level interpreter must keep the first interpreter's hash
+    /// secret. Interned strings cache that hash for the whole process.
+    #[test]
+    fn second_interpreter_reuses_process_hash_secret() {
+        let settings = Settings {
+            hash_seed: Some(7),
+            ..Settings::default()
+        };
+        let first = Interpreter::without_stdlib(settings);
+        first.enter(|vm| {
+            vm.ctx
+                .intern_str("zz_hash_seed_regression")
+                .to_object()
+                .hash(vm)
+                .unwrap();
+        });
+
+        let settings = Settings {
+            hash_seed: Some(8),
+            ..Settings::default()
+        };
+        let second = Interpreter::without_stdlib(settings);
+        second.enter(|vm| {
+            let interned = vm.ctx.intern_str("zz_hash_seed_regression").to_object();
+            let dict = vm.ctx.new_dict();
+            dict.set_item(&*interned, vm.ctx.new_int(1).into(), vm)
+                .unwrap();
+
+            let scope = vm.new_scope_with_builtins();
+            scope.globals.set_item("d", dict.into(), vm).unwrap();
+            run(
+                vm,
+                &scope,
+                "k = 'zz_hash_seed_' + 'regression'\nresult = k in d\n",
+            );
+            let result = scope.globals.get_item("result", vm).unwrap();
+            assert!(result.try_to_bool(vm).unwrap());
+        });
     }
 }

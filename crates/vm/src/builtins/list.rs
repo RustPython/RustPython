@@ -13,11 +13,11 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::{PyClassDef, PyClassImpl},
     convert::ToPyObject,
-    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
-    sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sliceable::{SaturatedSlice, SequenceIndex, SliceableSequenceOp},
     sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
@@ -73,7 +73,12 @@ unsafe impl Traverse for PyList {
         // This is safe because during GC collection, the object is unreachable
         // and no other code should be accessing it.
         if let Some(mut guard) = self.elements.try_write() {
-            out.extend(guard.drain(..));
+            if out.is_empty() {
+                // Reuse the allocation so deallocation does not need more memory.
+                *out = core::mem::take(&mut *guard);
+            } else {
+                out.extend(guard.drain(..));
+            }
         }
     }
 }
@@ -128,6 +133,18 @@ impl ToPyObject for Vec<PyObjectRef> {
     }
 }
 
+impl Py<PyList> {
+    #[inline]
+    pub fn borrow_vec(&self) -> PyMappedRwLockReadGuard<'_, [PyObjectRef]> {
+        self.payload().borrow_vec()
+    }
+
+    #[inline]
+    pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
+        self.payload().borrow_vec_mut()
+    }
+}
+
 impl PyList {
     #[deprecated(note = "use PyList::from(...).into_ref() instead")]
     pub fn new_ref(elements: Vec<PyObjectRef>, ctx: &Context) -> PyRef<Self> {
@@ -151,57 +168,60 @@ impl PyList {
     }
 
     fn irepeat(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.borrow_vec_mut().imul(vm, n)?;
+        if n <= 0 {
+            Py::<Self>::clear(&zelf);
+        } else {
+            zelf.borrow_vec_mut().imul(vm, n)?;
+        }
         Ok(zelf)
     }
 }
 
 #[derive(FromArgs, Default, Traverse)]
 pub(crate) struct SortOptions {
-    #[pyarg(named, default = None)]
+    #[pyarg(named, optional)]
     key: Option<PyObjectRef>,
     #[pytraverse(skip)]
-    #[pyarg(named, default = false)]
+    #[pyarg(named, default)]
     reverse: bool,
 }
 
 pub type PyListRef = PyRef<PyList>;
 
-#[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsMapping,
-        Iterable,
-        Comparable,
-        AsSequence,
-        Representable
-    ),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF)
-)]
+#[derive(FromArgs)]
+struct PopArgs {
+    #[pyarg(positional, default = -1)]
+    index: isize,
+}
+
 impl PyList {
-    #[pymethod]
     pub(crate) fn append(&self, object: PyObjectRef) {
         self.borrow_vec_mut().push(object);
     }
 
-    #[pymethod]
-    pub(crate) fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        // What is already here decides whether the iterable's length hint is
-        // believable, so it goes along with the request for the elements. It is
-        // counted where `list_extend()` reads `Py_SIZE(self)`, after the
-        // iterable has answered, because answering runs code that can change it.
-        let mut new_elements =
-            vm.extract_elements_sized(&iterable, &|| self.borrow_vec().len(), Ok)?;
-        self.borrow_vec_mut().append(&mut new_elements);
-        Ok(())
-    }
+    pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
+        // replace list contents with [] for duration of sort.
+        // this prevents keyfunc from messing with the list and makes it easy to
+        // check if it tries to append elements to it.
+        let (mut elements, version_before) = {
+            let mut guard = self.elements.write();
+            let version_before = self.mutation_counter.load(Ordering::Relaxed);
+            (core::mem::take(&mut *guard), version_before)
+        };
+        let res = do_sort(vm, &mut elements, options.key.as_deref(), options.reverse);
+        let mutated = {
+            let mut guard = self.elements.write();
+            let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
+            core::mem::swap(&mut *guard, &mut elements);
+            mutated
+        };
+        res?;
 
-    #[pymethod]
-    pub(crate) fn insert(&self, index: isize, object: PyObjectRef) {
-        let mut elements = self.borrow_vec_mut();
-        let index = elements.saturate_index(index);
-        elements.insert(index, object);
+        if mutated {
+            return Err(vm.new_value_error("list modified during sort"));
+        }
+
+        Ok(())
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -239,37 +259,8 @@ impl PyList {
         Ok(zelf)
     }
 
-    #[pymethod]
-    fn clear(&self) {
-        let _removed = core::mem::take(self.borrow_vec_mut().deref_mut());
-    }
-
-    #[pymethod]
-    fn copy(&self, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
-    }
-
     pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
-    }
-
-    #[pymethod]
-    fn __sizeof__(&self) -> usize {
-        core::mem::size_of::<Self>()
-            + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
-    }
-
-    #[pymethod]
-    fn reverse(&self) {
-        self.borrow_vec_mut().reverse();
-    }
-
-    #[pymethod]
-    fn __reversed__(zelf: PyRef<Self>) -> PyListReverseIterator {
-        let position = zelf.__len__().saturating_sub(1);
-        PyListReverseIterator {
-            internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
-        }
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -288,27 +279,97 @@ impl PyList {
         }
     }
 
-    /// Return self[index].
-    #[pymethod(coexist)]
-    fn __getitem__(&self, index: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&index, vm)
+    fn assign_item(
+        &self,
+        index: isize,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let removed = {
+            let mut elements = self.borrow_vec_mut();
+            let index = elements
+                .wrap_index(index)
+                .ok_or_else(|| vm.new_index_error("list assignment index out of range"))?;
+            if let Some(value) = value {
+                core::mem::replace(&mut elements[index], value)
+            } else {
+                elements.remove(index)
+            }
+        };
+        drop(removed);
+        Ok(())
+    }
+
+    fn assign_slice(
+        &self,
+        slice: SaturatedSlice,
+        items: Option<&[PyObjectRef]>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let removed = {
+            let mut elements = self.borrow_vec_mut();
+            let (range, step, slice_len) = slice.adjust_indices(elements.len());
+            if step != 1
+                && let Some(items) = &items
+                && items.len() != slice_len
+            {
+                return Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    items.len(),
+                    slice_len
+                )));
+            }
+            let new_len = items.map_or(0, <[PyObjectRef]>::len);
+            if step == 1 && slice_len == elements.len() && new_len == 0 {
+                core::mem::take(&mut *elements)
+            } else {
+                // Keep removed references alive until the complete result is visible
+                // and the write guard is released. Reserve before changing the list.
+                let mut removed = Vec::new();
+                removed
+                    .try_reserve_exact(slice_len)
+                    .map_err(|_| vm.no_memory_error())?;
+                if step == 1 {
+                    elements
+                        .try_reserve(new_len.saturating_sub(slice_len))
+                        .map_err(|_| vm.no_memory_error())?;
+                    removed
+                        .extend(elements.splice(range, items.unwrap_or_default().iter().cloned()));
+                } else if let Some(items) = items {
+                    for (index, item) in slice.iter(elements.len()).zip(items) {
+                        removed.push(core::mem::replace(&mut elements[index], item.clone()));
+                    }
+                } else {
+                    let mut indexes = slice.iter(elements.len()).positive_order().peekable();
+                    let mut index = range.start;
+                    removed.extend(elements.extract_if(range, |_| {
+                        let remove = indexes.peek() == Some(&index);
+                        if remove {
+                            indexes.next();
+                        }
+                        index += 1;
+                        remove
+                    }));
+                }
+                removed
+            }
+        };
+        if slice.step() == 1 {
+            removed.into_iter().rev().for_each(drop);
+        } else {
+            drop(removed);
+        }
+        Ok(())
     }
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(index) => self
-                .borrow_vec_mut()
-                .setitem_by_index(vm, index, value)
-                .map_err(|e| {
-                    if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range")
-                    } else {
-                        e
-                    }
-                }),
+            SequenceIndex::Int(index) => self.assign_item(index, Some(value), vm),
             SequenceIndex::Slice(slice) => {
-                let sec = extract_cloned(&value, Ok, vm)?;
-                self.borrow_vec_mut().setitem_by_slice(vm, slice, &sec)
+                let items = extract_cloned(&value, self, vm)?;
+                let result = self.assign_slice(slice, Some(&items), vm);
+                items.into_iter().rev().for_each(drop);
+                result
             }
         }
     }
@@ -322,12 +383,153 @@ impl PyList {
         self._setitem(needle, value, vm)
     }
 
-    fn __mul__(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.repeat(n.into(), vm)
+    fn __mul__(&self, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.repeat(n, vm)
     }
 
-    fn __imul__(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(zelf, n.into(), vm)
+    fn __imul__(zelf: PyRef<Self>, n: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(zelf, n, vm)
+    }
+
+    pub(crate) fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.mut_contains(vm, needle)
+    }
+
+    fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
+            SequenceIndex::Int(i) => self.assign_item(i, None, vm),
+            SequenceIndex::Slice(slice) => self.assign_slice(slice, None, vm),
+        }
+    }
+
+    fn __delitem__(&self, subscript: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        self._delitem(subscript, vm)
+    }
+}
+
+#[pyclass(
+    with(
+        Constructor,
+        Initializer,
+        AsMapping,
+        Iterable,
+        Comparable,
+        AsSequence,
+        Representable
+    ),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF)
+)]
+impl Py<PyList> {
+    #[pymethod]
+    pub(crate) fn append(&self, object: PyObjectRef) {
+        self.payload.append(object)
+    }
+
+    #[pymethod]
+    pub(crate) fn extend(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(list) = iterable.downcast_ref::<PyList>()
+            && core::ptr::eq(self, list)
+        {
+            return self.borrow_vec_mut().imul(vm, 2);
+        }
+        if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            let mut elements = self.borrow_vec_mut();
+            elements
+                .try_reserve(tuple.len())
+                .map_err(|_| vm.no_memory_error())?;
+            elements.extend_from_slice(tuple.as_slice());
+            return Ok(());
+        }
+        let cls = iterable.class();
+        if cls.is(vm.ctx.types.list_type)
+            || cls.is(vm.ctx.types.set_type)
+            || cls.is(vm.ctx.types.frozenset_type)
+            || cls.is(vm.ctx.types.dict_type)
+            || cls.is(vm.ctx.types.dict_keys_type)
+            || cls.is(vm.ctx.types.dict_values_type)
+            || cls.is(vm.ctx.types.dict_items_type)
+        {
+            // Snapshot mutable native sources before locking the destination.
+            let mut new_elements =
+                vm.extract_elements_sized(&iterable, &|| self.borrow_vec().len(), Ok)?;
+            let mut elements = self.borrow_vec_mut();
+            elements
+                .try_reserve(new_elements.len())
+                .map_err(|_| vm.no_memory_error())?;
+            elements.append(&mut new_elements);
+            return Ok(());
+        }
+
+        let iter = iterable.clone().get_iter(vm)?;
+        // Count the destination after the hint: both calls can mutate it.
+        let hint = vm.length_hint_opt(iterable.clone())?.unwrap_or(8);
+        {
+            let mut elements = self.borrow_vec_mut();
+            if elements.len() <= (isize::MAX as usize) - hint {
+                elements
+                    .try_reserve_exact(hint)
+                    .map_err(|_| vm.no_memory_error())?;
+            }
+        }
+        for item in iter.iter::<PyObjectRef>(vm)? {
+            let item = item?;
+            let mut elements = self.borrow_vec_mut();
+            if elements.len() == elements.capacity() {
+                elements.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+            }
+            elements.push(item);
+        }
+        {
+            // Trim an excessive hint, preserving normal growth slack. Keep the
+            // iterator alive until resizing is done and the lock is released.
+            let mut elements = self.elements.write();
+            if elements.len() < elements.capacity().div_ceil(2) {
+                elements.shrink_to_fit();
+            }
+        }
+        Ok(())
+    }
+
+    #[pymethod]
+    pub(crate) fn insert(&self, index: PySsize, object: PyObjectRef) {
+        let mut elements = self.borrow_vec_mut();
+        let index = elements.saturate_index(index);
+        elements.insert(index, object);
+    }
+
+    #[pymethod]
+    fn clear(&self) {
+        let removed = core::mem::take(self.borrow_vec_mut().deref_mut());
+        removed.into_iter().rev().for_each(drop);
+    }
+
+    #[pymethod]
+    fn copy(&self, vm: &VirtualMachine) -> PyRef<PyList> {
+        PyList::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
+    }
+
+    #[pymethod]
+    fn __sizeof__(&self) -> usize {
+        core::mem::size_of::<PyList>()
+            + self.elements.read().capacity() * core::mem::size_of::<PyObjectRef>()
+    }
+
+    #[pymethod]
+    fn reverse(&self) {
+        self.borrow_vec_mut().reverse();
+    }
+
+    #[pymethod]
+    fn __reversed__(zelf: PyRef<PyList>) -> PyListReverseIterator {
+        let position = zelf.__len__().saturating_sub(1);
+        PyListReverseIterator {
+            internal: PyMutex::new(PositionIterInternal::new(zelf, position)),
+        }
+    }
+
+    #[pymethod(coexist)]
+    fn __getitem__(&self, index: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self._getitem(&index, vm)
     }
 
     #[pymethod]
@@ -335,29 +537,25 @@ impl PyList {
         self.mut_count(vm, &value)
     }
 
-    pub(crate) fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.mut_contains(vm, needle)
-    }
-
     #[pymethod]
     fn index(
         &self,
-        needle: PyObjectRef,
+        value: PyObjectRef,
         range: OptionalRangeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.__len__(), vm)?;
-        let index = self.mut_index_range(vm, &needle, start..stop)?;
+        let index = self.mut_index_range(vm, &value, start..stop)?;
         if let Some(index) = index.into() {
             Ok(index)
         } else {
-            Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
+            Err(vm.new_value_error(format!("'{}' is not in list", value.str(vm)?)))
         }
     }
 
     #[pymethod]
-    fn pop(&self, index: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
-        let mut index = index.into_option().unwrap_or(-1);
+    fn pop(&self, args: PopArgs, vm: &VirtualMachine) -> PyResult {
+        let mut index = args.index;
         let mut elements = self.borrow_vec_mut();
         if index < 0 {
             index += elements.len() as isize;
@@ -388,77 +586,62 @@ impl PyList {
         }
     }
 
-    fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
-            SequenceIndex::Int(i) => self.borrow_vec_mut().delitem_by_index(vm, i),
-            SequenceIndex::Slice(slice) => self.borrow_vec_mut().delitem_by_slice(vm, slice),
-        }
-    }
-
-    fn __delitem__(&self, subscript: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        self._delitem(subscript, vm)
-    }
-
     #[pymethod]
     pub(crate) fn sort(&self, options: SortOptions, vm: &VirtualMachine) -> PyResult<()> {
-        // replace list contents with [] for duration of sort.
-        // this prevents keyfunc from messing with the list and makes it easy to
-        // check if it tries to append elements to it.
-        let (mut elements, version_before) = {
-            let mut guard = self.elements.write();
-            let version_before = self.mutation_counter.load(Ordering::Relaxed);
-            (core::mem::take(&mut *guard), version_before)
-        };
-        let res = do_sort(vm, &mut elements, options.key.as_deref(), options.reverse);
-        let mutated = {
-            let mut guard = self.elements.write();
-            let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
-            core::mem::swap(&mut *guard, &mut elements);
-            mutated
-        };
-        res?;
-
-        if mutated {
-            return Err(vm.new_value_error("list modified during sort"));
-        }
-
-        Ok(())
+        self.payload.sort(options, vm)
     }
 
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
-fn extract_cloned<F, R>(obj: &PyObject, mut f: F, vm: &VirtualMachine) -> PyResult<Vec<R>>
-where
-    F: FnMut(PyObjectRef) -> PyResult<R>,
-{
+fn extract_cloned(
+    obj: &PyObject,
+    zelf: &PyList,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<PyObjectRef>> {
     use crate::builtins::PyTuple;
+    let mut v = Vec::new();
     if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-        tuple.iter().map(|x| f(x.clone())).collect()
-    } else if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
-        list.borrow_vec().iter().map(|x| f(x.clone())).collect()
+        v.try_reserve_exact(tuple.len())
+            .map_err(|_| vm.no_memory_error())?;
+        v.extend_from_slice(tuple.as_slice());
+    } else if let Some(list) = obj.downcast_ref::<PyList>()
+        && (obj.class().is(vm.ctx.types.list_type) || core::ptr::eq(zelf, list.payload()))
+    {
+        let elements = list.borrow_vec();
+        v.try_reserve_exact(elements.len())
+            .map_err(|_| vm.no_memory_error())?;
+        v.extend_from_slice(&elements);
     } else {
-        let iter = obj.to_owned().get_iter(vm)?;
-        let iter = iter.iter::<PyObjectRef>(vm)?;
-        let len = obj
-            .sequence_unchecked()
-            .length_opt(vm)
-            .transpose()?
-            .unwrap_or(0);
-        let mut v = Vec::with_capacity(len);
-        for x in iter {
-            v.push(f(x?)?);
+        let iter = obj
+            .to_owned()
+            .get_iter(vm)?
+            .into_iter_sized::<PyObjectRef>(vm)?;
+        let len = iter.size_hint().0;
+        v.try_reserve_exact(len).map_err(|_| vm.no_memory_error())?;
+        let result = (|| {
+            for x in iter {
+                let item = x?;
+                if v.len() == v.capacity() {
+                    v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                }
+                v.push(item);
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            v.into_iter().rev().for_each(drop);
+            return Err(error);
         }
-        v.shrink_to_fit();
-        Ok(v)
     }
+    Ok(v)
 }
 
 impl MutObjectSequenceOp for PyList {
@@ -482,7 +665,7 @@ impl Constructor for PyList {
 }
 
 impl Initializer for PyList {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
     fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let list_type = vm.ctx.types.list_type;
@@ -496,8 +679,12 @@ impl Initializer for PyList {
             args.bind_for(vm, Self::NAME)?
         } else {
             match args.args.as_slice() {
-                [] => OptionalArg::Missing,
-                [iterable] => OptionalArg::Present(iterable.clone()),
+                [] => Self::Args {
+                    iterable: OptionalArg::Missing,
+                },
+                [iterable] => Self::Args {
+                    iterable: OptionalArg::Present(iterable.clone()),
+                },
                 slice => {
                     return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
                 }
@@ -506,13 +693,11 @@ impl Initializer for PyList {
         Self::init(zelf.try_to_ref(vm)?, iterable, vm)
     }
 
-    fn init(zelf: &Py<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            vm.extract_elements_sized(&iterable, &|| 0, Ok)?
-        } else {
-            vec![]
-        };
-        core::mem::swap(zelf.borrow_vec_mut().deref_mut(), &mut elements);
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        zelf.clear();
+        if let OptionalArg::Present(iterable) = args.iterable {
+            zelf.extend(iterable, vm)?;
+        }
         Ok(())
     }
 }
@@ -560,19 +745,7 @@ impl AsSequence for PyList {
                 Ok(vec.do_get(pos))
             }),
             ass_item: atomic_func!(|seq, i, value, vm| {
-                let zelf = PyList::sequence_downcast(seq);
-                if let Some(value) = value {
-                    zelf.borrow_vec_mut().setitem_by_index(vm, i, value)
-                } else {
-                    zelf.borrow_vec_mut().delitem_by_index(vm, i)
-                }
-                .map_err(|e| {
-                    if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range")
-                    } else {
-                        e
-                    }
-                })
+                PyList::sequence_downcast(seq).assign_item(i, value, vm)
             }),
             contains: atomic_func!(|seq, target, vm| {
                 let zelf = PyList::sequence_downcast(seq);
@@ -637,23 +810,19 @@ impl Representable for PyList {
         }
 
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            // Clone elements before calling repr to release the read lock.
+            // Clone each element before calling repr to release the read lock.
             // Element repr may mutate the list (e.g., list.clear()), which
             // needs a write lock and would deadlock if read lock is held.
             let mut writer = Wtf8Buf::new();
             writer.push_char('[');
 
-            let mut elements = zelf.borrow_vec().to_vec();
-            let mut size = zelf.__len__();
             let mut first = true;
             let mut i = 0;
-            while i < size {
-                if elements.len() != size {
-                    // `repr` mutated the list. refetch it.
-                    elements = zelf.borrow_vec().to_vec();
-                }
-
-                let item = &elements[i];
+            loop {
+                let item = zelf.borrow_vec().get(i).cloned();
+                let Some(item) = item else {
+                    break;
+                };
 
                 if first {
                     first = false;
@@ -663,7 +832,6 @@ impl Representable for PyList {
 
                 writer.push_wtf8(item.repr(vm)?.as_wtf8());
 
-                size = zelf.__len__(); // Refetch list size as `repr` may mutate the list.
                 i += 1;
             }
 
@@ -792,7 +960,7 @@ fn object_lt(
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     #[allow(unpredictable_function_pointer_comparisons)]
-    if a.class().slots.richcompare.load() != Some(cmp) {
+    if a.class().slots().richcompare.load() != Some(cmp) {
         return a.rich_compare_bool(b, PyComparisonOp::Lt, vm);
     }
     match cmp(a, b, PyComparisonOp::Lt, vm)? {
@@ -918,17 +1086,17 @@ impl PyPayload for PyListIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyListIterator {
+impl Py<PyListIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         self.internal.lock().length_hint(|obj| obj.__len__())
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(&state, |obj, pos| pos.min(obj.__len__()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.__len__()), vm)
     }
 
     #[pymethod]
@@ -982,7 +1150,7 @@ impl PyPayload for PyListReverseIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyListReverseIterator {
+impl Py<PyListReverseIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
         self.internal.lock().rev_length_hint(|obj| obj.__len__())

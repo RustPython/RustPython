@@ -66,7 +66,7 @@ pub struct PyCallable<'a> {
 
 impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
-        let slots = &obj.class().slots;
+        let slots = obj.class().slots();
         let call = slots.call.load()?;
         let vectorcall = slots.vectorcall.load();
         Some(PyCallable {

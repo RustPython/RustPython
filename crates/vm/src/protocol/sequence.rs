@@ -153,7 +153,7 @@ impl PySequence<'_> {
     #[inline]
     #[must_use]
     pub fn slots(&self) -> &PySequenceSlots {
-        &self.obj.class().slots.as_sequence
+        &self.obj.class().slots().as_sequence
     }
 
     #[must_use]
@@ -227,7 +227,12 @@ impl PySequence<'_> {
 
         // if both arguments appear to be sequences, try fallback to __iadd__
         if self.check() && other.sequence_unchecked().check() {
-            let ret = vm._iadd(self.obj, other)?;
+            let ret = vm.binary_iop1(
+                self.obj,
+                other,
+                PyNumberBinaryOp::InplaceAdd,
+                PyNumberBinaryOp::Add,
+            )?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -249,7 +254,12 @@ impl PySequence<'_> {
         }
 
         if self.check() {
-            let ret = vm._imul(self.obj, &n.to_pyobject(vm))?;
+            let ret = vm.binary_iop1(
+                self.obj,
+                &n.to_pyobject(vm),
+                PyNumberBinaryOp::InplaceMultiply,
+                PyNumberBinaryOp::Multiply,
+            )?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -429,21 +439,34 @@ impl PySequence<'_> {
     where
         F: FnMut(&PyObject) -> PyResult<R>,
     {
+        let mut v = Vec::new();
         if let Some(tuple) = self.obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            tuple.iter().map(|x| f(x.as_ref())).collect()
+            v.try_reserve_exact(tuple.len())
+                .map_err(|_| vm.no_memory_error())?;
+            for x in tuple.as_slice() {
+                v.push(f(x.as_ref())?);
+            }
         } else if let Some(list) = self.obj.downcast_ref_if_exact::<PyList>(vm) {
-            list.borrow_vec().iter().map(|x| f(x.as_ref())).collect()
+            let elements = list.borrow_vec();
+            v.try_reserve_exact(elements.len())
+                .map_err(|_| vm.no_memory_error())?;
+            for x in elements.iter() {
+                v.push(f(x.as_ref())?);
+            }
         } else {
             let iter = self.obj.to_owned().get_iter(vm)?;
             let iter = iter.iter::<PyObjectRef>(vm)?;
             let len = self.length(vm).unwrap_or(0);
-            let mut v = Vec::with_capacity(len);
+            v.try_reserve_exact(len).map_err(|_| vm.no_memory_error())?;
             for x in iter {
-                v.push(f(x?.as_ref())?);
+                let item = f(x?.as_ref())?;
+                if v.len() == v.capacity() {
+                    v.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                }
+                v.push(item);
             }
-            v.shrink_to_fit();
-            Ok(v)
         }
+        Ok(v)
     }
 
     pub fn contains(self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -473,5 +496,121 @@ impl PySequence<'_> {
             }
         }
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Interpreter, builtins::PyRange};
+    use core::cell::Cell;
+
+    #[derive(Debug)]
+    struct Converted<'a>(&'a Cell<usize>);
+
+    impl Drop for Converted<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+
+    #[test]
+    fn unsupported_inplace_operations_keep_sequence_errors() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let range = PyRange {
+                start: vm.ctx.new_int(0),
+                stop: vm.ctx.new_int(3),
+                step: vm.ctx.new_int(1),
+            }
+            .into_ref(&vm.ctx);
+            let sequence = range.as_object().sequence_unchecked();
+            for (result, message) in [
+                (
+                    sequence.inplace_repeat(2, vm),
+                    "'range' object can't be repeated",
+                ),
+                (
+                    sequence.inplace_concat(range.as_object(), vm),
+                    "'range' object can't be concatenated",
+                ),
+            ] {
+                let error = result.unwrap_err();
+                assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+                let actual: String = error.args().as_slice()[0].try_to_value(vm).unwrap();
+                assert_eq!(actual, message);
+            }
+        });
+    }
+
+    #[test]
+    fn conversion_and_partial_result_cleanup() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let elements: Vec<PyObjectRef> =
+                (0..20).map(|value| vm.ctx.new_int(value).into()).collect();
+            let list = vm.ctx.new_list(elements.clone());
+            let iterator = list.as_object().get_iter(vm).unwrap();
+            assert!(iterator.sequence_unchecked().length_opt(vm).is_none());
+            let sequences: [PyObjectRef; 3] = [
+                vm.ctx.new_tuple(elements).into(),
+                list.clone().into(),
+                iterator.into(),
+            ];
+            for sequence in sequences {
+                let values: Vec<i32> = sequence
+                    .sequence_unchecked()
+                    .extract(|item| item.try_to_value(vm), vm)
+                    .unwrap();
+                assert_eq!(values, (0..20).collect::<Vec<_>>());
+            }
+
+            let iterator = list.as_object().get_iter(vm).unwrap();
+            let error = vm.new_value_error("conversion failed");
+            let dropped = Cell::new(0);
+            let mut calls = 0;
+            let raised = iterator
+                .sequence_unchecked()
+                .extract(
+                    |_| {
+                        calls += 1;
+                        if calls == 3 {
+                            Err(error.clone())
+                        } else {
+                            Ok(Converted(&dropped))
+                        }
+                    },
+                    vm,
+                )
+                .unwrap_err();
+            assert!(raised.is(&error));
+            assert_eq!(calls, 3);
+            assert_eq!(dropped.get(), 2);
+        });
+    }
+
+    #[test]
+    fn capacity_overflow_precedes_conversion() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let range = PyRange {
+                start: vm.ctx.new_int(0),
+                stop: vm.ctx.new_int(isize::MAX),
+                step: vm.ctx.new_int(1),
+            }
+            .into_ref(&vm.ctx);
+            let called = Cell::new(false);
+            // The byte capacity exceeds isize::MAX; no large allocation is attempted.
+            let error = range
+                .as_object()
+                .sequence_unchecked()
+                .extract(
+                    |_| {
+                        called.set(true);
+                        Ok(0u64)
+                    },
+                    vm,
+                )
+                .unwrap_err();
+            assert!(error.fast_isinstance(vm.ctx.exceptions.memory_error));
+            assert!(!called.get());
+        });
     }
 }

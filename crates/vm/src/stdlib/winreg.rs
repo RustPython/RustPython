@@ -147,8 +147,14 @@ mod winreg {
         }
     }
 
-    #[pyclass(with(AsNumber, Hashable))]
     impl PyHkey {
+        fn __int__(&self) -> usize {
+            self.hkey.load() as usize
+        }
+    }
+
+    #[pyclass(with(AsNumber, Hashable))]
+    impl Py<PyHkey> {
         #[pygetset]
         fn handle(&self) -> usize {
             self.hkey.load() as usize
@@ -178,21 +184,17 @@ mod winreg {
         }
 
         #[pymethod]
-        fn __enter__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        fn __enter__(zelf: PyRef<PyHkey>, _vm: &VirtualMachine) -> PyRef<PyHkey> {
             zelf
         }
 
         #[pymethod]
-        fn __exit__(zelf: PyRef<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn __exit__(zelf: PyRef<PyHkey>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             zelf.Close(vm)
         }
 
-        fn __int__(&self) -> usize {
-            self.hkey.load() as usize
-        }
-
         #[pymethod]
-        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyStr> {
+        fn __str__(zelf: &Self, vm: &VirtualMachine) -> PyRef<PyStr> {
             vm.ctx.new_str(format!("<PyHkey:{:p}>", zelf.hkey.load()))
         }
     }
@@ -291,9 +293,9 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
-        #[pyarg(any, default = host_winreg::KEY_WRITE)]
+        #[pyarg(any, default = host_winreg::KEY_WRITE, py_default = "winreg.KEY_WRITE")]
         access: u32,
     }
 
@@ -361,9 +363,9 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = host_winreg::KEY_WOW64_64KEY)]
+        #[pyarg(any, default = host_winreg::KEY_WOW64_64KEY, py_default = "winreg.KEY_WOW64_64KEY")]
         access: u32,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
     }
 
@@ -526,9 +528,9 @@ mod winreg {
         key: PyRef<PyHkey>,
         #[pyarg(any)]
         sub_key: String,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         reserved: u32,
-        #[pyarg(any, default = host_winreg::KEY_READ)]
+        #[pyarg(any, default = host_winreg::KEY_READ, py_default = "winreg.KEY_READ")]
         access: u32,
     }
 

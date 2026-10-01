@@ -36,7 +36,7 @@ mod decl {
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
-        function::{Either, OptionalOption},
+        function::Either,
         stdlib::time,
     };
 
@@ -60,15 +60,30 @@ mod decl {
         vm.ctx.exceptions.os_error.to_owned()
     }
 
+    #[derive(FromArgs)]
+    struct SelectArgs {
+        #[pyarg(positional)]
+        rlist: PyObjectRef,
+        #[pyarg(positional)]
+        wlist: PyObjectRef,
+        #[pyarg(positional)]
+        xlist: PyObjectRef,
+        #[pyarg(positional, optional)]
+        timeout: Option<Either<f64, isize>>,
+    }
+
     #[pyfunction]
     fn select(
-        rlist: PyObjectRef,
-        wlist: PyObjectRef,
-        xlist: PyObjectRef,
-        timeout: OptionalOption<Either<f64, isize>>,
+        args: SelectArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(PyListRef, PyListRef, PyListRef)> {
-        let mut timeout = timeout.flatten().map(|e| match e {
+        let SelectArgs {
+            rlist,
+            wlist,
+            xlist,
+            timeout,
+        } = args;
+        let mut timeout = timeout.map(|e| match e {
             Either::A(f) => f,
             Either::B(i) => i as f64,
         });
@@ -273,10 +288,8 @@ mod decl {
 
         impl TryFromObject for EventMask {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-                use crate::builtins::PyInt;
-                let int = obj
-                    .downcast::<PyInt>()
-                    .map_err(|_| vm.new_type_error("argument must be an integer"))?;
+                // Event masks go through the integer converter, so `__index__` counts.
+                let int = obj.try_index(vm)?;
 
                 let val = int.as_bigint();
                 if val.is_negative() {
@@ -297,22 +310,22 @@ mod decl {
         #[pyclass(flags(DISALLOW_INSTANTIATION))]
         impl PyPoll {
             #[pymethod]
-            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
+            fn register(zelf: &Py<Self>, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
                 let mask = match eventmask {
                     OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
-                host_select::insert_poll_fd(&mut self.fds.lock(), fd, mask);
+                host_select::insert_poll_fd(&mut zelf.fds.lock(), fd, mask);
             }
 
             #[pymethod]
             fn modify(
-                &self,
+                zelf: &Py<Self>,
                 Fildes(fd): Fildes,
                 eventmask: EventMask,
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                let mut fds = self.fds.lock();
+                let mut fds = zelf.fds.lock();
                 // CPython raises KeyError if fd is not registered, match that behavior
                 let pfd = host_select::get_poll_fd_mut(&mut fds, fd)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
@@ -321,8 +334,12 @@ mod decl {
             }
 
             #[pymethod]
-            fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let removed = host_select::remove_poll_fd(&mut self.fds.lock(), fd);
+            fn unregister(
+                zelf: &Py<Self>,
+                Fildes(fd): Fildes,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let removed = host_select::remove_poll_fd(&mut zelf.fds.lock(), fd);
                 removed
                     .map(drop)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))
@@ -330,11 +347,11 @@ mod decl {
 
             #[pymethod]
             fn poll(
-                &self,
+                zelf: &Py<Self>,
                 timeout: OptionalArg<TimeoutArg<true>>,
                 vm: &VirtualMachine,
             ) -> PyResult<Vec<PyObjectRef>> {
-                if self.poll_running.swap(true, Ordering::SeqCst) {
+                if zelf.poll_running.swap(true, Ordering::SeqCst) {
                     return Err(vm.new_runtime_error("concurrent poll() invocation"));
                 }
                 struct ClearRunning<'a>(&'a AtomicBool);
@@ -343,12 +360,12 @@ mod decl {
                         self.0.store(false, Ordering::Release);
                     }
                 }
-                let _running = ClearRunning(&self.poll_running);
+                let _running = ClearRunning(&zelf.poll_running);
 
                 // Poll a copy: the wait releases the GIL-equivalent and runs
                 // signal handlers, which can register or unregister on the same
                 // object, and a held lock would deadlock them.
-                let mut fds = self.fds.lock().clone();
+                let mut fds = zelf.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
                     Some(d) => host_select::duration_as_millis_ceiling(d)
@@ -433,7 +450,7 @@ mod decl {
         pub(crate) struct EpollNewArgs {
             #[pyarg(any, default = -1)]
             sizehint: i32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             flags: i32,
         }
 
@@ -468,8 +485,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn close(&self) -> std::io::Result<()> {
-                let fd = self.epoll_fd.write().take();
+            fn close(zelf: &Py<Self>) -> std::io::Result<()> {
+                let fd = zelf.epoll_fd.write().take();
                 if let Some(fd) = fd {
                     host_select::epoll::close(fd)?;
                 }
@@ -477,8 +494,8 @@ mod decl {
             }
 
             #[pygetset]
-            fn closed(&self) -> bool {
-                self.epoll_fd.read().is_none()
+            fn closed(zelf: &Py<Self>) -> bool {
+                zelf.epoll_fd.read().is_none()
             }
 
             fn get_epoll(
@@ -490,8 +507,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                self.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
+            fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+                zelf.get_epoll(vm).map(|epoll_fd| epoll_fd.as_raw_fd())
             }
 
             #[pyclassmethod]
@@ -502,7 +519,7 @@ mod decl {
 
             #[pymethod]
             fn register(
-                &self,
+                zelf: &Py<Self>,
                 fd: Fildes,
                 eventmask: OptionalArg<u32>,
                 vm: &VirtualMachine,
@@ -514,26 +531,35 @@ mod decl {
                         | host_select::epoll::EventFlags::OUT)
                         .bits(),
                 };
-                let epoll_fd = &*self.get_epoll(vm)?;
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn modify(&self, fd: Fildes, eventmask: u32, vm: &VirtualMachine) -> PyResult<()> {
-                let epoll_fd = &*self.get_epoll(vm)?;
+            fn modify(
+                zelf: &Py<Self>,
+                fd: Fildes,
+                eventmask: u32,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
                     .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn unregister(&self, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let epoll_fd = &*self.get_epoll(vm)?;
+            fn unregister(zelf: &Py<Self>, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
+                let epoll_fd = &*zelf.get_epoll(vm)?;
                 host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
-            fn poll(&self, args: EpollPollArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            fn poll(
+                zelf: &Py<Self>,
+                args: EpollPollArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyListRef> {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
@@ -561,7 +587,7 @@ mod decl {
 
                 let mut events = Vec::<host_select::epoll::Event>::with_capacity(maxevents);
 
-                let epoll = &*self.get_epoll(vm)?;
+                let epoll = &*zelf.get_epoll(vm)?;
 
                 loop {
                     match vm.allow_threads(|| {
@@ -602,12 +628,12 @@ mod decl {
 
             #[pymethod]
             fn __exit__(
-                &self,
+                zelf: &Py<Self>,
                 _exc_type: OptionalArg,
                 _exc_value: OptionalArg,
                 _exc_tb: OptionalArg,
             ) -> std::io::Result<()> {
-                self.close()
+                Self::close(zelf)
             }
         }
     }
@@ -679,21 +705,42 @@ mod decl {
             Py, PyObject, PyPayload, PyRef,
             builtins::{PyFloat, PyType},
             class_or_notimplemented,
-            common::lock::{PyMutex, PyRwLock},
+            common::lock::PyRwLock,
             convert::{IntoPyException, ToPyObject},
-            function::{OptionalArg, PyComparisonValue},
+            function::PyComparisonValue,
             types::{Comparable, Constructor, Destructor, PyComparisonOp, Representable},
         };
         use alloc::sync::Arc;
-        use core::sync::atomic::AtomicI32;
+        use core::sync::atomic::{
+            AtomicI16, AtomicI32, AtomicI64, AtomicU16, AtomicU32, AtomicU64, Ordering,
+        };
         use num_traits::ToPrimitive;
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "kevent")]
         #[derive(Debug, PyPayload)]
         pub(crate) struct PyKevent {
-            ev: PyMutex<host_select::kqueue::Event>,
+            #[pymember(writable)]
+            ident: AtomicU64,
+            #[pymember(writable)]
+            filter: AtomicI16,
+            #[pymember(writable)]
+            flags: AtomicU16,
+            #[pymember(writable)]
+            fflags: AtomicU32,
+            #[pymember(writable)]
+            data: AtomicI64,
+            #[pymember(writable)]
+            udata: AtomicU64,
         }
+
+        // `ident`/`udata` live in `AtomicU64` and `data` in `AtomicI64`.
+        // Pointer-sized inputs widen into those cells. The cells are not
+        // `usize`/`c_long`, so those widths need not match.
+        const _: () = assert!(
+            core::mem::size_of::<usize>() <= core::mem::size_of::<u64>()
+                && core::mem::size_of::<isize>() <= core::mem::size_of::<i64>()
+        );
 
         #[derive(FromArgs)]
         pub(crate) struct KeventNewArgs {
@@ -703,11 +750,11 @@ mod decl {
             filter: i16,
             #[pyarg(any, default = host_select::kqueue::DEFAULT_FLAGS)]
             flags: u16,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             fflags: u32,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             data: isize,
-            #[pyarg(any, default = 0)]
+            #[pyarg(any, default)]
             udata: usize,
         }
 
@@ -728,14 +775,12 @@ mod decl {
             fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
                 let ident = ident_from_object(&args.ident, vm)?;
                 Ok(Self {
-                    ev: PyMutex::new(host_select::kqueue::Event {
-                        ident,
-                        filter: args.filter,
-                        flags: args.flags,
-                        fflags: args.fflags,
-                        data: args.data,
-                        udata: args.udata,
-                    }),
+                    ident: AtomicU64::new(ident as u64),
+                    filter: AtomicI16::new(args.filter),
+                    flags: AtomicU16::new(args.flags),
+                    fflags: AtomicU32::new(args.fflags),
+                    data: AtomicI64::new(args.data as i64),
+                    udata: AtomicU64::new(args.udata as u64),
                 })
             }
         }
@@ -743,74 +788,25 @@ mod decl {
         #[pyclass(with(Constructor, Comparable, Representable))]
         impl PyKevent {
             pub(super) fn event(&self) -> host_select::kqueue::Event {
-                *self.ev.lock()
+                host_select::kqueue::Event {
+                    ident: self.ident.load(Ordering::Relaxed) as usize,
+                    filter: self.filter.load(Ordering::Relaxed),
+                    flags: self.flags.load(Ordering::Relaxed),
+                    fflags: self.fflags.load(Ordering::Relaxed),
+                    data: self.data.load(Ordering::Relaxed) as isize,
+                    udata: self.udata.load(Ordering::Relaxed) as usize,
+                }
             }
 
             pub(super) fn from_event(ev: host_select::kqueue::Event) -> Self {
                 Self {
-                    ev: PyMutex::new(ev),
+                    ident: AtomicU64::new(ev.ident as u64),
+                    filter: AtomicI16::new(ev.filter),
+                    flags: AtomicU16::new(ev.flags),
+                    fflags: AtomicU32::new(ev.fflags),
+                    data: AtomicI64::new(ev.data as i64),
+                    udata: AtomicU64::new(ev.udata as u64),
                 }
-            }
-
-            #[pygetset]
-            fn ident(&self) -> usize {
-                self.ev.lock().ident
-            }
-
-            #[pygetset(setter)]
-            fn set_ident(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-                self.ev.lock().ident = ident_from_object(&value, vm)?;
-                Ok(())
-            }
-
-            #[pygetset]
-            fn filter(&self) -> i16 {
-                self.ev.lock().filter
-            }
-
-            #[pygetset(setter)]
-            fn set_filter(&self, value: i16) {
-                self.ev.lock().filter = value;
-            }
-
-            #[pygetset]
-            fn flags(&self) -> u16 {
-                self.ev.lock().flags
-            }
-
-            #[pygetset(setter)]
-            fn set_flags(&self, value: u16) {
-                self.ev.lock().flags = value;
-            }
-
-            #[pygetset]
-            fn fflags(&self) -> u32 {
-                self.ev.lock().fflags
-            }
-
-            #[pygetset(setter)]
-            fn set_fflags(&self, value: u32) {
-                self.ev.lock().fflags = value;
-            }
-
-            #[pygetset]
-            fn data(&self) -> isize {
-                self.ev.lock().data
-            }
-
-            #[pygetset(setter)]
-            fn set_data(&self, value: isize) {
-                self.ev.lock().data = value;
-            }
-
-            #[pygetset]
-            fn udata(&self) -> usize {
-                self.ev.lock().udata
-            }
-
-            #[pygetset(setter)]
-            fn set_udata(&self, value: usize) {
-                self.ev.lock().udata = value;
             }
         }
 
@@ -879,15 +875,15 @@ mod decl {
             changelist: PyObjectRef,
             #[pyarg(positional)]
             maxevents: i32,
-            #[pyarg(any, optional)]
-            timeout: OptionalArg<PyObjectRef>,
+            #[pyarg(positional, optional)]
+            timeout: Option<PyObjectRef>,
         }
 
         fn timespec_from_timeout(
-            timeout: OptionalArg<PyObjectRef>,
+            timeout: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<host_select::kqueue::Timespec>> {
-            let Some(obj) = timeout.into_option() else {
+            let Some(obj) = timeout else {
                 return Ok(None);
             };
             if vm.is_none(&obj) {
@@ -919,8 +915,8 @@ mod decl {
         #[pyclass(with(Constructor, Destructor))]
         impl PyKqueue {
             #[pymethod]
-            fn close(&self) -> io::Result<()> {
-                let cell = self.kqfd.write().take();
+            fn close(zelf: &Py<Self>) -> io::Result<()> {
+                let cell = zelf.kqfd.write().take();
                 if let Some(cell) = cell {
                     host_select::kqueue::close(&cell)?;
                 }
@@ -928,8 +924,8 @@ mod decl {
             }
 
             #[pygetset]
-            fn closed(&self) -> bool {
-                self.kqfd
+            fn closed(zelf: &Py<Self>) -> bool {
+                zelf.kqfd
                     .read()
                     .as_ref()
                     .is_none_or(|cell| host_select::kqueue::fd(cell) < 0)
@@ -950,8 +946,8 @@ mod decl {
             }
 
             #[pymethod]
-            fn fileno(&self, vm: &VirtualMachine) -> PyResult<i32> {
-                Self::fd_or_closed(self.kqfd.read().as_ref(), vm)
+            fn fileno(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<i32> {
+                Self::fd_or_closed(zelf.kqfd.read().as_ref(), vm)
             }
 
             #[pyclassmethod]
@@ -963,7 +959,11 @@ mod decl {
             }
 
             #[pymethod]
-            fn control(&self, args: KqueueControlArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
+            fn control(
+                zelf: &Py<Self>,
+                args: KqueueControlArgs,
+                vm: &VirtualMachine,
+            ) -> PyResult<PyListRef> {
                 if args.maxevents < 0 {
                     return Err(vm.new_value_error(format!(
                         "Length of eventlist must be 0 or positive, got {}",
@@ -1005,7 +1005,7 @@ mod decl {
 
                 let n = loop {
                     let result = {
-                        let guard = self.kqfd.read();
+                        let guard = zelf.kqfd.read();
                         let fd = Self::fd_or_closed(guard.as_ref(), vm)?;
                         vm.allow_threads(|| {
                             host_select::kqueue::kevent(

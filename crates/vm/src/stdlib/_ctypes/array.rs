@@ -165,7 +165,7 @@ fn create_array_type_with_name(
     Ok(new_type)
 }
 
-/// PyCArrayType - metatype for Array types
+// PyCArrayType - metatype for Array types
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]
@@ -388,8 +388,7 @@ impl AsNumber for PyCArrayType {
     }
 }
 
-/// PyCArray - Array instance
-/// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
+// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
 #[pyclass(
     name = "Array",
     base = PyCData,
@@ -514,10 +513,10 @@ impl PyCArray {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
-        args: PyObjectRef,
+        object: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyGenericAlias> {
-        PyGenericAlias::from_args(cls, args, vm)
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {

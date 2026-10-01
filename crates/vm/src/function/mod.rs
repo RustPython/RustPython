@@ -2,6 +2,7 @@ mod argument;
 mod arithmetic;
 mod buffer;
 mod builtin;
+mod doctext;
 mod either;
 mod fspath;
 mod getargs;
@@ -14,7 +15,9 @@ mod time;
 
 pub use argument::{
     ArgumentError, Callee, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    OptionalArg, OptionalOption, PosArgs,
+    NameArgs, NameChanges, NameCoordinates, NameExcInfo, NameFields, NameIntegers, NameIterables,
+    NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, OptionalArg,
+    OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
 };
 pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
@@ -22,16 +25,20 @@ pub use buffer::{
     ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
+pub use doctext::{ItemDoc, db_doc, plain_doc};
 pub use either::Either;
 pub use fspath::FsPath;
 pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
-pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
+pub use number::{
+    ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
+};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 pub use signature::{
-    Param, ParamKind, SigArg, has_signature, internal_doc_bytes, internal_doc_len,
+    DefaultRepr, Param, ParamKind, SigArg, choose_class_params, has_signature, internal_doc_bytes,
+    internal_doc_len, real_signature, signature_prefix_bytes, signature_prefix_len,
 };
 pub use time::TimeoutSeconds;
 
@@ -44,6 +51,16 @@ use builtin::{BorrowedParam, OwnedParam, RefParam};
 pub enum ArgByteOrder {
     Big,
     Little,
+}
+
+impl ArgByteOrder {
+    #[must_use]
+    pub const fn py_default(&self) -> DefaultRepr {
+        match self {
+            Self::Big => DefaultRepr::Str("big"),
+            Self::Little => DefaultRepr::Str("little"),
+        }
+    }
 }
 
 impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {

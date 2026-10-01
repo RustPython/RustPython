@@ -6,7 +6,7 @@ use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{FrameObject, FrameObjectRef, FrameOwner},
+    frame::{FrameObject, FrameOwner},
     function::PySetterValue,
     types::{Destructor, Representable},
 };
@@ -465,24 +465,15 @@ impl FrameObject {
     }
 }
 
-#[pyclass(flags(DISALLOW_INSTANTIATION), with(Py, Representable))]
 impl FrameObject {
-    #[pygetset]
-    pub fn f_globals(&self) -> PyDictRef {
-        self.iframe().globals().to_owned()
+    /// Current line, or -1 when the linetable has no line for lasti.
+    pub fn lineno(&self) -> i32 {
+        self.f_code().addr2line(self.f_lasti() as i32)
     }
 
-    #[pygetset]
-    pub fn f_builtins(&self) -> PyObjectRef {
-        self.iframe().builtins().to_owned()
-    }
-
-    #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
         self.iframe().code().to_owned()
     }
-
-    #[pygetset]
     fn f_lasti(&self) -> u32 {
         // Byte offset of the current opcode. lasti is stored as the next
         // instruction index (see FrameObject::run), so the executing unit
@@ -495,10 +486,205 @@ impl FrameObject {
         };
         if val == 0 { 0 } else { (val - 1) * 2 }
     }
+}
 
-    /// Current line, or -1 when the linetable has no line for lasti.
-    pub fn lineno(&self) -> i32 {
-        self.f_code().addr2line(self.f_lasti() as i32)
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION),
+    with(Py, Representable)
+)]
+impl FrameObject {}
+
+#[pyclass]
+impl Py<FrameObject> {
+    #[pymethod]
+    // = frame_clear_impl
+    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // Materialized stack frames are FrameObject-owned even while their
+        // source iframe is still executing. TLS lookup below only sees the
+        // calling thread, so attached_tid is the cross-thread-safe execution
+        // state check.
+        if self.iframe().attached_tid() != 0 {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
+        let owner = FrameOwner::from_i8(
+            self.iframe()
+                .owner
+                .load(core::sync::atomic::Ordering::Acquire),
+        );
+        match owner {
+            FrameOwner::Generator => {
+                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
+                // and finished frames go through the owner finalizer.
+                if self.lasti() != 0 {
+                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
+                }
+                if let Some(owner) = self.iframe().generator.to_owned() {
+                    if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        let _ = PyCoroutine::del(coro, vm);
+                    } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
+                        let _ = PyAsyncGen::del(async_gen, vm);
+                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
+                        let _ = PyGenerator::del(generator, vm);
+                    }
+                }
+                return Ok(());
+            }
+            FrameOwner::Thread => {
+                return Err(vm.new_runtime_error("cannot clear an executing frame"));
+            }
+            FrameOwner::FrameObject => {
+                if !self.find_live_source_iframe().is_null() {
+                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
+                }
+            }
+        }
+
+        // Move references out before dropping them. Their finalizers may
+        // re-enter this frame, so no locals borrow or cold-data lock may be
+        // held while they run.
+        let fastlocals = {
+            // SAFETY: FrameObject is not executing (detached or stopped).
+            let slots = unsafe { self.fastlocals_mut() };
+            slots
+                .iter_mut()
+                .filter_map(Option::take)
+                .collect::<Vec<_>>()
+        };
+
+        // Clear the evaluation stack and cell references
+        self.clear_stack_and_cells();
+
+        let (temporary_refs, extra_locals, locals_cache, overwritten, retained_back) =
+            match self.iframe().cold_opt() {
+                Some(cold) => (
+                    core::mem::take(&mut *cold.temporary_refs.lock()),
+                    cold.f_extra_locals.lock().take(),
+                    cold.f_locals_cache.lock().take(),
+                    core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
+                    cold.retained_back.lock().take(),
+                ),
+                None => (Vec::new(), None, None, Vec::new(), None),
+            };
+        drop((
+            fastlocals,
+            temporary_refs,
+            extra_locals,
+            locals_cache,
+            overwritten,
+            retained_back,
+        ));
+
+        Ok(())
+    }
+
+    #[pygetset]
+    pub fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+        if self.uses_locals_proxy(vm)? {
+            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
+            Ok(proxy.into_ref(&vm.ctx).into())
+        } else {
+            Ok(self.iframe().locals.clone_mapping(vm).into())
+        }
+    }
+
+    #[pygetset]
+    fn f_generator(&self) -> Option<PyObjectRef> {
+        self.iframe().generator.to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
+        let mut prev = self.previous_iframe();
+
+        // For materialized frames (previous == 0), find the source iframe on
+        // the TLS chain and use its `previous` instead.
+        if prev.is_null() {
+            // materialized stores `*const Py<FrameObject>` as usize.
+            // `self` is `&Py<FrameObject>` — compare addresses directly.
+            let self_py_ptr = self as *const Self as usize;
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+                if materialized == self_py_ptr {
+                    // Found the source iframe — use its previous
+                    prev = unsafe { (*cur).previous() };
+                    break;
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+            if prev.is_null() {
+                // Check retained_back for frames whose callers have returned
+                let retained = self.iframe().cold().retained_back.lock().clone();
+                if let Some(frame) = retained {
+                    return Some(frame);
+                }
+                return None;
+            }
+        }
+
+        // Walk the TLS chain to find the prev iframe and materialize it.
+        // This handles both heap-allocated FrameObjects and stack-allocated
+        // iframes that haven't been observed yet.
+        {
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                if core::ptr::eq(cur, prev) {
+                    let iframe_ref = unsafe { &*cur };
+                    let fo = iframe_ref.materialize(vm);
+                    return Some(fo.to_owned());
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+        }
+
+        // The caller already returned — check retained_back
+        let retained = self.iframe().cold().retained_back.lock().clone();
+        if let Some(frame) = retained {
+            return Some(frame);
+        }
+
+        // The caller lives on another thread. Use stop-the-world to
+        // safely materialize the cross-thread frame chain.
+        #[cfg(feature = "threading")]
+        {
+            // Enter STW before dereferencing `prev` — the owning thread may
+            // return and free the stack-allocated iframe at any time.
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+            let prev_ref = unsafe { &*prev };
+            // Fast path: already materialized.
+            if let Some(fo) = prev_ref.frame_obj() {
+                return Some(fo.to_owned());
+            }
+            // Slow path: copy the whole chain, linked through retained_back.
+            // SAFETY: the world is stopped, so the owning thread is parked.
+            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
+            return Some(fo);
+        }
+
+        #[allow(unreachable_code)]
+        None
+    }
+
+    #[pygetset]
+    pub fn f_globals(&self) -> PyDictRef {
+        self.iframe().globals().to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_builtins(&self) -> PyObjectRef {
+        self.iframe().builtins().to_owned()
+    }
+
+    #[pygetset]
+    pub fn f_code(&self) -> PyRef<PyCode> {
+        self.payload.f_code()
+    }
+
+    #[pygetset]
+    fn f_lasti(&self) -> u32 {
+        self.payload.f_lasti()
     }
 
     #[pygetset]
@@ -771,69 +957,24 @@ impl FrameObject {
         }
     }
 
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-        let boxed = zelf.iframe().cold().trace_lines.lock();
-        Ok(vm.ctx.new_bool(*boxed).into())
+    #[pygetset]
+    fn f_trace_opcodes(&self, vm: &VirtualMachine) -> PyObjectRef {
+        let trace_opcodes = self.iframe().cold().trace_opcodes.lock();
+        vm.ctx.new_bool(*trace_opcodes).into()
     }
 
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_lines(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
+    #[pygetset(setter)]
+    fn set_f_trace_opcodes(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
                 let value: PyIntRef = value
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_lines.lock() = val;
+                *self.iframe().cold().trace_opcodes.lock() = val;
                 // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
-                if !live.is_null() {
-                    *unsafe { &*live }.cold().trace_lines.lock() = val;
-                }
-
-                Ok(())
-            }
-            PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
-        }
-    }
-
-    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
-    #[pymember(type = "bool")]
-    fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.iframe().cold().trace_opcodes.lock();
-        Ok(vm.ctx.new_bool(*trace_opcodes).into())
-    }
-
-    #[pymember(type = "bool", setter)]
-    fn set_f_trace_opcodes(
-        vm: &VirtualMachine,
-        zelf: PyObjectRef,
-        value: PySetterValue,
-    ) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-
-                let value: PyIntRef = value
-                    .downcast()
-                    .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
-
-                let val = !value.as_bigint().is_zero();
-                *zelf.iframe().cold().trace_opcodes.lock() = val;
-                // Propagate to live source iframe.
-                let live = zelf.find_live_source_iframe();
+                let live = self.find_live_source_iframe();
                 if !live.is_null() {
                     *unsafe { &*live }.cold().trace_opcodes.lock() = val;
                 }
@@ -844,178 +985,5 @@ impl FrameObject {
             }
             PySetterValue::Delete => Err(vm.new_type_error("can't delete numeric/char attribute")),
         }
-    }
-}
-
-#[pyclass]
-impl Py<FrameObject> {
-    #[pymethod]
-    // = frame_clear_impl
-    fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        // Materialized stack frames are FrameObject-owned even while their
-        // source iframe is still executing. TLS lookup below only sees the
-        // calling thread, so attached_tid is the cross-thread-safe execution
-        // state check.
-        if self.iframe().attached_tid() != 0 {
-            return Err(vm.new_runtime_error("cannot clear an executing frame"));
-        }
-        let owner = FrameOwner::from_i8(
-            self.iframe()
-                .owner
-                .load(core::sync::atomic::Ordering::Acquire),
-        );
-        match owner {
-            FrameOwner::Generator => {
-                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
-                // and finished frames go through the owner finalizer.
-                if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
-                }
-                if let Some(owner) = self.iframe().generator.to_owned() {
-                    if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
-                        let _ = PyCoroutine::del(coro, vm);
-                    } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
-                        let _ = PyAsyncGen::del(async_gen, vm);
-                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
-                        let _ = PyGenerator::del(generator, vm);
-                    }
-                }
-                return Ok(());
-            }
-            FrameOwner::Thread => {
-                return Err(vm.new_runtime_error("cannot clear an executing frame"));
-            }
-            FrameOwner::FrameObject => {
-                if !self.find_live_source_iframe().is_null() {
-                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
-                }
-            }
-        }
-
-        // Move references out before dropping them. Their finalizers may
-        // re-enter this frame, so no locals borrow or cold-data lock may be
-        // held while they run.
-        let fastlocals = {
-            // SAFETY: FrameObject is not executing (detached or stopped).
-            let slots = unsafe { self.fastlocals_mut() };
-            slots
-                .iter_mut()
-                .filter_map(Option::take)
-                .collect::<Vec<_>>()
-        };
-
-        // Clear the evaluation stack and cell references
-        self.clear_stack_and_cells();
-
-        let (temporary_refs, extra_locals, locals_cache, overwritten, retained_back) =
-            match self.iframe().cold_opt() {
-                Some(cold) => (
-                    core::mem::take(&mut *cold.temporary_refs.lock()),
-                    cold.f_extra_locals.lock().take(),
-                    cold.f_locals_cache.lock().take(),
-                    core::mem::take(&mut *cold.f_overwritten_fast_locals.lock()),
-                    cold.retained_back.lock().take(),
-                ),
-                None => (Vec::new(), None, None, Vec::new(), None),
-            };
-        drop((
-            fastlocals,
-            temporary_refs,
-            extra_locals,
-            locals_cache,
-            overwritten,
-            retained_back,
-        ));
-
-        Ok(())
-    }
-
-    #[pygetset]
-    pub fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        if self.uses_locals_proxy(vm)? {
-            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
-            Ok(proxy.into_ref(&vm.ctx).into())
-        } else {
-            Ok(self.iframe().locals.clone_mapping(vm).into())
-        }
-    }
-
-    #[pygetset]
-    fn f_generator(&self) -> Option<PyObjectRef> {
-        self.iframe().generator.to_owned()
-    }
-
-    #[pygetset]
-    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
-        let mut prev = self.previous_iframe();
-
-        // For materialized frames (previous == 0), find the source iframe on
-        // the TLS chain and use its `previous` instead.
-        if prev.is_null() {
-            // materialized stores `*const Py<FrameObject>` as usize.
-            // `self` is `&Py<FrameObject>` — compare addresses directly.
-            let self_py_ptr = self as *const Self as usize;
-            let mut cur = crate::vm::thread::get_current_frame();
-            while !cur.is_null() {
-                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
-                if materialized == self_py_ptr {
-                    // Found the source iframe — use its previous
-                    prev = unsafe { (*cur).previous() };
-                    break;
-                }
-                cur = unsafe { (*cur).previous() };
-            }
-            if prev.is_null() {
-                // Check retained_back for frames whose callers have returned
-                let retained = self.iframe().cold().retained_back.lock().clone();
-                if let Some(frame) = retained {
-                    return Some(frame);
-                }
-                return None;
-            }
-        }
-
-        // Walk the TLS chain to find the prev iframe and materialize it.
-        // This handles both heap-allocated FrameObjects and stack-allocated
-        // iframes that haven't been observed yet.
-        {
-            let mut cur = crate::vm::thread::get_current_frame();
-            while !cur.is_null() {
-                if core::ptr::eq(cur, prev) {
-                    let iframe_ref = unsafe { &*cur };
-                    let fo = iframe_ref.materialize(vm);
-                    return Some(fo.to_owned());
-                }
-                cur = unsafe { (*cur).previous() };
-            }
-        }
-
-        // The caller already returned — check retained_back
-        let retained = self.iframe().cold().retained_back.lock().clone();
-        if let Some(frame) = retained {
-            return Some(frame);
-        }
-
-        // The caller lives on another thread. Use stop-the-world to
-        // safely materialize the cross-thread frame chain.
-        #[cfg(feature = "threading")]
-        {
-            // Enter STW before dereferencing `prev` — the owning thread may
-            // return and free the stack-allocated iframe at any time.
-            vm.state.stop_the_world.stop_the_world(&vm.state);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
-            let prev_ref = unsafe { &*prev };
-            // Fast path: already materialized.
-            if let Some(fo) = prev_ref.frame_obj() {
-                return Some(fo.to_owned());
-            }
-            // Slow path: copy the whole chain, linked through retained_back.
-            // SAFETY: the world is stopped, so the owning thread is parked.
-            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
-            return Some(fo);
-        }
-
-        #[allow(unreachable_code)]
-        None
     }
 }

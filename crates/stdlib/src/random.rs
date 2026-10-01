@@ -8,7 +8,6 @@ mod _random {
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
-        function::OptionalOption,
         types::{Constructor, Initializer},
     };
     use itertools::Itertools;
@@ -25,27 +24,33 @@ mod _random {
         rng: PyMutex<MT19937>,
     }
 
+    #[derive(FromArgs)]
+    struct SeedArgs {
+        #[pyarg(positional, optional)]
+        n: Option<PyObjectRef>,
+    }
+
     impl DefaultConstructor for PyRandom {}
 
     impl Initializer for PyRandom {
-        type Args = OptionalOption;
+        type Args = SeedArgs;
 
-        fn init(zelf: &Py<Self>, x: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.seed(x, vm)
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            Self::seed(zelf, args, vm)
         }
     }
 
     #[pyclass(flags(BASETYPE), with(Constructor, Initializer))]
     impl PyRandom {
         #[pymethod]
-        fn random(&self) -> f64 {
-            let mut rng = self.rng.lock();
+        fn random(zelf: &Py<Self>) -> f64 {
+            let mut rng = zelf.rng.lock();
             mt19937::gen_res53(&mut *rng)
         }
 
         #[pymethod]
-        fn seed(&self, n: OptionalOption<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-            *self.rng.lock() = match n.flatten() {
+        fn seed(zelf: &Py<Self>, args: SeedArgs, vm: &VirtualMachine) -> PyResult<()> {
+            *zelf.rng.lock() = match args.n {
                 Some(n) => {
                     // Fallback to using hash if object isn't Int-like.
                     let (_, mut key) = match n.downcast::<PyInt>() {
@@ -65,7 +70,7 @@ mod _random {
         }
 
         #[pymethod]
-        fn getrandbits(&self, k: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+        fn getrandbits(zelf: &Py<Self>, k: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
             let k_int = k.try_index(vm)?;
             let k_bigint = k_int.as_bigint();
             if k_bigint.is_negative() {
@@ -77,7 +82,7 @@ mod _random {
             match k {
                 0 => Ok(BigInt::zero()),
                 mut k => {
-                    let mut rng = self.rng.lock();
+                    let mut rng = zelf.rng.lock();
                     let mut gen_u32 = |k| {
                         let r = rng.next_u32();
                         if k < 32 { r >> (32 - k) } else { r }
@@ -105,8 +110,8 @@ mod _random {
         }
 
         #[pymethod]
-        fn getstate(&self, vm: &VirtualMachine) -> PyTupleRef {
-            let rng = self.rng.lock();
+        fn getstate(zelf: &Py<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            let rng = zelf.rng.lock();
             vm.new_tuple(
                 rng.get_state()
                     .iter()
@@ -118,7 +123,7 @@ mod _random {
         }
 
         #[pymethod]
-        fn setstate(&self, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn setstate(zelf: &Py<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let state: &[_; mt19937::N + 1] = state
                 .as_slice()
                 .try_into()
@@ -133,7 +138,7 @@ mod _random {
                 .map(|i| i.try_to_value(vm))
                 .process_results(|it| it.collect_array())?
                 .unwrap();
-            let mut rng = self.rng.lock();
+            let mut rng = zelf.rng.lock();
             rng.set_state(&state);
             rng.set_index(index);
             Ok(())

@@ -26,7 +26,7 @@ unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
-        obj.class().slots.iternext.load().is_some()
+        obj.class().slots().iternext.load().is_some()
     }
 }
 
@@ -136,7 +136,7 @@ impl TryFromObject for PyIter<PyObjectRef> {
     // in the vm when a for loop is entered. Next, it is used when the builtin
     // function 'iter' is called.
     fn try_from_object(vm: &VirtualMachine, iter_target: PyObjectRef) -> PyResult<Self> {
-        let get_iter = iter_target.class().slots.iter.load();
+        let get_iter = iter_target.class().slots().iter.load();
         if let Some(get_iter) = get_iter {
             let iter = get_iter(iter_target, vm)?;
             if Self::check(&iter) {

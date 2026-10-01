@@ -428,14 +428,16 @@ impl SlotAccessor {
 
         macro_rules! inherit_main {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.$slot.load());
+                let inherited = mro.iter().find_map(|cls| cls.payload().slots.$slot.load());
                 typ.slots.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_number {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_number.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_number.$slot.load());
                 typ.slots.as_number.$slot.store(inherited);
             }};
         }
@@ -444,14 +446,16 @@ impl SlotAccessor {
             ($slot:ident) => {{
                 let inherited = mro
                     .iter()
-                    .find_map(|cls| cls.slots.as_sequence.$slot.load());
+                    .find_map(|cls| cls.payload().slots.as_sequence.$slot.load());
                 typ.slots.as_sequence.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_mapping {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_mapping.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_mapping.$slot.load());
                 typ.slots.as_mapping.$slot.store(inherited);
             }};
         }
@@ -470,8 +474,8 @@ impl SlotAccessor {
                 // vectorcall as a constructor fast path (call=None).
                 // See vectorcall_type() in type.rs for the dual-use design rationale.
                 let inherited_vc = mro.iter().find_map(|cls| {
-                    if cls.slots.call.load().is_some() {
-                        cls.slots.vectorcall.load()
+                    if cls.payload().slots.call.load().is_some() {
+                        cls.payload().slots.vectorcall.load()
                     } else {
                         None
                     }
@@ -544,13 +548,19 @@ impl SlotAccessor {
 
             // Buffer protocol
             Self::BfGetBuffer => {
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_buffer.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_buffer.load());
                 typ.slots.as_buffer.store(inherited);
             }
             Self::BfReleaseBuffer => {
-                let has_release = mro.iter().any(|cls| cls.slots.has_release_buffer.load());
+                let has_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.has_release_buffer.load());
                 typ.slots.has_release_buffer.store(has_release);
-                let py_release = mro.iter().any(|cls| cls.slots.python_release_buffer.load());
+                let py_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.python_release_buffer.load());
                 typ.slots.python_release_buffer.store(py_release);
             }
 
@@ -624,7 +634,8 @@ impl SlotAccessor {
                     && let Some(base_val) = base.slots.init.load()
                 {
                     let slot_defined = base.base.deref().is_none_or(|bb| {
-                        bb.slots.init.load().map(|v| fn_addr(v)) != Some(fn_addr(base_val))
+                        bb.payload().slots.init.load().map(|v| fn_addr(v))
+                            != Some(fn_addr(base_val))
                     });
                     if slot_defined {
                         typ.slots.init.store(Some(base_val));
@@ -1012,11 +1023,8 @@ pub fn find_slot_defs_by_name(name: &str) -> impl Iterator<Item = &'static SlotD
     SLOT_DEFS.iter().filter(move |def| def.name == name)
 }
 
-/// Total number of slot definitions
-pub const SLOT_DEFS_COUNT: usize = SLOT_DEFS.len();
-
 /// All slot definitions
-pub static SLOT_DEFS: &[SlotDef] = &[
+pub const SLOT_DEFS: &[SlotDef] = &[
     // Buffer protocol (bf_*)
     SlotDef {
         name: "__buffer__",
@@ -1035,13 +1043,13 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__init__",
         accessor: SlotAccessor::TpInit,
         op: None,
-        doc: "__init__($self, /, *args, **kwargs)\n--\n\nInitialize self. See help(type(self)) for accurate signature.",
+        doc: "__init__($self, /, *args, **kwargs)\n--\n\nInitialize self.  See help(type(self)) for accurate signature.",
     },
     SlotDef {
         name: "__new__",
         accessor: SlotAccessor::TpNew,
         op: None,
-        doc: "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return a new object. See help(type) for accurate signature.",
+        doc: "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return new object.  See help(type) for accurate signature.",
     },
     SlotDef {
         name: "__del__",
@@ -1222,7 +1230,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__contains__",
         accessor: SlotAccessor::SqContains,
         op: None,
-        doc: "__contains__($self, key, /)\n--\n\nReturn key in self.",
+        doc: "__contains__($self, key, /)\n--\n\nReturn bool(key in self).",
     },
     // Number protocol - binary ops with left/right variants
     SlotDef {
@@ -1241,7 +1249,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__iadd__",
         accessor: SlotAccessor::NbInplaceAdd,
         op: None,
-        doc: "__iadd__($self, value, /)\n--\n\nImplement self+=value.",
+        doc: "__iadd__($self, value, /)\n--\n\nReturn self+=value.",
     },
     SlotDef {
         name: "__sub__",
@@ -1259,7 +1267,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__isub__",
         accessor: SlotAccessor::NbInplaceSubtract,
         op: None,
-        doc: "__isub__($self, value, /)\n--\n\nImplement self-=value.",
+        doc: "__isub__($self, value, /)\n--\n\nReturn self-=value.",
     },
     SlotDef {
         name: "__mul__",
@@ -1277,7 +1285,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__imul__",
         accessor: SlotAccessor::NbInplaceMultiply,
         op: None,
-        doc: "__imul__($self, value, /)\n--\n\nImplement self*=value.",
+        doc: "__imul__($self, value, /)\n--\n\nReturn self*=value.",
     },
     SlotDef {
         name: "__mod__",
@@ -1295,7 +1303,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__imod__",
         accessor: SlotAccessor::NbInplaceRemainder,
         op: None,
-        doc: "__imod__($self, value, /)\n--\n\nImplement self%=value.",
+        doc: "__imod__($self, value, /)\n--\n\nReturn self%=value.",
     },
     SlotDef {
         name: "__divmod__",
@@ -1325,7 +1333,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__ipow__",
         accessor: SlotAccessor::NbInplacePower,
         op: None,
-        doc: "__ipow__($self, value, /)\n--\n\nImplement self**=value.",
+        doc: "__ipow__($self, value, /)\n--\n\nReturn self**=value.",
     },
     SlotDef {
         name: "__lshift__",
@@ -1343,7 +1351,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__ilshift__",
         accessor: SlotAccessor::NbInplaceLshift,
         op: None,
-        doc: "__ilshift__($self, value, /)\n--\n\nImplement self<<=value.",
+        doc: "__ilshift__($self, value, /)\n--\n\nReturn self<<=value.",
     },
     SlotDef {
         name: "__rshift__",
@@ -1361,7 +1369,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__irshift__",
         accessor: SlotAccessor::NbInplaceRshift,
         op: None,
-        doc: "__irshift__($self, value, /)\n--\n\nImplement self>>=value.",
+        doc: "__irshift__($self, value, /)\n--\n\nReturn self>>=value.",
     },
     SlotDef {
         name: "__and__",
@@ -1379,7 +1387,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__iand__",
         accessor: SlotAccessor::NbInplaceAnd,
         op: None,
-        doc: "__iand__($self, value, /)\n--\n\nImplement self&=value.",
+        doc: "__iand__($self, value, /)\n--\n\nReturn self&=value.",
     },
     SlotDef {
         name: "__xor__",
@@ -1397,7 +1405,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__ixor__",
         accessor: SlotAccessor::NbInplaceXor,
         op: None,
-        doc: "__ixor__($self, value, /)\n--\n\nImplement self^=value.",
+        doc: "__ixor__($self, value, /)\n--\n\nReturn self^=value.",
     },
     SlotDef {
         name: "__or__",
@@ -1415,7 +1423,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__ior__",
         accessor: SlotAccessor::NbInplaceOr,
         op: None,
-        doc: "__ior__($self, value, /)\n--\n\nImplement self|=value.",
+        doc: "__ior__($self, value, /)\n--\n\nReturn self|=value.",
     },
     SlotDef {
         name: "__floordiv__",
@@ -1433,7 +1441,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__ifloordiv__",
         accessor: SlotAccessor::NbInplaceFloorDivide,
         op: None,
-        doc: "__ifloordiv__($self, value, /)\n--\n\nImplement self//=value.",
+        doc: "__ifloordiv__($self, value, /)\n--\n\nReturn self//=value.",
     },
     SlotDef {
         name: "__truediv__",
@@ -1451,7 +1459,7 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__itruediv__",
         accessor: SlotAccessor::NbInplaceTrueDivide,
         op: None,
-        doc: "__itruediv__($self, value, /)\n--\n\nImplement self/=value.",
+        doc: "__itruediv__($self, value, /)\n--\n\nReturn self/=value.",
     },
     SlotDef {
         name: "__matmul__",
@@ -1469,32 +1477,32 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__imatmul__",
         accessor: SlotAccessor::NbInplaceMatrixMultiply,
         op: None,
-        doc: "__imatmul__($self, value, /)\n--\n\nImplement self@=value.",
+        doc: "__imatmul__($self, value, /)\n--\n\nReturn self@=value.",
     },
     // Number unary operations
     SlotDef {
         name: "__neg__",
         accessor: SlotAccessor::NbNegative,
         op: None,
-        doc: "__neg__($self, /)\n--\n\nReturn -self.",
+        doc: "__neg__($self, /)\n--\n\n-self",
     },
     SlotDef {
         name: "__pos__",
         accessor: SlotAccessor::NbPositive,
         op: None,
-        doc: "__pos__($self, /)\n--\n\nReturn +self.",
+        doc: "__pos__($self, /)\n--\n\n+self",
     },
     SlotDef {
         name: "__abs__",
         accessor: SlotAccessor::NbAbsolute,
         op: None,
-        doc: "__abs__($self, /)\n--\n\nReturn abs(self).",
+        doc: "__abs__($self, /)\n--\n\nabs(self)",
     },
     SlotDef {
         name: "__invert__",
         accessor: SlotAccessor::NbInvert,
         op: None,
-        doc: "__invert__($self, /)\n--\n\nReturn ~self.",
+        doc: "__invert__($self, /)\n--\n\n~self",
     },
     SlotDef {
         name: "__bool__",
@@ -1506,13 +1514,13 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__int__",
         accessor: SlotAccessor::NbInt,
         op: None,
-        doc: "__int__($self, /)\n--\n\nReturn int(self).",
+        doc: "__int__($self, /)\n--\n\nint(self)",
     },
     SlotDef {
         name: "__float__",
         accessor: SlotAccessor::NbFloat,
         op: None,
-        doc: "__float__($self, /)\n--\n\nReturn float(self).",
+        doc: "__float__($self, /)\n--\n\nfloat(self)",
     },
     SlotDef {
         name: "__index__",
@@ -1552,6 +1560,9 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         doc: "__imul__($self, value, /)\n--\n\nImplement self*=value.",
     },
 ];
+
+/// Total number of slot definitions.
+pub const SLOT_DEFS_COUNT: usize = SLOT_DEFS.len();
 
 #[cfg(test)]
 mod tests {

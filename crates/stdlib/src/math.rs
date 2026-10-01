@@ -7,7 +7,10 @@ mod math {
     use crate::vm::{
         AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
-        function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
+        function::{
+            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, NameIntegers,
+            OptionalArg, PosArgs,
+        },
         identifier,
     };
     use malachite_bigint::BigInt;
@@ -47,22 +50,22 @@ mod math {
 
     #[derive(FromArgs)]
     struct IsCloseArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         a: ArgIntoFloat,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         b: ArgIntoFloat,
-        #[pyarg(named, optional)]
-        rel_tol: OptionalArg<ArgIntoFloat>,
-        #[pyarg(named, optional)]
-        abs_tol: OptionalArg<ArgIntoFloat>,
+        #[pyarg(named, default = 1e-09)]
+        rel_tol: ArgIntoFloat,
+        #[pyarg(named, default = 0.0)]
+        abs_tol: ArgIntoFloat,
     }
 
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = args.a.into_float();
         let b = args.b.into_float();
-        let rel_tol = args.rel_tol.into_option().map(|v| v.into_float());
-        let abs_tol = args.abs_tol.into_option().map(|v| v.into_float());
+        let rel_tol = Some(args.rel_tol.into_float());
+        let abs_tol = Some(args.abs_tol.into_float());
 
         pymath::math::isclose(a, b, rel_tol, abs_tol)
             .map_err(|_| vm.new_value_error("tolerances must be non-negative"))
@@ -229,7 +232,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn hypot(coordinates: PosArgs<ArgIntoFloat>) -> f64 {
+    fn hypot(coordinates: PosArgs<ArgIntoFloat, NameCoordinates>) -> f64 {
         let coords = ArgIntoFloat::vec_into_f64(coordinates.into_vec());
         pymath::math::hypot(&coords)
     }
@@ -365,6 +368,11 @@ mod math {
 
     #[pyfunction]
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // `math_ceil`: an exact float skips the `__ceil__` lookup.
+        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            let v = try_f64_to_bigint(f.to_f64().ceil(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
+        }
         // Only call __ceil__ if the class defines it - if it exists but is not callable,
         // the error should be propagated (not fall back to float conversion)
         if x.class().has_attr(identifier!(vm, __ceil__)) {
@@ -375,14 +383,16 @@ mod math {
             let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
             return Ok(vm.ctx.new_int(v).into());
         }
-        Err(vm.new_type_error(format!(
-            "type '{}' doesn't define '__ceil__' method",
-            x.class().name(),
-        )))
+        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
     }
 
     #[pyfunction]
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // `math_floor`: an exact float skips the `__floor__` lookup.
+        if let Some(f) = x.downcast_ref_if_exact::<PyFloat>(vm) {
+            let v = try_f64_to_bigint(f.to_f64().floor(), vm)?;
+            return Ok(vm.ctx.new_int(v).into());
+        }
         // Only call __floor__ if the class defines it - if it exists but is not callable,
         // the error should be propagated (not fall back to float conversion)
         if x.class().has_attr(identifier!(vm, __floor__)) {
@@ -393,10 +403,7 @@ mod math {
             let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
             return Ok(vm.ctx.new_int(v).into());
         }
-        Err(vm.new_type_error(format!(
-            "type '{}' doesn't define '__floor__' method",
-            x.class().name(),
-        )))
+        Err(vm.new_type_error(format!("must be real number, not {}", x.class().name())))
     }
 
     #[pyfunction]
@@ -404,12 +411,18 @@ mod math {
         pymath::math::frexp(x.into_float())
     }
 
-    #[pyfunction]
-    fn ldexp(
+    #[derive(FromArgs)]
+    struct LdexpArgs {
+        #[pyarg(positional)]
         x: Either<PyRef<PyFloat>, PyIntRef>,
+        // Refuses anything that is not an `int`, including objects with `__index__`.
+        #[pyarg(positional, error_msg = "Expected an int as second argument to ldexp.")]
         i: PyIntRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<f64> {
+    }
+
+    #[pyfunction]
+    fn ldexp(args: LdexpArgs, vm: &VirtualMachine) -> PyResult<f64> {
+        let LdexpArgs { x, i } = args;
         let value = match x {
             Either::A(f) => f.to_f64(),
             Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
@@ -440,8 +453,9 @@ mod math {
         x: ArgIntoFloat,
         #[pyarg(positional)]
         y: ArgIntoFloat,
+        // None means one step.
         #[pyarg(named, optional)]
-        steps: OptionalArg<ArgIndex>,
+        steps: Option<ArgIndex>,
     }
 
     #[pyfunction]
@@ -449,7 +463,7 @@ mod math {
         let x = arg.x.into_float();
         let y = arg.y.into_float();
 
-        let steps = match arg.steps.into_option() {
+        let steps = match arg.steps {
             Some(steps) => {
                 let steps: i64 = steps.into_int_ref().try_to_primitive(vm)?;
                 if steps < 0 {
@@ -482,7 +496,8 @@ mod math {
     struct ProdArgs {
         #[pyarg(positional)]
         iterable: ArgIterable<PyObjectRef>,
-        #[pyarg(named, optional)]
+        // Missing means the integer 1.
+        #[pyarg(named, optional, py_default = "1")]
         start: OptionalArg<PyObjectRef>,
     }
 
@@ -769,7 +784,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn gcd(args: PosArgs<ArgIndex>) -> BigInt {
+    fn gcd(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()
@@ -780,7 +795,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn lcm(args: PosArgs<ArgIndex>) -> BigInt {
+    fn lcm(args: PosArgs<ArgIndex, NameIntegers>) -> BigInt {
         let ints: Vec<_> = args
             .into_vec()
             .into_iter()
@@ -791,7 +806,8 @@ mod math {
     }
 
     #[pyfunction]
-    fn factorial(n: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn factorial(n: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let n = n.into_int_ref();
         // Check for negative before overflow - negative values are always invalid
         if n.as_bigint().is_negative() {
             return Err(vm.new_value_error("factorial() not defined for negative values"));
@@ -804,46 +820,39 @@ mod math {
             .map_err(|_| vm.new_value_error("factorial() not defined for negative values"))
     }
 
-    #[pyfunction]
-    fn perm(
+    #[derive(FromArgs)]
+    struct PermArgs {
+        #[pyarg(positional)]
         n: ArgIndex,
-        k: OptionalArg<Option<ArgIndex>>,
-        vm: &VirtualMachine,
-    ) -> PyResult<BigInt> {
-        let n_int = n.into_int_ref();
+        #[pyarg(positional, optional)]
+        k: Option<ArgIndex>,
+    }
+
+    #[pyfunction]
+    fn perm(args: PermArgs, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let Some(k) = args.k else {
+            return factorial(args.n, vm);
+        };
+        let n_int = args.n.into_int_ref();
         let n_big = n_int.as_bigint();
+        let k_int = k.into_int_ref();
+        let k_big = k_int.as_bigint();
 
         if n_big.is_negative() {
             return Err(vm.new_value_error("n must be a non-negative integer"));
         }
-
-        // k = None means k = n (factorial)
-        let k_int = k.flatten().map(|k| k.into_int_ref());
-        let k_big: Option<&BigInt> = k_int.as_ref().map(|k| k.as_bigint());
-
-        if let Some(k_val) = k_big {
-            if k_val.is_negative() {
-                return Err(vm.new_value_error("k must be a non-negative integer"));
-            }
-            if k_val > n_big {
-                return Ok(BigInt::from(0u8));
-            }
+        if k_big.is_negative() {
+            return Err(vm.new_value_error("k must be a non-negative integer"));
+        }
+        if k_big > n_big {
+            return Ok(BigInt::from(0u8));
         }
 
-        // Convert k to u64 (required by pymath)
-        let ki: u64 = match k_big {
-            None => match n_big.to_u64() {
-                Some(n) => n,
-                None => {
-                    return Err(vm.new_overflow_error(format!("n must not exceed {}", u64::MAX)));
-                }
-            },
-            Some(k_val) => match k_val.to_u64() {
-                Some(k) => k,
-                None => {
-                    return Err(vm.new_overflow_error(format!("k must not exceed {}", u64::MAX)));
-                }
-            },
+        let ki: u64 = match k_big.to_i64() {
+            Some(k) => k as u64,
+            None => {
+                return Err(vm.new_overflow_error(format!("k must not exceed {}", i64::MAX)));
+            }
         };
 
         // Fast path: n fits in i64
@@ -910,12 +919,11 @@ mod math {
             k_big
         };
 
-        // k must fit in u64
-        let ki: u64 = match effective_k.to_u64() {
-            Some(k) => k,
+        let ki: u64 = match effective_k.to_i64() {
+            Some(k) => k as u64,
             None => {
                 return Err(
-                    vm.new_overflow_error(format!("min(n - k, k) must not exceed {}", u64::MAX))
+                    vm.new_overflow_error(format!("min(n - k, k) must not exceed {}", i64::MAX))
                 );
             }
         };
