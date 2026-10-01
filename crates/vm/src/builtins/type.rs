@@ -71,6 +71,18 @@ pub struct PyType {
 /// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
 
+const MANAGED_DICT_FLAGS: PyTypeFlags =
+    PyTypeFlags::from_slice(&[PyTypeFlags::HAS_DICT, PyTypeFlags::MANAGED_DICT]);
+
+const MANAGED_DICT_INLINE_FLAGS: PyTypeFlags = PyTypeFlags::from_slice(&[
+    PyTypeFlags::HAS_DICT,
+    PyTypeFlags::MANAGED_DICT,
+    PyTypeFlags::INLINE_VALUES,
+]);
+
+const WEAKREF_FLAGS: PyTypeFlags =
+    PyTypeFlags::from_slice(&[PyTypeFlags::HAS_WEAKREF, PyTypeFlags::MANAGED_WEAKREF]);
+
 // Method cache (type_cache / MCACHE): direct-mapped cache keyed by
 // (tp_version_tag, interned_name_ptr).
 //
@@ -997,8 +1009,7 @@ impl PyType {
             .iter()
             .any(|b| b.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF))
         {
-            slots.flags.insert(PyTypeFlags::HAS_WEAKREF);
-            slots.flags.insert(PyTypeFlags::MANAGED_WEAKREF);
+            slots.flags |= WEAKREF_FLAGS;
         }
 
         // Inherit SEQUENCE and MAPPING flags from base classes
@@ -1067,8 +1078,7 @@ impl PyType {
             slots.flags.insert(PyTypeFlags::HAS_DICT);
         }
         if base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
-            slots.flags.insert(PyTypeFlags::HAS_WEAKREF);
-            slots.flags.insert(PyTypeFlags::MANAGED_WEAKREF);
+            slots.flags |= WEAKREF_FLAGS;
         }
 
         // Inherit SEQUENCE and MAPPING flags from base class
@@ -2058,13 +2068,13 @@ impl Constructor for PyType {
         // 1. __slots__ is not defined AND base doesn't have dict, OR
         // 2. __dict__ is in __slots__
         if (heaptype_slots.is_none() && may_add_dict) || add_dict {
-            flags.insert(PyTypeFlags::HAS_DICT);
-            flags.insert(PyTypeFlags::MANAGED_DICT);
             // type_ready_managed_dict: fixed-size managed-dict types
             // get an inline values array after the object.
-            if base.slots.itemsize == 0 {
-                flags.insert(PyTypeFlags::INLINE_VALUES);
-            }
+            flags |= if base.slots.itemsize == 0 {
+                MANAGED_DICT_INLINE_FLAGS
+            } else {
+                MANAGED_DICT_FLAGS
+            };
         }
 
         // Add HAS_WEAKREF if:
@@ -2074,8 +2084,7 @@ impl Constructor for PyType {
         let may_add_weakref =
             base.slots.itemsize == 0 && !base.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
         if (heaptype_slots.is_none() && may_add_weakref) || add_weakref {
-            flags.insert(PyTypeFlags::HAS_WEAKREF);
-            flags.insert(PyTypeFlags::MANAGED_WEAKREF);
+            flags |= WEAKREF_FLAGS;
         }
 
         let (slots, heaptype_ext) = {
