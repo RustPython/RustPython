@@ -271,6 +271,30 @@ pub unsafe extern "C" fn PyLong_AsLong(obj: *mut PyObject) -> c_long {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_AsLongAndOverflow(
+    obj: *mut PyObject,
+    overflow: *mut c_int,
+) -> c_long {
+    if !overflow.is_null() {
+        unsafe { *overflow = 0 };
+    }
+    with_vm::<PyResult<c_long>, _>(|vm| {
+        let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
+        let bigint = int.as_bigint();
+        if let Ok(val) = c_long::try_from(bigint) {
+            Ok(val)
+        } else if !overflow.is_null() {
+            unsafe {
+                *overflow = if bigint.sign() == Sign::Minus { -1 } else { 1 };
+            }
+            Ok(-1)
+        } else {
+            Err(vm.new_overflow_error("Python int too large to convert to C long"))
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyLong_AsDouble(obj: *mut PyObject) -> c_double {
     with_vm::<PyResult<c_double>, _>(|vm| {
         let int = unsafe { obj.assume_borrowed_and_cast::<PyInt>(vm) }?;
@@ -328,6 +352,215 @@ pub unsafe extern "C" fn PyLong_AsLongLong(obj: *mut PyObject) -> c_longlong {
             .try_into()
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long long"))
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_AsLongLongAndOverflow(
+    obj: *mut PyObject,
+    overflow: *mut c_int,
+) -> c_longlong {
+    if !overflow.is_null() {
+        unsafe { *overflow = 0 };
+    }
+    with_vm::<PyResult<c_longlong>, _>(|vm| {
+        let int = unsafe { obj.assume_borrowed() }.to_owned().try_index(vm)?;
+        let bigint = int.as_bigint();
+        if let Ok(val) = c_longlong::try_from(bigint) {
+            Ok(val)
+        } else if !overflow.is_null() {
+            unsafe {
+                *overflow = if bigint.sign() == Sign::Minus { -1 } else { 1 };
+            }
+            Ok(-1)
+        } else {
+            Err(vm.new_overflow_error("Python int too large to convert to C long long"))
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyLong_GetInfo() -> *mut PyObject {
+    with_vm(|vm| vm.sys_module.get_attr("int_info", vm))
+}
+
+fn digit_value(c: u8) -> u32 {
+    match c {
+        b'0'..=b'9' => (c - b'0') as u32,
+        b'a'..=b'z' => (c - b'a' + 10) as u32,
+        b'A'..=b'Z' => (c - b'A' + 10) as u32,
+        _ => u32::MAX,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_strtoul(
+    mut str: *const c_char,
+    ptr: *mut *mut c_char,
+    mut base: c_int,
+) -> c_ulong {
+    if str.is_null() {
+        if !ptr.is_null() {
+            unsafe { *ptr = core::ptr::null_mut() };
+        }
+        return 0;
+    }
+
+    while unsafe { *str } != 0 && (unsafe { *str } as u8).is_ascii_whitespace() {
+        str = unsafe { str.add(1) };
+    }
+
+    match base {
+        0 => {
+            if unsafe { *str } == b'0' as c_char {
+                let next = unsafe { *str.add(1) } as u8;
+                if next == b'x' || next == b'X' {
+                    let next2 = unsafe { *str.add(2) } as u8;
+                    if digit_value(next2) >= 16 {
+                        if !ptr.is_null() {
+                            unsafe { *ptr = str.add(1) as *mut c_char };
+                        }
+                        return 0;
+                    }
+                    str = unsafe { str.add(2) };
+                    base = 16;
+                } else if next == b'o' || next == b'O' {
+                    let next2 = unsafe { *str.add(2) } as u8;
+                    if digit_value(next2) >= 8 {
+                        if !ptr.is_null() {
+                            unsafe { *ptr = str.add(1) as *mut c_char };
+                        }
+                        return 0;
+                    }
+                    str = unsafe { str.add(2) };
+                    base = 8;
+                } else if next == b'b' || next == b'B' {
+                    let next2 = unsafe { *str.add(2) } as u8;
+                    if digit_value(next2) >= 2 {
+                        if !ptr.is_null() {
+                            unsafe { *ptr = str.add(1) as *mut c_char };
+                        }
+                        return 0;
+                    }
+                    str = unsafe { str.add(2) };
+                    base = 2;
+                } else {
+                    while unsafe { *str } == b'0' as c_char {
+                        str = unsafe { str.add(1) };
+                    }
+                    while unsafe { *str } != 0 && (unsafe { *str } as u8).is_ascii_whitespace() {
+                        str = unsafe { str.add(1) };
+                    }
+                    if !ptr.is_null() {
+                        unsafe { *ptr = str as *mut c_char };
+                    }
+                    return 0;
+                }
+            } else {
+                base = 10;
+            }
+        }
+        16 if unsafe { *str } == b'0' as c_char => {
+            let next = unsafe { *str.add(1) } as u8;
+            if (next == b'x' || next == b'X') && digit_value(unsafe { *str.add(2) } as u8) < 16 {
+                str = unsafe { str.add(2) };
+            }
+        }
+        8 if unsafe { *str } == b'0' as c_char => {
+            let next = unsafe { *str.add(1) } as u8;
+            if (next == b'o' || next == b'O') && digit_value(unsafe { *str.add(2) } as u8) < 8 {
+                str = unsafe { str.add(2) };
+            }
+        }
+        2 if unsafe { *str } == b'0' as c_char => {
+            let next = unsafe { *str.add(1) } as u8;
+            if (next == b'b' || next == b'B') && digit_value(unsafe { *str.add(2) } as u8) < 2 {
+                str = unsafe { str.add(2) };
+            }
+        }
+        _ => {}
+    }
+
+    if !(2..=36).contains(&base) {
+        if !ptr.is_null() {
+            unsafe { *ptr = str as *mut c_char };
+        }
+        return 0;
+    }
+
+    while unsafe { *str } == b'0' as c_char {
+        str = unsafe { str.add(1) };
+    }
+
+    let mut result: c_ulong = 0;
+    let base_ulong = base as c_ulong;
+
+    while unsafe { *str } != 0 {
+        let digit = digit_value(unsafe { *str } as u8);
+        if digit >= base as u32 {
+            break;
+        }
+
+        if let Some(res) = result
+            .checked_mul(base_ulong)
+            .and_then(|r| r.checked_add(digit as c_ulong))
+        {
+            result = res;
+            str = unsafe { str.add(1) };
+        } else {
+            while unsafe { *str } != 0 && digit_value(unsafe { *str } as u8) < base as u32 {
+                str = unsafe { str.add(1) };
+            }
+            if !ptr.is_null() {
+                unsafe { *ptr = str as *mut c_char };
+            }
+            rustpython_vm::host_env::os::set_errno(libc::ERANGE);
+            return c_ulong::MAX;
+        }
+    }
+
+    if !ptr.is_null() {
+        unsafe { *ptr = str as *mut c_char };
+    }
+
+    result
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyOS_strtol(
+    mut str: *const c_char,
+    ptr: *mut *mut c_char,
+    base: c_int,
+) -> c_long {
+    if str.is_null() {
+        if !ptr.is_null() {
+            unsafe { *ptr = core::ptr::null_mut() };
+        }
+        return 0;
+    }
+
+    while unsafe { *str } != 0 && (unsafe { *str } as u8).is_ascii_whitespace() {
+        str = unsafe { str.add(1) };
+    }
+
+    let sign = unsafe { *str } as u8;
+    if sign == b'+' || sign == b'-' {
+        str = unsafe { str.add(1) };
+    }
+
+    let u_result = unsafe { PyOS_strtoul(str, ptr, base) };
+
+    if u_result <= c_long::MAX as c_ulong {
+        let mut result = u_result as c_long;
+        if sign == b'-' {
+            result = -result;
+        }
+        result
+    } else if sign == b'-' && u_result == (c_long::MIN as c_ulong) {
+        c_long::MIN
+    } else {
+        rustpython_vm::host_env::os::set_errno(libc::ERANGE);
+        c_long::MAX
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -715,5 +948,102 @@ mod tests {
             let err = PyErr::take(py).expect("expected an error");
             assert!(err.is_instance_of::<PyOverflowError>(py));
         })
+    }
+
+    #[test]
+    fn as_long_and_overflow() {
+        Python::attach(|py| unsafe {
+            let val = PyInt::new(py, 42);
+            let mut overflow: c_int = -99;
+            let res = PyLong_AsLongAndOverflow(val.as_ptr().cast(), &mut overflow);
+            assert_eq!(res, 42);
+            assert_eq!(overflow, 0);
+
+            let big = py.eval(c"1 << 100", None, None).unwrap();
+            let res_big = PyLong_AsLongAndOverflow(big.as_ptr().cast(), &mut overflow);
+            assert_eq!(res_big, -1);
+            assert_eq!(overflow, 1);
+
+            let neg_big = py.eval(c"-(1 << 100)", None, None).unwrap();
+            let res_neg = PyLong_AsLongAndOverflow(neg_big.as_ptr().cast(), &mut overflow);
+            assert_eq!(res_neg, -1);
+            assert_eq!(overflow, -1);
+        })
+    }
+
+    #[test]
+    fn as_long_long_and_overflow() {
+        Python::attach(|py| unsafe {
+            let val = PyInt::new(py, 42);
+            let mut overflow: c_int = -99;
+            let res = PyLong_AsLongLongAndOverflow(val.as_ptr().cast(), &mut overflow);
+            assert_eq!(res, 42);
+            assert_eq!(overflow, 0);
+
+            let big = py.eval(c"1 << 100", None, None).unwrap();
+            let res_big = PyLong_AsLongLongAndOverflow(big.as_ptr().cast(), &mut overflow);
+            assert_eq!(res_big, -1);
+            assert_eq!(overflow, 1);
+
+            let neg_big = py.eval(c"-(1 << 100)", None, None).unwrap();
+            let res_neg = PyLong_AsLongLongAndOverflow(neg_big.as_ptr().cast(), &mut overflow);
+            assert_eq!(res_neg, -1);
+            assert_eq!(overflow, -1);
+        })
+    }
+
+    #[test]
+    fn get_info() {
+        Python::attach(|_py| unsafe {
+            let info = PyLong_GetInfo();
+            assert!(!info.is_null());
+            crate::refcount::_Py_DecRef(info);
+        })
+    }
+
+    #[test]
+    fn os_strtol_strtoul() {
+        unsafe {
+            // Decimal
+            let s = c"12345";
+            let mut end = core::ptr::null_mut();
+            let val = PyOS_strtol(s.as_ptr(), &mut end, 10);
+            assert_eq!(val, 12345);
+            assert_eq!(end, s.as_ptr().add(5) as *mut c_char);
+
+            let uval = PyOS_strtoul(s.as_ptr(), &mut end, 10);
+            assert_eq!(uval, 12345);
+            assert_eq!(end, s.as_ptr().add(5) as *mut c_char);
+
+            // Auto base (base 0) with prefixes
+            let s_oct = c"0o17";
+            assert_eq!(PyOS_strtoul(s_oct.as_ptr(), &mut end, 0), 15);
+            assert_eq!(end, s_oct.as_ptr().add(4) as *mut c_char);
+
+            let s_bin = c"0b10";
+            assert_eq!(PyOS_strtoul(s_bin.as_ptr(), &mut end, 0), 2);
+            assert_eq!(end, s_bin.as_ptr().add(4) as *mut c_char);
+
+            let s_hex = c"0x1f";
+            assert_eq!(PyOS_strtoul(s_hex.as_ptr(), &mut end, 0), 31);
+            assert_eq!(end, s_hex.as_ptr().add(4) as *mut c_char);
+
+            // Leading zero with base 0 returns 0 and stops after zeroes
+            let s_zero = c"010";
+            assert_eq!(PyOS_strtoul(s_zero.as_ptr(), &mut end, 0), 0);
+            assert_eq!(end, s_zero.as_ptr().add(1) as *mut c_char);
+
+            // Signs for strtol vs strtoul
+            let s_neg = c"-42";
+            assert_eq!(PyOS_strtol(s_neg.as_ptr(), &mut end, 10), -42);
+            assert_eq!(end, s_neg.as_ptr().add(3) as *mut c_char);
+
+            assert_eq!(PyOS_strtoul(s_neg.as_ptr(), &mut end, 10), 0);
+            assert_eq!(end, s_neg.as_ptr() as *mut c_char);
+
+            // Overflow
+            let s_huge = c"999999999999999999999999999999";
+            assert_eq!(PyOS_strtoul(s_huge.as_ptr(), &mut end, 10), c_ulong::MAX);
+        }
     }
 }
