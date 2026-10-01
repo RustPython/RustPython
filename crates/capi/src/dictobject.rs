@@ -159,15 +159,10 @@ pub unsafe extern "C" fn PyDict_SetDefault(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
-        let key = unsafe { key.assume_borrowed() };
-
-        if let Some(value) = dict.inner_getitem_opt(key, vm)? {
-            Ok(value.as_object().as_raw())
-        } else {
-            let value = unsafe { default_value.assume_borrowed() }.to_owned();
-            dict.inner_setitem(key, value.clone(), vm)?;
-            Ok(value.as_object().as_raw())
-        }
+        let key = unsafe { key.assume_borrowed() }.to_owned();
+        let default_value = unsafe { default_value.assume_borrowed() }.to_owned();
+        let value = dict.setdefault(key, default_value, vm)?;
+        Ok(value.as_raw())
     })
 }
 

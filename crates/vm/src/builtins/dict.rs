@@ -406,7 +406,7 @@ impl PyDict {
         self.inner_setitem(key, value, vm)
     }
 
-    pub(crate) fn setdefault(
+    pub fn setdefault(
         &self,
         key: PyObjectRef,
         default: PyObjectRef,
