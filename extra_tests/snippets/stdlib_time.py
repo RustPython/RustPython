@@ -95,3 +95,29 @@ except TypeError:
     pass
 else:
     assert False, "struct_time accepted a non-dict second argument"
+
+if hasattr(time, "tzset"):
+    import os
+
+    old_tz = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = "EST+05EDT,M3.2.0,M11.1.0"
+        time.tzset()
+        assert time.timezone == 18000
+        assert time.altzone == 14400
+        if hasattr(time, "daylight"):
+            assert time.daylight == 1
+        assert time.tzname == ("EST", "EDT")
+        assert len(time.tzname) == 2
+
+        os.environ["TZ"] = "UTC+0"
+        time.tzset()
+        assert time.timezone == 0
+        if hasattr(time, "daylight"):
+            assert time.daylight == 0
+    finally:
+        if old_tz is not None:
+            os.environ["TZ"] = old_tz
+        elif "TZ" in os.environ:
+            del os.environ["TZ"]
+        time.tzset()

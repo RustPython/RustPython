@@ -251,10 +251,32 @@ mod decl {
         host_time::get_tz_info()
     }
 
-    // #[pyfunction]
-    // fn tzset() {
-    //     unsafe { super::_tzset() };
-    // }
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
+    #[pyfunction]
+    fn tzset(vm: &VirtualMachine) {
+        crate::host_env::time::tz::tzset();
+        if let Ok(module) = vm.import("time", 0) {
+            let _ = module.set_attr(
+                "timezone",
+                vm.ctx.new_int(crate::host_env::time::tz::timezone()),
+                vm,
+            );
+            let _ = module.set_attr(
+                "altzone",
+                vm.ctx.new_int(crate::host_env::time::tz::altzone()),
+                vm,
+            );
+            #[cfg(not(target_os = "freebsd"))]
+            let _ = module.set_attr(
+                "daylight",
+                vm.ctx.new_int(crate::host_env::time::tz::daylight()),
+                vm,
+            );
+            use crate::builtins::tuple::IntoPyTuple;
+            let tzname = crate::host_env::time::tz::tzname_strings().into_pytuple(vm);
+            let _ = module.set_attr("tzname", tzname, vm);
+        }
+    }
 
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
