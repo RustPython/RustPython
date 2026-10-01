@@ -1321,7 +1321,7 @@ fn except_handler_list_from_field(
     let len = list.borrow_vec().len();
     let mut result = Vec::with_capacity(len);
     let mut runtime_values = Vec::with_capacity(len);
-    let recursion_context = format!(" while traversing '{typ}' node");
+    let recursion_context = format!("while traversing '{typ}' node");
     for i in 0..len {
         let item = {
             let items = list.borrow_vec();
@@ -1544,7 +1544,7 @@ fn import_from_level_from_field(
     let Some(value) = get_node_field_opt(vm, object, "level")? else {
         return Ok((0, None));
     };
-    let level = vm.with_recursion(" while traversing 'ImportFrom' node", || {
+    let level = vm.with_recursion("while traversing 'ImportFrom' node", || {
         node_object_to_i32(vm, &value)
     })?;
     if level < 0 {

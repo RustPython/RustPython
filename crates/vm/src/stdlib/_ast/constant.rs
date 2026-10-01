@@ -355,7 +355,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
     let cls = value_object.class();
     let class_name = cls.name().to_owned();
     if cls.is(vm.ctx.types.tuple_type) {
-        vm.with_recursion(" during compilation", || {
+        vm.with_recursion("during compilation", || {
             let tuple = value_object
                 .to_owned()
                 .downcast::<PyTuple>()
@@ -374,7 +374,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
             Ok(class_name)
         })
     } else if cls.is(vm.ctx.types.frozenset_type) {
-        vm.with_recursion(" during compilation", || {
+        vm.with_recursion("during compilation", || {
             let set = value_object.to_owned().downcast::<PyFrozenSet>().unwrap();
             for item in set.elements() {
                 if let Some(invalid_type) = first_invalid_constant_type_opt(vm, &item)? {
@@ -575,7 +575,7 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| {
                     let object = object.clone();
-                    vm.with_recursion(" during compilation", || {
+                    vm.with_recursion("during compilation", || {
                         Node::ast_from_object(vm, source_file, object)
                     })
                 })
@@ -587,7 +587,7 @@ impl Node for ConstantLiteral {
                 .elements()
                 .into_iter()
                 .map(|object| {
-                    vm.with_recursion(" during compilation", || {
+                    vm.with_recursion("during compilation", || {
                         Node::ast_from_object(vm, source_file, object)
                     })
                 })
