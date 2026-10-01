@@ -146,6 +146,96 @@ pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *con
         let exc = vm.invoke_exception(exc_type, vec![vm.ctx.new_str(message).into_object()])?;
 
         Err(exc)
+    });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_Clear() {
+    with_vm(|vm| {
+        vm.take_raised_exception();
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_ExceptionMatches(exc: *mut PyObject) -> c_int {
+    unsafe { PyErr_GivenExceptionMatches(PyErr_Occurred(), exc) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_Fetch(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    with_vm(|vm| {
+        if let Some(exc) = vm.take_raised_exception() {
+            let ty = exc.class().as_object().to_owned();
+            let tb = exc
+                .traceback()
+                .map_or_else(|| vm.ctx.none(), |t| t.into_object());
+            if !ptype.is_null() {
+                unsafe { *ptype = ty.into_raw().as_ptr() };
+            }
+            if !pvalue.is_null() {
+                unsafe { *pvalue = exc.into_object().into_raw().as_ptr() };
+            }
+            if !ptraceback.is_null() {
+                unsafe {
+                    *ptraceback = if vm.is_none(&tb) {
+                        core::ptr::null_mut()
+                    } else {
+                        tb.into_raw().as_ptr()
+                    }
+                };
+            }
+        } else {
+            if !ptype.is_null() {
+                unsafe { *ptype = core::ptr::null_mut() };
+            }
+            if !pvalue.is_null() {
+                unsafe { *pvalue = core::ptr::null_mut() };
+            }
+            if !ptraceback.is_null() {
+                unsafe { *ptraceback = core::ptr::null_mut() };
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_Restore(
+    type_: *mut PyObject,
+    value: *mut PyObject,
+    traceback: *mut PyObject,
+) {
+    with_vm(|vm| {
+        let type_obj = unsafe { type_.assume_owned_or_opt() };
+        let value_obj = unsafe { value.assume_owned_or_opt() };
+        let traceback_obj = unsafe { traceback.assume_owned_or_opt() };
+
+        if let Some(type_obj) = type_obj {
+            let exc_val = value_obj.unwrap_or_else(|| vm.ctx.none());
+            let tb = traceback_obj.and_then(|t| {
+                if vm.is_none(&t) {
+                    None
+                } else {
+                    t.downcast::<PyTraceback>().ok()
+                }
+            });
+            match vm.normalize_exception(type_obj, exc_val, vm.ctx.none()) {
+                Ok(normalized) => {
+                    if let Some(tb) = tb {
+                        normalized.set_traceback(Some(tb));
+                    }
+                    vm.set_exception(Some(normalized));
+                }
+                Err(err) => {
+                    vm.set_exception(Some(err));
+                }
+            }
+        } else {
+            vm.take_raised_exception();
+        }
     })
 }
 
@@ -410,5 +500,44 @@ mod tests {
                 "my_module.MyError"
             );
         })
+    }
+
+    #[test]
+    fn get_and_set_raised_exception() {
+        Python::attach(|py| {
+            PyTypeError::new_err("sample error").restore(py);
+            let exc_ptr = super::PyErr_GetRaisedException();
+            assert!(!exc_ptr.is_null());
+            assert!(!PyErr::occurred(py));
+
+            unsafe { super::PyErr_SetRaisedException(exc_ptr) };
+            assert!(PyErr::occurred(py));
+            let err = PyErr::take(py).unwrap();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+        });
+    }
+
+    #[test]
+    fn fetch_and_restore() {
+        Python::attach(|py| {
+            PyTypeError::new_err("sample fetch").restore(py);
+            let mut ty = core::ptr::null_mut();
+            let mut val = core::ptr::null_mut();
+            let mut tb = core::ptr::null_mut();
+
+            unsafe {
+                super::PyErr_Fetch(&mut ty, &mut val, &mut tb);
+            }
+            assert!(!ty.is_null());
+            assert!(!val.is_null());
+            assert!(!PyErr::occurred(py));
+
+            unsafe {
+                super::PyErr_Restore(ty, val, tb);
+            }
+            assert!(PyErr::occurred(py));
+            let err = PyErr::take(py).unwrap();
+            assert!(err.is_instance_of::<PyTypeError>(py));
+        });
     }
 }
