@@ -264,6 +264,83 @@ mod _imp {
         Ok(vm.ctx.none())
     }
 
+    #[derive(FromArgs)]
+    struct CreateDynamicArgs {
+        #[pyarg(positional)]
+        spec: PyObjectRef,
+        #[pyarg(positional, optional)]
+        _file: crate::function::OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn create_dynamic(args: CreateDynamicArgs, vm: &VirtualMachine) -> PyResult {
+        let name_obj = args.spec.get_attr("name", vm)?;
+        let name: PyUtf8StrRef = name_obj.try_into_value(vm)?;
+        if name.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
+
+        let origin_obj = args.spec.get_attr("origin", vm)?;
+        if vm.is_none(&origin_obj) {
+            return Err(vm.new_value_error("origin must be set".to_owned()));
+        }
+        let origin: PyUtf8StrRef = origin_obj.try_into_value(vm)?;
+        if origin.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character".to_owned()));
+        }
+
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        if let Ok(module) = sys_modules.get_item(&*name, vm) {
+            return Ok(module);
+        }
+
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        {
+            let origin_str = origin.as_str();
+            let short_name = name.as_str().rsplit('.').next().unwrap_or(name.as_str());
+            let export_func_name = format!("PyModExport_{short_name}");
+
+            #[cfg(unix)]
+            let handle_res = {
+                let mode = rustpython_host_env::ctypes::dlopen_mode(None);
+                rustpython_host_env::ctypes::open_library_with_mode(origin_str, mode)
+            };
+            #[cfg(windows)]
+            let handle_res = rustpython_host_env::ctypes::open_library(origin_str);
+
+            if let Ok(handle) = handle_res
+                && let Ok(export_fn_addr) = rustpython_host_env::ctypes::lookup_function_symbol_addr(
+                    handle,
+                    export_func_name.as_bytes(),
+                )
+                && export_fn_addr != 0
+            {
+                // abi3t PyModExport entry point
+                type ModExportFn = unsafe extern "C" fn() -> *mut crate::PyObject;
+                let export_fn: ModExportFn =
+                    unsafe { core::mem::transmute(export_fn_addr as *const ()) };
+                let mod_ptr = unsafe { export_fn() };
+                if let Some(mod_nonnull) = core::ptr::NonNull::new(mod_ptr) {
+                    let py_obj = unsafe { crate::PyObjectRef::from_raw(mod_nonnull) };
+                    return Ok(py_obj);
+                }
+            }
+        }
+
+        Err(vm.new_import_error(
+            format!(
+                "dynamic module does not define module export function (PyModExport_{})",
+                name.as_str()
+            ),
+            name.into_wtf8(),
+        ))
+    }
+
+    #[pyfunction]
+    fn exec_dynamic(_module: PyRef<PyModule>) -> i32 {
+        0
+    }
+
     #[pyfunction]
     fn exec_builtin(_mod: PyRef<PyModule>) -> i32 {
         // For multi-phase init modules, exec is already called in create_builtin
