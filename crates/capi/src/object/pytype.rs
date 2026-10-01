@@ -203,10 +203,15 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                     SlotAccessor::TpDoc => {
                                         let doc = unsafe {
                                             slot.pfunc.cast::<c_char>().try_as_str_opt(vm)?
-                                        }.map_or(ItemDoc::NONE, |doc| {
-                                            let text: &'static str = Box::leak(doc.to_owned().into_boxed_str());
-                                            ItemDoc::static_text(text)
-                                        });
+                                        }
+                                        .map_or(
+                                            ItemDoc::NONE,
+                                            |doc| {
+                                                let text: &'static str =
+                                                    Box::leak(doc.to_owned().into_boxed_str());
+                                                ItemDoc::static_text(text)
+                                            },
+                                        );
                                         type_slots.doc = doc;
                                     }
                                     SlotAccessor::TpNew => {
@@ -307,7 +312,11 @@ pub unsafe extern "C" fn PyObject_GetTypeData(
     obj: *mut PyObject,
     cls: *mut PyTypeObject,
 ) -> *mut c_void {
-    if unsafe { &*cls }.slots.basicsize == 0 {
+    let cls = unsafe { &*cls };
+    let base_basicsize = cls.base.deref().map_or(0, |base| base.slots.basicsize);
+    let own_basicsize = cls.slots.basicsize.saturating_sub(base_basicsize);
+
+    if own_basicsize == 0 {
         obj.cast()
     } else {
         todo!("PyObject_GetTypeData for non-zero sized types is not yet implemented")
