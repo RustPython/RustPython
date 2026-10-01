@@ -340,7 +340,7 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 mod tests {
     use pyo3::IntoPyObjectExt;
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyInt, PyString, PyType, PyTypeMethods};
+    use pyo3::types::{PyDict, PyInt, PyList, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn type_name() {
@@ -490,6 +490,39 @@ mod tests {
                     .extract::<i32>()
                     .unwrap(),
                 10
+            );
+        });
+    }
+
+    #[test]
+    fn subclass_with_property() {
+        #[pyclass(frozen, extends=PyList)]
+        struct MyList {}
+
+        #[pymethods]
+        impl MyList {
+            #[new]
+            fn new() -> Self {
+                Self {}
+            }
+
+            #[getter]
+            fn name(&self) -> &'static str {
+                "Some list"
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyList {}).unwrap();
+
+            assert!(obj.is_instance_of::<PyList>());
+
+            assert_eq!(
+                obj.getattr("name")
+                    .unwrap()
+                    .cast_into::<PyString>()
+                    .unwrap(),
+                "Some list"
             );
         });
     }
