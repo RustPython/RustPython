@@ -324,6 +324,14 @@ pub unsafe extern "C" fn PyObject_GetTypeData(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetTypeData_DuringGC(
+    obj: *mut PyObject,
+    cls: *mut PyTypeObject,
+) -> *mut c_void {
+    unsafe { PyObject_GetTypeData(obj, cls) }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
     0
 }
