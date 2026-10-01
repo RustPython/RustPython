@@ -12,12 +12,8 @@ mod _zoneinfo {
     use alloc::collections::VecDeque;
     use std::collections::HashMap;
 
-    #[cfg(not(feature = "threading"))]
-    use core::cell::RefCell;
-    #[cfg(feature = "threading")]
-    use std::sync::{Mutex, OnceLock};
-
     use crate::_datetime::{PyTzInfo, datetime_type, timedelta_from_seconds};
+    use crate::common::lock::PyMutex;
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
@@ -26,6 +22,7 @@ mod _zoneinfo {
         },
         class::StaticType,
         function::{FuncArgs, IntoFuncArgs, KwArgs},
+        object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn},
         types::{Constructor, Representable},
     };
@@ -121,6 +118,25 @@ mod _zoneinfo {
         fixed_offset: bool,
     }
 
+    // The i64 fields would raise this value's alignment above a pointer.
+    // On 32-bit that moves the payload inside `Py<T>` relative to `PyTzInfo`.
+    #[derive(Debug)]
+    struct ZoneDataBox(alloc::boxed::Box<ZoneData>);
+
+    impl core::ops::Deref for ZoneDataBox {
+        type Target = ZoneData;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    unsafe impl Traverse for ZoneDataBox {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.0.traverse(traverse_fn);
+        }
+    }
+
     #[derive(Clone, Copy, Debug)]
     enum TtSel {
         Index(usize),
@@ -139,6 +155,7 @@ mod _zoneinfo {
         Extra,
     }
 
+    #[derive(Debug)]
     struct CacheState {
         strong: VecDeque<(PyObjectRef, PyObjectRef)>,
         weak: Option<PyObjectRef>,
@@ -155,39 +172,61 @@ mod _zoneinfo {
         }
     }
 
-    // `PyObjectRef` is `Send` only with threading, so a process-wide mutex is
-    // not `Sync` otherwise. One interpreter thread shares a thread-local.
-    #[cfg(feature = "threading")]
-    fn cache() -> &'static Mutex<CacheState> {
-        static CACHE: OnceLock<Mutex<CacheState>> = OnceLock::new();
-        CACHE.get_or_init(|| Mutex::new(empty_cache()))
-    }
-
-    #[cfg(not(feature = "threading"))]
-    thread_local! {
-        static CACHE: RefCell<CacheState> = RefCell::new(empty_cache());
-    }
-
-    fn with_cache<R>(f: impl FnOnce(&mut CacheState) -> R) -> R {
-        cfg_select! {
-            feature = "threading" => {
-                let mut cache = cache().lock().unwrap_or_else(|err| err.into_inner());
-                f(&mut cache)
+    unsafe impl Traverse for CacheState {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            for (key, zone) in &self.strong {
+                key.traverse(traverse_fn);
+                zone.traverse(traverse_fn);
             }
-            _ => { CACHE.with(|cache| f(&mut cache.borrow_mut())) }
+            self.weak.traverse(traverse_fn);
+            for seconds in &self.delta_order {
+                let Some(delta) = self.deltas.get(seconds) else {
+                    continue;
+                };
+                delta.traverse(traverse_fn);
+            }
         }
+    }
+
+    // One of these per imported module. A subinterpreter has its own module,
+    // so its cache is not the parent's and drops with that interpreter.
+    #[pyclass(no_attr, module = "_zoneinfo", name = "_zoneinfo_state", traverse)]
+    #[derive(Debug, PyPayload)]
+    struct ZoneInfoState {
+        cache: PyMutex<CacheState>,
+    }
+
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
+    impl ZoneInfoState {}
+
+    fn module_state(vm: &VirtualMachine) -> PyResult<PyRef<ZoneInfoState>> {
+        let modules = vm.sys_module.get_attr("modules", vm)?;
+        let module = match modules.get_item("_zoneinfo", vm) {
+            Ok(module) => module,
+            Err(_) => vm.import("_zoneinfo", 0)?,
+        };
+        module
+            .get_attr("_state", vm)?
+            .downcast::<ZoneInfoState>()
+            .map_err(|_| vm.new_runtime_error("_zoneinfo state is corrupted"))
+    }
+
+    fn with_cache<R>(vm: &VirtualMachine, f: impl FnOnce(&mut CacheState) -> R) -> PyResult<R> {
+        let state = module_state(vm)?;
+        let mut cache = state.cache.lock();
+        Ok(f(&mut cache))
     }
 
     fn is_base(cls: &Py<PyType>) -> bool {
         cls.is(ZoneInfo::static_type())
     }
 
-    fn strong_entries() -> Vec<(PyObjectRef, PyObjectRef)> {
-        with_cache(|cache| cache.strong.iter().cloned().collect())
+    fn strong_entries(vm: &VirtualMachine) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
+        with_cache(vm, |cache| cache.strong.iter().cloned().collect())
     }
 
-    fn move_strong_to_front(zone: &PyObject) {
-        with_cache(|cache| {
+    fn move_strong_to_front(zone: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        with_cache(vm, |cache| {
             let Some(pos) = cache.strong.iter().position(|(_, cached)| cached.is(zone)) else {
                 return;
             };
@@ -196,7 +235,7 @@ mod _zoneinfo {
             {
                 cache.strong.push_front(entry);
             }
-        });
+        })
     }
 
     fn strong_cache_get(
@@ -207,57 +246,63 @@ mod _zoneinfo {
         if !is_base(cls) {
             return Ok(None);
         }
-        for (cached_key, zone) in strong_entries() {
+        for (cached_key, zone) in strong_entries(vm)? {
             if vm.bool_eq(key, &cached_key)? {
-                move_strong_to_front(&zone);
+                move_strong_to_front(&zone, vm)?;
                 return Ok(Some(zone));
             }
         }
         Ok(None)
     }
 
-    fn strong_cache_put(cls: &Py<PyType>, key: PyObjectRef, zone: PyObjectRef) {
+    fn strong_cache_put(
+        cls: &Py<PyType>,
+        key: PyObjectRef,
+        zone: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if !is_base(cls) {
-            return;
+            return Ok(());
         }
-        with_cache(|cache| {
+        with_cache(vm, |cache| {
             cache.strong.push_front((key, zone));
             while cache.strong.len() > STRONG_CACHE_MAX {
                 cache.strong.pop_back();
             }
-        });
+        })
     }
 
     fn strong_cache_eject(cls: &Py<PyType>, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if !is_base(cls) {
             return Ok(());
         }
-        for (cached_key, zone) in strong_entries() {
+        for (cached_key, zone) in strong_entries(vm)? {
             if vm.bool_eq(key, &cached_key)? {
-                with_cache(|cache| {
+                with_cache(vm, |cache| {
                     if let Some(pos) = cache.strong.iter().position(|(_, cached)| cached.is(&zone))
                     {
                         cache.strong.remove(pos);
                     }
-                });
+                })?;
                 return Ok(());
             }
         }
         Ok(())
     }
 
-    fn strong_cache_clear(cls: &Py<PyType>) {
-        if is_base(cls) {
-            with_cache(|cache| cache.strong.clear());
+    fn strong_cache_clear(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult<()> {
+        if !is_base(cls) {
+            return Ok(());
         }
+        with_cache(vm, |cache| cache.strong.clear())
     }
 
     fn cached_delta(seconds: i64, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        if let Some(delta) = with_cache(|cache| cache.deltas.get(&seconds).cloned()) {
+        if let Some(delta) = with_cache(vm, |cache| cache.deltas.get(&seconds).cloned())? {
             return Ok(delta);
         }
         let delta = timedelta_from_seconds(seconds, vm)?;
-        Ok(with_cache(|cache| {
+        with_cache(vm, |cache| {
             if let Some(existing) = cache.deltas.get(&seconds) {
                 return existing.clone();
             }
@@ -269,7 +314,7 @@ mod _zoneinfo {
             cache.deltas.insert(seconds, delta.clone());
             cache.delta_order.push_back(seconds);
             delta
-        }))
+        })
     }
 
     fn new_weak_cache(vm: &VirtualMachine) -> PyResult {
@@ -279,17 +324,17 @@ mod _zoneinfo {
     }
 
     fn base_weak_cache(vm: &VirtualMachine) -> PyResult {
-        if let Some(weak) = with_cache(|cache| cache.weak.clone()) {
+        if let Some(weak) = with_cache(vm, |cache| cache.weak.clone())? {
             return Ok(weak);
         }
         let weak = new_weak_cache(vm)?;
-        Ok(with_cache(|cache| {
+        with_cache(vm, |cache| {
             if let Some(existing) = &cache.weak {
                 return existing.clone();
             }
             cache.weak = Some(weak.clone());
             weak
-        }))
+        })
     }
 
     fn get_weak_cache(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResult {
@@ -942,7 +987,7 @@ mod _zoneinfo {
             key,
             file_repr: None,
             source,
-            data,
+            data: ZoneDataBox(alloc::boxed::Box::new(data)),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -977,7 +1022,7 @@ mod _zoneinfo {
         if !instance.fast_isinstance(&cls) {
             return cache_mismatch(&instance, &cls, &key, vm);
         }
-        strong_cache_put(&cls, key, instance.clone());
+        strong_cache_put(&cls, key, instance.clone(), vm)?;
         Ok(instance)
     }
 
@@ -1152,7 +1197,7 @@ mod _zoneinfo {
         file_repr: Option<String>,
         #[pytraverse(skip)]
         source: u8,
-        data: ZoneData,
+        data: ZoneDataBox,
     }
 
     impl Constructor for ZoneInfo {
@@ -1190,8 +1235,9 @@ mod _zoneinfo {
             let weak = get_weak_cache(&cls, vm)?;
             let Some(only_keys) = args.only_keys else {
                 let cleared = vm.call_method(&weak, "clear", ());
-                strong_cache_clear(&cls);
+                let strong = strong_cache_clear(&cls, vm);
                 cleared?;
+                strong?;
                 return Ok(());
             };
             let iter = PyIter::try_from_object(vm, only_keys)?;
@@ -1230,27 +1276,27 @@ mod _zoneinfo {
                 key,
                 file_repr: Some(file_repr),
                 source: SOURCE_FILE,
-                data,
+                data: ZoneDataBox(alloc::boxed::Box::new(data)),
             }
             .into_ref_with_type(vm, cls)
         }
 
         #[pymethod]
-        fn utcoffset(&self, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let sel = find_ttinfo(&self.data, &dt, vm)?;
-            Ok(component(&self.data, sel, 0, vm))
+        fn utcoffset(zelf: &Py<Self>, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let sel = find_ttinfo(&zelf.data, &dt, vm)?;
+            Ok(component(&zelf.data, sel, 0, vm))
         }
 
         #[pymethod]
-        fn dst(&self, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let sel = find_ttinfo(&self.data, &dt, vm)?;
-            Ok(component(&self.data, sel, 1, vm))
+        fn dst(zelf: &Py<Self>, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let sel = find_ttinfo(&zelf.data, &dt, vm)?;
+            Ok(component(&zelf.data, sel, 1, vm))
         }
 
         #[pymethod]
-        fn tzname(&self, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let sel = find_ttinfo(&self.data, &dt, vm)?;
-            Ok(component(&self.data, sel, 2, vm))
+        fn tzname(zelf: &Py<Self>, dt: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let sel = find_ttinfo(&zelf.data, &dt, vm)?;
+            Ok(component(&zelf.data, sel, 2, vm))
         }
 
         #[pymethod]
@@ -1373,6 +1419,11 @@ mod _zoneinfo {
         // A blocked `_datetime` must fail this import so `zoneinfo` can fall back.
         vm.import("_datetime", 0)?;
         __module_exec(vm, module);
+        let state = ZoneInfoState {
+            cache: PyMutex::new(empty_cache()),
+        }
+        .into_ref(&vm.ctx);
+        module.set_attr("_state", state, vm)?;
         Ok(())
     }
 }
