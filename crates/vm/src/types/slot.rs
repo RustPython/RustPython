@@ -279,6 +279,8 @@ impl PyTypeFlags {
     pub const HEAP_TYPE_DICT_IMMUTABLE: Self = Self::from_bits_retain(
         Self::HEAP_TYPE_WITH_DICT.bits() | (1u64 << (Self::IMMUTABLETYPE as u32)),
     );
+
+    pub const COLLECTION: Self = Self::from_slice(&[Self::SEQUENCE, Self::MAPPING]);
 }
 
 impl AtomicPyTypeFlags {

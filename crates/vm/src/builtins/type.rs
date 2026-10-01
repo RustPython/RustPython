@@ -854,19 +854,14 @@ impl PyType {
     /// Inherit SEQUENCE and MAPPING flags from base classes
     /// Check all bases in order and inherit the first SEQUENCE or MAPPING flag found
     fn inherit_patma_flags(slots: &mut PyTypeSlots, bases: &[PyRef<Self>]) {
-        const COLLECTION_FLAGS: PyTypeFlags =
-            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
-
         // If flags are already set, don't override
-        if slots.flags.contains(&PyTypeFlags::SEQUENCE)
-            || slots.flags.contains(&PyTypeFlags::MAPPING)
-        {
+        if !slots.flags.load().is_disjoint(&PyTypeFlags::COLLECTION) {
             return;
         }
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = base.slots.flags.load() & COLLECTION_FLAGS;
+            let base_flags = base.slots.flags.load() & PyTypeFlags::COLLECTION;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
@@ -889,13 +884,13 @@ impl PyType {
     }
 
     pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
-        const COLLECTION_FLAGS: PyTypeFlags =
-            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
-        let flags = flags & COLLECTION_FLAGS;
+        let flags = flags & PyTypeFlags::COLLECTION;
         if flags.is_empty() {
             return;
         }
-        self.slots.flags.replace_masked(COLLECTION_FLAGS, flags);
+        self.slots
+            .flags
+            .replace_masked(PyTypeFlags::COLLECTION, flags);
         self.modified();
         for weak_ref in self.subclasses.read().iter() {
             if let Some(subclass) = weak_ref.upgrade()
@@ -914,9 +909,6 @@ impl PyType {
         bases: &[PyRef<Self>],
         ctx: &Context,
     ) -> Result<(), String> {
-        const COLLECTION_FLAGS: PyTypeFlags =
-            PyTypeFlags::from_slice(&[PyTypeFlags::SEQUENCE, PyTypeFlags::MAPPING]);
-
         // Always validate this class's own __abc_tpflags__ even when slot
         // flags were already inherited, otherwise a child setting both
         // Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING would slip through.
@@ -926,23 +918,21 @@ impl PyType {
         {
             let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
             let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
-            let masked = abc_flags & COLLECTION_FLAGS;
-            if masked == COLLECTION_FLAGS {
+            let masked = abc_flags & PyTypeFlags::COLLECTION;
+            if masked == PyTypeFlags::COLLECTION {
                 return Err(
                     "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING"
                         .to_owned(),
                 );
             }
-            slots.flags.remove_masked(COLLECTION_FLAGS);
+            slots.flags.remove_masked(PyTypeFlags::COLLECTION);
             slots.flags |= masked;
             return Ok(());
         }
 
         // No __abc_tpflags__ on this class. Inheritance already happened in
         // inherit_patma_flags, using base order and including ABC markers.
-        if slots.flags.contains(&PyTypeFlags::SEQUENCE)
-            || slots.flags.contains(&PyTypeFlags::MAPPING)
-        {
+        if !slots.flags.load().is_disjoint(&PyTypeFlags::COLLECTION) {
             return Ok(());
         }
 
@@ -954,14 +944,14 @@ impl PyType {
             {
                 let flags_val = int_obj.as_bigint().to_i64().unwrap_or(0);
                 let abc_flags = PyTypeFlags::from_bits_truncate(flags_val as u64);
-                let masked = abc_flags & COLLECTION_FLAGS;
-                if masked == COLLECTION_FLAGS {
+                let masked = abc_flags & PyTypeFlags::COLLECTION;
+                if masked == PyTypeFlags::COLLECTION {
                     return Err(
                         "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING"
                             .to_owned(),
                     );
                 }
-                slots.flags.remove_masked(COLLECTION_FLAGS);
+                slots.flags.remove_masked(PyTypeFlags::COLLECTION);
                 slots.flags |= masked;
                 return Ok(());
             }
