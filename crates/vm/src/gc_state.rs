@@ -998,7 +998,8 @@ impl GcState {
         self.promote_survivors(generation, &survivor_refs);
         drop(survivor_refs);
 
-        // Resurrected objects stay tracked — just drop our references
+        // Resurrected objects stay tracked and survive this collection too.
+        self.promote_survivors(generation, &resurrected);
         drop(resurrected);
 
         if debug.contains(GcDebugFlags::COLLECTABLE) {
@@ -1012,6 +1013,7 @@ impl GcState {
         }
 
         if debug.contains(GcDebugFlags::SAVEALL) {
+            self.promote_survivors(generation, &truly_dead);
             let mut garbage_guard = gc.garbage.lock();
             for obj_ref in &truly_dead {
                 garbage_guard.push(obj_ref.clone());
@@ -1129,7 +1131,7 @@ impl GcState {
         }
     }
 
-    /// Promote surviving objects to the next generation.
+    /// Promote surviving objects to the next generation, or gen2 for a full collection.
     ///
     /// `survivors` must be strong references (`PyObjectRef`) to keep objects alive,
     /// since the generation read locks are released before this is called.
@@ -1138,36 +1140,41 @@ impl GcState {
     /// a race where concurrent `untrack_object` reads a stale `gc_generation`
     /// and operates on the wrong list.
     fn promote_survivors(&self, from_gen: usize, survivors: &[PyObjectRef]) {
-        if from_gen >= 2 {
-            return; // Already in oldest generation
-        }
+        let next_gen = (from_gen + 1).min(2);
 
-        let next_gen = from_gen + 1;
-
-        for obj_ref in survivors {
-            let obj = obj_ref.as_ref();
-            let ptr = NonNull::from(obj);
-            let obj_gen = obj.gc_generation();
-            if obj_gen as usize <= from_gen && obj_gen <= 2 {
-                let src_gen = obj_gen as usize;
-
+        // The world has restarted by this point. Batch lock acquisition and
+        // counter updates, but bound each batch so other interpreters can keep
+        // tracking and untracking objects between batches.
+        for batch in survivors.chunks(256) {
+            for src_gen in 0..next_gen {
                 // Lock both source and destination lists simultaneously.
                 // Always ascending order (src_gen < next_gen) → no deadlock.
                 let mut src = self.generation_lists[src_gen].write();
                 let mut dst = self.generation_lists[next_gen].write();
+                let mut promoted = 0;
 
-                // Re-check under locks: object might have been untracked concurrently
-                if obj.gc_generation() != obj_gen || !obj.is_gc_tracked() {
-                    continue;
+                for obj_ref in batch {
+                    let obj = obj_ref.as_ref();
+                    // Re-check under locks: object might have been untracked concurrently
+                    if obj.gc_generation() as usize != src_gen || !obj.is_gc_tracked() {
+                        continue;
+                    }
+
+                    let ptr = NonNull::from(obj);
+                    if unsafe { src.remove(ptr) }.is_some() {
+                        dst.push_front(ptr);
+                        obj.set_gc_generation(next_gen as u8);
+                        promoted += 1;
+                    }
                 }
 
-                if unsafe { src.remove(ptr) }.is_some() {
-                    release_count(&self.counts[src_gen]);
-
-                    dst.push_front(ptr);
-                    self.counts[next_gen].fetch_add(1, Ordering::Relaxed);
-
-                    obj.set_gc_generation(next_gen as u8);
+                if promoted != 0 {
+                    let _ = self.counts[src_gen].try_update(
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                        |count| Some(count.saturating_sub(promoted)),
+                    );
+                    self.counts[next_gen].fetch_add(promoted, Ordering::Relaxed);
                 }
             }
         }
@@ -1614,5 +1621,79 @@ mod tests {
             }
         });
         assert_eq!(underflows, 0);
+    }
+
+    #[test]
+    fn survivor_promotion_handles_mixed_and_stale_generations() {
+        // Isolate list membership and counters from other tests' collections.
+        // Detach every object before its normal deallocator consults gc_state().
+        struct Heap {
+            state: GcState,
+            objects: Vec<PyObjectRef>,
+        }
+
+        impl Drop for Heap {
+            fn drop(&mut self) {
+                for obj in &self.objects {
+                    unsafe { self.state.untrack_object(NonNull::from(obj.as_ref())) };
+                }
+            }
+        }
+
+        let ctx = crate::vm::Context::genesis();
+        // A global collector must not retain a promotion snapshot containing
+        // objects that this test has moved into its private lists.
+        let _collector = gc_state().collecting.lock();
+        let mut heap = Heap {
+            state: GcState::new(),
+            objects: Vec::new(),
+        };
+        for _ in 0..600 {
+            let obj: PyObjectRef = ctx.new_list(Vec::new()).into();
+            let ptr = NonNull::from(obj.as_ref());
+            unsafe {
+                gc_state().untrack_object(ptr);
+                heap.state.track_object(ptr, 1);
+            }
+            heap.objects.push(obj);
+        }
+
+        let Heap { state, objects } = &heap;
+        // More than one batch, with survivors initially in all three generations.
+        state.promote_survivors(0, &objects[..200]);
+        state.promote_survivors(1, &objects[..100]);
+        assert_eq!(state.get_count(), (400, 100, 100));
+
+        // Finalizers or another thread may freeze/untrack a survivor after the
+        // collection took its snapshot, but before promotion acquires the locks.
+        objects[250].set_gc_owner(2);
+        state.freeze(2);
+        unsafe { state.untrack_object(NonNull::from(objects[500].as_ref())) };
+        // Counts are advisory and may have been reset by an earlier collection.
+        state.counts[0].store(0, Ordering::Relaxed);
+
+        state.promote_survivors(2, objects);
+        assert_eq!(state.get_count(), (0, 0, 598));
+        assert_eq!(state.get_freeze_count(), 1);
+        for (index, obj) in objects.iter().enumerate() {
+            let expected = match index {
+                250 => GC_PERMANENT,
+                500 => GC_UNTRACKED,
+                _ => 2,
+            };
+            assert_eq!(obj.gc_generation(), expected);
+        }
+        assert_eq!(state.generation_lists[0].read().iter().count(), 0);
+        assert_eq!(state.generation_lists[1].read().iter().count(), 0);
+        assert_eq!(state.generation_lists[2].read().iter().count(), 598);
+        // Each node must occur exactly once, with its intrusive links intact.
+        let promoted: GcSet<_> = state.generation_lists[2]
+            .read()
+            .iter()
+            .map(NonNull::from)
+            .collect();
+        for obj in objects.iter().filter(|obj| obj.gc_generation() == 2) {
+            assert!(promoted.contains(&NonNull::from(obj.as_ref())));
+        }
     }
 }
