@@ -30,6 +30,21 @@ pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_GetItem(obj: *mut PyObject, index: isize) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let borrow = list.borrow_vec();
+        let result = index
+            .try_into()
+            .ok()
+            .and_then(|index: usize| borrow.get(index))
+            .ok_or_else(|| vm.new_index_error(format!("list index out of range: {index}")))?;
+
+        Ok(result.as_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
         let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;

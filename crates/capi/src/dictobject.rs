@@ -152,6 +152,26 @@ pub unsafe extern "C" fn PyDict_GetItemRef(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_SetDefault(
+    dict: *mut PyObject,
+    key: *mut PyObject,
+    default_value: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
+
+        if let Some(value) = dict.inner_getitem_opt(key, vm)? {
+            Ok(value.as_object().as_raw())
+        } else {
+            let value = unsafe { default_value.assume_borrowed() }.to_owned();
+            dict.inner_setitem(key, value.clone(), vm)?;
+            Ok(value.as_object().as_raw())
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_SetDefaultRef(
     dict: *mut PyObject,
     key: *mut PyObject,
@@ -435,6 +455,26 @@ mod tests {
             assert_eq!(
                 dict.get_item(2).unwrap().unwrap().extract::<i32>().unwrap(),
                 30
+            );
+        })
+    }
+
+    #[test]
+    fn dict_set_default() {
+        Python::attach(|py| {
+            let dict = [(1, 2)].into_py_dict(py).unwrap();
+            let inserted = dict.set_default(1, 99).unwrap();
+            assert!(!inserted);
+            assert_eq!(
+                dict.get_item(1).unwrap().unwrap().extract::<i32>().unwrap(),
+                2
+            );
+
+            let inserted2 = dict.set_default(3, 42).unwrap();
+            assert!(inserted2);
+            assert_eq!(
+                dict.get_item(3).unwrap().unwrap().extract::<i32>().unwrap(),
+                42
             );
         })
     }
