@@ -206,6 +206,67 @@ pub unsafe extern "C" fn PyDict_Contains(dict: *mut PyObject, key: *mut PyObject
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_ContainsString(dict: *mut PyObject, key: *const c_char) -> c_int {
+    with_vm(|vm| {
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
+        Ok(dict.inner_getitem_opt(key, vm)?.is_some())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_Pop(
+    dict: *mut PyObject,
+    key: *mut PyObject,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        if !result.is_null() {
+            unsafe { *result = core::ptr::null_mut() };
+        }
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
+
+        if let Some(value) = dict.inner_pop(key, vm)? {
+            if !result.is_null() {
+                unsafe {
+                    *result = value.into_raw().as_ptr();
+                }
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_PopString(
+    dict: *mut PyObject,
+    key: *const c_char,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        if !result.is_null() {
+            unsafe { *result = core::ptr::null_mut() };
+        }
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
+
+        if let Some(value) = dict.inner_pop(key, vm)? {
+            if !result.is_null() {
+                unsafe {
+                    *result = value.into_raw().as_ptr();
+                }
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Copy(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
@@ -437,5 +498,68 @@ mod tests {
                 30
             );
         })
+    }
+
+    #[test]
+    fn dict_contains_string_and_pop() {
+        Python::attach(|py| {
+            let dict = [("k1", 100), ("k2", 200)].into_py_dict(py).unwrap();
+            let c_key1 = c"k1";
+            let c_key_missing = c"missing";
+
+            unsafe {
+                let contains = super::PyDict_ContainsString(dict.as_ptr().cast(), c_key1.as_ptr());
+                assert_eq!(contains, 1);
+                let contains_missing =
+                    super::PyDict_ContainsString(dict.as_ptr().cast(), c_key_missing.as_ptr());
+                assert_eq!(contains_missing, 0);
+
+                let mut pop_res = core::ptr::null_mut();
+                let pop_ok =
+                    super::PyDict_PopString(dict.as_ptr().cast(), c_key1.as_ptr(), &mut pop_res);
+                assert_eq!(pop_ok, 1);
+                let popped = pyo3::Bound::from_owned_ptr(py, pop_res.cast());
+                assert_eq!(popped.extract::<i32>().unwrap(), 100);
+
+                let pop_missing = super::PyDict_PopString(
+                    dict.as_ptr().cast(),
+                    c_key_missing.as_ptr(),
+                    &mut pop_res,
+                );
+                assert_eq!(pop_missing, 0);
+            }
+        });
+    }
+
+    #[test]
+    fn dict_subclass_pop() {
+        Python::attach(|py| {
+            let globals = pyo3::types::PyDict::new(py);
+            py.run(
+                c"class CustomDict(dict):\n    def __getitem__(self, k): return 999\n    def __delitem__(self, k): raise RuntimeError()\nd = CustomDict({'a': 1})",
+                None,
+                Some(&globals),
+            )
+            .unwrap();
+            let d = globals.get_item("d").unwrap().unwrap();
+            let c_key = c"a";
+            let c_key_missing = c"b";
+
+            unsafe {
+                let mut pop_res = core::ptr::null_mut();
+                let pop_ok =
+                    super::PyDict_PopString(d.as_ptr().cast(), c_key.as_ptr(), &mut pop_res);
+                assert_eq!(pop_ok, 1);
+                let popped = pyo3::Bound::from_owned_ptr(py, pop_res.cast());
+                assert_eq!(popped.extract::<i32>().unwrap(), 1);
+
+                let pop_missing = super::PyDict_PopString(
+                    d.as_ptr().cast(),
+                    c_key_missing.as_ptr(),
+                    &mut pop_res,
+                );
+                assert_eq!(pop_missing, 0);
+            }
+        });
     }
 }

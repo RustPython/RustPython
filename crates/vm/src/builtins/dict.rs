@@ -357,6 +357,14 @@ impl PyDict {
         self.entries.get(vm, key)
     }
 
+    pub fn inner_pop<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.remove_if_exists(vm, key)
+    }
+
     /// Keys of `obj` with their stored hashes, or `None` if it must be iterated
     /// generically. Only exact dicts and sets qualify, as in CPython's
     /// `_PyDict_FromKeys`: a subclass may override `__iter__`.
