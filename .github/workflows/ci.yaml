@@ -21,6 +21,7 @@ concurrency:
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc
+  CARGO_ARGS_MOST_FEATS: --features capi,encodings,jit,sqlite,threading
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
   # - rustpython-venvlauncher: Windows-only
@@ -685,7 +686,7 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
 
   # macOS/Windows clippy uses the same OS-surface filter as cargo check.
   # Force with the run:cross-check label. Check names stay clippy (<os>).
