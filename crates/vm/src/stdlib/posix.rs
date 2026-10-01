@@ -1880,7 +1880,7 @@ pub mod module {
                 Ok(collected)
             };
 
-            let setsigdef = self.setsigdef.map(&collect_signals).transpose()?;
+            let setsigdef = self.setsigdef.map(collect_signals).transpose()?;
 
             #[cfg(all(
                 any(target_os = "linux", target_os = "freebsd", target_os = "android"),
