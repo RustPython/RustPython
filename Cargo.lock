@@ -2328,15 +2328,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libzstd-rs-sys"
-version = "0.0.1-prerelease.2"
-source = "git+https://github.com/trifectatechfoundation/libzstd-rs-sys?rev=99fb4c096a21a9b37feebe180333a2ff8645e23b#99fb4c096a21a9b37feebe180333a2ff8645e23b"
-dependencies = [
- "cc",
- "libc",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4048,7 +4039,6 @@ dependencies = [
  "itertools 0.15.0",
  "libc",
  "libsqlite3-sys",
- "libzstd-rs-sys",
  "malachite-bigint",
  "memchr",
  "mt19937",
@@ -4076,6 +4066,7 @@ dependencies = [
  "rustpython-ruff_text_size",
  "rustpython-unicode",
  "rustpython-vm",
+ "rusty_zstd",
  "scopeguard",
  "tcl-sys",
  "tk-sys",
@@ -4203,6 +4194,12 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "rusty_zstd"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc2318a1441e10cf436f0bf98615216b0a5410b6f546548b50faa170c7b4a1a6"
 
 [[package]]
 name = "rustyline"

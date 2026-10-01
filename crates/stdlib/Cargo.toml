@@ -70,6 +70,7 @@ constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
+rusty_zstd = { workspace = true }
 
 # tkinter
 tk-sys = { workspace = true, optional = true }
@@ -96,9 +97,6 @@ webpki-roots = { workspace = true, optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-libzstd-rs-sys = { workspace = true }
-xz = { workspace = true }
-xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
