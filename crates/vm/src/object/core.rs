@@ -537,7 +537,7 @@ impl<T> Py<T> {
     #[inline(always)]
     pub(super) fn ext_ref(&self) -> Option<&ObjExt> {
         let (flags, member_count) = self.read_type_flags();
-        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+        let has_ext = flags.contains(&crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if !has_ext {
             return None;
         }
@@ -575,10 +575,10 @@ impl<T> Py<T> {
     #[inline(always)]
     pub(super) fn weakref_list_ref(&self) -> Option<&WeakRefList> {
         let (flags, member_count) = self.read_type_flags();
-        if !flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF) {
+        if !flags.contains(&crate::types::PyTypeFlags::HAS_WEAKREF) {
             return None;
         }
-        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+        let has_ext = flags.contains(&crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         let self_addr = (self as *const Self as *const u8).addr();
         let ptr = core::ptr::with_exposed_provenance::<WeakRefList>(
             self_addr.wrapping_sub(weakref_prefix_offset(has_ext, member_count)),
@@ -1262,9 +1262,8 @@ impl<T: PyPayload> Py<T> {
     unsafe fn dealloc(ptr: *mut Self) {
         unsafe {
             let (flags, member_count) = (*ptr).read_type_flags();
-            let has_ext =
-                flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
-            let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
+            let has_ext = flags.contains(&crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+            let has_weakref = flags.contains(&crate::types::PyTypeFlags::HAS_WEAKREF);
             // Objects published to lock-free caches keep their memory mapped
             // until a QSBR grace period passes; destructors still run now.
             let published = (*ptr).ref_count.is_published();
@@ -1832,7 +1831,7 @@ impl PyObject {
     pub(crate) fn instance_dict(&self) -> Option<&InstanceDict> {
         let ext = self.0.ext_ref()?;
         let (flags, _) = self.0.read_type_flags();
-        if flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) {
+        if flags.contains(&crate::types::PyTypeFlags::HAS_DICT) {
             Some(&ext.dict)
         } else {
             None
@@ -2355,14 +2354,14 @@ impl PyObject {
         // the pointer without clearing dict contents. The dict may still be
         // referenced by other live objects (e.g. function.__globals__).
         let (flags, member_count) = obj.0.read_type_flags();
-        let has_ext = flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
+        let has_ext = flags.contains(&crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
         if has_ext {
             let self_addr = (ptr as *const u8).addr();
             let ext_ptr = core::ptr::with_exposed_provenance_mut::<ObjExt>(
                 self_addr.wrapping_sub(EXT_OFFSET),
             );
             let ext = unsafe { &mut *ext_ptr };
-            if flags.has_feature(crate::types::PyTypeFlags::HAS_DICT)
+            if flags.contains(&crate::types::PyTypeFlags::HAS_DICT)
                 && let Some(dict_ref) = ext.dict.replace(None)
             {
                 result.push(dict_ref.into());
@@ -2399,7 +2398,7 @@ impl PyObject {
                 .0
                 .read_type_flags()
                 .0
-                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                .contains(&crate::types::PyTypeFlags::HAS_DICT)
             || self.0.read_type_flags().1 > 0
     }
 }

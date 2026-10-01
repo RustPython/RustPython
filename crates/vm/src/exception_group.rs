@@ -18,9 +18,11 @@ use crate::exceptions::types::PyBaseException;
 fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
     let excs = &ctx.exceptions;
     let exception_group_slots = PyTypeSlots {
-        flags: crate::types::AtomicPyTypeFlags::from_plain(
-            PyTypeFlags::heap_type_flags() | PyTypeFlags::from_element(PyTypeFlags::HAS_DICT),
-        ),
+        flags: crate::types::AtomicPyTypeFlags::from_plain(PyTypeFlags::from_slice(&[
+            PyTypeFlags::HEAPTYPE,
+            PyTypeFlags::BASETYPE,
+            PyTypeFlags::HAS_DICT,
+        ])),
         ..Default::default()
     };
     let mut attrs = crate::builtins::type_::PyAttributes::default();

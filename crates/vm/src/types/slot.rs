@@ -270,33 +270,6 @@ bitflagset::atomic_bitflagset!(
     pub struct AtomicPyTypeFlags(core::sync::atomic::AtomicU64) on PyTypeFlags
 );
 
-impl PyTypeFlags {
-    // Default used for both built-in and normal classes: empty, for now.
-    pub const DEFAULT: Self = Self::empty();
-
-    /// Types created in Python. Subclassable heap types.
-    #[must_use]
-    pub const fn heap_type_flags() -> Self {
-        Self::from_slice(&[Self::HEAPTYPE, Self::BASETYPE])
-    }
-
-    #[must_use]
-    pub const fn has_feature(self, flag: u8) -> bool {
-        self.contains(&flag)
-    }
-
-    #[cfg(debug_assertions)]
-    #[must_use]
-    pub const fn is_created_with_flags(self) -> bool {
-        self.contains(&Self::_CREATED_WITH_FLAGS)
-    }
-
-    #[must_use]
-    pub const fn intersects(self, other: Self) -> bool {
-        self.bits() & other.bits() != 0
-    }
-}
-
 impl AtomicPyTypeFlags {
     #[must_use]
     pub fn load(&self) -> PyTypeFlags {
@@ -307,7 +280,7 @@ impl AtomicPyTypeFlags {
 
     #[must_use]
     pub fn has_feature(&self, flag: u8) -> bool {
-        self.load().has_feature(flag)
+        self.contains(&flag)
     }
 
     /// Replace `mask` bits with `value & mask`.
@@ -326,12 +299,6 @@ impl AtomicPyTypeFlags {
         let _ = self
             .as_bits()
             .fetch_and(!mask.bits(), core::sync::atomic::Ordering::AcqRel);
-    }
-
-    #[cfg(debug_assertions)]
-    #[must_use]
-    pub fn is_created_with_flags(&self) -> bool {
-        self.has_feature(PyTypeFlags::_CREATED_WITH_FLAGS)
     }
 }
 
@@ -370,9 +337,9 @@ mod tests {
         use super::{AtomicPyTypeFlags, PyTypeFlags};
 
         let flags = PyTypeFlags::from_element(PyTypeFlags::_CREATED_WITH_FLAGS);
-        assert!(flags.is_created_with_flags());
+        assert!(flags.contains(&PyTypeFlags::_CREATED_WITH_FLAGS));
         let atomic = AtomicPyTypeFlags::from_plain(flags);
-        assert!(atomic.is_created_with_flags());
+        assert!(atomic.contains(&PyTypeFlags::_CREATED_WITH_FLAGS));
     }
 }
 
