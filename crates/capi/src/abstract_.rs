@@ -301,6 +301,18 @@ mod tests {
             );
             obj.del_item("key").unwrap();
             assert!(obj.get_item("key").is_err());
-        })
+        });
+    }
+
+    #[test]
+    fn call_no_args() {
+        Python::attach(|py| {
+            let list_cls = py.get_type::<pyo3::types::PyList>();
+            let res_raw = unsafe { super::PyObject_CallNoArgs(list_cls.as_ptr().cast()) };
+            assert!(!res_raw.is_null());
+            let res = unsafe { Bound::from_owned_ptr(py, res_raw.cast()) };
+            assert!(res.is_instance_of::<pyo3::types::PyList>());
+            assert_eq!(res.len().unwrap(), 0);
+        });
     }
 }
