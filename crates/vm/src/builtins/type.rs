@@ -2057,7 +2057,7 @@ impl Constructor for PyType {
         let heaptype_member_count = heaptype_slots.as_ref().map_or(0, |x| x.as_slice().len());
         let member_count: usize = base_member_count + heaptype_member_count;
 
-        let mut flags = PyTypeFlags::from_slice(&[PyTypeFlags::HEAPTYPE, PyTypeFlags::BASETYPE]);
+        let mut flags = PyTypeFlags::HEAP_TYPE;
 
         // Check if we may add dict
         // We can only add a dict if the primary base class doesn't already have one

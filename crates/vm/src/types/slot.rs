@@ -270,6 +270,17 @@ bitflagset::atomic_bitflagset!(
     pub struct AtomicPyTypeFlags(core::sync::atomic::AtomicU64) on PyTypeFlags
 );
 
+impl PyTypeFlags {
+    pub const HEAP_TYPE: Self = Self::from_slice(&[Self::HEAPTYPE, Self::BASETYPE]);
+
+    pub const HEAP_TYPE_WITH_DICT: Self =
+        Self::from_bits_retain(Self::HEAP_TYPE.bits() | (1u64 << (Self::HAS_DICT as u32)));
+
+    pub const HEAP_TYPE_DICT_IMMUTABLE: Self = Self::from_bits_retain(
+        Self::HEAP_TYPE_WITH_DICT.bits() | (1u64 << (Self::IMMUTABLETYPE as u32)),
+    );
+}
+
 impl AtomicPyTypeFlags {
     #[must_use]
     pub fn load(&self) -> PyTypeFlags {
