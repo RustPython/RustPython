@@ -7,10 +7,12 @@ pub mod array {
     use crate::{
         common::{
             atomic::{self, AtomicUsize},
+            borrow::{BorrowedValue, BorrowedValueMut},
             lock::{
-                PyMappedRwLockReadGuard, PyMappedRwLockWriteGuard, PyMutex, PyRwLock,
-                PyRwLockReadGuard, PyRwLockWriteGuard,
+                PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
+                PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
             },
+            rc::PyRc,
             str::wchar_t,
         },
         vm::{
@@ -745,8 +747,41 @@ pub mod array {
     #[pyclass(name = "array", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyArray {
-        array: PyRwLock<ArrayContentType>,
+        storage: PyRc<ArrayStorage>,
+    }
+
+    #[doc(hidden)]
+    #[derive(Debug)]
+    pub struct ArrayStorage {
+        array: PyDetachingRwLock<ArrayContentType>,
         exports: AtomicUsize,
+    }
+
+    impl core::ops::Deref for PyArray {
+        type Target = ArrayStorage;
+        fn deref(&self) -> &Self::Target {
+            &self.storage
+        }
+    }
+
+    #[derive(Debug)]
+    struct SharedArray(PyRc<ArrayStorage>);
+
+    impl Drop for SharedArray {
+        fn drop(&mut self) {
+            self.0.exports.fetch_sub(1, atomic::Ordering::Release);
+        }
+    }
+
+    // SAFETY: the export prohibits resizing and owns the Rust-only allocation.
+    // All accesses, including the original array's, acquire the same lock.
+    unsafe impl crate::vm::protocol::SharedBufferStorage for SharedArray {
+        fn read(&self) -> BorrowedValue<'_, [u8]> {
+            PyDetachingRwLockReadGuard::map(self.0.array.read(), |x| x.get_bytes()).into()
+        }
+        fn write(&self) -> BorrowedValueMut<'_, [u8]> {
+            PyDetachingRwLockWriteGuard::map(self.0.array.write(), |x| x.get_bytes_mut()).into()
+        }
     }
 
     pub type PyArrayRef = PyRef<PyArray>;
@@ -754,8 +789,10 @@ pub mod array {
     impl From<ArrayContentType> for PyArray {
         fn from(array: ArrayContentType) -> Self {
             Self {
-                array: PyRwLock::new(array),
-                exports: AtomicUsize::new(0),
+                storage: PyRc::new(ArrayStorage {
+                    array: PyDetachingRwLock::new(array),
+                    exports: AtomicUsize::new(0),
+                }),
             }
         }
     }
@@ -780,7 +817,7 @@ pub mod array {
                 vm.new_type_error("array() argument 1 must be a unicode character, not str")
             })?;
 
-            if cls.is(Self::class(&vm.ctx)) && !kwargs.is_empty() {
+            if cls.is(&Self::class(&vm.ctx)) && !kwargs.is_empty() {
                 return Err(vm.new_type_error("array.array() takes no keyword arguments"));
             }
 
@@ -863,11 +900,11 @@ pub mod array {
         )
     )]
     impl PyArray {
-        fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
+        fn read(&self) -> PyDetachingRwLockReadGuard<'_, ArrayContentType> {
             self.array.read()
         }
 
-        fn write(&self) -> PyRwLockWriteGuard<'_, ArrayContentType> {
+        fn write(&self) -> PyDetachingRwLockWriteGuard<'_, ArrayContentType> {
             self.array.write()
         }
 
@@ -1166,12 +1203,12 @@ pub mod array {
             Ok(())
         }
 
-        pub(crate) fn get_bytes(&self) -> PyMappedRwLockReadGuard<'_, [u8]> {
-            PyRwLockReadGuard::map(self.read(), |a| a.get_bytes())
+        pub(crate) fn get_bytes(&self) -> PyMappedDetachingRwLockReadGuard<'_, [u8]> {
+            PyDetachingRwLockReadGuard::map(self.read(), |a| a.get_bytes())
         }
 
-        pub(crate) fn get_bytes_mut(&self) -> PyMappedRwLockWriteGuard<'_, [u8]> {
-            PyRwLockWriteGuard::map(self.write(), |a| a.get_bytes_mut())
+        pub(crate) fn get_bytes_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, [u8]> {
+            PyDetachingRwLockWriteGuard::map(self.write(), |a| a.get_bytes_mut())
         }
 
         #[pymethod]
@@ -1361,6 +1398,7 @@ pub mod array {
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_pyobject(vm);
+            drop(array);
             let module = vm.import("array", 0)?;
             let func = module.get_attr("_array_reconstructor", vm)?;
             Ok((
@@ -1460,8 +1498,7 @@ pub mod array {
     }
 
     impl PyArray {
-        fn buffer_desc(&self) -> BufferDescriptor {
-            let array = self.read();
+        fn buffer_desc(array: &ArrayContentType) -> BufferDescriptor {
             BufferDescriptor::format(
                 array.len() * array.itemsize(),
                 false,
@@ -1484,15 +1521,17 @@ pub mod array {
             let zelf = zelf
                 .downcast_ref::<Self>()
                 .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
-            let desc = zelf.buffer_desc().projected(flags);
+            let array = zelf.read();
+            let desc = Self::buffer_desc(&array).projected(flags);
             flags.check_writable(desc.readonly, "Object is not writable.", vm)?;
             Ok(PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS))
         }
 
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let array = zelf.read();
             Ok(PyBuffer::new(
                 zelf.to_owned().into(),
-                zelf.buffer_desc(),
+                Self::buffer_desc(&array),
                 &BUFFER_METHODS,
             ))
         }
@@ -1517,6 +1556,11 @@ pub mod array {
     }
 
     static BUFFER_METHODS: BufferMethods = BufferMethods {
+        shared_storage: Some(|buffer| {
+            let storage = buffer.obj_as::<PyArray>().storage.clone();
+            storage.exports.fetch_add(1, atomic::Ordering::Release);
+            Some(PyRc::new(SharedArray(storage)))
+        }),
         obj_bytes: |buffer| buffer.obj_as::<PyArray>().get_bytes().into(),
         obj_bytes_mut: |buffer| buffer.obj_as::<PyArray>().get_bytes_mut().into(),
         release: |buffer| {
@@ -1610,12 +1654,16 @@ pub mod array {
     }
 
     impl BufferResizeGuard for PyArray {
-        type Resizable<'a> = PyRwLockWriteGuard<'a, ArrayContentType>;
+        type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, ArrayContentType>;
 
         fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             // An export is a borrow someone else still holds, so it is
             // answered before the lock rather than by waiting on it.
-            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| self.write())
+            if self.exports.load(atomic::Ordering::Acquire) != 0 {
+                return None;
+            }
+            let array = self.write();
+            (self.exports.load(atomic::Ordering::Acquire) == 0).then_some(array)
         }
 
         fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {
@@ -1814,7 +1862,7 @@ pub mod array {
     }
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-        if !typ.fast_issubclass(PyArray::class(&vm.ctx)) {
+        if !typ.fast_issubclass(&PyArray::class(&vm.ctx)) {
             return Err(
                 vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
             );

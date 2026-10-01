@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
@@ -54,8 +54,8 @@ impl PyPayload for PyAsyncGen {
     const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.async_generator).to_owned()
     }
 }
 
@@ -264,8 +264,8 @@ unsafe impl Traverse for PyAsyncGenWrappedValue {
 
 impl PyPayload for PyAsyncGenWrappedValue {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_wrapped_value
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.async_generator_wrapped_value).to_owned()
     }
 }
 
@@ -327,8 +327,8 @@ unsafe impl Traverse for PyAsyncGenASend {
 
 impl PyPayload for PyAsyncGenASend {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_asend
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.async_generator_asend).to_owned()
     }
 }
 
@@ -479,8 +479,8 @@ unsafe impl Traverse for PyAsyncGenAThrow {
 
 impl PyPayload for PyAsyncGenAThrow {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.async_generator_athrow
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.async_generator_athrow).to_owned()
     }
 }
 
@@ -696,8 +696,8 @@ unsafe impl Traverse for PyAnextAwaitable {
 
 impl PyPayload for PyAnextAwaitable {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.anext_awaitable
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.anext_awaitable).to_owned()
     }
 }
 

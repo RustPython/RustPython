@@ -104,12 +104,26 @@ mod ffi {
 /// The caller must ensure `signalnum` is a valid platform signal number.
 #[cfg(any(unix, windows))]
 pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
-    let handler = unsafe { libc::signal(signalnum, libc::SIG_IGN) };
-    if handler == libc::SIG_ERR as sighandler_t {
-        None
-    } else {
-        unsafe { libc::signal(signalnum, handler) };
-        Some(handler)
+    #[cfg(unix)]
+    {
+        // Query without changing disposition: even temporarily ignoring SIGCHLD
+        // can discard a child's exit status, and signal() also replaces masks.
+        let mut action = core::mem::MaybeUninit::<libc::sigaction>::uninit();
+        if unsafe { libc::sigaction(signalnum, core::ptr::null(), action.as_mut_ptr()) } == 0 {
+            Some(unsafe { action.assume_init() }.sa_sigaction)
+        } else {
+            None
+        }
+    }
+    #[cfg(windows)]
+    {
+        let handler = unsafe { libc::signal(signalnum, libc::SIG_IGN) };
+        if handler == libc::SIG_ERR as sighandler_t {
+            None
+        } else {
+            unsafe { libc::signal(signalnum, handler) };
+            Some(handler)
+        }
     }
 }
 
@@ -378,4 +392,50 @@ pub fn sigset_contains(mask: libc::sigset_t, signum: i32) -> bool {
 #[cfg(windows)]
 pub fn valid_signals(_max_signum: usize) -> io::Result<Vec<i32>> {
     Ok(VALID_SIGNALS.to_vec())
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    #[test]
+    fn probing_preserves_signal_flags_and_mask() {
+        unsafe extern "C" fn handler(_: libc::c_int) {}
+
+        struct Restore(libc::sigaction);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::sigaction(libc::SIGUSR2, &self.0, core::ptr::null_mut()) };
+            }
+        }
+
+        // No other host_env test uses SIGUSR2; retain the host disposition even
+        // when an assertion fails. Do not deliver any signal to the process.
+        unsafe {
+            let mut action: libc::sigaction = core::mem::zeroed();
+            action.sa_sigaction = handler as *const () as libc::sighandler_t;
+            action.sa_flags = libc::SA_NODEFER;
+            assert_eq!(libc::sigemptyset(&mut action.sa_mask), 0);
+            assert_eq!(libc::sigaddset(&mut action.sa_mask, libc::SIGUSR1), 0);
+            let mut original = core::mem::MaybeUninit::uninit();
+            assert_eq!(
+                libc::sigaction(libc::SIGUSR2, &action, original.as_mut_ptr()),
+                0
+            );
+            let _restore = Restore(original.assume_init());
+
+            assert_eq!(
+                super::probe_handler(libc::SIGUSR2),
+                Some(action.sa_sigaction)
+            );
+            let mut observed = core::mem::MaybeUninit::<libc::sigaction>::uninit();
+            assert_eq!(
+                libc::sigaction(libc::SIGUSR2, core::ptr::null(), observed.as_mut_ptr()),
+                0
+            );
+            let observed = observed.assume_init();
+            assert_eq!(observed.sa_sigaction, action.sa_sigaction);
+            assert_ne!(observed.sa_flags & libc::SA_NODEFER, 0);
+            assert_eq!(libc::sigismember(&observed.sa_mask, libc::SIGUSR1), 1);
+        }
+    }
 }

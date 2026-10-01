@@ -13,7 +13,7 @@ impl Node for ast::MatchCase {
             runtime_body,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeMatchCase::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeMatchCase::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("pattern", pattern.ast_to_object(vm, source_file), vm)
@@ -84,21 +84,45 @@ impl Node for ast::Pattern {
             As,
             Or,
         }
-        let kind = if is_node_instance(vm, &object, pyast::NodePatternMatchValue::static_type())? {
+        let kind = if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchValue::make_class(&vm.ctx),
+        )? {
             PatternKind::Value
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchSingleton::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchSingleton::make_class(&vm.ctx),
+        )? {
             PatternKind::Singleton
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchSequence::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchSequence::make_class(&vm.ctx),
+        )? {
             PatternKind::Sequence
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchMapping::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchMapping::make_class(&vm.ctx),
+        )? {
             PatternKind::Mapping
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchClass::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchClass::make_class(&vm.ctx),
+        )? {
             PatternKind::Class
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchStar::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodePatternMatchStar::make_class(&vm.ctx),
+        )? {
             PatternKind::Star
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchAs::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchAs::make_class(&vm.ctx))? {
             PatternKind::As
-        } else if is_node_instance(vm, &object, pyast::NodePatternMatchOr::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchOr::make_class(&vm.ctx))? {
             PatternKind::Or
         } else {
             return Err(vm.new_type_error(format!(
@@ -222,7 +246,7 @@ impl Node for ast::PatternMatchValue {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchValue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchValue::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -267,10 +291,7 @@ impl Node for ast::PatternMatchSingleton {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(
-                vm,
-                pyast::NodePatternMatchSingleton::static_type().to_owned(),
-            )
+            .into_ref_with_type(vm, pyast::NodePatternMatchSingleton::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -341,10 +362,7 @@ impl Node for ast::PatternMatchSequence {
             runtime_patterns,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(
-                vm,
-                pyast::NodePatternMatchSequence::static_type().to_owned(),
-            )
+            .into_ref_with_type(vm, pyast::NodePatternMatchSequence::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let patterns = runtime_patterns.map_or_else(
@@ -407,7 +425,7 @@ impl Node for ast::PatternMatchMapping {
             runtime_patterns,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchMapping::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchMapping::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let keys = runtime_keys.map_or_else(
@@ -494,7 +512,7 @@ impl Node for ast::PatternMatchClass {
             runtime_kwd_patterns,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchClass::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchClass::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("cls", cls.ast_to_object(vm, source_file), vm)
@@ -622,7 +640,7 @@ impl Node for ast::PatternMatchStar {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchStar::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchStar::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)
@@ -669,7 +687,7 @@ impl Node for ast::PatternMatchAs {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchAs::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchAs::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("pattern", pattern.ast_to_object(vm, source_file), vm)
@@ -716,7 +734,7 @@ impl Node for ast::PatternMatchOr {
             runtime_patterns,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodePatternMatchOr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchOr::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let patterns = runtime_patterns.map_or_else(

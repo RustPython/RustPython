@@ -210,21 +210,21 @@ mod tests {
         const FNAME: &str = "<?>";
 
         let builder = vm::Interpreter::builder(Default::default());
-        let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
-        let interp = builder
-            .add_native_modules(&stdlib_defs)
+        let stdlib_defs = crate::stdlib_module_defs(unsafe { builder.context() });
+        let interp = unsafe { builder.add_native_modules(&stdlib_defs) }
             .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
             .build();
 
-        interp.enter(|vm| {
-            let scope = vm.new_scope_with_builtins();
-            let code_obj = vm
-                .compile(source.trim(), Mode::Exec, FNAME)
-                .map_err(|err| err.into_pyexception(vm, Some(source)))
-                .unwrap();
-            scope.globals.set_item("code", code_obj.into(), vm).unwrap();
+        unsafe {
+            interp.enter_unchecked(|vm| {
+                let scope = vm.new_scope_with_builtins();
+                let code_obj = vm
+                    .compile(source.trim(), Mode::Exec, FNAME)
+                    .map_err(|err| err.into_pyexception(vm, Some(source)))
+                    .unwrap();
+                scope.globals.set_item("code", code_obj.into(), vm).unwrap();
 
-            let py_source = r#"
+                let py_source = r#"
 import dis
 import io
 import re
@@ -241,15 +241,16 @@ tmp_output = buf.getvalue()
 output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp_output)
 "#;
 
-            let py_code_obj = vm
-                .compile(py_source, Mode::Exec, FNAME)
-                .map_err(|err| err.into_pyexception(vm, Some(py_source)))
-                .unwrap();
+                let py_code_obj = vm
+                    .compile(py_source, Mode::Exec, FNAME)
+                    .map_err(|err| err.into_pyexception(vm, Some(py_source)))
+                    .unwrap();
 
-            vm.run_code_obj(py_code_obj, scope.clone()).unwrap();
-            let py_output = scope.globals.get_item("output", vm).unwrap();
-            py_output.str(vm).unwrap().to_string()
-        })
+                vm.run_code_obj(py_code_obj, scope.clone()).unwrap();
+                let py_output = scope.globals.get_item("output", vm).unwrap();
+                py_output.str(vm).unwrap().to_string()
+            })
+        }
     }
 
     #[test]

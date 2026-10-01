@@ -390,7 +390,8 @@ pub(crate) struct PyStructSequenceMeta {
 }
 
 impl ItemMeta for PyStructSequenceMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "module", "data", "no_attr"];
+    const ALLOWED_NAMES: &'static [&'static str] =
+        &["name", "module", "data", "no_attr", "interpreter_local"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self { inner }
@@ -500,6 +501,7 @@ pub(crate) fn impl_pystruct_sequence(
     let ident = struct_item.ident.clone();
     let fake_ident = Ident::new("pystruct_sequence", ident.span());
     let meta = PyStructSequenceMeta::from_nested(ident, fake_ident, attr.into_iter())?;
+    let interpreter_local = meta.inner()._bool("interpreter_local")?;
 
     let pytype_ident = struct_item.ident.clone();
     let pytype_vis = struct_item.vis.clone();
@@ -553,6 +555,7 @@ pub(crate) fn impl_pystruct_sequence(
                 const ATTR_DOCS: &'static [&'static str] = #attr_names;
             }}
             const BASICSIZE: usize = 0;
+            const INTERPRETER_LOCAL: bool = #interpreter_local;
             const UNHASHABLE: bool = false;
 
             type Base = ::rustpython_vm::builtins::PyTuple;
@@ -560,16 +563,16 @@ pub(crate) fn impl_pystruct_sequence(
 
         // StaticType for Python type
         impl ::rustpython_vm::class::StaticType for #pytype_ident {
-            fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
+            unsafe fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
                 ::rustpython_vm::common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;
                 }
                 &CELL
             }
 
-            fn static_baseclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+            unsafe fn static_baseclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 use ::rustpython_vm::class::StaticType;
-                ::rustpython_vm::builtins::PyTuple::static_type()
+                unsafe { ::rustpython_vm::builtins::PyTuple::static_type() }
             }
         }
 
@@ -577,13 +580,22 @@ pub(crate) fn impl_pystruct_sequence(
         impl ::rustpython_vm::PyPayload for #pytype_ident {
             const PAYLOAD_TYPE_ID: ::core::any::TypeId = <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
-            #[inline]
-            unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+            fn supports_native_layout(layout: ::core::any::TypeId) -> bool {
+                <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::supports_native_layout(layout)
             }
 
-            fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                <Self as ::rustpython_vm::class::StaticType>::static_type()
+            #[inline]
+            unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                obj.supports_native_layout(::core::any::TypeId::of::<::rustpython_vm::builtins::PyTuple>())
+                && if <Self as ::rustpython_vm::class::PyClassDef>::INTERPRETER_LOCAL {
+                    obj.class().is_native_subclass::<Self>()
+                } else {
+                    obj.class().fast_issubclass(unsafe { <Self as ::rustpython_vm::class::StaticType>::static_type() })
+                }
+            }
+
+            fn class(ctx: &::rustpython_vm::vm::Context) -> ::rustpython_vm::builtins::PyTypeRef {
+                <Self as ::rustpython_vm::class::PyClassImpl>::make_class(ctx)
             }
         }
 

@@ -53,11 +53,11 @@ impl PyObject {
         F: Fn(&Py<T>) -> PyResult<R>,
     {
         let class = T::class(&vm.ctx);
-        let py_ref = if self.fast_isinstance(class) {
+        let py_ref = if self.fast_isinstance(&class) {
             self.downcast_ref()
-                .ok_or_else(|| vm.new_downcast_runtime_error(class, self))?
+                .ok_or_else(|| vm.new_downcast_runtime_error(&class, self))?
         } else {
-            return Err(vm.new_downcast_type_error(class, self));
+            return Err(vm.new_downcast_type_error(&class, self));
         };
         f(py_ref)
     }
@@ -79,11 +79,11 @@ where
     #[inline]
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = T::class(&vm.ctx);
-        if obj.fast_isinstance(class) {
+        if obj.fast_isinstance(&class) {
             T::try_downcast_from(&obj, vm)?;
             Ok(unsafe { obj.downcast_unchecked() })
         } else {
-            Err(vm.new_downcast_type_error(class, &obj))
+            Err(vm.new_downcast_type_error(&class, &obj))
         }
     }
 }
@@ -114,11 +114,11 @@ impl<'a, T: 'a + TryFromObject> TryFromBorrowedObject<'a> for Vec<T> {
 impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let class = T::class(&vm.ctx);
-        if obj.fast_isinstance(class) {
+        if obj.fast_isinstance(&class) {
             obj.downcast_ref()
-                .ok_or_else(|| vm.new_downcast_runtime_error(class, &obj))
+                .ok_or_else(|| vm.new_downcast_runtime_error(&class, &obj))
         } else {
-            Err(vm.new_downcast_type_error(class, &obj))
+            Err(vm.new_downcast_type_error(&class, &obj))
         }
     }
 }

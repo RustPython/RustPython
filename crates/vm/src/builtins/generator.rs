@@ -2,7 +2,7 @@
  * The mythical generator.
  */
 
-use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -33,8 +33,8 @@ impl PyPayload for PyGenerator {
     const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.generator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.generator_type).to_owned()
     }
 }
 

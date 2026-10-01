@@ -1,4 +1,5 @@
 mod core;
+pub(crate) use core::WeakRefList;
 mod ext;
 mod payload;
 pub(crate) mod qsbr;
@@ -9,5 +10,5 @@ pub use self::core::*;
 pub use self::ext::*;
 pub use self::payload::*;
 pub use core::SIZEOF_PYOBJECT_HEAD;
-pub(crate) use core::{GC_NO_OWNER, GC_PERMANENT, GC_REACHABLE, GC_UNTRACKED, GcLink, GcOwner};
+pub(crate) use core::{GC_PERMANENT, GC_UNTRACKED};
 pub use traverse::{MaybeTraverse, Traverse, TraverseFn};

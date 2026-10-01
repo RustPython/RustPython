@@ -40,8 +40,8 @@ unsafe impl Traverse for FrameLocalsProxy {
 
 impl PyPayload for FrameLocalsProxy {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_locals_proxy_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.frame_locals_proxy_type).to_owned()
     }
 }
 

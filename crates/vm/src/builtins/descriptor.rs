@@ -8,6 +8,7 @@ use crate::{
     function::{
         Callee, FuncArgs, ItemDoc, PyMethodDef, PyMethodFlags, PySetterValue, PySsize, plain_doc,
     },
+    object::{Traverse, TraverseFn},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -22,34 +23,48 @@ use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct PyDescriptor {
-    pub typ: &'static Py<PyType>,
-    pub name: &'static PyStrInterned,
-    pub qualname: PyRwLock<Option<String>>,
-}
-
-#[derive(Debug)]
-pub struct PyDescriptorOwned {
     pub typ: PyRef<PyType>,
     pub name: &'static PyStrInterned,
     pub qualname: PyRwLock<Option<String>>,
 }
 
-#[pyclass(name = "method_descriptor", module = false)]
+impl PyDescriptor {
+    fn bind(
+        &self,
+        method: &'static PyMethodDef,
+        owner: Option<PyObjectRef>,
+        obj: PyObjectRef,
+        ctx: &Context,
+    ) -> PyRef<PyNativeMethod> {
+        let mut bound = method.to_bound_method(obj, &self.typ);
+        bound.func._method_def_owner = owner;
+        bound.into_ref(ctx)
+    }
+}
+
+#[pyclass(name = "method_descriptor", module = false, traverse = "manual")]
 pub struct PyMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
-    pub method: &'static PyMethodDef,
+    pub(crate) method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
     /// Prevent HeapMethodDef from being freed while this descriptor references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
+unsafe impl Traverse for PyMethodDescriptor {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.common.typ.traverse(tracer_fn);
+        self._method_def_owner.traverse(tracer_fn);
+    }
+}
+
 impl PyMethodDescriptor {
-    pub fn new(method: &'static PyMethodDef, typ: &'static Py<PyType>, ctx: &Context) -> Self {
+    pub fn new(method: &'static PyMethodDef, typ: &Py<PyType>, ctx: &Context) -> Self {
         Self {
             common: PyDescriptor {
-                typ,
+                typ: typ.to_owned(),
                 name: ctx.intern_str(method.name),
                 qualname: PyRwLock::new(None),
             },
@@ -60,8 +75,8 @@ impl PyMethodDescriptor {
 }
 
 impl PyPayload for PyMethodDescriptor {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.method_descriptor_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.method_descriptor_type).to_owned()
     }
 }
 
@@ -125,7 +140,8 @@ impl Callable for PyMethodDescriptor {
 
 impl PyMethodDescriptor {
     pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+        self.common
+            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
     }
 }
 
@@ -173,20 +189,27 @@ impl Representable for PyMethodDescriptor {
 }
 
 // METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
-#[pyclass(name = "classmethod_descriptor", module = false)]
+#[pyclass(name = "classmethod_descriptor", module = false, traverse = "manual")]
 pub struct PyClassMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
-    pub method: &'static PyMethodDef,
+    pub(crate) method: &'static PyMethodDef,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
+unsafe impl Traverse for PyClassMethodDescriptor {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.common.typ.traverse(tracer_fn);
+        self._method_def_owner.traverse(tracer_fn);
+    }
+}
+
 impl PyClassMethodDescriptor {
-    pub fn new(method: &'static PyMethodDef, typ: &'static Py<PyType>, ctx: &Context) -> Self {
+    pub fn new(method: &'static PyMethodDef, typ: &Py<PyType>, ctx: &Context) -> Self {
         Self {
             common: PyDescriptor {
-                typ,
+                typ: typ.to_owned(),
                 name: ctx.intern_str(method.name),
                 qualname: PyRwLock::new(None),
             },
@@ -196,13 +219,14 @@ impl PyClassMethodDescriptor {
     }
 
     pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+        self.common
+            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
     }
 }
 
 impl PyPayload for PyClassMethodDescriptor {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.classmethod_descriptor_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.classmethod_descriptor_type).to_owned()
     }
 }
 
@@ -249,7 +273,7 @@ impl GetDescriptor for PyClassMethodDescriptor {
                 obj.class().name()
             ))
         })?;
-        if !typ.fast_issubclass(descr.common.typ) {
+        if !typ.fast_issubclass(&descr.common.typ) {
             return Err(vm.new_type_error(format!(
                 "descriptor '{}' requires a subtype of '{}' but received '{}'",
                 descr.common.name,
@@ -736,14 +760,20 @@ impl PyMemberSpec {
 }
 
 // = PyMemberDescrObject
-#[pyclass(name = "member_descriptor", module = false)]
+#[pyclass(name = "member_descriptor", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
-    pub common: PyDescriptorOwned,
+    pub common: PyDescriptor,
     pub member: PyMemberDef,
     pub access: MemberAccess,
+}
+
+unsafe impl Traverse for PyMemberDescriptor {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.common.typ.traverse(tracer_fn);
+    }
 }
 
 impl PyMemberDescriptor {
@@ -812,12 +842,12 @@ impl PyMemberDescriptor {
 }
 
 impl PyPayload for PyMemberDescriptor {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.member_descriptor_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.member_descriptor_type).to_owned()
     }
 }
 
-fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResult<Option<String>> {
+fn calculate_qualname(descr: &PyDescriptor, vm: &VirtualMachine) -> PyResult<Option<String>> {
     if let Some(qualname) = vm.get_attribute_opt(descr.typ.as_object(), "__qualname__")? {
         let str = qualname.downcast::<PyStr>().map_err(|_| {
             vm.new_type_error("<descriptor>.__objclass__.__qualname__ is not a unicode object")
@@ -1544,7 +1574,7 @@ fn method_descr_typecheck(
 ) -> PyResult<()> {
     if descr.method.flags.contains(PyMethodFlags::STATIC)
         || descr.method.flags.contains(PyMethodFlags::CLASS)
-        || obj.fast_isinstance(descr.common.typ)
+        || obj.fast_isinstance(&descr.common.typ)
     {
         return Ok(());
     }
@@ -1596,7 +1626,7 @@ fn vectorcall_wrapper(
         )));
     }
     let obj = args.remove(0);
-    if !obj.fast_isinstance(zelf.typ) {
+    if !obj.fast_isinstance(&zelf.typ) {
         return Err(vm.new_type_error(format!(
             "descriptor '{}' requires a '{}' object but received a '{}'",
             zelf.name.as_str(),
@@ -1951,11 +1981,11 @@ fn parse_buffer_flags(
 
 // wrapper_descriptor: wraps a slot function as a Python method
 // = PyWrapperDescrObject
-#[pyclass(name = "wrapper_descriptor", module = false)]
+#[pyclass(name = "wrapper_descriptor", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub(crate) struct PyWrapper {
     #[pymember(name = "__objclass__")]
-    pub typ: &'static Py<PyType>,
+    pub typ: PyRef<PyType>,
     #[pymember(name = "__name__")]
     pub name: &'static PyStrInterned,
     pub wrapped: SlotFunc,
@@ -1966,9 +1996,15 @@ pub(crate) struct PyWrapper {
     pub plain_len: u32,
 }
 
+unsafe impl Traverse for PyWrapper {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.typ.traverse(tracer_fn);
+    }
+}
+
 impl PyPayload for PyWrapper {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.wrapper_descriptor_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.wrapper_descriptor_type).to_owned()
     }
 }
 
@@ -2000,7 +2036,7 @@ impl Callable for PyWrapper {
         // list.__init__(l, [1,2,3]) form - first arg is self
         let (obj, rest): (PyObjectRef, FuncArgs) = args.bind(vm)?;
 
-        if !obj.fast_isinstance(zelf.typ) {
+        if !obj.fast_isinstance(&zelf.typ) {
             return Err(vm.new_type_error(format!(
                 "descriptor '{}' requires a '{}' object but received a '{}'",
                 zelf.name.as_str(),
@@ -2061,13 +2097,12 @@ impl Representable for PyWrapper {
 pub(crate) struct PyMethodWrapper {
     pub wrapper: PyRef<PyWrapper>,
     #[pymember(name = "__self__")]
-    #[pytraverse(skip)]
     pub obj: PyObjectRef,
 }
 
 impl PyPayload for PyMethodWrapper {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.method_wrapper_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.method_wrapper_type).to_owned()
     }
 }
 
@@ -2076,7 +2111,7 @@ impl Callable for PyMethodWrapper {
 
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // bpo-37619: Check type compatibility before calling wrapped slot
-        if !zelf.obj.fast_isinstance(zelf.wrapper.typ) {
+        if !zelf.obj.fast_isinstance(&zelf.wrapper.typ) {
             return Err(vm.new_type_error(format!(
                 "descriptor '{}' requires a '{}' object but received a '{}'",
                 zelf.wrapper.name.as_str(),
@@ -2188,6 +2223,28 @@ mod tests {
     use crate::{protocol::PyNumberMethods, types::AsNumber};
     use core::sync::atomic::{AtomicU8, Ordering};
 
+    #[test]
+    fn bound_heap_method_keeps_its_definition_alive() {
+        use crate::function::HeapMethodDef;
+
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let owner = HeapMethodDef::new(PyMethodDef::new_const(
+                "identity",
+                |zelf: PyObjectRef| zelf,
+                PyMethodFlags::METHOD,
+                ItemDoc::NONE,
+            ))
+            .into_ref(&vm.ctx);
+            let descriptor = owner.build_method(vm.ctx.types.object_type, vm);
+            let obj = vm.ctx.new_list(Vec::new());
+            let method = descriptor.bind(obj.clone().into(), &vm.ctx);
+            drop(descriptor);
+            assert_eq!(owner.as_object().strong_count(), 2);
+            drop(owner);
+            assert!(method.as_object().call((), vm).unwrap().is(&obj));
+        });
+    }
+
     #[pyclass(name = "UByteMembers", module = false)]
     #[derive(Debug, PyPayload)]
     #[repr(C)]
@@ -2227,8 +2284,8 @@ mod tests {
 
     #[test]
     fn readonly_atomic_members_use_atomic_storage() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let _class = ReadonlyAtomicMembers::make_static_type();
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let _class = unsafe { ReadonlyAtomicMembers::make_static_type() };
             let obj = ReadonlyAtomicMembers {
                 byte: AtomicU8::new(128),
                 object: None.into(),
@@ -2269,8 +2326,8 @@ mod tests {
 
     #[test]
     fn unsigned_byte_members_preserve_adjacent_fields() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let _class = UByteMembers::make_static_type();
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let _class = unsafe { UByteMembers::make_static_type() };
             let obj = UByteMembers {
                 prefix: 17,
                 readonly: 255,
@@ -2312,7 +2369,7 @@ mod tests {
                 .unwrap();
             assert_eq!(obj.writable.load(Ordering::Relaxed), 42);
 
-            let filters = vm.state.warnings.filters.to_owned();
+            let filters = vm.state.warnings.filters();
             filters.borrow_vec_mut().insert(
                 0,
                 vm.ctx

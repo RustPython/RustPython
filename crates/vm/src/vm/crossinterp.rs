@@ -17,7 +17,7 @@ use crate::{
         BorrowedConstant, CodeFlags, Constant, Instruction,
         oparg::{OpArg, OpArgState},
     },
-    protocol::PyBuffer,
+    protocol::SharedBuffer,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
 use num_traits::ToPrimitive;
@@ -133,7 +133,7 @@ pub enum SharedValue {
     },
     Queue(SharedQueueId),
     #[cfg(feature = "threading")]
-    Buffer(PyBuffer),
+    Buffer(SharedBuffer),
     #[cfg(not(feature = "threading"))]
     Buffer(Vec<u8>, BufferDescriptor),
     /// Marshalled code object.
@@ -293,7 +293,7 @@ impl SharedValue {
         let view = PyMemoryView::from_object(obj, vm)?;
         #[cfg(feature = "threading")]
         {
-            Ok(Self::Buffer(view.clone_buffer()))
+            SharedBuffer::new(view.clone_buffer(), vm).map(Self::Buffer)
         }
         #[cfg(not(feature = "threading"))]
         {
@@ -330,7 +330,7 @@ impl SharedValue {
                 let buffer = VecBuffer::from(bytes)
                     .into_ref(&vm.ctx)
                     .into_pybuffer_with_descriptor(desc);
-                memoryview_from_buffer(buffer, vm)
+                memoryview_from_buffer(SharedBuffer::new(buffer, vm)?, vm)
             }
             Self::Code(data) => marshal_loads(&data, vm),
             Self::Function(data) => {
@@ -362,7 +362,7 @@ fn marshal_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
 }
 
 /// `_memoryview_from_xid`.
-fn memoryview_from_buffer(buffer: PyBuffer, vm: &VirtualMachine) -> PyResult {
+fn memoryview_from_buffer(buffer: SharedBuffer, vm: &VirtualMachine) -> PyResult {
     let view = crate::stdlib::_interpreters::xibufferview_from_buffer(buffer, vm);
     let mv = PyMemoryView::from_object(&view, vm)?;
     Ok(mv.into_pyobject(vm))
@@ -971,7 +971,7 @@ where
 
     let tvm = crate::vm::runtime::owned_new_thread(id)
         .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(caller, id))?;
-    tvm.run(f)
+    tvm.run_raw(f)
 }
 
 #[must_use]

@@ -5,6 +5,8 @@
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpchannels::clear_interpreter;
 pub(crate) use _interpchannels::module_def;
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) use _interpchannels::with_fork;
 pub(crate) use _interpchannels::{channel_id_from_parts, channel_id_parts};
 
 #[pymodule]
@@ -132,7 +134,7 @@ pub(crate) mod _interpchannels {
                     format!("channel {cid} may not be closed if not empty (try force=True)"),
                 ),
             };
-            vm.new_exception_msg(class.to_owned(), msg.into())
+            vm.new_exception_msg(class, msg.into())
         }
     }
 
@@ -142,6 +144,8 @@ pub(crate) mod _interpchannels {
     struct Waiting {
         state: Mutex<WaitState>,
         cond: Condvar,
+        #[cfg(all(unix, feature = "threading"))]
+        fork_generation: u64,
     }
 
     #[derive(Default)]
@@ -155,10 +159,18 @@ pub(crate) mod _interpchannels {
             Arc::new(Self {
                 state: Mutex::new(WaitState::default()),
                 cond: Condvar::new(),
+                #[cfg(all(unix, feature = "threading"))]
+                fork_generation: crate::vm::fork::generation(),
             })
         }
 
         fn release(&self, received: bool) {
+            #[cfg(all(unix, feature = "threading"))]
+            if self.fork_generation != crate::vm::fork::generation() {
+                // A popped item can retain a waiter outside the channel table.
+                // Its parent thread and condition-variable waiters are gone.
+                return;
+            }
             let mut state = self.state.lock();
             if !state.released {
                 state.released = true;
@@ -330,6 +342,17 @@ pub(crate) mod _interpchannels {
         })
     }
 
+    #[cfg(all(unix, feature = "threading"))]
+    pub(crate) fn with_fork<R>(syscall: impl FnOnce() -> R) -> R {
+        let table = channels().lock();
+        let _states: Vec<_> = table
+            .refs
+            .values()
+            .filter_map(|entry| entry.chan.as_ref().map(|chan| chan.state.lock()))
+            .collect();
+        syscall()
+    }
+
     /// `_channels_lookup`: the channel, or why it is unusable.
     fn channels_lookup(cid: i64) -> ChanResult<Arc<Channel>> {
         let table = channels().lock();
@@ -366,18 +389,23 @@ pub(crate) mod _interpchannels {
 
     /// `channel_destroy`: forget the channel entirely.
     fn channel_destroy(cid: i64) -> ChanResult<Vec<(Arc<Waiting>, bool)>> {
-        let mut table = channels().lock();
-        let entry = table.refs.remove(&cid).ok_or(ChanErr::NotFound)?;
-        Ok(match entry.chan {
-            Some(chan) => drain_queue(&mut chan.state.lock()),
-            None => Vec::new(),
-        })
+        let entry = channels()
+            .lock()
+            .refs
+            .remove(&cid)
+            .ok_or(ChanErr::NotFound)?;
+        let items = match entry.chan {
+            Some(chan) => core::mem::take(&mut chan.state.lock().queue),
+            None => VecDeque::new(),
+        };
+        Ok(retire_items(items))
     }
 
-    fn drain_queue(state: &mut ChannelState) -> Vec<(Arc<Waiting>, bool)> {
-        state
-            .queue
-            .drain(..)
+    // Shared buffers can run owner callbacks when released. Call only after
+    // unlocking both the directory and channel state.
+    fn retire_items(items: VecDeque<ChannelItem>) -> Vec<(Arc<Waiting>, bool)> {
+        items
+            .into_iter()
             .filter_map(|item| item.waiting.map(|w| (w, false)))
             .collect()
     }
@@ -394,10 +422,12 @@ pub(crate) mod _interpchannels {
             return Vec::new();
         }
         let entry = table.refs.remove(&cid).expect("just looked it up");
-        match entry.chan {
-            Some(chan) => drain_queue(&mut chan.state.lock()),
-            None => Vec::new(),
-        }
+        drop(table);
+        let items = match entry.chan {
+            Some(chan) => core::mem::take(&mut chan.state.lock().queue),
+            None => VecDeque::new(),
+        };
+        retire_items(items)
     }
 
     /// `_channels_add_id_object`.
@@ -456,12 +486,13 @@ pub(crate) mod _interpchannels {
             state.closing = true;
             return Ok(Vec::new());
         }
-        let waiters = drain_queue(&mut state);
+        let items = core::mem::take(&mut state.queue);
         state.open = false;
         state.ends.release_all();
         drop(state);
         entry.chan = None;
-        Ok(waiters)
+        drop(table);
+        Ok(retire_items(items))
     }
 
     /// `channel_release`: close one or both ends for the current interpreter.
@@ -486,6 +517,7 @@ pub(crate) mod _interpchannels {
             .filter_map(|r| r.chan.clone())
             .collect();
         let mut waiters = Vec::new();
+        let mut dropped = Vec::new();
         for chan in chans {
             let mut state = chan.state.lock();
             let mut i = 0;
@@ -500,17 +532,19 @@ pub(crate) mod _interpchannels {
                     if let Some(w) = item.waiting {
                         waiters.push((w, false));
                     }
+                    dropped.push(item.data);
                     continue;
                 }
                 // UNBOUND_ERROR / UNBOUND_REPLACE keep the slot but throw the
                 // data away; the item is now "unbound".
-                item.data = None;
+                dropped.push(item.data.take());
                 i += 1;
             }
             state.ends.clear_interpreter(interpid);
             state.open = state.ends.is_open();
         }
         release_waiters_detached(waiters);
+        drop(dropped);
     }
 
     /// `resolve_unboundop`.
@@ -817,7 +851,8 @@ pub(crate) mod _interpchannels {
     #[pystruct_sequence(
         name = "ChannelInfo",
         module = "_interpchannels",
-        data = "ChannelInfoData"
+        data = "ChannelInfoData",
+        interpreter_local
     )]
     struct PyChannelInfo;
 
@@ -894,12 +929,14 @@ pub(crate) mod _interpchannels {
         let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
         let send = flag(parsed[1].as_deref(), vm)?;
         let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
+        let interpreters = crate::vm::runtime::list_interpreters();
         let state = chan.state.lock();
         if send && state.closing {
+            drop(state);
             return Err(ChanErr::Closed.into_py(cid, vm));
         }
         let mut out = Vec::new();
-        for info in crate::vm::runtime::list_interpreters() {
+        for info in interpreters {
             if state.ends.find(info.id, send).is_some_and(|i| {
                 if send {
                     state.ends.send[i].1
@@ -907,10 +944,18 @@ pub(crate) mod _interpchannels {
                     state.ends.recv[i].1
                 }
             }) {
-                out.push(vm.ctx.new_int(info.id).into());
+                out.push(info.id);
             }
         }
-        Ok(vm.ctx.new_list(out).into())
+        drop(state);
+        Ok(vm
+            .ctx
+            .new_list(
+                out.into_iter()
+                    .map(|id| vm.ctx.new_int(id).into())
+                    .collect(),
+            )
+            .into())
     }
 
     /// `channel_send` up to its `closing` check, which precedes converting the
@@ -982,15 +1027,18 @@ pub(crate) mod _interpchannels {
         if timed_out {
             // The send is failing now, so make sure the item won't be received.
             let mut state = chan.state.lock();
-            if let Some(pos) = state.queue.iter().position(|it| {
-                it.waiting
-                    .as_ref()
-                    .is_some_and(|w| Arc::ptr_eq(w, &waiting))
-            }) {
-                state.queue.remove(pos);
-            }
+            let removed = state
+                .queue
+                .iter()
+                .position(|it| {
+                    it.waiting
+                        .as_ref()
+                        .is_some_and(|w| Arc::ptr_eq(w, &waiting))
+                })
+                .and_then(|pos| state.queue.remove(pos));
             drop(state);
             finish_closing(cid);
+            drop(removed);
             if !waiting.state.lock().received {
                 return Err(vm
                     .new_os_subtype_error(

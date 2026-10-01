@@ -43,11 +43,9 @@ fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
 }
 
 #[must_use]
-pub fn exception_group() -> &'static Py<PyType> {
-    ::rustpython_vm::common::static_cell! {
-        static CELL: ::rustpython_vm::builtins::PyTypeRef;
-    }
-    CELL.get_or_init(|| create_exception_group(Context::genesis()))
+pub fn exception_group(vm: &VirtualMachine) -> PyTypeRef {
+    struct ExceptionGroup;
+    vm.__cached_native::<ExceptionGroup, _>(|| create_exception_group(&vm.ctx))
 }
 
 pub(super) mod types {
@@ -338,9 +336,9 @@ pub(super) mod types {
                 }
             }
 
-            let exception_group_type = crate::exception_group::exception_group();
+            let exception_group_type = crate::exception_group::exception_group(vm);
 
-            let actual_cls = if cls.is(exception_group_type) {
+            let actual_cls = if cls.is(&exception_group_type) {
                 if has_non_exception {
                     return Err(
                         vm.new_type_error("Cannot nest BaseExceptions in an ExceptionGroup")
@@ -349,7 +347,7 @@ pub(super) mod types {
                 cls
             } else if cls.is(vm.ctx.exceptions.base_exception_group) {
                 if !has_non_exception {
-                    exception_group_type.to_owned()
+                    exception_group_type
                 } else {
                     cls
                 }

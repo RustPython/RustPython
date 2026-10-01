@@ -1,22 +1,26 @@
 use crate::{
-    AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
     anystr::SplitLinesArgs,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyDictRef, PyList, PyListRef, PyStr, PyStrInterned, PyStrRef,
-        PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyDict, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple,
+        PyTupleRef, PyType, PyTypeRef,
     },
     convert::TryFromObject,
 };
 use core::sync::atomic::{AtomicUsize, Ordering};
-use rustpython_common::lock::OnceCell;
+use rustpython_common::lock::PyRwLock;
 
 pub struct WarningsState {
-    pub filters: PyAtomicRef<PyList>,
-    pub once_registry: PyAtomicRef<PyDict>,
-    pub default_action: PyAtomicRef<PyStr>,
+    roots: PyRwLock<Option<WarningsRoots>>,
     pub filters_version: AtomicUsize,
-    pub context_var: OnceCell<PyObjectRef>,
     lock_count: AtomicUsize,
+}
+
+struct WarningsRoots {
+    filters: PyListRef,
+    once_registry: PyDictRef,
+    default_action: PyStrRef,
+    context_var: Option<PyObjectRef>,
 }
 
 impl WarningsState {
@@ -71,13 +75,94 @@ impl WarningsState {
 
     pub fn init_state(ctx: &Context) -> Self {
         Self {
-            filters: Self::create_default_filters(ctx).into(),
-            once_registry: ctx.new_dict().into(),
-            default_action: ctx.new_str("default").into(),
+            roots: PyRwLock::new(Some(WarningsRoots {
+                filters: Self::create_default_filters(ctx),
+                once_registry: ctx.new_dict(),
+                default_action: ctx.new_str("default"),
+                context_var: None,
+            })),
             filters_version: AtomicUsize::new(0),
-            context_var: OnceCell::new(),
             lock_count: AtomicUsize::new(0),
         }
+    }
+
+    pub(crate) fn filters(&self) -> PyListRef {
+        self.roots
+            .read()
+            .as_ref()
+            .expect("warnings state closed")
+            .filters
+            .clone()
+    }
+
+    pub(crate) fn once_registry(&self) -> PyDictRef {
+        self.roots
+            .read()
+            .as_ref()
+            .expect("warnings state closed")
+            .once_registry
+            .clone()
+    }
+
+    pub(crate) fn default_action(&self) -> PyStrRef {
+        self.roots
+            .read()
+            .as_ref()
+            .expect("warnings state closed")
+            .default_action
+            .clone()
+    }
+
+    pub(crate) fn context_var(&self) -> Option<PyObjectRef> {
+        self.roots.read().as_ref()?.context_var.clone()
+    }
+
+    pub(crate) fn init_context_var(&self, value: PyObjectRef) -> PyObjectRef {
+        let mut roots = self.roots.write();
+        if let Some(roots) = roots.as_mut() {
+            roots
+                .context_var
+                .get_or_insert_with(|| value.clone())
+                .clone()
+        } else {
+            value
+        }
+    }
+
+    fn replace<T>(&self, value: T, field: impl FnOnce(&mut WarningsRoots) -> &mut T) {
+        let retired = {
+            let mut roots = self.roots.write();
+            if let Some(roots) = roots.as_mut() {
+                Some(core::mem::replace(field(roots), value))
+            } else {
+                None
+            }
+        };
+        drop(retired);
+    }
+
+    pub(crate) fn close(&self) {
+        let roots = self.roots.write().take();
+        drop(roots);
+    }
+
+    pub(crate) fn retire_roots(&self, ctx: &Context) {
+        // Finalizers can still issue warnings while the old roots are released.
+        let replacement = WarningsRoots {
+            filters: ctx.new_list(Vec::new()),
+            once_registry: ctx.new_dict(),
+            default_action: ctx.new_str("default"),
+            context_var: None,
+        };
+        let retired = self.roots.write().replace(replacement);
+        drop(retired);
+    }
+
+    /// # Safety
+    /// Only the surviving thread may access this state after fork.
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    pub(crate) unsafe fn reinit_after_fork(&self) {
+        unsafe { crate::common::lock::reinit_rwlock_after_fork(&self.roots) };
     }
 
     pub fn acquire_lock(&self) {
@@ -148,20 +233,19 @@ fn get_warnings_filters(vm: &VirtualMachine) -> PyResult<PyListRef> {
             .map_err(|_| vm.new_value_error("_warnings.filters must be a list"))?;
         vm.state
             .warnings
-            .filters
-            .swap_to_temporary_refs(filters, vm);
+            .replace(filters, |roots| &mut roots.filters);
     }
-    Ok(vm.state.warnings.filters.to_owned())
+    Ok(vm.state.warnings.filters())
 }
 
 fn get_warnings_context_filters(vm: &VirtualMachine) -> PyResult<Option<PyListRef>> {
-    let Some(ctx_var) = vm.state.warnings.context_var.get() else {
+    let Some(ctx_var) = vm.state.warnings.context_var() else {
         return Ok(None);
     };
-    if vm.is_none(ctx_var) {
+    if vm.is_none(&ctx_var) {
         return Ok(None);
     }
-    let ctx = vm.call_method(ctx_var, "get", (vm.ctx.none(),))?;
+    let ctx = vm.call_method(&ctx_var, "get", (vm.ctx.none(),))?;
     if vm.is_none(&ctx) {
         return Ok(None);
     }
@@ -176,7 +260,7 @@ fn bless_my_loader(
     vm: &VirtualMachine,
 ) -> PyResult<Option<PyObjectRef>> {
     let external = vm
-        .importlib
+        .importlib()
         .get_attr("_bootstrap_external", vm)
         .or_else(|_| vm.import("importlib._bootstrap_external", 0))?;
     if vm.is_none(&external) {
@@ -247,10 +331,9 @@ fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let action = PyStrRef::try_from_object(vm, action)?;
         vm.state
             .warnings
-            .default_action
-            .swap_to_temporary_refs(action, vm);
+            .replace(action, |roots| &mut roots.default_action);
     }
-    Ok(vm.state.warnings.default_action.to_owned().into())
+    Ok(vm.state.warnings.default_action().into())
 }
 
 /// Get the once registry from `sys.modules['warnings'].onceregistry`,
@@ -266,10 +349,9 @@ fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let registry = PyDictRef::try_from_object(vm, registry)?;
         vm.state
             .warnings
-            .once_registry
-            .swap_to_temporary_refs(registry, vm);
+            .replace(registry, |roots| &mut roots.once_registry);
     }
-    Ok(vm.state.warnings.once_registry.to_owned().into())
+    Ok(vm.state.warnings.once_registry().into())
 }
 
 fn already_warned(

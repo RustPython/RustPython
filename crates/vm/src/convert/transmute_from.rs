@@ -16,14 +16,14 @@ pub unsafe trait TransmuteFromObject: Sized {
 unsafe impl<T: PyPayload> TransmuteFromObject for PyRef<T> {
     fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
         let class = T::class(&vm.ctx);
-        if obj.fast_isinstance(class) {
+        if obj.fast_isinstance(&class) {
             if obj.downcastable::<T>() {
                 Ok(())
             } else {
-                Err(vm.new_downcast_runtime_error(class, obj))
+                Err(vm.new_downcast_runtime_error(&class, obj))
             }
         } else {
-            Err(vm.new_downcast_type_error(class, obj))
+            Err(vm.new_downcast_type_error(&class, obj))
         }
     }
 }

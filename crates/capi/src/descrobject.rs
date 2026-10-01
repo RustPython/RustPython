@@ -5,7 +5,7 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberAccess, MemberKind, PyDescriptorOwned, PyGetSet, PyMappingProxy,
+    DescriptorMemberDef, MemberAccess, MemberKind, PyDescriptor, PyGetSet, PyMappingProxy,
     PyMemberDescriptor, PyMemberFlags, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
@@ -144,7 +144,7 @@ impl PyMemberDef {
         });
 
         let descriptor = PyMemberDescriptor {
-            common: PyDescriptorOwned {
+            common: PyDescriptor {
                 typ: ty.to_owned(),
                 name: vm.ctx.intern_str(name),
                 qualname: PyRwLock::new(None),

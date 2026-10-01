@@ -23,7 +23,7 @@ mod _weakref;
 pub mod atexit;
 pub mod builtins;
 pub mod errno;
-mod gc;
+pub(crate) mod gc;
 mod itertools;
 mod marshal;
 pub mod time;

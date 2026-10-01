@@ -48,7 +48,7 @@ mod decl {
         #[cfg(unix)]
         {
             use crate::vm::class::PyClassImpl;
-            let _ = poll::PyPoll::make_static_type();
+            let _ = unsafe { poll::PyPoll::make_static_type() };
         }
 
         __module_exec(vm, module);
@@ -410,7 +410,7 @@ mod decl {
     #[pyattr(name = "epoll", once)]
     fn epoll(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        epoll::PyEpoll::make_static_type()
+        unsafe { epoll::PyEpoll::make_static_type() }
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
@@ -649,7 +649,7 @@ mod decl {
     #[pyattr(name = "kqueue", once)]
     fn kqueue_type(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        kqueue::PyKqueue::make_static_type()
+        unsafe { kqueue::PyKqueue::make_static_type() }
     }
 
     #[cfg(any(
@@ -663,7 +663,7 @@ mod decl {
     #[pyattr(name = "kevent", once)]
     fn kevent_type(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        kqueue::PyKevent::make_static_type()
+        unsafe { kqueue::PyKevent::make_static_type() }
     }
 
     #[cfg(any(

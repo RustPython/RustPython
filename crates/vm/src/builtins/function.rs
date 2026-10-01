@@ -989,8 +989,8 @@ pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<u
 
 impl PyPayload for PyFunction {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.function_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.function_type).to_owned()
     }
 }
 
@@ -1524,8 +1524,8 @@ impl Py<PyBoundMethod> {
 
 impl PyPayload for PyBoundMethod {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bound_method_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.bound_method_type).to_owned()
     }
 }
 
@@ -1564,8 +1564,8 @@ pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.cell_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.cell_type).to_owned()
     }
 }
 

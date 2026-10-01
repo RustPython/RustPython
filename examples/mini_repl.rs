@@ -29,8 +29,10 @@ fn on(b: bool) {
     ON.store(b, Ordering::Relaxed);
 }
 
-fn main() -> vm::PyResult<()> {
-    vm::Interpreter::without_stdlib(Default::default()).enter(run)
+fn main() -> std::process::ExitCode {
+    // SAFETY: all native scopes and object references are released inside run.
+    let code = unsafe { vm::Interpreter::without_stdlib(Default::default()).run_unchecked(run) };
+    vm::host_env::os::exit_code(code)
 }
 
 fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {

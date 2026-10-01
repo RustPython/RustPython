@@ -321,8 +321,8 @@ unsafe impl Traverse for PyStrIterator {
 }
 
 impl PyPayload for PyStrIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.str_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.str_iterator_type).to_owned()
     }
 }
 
@@ -1777,9 +1777,10 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
+    const OWNER_NEUTRAL: bool = true;
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.str_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.str_type).to_owned()
     }
 }
 
@@ -2088,7 +2089,7 @@ impl fmt::Display for PyUtf8Str {
 }
 
 impl MaybeTraverse for PyUtf8Str {
-    const HAS_TRAVERSE: bool = true;
+    const HAS_TRAVERSE: bool = <PyStr as MaybeTraverse>::HAS_TRAVERSE;
     const HAS_CLEAR: bool = false;
 
     fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
@@ -2101,9 +2102,10 @@ impl MaybeTraverse for PyUtf8Str {
 }
 
 impl PyPayload for PyUtf8Str {
+    const OWNER_NEUTRAL: bool = true;
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.str_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.str_type).to_owned()
     }
 
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<PyStr>();
@@ -2764,7 +2766,7 @@ mod tests {
 
     #[test]
     fn str_maketrans_and_translate() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let table = vm.ctx.new_dict();
             table
                 .set_item("a", vm.ctx.new_str("🎅").into(), vm)

@@ -118,10 +118,11 @@ impl TypeZoo {
         let object_type = object::PyBaseObject::init_manually(hierarchy.object_type);
         let tuple_type = tuple::PyTuple::init_manually(hierarchy.tuple_type);
         let weakref_type = weakref::PyWeak::init_manually(hierarchy.weakref_type);
-        let int_type = int::PyInt::init_builtin_type();
+        let int_type = unsafe { int::PyInt::init_builtin_type() };
 
         // builtin_function_or_method and builtin_method share the same type (CPython behavior)
-        let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
+        let builtin_function_or_method_type =
+            unsafe { builtin_func::PyNativeFunction::init_builtin_type() };
 
         let types = Self {
             type_type,
@@ -130,94 +131,111 @@ impl TypeZoo {
             int_type,
 
             // types exposed as builtins
-            bool_type: bool_::PyBool::init_builtin_type(),
-            bytearray_type: bytearray::PyByteArray::init_builtin_type(),
-            bytes_type: bytes::PyBytes::init_builtin_type(),
-            classmethod_type: classmethod::PyClassMethod::init_builtin_type(),
-            complex_type: complex::PyComplex::init_builtin_type(),
-            dict_type: dict::PyDict::init_builtin_type(),
-            enumerate_type: enumerate::PyEnumerate::init_builtin_type(),
-            float_type: float::PyFloat::init_builtin_type(),
-            frozenset_type: set::PyFrozenSet::init_builtin_type(),
-            filter_type: filter::PyFilter::init_builtin_type(),
-            list_type: list::PyList::init_builtin_type(),
-            map_type: map::PyMap::init_builtin_type(),
-            memoryview_type: memory::PyMemoryView::init_builtin_type(),
-            property_type: property::PyProperty::init_builtin_type(),
-            range_type: range::PyRange::init_builtin_type(),
-            set_type: set::PySet::init_builtin_type(),
-            slice_type: slice::PySlice::init_builtin_type(),
-            staticmethod_type: staticmethod::PyStaticMethod::init_builtin_type(),
-            str_type: pystr::PyStr::init_builtin_type(),
-            super_type: super_::PySuper::init_builtin_type(),
+            bool_type: unsafe { bool_::PyBool::init_builtin_type() },
+            bytearray_type: unsafe { bytearray::PyByteArray::init_builtin_type() },
+            bytes_type: unsafe { bytes::PyBytes::init_builtin_type() },
+            classmethod_type: unsafe { classmethod::PyClassMethod::init_builtin_type() },
+            complex_type: unsafe { complex::PyComplex::init_builtin_type() },
+            dict_type: unsafe { dict::PyDict::init_builtin_type() },
+            enumerate_type: unsafe { enumerate::PyEnumerate::init_builtin_type() },
+            float_type: unsafe { float::PyFloat::init_builtin_type() },
+            frozenset_type: unsafe { set::PyFrozenSet::init_builtin_type() },
+            filter_type: unsafe { filter::PyFilter::init_builtin_type() },
+            list_type: unsafe { list::PyList::init_builtin_type() },
+            map_type: unsafe { map::PyMap::init_builtin_type() },
+            memoryview_type: unsafe { memory::PyMemoryView::init_builtin_type() },
+            property_type: unsafe { property::PyProperty::init_builtin_type() },
+            range_type: unsafe { range::PyRange::init_builtin_type() },
+            set_type: unsafe { set::PySet::init_builtin_type() },
+            slice_type: unsafe { slice::PySlice::init_builtin_type() },
+            staticmethod_type: unsafe { staticmethod::PyStaticMethod::init_builtin_type() },
+            str_type: unsafe { pystr::PyStr::init_builtin_type() },
+            super_type: unsafe { super_::PySuper::init_builtin_type() },
             tuple_type,
-            zip_type: zip::PyZip::init_builtin_type(),
+            zip_type: unsafe { zip::PyZip::init_builtin_type() },
 
             // hidden internal types. is this really need to be cached here?
-            async_generator: asyncgenerator::PyAsyncGen::init_builtin_type(),
-            async_generator_asend: asyncgenerator::PyAsyncGenASend::init_builtin_type(),
-            async_generator_athrow: asyncgenerator::PyAsyncGenAThrow::init_builtin_type(),
-            async_generator_wrapped_value:
-                asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
-            anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
-            bound_method_type: function::PyBoundMethod::init_builtin_type(),
+            async_generator: unsafe { asyncgenerator::PyAsyncGen::init_builtin_type() },
+            async_generator_asend: unsafe { asyncgenerator::PyAsyncGenASend::init_builtin_type() },
+            async_generator_athrow: unsafe {
+                asyncgenerator::PyAsyncGenAThrow::init_builtin_type()
+            },
+            async_generator_wrapped_value: unsafe {
+                asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type()
+            },
+            anext_awaitable: unsafe { asyncgenerator::PyAnextAwaitable::init_builtin_type() },
+            bound_method_type: unsafe { function::PyBoundMethod::init_builtin_type() },
             builtin_function_or_method_type,
             builtin_method_type: builtin_function_or_method_type,
-            bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
-            bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
-            callable_iterator: iter::PyCallableIterator::init_builtin_type(),
-            capsule_type: capsule::PyCapsule::init_builtin_type(),
-            cell_type: function::PyCell::init_builtin_type(),
-            code_type: code::PyCode::init_builtin_type(),
-            coroutine_type: coroutine::PyCoroutine::init_builtin_type(),
-            coroutine_wrapper_type: coroutine::PyCoroutineWrapper::init_builtin_type(),
-            dict_keys_type: dict::PyDictKeys::init_builtin_type(),
-            dict_values_type: dict::PyDictValues::init_builtin_type(),
-            dict_items_type: dict::PyDictItems::init_builtin_type(),
-            dict_keyiterator_type: dict::PyDictKeyIterator::init_builtin_type(),
-            dict_reversekeyiterator_type: dict::PyDictReverseKeyIterator::init_builtin_type(),
-            dict_valueiterator_type: dict::PyDictValueIterator::init_builtin_type(),
-            dict_reversevalueiterator_type: dict::PyDictReverseValueIterator::init_builtin_type(),
-            dict_itemiterator_type: dict::PyDictItemIterator::init_builtin_type(),
-            dict_reverseitemiterator_type: dict::PyDictReverseItemIterator::init_builtin_type(),
-            ellipsis_type: slice::PyEllipsis::init_builtin_type(),
-            frame_type: crate::frame::FrameObject::init_builtin_type(),
-            frame_locals_proxy_type: frame_locals_proxy::FrameLocalsProxy::init_builtin_type(),
-            function_type: function::PyFunction::init_builtin_type(),
-            generator_type: generator::PyGenerator::init_builtin_type(),
-            getset_type: getset::PyGetSet::init_builtin_type(),
-            iter_type: iter::PySequenceIterator::init_builtin_type(),
-            reverse_iter_type: enumerate::PyReverseSequenceIterator::init_builtin_type(),
-            list_iterator_type: list::PyListIterator::init_builtin_type(),
-            list_reverseiterator_type: list::PyListReverseIterator::init_builtin_type(),
-            mappingproxy_type: mappingproxy::PyMappingProxy::init_builtin_type(),
-            memoryviewiterator_type: memory::PyMemoryViewIterator::init_builtin_type(),
-            module_type: module::PyModule::init_builtin_type(),
-            namespace_type: namespace::PyNamespace::init_builtin_type(),
-            range_iterator_type: range::PyRangeIterator::init_builtin_type(),
-            long_range_iterator_type: range::PyLongRangeIterator::init_builtin_type(),
-            set_iterator_type: set::PySetIterator::init_builtin_type(),
-            str_iterator_type: pystr::PyStrIterator::init_builtin_type(),
-            traceback_type: traceback::PyTraceback::init_builtin_type(),
-            tuple_iterator_type: tuple::PyTupleIterator::init_builtin_type(),
-            weakproxy_type: weakproxy::PyWeakProxy::init_builtin_type(),
-            weakcallableproxy_type: weakproxy::PyWeakCallableProxy::init_builtin_type(),
-            method_descriptor_type: descriptor::PyMethodDescriptor::init_builtin_type(),
-            classmethod_descriptor_type: descriptor::PyClassMethodDescriptor::init_builtin_type(),
-            none_type: singletons::PyNone::init_builtin_type(),
-            typing_no_default_type: crate::stdlib::_typing::NoDefault::init_builtin_type(),
-            not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
-            generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
-            generic_alias_iterator_type: genericalias::PyGenericAliasIterator::init_builtin_type(),
-            union_type: union_::PyUnion::init_builtin_type(),
-            interpolation_type: interpolation::PyInterpolation::init_builtin_type(),
-            template_type: template::PyTemplate::init_builtin_type(),
-            template_iter_type: template::PyTemplateIter::init_builtin_type(),
-            member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
-            wrapper_descriptor_type: descriptor::PyWrapper::init_builtin_type(),
-            method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
+            bytearray_iterator_type: unsafe { bytearray::PyByteArrayIterator::init_builtin_type() },
+            bytes_iterator_type: unsafe { bytes::PyBytesIterator::init_builtin_type() },
+            callable_iterator: unsafe { iter::PyCallableIterator::init_builtin_type() },
+            capsule_type: unsafe { capsule::PyCapsule::init_builtin_type() },
+            cell_type: unsafe { function::PyCell::init_builtin_type() },
+            code_type: unsafe { code::PyCode::init_builtin_type() },
+            coroutine_type: unsafe { coroutine::PyCoroutine::init_builtin_type() },
+            coroutine_wrapper_type: unsafe { coroutine::PyCoroutineWrapper::init_builtin_type() },
+            dict_keys_type: unsafe { dict::PyDictKeys::init_builtin_type() },
+            dict_values_type: unsafe { dict::PyDictValues::init_builtin_type() },
+            dict_items_type: unsafe { dict::PyDictItems::init_builtin_type() },
+            dict_keyiterator_type: unsafe { dict::PyDictKeyIterator::init_builtin_type() },
+            dict_reversekeyiterator_type: unsafe {
+                dict::PyDictReverseKeyIterator::init_builtin_type()
+            },
+            dict_valueiterator_type: unsafe { dict::PyDictValueIterator::init_builtin_type() },
+            dict_reversevalueiterator_type: unsafe {
+                dict::PyDictReverseValueIterator::init_builtin_type()
+            },
+            dict_itemiterator_type: unsafe { dict::PyDictItemIterator::init_builtin_type() },
+            dict_reverseitemiterator_type: unsafe {
+                dict::PyDictReverseItemIterator::init_builtin_type()
+            },
+            ellipsis_type: unsafe { slice::PyEllipsis::init_builtin_type() },
+            frame_type: unsafe { crate::frame::FrameObject::init_builtin_type() },
+            frame_locals_proxy_type: unsafe {
+                frame_locals_proxy::FrameLocalsProxy::init_builtin_type()
+            },
+            function_type: unsafe { function::PyFunction::init_builtin_type() },
+            generator_type: unsafe { generator::PyGenerator::init_builtin_type() },
+            getset_type: unsafe { getset::PyGetSet::init_builtin_type() },
+            iter_type: unsafe { iter::PySequenceIterator::init_builtin_type() },
+            reverse_iter_type: unsafe { enumerate::PyReverseSequenceIterator::init_builtin_type() },
+            list_iterator_type: unsafe { list::PyListIterator::init_builtin_type() },
+            list_reverseiterator_type: unsafe { list::PyListReverseIterator::init_builtin_type() },
+            mappingproxy_type: unsafe { mappingproxy::PyMappingProxy::init_builtin_type() },
+            memoryviewiterator_type: unsafe { memory::PyMemoryViewIterator::init_builtin_type() },
+            module_type: unsafe { module::PyModule::init_builtin_type() },
+            namespace_type: unsafe { namespace::PyNamespace::init_builtin_type() },
+            range_iterator_type: unsafe { range::PyRangeIterator::init_builtin_type() },
+            long_range_iterator_type: unsafe { range::PyLongRangeIterator::init_builtin_type() },
+            set_iterator_type: unsafe { set::PySetIterator::init_builtin_type() },
+            str_iterator_type: unsafe { pystr::PyStrIterator::init_builtin_type() },
+            traceback_type: unsafe { traceback::PyTraceback::init_builtin_type() },
+            tuple_iterator_type: unsafe { tuple::PyTupleIterator::init_builtin_type() },
+            weakproxy_type: unsafe { weakproxy::PyWeakProxy::init_builtin_type() },
+            weakcallableproxy_type: unsafe { weakproxy::PyWeakCallableProxy::init_builtin_type() },
+            method_descriptor_type: unsafe { descriptor::PyMethodDescriptor::init_builtin_type() },
+            classmethod_descriptor_type: unsafe {
+                descriptor::PyClassMethodDescriptor::init_builtin_type()
+            },
+            none_type: unsafe { singletons::PyNone::init_builtin_type() },
+            typing_no_default_type: unsafe {
+                crate::stdlib::_typing::NoDefault::init_builtin_type()
+            },
+            not_implemented_type: unsafe { singletons::PyNotImplemented::init_builtin_type() },
+            generic_alias_type: unsafe { genericalias::PyGenericAlias::init_builtin_type() },
+            generic_alias_iterator_type: unsafe {
+                genericalias::PyGenericAliasIterator::init_builtin_type()
+            },
+            union_type: unsafe { union_::PyUnion::init_builtin_type() },
+            interpolation_type: unsafe { interpolation::PyInterpolation::init_builtin_type() },
+            template_type: unsafe { template::PyTemplate::init_builtin_type() },
+            template_iter_type: unsafe { template::PyTemplateIter::init_builtin_type() },
+            member_descriptor_type: unsafe { descriptor::PyMemberDescriptor::init_builtin_type() },
+            wrapper_descriptor_type: unsafe { descriptor::PyWrapper::init_builtin_type() },
+            method_wrapper_type: unsafe { descriptor::PyMethodWrapper::init_builtin_type() },
 
-            method_def: crate::function::HeapMethodDef::init_builtin_type(),
+            method_def: unsafe { crate::function::HeapMethodDef::init_builtin_type() },
         };
         (types, hierarchy.empty_tuple)
     }

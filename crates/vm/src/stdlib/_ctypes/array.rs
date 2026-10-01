@@ -135,11 +135,11 @@ fn create_array_type_with_name(
     type_name: &str,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let metaclass = PyCArrayType::static_type().to_owned();
+    let metaclass = unsafe { PyCArrayType::static_type() }.to_owned();
     let name = vm.ctx.new_str(type_name);
     let bases = vm
         .ctx
-        .new_tuple(vec![PyCArray::static_type().to_owned().into()]);
+        .new_tuple(vec![unsafe { PyCArray::static_type() }.to_owned().into()]);
     let dict = vm.ctx.new_dict();
 
     let args = FuncArgs::new(

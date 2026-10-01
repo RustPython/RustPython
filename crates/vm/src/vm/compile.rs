@@ -1610,14 +1610,14 @@ mod escape_warnings {
             );
             vm.state
                 .warnings
-                .filters
+                .filters()
                 .borrow_vec_mut()
                 .insert(0, error_filter.into());
             vm.state.warnings.filters_mutated();
         }
 
         fn first_compiler_warning(source: &str) -> String {
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 install_syntax_warning_error_filter(vm);
                 let err = vm
                     .compile(source, compiler::Mode::Exec, "<test>")
@@ -1633,7 +1633,7 @@ mod escape_warnings {
         }
 
         fn compile_error_message(source: &str) -> String {
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 install_syntax_warning_error_filter(vm);
                 let err = match vm.compile(source, compiler::Mode::Exec, "<test>") {
                     Ok(_) => panic!("expected compile error"),
@@ -1650,7 +1650,7 @@ mod escape_warnings {
 
         #[test]
         fn ast_only_compile_honors_barry_as_flufl() {
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 let flags = CompilerFlags::ONLY_AST.bits();
                 vm.compile_string_object_with_flags(
                     b"from __future__ import barry_as_FLUFL\n2 <> 3\n",
@@ -1685,7 +1685,7 @@ mod escape_warnings {
 
         #[test]
         fn type_comment_preparse_honors_inherited_barry_as_flufl() {
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 let flags = CompilerFlags::TYPE_COMMENTS.bits()
                     | crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL.bits() as i32;
                 vm.compile_string_object_with_flags(

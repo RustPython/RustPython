@@ -19,7 +19,7 @@ impl PathConverter {
         if let Some(int) = obj.try_index_opt(vm) {
             if obj
                 .class()
-                .is(crate::builtins::bool_::PyBool::static_type())
+                .is(unsafe { crate::builtins::bool_::PyBool::static_type() })
             {
                 crate::stdlib::_warnings::warn(
                     vm.ctx.exceptions.runtime_warning,

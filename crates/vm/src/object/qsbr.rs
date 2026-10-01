@@ -6,10 +6,12 @@
 //! borrowed pointer has passed a quiescent state. Destructors run at the
 //! normal drop point; only the final deallocation is deferred.
 //!
-//! Mirrors _Py_qsbr (Python/qsbr.c): a global write sequence advances on
+//! Mirrors _Py_qsbr (Python/qsbr.c): a domain's write sequence advances on
 //! each retirement; each thread records the last sequence it observed at a
 //! quiescent point (eval-breaker checkpoint, attach/detach). A retired
 //! allocation is freed once every online thread's sequence passes its goal.
+//! Each interpreter has a domain; immutable shared definitions use a separate
+//! process-wide domain. A busy interpreter cannot retain another one's memory.
 
 use core::alloc::Layout;
 
@@ -35,11 +37,44 @@ mod threading {
 
     /// Per-thread QSBR state, owned by the thread's `ThreadSlot`.
     pub(crate) struct QsbrSlot {
+        domain: Arc<Qsbr>,
         /// Last write sequence observed at a quiescent point;
         /// `QSBR_OFFLINE` while the thread is detached.
         seq: AtomicU64,
         /// Set when this thread should pass a checkpoint (eval-breaker bit).
         pub(crate) requested: AtomicBool,
+    }
+
+    impl QsbrSlot {
+        pub(crate) fn online(&self) {
+            self.domain.online(self);
+        }
+
+        pub(crate) fn offline(&self) {
+            self.domain.offline(self);
+            self.domain.process();
+        }
+
+        pub(crate) fn checkpoint(&self) {
+            self.requested.store(false, Ordering::Relaxed);
+            self.domain.quiescent_state(self);
+            self.domain.process();
+        }
+    }
+
+    impl Drop for QsbrSlot {
+        fn drop(&mut self) {
+            // A registry scan can release the last upgraded slot while holding
+            // the threads lock. Do not recursively process that registry here.
+            self.domain.offline(self);
+        }
+    }
+
+    #[cfg(test)]
+    impl QsbrSlot {
+        pub(crate) fn is_offline(&self) -> bool {
+            self.seq.load(Ordering::Acquire) == QSBR_OFFLINE
+        }
     }
 
     struct Retired {
@@ -52,6 +87,7 @@ mod threading {
     unsafe impl Send for Retired {}
 
     pub(crate) struct Qsbr {
+        shared: bool,
         /// Global write sequence (_Py_qsbr wr_seq).
         wr_seq: AtomicU64,
         /// Cached minimum observed read sequence (rd_seq).
@@ -64,11 +100,19 @@ mod threading {
         pending: AtomicBool,
     }
 
-    pub(crate) static QSBR: Qsbr = Qsbr::new();
+    pub(crate) fn shared() -> &'static Arc<Qsbr> {
+        static SHARED: std::sync::OnceLock<Arc<Qsbr>> = std::sync::OnceLock::new();
+        SHARED.get_or_init(|| {
+            let mut domain = Qsbr::new();
+            domain.shared = true;
+            Arc::new(domain)
+        })
+    }
 
     impl Qsbr {
-        const fn new() -> Self {
+        pub(crate) const fn new() -> Self {
             Self {
+                shared: false,
                 wr_seq: AtomicU64::new(QSBR_INITIAL),
                 rd_seq: AtomicU64::new(QSBR_INITIAL),
                 threads: Mutex::new(Vec::new()),
@@ -77,11 +121,8 @@ mod threading {
             }
         }
 
-        /// Whether retired allocations are pending. The hot path now reads
-        /// the mirrored bit in the eval-breaker word instead; this stays
-        /// only for unit tests that exercise local, non-global instances.
+        /// Whether this domain has allocations awaiting a grace period.
         #[inline]
-        #[cfg_attr(not(test), allow(dead_code))]
         pub(crate) fn break_pending(&self) -> bool {
             self.pending.load(Ordering::Relaxed)
         }
@@ -90,7 +131,7 @@ mod threading {
         /// the global QSBR instance, so unit-test instances never touch
         /// process-global state.
         fn update_breaker_bit(&self, on: bool) {
-            if core::ptr::eq(self, &QSBR) {
+            if self.shared {
                 if on {
                     crate::signal::set_qsbr_bit();
                 } else {
@@ -99,11 +140,12 @@ mod threading {
             }
         }
 
-        /// Register the calling thread. The returned slot is stored in the
-        /// thread's `ThreadSlot`; dropping it unregisters the thread.
-        pub(crate) fn register(&self) -> Arc<QsbrSlot> {
+        /// Register a detached thread. It must go online before reading any
+        /// cache pointer. Dropping the slot unregisters the thread.
+        pub(crate) fn register(self: &Arc<Self>) -> Arc<QsbrSlot> {
             let slot = Arc::new(QsbrSlot {
-                seq: AtomicU64::new(self.wr_seq.load(Ordering::Acquire)),
+                domain: self.clone(),
+                seq: AtomicU64::new(QSBR_OFFLINE),
                 requested: AtomicBool::new(false),
             });
             self.threads.lock().unwrap().push(Arc::downgrade(&slot));
@@ -132,7 +174,11 @@ mod threading {
 
         /// Mark a thread online again (_Py_qsbr_attach).
         pub(crate) fn online(&self, slot: &QsbrSlot) {
-            self.quiescent_state(slot);
+            // Order publication before the first borrowed cache read. A
+            // release store alone allows the reader to race past a scan that
+            // still sees OFFLINE; pair with poll_scan's SeqCst fence.
+            slot.seq
+                .store(self.wr_seq.load(Ordering::Acquire), Ordering::SeqCst);
         }
 
         /// Whether every online thread has passed `goal` (_Py_qsbr_poll).
@@ -146,6 +192,7 @@ mod threading {
         /// Recompute the minimum sequence over all live online threads,
         /// pruning dead ones.
         fn poll_scan(&self) -> u64 {
+            core::sync::atomic::fence(Ordering::SeqCst);
             let mut min_seq = self.wr_seq.load(Ordering::Acquire);
             let mut threads = self.threads.lock().unwrap();
             threads.retain(|weak| match weak.upgrade() {
@@ -218,40 +265,70 @@ mod threading {
             }
         }
 
-        /// Free all retired allocations immediately.
-        ///
-        /// # Safety
-        /// Only sound when no other thread can be mid-read: the post-fork
-        /// child, or teardown after all threads exited.
+        /// Stabilize queue and reader registry before the syscall, in the same
+        /// lock order as process(). Detached native retirement also uses these
+        /// mutexes, so stopping Python execution alone is insufficient.
         #[cfg(unix)]
-        pub(crate) unsafe fn drain_all(&self) {
-            let mut queue = self.queue.lock().unwrap();
-            for item in queue.drain(..) {
-                // SAFETY: guaranteed single-threaded by the caller.
-                unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
+        pub(crate) fn prepare_fork(&self) -> ForkDomain<'_> {
+            ForkDomain {
+                domain: self,
+                queue: self.queue.lock().unwrap(),
+                threads: self.threads.lock().unwrap(),
             }
-            self.pending.store(false, Ordering::Release);
-            self.update_breaker_bit(false);
-        }
-
-        /// Reset after fork: drop all registered thread entries (dead
-        /// parent threads' slots would otherwise stay online forever and
-        /// stall every future grace period) and free all retired
-        /// allocations.
-        ///
-        /// # Safety
-        /// Only sound in the single-threaded post-fork child, before the
-        /// surviving thread re-registers.
-        #[cfg(unix)]
-        pub(crate) unsafe fn reset_after_fork(&self) {
-            self.threads.lock().unwrap().clear();
-            // SAFETY: single-threaded child, no concurrent reader exists.
-            unsafe { self.drain_all() };
         }
 
         #[cfg(test)]
         fn pending(&self) -> usize {
             self.queue.lock().unwrap().len()
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) struct ForkDomain<'a> {
+        domain: &'a Qsbr,
+        queue: std::sync::MutexGuard<'a, Vec<Retired>>,
+        threads: std::sync::MutexGuard<'a, Vec<Weak<QsbrSlot>>>,
+    }
+
+    #[cfg(unix)]
+    impl ForkDomain<'_> {
+        /// # Safety
+        /// Only the fork child may run this, with no borrowed cache pointer on
+        /// its native stack. `surviving` contains only this thread's slots,
+        /// including detached slots of saved/nested interpreter entries.
+        pub(crate) unsafe fn repair_child(&mut self, surviving: &[Arc<QsbrSlot>]) {
+            self.threads.retain(|weak| {
+                surviving
+                    .iter()
+                    .any(|slot| core::ptr::eq(weak.as_ptr(), Arc::as_ptr(slot)))
+            });
+            for weak in self.threads.iter() {
+                if let Some(slot) = weak.upgrade() {
+                    if slot.seq.load(Ordering::Relaxed) != QSBR_OFFLINE {
+                        self.domain.quiescent_state(&slot);
+                    }
+                    slot.requested.store(false, Ordering::Relaxed);
+                }
+            }
+            for item in self.queue.drain(..) {
+                unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
+            }
+            self.domain.pending.store(false, Ordering::Release);
+            self.domain.update_breaker_bit(false);
+        }
+    }
+
+    impl Drop for Qsbr {
+        fn drop(&mut self) {
+            // Every registered slot retains the domain. Its last owner can
+            // therefore release queued allocations without waiting for a VM.
+            let queue = self
+                .queue
+                .get_mut()
+                .unwrap_or_else(|error| error.into_inner());
+            for item in queue.drain(..) {
+                unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
+            }
         }
     }
 
@@ -261,9 +338,11 @@ mod threading {
 
         #[test]
         fn poll_requires_all_online_threads() {
-            let q = Qsbr::new();
+            let q = Arc::new(Qsbr::new());
             let a = q.register();
             let b = q.register();
+            a.online();
+            b.online();
             let goal = q.advance();
             assert!(!q.poll(goal));
             q.quiescent_state(&a);
@@ -274,9 +353,11 @@ mod threading {
 
         #[test]
         fn offline_thread_does_not_delay_grace() {
-            let q = Qsbr::new();
+            let q = Arc::new(Qsbr::new());
             let a = q.register();
             let b = q.register();
+            a.online();
+            b.online();
             let goal = q.advance();
             q.quiescent_state(&a);
             q.offline(&b);
@@ -285,9 +366,11 @@ mod threading {
 
         #[test]
         fn dead_thread_is_pruned() {
-            let q = Qsbr::new();
+            let q = Arc::new(Qsbr::new());
             let a = q.register();
             let b = q.register();
+            a.online();
+            b.online();
             drop(b);
             let goal = q.advance();
             q.quiescent_state(&a);
@@ -296,8 +379,9 @@ mod threading {
 
         #[test]
         fn process_frees_only_after_grace() {
-            let q = Qsbr::new();
+            let q = Arc::new(Qsbr::new());
             let a = q.register();
+            a.online();
             let layout = Layout::new::<u64>();
             let ptr = unsafe { alloc::alloc::alloc(layout) };
             unsafe { q.free_delayed(ptr, layout) };
@@ -311,23 +395,88 @@ mod threading {
             assert_eq!(q.pending(), 0);
             assert!(!q.break_pending());
         }
+
+        #[test]
+        fn domains_do_not_wait_for_each_others_readers() {
+            let first = Arc::new(Qsbr::new());
+            let second = Arc::new(Qsbr::new());
+            let a = first.register();
+            let b = second.register();
+            a.online();
+            b.online();
+            let layout = Layout::new::<u64>();
+            for domain in [&first, &second] {
+                let ptr = unsafe { alloc::alloc::alloc(layout) };
+                unsafe { domain.free_delayed(ptr, layout) };
+            }
+            b.checkpoint();
+            assert_eq!(second.pending(), 0);
+            assert_eq!(first.pending(), 1);
+            a.offline();
+            assert_eq!(first.pending(), 0);
+        }
+
+        #[test]
+        fn registered_but_unattached_threads_do_not_retain_memory() {
+            let domain = Arc::new(Qsbr::new());
+            let slot = domain.register();
+            assert!(slot.is_offline());
+            let layout = Layout::new::<u64>();
+            let ptr = unsafe { alloc::alloc::alloc(layout) };
+            unsafe { domain.free_delayed(ptr, layout) };
+            domain.process();
+            assert_eq!(domain.pending(), 0);
+        }
+
+        #[test]
+        fn last_reader_keeps_its_domain_alive() {
+            let domain = Arc::new(Qsbr::new());
+            let reader = domain.register();
+            reader.online();
+            let weak = Arc::downgrade(&domain);
+            let layout = Layout::new::<u64>();
+            let ptr = unsafe { alloc::alloc::alloc(layout) };
+            unsafe { domain.free_delayed(ptr, layout) };
+            drop(domain);
+            assert!(weak.upgrade().is_some());
+            reader.checkpoint();
+            assert_eq!(weak.upgrade().unwrap().pending(), 0);
+            drop(reader);
+            assert!(weak.upgrade().is_none());
+        }
     }
 }
 
-/// Defer (threading) or immediately perform (non-threading) deallocation
-/// of a dead published object's memory.
-///
-/// # Safety
-/// Same contract as [`Qsbr::free_delayed`].
-#[inline]
-pub(crate) unsafe fn free_delayed(ptr: *mut u8, layout: Layout) {
+/// Retain the allocation's reclamation domain before dropping its object
+/// header. The current VM can be unrelated to the allocation's owner.
+pub(crate) struct RetireDomain {
     #[cfg(feature = "threading")]
-    unsafe {
-        QSBR.free_delayed(ptr, layout)
-    };
-    #[cfg(not(feature = "threading"))]
-    // No concurrent readers can exist without threads.
-    unsafe {
-        alloc::alloc::dealloc(ptr, layout)
-    };
+    domain: alloc::sync::Arc<Qsbr>,
+}
+
+impl RetireDomain {
+    pub(crate) fn for_object(object: &crate::PyObject) -> Self {
+        #[cfg(not(feature = "threading"))]
+        let _ = object;
+        Self {
+            #[cfg(feature = "threading")]
+            domain: object
+                .gc_handle()
+                .heap()
+                .map_or_else(|| shared().clone(), |heap| heap.qsbr.clone()),
+        }
+    }
+
+    /// # Safety
+    /// The allocation is dead; only pending pre-try-incref readers may touch it.
+    pub(crate) unsafe fn free(self, ptr: *mut u8, layout: Layout) {
+        #[cfg(feature = "threading")]
+        unsafe {
+            self.domain.free_delayed(ptr, layout)
+        };
+        #[cfg(not(feature = "threading"))]
+        unsafe {
+            alloc::alloc::dealloc(ptr, layout)
+        };
+    }
 }

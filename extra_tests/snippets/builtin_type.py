@@ -743,3 +743,27 @@ with warnings.catch_warnings():
     warnings.simplefilter("error")
     with assert_raises(RuntimeWarning):
         type("NonStringKeyRaises", (), {6: 7})
+
+
+# A native __new__ descriptor preserves the inherited constructor slot, while
+# a direct descriptor call must still enforce its payload safety checks.
+for base in (dict, list):
+
+    class IncompatibleNew(base):
+        __new__ = object.__new__
+
+    assert IncompatibleNew() == base()
+    with assert_raises(TypeError):
+        IncompatibleNew.__new__(IncompatibleNew)
+
+    IncompatibleNew.__new__ = lambda cls: base.__new__(cls)
+    assert IncompatibleNew() == base()
+    IncompatibleNew.__new__ = object.__new__
+    with assert_raises(TypeError):
+        IncompatibleNew()
+
+    class OrdinaryBuiltinNew(base):
+        __new__ = len
+
+    with assert_raises(TypeError):
+        OrdinaryBuiltinNew()

@@ -46,12 +46,13 @@ thread_local! {
 }
 
 impl PyPayload for PyFloat {
+    const OWNER_NEUTRAL: bool = true;
     const MAX_FREELIST: usize = 100;
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.float_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.float_type).to_owned()
     }
 
     #[inline]

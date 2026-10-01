@@ -1,4 +1,4 @@
-use super::{PyStr, PyTupleRef, PyType, tuple::IntoPyTuple};
+use super::{PyStr, PyTupleRef, tuple::IntoPyTuple};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
@@ -20,8 +20,8 @@ pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.namespace_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.namespace_type).to_owned()
     }
 }
 

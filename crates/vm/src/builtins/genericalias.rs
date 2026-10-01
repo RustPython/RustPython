@@ -53,8 +53,8 @@ impl fmt::Debug for PyGenericAlias {
 
 impl PyPayload for PyGenericAlias {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.generic_alias_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.generic_alias_type).to_owned()
     }
 }
 

@@ -208,7 +208,12 @@ pub(crate) mod _elementtree {
             let Some(mut inner) = self.inner.try_write() else {
                 return;
             };
-            let none = || -> PyObjectRef { crate::vm::Context::genesis().none.to_owned().into() };
+            let none = || -> PyObjectRef {
+                unsafe { crate::vm::Context::genesis_unchecked() }
+                    .none
+                    .to_owned()
+                    .into()
+            };
             out.append(&mut inner.children);
             if let Some(attrib) = inner.attrib.take() {
                 out.push(attrib.into());
@@ -1049,7 +1054,7 @@ pub(crate) mod _elementtree {
             return Ok(obj.to_owned());
         }
         if let Some(elem) = obj.downcast_ref::<PyElement>()
-            && elem.class().is(PyElement::class(&vm.ctx))
+            && elem.class().is(&PyElement::class(&vm.ctx))
         {
             return deepcopy_element(elem, memo, vm);
         }
@@ -1427,7 +1432,7 @@ pub(crate) mod _elementtree {
         child: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if element.class().is(PyElement::class(&vm.ctx)) {
+        if element.class().is(&PyElement::class(&vm.ctx)) {
             check_element(&child, vm)?;
             element.downcast_ref::<PyElement>().unwrap().push(child);
             Ok(())
@@ -1444,7 +1449,7 @@ pub(crate) mod _elementtree {
         is_tail: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if element.class().is(PyElement::class(&vm.ctx)) {
+        if element.class().is(&PyElement::class(&vm.ctx)) {
             let elem = element.downcast_ref::<PyElement>().unwrap();
             enum Fast {
                 Done,
@@ -1994,7 +1999,7 @@ pub(crate) mod _elementtree {
                 handle_doctype: optional_handler(&target, "doctype", vm)?,
                 native_target: target
                     .class()
-                    .is(PyTreeBuilder::class(&vm.ctx))
+                    .is(&PyTreeBuilder::class(&vm.ctx))
                     .then(|| target.clone().downcast::<PyTreeBuilder>().ok())
                     .flatten(),
             };

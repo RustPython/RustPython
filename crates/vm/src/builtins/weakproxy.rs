@@ -24,14 +24,14 @@ impl PyPayload for PyWeakProxy {
     #[inline]
     unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
         <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots().basicsize
-            && obj
-                .class()
-                .fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+            && obj.class().fast_issubclass(unsafe {
+                <Self as ::rustpython_vm::class::StaticType>::static_type()
+            })
     }
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.weakproxy_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.weakproxy_type).to_owned()
     }
 }
 

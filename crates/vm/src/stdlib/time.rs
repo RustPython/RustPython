@@ -13,10 +13,10 @@ mod decl {
     #![allow(unreachable_pub)]
 
     #[cfg(any(unix, windows))]
-    use crate::builtins::PyBaseExceptionRef;
+    use crate::builtins::{PyBaseExceptionRef, PyStr};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStrRef, PyTypeRef},
         class::PyClassDef,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
@@ -841,7 +841,12 @@ mod decl {
     }
 
     #[pyattr]
-    #[pystruct_sequence(name = "struct_time", module = "time", data = "StructTimeData")]
+    #[pystruct_sequence(
+        name = "struct_time",
+        module = "time",
+        data = "StructTimeData",
+        interpreter_local
+    )]
     pub struct PyStructTime;
 
     #[pyclass(with(PyStructSequence))]
@@ -1330,11 +1335,11 @@ mod platform {
 
     fn global_frequency(vm: &VirtualMachine) -> PyResult<i64> {
         rustpython_common::static_cell! {
-            static FREQUENCY: PyResult<i64>;
+            static FREQUENCY: i64;
         };
         FREQUENCY
-            .get_or_init(|| win_perf_counter_frequency(vm))
-            .clone()
+            .get_or_try_init(|| win_perf_counter_frequency(vm))
+            .copied()
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {

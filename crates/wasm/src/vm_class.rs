@@ -8,10 +8,10 @@ use core::cell::RefCell;
 use js_sys::{Object, TypeError};
 use ruff_text_size::Ranged;
 use rustpython_vm::{
-    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine,
-    builtins::PyWeak,
+    Interpreter, PyObjectRef, PyResult, Settings, VirtualMachine,
     bytecode::CodeFlags,
     compiler::{self, Mode},
+    embedding::PyHandle,
     function::ArgMapping,
     scope::Scope,
     vm::VmCompileError,
@@ -21,10 +21,7 @@ use wasm_bindgen::prelude::*;
 
 pub(crate) struct StoredVirtualMachine {
     pub interp: Interpreter,
-    pub scope: Scope,
-    /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
-    /// as long as the StoredVM is alive
-    held_objects: RefCell<Vec<PyObjectRef>>,
+    globals: PyHandle,
     future_features: RefCell<CodeFlags>,
 }
 
@@ -72,6 +69,16 @@ mod _window {
 }
 
 impl StoredVirtualMachine {
+    pub(crate) fn enter<R>(&self, f: impl FnOnce(&VirtualMachine) -> R) -> R {
+        // SAFETY: JS adapters bind opaque roots only inside their owning entry.
+        unsafe { self.interp.enter_unchecked(f) }
+    }
+
+    fn scope(&self, vm: &VirtualMachine) -> Scope {
+        let globals = bind_object(vm, &self.globals).downcast().unwrap();
+        Scope::with_builtins(None, globals, vm)
+    }
+
     fn new(id: String, inject_browser_module: bool) -> Self {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
@@ -80,44 +87,46 @@ impl StoredVirtualMachine {
 
         #[cfg(feature = "freeze-stdlib")]
         {
-            let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-            builder = builder
-                .add_native_modules(&defs)
+            let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_modules(&defs) }
                 .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
         }
 
         // Browser rustls `_ssl` overrides the rustls-free stdlib `_ssl`.
         // `_socket` is rustpython-stdlib's wasm shim (`socket_wasm.rs`).
-        let js_def = js_module::module_def(&builder.ctx);
-        builder = builder.add_native_module(js_def);
+        let js_def = js_module::module_def(unsafe { builder.context() });
+        builder = unsafe { builder.add_native_module(js_def) };
 
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
             install_browser_tls_provider();
-            let ssl_def = crate::ssl::module_def(&builder.ctx);
-            builder = builder.add_native_module(ssl_def);
+            let ssl_def = crate::ssl::module_def(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_module(ssl_def) };
         }
 
         if inject_browser_module {
-            let window_def = _window::module_def(&builder.ctx);
-            let browser_def = browser_module::module_def(&builder.ctx);
-            builder = builder
-                .add_native_modules(&[window_def, browser_def])
+            let window_def = _window::module_def(unsafe { builder.context() });
+            let browser_def = browser_module::module_def(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_modules(&[window_def, browser_def]) }
                 .add_frozen_modules(rustpython_vm::py_freeze!(dir = "../Lib"));
         }
 
-        let interp = builder
-            .init_hook(move |vm| {
-                vm.wasm_id = Some(id);
+        let interp = unsafe {
+            builder.init_hook(move |vm| {
+                vm.wasm_id.set(id).unwrap();
             })
-            .build();
+        }
+        .build();
 
-        let scope = interp.enter(|vm| vm.new_scope_with_builtins());
+        // SAFETY: only the opaque globals root leaves this initialization entry.
+        let globals = unsafe {
+            interp
+                .enter_unchecked(|vm| hold_object(vm, vm.new_scope_with_builtins().globals.into()))
+        };
 
         Self {
             interp,
-            scope,
-            held_objects: RefCell::new(Vec::new()),
+            globals,
             future_features: RefCell::new(CodeFlags::empty()),
         }
     }
@@ -152,7 +161,7 @@ thread_local! {
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {
     vm.wasm_id
-        .as_ref()
+        .get()
         .expect("VirtualMachine inside of WASM crate should have wasm_id set")
 }
 pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {
@@ -243,23 +252,12 @@ impl WASMVirtualMachine {
     where
         F: FnOnce(&VirtualMachine, &StoredVirtualMachine) -> R,
     {
-        self.with(|stored| stored.interp.enter(|vm| f(vm, stored)))
+        self.with(|stored| stored.enter(|vm| f(vm, stored)))
     }
 
     #[must_use]
     pub fn valid(&self) -> bool {
         STORED_VMS.with_borrow(|vms| vms.contains_key(&self.id))
-    }
-
-    pub(crate) fn push_held_rc(
-        &self,
-        obj: PyObjectRef,
-    ) -> Result<PyResult<PyRef<PyWeak>>, JsValue> {
-        self.with_vm(|vm, stored_vm| {
-            let weak = obj.downgrade(None, vm)?;
-            stored_vm.held_objects.borrow_mut().push(obj);
-            Ok(weak)
-        })
     }
 
     pub fn assert_valid(&self) -> Result<(), JsValue> {
@@ -281,7 +279,8 @@ impl WASMVirtualMachine {
 
     #[wasm_bindgen(js_name = addToScope)]
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
-        self.with_vm(move |vm, StoredVirtualMachine { scope, .. }| {
+        self.with_vm(move |vm, stored| {
+            let scope = stored.scope(vm);
             let value = convert::js_to_py(vm, value);
             scope.globals.set_item(&name, value, vm).into_js(vm)
         })?
@@ -420,7 +419,8 @@ impl WASMVirtualMachine {
         mode: Mode,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
+        self.with_vm(|vm, stored| {
+            let scope = stored.scope(vm);
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
             let code = vm.compile(source, mode, source_path.as_str());
             let code = code.map_err(|err| compile_err_to_js(vm, err))?;
@@ -435,7 +435,7 @@ impl WASMVirtualMachine {
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
         self.with_vm(|vm, stored| {
-            let scope = &stored.scope;
+            let scope = stored.scope(vm);
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
             let compile = |source: &str, mode: Mode| -> Result<_, JsValue> {
                 let future_features = *stored.future_features.borrow();
@@ -490,4 +490,15 @@ impl WASMVirtualMachine {
     ) -> Result<JsValue, JsValue> {
         self.run_single(source, source_path)
     }
+}
+
+/// Root callback state without keeping Python references in a JS closure.
+pub(crate) fn hold_object(vm: &VirtualMachine, object: PyObjectRef) -> PyHandle {
+    // SAFETY: all callers transfer an object from their current native entry.
+    unsafe { PyHandle::from_object_unchecked(object, vm) }.expect("live callback owner")
+}
+
+pub(crate) fn bind_object(vm: &VirtualMachine, handle: &PyHandle) -> PyObjectRef {
+    // SAFETY: callers release the returned reference before leaving this entry.
+    unsafe { handle.to_object_unchecked(vm) }.expect("callback entered its live owner")
 }

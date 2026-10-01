@@ -12,9 +12,9 @@ mod _csv {
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
     };
     use alloc::fmt;
+    use core::sync::atomic::{AtomicIsize, Ordering};
     use itertools::Itertools;
-    use parking_lot::Mutex;
-    use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
+    use rustpython_common::{rc::PyRc, wtf8::Wtf8Buf};
     use rustpython_vm::match_class;
     use std::collections::HashMap;
 
@@ -48,11 +48,19 @@ mod _csv {
         )
     }
 
-    static GLOBAL_HASHMAP: LazyLock<Mutex<HashMap<String, PyDialect>>> = LazyLock::new(|| {
-        let m = HashMap::new();
-        Mutex::new(m)
-    });
-    static GLOBAL_FIELD_LIMIT: LazyLock<Mutex<isize>> = LazyLock::new(|| Mutex::new(131072));
+    struct CsvState {
+        dialects: PyMutex<HashMap<String, PyDialect>>,
+        field_limit: AtomicIsize,
+    }
+
+    fn state(vm: &VirtualMachine) -> PyRc<CsvState> {
+        vm.__cached_native::<CsvState, _>(|| {
+            PyRc::new(CsvState {
+                dialects: PyMutex::default(),
+                field_limit: AtomicIsize::new(131072),
+            })
+        })
+    }
 
     fn new_csv_error(vm: &VirtualMachine, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
         vm.new_exception_msg(super::_csv::error(vm), msg.into())
@@ -333,7 +341,8 @@ mod _csv {
 
         let dialect = opts.result(vm)?;
         validate_dialect(vm, &dialect)?;
-        GLOBAL_HASHMAP
+        state(vm)
+            .dialects
             .lock()
             .insert(name.as_str().to_owned(), dialect);
 
@@ -350,13 +359,8 @@ mod _csv {
         })?;
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
-        let g = GLOBAL_HASHMAP.lock();
-
-        if let Some(dialect) = g.get(name.as_str()) {
-            return Ok(dialect.clone());
-        }
-
-        Err(new_csv_error(vm, "unknown dialect"))
+        let dialect = state(vm).dialects.lock().get(name.as_str()).cloned();
+        dialect.ok_or_else(|| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
@@ -369,21 +373,17 @@ mod _csv {
         })?;
 
         let name: PyUtf8StrRef = name.try_into_utf8(vm)?;
-        let mut g = GLOBAL_HASHMAP.lock();
-
-        if let Some(_removed) = g.remove(name.as_str()) {
-            return Ok(());
-        }
-
-        Err(new_csv_error(vm, "unknown dialect"))
+        let removed = state(vm).dialects.lock().remove(name.as_str());
+        removed
+            .map(|_| ())
+            .ok_or_else(|| new_csv_error(vm, "unknown dialect"))
     }
 
     #[pyfunction]
     fn list_dialects(vm: &VirtualMachine) -> rustpython_vm::builtins::PyListRef {
-        let g = GLOBAL_HASHMAP.lock();
-        let t = g
-            .keys()
-            .cloned()
+        let names = state(vm).dialects.lock().keys().cloned().collect_vec();
+        let t = names
+            .into_iter()
             .map(|x| vm.ctx.new_str(x).into())
             .collect_vec();
         // .iter().map(|x| vm.ctx.new_str(x.clone()).into_pyobject(vm)).collect_vec();
@@ -398,12 +398,15 @@ mod _csv {
 
     #[pyfunction]
     fn field_size_limit(args: FieldSizeLimitArgs, vm: &VirtualMachine) -> PyResult<isize> {
-        let old_size = GLOBAL_FIELD_LIMIT.lock().to_owned();
+        let state = state(vm);
+        let old_size = state.field_limit.load(Ordering::Relaxed);
         if let OptionalArg::Present(limit) = args.new_limit {
             let Ok(new_size) = limit.try_int(vm) else {
                 return Err(vm.new_type_error("limit must be an integer"));
             };
-            *GLOBAL_FIELD_LIMIT.lock() = new_size.try_to_primitive::<isize>(vm)?;
+            state
+                .field_limit
+                .store(new_size.try_to_primitive::<isize>(vm)?, Ordering::Relaxed);
         }
         Ok(old_size)
     }
@@ -782,9 +785,9 @@ mod _csv {
         fn result(&self, vm: &VirtualMachine) -> PyResult<PyDialect> {
             let dialect = match &self.dialect {
                 DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        Ok(self.update_py_dialect(dialect.clone()))
+                    let dialect = state(vm).dialects.lock().get(name).cloned();
+                    if let Some(dialect) = dialect {
+                        Ok(self.update_py_dialect(dialect))
                     } else {
                         Err(new_csv_error(vm, format!("{name} is not registered.")))
                     }
@@ -1116,7 +1119,8 @@ mod _csv {
 
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let mut parser = CsvParser::new(*GLOBAL_FIELD_LIMIT.lock());
+            let state = state(vm);
+            let mut parser = CsvParser::new(state.field_limit.load(Ordering::Relaxed));
 
             loop {
                 match next_input_item(zelf, vm)? {
@@ -1135,7 +1139,7 @@ mod _csv {
                         })?;
 
                         zelf.state.lock().line_num += 1;
-                        parser.field_limit = *GLOBAL_FIELD_LIMIT.lock();
+                        parser.field_limit = state.field_limit.load(Ordering::Relaxed);
                         for &byte in string.as_bytes() {
                             parser.process_parser_input(
                                 ParserInput::Byte(byte),

@@ -9,26 +9,23 @@ pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDict, PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
-        class::{PyClassImpl, StaticType},
+        class::PyClassImpl,
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
-        stdlib::_ast::repr,
+        stdlib::_ast::{AstNodeType, repr},
         types::{Constructor, Initializer},
         warn,
     };
     #[pyattr]
-    #[pyclass(module = "ast", name = "AST")]
+    #[pyclass(interpreter_local, module = "ast", name = "AST")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct NodeAst;
 
-    #[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    impl AstNodeType for NodeAst {}
+
+    #[pyclass(with(Constructor, Initializer, AstNodeType), flags(BASETYPE, HAS_DICT))]
     impl NodeAst {
         #[extend_class]
-        fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
-            // AST types are mutable (heap types, not IMMUTABLETYPE).
-            class
-                .slots
-                .flags
-                .remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+        fn extend_class(ctx: &Context, class: &Py<PyType>) {
             let empty_tuple = ctx.empty_tuple.clone();
             class.set_str_attr("_fields", empty_tuple.clone(), ctx);
             class.set_str_attr("_attributes", empty_tuple.clone(), ctx);
@@ -48,7 +45,6 @@ pub(crate) mod _ast {
                 AST_DEEPCOPY.to_proper_method(class, ctx),
                 ctx,
             );
-            class.slots.repr.store(Some(ast_repr));
         }
 
         #[pyattr]
@@ -436,7 +432,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                 field_types.map(|ft| ft.downcast::<crate::builtins::PyDict>())
             {
                 let expr_ctx_type: PyObjectRef =
-                    super::super::pyast::NodeExprContext::make_static_type().into();
+                    super::super::pyast::NodeExprContext::make_class(&vm.ctx).into();
 
                 for field in remaining_fields.elements() {
                     if let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? {
@@ -449,7 +445,7 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                         } else if ftype.is(&expr_ctx_type) {
                             // expr_context — default to Load()
                             let load_type =
-                                super::super::pyast::NodeExprContextLoad::make_static_type();
+                                super::super::pyast::NodeExprContextLoad::make_class(&vm.ctx);
                             let load_instance = load_type
                                 .get_attr(vm.ctx.intern_str("_instance"))
                                 .unwrap_or_else(|| {
@@ -545,20 +541,20 @@ This will become an error in Python 3.15.",
         ast_type.set_str_attr("_attributes", empty_tuple.clone(), ctx);
         ast_type.set_str_attr("__match_args__", empty_tuple, ctx);
         for typ in [
-            super::super::pyast::NodeMod::static_type(),
-            super::super::pyast::NodeStmt::static_type(),
-            super::super::pyast::NodeExpr::static_type(),
-            super::super::pyast::NodeExprContext::static_type(),
-            super::super::pyast::NodeBoolOp::static_type(),
-            super::super::pyast::NodeOperator::static_type(),
-            super::super::pyast::NodeUnaryOp::static_type(),
-            super::super::pyast::NodeCmpOp::static_type(),
-            super::super::pyast::NodeExceptHandler::static_type(),
-            super::super::pyast::NodePattern::static_type(),
-            super::super::pyast::NodeTypeIgnore::static_type(),
-            super::super::pyast::NodeTypeParam::static_type(),
+            super::super::pyast::NodeMod::make_class(&vm.ctx),
+            super::super::pyast::NodeStmt::make_class(&vm.ctx),
+            super::super::pyast::NodeExpr::make_class(&vm.ctx),
+            super::super::pyast::NodeExprContext::make_class(&vm.ctx),
+            super::super::pyast::NodeBoolOp::make_class(&vm.ctx),
+            super::super::pyast::NodeOperator::make_class(&vm.ctx),
+            super::super::pyast::NodeUnaryOp::make_class(&vm.ctx),
+            super::super::pyast::NodeCmpOp::make_class(&vm.ctx),
+            super::super::pyast::NodeExceptHandler::make_class(&vm.ctx),
+            super::super::pyast::NodePattern::make_class(&vm.ctx),
+            super::super::pyast::NodeTypeIgnore::make_class(&vm.ctx),
+            super::super::pyast::NodeTypeParam::make_class(&vm.ctx),
         ] {
-            set_empty_annotations(typ);
+            set_empty_annotations(&typ);
         }
 
         const AST_REDUCE: PyMethodDef = PyMethodDef::new_const(
@@ -579,49 +575,50 @@ This will become an error in Python 3.15.",
                 "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
             ),
         );
-        let base_type = NodeAst::static_type();
+        let base_type = NodeAst::make_class(&vm.ctx);
         ast_type.set_str_attr(
             "__reduce__",
-            AST_REDUCE.to_proper_method(base_type, ctx),
+            AST_REDUCE.to_proper_method(&base_type, ctx),
             ctx,
         );
         ast_type.set_str_attr(
             "__replace__",
-            AST_REPLACE.to_proper_method(base_type, ctx),
+            AST_REPLACE.to_proper_method(&base_type, ctx),
             ctx,
         );
-        ast_type.slots.repr.store(Some(ast_repr));
 
-        const EXPR_DOC: &str = "expr = BoolOp(boolop op, expr* values)\n\
-     | NamedExpr(expr target, expr value)\n\
-     | BinOp(expr left, operator op, expr right)\n\
-     | UnaryOp(unaryop op, expr operand)\n\
-     | Lambda(arguments args, expr body)\n\
-     | IfExp(expr test, expr body, expr orelse)\n\
-     | Dict(expr?* keys, expr* values)\n\
-     | Set(expr* elts)\n\
-     | ListComp(expr elt, comprehension* generators)\n\
-     | SetComp(expr elt, comprehension* generators)\n\
-     | DictComp(expr key, expr value, comprehension* generators)\n\
-     | GeneratorExp(expr elt, comprehension* generators)\n\
-     | Await(expr value)\n\
-     | Yield(expr? value)\n\
-     | YieldFrom(expr value)\n\
-     | Compare(expr left, cmpop* ops, expr* comparators)\n\
-     | Call(expr func, expr* args, keyword* keywords)\n\
-     | FormattedValue(expr value, int conversion, expr? format_spec)\n\
-     | Interpolation(expr value, constant str, int conversion, expr? format_spec)\n\
-     | JoinedStr(expr* values)\n\
-     | TemplateStr(expr* values)\n\
-     | Constant(constant value, string? kind)\n\
-     | Attribute(expr value, identifier attr, expr_context ctx)\n\
-     | Subscript(expr value, expr slice, expr_context ctx)\n\
-     | Starred(expr value, expr_context ctx)\n\
-     | Name(identifier id, expr_context ctx)\n\
-     | List(expr* elts, expr_context ctx)\n\
-     | Tuple(expr* elts, expr_context ctx)\n\
-     | Slice(expr? lower, expr? upper, expr? step)";
-        let expr_type = super::super::pyast::NodeExpr::static_type();
+        const EXPR_DOC: &str = concat!(
+            "expr = BoolOp(boolop op, expr* values)",
+            "\n     | NamedExpr(expr target, expr value)",
+            "\n     | BinOp(expr left, operator op, expr right)",
+            "\n     | UnaryOp(unaryop op, expr operand)",
+            "\n     | Lambda(arguments args, expr body)",
+            "\n     | IfExp(expr test, expr body, expr orelse)",
+            "\n     | Dict(expr?* keys, expr* values)",
+            "\n     | Set(expr* elts)",
+            "\n     | ListComp(expr elt, comprehension* generators)",
+            "\n     | SetComp(expr elt, comprehension* generators)",
+            "\n     | DictComp(expr key, expr value, comprehension* generators)",
+            "\n     | GeneratorExp(expr elt, comprehension* generators)",
+            "\n     | Await(expr value)",
+            "\n     | Yield(expr? value)",
+            "\n     | YieldFrom(expr value)",
+            "\n     | Compare(expr left, cmpop* ops, expr* comparators)",
+            "\n     | Call(expr func, expr* args, keyword* keywords)",
+            "\n     | FormattedValue(expr value, int conversion, expr? format_spec)",
+            "\n     | Interpolation(expr value, constant str, int conversion, expr? format_spec)",
+            "\n     | JoinedStr(expr* values)",
+            "\n     | TemplateStr(expr* values)",
+            "\n     | Constant(constant value, string? kind)",
+            "\n     | Attribute(expr value, identifier attr, expr_context ctx)",
+            "\n     | Subscript(expr value, expr slice, expr_context ctx)",
+            "\n     | Starred(expr value, expr_context ctx)",
+            "\n     | Name(identifier id, expr_context ctx)",
+            "\n     | List(expr* elts, expr_context ctx)",
+            "\n     | Tuple(expr* elts, expr_context ctx)",
+            "\n     | Slice(expr? lower, expr? upper, expr? step)",
+        );
+        let expr_type = super::super::pyast::NodeExpr::make_class(&vm.ctx);
         expr_type.set_attr(
             identifier!(vm.ctx, __doc__),
             vm.ctx.new_str(EXPR_DOC).into(),

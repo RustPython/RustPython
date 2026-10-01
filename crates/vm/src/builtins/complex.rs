@@ -39,12 +39,13 @@ thread_local! {
 }
 
 impl PyPayload for PyComplex {
+    const OWNER_NEUTRAL: bool = true;
     const MAX_FREELIST: usize = 100;
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.complex_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.complex_type).to_owned()
     }
 
     #[inline]

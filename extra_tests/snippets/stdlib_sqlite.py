@@ -70,3 +70,62 @@ if sys.implementation.name == "rustpython":
     expected = b"t5i4 3l2b1" + data[10:]
     assert actual == expected, f"got {actual!r}, expected {expected!r}"
     blob.close()
+
+
+def check_callback_lifetimes():
+    import contextvars
+    import gc
+    import threading
+    import weakref
+
+    current = contextvars.ContextVar("sqlite_callback_context", default=0)
+    instances = []
+    errors = []
+    connection = sqlite.connect(":memory:", check_same_thread=False)
+
+    class Aggregate:
+        def __init__(self):
+            instances.append(weakref.ref(self))
+            self.value = 0
+
+        def step(self, value):
+            self.value += value
+
+        def finalize(self):
+            return self.value + current.get()
+
+    def register():
+        try:
+            connection.create_function("current_context", 0, current.get)
+            connection.create_aggregate("total_context", 1, Aggregate)
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=register)
+    worker.start()
+    worker.join()
+    assert not errors, errors
+
+    current.set(40)
+    assert connection.execute("SELECT current_context()").fetchone() == (40,)
+    assert connection.execute("SELECT total_context(2)").fetchone() == (42,)
+    gc.collect()
+    assert len(instances) == 1 and instances[0]() is None
+
+    class FailingAggregate(Aggregate):
+        def finalize(self):
+            raise ValueError("finalize")
+
+    connection.create_aggregate("failing", 1, FailingAggregate)
+    try:
+        connection.execute("SELECT failing(2)").fetchone()
+    except sqlite.OperationalError:
+        pass
+    else:
+        raise AssertionError("aggregate failure did not propagate")
+    gc.collect()
+    assert len(instances) == 2 and instances[1]() is None
+    connection.close()
+
+
+check_callback_lifetimes()

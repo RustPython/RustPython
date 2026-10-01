@@ -14,9 +14,10 @@ use crate::{
 pub struct PyNone;
 
 impl PyPayload for PyNone {
+    const OWNER_NEUTRAL: bool = true;
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.none_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.none_type).to_owned()
     }
 }
 
@@ -100,9 +101,10 @@ impl Hashable for PyNone {
 pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
+    const OWNER_NEUTRAL: bool = true;
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.not_implemented_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.not_implemented_type).to_owned()
     }
 }
 

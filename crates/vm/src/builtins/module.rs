@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef, PyUtf8Str};
+use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyTypeRef, PyUtf8Str};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -98,8 +98,8 @@ pub struct PyModule {
 
 impl PyPayload for PyModule {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.module_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.module_type).to_owned()
     }
 }
 
@@ -446,7 +446,7 @@ impl Representable for PyModule {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         // Use cached importlib reference (like interp->importlib)
-        let module_repr = vm.importlib.get_attr("_module_repr", vm)?;
+        let module_repr = vm.importlib().get_attr("_module_repr", vm)?;
         let repr = module_repr.call((zelf.to_owned(),), vm)?;
         repr.downcast()
             .map_err(|_| vm.new_type_error("_module_repr did not return a string"))

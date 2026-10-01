@@ -112,26 +112,20 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 }
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
-    if let Some(ref wasm_id) = vm.wasm_id
+    if let Some(wasm_id) = vm.wasm_id.get()
         && py_obj.fast_isinstance(vm.ctx.types.function_type)
     {
         let wasm_vm = WASMVirtualMachine {
             id: wasm_id.clone(),
         };
-        let weak_py_obj = wasm_vm.push_held_rc(py_obj).unwrap().unwrap();
+        let py_handle = crate::vm_class::hold_object(vm, py_obj);
 
         let closure = move |args: Option<Box<[JsValue]>>,
                             kwargs: Option<Object>|
               -> Result<JsValue, JsValue> {
-            let py_obj = match wasm_vm.assert_valid() {
-                Ok(_) => weak_py_obj
-                    .upgrade()
-                    .expect("weak_py_obj to be valid if VM is valid"),
-                Err(err) => {
-                    return Err(err);
-                }
-            };
-            stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
+            wasm_vm.assert_valid()?;
+            stored_vm_from_wasm(&wasm_vm).enter(|vm| {
+                let py_obj = crate::vm_class::bind_object(vm, &py_handle);
                 let args = match args {
                     Some(args) => Vec::from(args)
                         .into_iter()

@@ -2,7 +2,9 @@
 //!
 //! Mirrors CPython `Modules/_interpretersmodule.c`.
 
-pub(crate) use _interpreters::{config_from_pyobject, init_xi_types, module_def};
+pub(crate) use _interpreters::{
+    clone_shared_buffer, config_from_pyobject, init_xi_types, module_def,
+};
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpreters::{
     interpreter_error, interpreter_not_found, not_shareable_error, xibufferview_from_buffer,
@@ -67,15 +69,43 @@ pub(crate) mod _interpreters {
     impl PyNotShareableError {}
 
     #[pyattr]
-    #[pyclass(name = "CrossInterpreterBufferView", module = "_interpreters")]
+    #[pyclass(
+        name = "CrossInterpreterBufferView",
+        module = "_interpreters",
+        traverse = "manual"
+    )]
     #[derive(Debug, PyPayload)]
     pub(crate) struct XiBufferView {
-        view: PyBuffer,
+        view: XiBufferBacking,
+    }
+
+    #[derive(Debug)]
+    enum XiBufferBacking {
+        Local(PyBuffer),
+        Shared(crate::protocol::SharedBuffer),
+    }
+
+    unsafe impl crate::object::Traverse for XiBufferView {
+        fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+            if let XiBufferBacking::Local(buffer) = &self.view {
+                buffer.traverse(tracer);
+            }
+        }
     }
 
     static XI_BUFFER_VIEW_METHODS: BufferMethods = BufferMethods {
-        obj_bytes: |buffer| buffer.obj_as::<XiBufferView>().view.obj_bytes(),
-        obj_bytes_mut: |buffer| buffer.obj_as::<XiBufferView>().view.obj_bytes_mut(),
+        shared_storage: Some(|buffer| match &buffer.obj_as::<XiBufferView>().view {
+            XiBufferBacking::Local(view) => view.shared_storage(),
+            XiBufferBacking::Shared(view) => Some(view.storage.clone()),
+        }),
+        obj_bytes: |buffer| match &buffer.obj_as::<XiBufferView>().view {
+            XiBufferBacking::Local(view) => view.obj_bytes(),
+            XiBufferBacking::Shared(view) => view.read(),
+        },
+        obj_bytes_mut: |buffer| match &buffer.obj_as::<XiBufferView>().view {
+            XiBufferBacking::Local(view) => view.obj_bytes_mut(),
+            XiBufferBacking::Shared(view) => view.write(),
+        },
         release: |_buffer| {},
         retain: |_buffer| {},
     };
@@ -90,15 +120,33 @@ pub(crate) mod _interpreters {
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             Ok(PyBuffer::new(
                 zelf.to_owned().into(),
-                zelf.view.desc.clone(),
+                match &zelf.view {
+                    XiBufferBacking::Local(view) => view.desc.clone(),
+                    XiBufferBacking::Shared(view) => view.desc.clone(),
+                },
                 &XI_BUFFER_VIEW_METHODS,
             ))
         }
     }
 
     /// `xibufferview_from_buffer`.
-    pub(crate) fn xibufferview_from_buffer(view: PyBuffer, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn xibufferview_from_buffer(
+        view: crate::protocol::SharedBuffer,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        let view = if let Some(local) = view.local_buffer(vm) {
+            XiBufferBacking::Local(local)
+        } else {
+            XiBufferBacking::Shared(view)
+        };
         XiBufferView { view }.into_pyobject(vm)
+    }
+
+    pub(crate) fn clone_shared_buffer(obj: &PyObject) -> Option<crate::protocol::SharedBuffer> {
+        match &obj.downcast_ref::<XiBufferView>()?.view {
+            XiBufferBacking::Shared(view) => Some(view.clone()),
+            XiBufferBacking::Local(_) => None,
+        }
     }
 
     /// The cross-interpreter exception types belong to the runtime rather than
@@ -107,9 +155,9 @@ pub(crate) mod _interpreters {
     pub(crate) fn init_xi_types(vm: &VirtualMachine) {
         let module = vm.new_pyobj("concurrent.interpreters");
         for class in [
-            PyInterpreterError::make_static_type(),
-            PyInterpreterNotFoundError::make_static_type(),
-            PyNotShareableError::make_static_type(),
+            unsafe { PyInterpreterError::make_static_type() },
+            unsafe { PyInterpreterNotFoundError::make_static_type() },
+            unsafe { PyNotShareableError::make_static_type() },
         ] {
             class.set_attr(crate::identifier!(vm, __module__), module.clone());
         }
@@ -128,15 +176,12 @@ pub(crate) mod _interpreters {
         vm: &VirtualMachine,
         msg: impl Into<String>,
     ) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
-            PyInterpreterError::class(&vm.ctx).to_owned(),
-            msg.into().into(),
-        )
+        vm.new_exception_msg(PyInterpreterError::class(&vm.ctx), msg.into().into())
     }
 
     pub(crate) fn interpreter_not_found(vm: &VirtualMachine, id: i64) -> PyBaseExceptionRef {
         vm.new_exception_msg(
-            PyInterpreterNotFoundError::class(&vm.ctx).to_owned(),
+            PyInterpreterNotFoundError::class(&vm.ctx),
             format!("unrecognized interpreter ID {id}").into(),
         )
     }
@@ -145,10 +190,7 @@ pub(crate) mod _interpreters {
         vm: &VirtualMachine,
         msg: impl Into<String>,
     ) -> PyBaseExceptionRef {
-        vm.new_exception_msg(
-            PyNotShareableError::class(&vm.ctx).to_owned(),
-            msg.into().into(),
-        )
+        vm.new_exception_msg(PyNotShareableError::class(&vm.ctx), msg.into().into())
     }
 
     /// `_PyArg_BadArgument`.
@@ -206,7 +248,8 @@ pub(crate) mod _interpreters {
             None => "current interpreter".to_owned(),
         };
         let id = id.unwrap_or(vm.state.interpreter_id);
-        let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        let state =
+            runtime::lookup_open_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         if reqready && !state.ready.load(Ordering::Acquire) {
             return Err(interpreter_error(
                 vm,
@@ -514,7 +557,7 @@ pub(crate) mod _interpreters {
         let mut items = Vec::new();
         for info in runtime::list_interpreters() {
             if reqready
-                && !runtime::lookup_interpreter(info.id)
+                && !runtime::lookup_open_interpreter(info.id)
                     .is_some_and(|s| s.ready.load(Ordering::Acquire))
             {
                 continue;
@@ -560,7 +603,8 @@ pub(crate) mod _interpreters {
         }
         .parse(&args, vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
-        let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        let state =
+            runtime::lookup_open_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         Ok(vm.ctx.new_int(state.whence.as_i32()).into())
     }
 
@@ -581,7 +625,8 @@ pub(crate) mod _interpreters {
             Some(parse_id(id_obj, vm)?)
         };
         let id = resolve_interp(id, restricted, false, "get the config of", vm)?;
-        let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        let state =
+            runtime::lookup_open_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         Ok(config_namespace(state.config(), vm))
     }
 
@@ -972,7 +1017,8 @@ pub(crate) mod _interpreters {
         let restricted = flag(parsed[2].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, true, "incref", vm)?;
-        let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        let state =
+            runtime::lookup_open_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         if implieslink {
             // Decref to 0 will destroy the interpreter.
             state.require_idref.store(true, Ordering::Release);
@@ -993,7 +1039,8 @@ pub(crate) mod _interpreters {
         let restricted = flag(parsed[1].as_deref(), vm)?;
         let id = parse_id(parsed[0].as_deref().unwrap(), vm)?;
         resolve_interp(Some(id), restricted, true, "decref", vm)?;
-        let state = runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        let state =
+            runtime::lookup_open_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
         let prev = state.id_refcount.fetch_sub(1, Ordering::AcqRel);
         if prev == 1 && state.require_idref.load(Ordering::Acquire) {
             #[cfg(feature = "threading")]

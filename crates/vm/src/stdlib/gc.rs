@@ -1,4 +1,4 @@
-pub(crate) use gc::module_def;
+pub(crate) use gc::{invoke_callbacks, module_def};
 
 #[pymodule]
 mod gc {
@@ -50,26 +50,7 @@ mod gc {
             return Err(vm.new_value_error("invalid generation"));
         }
 
-        // Invoke callbacks with "start" phase
-        invoke_callbacks(vm, "start", generation_num as usize, &Default::default());
-
-        // Manual gc.collect() should run even if GC is disabled
-        let gc = &vm.state.gc;
-        let result = gc.collect_force(generation_num as usize);
-
-        // Publish what the collection saved as gc.garbage (for DEBUG_SAVEALL)
-        {
-            let mut state_garbage = gc.garbage.lock();
-            if !state_garbage.is_empty() {
-                let mut garbage_vec = gc.py_garbage.borrow_vec_mut();
-                for obj in state_garbage.drain(..) {
-                    garbage_vec.push(obj);
-                }
-            }
-        }
-
-        // Invoke callbacks with "stop" phase
-        invoke_callbacks(vm, "stop", generation_num as usize, &result);
+        let result = vm.state.gc.collect_force(generation_num as usize);
 
         Ok((result.collected + result.uncollectable) as i32)
     }
@@ -102,7 +83,7 @@ mod gc {
 
     #[pyfunction]
     fn get_count(vm: &VirtualMachine) -> PyObjectRef {
-        let (c0, c1, c2) = gc_state::gc_state().get_count();
+        let (c0, c1, c2) = vm.state.gc.get_count();
         vm.ctx
             .new_tuple(vec![
                 vm.ctx.new_int(c0).into(),
@@ -167,6 +148,17 @@ mod gc {
 
     #[pyfunction]
     fn get_referents(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
+        #[cfg(feature = "threading")]
+        let result = vm
+            .state
+            .stop_the_world
+            .with_stopped(&vm.state, || referents(&objs));
+        #[cfg(not(feature = "threading"))]
+        let result = referents(&objs);
+        vm.ctx.new_list(result)
+    }
+
+    fn referents(objs: &PosArgs<PyObjectRef, NameObjs>) -> Vec<PyObjectRef> {
         let mut result = Vec::new();
 
         for obj in objs.iter() {
@@ -174,11 +166,22 @@ mod gc {
             result.extend(obj.gc_get_referents());
         }
 
-        vm.ctx.new_list(result)
+        result
     }
 
     #[pyfunction]
     fn get_referrers(objs: PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> PyListRef {
+        #[cfg(feature = "threading")]
+        let result = vm
+            .state
+            .stop_the_world
+            .with_stopped(&vm.state, || referrers(&objs, vm));
+        #[cfg(not(feature = "threading"))]
+        let result = referrers(&objs, vm);
+        vm.ctx.new_list(result)
+    }
+
+    fn referrers(objs: &PosArgs<PyObjectRef, NameObjs>, vm: &VirtualMachine) -> Vec<PyObjectRef> {
         use std::collections::HashSet;
 
         // Build a set of target object pointers for fast lookup
@@ -229,7 +232,7 @@ mod gc {
             }
         }
 
-        vm.ctx.new_list(result)
+        result
     }
 
     #[pyfunction]
@@ -254,30 +257,32 @@ mod gc {
     }
 
     #[pyfunction]
-    fn get_freeze_count() -> usize {
-        gc_state::gc_state().get_freeze_count()
+    fn get_freeze_count(vm: &VirtualMachine) -> usize {
+        vm.state.gc.get_freeze_count()
     }
 
     // gc.garbage - list of uncollectable objects
     #[pyattr]
     fn garbage(vm: &VirtualMachine) -> PyListRef {
-        vm.state.gc.py_garbage.clone()
+        vm.state.gc.garbage_list().expect("GC state is closed")
     }
 
     // gc.callbacks - list of callbacks to be invoked
     #[pyattr]
     fn callbacks(vm: &VirtualMachine) -> PyListRef {
-        vm.state.gc.py_callbacks.clone()
+        vm.state.gc.callbacks_list().expect("GC state is closed")
     }
 
     /// Helper function to invoke GC callbacks
-    fn invoke_callbacks(
+    pub(crate) fn invoke_callbacks(
         vm: &VirtualMachine,
         phase: &str,
         generation: usize,
         result: &gc_state::CollectResult,
     ) {
-        let callbacks_list = &vm.state.gc.py_callbacks;
+        let Some(callbacks_list) = vm.state.gc.callbacks_list() else {
+            return;
+        };
         let callbacks: Vec<PyObjectRef> = callbacks_list.borrow_vec().to_vec();
         if callbacks.is_empty() {
             return;

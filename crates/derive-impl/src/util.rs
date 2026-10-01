@@ -367,6 +367,7 @@ impl ItemMeta for ClassItemMeta {
         "traverse",
         "clear", // tp_clear
         "payload",
+        "interpreter_local",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -379,6 +380,9 @@ impl ItemMeta for ClassItemMeta {
 }
 
 impl ClassItemMeta {
+    pub(crate) fn interpreter_local(&self) -> Result<bool> {
+        self.inner()._bool("interpreter_local")
+    }
     pub(crate) fn class_name(&self) -> Result<String> {
         const KEY: &str = "name";
         let inner = self.inner();

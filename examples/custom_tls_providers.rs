@@ -53,15 +53,12 @@ fn main() {
     }
 
     let builder = Interpreter::builder(Default::default());
-    let defs = stdlib_module_defs(&builder.ctx);
-    let result = builder
-        .add_native_modules(&defs)
+    let defs = stdlib_module_defs(unsafe { builder.context() });
+    let result = unsafe { builder.add_native_modules(&defs) }
         .add_frozen_modules(FROZEN_STDLIB)
         .build()
-        .run(|vm| {
-            let scope = vm.new_scope_with_builtins();
-            vm.run_block_expr(scope, SCRIPT).map(|_| ())
-        });
+        .run(|vm| vm.exec(SCRIPT))
+        .expect("no native workers remain");
 
     assert_eq!(0, result);
 }

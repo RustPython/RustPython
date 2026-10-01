@@ -913,3 +913,12 @@ for i in range(-1, 2, 1):
 empty = bytearray()
 empty *= sys.maxsize
 assert empty == bytearray()
+
+# Reinitialization must preserve a live buffer's storage and extent.
+exported = bytearray(b"abc")
+view = memoryview(exported)
+assert_raises(BufferError, lambda: exported.__init__(b"x"))
+assert view.tobytes() == b"abc"
+view.release()
+exported.__init__(b"x")
+assert exported == b"x"

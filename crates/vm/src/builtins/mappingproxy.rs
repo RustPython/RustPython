@@ -38,8 +38,8 @@ unsafe impl Traverse for MappingProxyInner {
 
 impl PyPayload for PyMappingProxy {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.mappingproxy_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.mappingproxy_type).to_owned()
     }
 }
 

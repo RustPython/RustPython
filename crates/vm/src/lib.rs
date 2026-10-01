@@ -60,6 +60,7 @@ pub mod convert;
 mod coroutine;
 pub mod datastack;
 mod dict_inner;
+pub mod embedding;
 
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
@@ -115,7 +116,7 @@ pub use self::object::{
 };
 pub use self::vm::runtime;
 pub use self::vm::{
-    Context, InterpFeatureFlags, Interpreter, InterpreterBuilder, InterpreterConfig,
+    Context, FinalizeBusy, InterpFeatureFlags, Interpreter, InterpreterBuilder, InterpreterConfig,
     InterpreterGil, InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID, Settings,
     VirtualMachine,
 };

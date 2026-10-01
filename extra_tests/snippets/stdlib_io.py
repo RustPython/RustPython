@@ -3,6 +3,19 @@ from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapp
 
 from testutils import assert_raises
 
+
+class RetainedReadBuffer(RawIOBase):
+    def readinto(self, buffer):
+        buffer[:] = b"abcd"
+        self.view = memoryview(buffer)
+        return 2
+
+
+retaining = RetainedReadBuffer()
+assert retaining.read(4) == b"ab"
+assert retaining.view.tobytes() == b"abcd"
+retaining.view.release()
+
 fi = FileIO("README.md")
 assert fi.seekable()
 bb = BufferedReader(fi)

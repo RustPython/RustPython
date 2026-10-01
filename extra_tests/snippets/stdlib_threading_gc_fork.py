@@ -14,6 +14,8 @@ light so the collection stays cheap even in unoptimized builds.
 
 import gc
 import os
+import subprocess
+import sys
 import threading
 import time
 
@@ -60,3 +62,53 @@ for w in workers:
     w.join()
 
 print("ok")
+
+
+# The surviving native stack can hold the collector or type-mutation guard.
+# Child repair must preserve it until that original stack releases it.
+for source in (
+    """
+gc.disable()
+pid = -1
+def callback(phase, info):
+    global pid
+    if phase == 'start' and pid == -1:
+        pid = os.fork()
+gc.callbacks.append(callback)
+gc.collect()
+gc.callbacks.remove(callback)
+""",
+    """
+pid = -1
+class Meta(type):
+    def mro(cls):
+        global pid
+        if pid == -1:
+            pid = os.fork()
+        return super().mro()
+class Sample(metaclass=Meta):
+    pass
+Sample.value = 42
+assert Sample.value == 42
+""",
+):
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import gc, os\n"
+            + source
+            + """
+for _ in range(3):
+    node = []
+    node.append(node)
+    del node
+    gc.collect()
+if pid == 0:
+    os._exit(0)
+assert os.waitpid(pid, 0)[1] == 0
+""",
+        ],
+        check=True,
+        timeout=30,
+    )
