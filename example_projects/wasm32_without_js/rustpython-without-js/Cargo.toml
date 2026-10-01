@@ -11,3 +11,5 @@ getrandom = "0.3"
 rustpython-vm = { path = "../../../crates/vm", default-features = false, features = ["compiler"] }
 
 [workspace]
+
+[patch.crates-io]

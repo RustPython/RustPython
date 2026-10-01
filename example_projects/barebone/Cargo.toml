@@ -7,3 +7,5 @@ edition = "2021"
 rustpython-vm = { path = "../../crates/vm", default-features = false, features = ["stdio"] }
 
 [workspace]
+
+[patch.crates-io]
