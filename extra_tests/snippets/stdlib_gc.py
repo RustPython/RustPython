@@ -135,4 +135,68 @@ def collects_function_annotate():
 
 assert collects_function_annotate()
 
+
+def full_collection_promotes_survivors():
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        older = []
+        gc.collect(0)
+        younger = []
+        gc.collect(2)
+        for value in (older, younger):
+            assert any(obj is value for obj in gc.get_objects(2))
+            assert not any(obj is value for obj in gc.get_objects(0))
+            assert not any(obj is value for obj in gc.get_objects(1))
+    finally:
+        if enabled:
+            gc.enable()
+
+
+full_collection_promotes_survivors()
+
+
+def retained_cycles_are_promoted():
+    enabled = gc.isenabled()
+    debug = gc.get_debug()
+    garbage_length = len(gc.garbage)
+    retained = []
+
+    class Resurrected:
+        def __del__(self):
+            retained.append(self)
+
+    gc.disable()
+    try:
+        for generation in range(3):
+            target = min(generation + 1, 2)
+            gc.set_debug(0)
+            obj = Resurrected()
+            obj.cycle = obj
+            del obj
+            gc.collect(generation)
+            assert len(retained) == 1
+            assert any(obj is retained[0] for obj in gc.get_objects(target))
+            retained[0].cycle = None
+            retained.clear()
+
+            gc.set_debug(gc.DEBUG_SAVEALL)
+            cycle = []
+            cycle.append(cycle)
+            identity = id(cycle)
+            del cycle
+            gc.collect(generation)
+            saved = next(obj for obj in gc.garbage if id(obj) == identity)
+            assert any(obj is saved for obj in gc.get_objects(target))
+            saved.clear()
+            del gc.garbage[garbage_length:]
+    finally:
+        gc.set_debug(debug)
+        del gc.garbage[garbage_length:]
+        if enabled:
+            gc.enable()
+
+
+retained_cycles_are_promoted()
+
 print("ok")
