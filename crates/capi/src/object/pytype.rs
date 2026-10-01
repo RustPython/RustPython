@@ -34,6 +34,11 @@ impl PyType_Slot {
             }
         })
     }
+
+    fn as_slot_accessor(&self) -> Option<SlotAccessor> {
+        let slot_id: u8 = self.slot.try_into().ok()?;
+        slot_id.try_into().ok()
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -130,8 +135,13 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                         }
                         PySlotType::Slots { value, .. } => {
                             for slot in PyType_Slot::iter(value) {
-                                let slot_id: u8 = slot.slot.try_into().unwrap();
-                                match slot_id.try_into().unwrap() {
+                                let accessor = slot.as_slot_accessor().ok_or_else(|| {
+                                    vm.new_value_error(format!(
+                                        "Invalid slot id: {} for PyType_FromSlots",
+                                        slot.slot
+                                    ))
+                                })?;
+                                match accessor {
                                     SlotAccessor::TpDoc => {
                                         let doc = unsafe {
                                             slot.pfunc.cast::<c_char>().try_as_str_opt(vm)?
@@ -203,11 +213,14 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
             vec![vm.ctx.types.object_type.to_owned()]
         };
 
+        let Some(name) = name else {
+            return Err(vm.new_system_error("PyType_FromSlots requires a name slot"));
+        };
+
         let metaclass = vm.ctx.types.type_type.to_owned();
-        let class = PyType::new_heap(name.unwrap(), bases, attrs, type_slots, metaclass, &vm.ctx)
-            .map_err(|msg| {
-            vm.new_system_error(format!("Failed to create type from slots: {msg}"))
-        })?;
+        let class = PyType::new_heap(name, bases, attrs, type_slots, metaclass, &vm.ctx).map_err(
+            |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
+        )?;
 
         let attrs = &class.attributes;
         let class_static = unsafe { &*((&*class) as *const _) };
@@ -241,7 +254,7 @@ pub unsafe extern "C" fn PyObject_GetTypeData(
     obj: *mut PyObject,
     cls: *mut PyTypeObject,
 ) -> *mut c_void {
-    let cls = unsafe { &*cls };
+    let cls = unsafe { cls.assume_borrowed() };
     let base_basicsize = cls.base.deref().map_or(0, |base| base.slots.basicsize);
     let own_basicsize = cls.slots.basicsize.saturating_sub(base_basicsize);
 
