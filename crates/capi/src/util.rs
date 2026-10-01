@@ -189,6 +189,17 @@ impl FfiResult for c_double {
     }
 }
 
+impl FfiResult for crate::complexobject::Py_complex {
+    const ERR_VALUE: Self = Self {
+        real: -1.0,
+        imag: 0.0,
+    };
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 impl FfiResult<c_int> for bool {
     const ERR_VALUE: c_int = -1;
 
