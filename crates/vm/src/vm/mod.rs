@@ -2603,9 +2603,7 @@ impl VirtualMachine {
         let counted_too_deep = false;
 
         if counted_too_deep || self.check_c_stack_overflow() {
-            return Err(
-                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
-            );
+            return Err(self.new_recursion_depth_error(_where));
         }
 
         #[cfg(any(miri, target_env = "musl"))]
@@ -2632,7 +2630,7 @@ impl VirtualMachine {
         // code -- an `__add__` chain, a sort key that sorts -- takes more than
         // the margin in that many.
         if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+            return Err(self.new_recursion_depth_error(""));
         }
 
         self.recursion_depth.update(|d| d + 1);
@@ -2739,7 +2737,7 @@ impl VirtualMachine {
         iframe: &mut crate::frame::InterpreterFrame,
     ) -> PyResult<IframeEntryState> {
         if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+            return Err(self.new_recursion_depth_error(""));
         }
 
         self.recursion_depth.update(|d| d + 1);
@@ -2880,7 +2878,7 @@ impl VirtualMachine {
     ) -> PyResult<GenFrameLink> {
         self.check_recursive_call("")?;
         if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
+            return Err(self.new_recursion_depth_error(""));
         }
         self.recursion_depth.update(|d| d + 1);
 
@@ -3059,10 +3057,21 @@ impl VirtualMachine {
         self.tracing_depth.get() != 0
     }
 
+    #[cold]
+    pub fn new_recursion_depth_error(&self, _where: &str) -> PyBaseExceptionRef {
+        let _where = _where.trim();
+        let msg = if _where.is_empty() {
+            "maximum recursion depth exceeded".to_string()
+        } else {
+            format!("maximum recursion depth exceeded {_where}")
+        };
+        self.new_recursion_error(msg)
+    }
+
     // To be called right before raising the recursion depth.
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
         if self.recursion_depth.get() >= self.recursion_limit.get() {
-            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {_where}")))
+            Err(self.new_recursion_depth_error(_where))
         } else {
             Ok(())
         }

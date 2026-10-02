@@ -122,7 +122,7 @@ fn get_required_node_field<T: Node>(
     if vm.is_none(&value) {
         return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
     }
-    let recursion_context = format!(" while traversing '{typ}' node");
+    let recursion_context = format!("while traversing '{typ}' node");
     vm.with_recursion(&recursion_context, || {
         Node::ast_from_object(vm, source_file, value)
     })
@@ -177,7 +177,7 @@ fn convert_node_list_field<T: Node>(
 ) -> PyResult<Vec<T>> {
     let len = list.borrow_vec().len();
     let mut result = Vec::with_capacity(len);
-    let recursion_context = format!(" while traversing '{typ}' node");
+    let recursion_context = format!("while traversing '{typ}' node");
     for i in 0..len {
         let item = {
             let items = list.borrow_vec();
@@ -470,7 +470,7 @@ fn scan_ast_source_extent(
             for i in 0..len {
                 let field = fields.get_item(i as isize, vm)?;
                 if let Some(value) = get_attribute_from_field(vm, object, field)? {
-                    vm.with_recursion(" while scanning AST node", || {
+                    vm.with_recursion("while scanning AST node", || {
                         scan_ast_source_extent(vm, &value, extent)
                     })?;
                 }
@@ -479,13 +479,13 @@ fn scan_ast_source_extent(
     } else if let Some(list) = object.downcast_ref::<PyList>() {
         let items = list.borrow_vec().to_vec();
         for item in items {
-            vm.with_recursion(" while scanning AST node", || {
+            vm.with_recursion("while scanning AST node", || {
                 scan_ast_source_extent(vm, &item, extent)
             })?;
         }
     } else if let Some(tuple) = object.downcast_ref::<PyTuple>() {
         for item in tuple.as_slice() {
-            vm.with_recursion(" while scanning AST node", || {
+            vm.with_recursion("while scanning AST node", || {
                 scan_ast_source_extent(vm, item, extent)
             })?;
         }
