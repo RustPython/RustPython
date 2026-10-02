@@ -5,8 +5,8 @@
 use core::fmt;
 
 use crate::{
-    AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyCode},
+    AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyCode, PyStr},
     compiler::{self, CompileError, CompileOpts},
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
@@ -381,7 +381,29 @@ impl VirtualMachine {
         feature_version: i32,
         optimize: i32,
     ) -> PyResult<PyObjectRef> {
-        use crate::convert::ToPyException;
+        self.compile_string_object_with_flags_and_module(
+            source,
+            filename,
+            start,
+            flags,
+            feature_version,
+            optimize,
+            None,
+        )
+    }
+
+    #[cfg(feature = "parser")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn compile_string_object_with_flags_and_module(
+        &self,
+        source: &[u8],
+        filename: &str,
+        start: i32,
+        flags: i32,
+        feature_version: i32,
+        optimize: i32,
+        module: Option<&Py<PyStr>>,
+    ) -> PyResult<PyObjectRef> {
         use crate::stdlib::_ast;
 
         let cf = CompilerFlags::from_bits_retain(flags);
@@ -411,10 +433,29 @@ impl VirtualMachine {
             None
         };
 
+        let mut emit_ast_warning = |offset, ch| {
+            escape_warnings::warn_invalid_escape_sequence(
+                source,
+                escape_warnings::InvalidEscape::Char { ch, offset },
+                filename,
+                module,
+                self,
+            )
+            .map_err(VmCompileError::Warning)
+        };
         if is_ast_only {
             if start == CompileStart::FuncType {
-                return _ast::parse_func_type(self, source, filename, optimize, target_version)
-                    .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self));
+                return _ast::parse_func_type(
+                    self,
+                    source,
+                    filename,
+                    optimize,
+                    target_version,
+                    &mut emit_ast_warning,
+                )
+                .map_err(|e| {
+                    e.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+                });
             }
             let (parser_mode, interactive) = match start {
                 CompileStart::Single => (ruff_python_parser::Mode::Module, true),
@@ -434,14 +475,18 @@ impl VirtualMachine {
                 interactive,
                 future_features,
                 dont_imply_dedent,
+                &mut emit_ast_warning,
             )
-            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
+            .map_err(|e| {
+                e.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+            })?;
             if start == CompileStart::Single {
                 return _ast::wrap_interactive(self, &parsed);
             }
             return Ok(parsed);
         }
 
+        let mut emitted_escapes = Vec::new();
         if type_comments {
             let parser_mode = match start {
                 CompileStart::Single | CompileStart::File => ruff_python_parser::Mode::Module,
@@ -460,8 +505,20 @@ impl VirtualMachine {
                 start == CompileStart::Single,
                 future_features,
                 dont_imply_dedent,
+                |offset, ch| {
+                    emit_ast_warning(offset, ch)?;
+                    // The ordinary compiler must not emit this same escape again.
+                    emitted_escapes.push(offset);
+                    Ok(())
+                },
             )
-            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
+            .map_err(|e: VmCompileError| {
+                e.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+            })?;
+            // AST traversal need not follow source order. The later compiler
+            // uses binary search to skip these already-considered offsets.
+            emitted_escapes.sort_unstable();
+            emitted_escapes.dedup();
         }
 
         let mode = match start {
@@ -476,7 +533,7 @@ impl VirtualMachine {
         opts.future_features = future_features;
         opts.dont_imply_dedent = dont_imply_dedent;
         let code = self
-            .compile_with_opts(source, mode, filename, opts)
+            .compile_with_opts_and_module(source, mode, filename, opts, module, &emitted_escapes)
             .map_err(|err| {
                 err.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
             })?;
@@ -499,12 +556,26 @@ impl VirtualMachine {
         source_path: impl Into<String>,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, VmCompileError> {
+        self.compile_with_opts_and_module(source, mode, source_path, opts, None, &[])
+    }
+
+    pub(crate) fn compile_with_opts_and_module(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        source_path: impl Into<String>,
+        opts: CompileOpts,
+        module: Option<&Py<PyStr>>,
+        emitted_escapes: &[usize],
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
         let source_path = source_path.into();
+        #[cfg(not(feature = "parser"))]
+        let _ = (module, emitted_escapes);
         #[cfg(feature = "parser")]
         {
-            self.emit_tokenizer_syntax_warnings(source, &source_path)
+            self.emit_tokenizer_syntax_warnings(source, &source_path, module)
                 .map_err(VmCompileError::Warning)?;
-            self.emit_string_escape_warnings(source, &source_path)
+            self.emit_string_escape_warnings(source, &source_path, module, emitted_escapes)
                 .map_err(VmCompileError::Warning)?;
         }
         #[cfg(feature = "parser")]
@@ -514,19 +585,25 @@ impl VirtualMachine {
             let escalated: core::cell::Cell<Option<CompileWarningError>> =
                 core::cell::Cell::new(None);
             let mut syntax_warning_handler = |location, message| {
-                escape_warnings::warn_syntax_at_location(&source_path, location, message, self)
-                    .map_err(|warning| {
-                        escalated.set(Some(warning));
-                        // Recovered below via `escalated`, so this is never surfaced.
-                        compiler::codegen::error::CodegenError {
-                            location: Some(location),
-                            end_location: None,
-                            error: compiler::codegen::error::CodegenErrorType::SyntaxError(
-                                String::new(),
-                            ),
-                            source_path: source_path.clone(),
-                        }
-                    })
+                escape_warnings::warn_syntax_at_location(
+                    &source_path,
+                    module,
+                    location,
+                    message,
+                    self,
+                )
+                .map_err(|warning| {
+                    escalated.set(Some(warning));
+                    // Recovered below via `escalated`, so this is never surfaced.
+                    compiler::codegen::error::CodegenError {
+                        location: Some(location),
+                        end_location: None,
+                        error: compiler::codegen::error::CodegenErrorType::SyntaxError(
+                            String::new(),
+                        ),
+                        source_path: source_path.clone(),
+                    }
+                })
             };
             let result = compiler::compile_with_syntax_warning_handler(
                 source,
@@ -618,7 +695,7 @@ mod escape_warnings {
         if cs <= ce { Some((cs, ce)) } else { None }
     }
 
-    enum InvalidEscape {
+    pub(super) enum InvalidEscape {
         Char { ch: char, offset: usize },
         Octal { digits: [u8; 3], offset: usize },
     }
@@ -773,10 +850,11 @@ mod escape_warnings {
     /// Emit `SyntaxWarning` for an invalid escape sequence.
     ///
     /// `warn_invalid_escape_sequence()` in `Parser/string_parser.c`
-    fn warn_invalid_escape_sequence(
+    pub(super) fn warn_invalid_escape_sequence(
         source: &str,
         escape: InvalidEscape,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let (lineno, column) = line_offset_at(source, escape.offset());
@@ -788,7 +866,7 @@ mod escape_warnings {
             vm.ctx.new_str(warning).into(),
             fname,
             lineno,
-            None,
+            module.map(|module| module.to_owned().into()),
             vm.ctx.none(),
             None,
             None,
@@ -809,6 +887,7 @@ mod escape_warnings {
     fn warn_syntax_at_offset(
         source: &str,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         offset: usize,
         message: String,
         vm: &VirtualMachine,
@@ -821,7 +900,7 @@ mod escape_warnings {
             message.into(),
             fname,
             lineno,
-            None,
+            module.map(|module| module.to_owned().into()),
             vm.ctx.none(),
             None,
             None,
@@ -832,6 +911,7 @@ mod escape_warnings {
 
     pub(super) fn warn_syntax_at_location(
         filename: &str,
+        module: Option<&Py<PyStr>>,
         location: compiler::core::SourceLocation,
         message: String,
         vm: &VirtualMachine,
@@ -843,7 +923,7 @@ mod escape_warnings {
             message.into(),
             fname,
             location.line.get(),
-            None,
+            module.map(|module| module.to_owned().into()),
             vm.ctx.none(),
             None,
             None,
@@ -1084,13 +1164,14 @@ mod escape_warnings {
         end: usize,
         is_bytes: bool,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         if let Some((start, content_end)) =
             content_bounds(source, text_range_from_bounds(quote_index, end))
             && let Some(escape) = first_invalid_escape(source, start, content_end, is_bytes)
         {
-            warn_invalid_escape_sequence(source, escape, filename, vm)?;
+            warn_invalid_escape_sequence(source, escape, filename, module, vm)?;
         }
         Ok(())
     }
@@ -1100,13 +1181,14 @@ mod escape_warnings {
         start: usize,
         end: usize,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         if start >= end || end > source.len() {
             return Ok(());
         }
         if let Some(escape) = first_invalid_escape(source, start, end, false) {
-            return warn_invalid_escape_sequence(source, escape, filename, vm);
+            return warn_invalid_escape_sequence(source, escape, filename, module, vm);
         }
         let trailing_bs = source.as_bytes()[start..end]
             .iter()
@@ -1124,6 +1206,7 @@ mod escape_warnings {
                     offset: end - 1,
                 },
                 filename,
+                module,
                 vm,
             )?;
         }
@@ -1185,6 +1268,7 @@ mod escape_warnings {
         end: usize,
         is_raw: bool,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let bytes = source.as_bytes();
@@ -1197,7 +1281,14 @@ mod escape_warnings {
                 }
                 b'{' => {
                     if !is_raw {
-                        warn_fstring_literal_part(source, literal_start, index, filename, vm)?;
+                        warn_fstring_literal_part(
+                            source,
+                            literal_start,
+                            index,
+                            filename,
+                            module,
+                            vm,
+                        )?;
                     }
                     let close = find_interpolation_end(bytes, index, end);
                     let body_end = if close > index + 1 { close - 1 } else { close };
@@ -1207,6 +1298,7 @@ mod escape_warnings {
                         body_end,
                         Some(is_raw),
                         filename,
+                        module,
                         vm,
                     )?;
                     index = close.max(index + 1);
@@ -1220,7 +1312,7 @@ mod escape_warnings {
             }
         }
         if !is_raw {
-            warn_fstring_literal_part(source, literal_start, end, filename, vm)?;
+            warn_fstring_literal_part(source, literal_start, end, filename, module, vm)?;
         }
         Ok(())
     }
@@ -1230,9 +1322,10 @@ mod escape_warnings {
     fn emit_string_escape_warnings_unparsed(
         source: &str,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        emit_string_escape_warnings_in_range(source, 0, source.len(), None, filename, vm)
+        emit_string_escape_warnings_in_range(source, 0, source.len(), None, filename, module, vm)
     }
 
     fn emit_string_escape_warnings_in_range(
@@ -1241,6 +1334,7 @@ mod escape_warnings {
         end: usize,
         format_spec_raw: Option<bool>,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let bytes = source.as_bytes();
@@ -1275,17 +1369,20 @@ mod escape_warnings {
                                         content_end.min(end),
                                         is_raw,
                                         filename,
+                                        module,
                                         vm,
                                     )?;
                                 }
                             } else if !is_raw {
                                 warn_quoted_literal(
-                                    source, index, quote_end, is_bytes, filename, vm,
+                                    source, index, quote_end, is_bytes, filename, module, vm,
                                 )?;
                             }
                         }
                         StringPrefix::None => {
-                            warn_quoted_literal(source, index, quote_end, false, filename, vm)?;
+                            warn_quoted_literal(
+                                source, index, quote_end, false, filename, module, vm,
+                            )?;
                         }
                         StringPrefix::Invalid => {}
                     }
@@ -1296,7 +1393,15 @@ mod escape_warnings {
                     && bracket == 0
                     && brace == 0 =>
                 {
-                    scan_interpolated_content(source, index + 1, end, is_raw, filename, vm)?;
+                    scan_interpolated_content(
+                        source,
+                        index + 1,
+                        end,
+                        is_raw,
+                        filename,
+                        module,
+                        vm,
+                    )?;
                     return Ok(());
                 }
                 b'(' if format_spec_raw.is_some() => {
@@ -1332,6 +1437,7 @@ mod escape_warnings {
     fn emit_numeric_literal_warnings(
         source: &str,
         filename: &str,
+        module: Option<&Py<PyStr>>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let bytes = source.as_bytes();
@@ -1363,6 +1469,7 @@ mod escape_warnings {
                         warn_syntax_at_offset(
                             source,
                             filename,
+                            module,
                             index,
                             format!("invalid {kind} literal"),
                             vm,
@@ -1379,8 +1486,10 @@ mod escape_warnings {
     struct EscapeWarningVisitor<'a> {
         source: &'a str,
         filename: &'a str,
+        module: Option<&'a Py<PyStr>>,
         vm: &'a VirtualMachine,
         error: Option<CompileWarningError>,
+        emitted_escapes: &'a [usize],
         /// This pass runs before the compile that rejects an over-nested
         /// tree, so it has to stop itself.
         depth: usize,
@@ -1401,9 +1510,18 @@ mod escape_warnings {
         fn check_quoted_literal(&mut self, range: TextRange, is_bytes: bool) {
             if let Some((start, end)) = content_bounds(self.source, range)
                 && let Some(escape) = first_invalid_escape(self.source, start, end, is_bytes)
+                && self
+                    .emitted_escapes
+                    .binary_search(&escape.offset())
+                    .is_err()
             {
-                let result =
-                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
+                let result = warn_invalid_escape_sequence(
+                    self.source,
+                    escape,
+                    self.filename,
+                    self.module,
+                    self.vm,
+                );
                 self.record_warning(result);
             }
         }
@@ -1421,8 +1539,16 @@ mod escape_warnings {
                 return;
             }
             if let Some(escape) = first_invalid_escape(self.source, start, end, false) {
-                let result =
-                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
+                if self.emitted_escapes.binary_search(&escape.offset()).is_ok() {
+                    return;
+                }
+                let result = warn_invalid_escape_sequence(
+                    self.source,
+                    escape,
+                    self.filename,
+                    self.module,
+                    self.vm,
+                );
                 self.record_warning(result);
                 return;
             }
@@ -1440,6 +1566,7 @@ mod escape_warnings {
             if trailing_bs % 2 == 1
                 && let Some(&after) = self.source.as_bytes().get(end)
                 && (after == b'{' || after == b'}')
+                && self.emitted_escapes.binary_search(&(end - 1)).is_err()
             {
                 let result = warn_invalid_escape_sequence(
                     self.source,
@@ -1448,6 +1575,7 @@ mod escape_warnings {
                         offset: end - 1,
                     },
                     self.filename,
+                    self.module,
                     self.vm,
                 );
                 self.record_warning(result);
@@ -1547,8 +1675,9 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
+            module: Option<&Py<PyStr>>,
         ) -> Result<(), CompileWarningError> {
-            emit_numeric_literal_warnings(source, filename, self)
+            emit_numeric_literal_warnings(source, filename, module, self)
         }
 
         /// Walk all string literals in `source` and emit `SyntaxWarning` for
@@ -1557,6 +1686,8 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
+            module: Option<&Py<PyStr>>,
+            emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
             // The compile that follows rejects this source; parsing it here
             // would build a tree that exhausts the stack when dropped.
@@ -1567,14 +1698,16 @@ mod escape_warnings {
             let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
             else {
-                return emit_string_escape_warnings_unparsed(source, filename, self);
+                return emit_string_escape_warnings_unparsed(source, filename, module, self);
             };
             let ast = parsed.into_syntax();
             let mut visitor = EscapeWarningVisitor {
                 source,
                 filename,
+                module,
                 vm: self,
                 error: None,
+                emitted_escapes,
                 depth: 0,
                 depth_limit: compiler::CompileOpts::default().recursion_limit,
             };
