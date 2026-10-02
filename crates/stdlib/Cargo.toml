@@ -22,6 +22,7 @@ ssl = ["rustpython-host_env/ssl"]
 ssl-rustls = ["__ssl-rustls", "host_env", "rustls/custom-provider"]
 ssl-openssl = ["ssl", "host_env", "openssl", "openssl-sys", "foreign-types-shared", "rustpython-host_env/native-certs"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
+tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
 __ssl-rustls = ["ssl", "rustpython-host_env/ssl", "rustpython-host_env/rustls", "rustpython-host_env/native-certs", "rustls", "rustls-pemfile", "x509-parser", "pem-rfc7468", "webpki-roots"]
@@ -69,6 +70,11 @@ constant_time_eq = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
+
+# tkinter
+tk-sys = { workspace = true, optional = true }
+tcl-sys = { workspace = true, optional = true }
+widestring = { workspace = true, optional = true }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
