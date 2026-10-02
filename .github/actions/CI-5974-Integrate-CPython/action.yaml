@@ -1,0 +1,82 @@
+---
+name: 'Integrate Reference Implementation'
+description: 'Copy Reference Implementation'
+author: 'Mr. Walls'
+branding:
+  icon: 'copy'
+  color: 'purple'
+inputs:
+  into-path:
+    description: |
+      Path to Destination. Default is 'rustpython'
+    required: true
+    default: 'rustpython'
+  from-path:
+    description: |
+      Path to source. Default is 'cpython'
+    required: true
+    default: 'cpython'
+  files:
+    description: |
+      List of paths to copy from source to destination. Default is 'Lib/**/*.py'
+    required: true
+    default: 'Lib/**/*.py'
+  python-version:
+    description: |
+      The Cpython version (e.g., any valid release or tag, 3.11, 3.12, 3.13) to override setup.
+      The default is to use the value of the environment variable 'PYTHON_VERSION'.
+    default: '3.13'
+    required: true
+
+# TODO: add verification steps
+
+runs:
+  using: composite
+  steps:
+    - id: output_python
+      env:
+        PYTHON_VERSION_INPUT: ${{ inputs.python-version }}
+      name: "Detect Python"
+      if: ${{ inputs.files != '' }}
+      shell: bash
+      run: |
+        # check the python version
+        if [[ -n $PYTHON_VERSION_INPUT ]]; then
+          printf "python-version=%s\n" "${PYTHON_VERSION_INPUT}" >> "$GITHUB_OUTPUT"
+          PYTHON_VERSION=${PYTHON_VERSION_INPUT}
+        else
+          printf "python-version=%s\n" "${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+        fi
+        printf "%s\n" "PYTHON_VERSION=${PYTHON_VERSION}" >> "$GITHUB_ENV"
+        if [[ "$RUNNER_DEBUG" == "true" ]] || [[ "$ACTIONS_STEP_DEBUG" == "true" ]]; then printf "::debug::Targeting Cpython %s.\n" "${PYTHON_VERSION}" ; fi ;
+    - id: setup_mkdir_option
+      if: ${{ !cancelled() }}
+      shell: bash
+      run: |
+        # set mkdir options per platform
+        if [[ ${{ runner.os }} != 'Windows' ]] ; then
+          printf "mkdir-args=%s\n" "-v -p -m 751" >> "$GITHUB_OUTPUT"
+          printf "MKDIR_ARGS=%s\n" "-v -p -m 751" >> "$GITHUB_ENV"
+        else
+          printf "mkdir-args=%s\n" "-v -p" >> "$GITHUB_OUTPUT"
+          printf "MKDIR_ARGS=%s\n" "-v -p" >> "$GITHUB_ENV"
+        fi
+    - name: "Integrate Cpython Test files"
+      id: merge_theirs
+      shell: bash
+      if: ${{ !cancelled() && inputs.files != '' }}
+      env:
+        INPUT_FILES: ${{ inputs.files }}
+      run: |
+        printf "::group::%s\n" "Copy Reference Implementation" ;
+        for reference_file in ${INPUT_FILES}; do
+          [[ -d $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ]] || mkdir $MKDIR_ARGS $(dirname ${{ inputs.into-path }}/"${reference_file}" ) ;
+          if [[ "$reference_file" == Lib/test/* ]] ; then
+            # update patches with lib_updater tool from #6089
+            ${{ inputs.into-path }}/scripts/lib_updater.py --from ${{ inputs.into-path }}/"${reference_file}" --to ${{ inputs.from-path }}/"${reference_file}" -o ${{ inputs.into-path }}/"${reference_file}" || \
+              printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+          else
+            cp -vf ${{ inputs.from-path }}/"${reference_file}" ${{ inputs.into-path }}/"${reference_file}" || printf "::warning file='%s',title='integration failure':: Could not integrate file for Cpython %s on %s.\n" "${reference_file}" '${PYTHON_VERSION}' '${{ runner.os }}' ;
+          fi
+        done ;
+        printf "\n::endgroup::\n\n" ;
