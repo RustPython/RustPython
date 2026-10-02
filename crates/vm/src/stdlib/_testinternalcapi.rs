@@ -185,7 +185,7 @@ mod _testinternalcapi {
             &mut counts,
             args.globalnames.into_option(),
             args.attrnames.into_option(),
-            globalsns.as_deref(),
+            globalsns.as_ref(),
             builtinsns.as_deref(),
             vm,
         )?;
@@ -214,7 +214,7 @@ mod _testinternalcapi {
             &mut counts,
             args.globalnames.into_option(),
             None,
-            globalsns.as_deref(),
+            globalsns.as_ref(),
             builtinsns.as_deref(),
             vm,
         )?;
@@ -1125,7 +1125,11 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
     expanded
 }
 
-type CodeNamespaces = (PyRef<PyCode>, Option<PyRef<PyDict>>, Option<PyRef<PyDict>>);
+type CodeNamespaces = (
+    PyRef<PyCode>,
+    Option<crate::builtins::PyAnyDictRef>,
+    Option<PyRef<PyDict>>,
+);
 
 fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespaces> {
     if let Ok(func) = obj.to_owned().downcast::<PyFunction>() {
@@ -1142,19 +1146,22 @@ fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespa
     Err(vm.new_type_error("argument must be a code object or a function"))
 }
 
-fn optional_dict(
+fn optional_dict<T: From<PyRef<PyDict>>>(
     override_ns: OptionalArg<PyObjectRef>,
-    default: Option<PyRef<PyDict>>,
+    default: Option<T>,
     name: &str,
     vm: &VirtualMachine,
-) -> PyResult<Option<PyRef<PyDict>>> {
+) -> PyResult<Option<T>> {
     match override_ns.into_option() {
-        Some(obj) => obj.downcast::<PyDict>().map(Some).map_err(|obj| {
-            vm.new_type_error(format!(
-                "expected a dict for \"{name}\", got {}",
-                obj.class().name()
-            ))
-        }),
+        Some(obj) => obj
+            .downcast::<PyDict>()
+            .map(|dict| Some(dict.into()))
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "expected a dict for \"{name}\", got {}",
+                    obj.class().name()
+                ))
+            }),
         None => Ok(default),
     }
 }
@@ -1280,7 +1287,7 @@ fn set_unbound_var_counts(
     counts: &mut VarCounts,
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
-    globalsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDictRef>,
     builtinsns: Option<&Py<PyDict>>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -1317,7 +1324,7 @@ fn identify_unbound_names(
     code: &Py<PyCode>,
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
-    globalsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDictRef>,
     builtinsns: Option<&Py<PyDict>>,
     vm: &VirtualMachine,
 ) -> PyResult<(UnboundCounts, i32)> {

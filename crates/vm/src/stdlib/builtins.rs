@@ -11,7 +11,7 @@ mod builtins {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyAnyDictRef, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
@@ -415,21 +415,23 @@ mod builtins {
                 vm: &VirtualMachine,
                 func_name: &'static str,
             ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
+                if !globals.fast_isinstance(vm.ctx.types.dict_type)
+                    && !globals.fast_isinstance(vm.ctx.types.frozendict_type)
+                {
                     return Err(match func_name {
                         "eval" => {
                             let is_mapping = globals.mapping_unchecked().check();
                             vm.new_type_error(if is_mapping {
-                                "globals must be a real dict; try eval(expr, {}, mapping)"
+                                "globals must be a real dict or a frozendict; try eval(expr, {}, mapping)"
                             } else {
-                                "globals must be a dict"
+                                "globals must be a dict or a frozendict"
                             })
                         }
                         "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict, not {}",
+                            "exec() globals must be a dict or a frozendict, not {}",
                             globals.class().name()
                         )),
-                        _ => vm.new_type_error("globals must be a dict"),
+                        _ => vm.new_type_error("globals must be a dict or a frozendict"),
                     });
                 }
                 Ok(())
@@ -439,15 +441,11 @@ mod builtins {
                 Some(globals) => {
                     validate_globals_dict(&globals, vm, func_name)?;
 
-                    let globals = PyDictRef::try_from_object(vm, globals)?;
-                    if !globals.contains_key(identifier!(vm, __builtins__), vm) {
-                        let builtins_dict = vm.builtins.dict().into();
-                        globals.set_item(identifier!(vm, __builtins__), builtins_dict, vm)?;
-                    }
+                    let globals = PyAnyDictRef::try_from_object(vm, globals)?;
                     (
                         globals.clone(),
                         self.locals
-                            .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone())),
+                            .unwrap_or_else(|| ArgMapping::from_anydict_exact(globals.clone())),
                     )
                 }
                 None => (
@@ -460,7 +458,21 @@ mod builtins {
                 ),
             };
 
-            let scope = crate::scope::Scope::with_builtins(Some(locals), globals, vm);
+            let builtins = if globals.is_frozen() {
+                globals.get_item_opt(identifier!(vm, __builtins__), vm)?
+            } else {
+                globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            };
+            if builtins.is_none() {
+                if globals.is_frozen() {
+                    return Err(
+                        vm.new_type_error("cannot assign __builtins__ to frozendict globals")
+                    );
+                }
+                globals.set_item(identifier!(vm, __builtins__), vm.builtins.dict().into(), vm)?;
+            }
+
+            let scope = crate::scope::Scope::new(Some(locals), globals);
             Ok(scope)
         }
     }
@@ -700,7 +712,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyDictRef {
+    fn globals(vm: &VirtualMachine) -> PyAnyDictRef {
         vm.current_globals()
     }
 
@@ -1470,6 +1482,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "dict" => ctx.types.dict_type.to_owned(),
         "enumerate" => ctx.types.enumerate_type.to_owned(),
         "float" => ctx.types.float_type.to_owned(),
+        "frozendict" => ctx.types.frozendict_type.to_owned(),
         "frozenset" => ctx.types.frozenset_type.to_owned(),
         "filter" => ctx.types.filter_type.to_owned(),
         "int" => ctx.types.int_type.to_owned(),
