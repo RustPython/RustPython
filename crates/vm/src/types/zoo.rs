@@ -4,8 +4,8 @@ use crate::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy, function,
         generator, genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory,
-        module, namespace, object, property, pystr, range, set, singletons, slice, staticmethod,
-        super_, template, traceback, tuple,
+        module, namespace, object, property, pystr, range, sentinel, set, singletons, slice,
+        staticmethod, super_, template, traceback, tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
@@ -64,6 +64,7 @@ pub struct TypeZoo {
     pub memoryviewiterator_type: &'static Py<PyType>,
     pub tuple_type: &'static Py<PyType>,
     pub tuple_iterator_type: &'static Py<PyType>,
+    pub sentinel_type: &'static Py<PyType>,
     pub set_type: &'static Py<PyType>,
     pub set_iterator_type: &'static Py<PyType>,
     pub staticmethod_type: &'static Py<PyType>,
@@ -145,6 +146,7 @@ impl TypeZoo {
             memoryview_type: memory::PyMemoryView::init_builtin_type(),
             property_type: property::PyProperty::init_builtin_type(),
             range_type: range::PyRange::init_builtin_type(),
+            sentinel_type: sentinel::PySentinel::init_builtin_type(),
             set_type: set::PySet::init_builtin_type(),
             slice_type: slice::PySlice::init_builtin_type(),
             staticmethod_type: staticmethod::PyStaticMethod::init_builtin_type(),
@@ -265,6 +267,7 @@ impl TypeZoo {
         weakref::init(context);
         weakproxy::init(context);
         singletons::init(context);
+        sentinel::init(context);
         module::init(context);
         namespace::init(context);
         mappingproxy::init(context);
