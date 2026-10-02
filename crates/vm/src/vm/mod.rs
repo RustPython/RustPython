@@ -2585,6 +2585,33 @@ impl VirtualMachine {
         false
     }
 
+    /// Enter a native-recursion section equivalent to `Py_EnterRecursiveCall`.
+    pub fn enter_recursive_call(&self, _where: &str) -> PyResult<()> {
+        #[cfg(any(miri, target_env = "musl"))]
+        let counted_too_deep =
+            self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
+        #[cfg(not(any(miri, target_env = "musl")))]
+        let counted_too_deep = false;
+
+        if counted_too_deep || self.check_c_stack_overflow() {
+            return Err(
+                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
+            );
+        }
+
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d + 1);
+
+        Ok(())
+    }
+
+    /// Leave a native-recursion section equivalent to
+    /// `Py_LeaveRecursiveCall`.
+    pub fn leave_recursive_call(&self) {
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d.saturating_sub(1));
+    }
+
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
