@@ -157,7 +157,7 @@ pub(crate) fn warn_if_bool_fd(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(
     use crate::class::StaticType;
     if obj
         .class()
-        .is(crate::builtins::bool_::PyBool::static_type())
+        .is(unsafe { crate::builtins::bool_::PyBool::static_type() })
     {
         crate::stdlib::_warnings::warn(
             vm.ctx.exceptions.runtime_warning,
@@ -1428,7 +1428,12 @@ pub(super) mod _os {
     }
 
     #[pyattr]
-    #[pystruct_sequence(name = "stat_result", module = "os", data = "StatResultData")]
+    #[pystruct_sequence(
+        name = "stat_result",
+        module = "os",
+        data = "StatResultData",
+        interpreter_local
+    )]
     struct PyStatResult;
 
     #[pyclass(with(PyStructSequence))]
@@ -1956,12 +1961,22 @@ pub(super) mod _os {
 
     #[cfg(all(windows, not(target_os = "redox")))]
     #[pyattr]
-    #[pystruct_sequence(name = "times_result", module = "nt", data = "TimesResultData")]
+    #[pystruct_sequence(
+        name = "times_result",
+        module = "nt",
+        data = "TimesResultData",
+        interpreter_local
+    )]
     struct PyTimesResult;
 
     #[cfg(all(unix, not(windows), not(target_os = "redox")))]
     #[pyattr]
-    #[pystruct_sequence(name = "times_result", module = "posix", data = "TimesResultData")]
+    #[pystruct_sequence(
+        name = "times_result",
+        module = "posix",
+        data = "TimesResultData",
+        interpreter_local
+    )]
     struct PyTimesResult;
 
     #[cfg(all(any(unix, windows), not(target_os = "redox")))]
@@ -2170,7 +2185,12 @@ pub(super) mod _os {
     }
 
     #[pyattr]
-    #[pystruct_sequence(name = "terminal_size", module = "os", data = "TerminalSizeData")]
+    #[pystruct_sequence(
+        name = "terminal_size",
+        module = "os",
+        data = "TerminalSizeData",
+        interpreter_local
+    )]
     pub(crate) struct PyTerminalSize;
 
     #[pyclass(with(PyStructSequence))]
@@ -2188,12 +2208,22 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     #[pyattr]
-    #[pystruct_sequence(name = "uname_result", module = "nt", data = "UnameResultData")]
+    #[pystruct_sequence(
+        name = "uname_result",
+        module = "nt",
+        data = "UnameResultData",
+        interpreter_local
+    )]
     pub(crate) struct PyUnameResult;
 
     #[cfg(not(windows))]
     #[pyattr]
-    #[pystruct_sequence(name = "uname_result", module = "posix", data = "UnameResultData")]
+    #[pystruct_sequence(
+        name = "uname_result",
+        module = "posix",
+        data = "UnameResultData",
+        interpreter_local
+    )]
     pub(crate) struct PyUnameResult;
 
     #[pyclass(with(PyStructSequence))]

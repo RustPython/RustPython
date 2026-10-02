@@ -71,8 +71,8 @@ impl PyPayload for PyDict {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.dict_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.dict_type).to_owned()
     }
 
     #[inline]
@@ -1256,8 +1256,8 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $name {
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$class
+            fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+                (ctx.types.$class).to_owned()
             }
         }
 
@@ -1302,8 +1302,8 @@ macro_rules! dict_view {
 
         impl PyPayload for $iter_name {
             #[inline]
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$iter_class
+            fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+                (ctx.types.$iter_class).to_owned()
             }
         }
 
@@ -1403,8 +1403,8 @@ macro_rules! dict_view {
 
         impl PyPayload for $reverse_iter_name {
             #[inline]
-            fn class(ctx: &Context) -> &'static Py<PyType> {
-                ctx.types.$reverse_iter_class
+            fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+                (ctx.types.$reverse_iter_class).to_owned()
             }
         }
 

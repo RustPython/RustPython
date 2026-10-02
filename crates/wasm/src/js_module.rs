@@ -324,7 +324,7 @@ mod _js {
     impl JsClosure {
         fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> PyResult<Self> {
             let wasm_vm = WASMVirtualMachine {
-                id: vm.wasm_id.clone().unwrap(),
+                id: vm.wasm_id.get().unwrap().clone(),
             };
             let weak_py_obj = wasm_vm.push_held_rc(obj).unwrap()?;
             let f = move |this: JsValue, args: Box<[JsValue]>| {

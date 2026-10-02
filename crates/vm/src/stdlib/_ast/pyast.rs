@@ -5,12 +5,12 @@ use crate::convert::ToPyObject;
 
 macro_rules! impl_node {
     (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        #[pyclass(interpreter_local, module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         fields: [$($field:expr),* $(,)?],
         attributes: [$($attr:expr),* $(,)?] $(,)?
     ) => {
-        #[pyclass(module = $_mod, name = $_name, base = $base)]
+        #[pyclass(interpreter_local, module = $_mod, name = $_name, base = $base)]
         #[repr(transparent)]
         $vis struct $name($base);
 
@@ -18,12 +18,12 @@ macro_rules! impl_node {
     };
     // Without attributes
     (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        #[pyclass(interpreter_local, module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         fields: [$($field:expr),* $(,)?] $(,)?
     ) => {
         impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            #[pyclass(interpreter_local, module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [$($field),*],
             attributes: [],
@@ -31,12 +31,12 @@ macro_rules! impl_node {
     };
     // Without fields
     (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        #[pyclass(interpreter_local, module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident,
         attributes: [$($attr:expr),* $(,)?] $(,)?
     ) => {
         impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            #[pyclass(interpreter_local, module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [],
             attributes: [$($attr),*],
@@ -44,11 +44,11 @@ macro_rules! impl_node {
     };
     // Without fields and attributes
     (
-        #[pyclass(module = $_mod:literal, name = $_name:literal, base = $base:ty)]
+        #[pyclass(interpreter_local, module = $_mod:literal, name = $_name:literal, base = $base:ty)]
         $vis:vis struct $name:ident $(,)?
     ) => {
         impl_node!(
-            #[pyclass(module = $_mod, name = $_name, base = $base)]
+            #[pyclass(interpreter_local, module = $_mod, name = $_name, base = $base)]
             $vis struct $name,
             fields: [],
             attributes: [],
@@ -65,7 +65,9 @@ macro_rules! impl_base_node {
         impl_base_node!($name, attributes: [$($attr),*], optional_end_location: false);
     };
     ($name:ident, attributes: [$($attr:expr),* $(,)?], optional_end_location: $optional_end_location:expr) => {
-        #[pyclass(flags(HAS_DICT, BASETYPE))]
+        impl AstNodeType for $name {}
+
+        #[pyclass(with(AstNodeType), flags(HAS_DICT, BASETYPE))]
         impl $name {
             #[pymethod]
             fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
@@ -82,9 +84,7 @@ macro_rules! impl_base_node {
             }
 
             #[extend_class]
-            fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
-                // AST types are mutable (heap types, not IMMUTABLETYPE).
-                class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+            fn extend_class(ctx: &Context, class: &Py<PyType>) {
                 class.set_attr(
                     identifier!(ctx, _fields),
                     ctx.empty_tuple.clone().into(),
@@ -109,7 +109,9 @@ macro_rules! impl_base_node {
     };
     // Leaf node with fields and attributes
     ($name:ident, fields: [$($field:expr),*], attributes: [$($attr:expr),*]) => {
-        #[pyclass(flags(HAS_DICT, BASETYPE))]
+        impl AstNodeType for $name {}
+
+        #[pyclass(with(AstNodeType), flags(HAS_DICT, BASETYPE))]
         impl $name {
             #[pymethod]
             fn __reduce__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
@@ -126,9 +128,7 @@ macro_rules! impl_base_node {
             }
 
             #[extend_class]
-            fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-                // AST types are mutable (heap types, not IMMUTABLETYPE).
-                class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+            fn extend_class_with_fields(ctx: &Context, class: &Py<PyType>) {
                 class.set_attr(
                     identifier!(ctx, _fields),
                     ctx.new_tuple(vec![
@@ -169,30 +169,30 @@ macro_rules! impl_base_node {
     };
 }
 
-#[pyclass(module = "ast", name = "mod", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "mod", base = NodeAst)]
 pub(crate) struct NodeMod(NodeAst);
 
 impl_base_node!(NodeMod);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Module", base = NodeMod)]
+    #[pyclass(interpreter_local, module = "ast", name = "Module", base = NodeMod)]
     pub(crate) struct NodeModModule,
     fields: ["body", "type_ignores"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Interactive", base = NodeMod)]
+    #[pyclass(interpreter_local, module = "ast", name = "Interactive", base = NodeMod)]
     pub(crate) struct NodeModInteractive,
     fields: ["body"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Expression", base = NodeMod)]
+    #[pyclass(interpreter_local, module = "ast", name = "Expression", base = NodeMod)]
     pub(crate) struct NodeModExpression,
     fields: ["body"],
 );
 
-#[pyclass(module = "ast", name = "stmt", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "stmt", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeStmt(NodeAst);
 
@@ -203,199 +203,199 @@ impl_base_node!(
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "FunctionType", base = NodeMod)]
+    #[pyclass(interpreter_local, module = "ast", name = "FunctionType", base = NodeMod)]
     pub(crate) struct NodeModFunctionType,
     fields: ["argtypes", "returns"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "FunctionDef", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "FunctionDef", base = NodeStmt)]
     pub(crate) struct NodeStmtFunctionDef,
     fields: ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "AsyncFunctionDef", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "AsyncFunctionDef", base = NodeStmt)]
     pub(crate) struct NodeStmtAsyncFunctionDef,
     fields: ["name", "args", "body", "decorator_list", "returns", "type_comment", "type_params"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "ClassDef", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "ClassDef", base = NodeStmt)]
     pub(crate) struct NodeStmtClassDef,
     fields: ["name", "bases", "keywords", "body", "decorator_list", "type_params"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Return", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Return", base = NodeStmt)]
     pub(crate) struct NodeStmtReturn,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Delete", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Delete", base = NodeStmt)]
     pub(crate) struct NodeStmtDelete,
     fields: ["targets"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Assign", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Assign", base = NodeStmt)]
     pub(crate) struct NodeStmtAssign,
     fields: ["targets", "value", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TypeAlias", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "TypeAlias", base = NodeStmt)]
     pub(crate) struct NodeStmtTypeAlias,
     fields: ["name", "type_params", "value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "AugAssign", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "AugAssign", base = NodeStmt)]
     pub(crate) struct NodeStmtAugAssign,
     fields: ["target", "op", "value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "AnnAssign", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "AnnAssign", base = NodeStmt)]
     pub(crate) struct NodeStmtAnnAssign,
     fields: ["target", "annotation", "value", "simple"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "For", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "For", base = NodeStmt)]
     pub(crate) struct NodeStmtFor,
     fields: ["target", "iter", "body", "orelse", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "AsyncFor", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "AsyncFor", base = NodeStmt)]
     pub(crate) struct NodeStmtAsyncFor,
     fields: ["target", "iter", "body", "orelse", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "While", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "While", base = NodeStmt)]
     pub(crate) struct NodeStmtWhile,
     fields: ["test", "body", "orelse"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "If", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "If", base = NodeStmt)]
     pub(crate) struct NodeStmtIf,
     fields: ["test", "body", "orelse"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "With", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "With", base = NodeStmt)]
     pub(crate) struct NodeStmtWith,
     fields: ["items", "body", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "AsyncWith", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "AsyncWith", base = NodeStmt)]
     pub(crate) struct NodeStmtAsyncWith,
     fields: ["items", "body", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Match", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Match", base = NodeStmt)]
     pub(crate) struct NodeStmtMatch,
     fields: ["subject", "cases"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Raise", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Raise", base = NodeStmt)]
     pub(crate) struct NodeStmtRaise,
     fields: ["exc", "cause"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Try", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Try", base = NodeStmt)]
     pub(crate) struct NodeStmtTry,
     fields: ["body", "handlers", "orelse", "finalbody"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TryStar", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "TryStar", base = NodeStmt)]
     pub(crate) struct NodeStmtTryStar,
     fields: ["body", "handlers", "orelse", "finalbody"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Assert", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Assert", base = NodeStmt)]
     pub(crate) struct NodeStmtAssert,
     fields: ["test", "msg"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Import", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Import", base = NodeStmt)]
     pub(crate) struct NodeStmtImport,
     fields: ["names"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "ImportFrom", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "ImportFrom", base = NodeStmt)]
     pub(crate) struct NodeStmtImportFrom,
     fields: ["module", "names", "level"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Global", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Global", base = NodeStmt)]
     pub(crate) struct NodeStmtGlobal,
     fields: ["names"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Nonlocal", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Nonlocal", base = NodeStmt)]
     pub(crate) struct NodeStmtNonlocal,
     fields: ["names"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Expr", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Expr", base = NodeStmt)]
     pub(crate) struct NodeStmtExpr,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Pass", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Pass", base = NodeStmt)]
     pub(crate) struct NodeStmtPass,
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Break", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Break", base = NodeStmt)]
     pub(crate) struct NodeStmtBreak,
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-#[pyclass(module = "ast", name = "expr", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "expr", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeExpr(NodeAst);
 
@@ -406,171 +406,168 @@ impl_base_node!(
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Continue", base = NodeStmt)]
+    #[pyclass(interpreter_local, module = "ast", name = "Continue", base = NodeStmt)]
     pub(crate) struct NodeStmtContinue,
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "BoolOp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "BoolOp", base = NodeExpr)]
     pub(crate) struct NodeExprBoolOp,
     fields: ["op", "values"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "NamedExpr", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "NamedExpr", base = NodeExpr)]
     pub(crate) struct NodeExprNamedExpr,
     fields: ["target", "value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "BinOp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "BinOp", base = NodeExpr)]
     pub(crate) struct NodeExprBinOp,
     fields: ["left", "op", "right"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "UnaryOp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "UnaryOp", base = NodeExpr)]
     pub(crate) struct NodeExprUnaryOp,
     fields: ["op", "operand"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Lambda", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Lambda", base = NodeExpr)]
     pub(crate) struct NodeExprLambda,
     fields: ["args", "body"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "IfExp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "IfExp", base = NodeExpr)]
     pub(crate) struct NodeExprIfExp,
     fields: ["test", "body", "orelse"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Dict", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Dict", base = NodeExpr)]
     pub(crate) struct NodeExprDict,
     fields: ["keys", "values"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Set", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Set", base = NodeExpr)]
     pub(crate) struct NodeExprSet,
     fields: ["elts"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "ListComp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "ListComp", base = NodeExpr)]
     pub(crate) struct NodeExprListComp,
     fields: ["elt", "generators"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "SetComp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "SetComp", base = NodeExpr)]
     pub(crate) struct NodeExprSetComp,
     fields: ["elt", "generators"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "DictComp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "DictComp", base = NodeExpr)]
     pub(crate) struct NodeExprDictComp,
     fields: ["key", "value", "generators"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "GeneratorExp", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "GeneratorExp", base = NodeExpr)]
     pub(crate) struct NodeExprGeneratorExp,
     fields: ["elt", "generators"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Await", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Await", base = NodeExpr)]
     pub(crate) struct NodeExprAwait,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Yield", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Yield", base = NodeExpr)]
     pub(crate) struct NodeExprYield,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "YieldFrom", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "YieldFrom", base = NodeExpr)]
     pub(crate) struct NodeExprYieldFrom,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Compare", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Compare", base = NodeExpr)]
     pub(crate) struct NodeExprCompare,
     fields: ["left", "ops", "comparators"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Call", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Call", base = NodeExpr)]
     pub(crate) struct NodeExprCall,
     fields: ["func", "args", "keywords"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "FormattedValue", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "FormattedValue", base = NodeExpr)]
     pub(crate) struct NodeExprFormattedValue,
     fields: ["value", "conversion", "format_spec"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "JoinedStr", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "JoinedStr", base = NodeExpr)]
     pub(crate) struct NodeExprJoinedStr,
     fields: ["values"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TemplateStr", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "TemplateStr", base = NodeExpr)]
     pub(crate) struct NodeExprTemplateStr,
     fields: ["values"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Interpolation", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Interpolation", base = NodeExpr)]
     pub(crate) struct NodeExprInterpolation,
     fields: ["value", "str", "conversion", "format_spec"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-#[pyclass(module = "ast", name = "Constant", base = NodeExpr)]
+#[pyclass(interpreter_local, module = "ast", name = "Constant", base = NodeExpr)]
 #[repr(transparent)]
 pub(crate) struct NodeExprConstant(NodeExpr);
 
-#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl AstNodeType for NodeExprConstant {}
+
+#[pyclass(with(AstNodeType), flags(HAS_DICT, BASETYPE))]
 impl NodeExprConstant {
     #[extend_class]
-    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        // AST types are mutable (heap types, not IMMUTABLETYPE).
-        class
-            .slots
-            .flags
-            .remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+    fn extend_class_with_fields(ctx: &Context, class: &Py<PyType>) {
         class.set_attr(
             identifier!(ctx, _fields),
             ctx.new_tuple(vec![
@@ -603,245 +600,245 @@ impl NodeExprConstant {
 }
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Attribute", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Attribute", base = NodeExpr)]
     pub(crate) struct NodeExprAttribute,
     fields: ["value", "attr", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Subscript", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Subscript", base = NodeExpr)]
     pub(crate) struct NodeExprSubscript,
     fields: ["value", "slice", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Starred", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Starred", base = NodeExpr)]
     pub(crate) struct NodeExprStarred,
     fields: ["value", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Name", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Name", base = NodeExpr)]
     pub(crate) struct NodeExprName,
     fields: ["id", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "List", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "List", base = NodeExpr)]
     pub(crate) struct NodeExprList,
     fields: ["elts", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Tuple", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Tuple", base = NodeExpr)]
     pub(crate) struct NodeExprTuple,
     fields: ["elts", "ctx"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-#[pyclass(module = "ast", name = "expr_context", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "expr_context", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeExprContext(NodeAst);
 
 impl_base_node!(NodeExprContext);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Slice", base = NodeExpr)]
+    #[pyclass(interpreter_local, module = "ast", name = "Slice", base = NodeExpr)]
     pub(crate) struct NodeExprSlice,
     fields: ["lower", "upper", "step"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Load", base = NodeExprContext)]
+    #[pyclass(interpreter_local, module = "ast", name = "Load", base = NodeExprContext)]
     pub(crate) struct NodeExprContextLoad,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Store", base = NodeExprContext)]
+    #[pyclass(interpreter_local, module = "ast", name = "Store", base = NodeExprContext)]
     pub(crate) struct NodeExprContextStore,
 );
 
-#[pyclass(module = "ast", name = "boolop", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "boolop", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeBoolOp(NodeAst);
 
 impl_base_node!(NodeBoolOp);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Del", base = NodeExprContext)]
+    #[pyclass(interpreter_local, module = "ast", name = "Del", base = NodeExprContext)]
     pub(crate) struct NodeExprContextDel,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "And", base = NodeBoolOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "And", base = NodeBoolOp)]
     pub(crate) struct NodeBoolOpAnd,
 );
 
-#[pyclass(module = "ast", name = "operator", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "operator", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeOperator(NodeAst);
 
 impl_base_node!(NodeOperator);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Or", base = NodeBoolOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Or", base = NodeBoolOp)]
     pub(crate) struct NodeBoolOpOr,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Add", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Add", base = NodeOperator)]
     pub(crate) struct NodeOperatorAdd,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Sub", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Sub", base = NodeOperator)]
     pub(crate) struct NodeOperatorSub,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Mult", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Mult", base = NodeOperator)]
     pub(crate) struct NodeOperatorMult,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatMult", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatMult", base = NodeOperator)]
     pub(crate) struct NodeOperatorMatMult,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Div", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Div", base = NodeOperator)]
     pub(crate) struct NodeOperatorDiv,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Mod", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Mod", base = NodeOperator)]
     pub(crate) struct NodeOperatorMod,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Pow", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "Pow", base = NodeOperator)]
     pub(crate) struct NodeOperatorPow,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "LShift", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "LShift", base = NodeOperator)]
     pub(crate) struct NodeOperatorLShift,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "RShift", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "RShift", base = NodeOperator)]
     pub(crate) struct NodeOperatorRShift,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "BitOr", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "BitOr", base = NodeOperator)]
     pub(crate) struct NodeOperatorBitOr,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "BitXor", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "BitXor", base = NodeOperator)]
     pub(crate) struct NodeOperatorBitXor,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "BitAnd", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "BitAnd", base = NodeOperator)]
     pub(crate) struct NodeOperatorBitAnd,
 );
 
-#[pyclass(module = "ast", name = "unaryop", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "unaryop", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeUnaryOp(NodeAst);
 
 impl_base_node!(NodeUnaryOp);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "FloorDiv", base = NodeOperator)]
+    #[pyclass(interpreter_local, module = "ast", name = "FloorDiv", base = NodeOperator)]
     pub(crate) struct NodeOperatorFloorDiv,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Invert", base = NodeUnaryOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Invert", base = NodeUnaryOp)]
     pub(crate) struct NodeUnaryOpInvert,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Not", base = NodeUnaryOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Not", base = NodeUnaryOp)]
     pub(crate) struct NodeUnaryOpNot,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "UAdd", base = NodeUnaryOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "UAdd", base = NodeUnaryOp)]
     pub(crate) struct NodeUnaryOpUAdd,
 );
 
-#[pyclass(module = "ast", name = "cmpop", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "cmpop", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeCmpOp(NodeAst);
 
 impl_base_node!(NodeCmpOp);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "USub", base = NodeUnaryOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "USub", base = NodeUnaryOp)]
     pub(crate) struct NodeUnaryOpUSub,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Eq", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Eq", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpEq,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "NotEq", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "NotEq", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpNotEq,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Lt", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Lt", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpLt,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "LtE", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "LtE", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpLtE,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Gt", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Gt", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpGt,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "GtE", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "GtE", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpGtE,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "Is", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "Is", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpIs,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "IsNot", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "IsNot", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpIsNot,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "In", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "In", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpIn,
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "NotIn", base = NodeCmpOp)]
+    #[pyclass(interpreter_local, module = "ast", name = "NotIn", base = NodeCmpOp)]
     pub(crate) struct NodeCmpOpNotIn,
 );
 
-#[pyclass(module = "ast", name = "excepthandler", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "excepthandler", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeExceptHandler(NodeAst);
 
@@ -852,52 +849,52 @@ impl_base_node!(
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "comprehension", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "comprehension", base = NodeAst)]
     pub(crate) struct NodeComprehension,
     fields: ["target", "iter", "ifs", "is_async"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "ExceptHandler", base = NodeExceptHandler)]
+    #[pyclass(interpreter_local, module = "ast", name = "ExceptHandler", base = NodeExceptHandler)]
     pub(crate) struct NodeExceptHandlerExceptHandler,
     fields: ["type", "name", "body"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "arguments", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "arguments", base = NodeAst)]
     pub(crate) struct NodeArguments,
     fields: ["posonlyargs", "args", "vararg", "kwonlyargs", "kw_defaults", "kwarg", "defaults"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "arg", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "arg", base = NodeAst)]
     pub(crate) struct NodeArg,
     fields: ["arg", "annotation", "type_comment"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "keyword", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "keyword", base = NodeAst)]
     pub(crate) struct NodeKeyword,
     fields: ["arg", "value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "alias", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "alias", base = NodeAst)]
     pub(crate) struct NodeAlias,
     fields: ["name", "asname"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "withitem", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "withitem", base = NodeAst)]
     pub(crate) struct NodeWithItem,
     fields: ["context_expr", "optional_vars"],
 );
 
-#[pyclass(module = "ast", name = "pattern", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "pattern", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodePattern(NodeAst);
 
@@ -907,74 +904,74 @@ impl_base_node!(
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "match_case", base = NodeAst)]
+    #[pyclass(interpreter_local, module = "ast", name = "match_case", base = NodeAst)]
     pub(crate) struct NodeMatchCase,
     fields: ["pattern", "guard", "body"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchValue", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchValue", base = NodePattern)]
     pub(crate) struct NodePatternMatchValue,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchSingleton", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchSingleton", base = NodePattern)]
     pub(crate) struct NodePatternMatchSingleton,
     fields: ["value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchSequence", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchSequence", base = NodePattern)]
     pub(crate) struct NodePatternMatchSequence,
     fields: ["patterns"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchMapping", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchMapping", base = NodePattern)]
     pub(crate) struct NodePatternMatchMapping,
     fields: ["keys", "patterns", "rest"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchClass", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchClass", base = NodePattern)]
     pub(crate) struct NodePatternMatchClass,
     fields: ["cls", "patterns", "kwd_attrs", "kwd_patterns"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchStar", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchStar", base = NodePattern)]
     pub(crate) struct NodePatternMatchStar,
     fields: ["name"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchAs", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchAs", base = NodePattern)]
     pub(crate) struct NodePatternMatchAs,
     fields: ["pattern", "name"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-#[pyclass(module = "ast", name = "type_ignore", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "type_ignore", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeTypeIgnore(NodeAst);
 
 impl_base_node!(NodeTypeIgnore);
 
 impl_node!(
-    #[pyclass(module = "ast", name = "MatchOr", base = NodePattern)]
+    #[pyclass(interpreter_local, module = "ast", name = "MatchOr", base = NodePattern)]
     pub(crate) struct NodePatternMatchOr,
     fields: ["patterns"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-#[pyclass(module = "ast", name = "type_param", base = NodeAst)]
+#[pyclass(interpreter_local, module = "ast", name = "type_param", base = NodeAst)]
 #[repr(transparent)]
 pub(crate) struct NodeTypeParam(NodeAst);
 
@@ -984,27 +981,27 @@ impl_base_node!(
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TypeIgnore", base = NodeTypeIgnore)]
+    #[pyclass(interpreter_local, module = "ast", name = "TypeIgnore", base = NodeTypeIgnore)]
     pub(crate) struct NodeTypeIgnoreTypeIgnore,
     fields: ["lineno", "tag"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TypeVar", base = NodeTypeParam)]
+    #[pyclass(interpreter_local, module = "ast", name = "TypeVar", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamTypeVar,
     fields: ["name", "bound", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "ParamSpec", base = NodeTypeParam)]
+    #[pyclass(interpreter_local, module = "ast", name = "ParamSpec", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamParamSpec,
     fields: ["name", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
-    #[pyclass(module = "ast", name = "TypeVarTuple", base = NodeTypeParam)]
+    #[pyclass(interpreter_local, module = "ast", name = "TypeVarTuple", base = NodeTypeParam)]
     pub(crate) struct NodeTypeParamTypeVarTuple,
     fields: ["name", "default_value"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
@@ -1535,139 +1532,138 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
 
 pub(super) fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
-        "AST" => NodeAst::make_static_type(),
-        "mod" => NodeMod::make_static_type(),
-        "Module" => NodeModModule::make_static_type(),
-        "Interactive" => NodeModInteractive::make_static_type(),
-        "Expression" => NodeModExpression::make_static_type(),
-        "FunctionType" => NodeModFunctionType::make_static_type(),
-        "stmt" => NodeStmt::make_static_type(),
-        "FunctionDef" => NodeStmtFunctionDef::make_static_type(),
-        "AsyncFunctionDef" => NodeStmtAsyncFunctionDef::make_static_type(),
-        "ClassDef" => NodeStmtClassDef::make_static_type(),
-        "Return" => NodeStmtReturn::make_static_type(),
-        "Delete" => NodeStmtDelete::make_static_type(),
-        "Assign" => NodeStmtAssign::make_static_type(),
-        "TypeAlias" => NodeStmtTypeAlias::make_static_type(),
-        "AugAssign" => NodeStmtAugAssign::make_static_type(),
-        "AnnAssign" => NodeStmtAnnAssign::make_static_type(),
-        "For" => NodeStmtFor::make_static_type(),
-        "AsyncFor" => NodeStmtAsyncFor::make_static_type(),
-        "While" => NodeStmtWhile::make_static_type(),
-        "If" => NodeStmtIf::make_static_type(),
-        "With" => NodeStmtWith::make_static_type(),
-        "AsyncWith" => NodeStmtAsyncWith::make_static_type(),
-        "Match" => NodeStmtMatch::make_static_type(),
-        "Raise" => NodeStmtRaise::make_static_type(),
-        "Try" => NodeStmtTry::make_static_type(),
-        "TryStar" => NodeStmtTryStar::make_static_type(),
-        "Assert" => NodeStmtAssert::make_static_type(),
-        "Import" => NodeStmtImport::make_static_type(),
-        "ImportFrom" => NodeStmtImportFrom::make_static_type(),
-        "Global" => NodeStmtGlobal::make_static_type(),
-        "Nonlocal" => NodeStmtNonlocal::make_static_type(),
-        "Expr" => NodeStmtExpr::make_static_type(),
-        "Pass" => NodeStmtPass::make_static_type(),
-        "Break" => NodeStmtBreak::make_static_type(),
-        "Continue" => NodeStmtContinue::make_static_type(),
-        "expr" => NodeExpr::make_static_type(),
-        "BoolOp" => NodeExprBoolOp::make_static_type(),
-        "NamedExpr" => NodeExprNamedExpr::make_static_type(),
-        "BinOp" => NodeExprBinOp::make_static_type(),
-        "UnaryOp" => NodeExprUnaryOp::make_static_type(),
-        "Lambda" => NodeExprLambda::make_static_type(),
-        "IfExp" => NodeExprIfExp::make_static_type(),
-        "Dict" => NodeExprDict::make_static_type(),
-        "Set" => NodeExprSet::make_static_type(),
-        "ListComp" => NodeExprListComp::make_static_type(),
-        "SetComp" => NodeExprSetComp::make_static_type(),
-        "DictComp" => NodeExprDictComp::make_static_type(),
-        "GeneratorExp" => NodeExprGeneratorExp::make_static_type(),
-        "Await" => NodeExprAwait::make_static_type(),
-        "Yield" => NodeExprYield::make_static_type(),
-        "YieldFrom" => NodeExprYieldFrom::make_static_type(),
-        "Compare" => NodeExprCompare::make_static_type(),
-        "Call" => NodeExprCall::make_static_type(),
-        "FormattedValue" => NodeExprFormattedValue::make_static_type(),
-        "JoinedStr" => NodeExprJoinedStr::make_static_type(),
-        "TemplateStr" => NodeExprTemplateStr::make_static_type(),
-        "Interpolation" => NodeExprInterpolation::make_static_type(),
-        "Constant" => NodeExprConstant::make_static_type(),
-        "Attribute" => NodeExprAttribute::make_static_type(),
-        "Subscript" => NodeExprSubscript::make_static_type(),
-        "Starred" => NodeExprStarred::make_static_type(),
-        "Name" => NodeExprName::make_static_type(),
-        "List" => NodeExprList::make_static_type(),
-        "Tuple" => NodeExprTuple::make_static_type(),
-        "Slice" => NodeExprSlice::make_static_type(),
-        "expr_context" => NodeExprContext::make_static_type(),
-        "Load" => NodeExprContextLoad::make_static_type(),
-        "Store" => NodeExprContextStore::make_static_type(),
-        "Del" => NodeExprContextDel::make_static_type(),
-        "boolop" => NodeBoolOp::make_static_type(),
-        "And" => NodeBoolOpAnd::make_static_type(),
-        "Or" => NodeBoolOpOr::make_static_type(),
-        "operator" => NodeOperator::make_static_type(),
-        "Add" => NodeOperatorAdd::make_static_type(),
-        "Sub" => NodeOperatorSub::make_static_type(),
-        "Mult" => NodeOperatorMult::make_static_type(),
-        "MatMult" => NodeOperatorMatMult::make_static_type(),
-        "Div" => NodeOperatorDiv::make_static_type(),
-        "Mod" => NodeOperatorMod::make_static_type(),
-        "Pow" => NodeOperatorPow::make_static_type(),
-        "LShift" => NodeOperatorLShift::make_static_type(),
-        "RShift" => NodeOperatorRShift::make_static_type(),
-        "BitOr" => NodeOperatorBitOr::make_static_type(),
-        "BitXor" => NodeOperatorBitXor::make_static_type(),
-        "BitAnd" => NodeOperatorBitAnd::make_static_type(),
-        "FloorDiv" => NodeOperatorFloorDiv::make_static_type(),
-        "unaryop" => NodeUnaryOp::make_static_type(),
-        "Invert" => NodeUnaryOpInvert::make_static_type(),
-        "Not" => NodeUnaryOpNot::make_static_type(),
-        "UAdd" => NodeUnaryOpUAdd::make_static_type(),
-        "USub" => NodeUnaryOpUSub::make_static_type(),
-        "cmpop" => NodeCmpOp::make_static_type(),
-        "Eq" => NodeCmpOpEq::make_static_type(),
-        "NotEq" => NodeCmpOpNotEq::make_static_type(),
-        "Lt" => NodeCmpOpLt::make_static_type(),
-        "LtE" => NodeCmpOpLtE::make_static_type(),
-        "Gt" => NodeCmpOpGt::make_static_type(),
-        "GtE" => NodeCmpOpGtE::make_static_type(),
-        "Is" => NodeCmpOpIs::make_static_type(),
-        "IsNot" => NodeCmpOpIsNot::make_static_type(),
-        "In" => NodeCmpOpIn::make_static_type(),
-        "NotIn" => NodeCmpOpNotIn::make_static_type(),
-        "comprehension" => NodeComprehension::make_static_type(),
-        "excepthandler" => NodeExceptHandler::make_static_type(),
-        "ExceptHandler" => NodeExceptHandlerExceptHandler::make_static_type(),
-        "arguments" => NodeArguments::make_static_type(),
-        "arg" => NodeArg::make_static_type(),
-        "keyword" => NodeKeyword::make_static_type(),
-        "alias" => NodeAlias::make_static_type(),
-        "withitem" => NodeWithItem::make_static_type(),
-        "match_case" => NodeMatchCase::make_static_type(),
-        "pattern" => NodePattern::make_static_type(),
-        "MatchValue" => NodePatternMatchValue::make_static_type(),
-        "MatchSingleton" => NodePatternMatchSingleton::make_static_type(),
-        "MatchSequence" => NodePatternMatchSequence::make_static_type(),
-        "MatchMapping" => NodePatternMatchMapping::make_static_type(),
-        "MatchClass" => NodePatternMatchClass::make_static_type(),
-        "MatchStar" => NodePatternMatchStar::make_static_type(),
-        "MatchAs" => NodePatternMatchAs::make_static_type(),
-        "MatchOr" => NodePatternMatchOr::make_static_type(),
-        "type_ignore" => NodeTypeIgnore::make_static_type(),
-        "TypeIgnore" => NodeTypeIgnoreTypeIgnore::make_static_type(),
-        "type_param" => NodeTypeParam::make_static_type(),
-        "TypeVar" => NodeTypeParamTypeVar::make_static_type(),
-        "ParamSpec" => NodeTypeParamParamSpec::make_static_type(),
-        "TypeVarTuple" => NodeTypeParamTypeVarTuple::make_static_type(),
+        "AST" => NodeAst::make_class(&vm.ctx),
+        "mod" => NodeMod::make_class(&vm.ctx),
+        "Module" => NodeModModule::make_class(&vm.ctx),
+        "Interactive" => NodeModInteractive::make_class(&vm.ctx),
+        "Expression" => NodeModExpression::make_class(&vm.ctx),
+        "FunctionType" => NodeModFunctionType::make_class(&vm.ctx),
+        "stmt" => NodeStmt::make_class(&vm.ctx),
+        "FunctionDef" => NodeStmtFunctionDef::make_class(&vm.ctx),
+        "AsyncFunctionDef" => NodeStmtAsyncFunctionDef::make_class(&vm.ctx),
+        "ClassDef" => NodeStmtClassDef::make_class(&vm.ctx),
+        "Return" => NodeStmtReturn::make_class(&vm.ctx),
+        "Delete" => NodeStmtDelete::make_class(&vm.ctx),
+        "Assign" => NodeStmtAssign::make_class(&vm.ctx),
+        "TypeAlias" => NodeStmtTypeAlias::make_class(&vm.ctx),
+        "AugAssign" => NodeStmtAugAssign::make_class(&vm.ctx),
+        "AnnAssign" => NodeStmtAnnAssign::make_class(&vm.ctx),
+        "For" => NodeStmtFor::make_class(&vm.ctx),
+        "AsyncFor" => NodeStmtAsyncFor::make_class(&vm.ctx),
+        "While" => NodeStmtWhile::make_class(&vm.ctx),
+        "If" => NodeStmtIf::make_class(&vm.ctx),
+        "With" => NodeStmtWith::make_class(&vm.ctx),
+        "AsyncWith" => NodeStmtAsyncWith::make_class(&vm.ctx),
+        "Match" => NodeStmtMatch::make_class(&vm.ctx),
+        "Raise" => NodeStmtRaise::make_class(&vm.ctx),
+        "Try" => NodeStmtTry::make_class(&vm.ctx),
+        "TryStar" => NodeStmtTryStar::make_class(&vm.ctx),
+        "Assert" => NodeStmtAssert::make_class(&vm.ctx),
+        "Import" => NodeStmtImport::make_class(&vm.ctx),
+        "ImportFrom" => NodeStmtImportFrom::make_class(&vm.ctx),
+        "Global" => NodeStmtGlobal::make_class(&vm.ctx),
+        "Nonlocal" => NodeStmtNonlocal::make_class(&vm.ctx),
+        "Expr" => NodeStmtExpr::make_class(&vm.ctx),
+        "Pass" => NodeStmtPass::make_class(&vm.ctx),
+        "Break" => NodeStmtBreak::make_class(&vm.ctx),
+        "Continue" => NodeStmtContinue::make_class(&vm.ctx),
+        "expr" => NodeExpr::make_class(&vm.ctx),
+        "BoolOp" => NodeExprBoolOp::make_class(&vm.ctx),
+        "NamedExpr" => NodeExprNamedExpr::make_class(&vm.ctx),
+        "BinOp" => NodeExprBinOp::make_class(&vm.ctx),
+        "UnaryOp" => NodeExprUnaryOp::make_class(&vm.ctx),
+        "Lambda" => NodeExprLambda::make_class(&vm.ctx),
+        "IfExp" => NodeExprIfExp::make_class(&vm.ctx),
+        "Dict" => NodeExprDict::make_class(&vm.ctx),
+        "Set" => NodeExprSet::make_class(&vm.ctx),
+        "ListComp" => NodeExprListComp::make_class(&vm.ctx),
+        "SetComp" => NodeExprSetComp::make_class(&vm.ctx),
+        "DictComp" => NodeExprDictComp::make_class(&vm.ctx),
+        "GeneratorExp" => NodeExprGeneratorExp::make_class(&vm.ctx),
+        "Await" => NodeExprAwait::make_class(&vm.ctx),
+        "Yield" => NodeExprYield::make_class(&vm.ctx),
+        "YieldFrom" => NodeExprYieldFrom::make_class(&vm.ctx),
+        "Compare" => NodeExprCompare::make_class(&vm.ctx),
+        "Call" => NodeExprCall::make_class(&vm.ctx),
+        "FormattedValue" => NodeExprFormattedValue::make_class(&vm.ctx),
+        "JoinedStr" => NodeExprJoinedStr::make_class(&vm.ctx),
+        "TemplateStr" => NodeExprTemplateStr::make_class(&vm.ctx),
+        "Interpolation" => NodeExprInterpolation::make_class(&vm.ctx),
+        "Constant" => NodeExprConstant::make_class(&vm.ctx),
+        "Attribute" => NodeExprAttribute::make_class(&vm.ctx),
+        "Subscript" => NodeExprSubscript::make_class(&vm.ctx),
+        "Starred" => NodeExprStarred::make_class(&vm.ctx),
+        "Name" => NodeExprName::make_class(&vm.ctx),
+        "List" => NodeExprList::make_class(&vm.ctx),
+        "Tuple" => NodeExprTuple::make_class(&vm.ctx),
+        "Slice" => NodeExprSlice::make_class(&vm.ctx),
+        "expr_context" => NodeExprContext::make_class(&vm.ctx),
+        "Load" => NodeExprContextLoad::make_class(&vm.ctx),
+        "Store" => NodeExprContextStore::make_class(&vm.ctx),
+        "Del" => NodeExprContextDel::make_class(&vm.ctx),
+        "boolop" => NodeBoolOp::make_class(&vm.ctx),
+        "And" => NodeBoolOpAnd::make_class(&vm.ctx),
+        "Or" => NodeBoolOpOr::make_class(&vm.ctx),
+        "operator" => NodeOperator::make_class(&vm.ctx),
+        "Add" => NodeOperatorAdd::make_class(&vm.ctx),
+        "Sub" => NodeOperatorSub::make_class(&vm.ctx),
+        "Mult" => NodeOperatorMult::make_class(&vm.ctx),
+        "MatMult" => NodeOperatorMatMult::make_class(&vm.ctx),
+        "Div" => NodeOperatorDiv::make_class(&vm.ctx),
+        "Mod" => NodeOperatorMod::make_class(&vm.ctx),
+        "Pow" => NodeOperatorPow::make_class(&vm.ctx),
+        "LShift" => NodeOperatorLShift::make_class(&vm.ctx),
+        "RShift" => NodeOperatorRShift::make_class(&vm.ctx),
+        "BitOr" => NodeOperatorBitOr::make_class(&vm.ctx),
+        "BitXor" => NodeOperatorBitXor::make_class(&vm.ctx),
+        "BitAnd" => NodeOperatorBitAnd::make_class(&vm.ctx),
+        "FloorDiv" => NodeOperatorFloorDiv::make_class(&vm.ctx),
+        "unaryop" => NodeUnaryOp::make_class(&vm.ctx),
+        "Invert" => NodeUnaryOpInvert::make_class(&vm.ctx),
+        "Not" => NodeUnaryOpNot::make_class(&vm.ctx),
+        "UAdd" => NodeUnaryOpUAdd::make_class(&vm.ctx),
+        "USub" => NodeUnaryOpUSub::make_class(&vm.ctx),
+        "cmpop" => NodeCmpOp::make_class(&vm.ctx),
+        "Eq" => NodeCmpOpEq::make_class(&vm.ctx),
+        "NotEq" => NodeCmpOpNotEq::make_class(&vm.ctx),
+        "Lt" => NodeCmpOpLt::make_class(&vm.ctx),
+        "LtE" => NodeCmpOpLtE::make_class(&vm.ctx),
+        "Gt" => NodeCmpOpGt::make_class(&vm.ctx),
+        "GtE" => NodeCmpOpGtE::make_class(&vm.ctx),
+        "Is" => NodeCmpOpIs::make_class(&vm.ctx),
+        "IsNot" => NodeCmpOpIsNot::make_class(&vm.ctx),
+        "In" => NodeCmpOpIn::make_class(&vm.ctx),
+        "NotIn" => NodeCmpOpNotIn::make_class(&vm.ctx),
+        "comprehension" => NodeComprehension::make_class(&vm.ctx),
+        "excepthandler" => NodeExceptHandler::make_class(&vm.ctx),
+        "ExceptHandler" => NodeExceptHandlerExceptHandler::make_class(&vm.ctx),
+        "arguments" => NodeArguments::make_class(&vm.ctx),
+        "arg" => NodeArg::make_class(&vm.ctx),
+        "keyword" => NodeKeyword::make_class(&vm.ctx),
+        "alias" => NodeAlias::make_class(&vm.ctx),
+        "withitem" => NodeWithItem::make_class(&vm.ctx),
+        "match_case" => NodeMatchCase::make_class(&vm.ctx),
+        "pattern" => NodePattern::make_class(&vm.ctx),
+        "MatchValue" => NodePatternMatchValue::make_class(&vm.ctx),
+        "MatchSingleton" => NodePatternMatchSingleton::make_class(&vm.ctx),
+        "MatchSequence" => NodePatternMatchSequence::make_class(&vm.ctx),
+        "MatchMapping" => NodePatternMatchMapping::make_class(&vm.ctx),
+        "MatchClass" => NodePatternMatchClass::make_class(&vm.ctx),
+        "MatchStar" => NodePatternMatchStar::make_class(&vm.ctx),
+        "MatchAs" => NodePatternMatchAs::make_class(&vm.ctx),
+        "MatchOr" => NodePatternMatchOr::make_class(&vm.ctx),
+        "type_ignore" => NodeTypeIgnore::make_class(&vm.ctx),
+        "TypeIgnore" => NodeTypeIgnoreTypeIgnore::make_class(&vm.ctx),
+        "type_param" => NodeTypeParam::make_class(&vm.ctx),
+        "TypeVar" => NodeTypeParamTypeVar::make_class(&vm.ctx),
+        "ParamSpec" => NodeTypeParamParamSpec::make_class(&vm.ctx),
+        "TypeVarTuple" => NodeTypeParamTypeVarTuple::make_class(&vm.ctx),
     });
 
     // Populate _field_types with real Python type objects
     populate_field_types(vm, module);
     populate_singletons(vm, module);
     force_ast_module_name(vm, module);
-    populate_repr(vm, module);
 }
 
 fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
@@ -1804,17 +1800,5 @@ fn force_ast_module_name(vm: &VirtualMachine, module: &Py<PyModule>) {
             continue;
         };
         type_obj.set_attr(identifier!(vm, __module__), ast_name.clone().into());
-    }
-}
-
-fn populate_repr(_vm: &VirtualMachine, module: &Py<PyModule>) {
-    for (_name, value) in &module.dict() {
-        let Some(type_obj) = value.downcast_ref::<PyType>() else {
-            continue;
-        };
-        type_obj
-            .slots
-            .repr
-            .store(Some(super::python::_ast::ast_repr));
     }
 }

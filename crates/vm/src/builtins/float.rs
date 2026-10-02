@@ -50,8 +50,8 @@ impl PyPayload for PyFloat {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.float_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.float_type).to_owned()
     }
 
     #[inline]

@@ -2,8 +2,6 @@
 
 pub(crate) use _codecs::module_def;
 
-use crate::common::static_cell::StaticCell;
-
 #[pymodule(with(#[cfg(windows)] _codecs_windows))]
 mod _codecs {
     use core::hint::cold_path;
@@ -280,14 +278,12 @@ mod _codecs {
 
     #[pyfunction]
     fn readbuffer_encode(args: ReadBufferEncodeArgs, vm: &VirtualMachine) -> PyResult {
-        rustpython_common::static_cell!(
-            static FUNC: PyObjectRef;
-        );
+        struct ReadBufferEncode;
         let mut forwarded = vec![args.data];
         if let Some(errors) = args.errors {
             forwarded.push(errors);
         }
-        super::delegate_pycodecs(&FUNC, "readbuffer_encode", forwarded, vm)
+        super::delegate_pycodecs::<ReadBufferEncode>("readbuffer_encode", forwarded, vm)
     }
 
     #[derive(FromArgs)]
@@ -630,10 +626,8 @@ mod _codecs {
 
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{
-            rustpython_common::static_cell!(
-                static FUNC: PyObjectRef;
-            );
-            super::delegate_pycodecs(&FUNC, stringify!($name), $args, $vm)
+            struct CodecFunction;
+            super::delegate_pycodecs::<CodecFunction>(stringify!($name), $args, $vm)
         }};
     }
 
@@ -699,13 +693,12 @@ mod _codecs {
 }
 
 #[inline]
-fn delegate_pycodecs(
-    cell: &'static StaticCell<crate::PyObjectRef>,
+fn delegate_pycodecs<K: 'static>(
     name: &'static str,
     args: Vec<crate::PyObjectRef>,
     vm: &crate::VirtualMachine,
 ) -> crate::PyResult {
-    let f = cell.get_or_try_init(|| {
+    let f = vm.__try_cached_native::<K, _, _>(|| {
         let module = vm.import("_pycodecs", 0)?;
         module.get_attr(name, vm)
     })?;

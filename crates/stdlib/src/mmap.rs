@@ -6,7 +6,8 @@ pub(crate) use mmap::module_def;
 mod mmap {
     use crate::common::{
         borrow::{BorrowedValue, BorrowedValueMut},
-        lock::{MapImmutable, PyMutex, PyMutexGuard},
+        lock::{PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard},
+        rc::PyRc,
     };
     use crate::vm::{
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -184,8 +185,13 @@ mod mmap {
     #[pyclass(name = "mmap")]
     #[derive(Debug, PyPayload)]
     struct PyMmap {
+        storage: PyRc<MmapStorage>,
+    }
+
+    #[derive(Debug)]
+    struct MmapStorage {
         closed: AtomicCell<bool>,
-        mmap: PyMutex<Option<MmapObj>>,
+        mmap: PyDetachingRwLock<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
         #[cfg(windows)]
@@ -199,7 +205,34 @@ mod mmap {
         trackfd: bool,
     }
 
-    impl PyMmap {
+    impl Deref for PyMmap {
+        type Target = MmapStorage;
+        fn deref(&self) -> &Self::Target {
+            &self.storage
+        }
+    }
+
+    #[derive(Debug)]
+    struct SharedMmap(PyRc<MmapStorage>);
+
+    impl Drop for SharedMmap {
+        fn drop(&mut self) {
+            self.0.exports.fetch_sub(1);
+        }
+    }
+
+    // SAFETY: exported storage cannot be resized or closed, contains no Python
+    // references, and serializes all views using the mapping's original mutex.
+    unsafe impl crate::vm::protocol::SharedBufferStorage for SharedMmap {
+        fn read(&self) -> BorrowedValue<'_, [u8]> {
+            self.0.as_bytes()
+        }
+        fn write(&self) -> BorrowedValueMut<'_, [u8]> {
+            self.0.as_bytes_mut()
+        }
+    }
+
+    impl MmapStorage {
         /// Close the underlying file handle/descriptor if open
         fn close_handle(&self) {
             #[cfg(unix)]
@@ -217,7 +250,7 @@ mod mmap {
         }
     }
 
-    impl Drop for PyMmap {
+    impl Drop for MmapStorage {
         fn drop(&mut self) {
             self.close_handle();
         }
@@ -467,19 +500,21 @@ mod mmap {
             .map_err(|e| e.to_pyexception(vm))?;
 
             Ok(Self {
-                closed: AtomicCell::new(false),
-                mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
-                fd: AtomicCell::new(if trackfd {
-                    fd.map_or(-1, |owned| owned.into_raw())
-                } else {
-                    -1
+                storage: PyRc::new(MmapStorage {
+                    closed: AtomicCell::new(false),
+                    mmap: PyDetachingRwLock::new(Some(MmapObj::Mapped(mmap))),
+                    fd: AtomicCell::new(if trackfd {
+                        fd.map_or(-1, |owned| owned.into_raw())
+                    } else {
+                        -1
+                    }),
+                    offset,
+                    size: AtomicCell::new(map_size),
+                    pos: AtomicCell::new(0),
+                    exports: AtomicCell::new(0),
+                    access,
+                    trackfd,
                 }),
-                offset,
-                size: AtomicCell::new(map_size),
-                pos: AtomicCell::new(0),
-                exports: AtomicCell::new(0),
-                access,
-                trackfd,
             })
         }
 
@@ -605,14 +640,16 @@ mod mmap {
                 })?;
 
                 return Ok(Self {
-                    closed: AtomicCell::new(false),
-                    mmap: PyMutex::new(Some(MmapObj::Named(named))),
-                    handle: AtomicCell::new(host_mmap::INVALID_HANDLE as isize),
-                    offset,
-                    size: AtomicCell::new(map_size),
-                    pos: AtomicCell::new(0),
-                    exports: AtomicCell::new(0),
-                    access,
+                    storage: PyRc::new(MmapStorage {
+                        closed: AtomicCell::new(false),
+                        mmap: PyDetachingRwLock::new(Some(MmapObj::Named(named))),
+                        handle: AtomicCell::new(host_mmap::INVALID_HANDLE as isize),
+                        offset,
+                        size: AtomicCell::new(map_size),
+                        pos: AtomicCell::new(0),
+                        exports: AtomicCell::new(0),
+                        access,
+                    }),
                 });
             }
 
@@ -627,19 +664,26 @@ mod mmap {
             };
 
             Ok(Self {
-                closed: AtomicCell::new(false),
-                mmap: PyMutex::new(Some(mmap)),
-                handle: AtomicCell::new(handle),
-                offset,
-                size: AtomicCell::new(map_size),
-                pos: AtomicCell::new(0),
-                exports: AtomicCell::new(0),
-                access,
+                storage: PyRc::new(MmapStorage {
+                    closed: AtomicCell::new(false),
+                    mmap: PyDetachingRwLock::new(Some(mmap)),
+                    handle: AtomicCell::new(handle),
+                    offset,
+                    size: AtomicCell::new(map_size),
+                    pos: AtomicCell::new(0),
+                    exports: AtomicCell::new(0),
+                    access,
+                }),
             })
         }
     }
 
     static BUFFER_METHODS: BufferMethods = BufferMethods {
+        shared_storage: Some(|buffer| {
+            let storage = buffer.obj_as::<PyMmap>().storage.clone();
+            storage.exports.fetch_add(1);
+            Some(PyRc::new(SharedMmap(storage)))
+        }),
         obj_bytes: |buffer| buffer.obj_as::<PyMmap>().as_bytes(),
         obj_bytes_mut: |buffer| buffer.obj_as::<PyMmap>().as_bytes_mut(),
         release: |buffer| {
@@ -653,7 +697,12 @@ mod mmap {
     impl AsBuffer for PyMmap {
         const RELEASE_BUFFER: bool = true;
 
-        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let mmap = zelf.mmap.read();
+            if mmap.is_none() {
+                drop(mmap);
+                return Err(vm.new_value_error("mmap closed or invalid"));
+            }
             let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
@@ -712,13 +761,9 @@ mod mmap {
         }
     }
 
-    #[pyclass(
-        with(Constructor, AsMapping, AsSequence, AsBuffer, Representable),
-        flags(BASETYPE, HAS_WEAKREF)
-    )]
-    impl PyMmap {
+    impl MmapStorage {
         fn as_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-            PyMutexGuard::map(self.mmap.lock(), |m| {
+            PyDetachingRwLockWriteGuard::map(self.mmap.write(), |m| {
                 match m.as_mut().expect("mmap closed or invalid") {
                     MmapObj::Mapped(mmap) => mmap.as_mut_slice(),
                     #[cfg(windows)]
@@ -729,12 +774,18 @@ mod mmap {
         }
 
         fn as_bytes(&self) -> BorrowedValue<'_, [u8]> {
-            PyMutexGuard::map_immutable(self.mmap.lock(), |m| {
+            PyDetachingRwLockReadGuard::map(self.mmap.read(), |m| {
                 m.as_ref().expect("mmap closed or invalid").as_slice()
             })
             .into()
         }
+    }
 
+    #[pyclass(
+        with(Constructor, AsMapping, AsSequence, AsBuffer, Representable),
+        flags(BASETYPE, HAS_WEAKREF)
+    )]
+    impl PyMmap {
         fn __len__(&self) -> usize {
             self.size.load()
         }
@@ -766,8 +817,11 @@ mod mmap {
             }
         }
 
-        fn check_valid(&self, vm: &VirtualMachine) -> PyResult<PyMutexGuard<'_, Option<MmapObj>>> {
-            let m = self.mmap.lock();
+        fn check_valid(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyDetachingRwLockWriteGuard<'_, Option<MmapObj>>> {
+            let m = self.mmap.write();
 
             if m.is_none() {
                 return Err(vm.new_value_error("mmap closed or invalid"));
@@ -810,7 +864,11 @@ mod mmap {
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
 
-            let mut mmap = zelf.mmap.lock();
+            let mut mmap = zelf.mmap.write();
+            if zelf.exports.load() > 0 {
+                drop(mmap);
+                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
+            }
             zelf.closed.store(true);
             *mmap = None;
 
@@ -1061,7 +1119,7 @@ mod mmap {
             let handle = zelf.handle.load();
 
             // Get the lock on mmap
-            let mut mmap_guard = zelf.mmap.lock();
+            let mut mmap_guard = zelf.mmap.write();
 
             // Check if this is a Named mmap - these cannot be resized
             if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
@@ -1455,7 +1513,7 @@ mod mmap {
     impl Representable for PyMmap {
         #[inline]
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            let mmap = zelf.mmap.lock();
+            let mmap = zelf.mmap.write();
 
             if mmap.is_none() {
                 return Ok("<mmap.mmap closed=True>".to_owned());

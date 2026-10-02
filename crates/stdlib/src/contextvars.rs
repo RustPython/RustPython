@@ -630,7 +630,9 @@ mod _contextvars {
         fn old_value(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyObjectRef {
             match &zelf.old_value {
                 Some(value) => value.clone(),
-                None => ContextTokenMissing::static_type().to_owned().into(),
+                None => unsafe { ContextTokenMissing::static_type() }
+                    .to_owned()
+                    .into(),
             }
         }
 
@@ -714,8 +716,15 @@ mod _contextvars {
     ) -> PyResult<()> {
         __module_exec(vm, module);
 
-        let token_type = module.get_attr("Token", vm)?;
-        token_type.set_attr("MISSING", ContextTokenMissing::static_type().to_owned(), vm)?;
+        let token_type = module
+            .get_attr("Token", vm)?
+            .downcast::<crate::vm::builtins::PyType>()
+            .expect("Token is a native type");
+        token_type.set_str_attr(
+            "MISSING",
+            unsafe { ContextTokenMissing::static_type() }.to_owned(),
+            &vm.ctx,
+        );
 
         Ok(())
     }

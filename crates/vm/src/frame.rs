@@ -79,7 +79,10 @@ unsafe fn owned_chain_frame(iframe: *const InterpreterFrame) -> Option<FrameObje
 
 /// The current thread's topmost frame object, if any.
 #[must_use]
-pub fn current_thread_frame() -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn current_thread_frame() -> Option<FrameObjectRef> {
     let ptr = crate::vm::thread::get_current_frame();
     unsafe { owned_chain_frame(ptr) }
 }
@@ -107,7 +110,7 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_globals() -> Option<PyDictRef> {
+pub(crate) fn current_globals() -> Option<PyDictRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -118,7 +121,7 @@ pub fn current_globals() -> Option<PyDictRef> {
 /// Read the code object from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_code() -> Option<PyRef<PyCode>> {
+pub(crate) fn current_code() -> Option<PyRef<PyCode>> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -128,7 +131,7 @@ pub fn current_code() -> Option<PyRef<PyCode>> {
 
 /// Read the builtins object from the topmost frame on this thread's chain.
 #[must_use]
-pub fn current_builtins() -> Option<PyObjectRef> {
+pub(crate) fn current_builtins() -> Option<PyObjectRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -157,7 +160,12 @@ pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObject
 /// If a FrameObject wrapping `target` InterpreterFrame is on the current
 /// thread's chain, return an owned reference to it; otherwise `None`.
 #[must_use]
-pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn find_owned_chain_frame_by_iframe(
+    target: *const InterpreterFrame,
+) -> Option<FrameObjectRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         if core::ptr::eq(cur, target) {
@@ -171,7 +179,10 @@ pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Opti
 /// If `target` FrameObject is on the current thread's chain, return an
 /// owned reference to it; otherwise `None`. Presence on the chain proves liveness.
 #[must_use]
-pub fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         let iframe_ref = unsafe { &*cur };
@@ -188,7 +199,7 @@ pub fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectR
 
 /// Invoke `f` for each frame on the current thread's chain, from the
 /// topmost frame down to the bottom.
-pub fn for_each_current_frame(mut f: impl FnMut(&Py<FrameObject>)) {
+pub(crate) fn for_each_current_frame(mut f: impl FnMut(&Py<FrameObject>)) {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         let iframe_ref = unsafe { &*cur };
@@ -291,9 +302,9 @@ pub(crate) const BORROW_LOCAL_LOADS: bool = true;
 /// Unified storage for local variables and evaluation stack.
 ///
 /// Memory layout (each slot is `usize`-sized):
-///   `[0..nlocalsplus)` — fastlocals (`Option<PyObjectRef>`)
-///   `[nlocalsplus..nlocalsplus+stack_top)` — active evaluation stack (`Option<PyStackRef>`)
-///   `[nlocalsplus+stack_top..capacity)` — unused stack capacity
+///   `[0..nlocalsplus)` â€” fastlocals (`Option<PyObjectRef>`)
+///   `[nlocalsplus..nlocalsplus+stack_top)` â€” active evaluation stack (`Option<PyStackRef>`)
+///   `[nlocalsplus+stack_top..capacity)` â€” unused stack capacity
 ///
 /// Both `Option<PyObjectRef>` and `Option<PyStackRef>` are `usize`-sized
 /// (niche optimization on NonNull / NonZeroUsize). The raw storage is
@@ -597,7 +608,7 @@ impl LocalsPlus {
     ///
     /// A borrowed ref is only sound while whatever it points at is guaranteed
     /// to outlive it, which stops holding where the frame itself outlives the
-    /// running block — at a yield, where the stack is saved with the frame.
+    /// running block â€” at a yield, where the stack is saved with the frame.
     fn promote_stack(&mut self) {
         for idx in 0..self.stack_top as usize {
             if let Some(stack_ref) = self.stack_index_mut(idx) {
@@ -919,7 +930,7 @@ impl Default for FrameColdData {
 /// then be executed through safe APIs such as `run_iframe`.
 #[repr(C)]
 pub struct InterpreterFrame {
-    // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
+    // Borrowed pointers â€” owned by FrameObject or by PyFunction on caller's stack.
     pub(crate) code: *const Py<PyCode>,
     pub(crate) func_obj: *const PyObject, // nullable
     pub(crate) globals: *const Py<PyDict>,
@@ -1044,7 +1055,7 @@ impl InterpreterFrame {
     /// Allocate an InterpreterFrame and its LocalsPlus data together on the
     /// thread data stack in a single bump allocation.
     ///
-    /// Layout: `[InterpreterFrame | localsplus usize×capacity]`
+    /// Layout: `[InterpreterFrame | localsplus usizeÃ—capacity]`
     ///
     /// Returns a mutable reference whose lifetime is bounded by the data
     /// stack's LIFO discipline. The caller must call
@@ -1127,7 +1138,7 @@ impl InterpreterFrame {
     /// backing store.
     /// Returns `None` if this frame is not datastack-allocated.
     ///
-    /// After this call, the InterpreterFrame at `self` is logically dead —
+    /// After this call, the InterpreterFrame at `self` is logically dead â€”
     /// the caller must not use `self` again except to pass the returned
     /// base to `vm.datastack_pop()`.
     pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<(*mut u8, usize)> {
@@ -1194,7 +1205,7 @@ impl InterpreterFrame {
     ///
     /// Nothing links the copy back to this frame: the owning thread will not
     /// find it at `exit_iframe` and so never writes into it once the world
-    /// restarts. That is the whole point — a linked copy is a buffer the owner
+    /// restarts. That is the whole point â€” a linked copy is a buffer the owner
     /// rewrites slot by slot while the reader clones out of it.
     ///
     /// # Safety
@@ -1273,7 +1284,7 @@ impl InterpreterFrame {
         // runs, every reader resolves it through `find_live_source_iframe`, and
         // `exit_iframe` fills these slots from the live frame as it returns.
         // Copying the values here instead would give each of them a second
-        // reference lasting as long as this FrameObject — a frame reached by
+        // reference lasting as long as this FrameObject â€” a frame reached by
         // one traceback entry would keep all of its locals alive.
         let nlocalsplus = code.localspluskinds.len() as u32;
         let localsplus = LocalsPlus {
@@ -1300,7 +1311,7 @@ impl InterpreterFrame {
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: core::cell::Cell::new(self.prev_line.get()),
             generator: PyAtomicBorrow::new(),
-            // Do NOT copy previous — it may point to stack-allocated frames
+            // Do NOT copy previous â€” it may point to stack-allocated frames
             // that become dangling after their call returns. The f_back chain
             // is resolved through the TLS CURRENT_FRAME chain instead.
             previous: Radium::new(0),
@@ -1341,7 +1352,7 @@ impl InterpreterFrame {
 
         // Keep the FrameObject alive by storing it in temporary_refs.
         // GC tracking is deferred to `exit_iframe`, where the frame is no
-        // longer executing and temporary_refs is cleared — at that
+        // longer executing and temporary_refs is cleared â€” at that
         // point the FrameObject is self-sustaining and GC can safely
         // traverse and collect it.
         self.cold()
@@ -1365,7 +1376,7 @@ impl InterpreterFrame {
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
-        // Empty localsplus — reads go through find_live_source_iframe.
+        // Empty localsplus â€” reads go through find_live_source_iframe.
         let nlocalsplus = code.localspluskinds.len() as u32;
         let localsplus = LocalsPlus {
             data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
@@ -1447,9 +1458,9 @@ impl InterpreterFrame {
     /// `prev_line` is normally only updated on the cold 'line'-trace-event
     /// path (see the dispatch loop in `ExecutingFrame::run`), so it can go
     /// stale while a frame runs untraced. Call this whenever a trace
-    /// function is newly installed on an already-executing frame — e.g.
+    /// function is newly installed on an already-executing frame â€” e.g.
     /// `frame.f_trace = ...` from inside a running frame, or a per-frame
-    /// trace being installed at a 'call' event — so the very next
+    /// trace being installed at a 'call' event â€” so the very next
     /// instruction doesn't fire a spurious 'line' event for a line that
     /// was already current before tracing started.
     pub(crate) fn sync_prev_line_from_lasti(&self) {
@@ -1529,7 +1540,7 @@ pub struct FrameObject {
     // The executing iframe reads this when it points at the frame object.
     #[pymember(name = "f_trace_lines", writable)]
     pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
-    // Owned references — keep the pointed-to objects alive for InterpreterFrame's
+    // Owned references â€” keep the pointed-to objects alive for InterpreterFrame's
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
     pub(crate) owned_code: Option<PyRef<PyCode>>,
@@ -1621,8 +1632,8 @@ impl PyPayload for FrameObject {
     const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.frame_type).to_owned()
     }
 
     #[inline]
@@ -1759,8 +1770,8 @@ pub enum ExecutionResult {
 ///       exit: END_SEND
 /// ```
 ///
-/// A value the sub-generator yields is re-yielded by the trampoline itself —
-/// park `lasti` at `resumed_at`, hand the value to the next frame out — so a
+/// A value the sub-generator yields is re-yielded by the trampoline itself â€”
+/// park `lasti` at `resumed_at`, hand the value to the next frame out â€” so a
 /// level of delegation runs none of its own instructions. Once the
 /// sub-generator is done instead, its `StopIteration` value is pushed and the
 /// frame carries on at `exit`, which is what `SEND` itself would have done.
@@ -1773,7 +1784,7 @@ pub(crate) struct GenCont {
     pub(crate) exit: u32,
     /// Where the skipped `YIELD_VALUE` leaves `lasti`. Zero where a
     /// suspended frame has no continuation at all, i.e. it is waiting on an
-    /// ordinary call rather than on a generator — no frame parked at a `SEND`
+    /// ordinary call rather than on a generator â€” no frame parked at a `SEND`
     /// can have `lasti` 0, so the two never collide.
     pub(crate) resumed_at: u32,
 }
@@ -1820,7 +1831,7 @@ impl FrameObject {
         };
 
         // Pointers are initially set from owned fields' references but will be
-        // dangling after the FrameObject moves into heap allocation — they get
+        // dangling after the FrameObject moves into heap allocation â€” they get
         // patched by `init_iframe_ptrs` after `into_ref`.
         let iframe = unsafe {
             // SAFETY: `init_iframe_ptrs` overwrites these pointers after
@@ -2539,7 +2550,7 @@ impl Py<FrameObject> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        // SAFETY: same as `with_exec` — only one thread at a time executes a
+        // SAFETY: same as `with_exec` â€” only one thread at a time executes a
         // given frame, enforced by the owner field and the running claim.
         let iframe = unsafe { self.iframe_mut() };
         if let Some(value) = value {
@@ -2671,9 +2682,9 @@ pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize)
 /// tries the caller's exception table via `unwind_blocks`.
 ///
 /// Returns:
-/// - `Ok(None)` — handler found, the caller's `run_iframe` can be re-entered
-/// - `Ok(Some(result))` — handler returned a result (break from the run loop)
-/// - `Err(exc)` — no handler, exception propagates to the next caller
+/// - `Ok(None)` â€” handler found, the caller's `run_iframe` can be re-entered
+/// - `Ok(Some(result))` â€” handler returned a result (break from the run loop)
+/// - `Err(exc)` â€” no handler, exception propagates to the next caller
 pub(crate) fn trampoline_handle_exception(
     iframe: &mut InterpreterFrame,
     exception: &Py<PyBaseException>,
@@ -2786,9 +2797,9 @@ pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
 /// The sub-generator a frame suspended in a `yield from` / `await` is
 /// delegating to, if the trampoline can resume it in this frame's place.
 ///
-/// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
+/// Recognizes the shape documented on [`GenCont`] â€” `lasti` at the `RESUME`
 /// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
-/// stack — and requires the `SEND` to have already specialized to `SendGen`,
+/// stack â€” and requires the `SEND` to have already specialized to `SendGen`,
 /// so that a `Send` still collecting specialization feedback keeps running
 /// normally. The frame is left untouched; `park_at_send` commits to it.
 pub(crate) fn yield_from_delegate(
@@ -2850,7 +2861,7 @@ pub(crate) fn yield_from_delegate(
 }
 
 /// Park a frame the trampoline is about to run a delegate for, exactly where
-/// the frame's own `SEND` would have left it — one code unit before the
+/// the frame's own `SEND` would have left it â€” one code unit before the
 /// `RESUME` the skipped `YIELD_VALUE` leads to, which is that `YIELD_VALUE`
 /// itself, so simply running the frame from there stays correct.
 #[inline]
@@ -2863,7 +2874,7 @@ pub(crate) fn park_at_send(iframe: &mut InterpreterFrame, cont: GenCont) {
 ///
 /// This is what makes handing a chain to the trampoline worth its setup: one
 /// lone level is cheaper to send into from the eval loop the caller is
-/// already in — an `await` of a future's `__await__`, which yields once and
+/// already in â€” an `await` of a future's `__await__`, which yields once and
 /// then returns, is the shape that would otherwise pay and never collect.
 pub(crate) fn is_delegating(coro: &Coro) -> bool {
     let iframe = coro.frame_ref().iframe();
@@ -3333,7 +3344,7 @@ impl ExecutingFrame<'_> {
             .is_some_and(|c| c.trace.lock().is_some())
     }
 
-    /// PY_START / PY_RESUME → PyTrace_CALL. Fired from the first RESUME of
+    /// PY_START / PY_RESUME â†’ PyTrace_CALL. Fired from the first RESUME of
     /// this activation so lasti is already the resume unit
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
@@ -3521,7 +3532,7 @@ impl ExecutingFrame<'_> {
     }
 
     /// Fire 'exception' trace event (sys.settrace) with (type, value, traceback) tuple.
-    /// Matches `_PyEval_MonitorRaise` → `PY_MONITORING_EVENT_RAISE` →
+    /// Matches `_PyEval_MonitorRaise` â†’ `PY_MONITORING_EVENT_RAISE` â†’
     /// `sys_trace_exception_func` in legacy_tracing.c.
     fn fire_exception_trace(&self, exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<()> {
         if vm.use_tracing.get() && self.trace_is_set(vm) {
@@ -3584,7 +3595,7 @@ impl ExecutingFrame<'_> {
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
             // (frames entered before sys.settrace() have trace=None).
-            // Skip RESUME – it should not generate user-visible line events.
+            // Skip RESUME â€“ it should not generate user-visible line events.
             // Skip NO_LOCATION units (addr2line == -1); the locations table
             // fills those with a dummy line, which would emit a 'line'
             // event whose f_lineno is None.
@@ -3666,7 +3677,7 @@ impl ExecutingFrame<'_> {
             // than maintained here on every instruction. lasti already
             // points past the instruction currently executing (see the
             // `self.lasti.store` above), so `locations[lasti - 1]` gives
-            // exactly the line of the in-flight instruction — the same
+            // exactly the line of the in-flight instruction â€” the same
             // value this unconditional prev_line write used to compute.
             // prev_line itself is now only touched on the (cold) tracing
             // path, where it deduplicates consecutive 'line' events.
@@ -3694,8 +3705,8 @@ impl ExecutingFrame<'_> {
             #[inline(never)]
             fn eval_breaker_work(vm: &VirtualMachine) -> PyResult<()> {
                 vm.check_signals()?;
-                // Run a scheduled automatic collection here — a safepoint with
-                // no interpreter locks held — instead of synchronously inside
+                // Run a scheduled automatic collection here â€” a safepoint with
+                // no interpreter locks held â€” instead of synchronously inside
                 // the allocation that tripped the threshold.
                 #[cfg(feature = "threading")]
                 vm.run_scheduled_gc();
@@ -3741,7 +3752,7 @@ impl ExecutingFrame<'_> {
                 }
                 // The handler this unwound to starts a fresh instruction,
                 // so drop any EXTENDED_ARG prefix collected for the one
-                // the signal interrupted — the loop's own reset at the
+                // the signal interrupted â€” the loop's own reset at the
                 // bottom is skipped by this `continue`.
                 arg_state.reset();
                 idx = lasti_cell.load(Relaxed) as usize;
@@ -4067,7 +4078,7 @@ impl ExecutingFrame<'_> {
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
                         // Add traceback entry for the yield-from/await point.
                         // gen_send_ex2 resumes the frame with a pending exception,
-                        // which goes through error: → PyTraceBack_Here. We add the
+                        // which goes through error: â†’ PyTraceBack_Here. We add the
                         // entry here before calling unwind_blocks.
                         let idx = self.lasti().saturating_sub(1) as usize;
                         if idx < self.code.locations.len() {
@@ -5033,12 +5044,14 @@ impl ExecutingFrame<'_> {
                     CommonConstant::BuiltinAll => vm
                         .callable_cache
                         .builtin_all
-                        .clone()
+                        .get()
+                        .cloned()
                         .expect("builtin_all not initialized"),
                     CommonConstant::BuiltinAny => vm
                         .callable_cache
                         .builtin_any
-                        .clone()
+                        .get()
+                        .cloned()
                         .expect("builtin_any not initialized"),
                     CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
                     CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
@@ -5291,7 +5304,7 @@ impl ExecutingFrame<'_> {
                                     Err(e)
                                         if e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
                                     {
-                                        // Missing attribute → non-match
+                                        // Missing attribute â†’ non-match
                                         self.push_value(vm.ctx.none());
                                         return Ok(None);
                                     }
@@ -5492,7 +5505,7 @@ impl ExecutingFrame<'_> {
                 // Python preserves exception tracebacks even after the exception is no longer
                 // the "current exception". This is important for code that catches an exception,
                 // stores it, and later inspects its traceback.
-                // Reference cycles (Exception → Traceback → FrameObject → locals) are handled by
+                // Reference cycles (Exception â†’ Traceback â†’ FrameObject â†’ locals) are handled by
                 // Python's garbage collector which can detect and break cycles.
 
                 Ok(None)
@@ -5540,8 +5553,8 @@ impl ExecutingFrame<'_> {
             Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } | Instruction::ResumeCheck => {
                 // Lazy quickening: initialize adaptive counters on first execution.
-                // Read before the swap so that the steady state — every call after
-                // the first — costs a load rather than a read-modify-write.
+                // Read before the swap so that the steady state â€” every call after
+                // the first â€” costs a load rather than a read-modify-write.
                 if !self.code.quickened.load(atomic::Ordering::Relaxed)
                     && !self.code.quickened.swap(true, atomic::Ordering::Relaxed)
                 {
@@ -5874,7 +5887,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SendGen => {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                // Stack: [receiver, val] — peek receiver before popping
+                // Stack: [receiver, val] â€” peek receiver before popping
                 let receiver = self.nth_value(1);
                 let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
@@ -5890,7 +5903,7 @@ impl ExecutingFrame<'_> {
                     let receiver = self.top_value();
                     // Hand an already-suspended generator to the trampoline,
                     // which runs its frame in this same eval loop and re-yields
-                    // for this frame — no Rust frame and no instruction per
+                    // for this frame â€” no Rust frame and no instruction per
                     // level of a `yield from` / `await` chain.
                     if self.flatten != Flatten::Nothing
                         && started
@@ -6094,7 +6107,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
                 {
-                    // Type version matches — no data descriptor for this attr.
+                    // Type version matches â€” no data descriptor for this attr.
                     // Try direct dict lookup, skipping full descriptor protocol.
                     if let Some(dict) = owner.dict()
                         && let Some(value) = dict.get_item_opt(attr_name, vm)?
@@ -6103,7 +6116,7 @@ impl ExecutingFrame<'_> {
                         self.push_value(value);
                         return Ok(None);
                     }
-                    // Not in instance dict — fall through to class lookup via slow path
+                    // Not in instance dict â€” fall through to class lookup via slow path
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -6206,7 +6219,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
                 {
-                    // Instance dict has priority — check if attr is shadowed
+                    // Instance dict has priority â€” check if attr is shadowed
                     if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_stackref();
                         if oparg.is_method() {
@@ -6217,7 +6230,7 @@ impl ExecutingFrame<'_> {
                         }
                         return Ok(None);
                     }
-                    // Not in instance dict — use cached class attr
+                    // Not in instance dict â€” use cached class attr
                     let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                     else {
                         return self.load_attr_slow(vm, oparg);
@@ -6331,7 +6344,7 @@ impl ExecutingFrame<'_> {
                         }
                         return Ok(None);
                     }
-                    // Slot is None → AttributeError (fall through to slow path)
+                    // Slot is None â†’ AttributeError (fall through to slow path)
                 }
                 self.load_attr_slow(vm, oparg)
             }
@@ -6753,14 +6766,14 @@ impl ExecutingFrame<'_> {
                         && vm
                             .callable_cache
                             .len
-                            .as_ref()
+                            .get()
                             .is_some_and(|len_callable| callable.is(len_callable))
                     {
                         let len = obj.length(vm)?;
                         self.push_value(vm.ctx.new_int(len).into());
                         return Ok(None);
                     }
-                    // Guard failed — re-push and fallback
+                    // Guard failed â€” re-push and fallback
                     self.push_value(callable);
                     self.push_value_opt(null);
                     self.push_value(obj);
@@ -6780,7 +6793,7 @@ impl ExecutingFrame<'_> {
                     if vm
                         .callable_cache
                         .isinstance
-                        .as_ref()
+                        .get()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                     {
                         // Stack: [callable, self_or_null, args...]; effective_nargs == 2,
@@ -6813,7 +6826,7 @@ impl ExecutingFrame<'_> {
                         self.push_value(tp);
                         return Ok(None);
                     }
-                    // Guard failed — re-push and fallback
+                    // Guard failed â€” re-push and fallback
                     self.push_value(callable);
                     self.push_value_opt(null);
                     self.push_value(obj);
@@ -7005,7 +7018,7 @@ impl ExecutingFrame<'_> {
                     if vm
                         .callable_cache
                         .list_append
-                        .as_ref()
+                        .get()
                         .is_some_and(|list_append| callable.is(list_append))
                         && self_or_null_is_some
                         && self_is_list
@@ -7055,7 +7068,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                            .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7096,7 +7109,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                            .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7137,7 +7150,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                        .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7243,7 +7256,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                        .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7646,7 +7659,7 @@ impl ExecutingFrame<'_> {
             Instruction::ToBoolBool => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.bool_type) {
-                    // Already a bool, so normally a no-op — but when a
+                    // Already a bool, so normally a no-op â€” but when a
                     // POP_JUMP_IF_* follows, branching on it here retires both
                     // instructions in one dispatch.
                     if let Some(jump) = self.fused_bool_jump(instruction.cache_entries(), vm) {
@@ -7989,7 +8002,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    /// Handle all INSTRUMENTED_* opcodes. This function is cold — it only
+    /// Handle all INSTRUMENTED_* opcodes. This function is cold â€” it only
     /// runs when sys.monitoring has rewritten the bytecode.
     #[cold]
     fn execute_instrumented(
@@ -9700,7 +9713,7 @@ impl ExecutingFrame<'_> {
         let value = self.pop_stackref();
         let size = size as usize;
 
-        // Fast path for exact tuple/list types (not subclasses) — push
+        // Fast path for exact tuple/list types (not subclasses) â€” push
         // elements directly from the slice without intermediate Vec allocation,
         // matching UNPACK_SEQUENCE_TUPLE / UNPACK_SEQUENCE_LIST specializations.
         let cls = value.class();
@@ -9714,7 +9727,7 @@ impl ExecutingFrame<'_> {
             return self.unpack_fast(&borrowed, size, vm);
         }
 
-        // General path — iterate up to `size + 1` elements to avoid
+        // General path â€” iterate up to `size + 1` elements to avoid
         // consuming the entire iterator (fixes hang on infinite sequences).
         let not_iterable = value.class().slots().iter.load().is_none()
             && value
@@ -9843,7 +9856,7 @@ impl ExecutingFrame<'_> {
         let cmp_op: PyComparisonOp = op.into();
         let force_bool = u32::from(arg) & bytecode::oparg::COMPARE_OP_BOOL_MASK != 0;
 
-        // COMPARE_OP_INT: leaf type, cannot recurse — skip rich_compare dispatch
+        // COMPARE_OP_INT: leaf type, cannot recurse â€” skip rich_compare dispatch
         if let (Some(a_int), Some(b_int)) = (
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
@@ -9852,7 +9865,7 @@ impl ExecutingFrame<'_> {
             self.push_value(vm.ctx.new_bool(result).into());
             return Ok(None);
         }
-        // COMPARE_OP_FLOAT: leaf type, cannot recurse — skip rich_compare dispatch.
+        // COMPARE_OP_FLOAT: leaf type, cannot recurse â€” skip rich_compare dispatch.
         // Falls through on NaN (partial_cmp returns None) for correct != semantics.
         if let (Some(a_f), Some(b_f)) = (
             a.downcast_ref_if_exact::<PyFloat>(vm),
@@ -9938,7 +9951,7 @@ impl ExecutingFrame<'_> {
 
     /// Read a cached descriptor pointer and validate it against the expected
     /// type version, using a lock-free double-check pattern:
-    ///   1. read pointer  →  incref (try_to_owned)
+    ///   1. read pointer  â†’  incref (try_to_owned)
     ///   2. re-read version + pointer and confirm they still match
     ///
     /// This matches the read-side pattern used in LOAD_ATTR_METHOD_WITH_VALUES
@@ -10268,7 +10281,7 @@ impl ExecutingFrame<'_> {
                     }
                 }
             } else if has_descr_get {
-                // Non-data descriptor with __get__ — can't specialize
+                // Non-data descriptor with __get__ â€” can't specialize
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10279,7 +10292,7 @@ impl ExecutingFrame<'_> {
                 }
             } else if class_has_dict {
                 if let Some(ref descr) = cls_attr {
-                    // Plain class attr + class supports dict — check dict first, fallback
+                    // Plain class attr + class supports dict â€” check dict first, fallback
                     let descr_ptr = &**descr as *const PyObject as usize;
                     unsafe {
                         self.write_cached_descriptor(cache_base, type_version, descr_ptr);
@@ -10330,7 +10343,7 @@ impl ExecutingFrame<'_> {
                     }
                 }
             } else if let Some(ref descr) = cls_attr {
-                // No dict support, plain class attr — cache directly
+                // No dict support, plain class attr â€” cache directly
                 let descr_ptr = &**descr as *const PyObject as usize;
                 unsafe {
                     self.write_cached_descriptor(cache_base, type_version, descr_ptr);
@@ -10364,7 +10377,7 @@ impl ExecutingFrame<'_> {
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
             if attr_class.slots().descr_set.load().is_some() {
-                // Data descriptor on metaclass — can't specialize
+                // Data descriptor on metaclass â€” can't specialize
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10408,7 +10421,7 @@ impl ExecutingFrame<'_> {
             let descr_class = descr.class();
             let has_descr_get = descr_class.slots.descr_get.load().is_some();
             if !has_descr_get {
-                // METHOD or NON_DESCRIPTOR — can cache directly
+                // METHOD or NON_DESCRIPTOR â€” can cache directly
                 let descr_ptr = &**descr as *const PyObject as usize;
                 let new_op = if metaclass_version == 0 {
                     Instruction::LoadAttrClass
@@ -11014,7 +11027,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .list_append
-                        .as_ref()
+                        .get()
                         .is_some_and(|list_append| callable.is(list_append))
                 {
                     Instruction::CallListAppend
@@ -11058,7 +11071,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .len
-                        .as_ref()
+                        .get()
                         .is_some_and(|len_callable| callable.is(len_callable))
                 {
                     Instruction::CallLen
@@ -11071,7 +11084,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .isinstance
-                        .as_ref()
+                        .get()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                 {
                     Instruction::CallIsinstance
@@ -11315,7 +11328,7 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        // Stack: [receiver, val] — receiver is at position 1
+        // Stack: [receiver, val] â€” receiver is at position 1
         let receiver = self.nth_value(1);
         let is_exact_gen_or_coro = receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
             || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some();
@@ -11525,13 +11538,13 @@ impl ExecutingFrame<'_> {
 
         let new_op = if cls.is(vm.ctx.types.bool_type) {
             Some(Instruction::ToBoolBool)
-        } else if cls.is(PyInt::class(&vm.ctx)) {
+        } else if cls.is(&PyInt::class(&vm.ctx)) {
             Some(Instruction::ToBoolInt)
         } else if cls.is(vm.ctx.types.none_type) {
             Some(Instruction::ToBoolNone)
-        } else if cls.is(PyList::class(&vm.ctx)) {
+        } else if cls.is(&PyList::class(&vm.ctx)) {
             Some(Instruction::ToBoolList)
-        } else if cls.is(PyStr::class(&vm.ctx)) {
+        } else if cls.is(&PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
         } else if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
             // Capture the version before inspecting the bool/len slots so a
@@ -11895,7 +11908,7 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        // Stack: [value, obj, idx] — obj is TOS-1
+        // Stack: [value, obj, idx] â€” obj is TOS-1
         let obj = self.nth_value(1);
         let idx = self.top_value();
 
@@ -12431,7 +12444,7 @@ impl ExecutingFrame<'_> {
     /// vectorcall argument list, along with the callable underneath them.
     ///
     /// The stack already holds the arguments in vectorcall order, so filling a
-    /// single vector by index costs one allocation — collecting the positional
+    /// single vector by index costs one allocation â€” collecting the positional
     /// arguments first and then pushing `self` in front of them costs two plus
     /// a copy.
     fn take_call_args(&mut self, nargs: usize) -> (PyObjectRef, Vec<PyObjectRef>) {

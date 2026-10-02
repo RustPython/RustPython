@@ -17,15 +17,14 @@ mod _abc {
     };
     use core::sync::atomic::{AtomicU64, Ordering};
 
-    // Global invalidation counter
-    static ABC_INVALIDATION_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn get_invalidation_counter() -> u64 {
-        ABC_INVALIDATION_COUNTER.load(Ordering::SeqCst)
+    fn get_invalidation_counter(vm: &VirtualMachine) -> u64 {
+        vm.state.abc_invalidation_counter.load(Ordering::SeqCst)
     }
 
-    fn increment_invalidation_counter() {
-        ABC_INVALIDATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    fn increment_invalidation_counter(vm: &VirtualMachine) {
+        vm.state
+            .abc_invalidation_counter
+            .fetch_add(1, Ordering::SeqCst);
     }
 
     // Internal state held by ABC machinery.
@@ -42,12 +41,12 @@ mod _abc {
 
     #[pyclass(with(Constructor))]
     impl AbcData {
-        fn new() -> Self {
+        fn new(vm: &VirtualMachine) -> Self {
             Self {
                 registry: PyRwLock::new(None),
                 cache: PyRwLock::new(None),
                 negative_cache: PyRwLock::new(None),
-                negative_cache_version: AtomicU64::new(get_invalidation_counter()),
+                negative_cache_version: AtomicU64::new(get_invalidation_counter(vm)),
             }
         }
 
@@ -66,9 +65,9 @@ mod _abc {
         fn py_new(
             _cls: &crate::Py<crate::builtins::PyType>,
             _args: Self::Args,
-            _vm: &VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(Self::new())
+            Ok(Self::new(vm))
         }
     }
 
@@ -135,8 +134,8 @@ mod _abc {
     }
 
     #[pyfunction]
-    fn get_cache_token() -> u64 {
-        get_invalidation_counter()
+    fn get_cache_token(vm: &VirtualMachine) -> u64 {
+        get_invalidation_counter(vm)
     }
 
     /// Compute set of abstract method names.
@@ -207,7 +206,7 @@ mod _abc {
         compute_abstract_methods(&cls, vm)?;
 
         // Set up inheritance registry
-        let data = AbcData::new();
+        let data = AbcData::new(vm);
         cls.set_attr("_abc_impl", data.to_pyobject(vm), vm)?;
 
         if let Some(cls_type) = cls.downcast_ref::<PyType>() {
@@ -244,14 +243,14 @@ mod _abc {
         add_to_weak_set(&impl_data.registry, &subclass, vm)?;
 
         // Invalidate negative cache
-        increment_invalidation_counter();
+        increment_invalidation_counter(vm);
 
         if let Some(cls_type) = cls.downcast_ref::<PyType>()
             && let Some(subclass_type) = subclass.downcast_ref::<PyType>()
         {
             // _abc_register propagates Py_TPFLAGS_SEQUENCE/MAPPING
             // recursively so MATCH_SEQUENCE/MATCH_MAPPING see ABC registration.
-            let collection_flags = cls_type.slots.flags.load() & PyTypeFlags::COLLECTION;
+            let collection_flags = cls_type.effective_flags() & PyTypeFlags::COLLECTION;
             if !subclass_type.is(vm.ctx.types.str_type)
                 && !subclass_type.is(vm.ctx.types.bytes_type)
                 && !subclass_type.is(vm.ctx.types.bytearray_type)
@@ -281,7 +280,7 @@ mod _abc {
 
         let subtype: PyObjectRef = instance.class().to_owned().into();
         if subtype.is(&subclass) {
-            let invalidation_counter = get_invalidation_counter();
+            let invalidation_counter = get_invalidation_counter(vm);
             if impl_data.get_cache_version() == invalidation_counter
                 && in_weak_set(&impl_data.negative_cache, &subclass, vm)?
             {
@@ -357,7 +356,7 @@ mod _abc {
         }
 
         // 2. Check negative cache; may have to invalidate
-        let invalidation_counter = get_invalidation_counter();
+        let invalidation_counter = get_invalidation_counter(vm);
         if impl_data.get_cache_version() < invalidation_counter {
             // Invalidate the negative cache
             // Clone set ref and drop lock before calling into VM to avoid reentrancy

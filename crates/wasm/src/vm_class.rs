@@ -80,37 +80,36 @@ impl StoredVirtualMachine {
 
         #[cfg(feature = "freeze-stdlib")]
         {
-            let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-            builder = builder
-                .add_native_modules(&defs)
+            let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_modules(&defs) }
                 .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB);
         }
 
         // Browser rustls `_ssl` overrides the rustls-free stdlib `_ssl`.
         // `_socket` is rustpython-stdlib's wasm shim (`socket_wasm.rs`).
-        let js_def = js_module::module_def(&builder.ctx);
-        builder = builder.add_native_module(js_def);
+        let js_def = js_module::module_def(unsafe { builder.context() });
+        builder = unsafe { builder.add_native_module(js_def) };
 
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
             install_browser_tls_provider();
-            let ssl_def = crate::ssl::module_def(&builder.ctx);
-            builder = builder.add_native_module(ssl_def);
+            let ssl_def = crate::ssl::module_def(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_module(ssl_def) };
         }
 
         if inject_browser_module {
-            let window_def = _window::module_def(&builder.ctx);
-            let browser_def = browser_module::module_def(&builder.ctx);
-            builder = builder
-                .add_native_modules(&[window_def, browser_def])
+            let window_def = _window::module_def(unsafe { builder.context() });
+            let browser_def = browser_module::module_def(unsafe { builder.context() });
+            builder = unsafe { builder.add_native_modules(&[window_def, browser_def]) }
                 .add_frozen_modules(rustpython_vm::py_freeze!(dir = "../Lib"));
         }
 
-        let interp = builder
-            .init_hook(move |vm| {
-                vm.wasm_id = Some(id);
+        let interp = unsafe {
+            builder.init_hook(move |vm| {
+                vm.wasm_id.set(id).expect("wasm id initialized once");
             })
-            .build();
+        }
+        .build();
 
         let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
@@ -152,7 +151,7 @@ thread_local! {
 
 pub fn get_vm_id(vm: &VirtualMachine) -> &str {
     vm.wasm_id
-        .as_ref()
+        .get()
         .expect("VirtualMachine inside of WASM crate should have wasm_id set")
 }
 pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {

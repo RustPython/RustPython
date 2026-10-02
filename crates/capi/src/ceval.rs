@@ -180,7 +180,7 @@ mod tests {
     #[pyfunction]
     fn legacy_locals_is_frame_mapping() -> bool {
         let locals = super::PyEval_GetLocals();
-        rustpython_vm::vm::thread::with_current_vm(|vm| {
+        crate::pystate::with_current_vm(|vm| {
             let frame = vm.current_frame().unwrap();
             core::ptr::eq(
                 locals.cast_const(),

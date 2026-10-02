@@ -23,8 +23,8 @@ pub(crate) type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyPayload for PyTraceback {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.traceback_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.traceback_type).to_owned()
     }
 }
 

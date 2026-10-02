@@ -41,7 +41,7 @@ mod tests {
     use rustpython_vm::AsObject;
 
     fn current_frame_ptr() -> *mut super::PyFrameObject {
-        rustpython_vm::vm::thread::with_current_vm(|vm| {
+        crate::pystate::with_current_vm(|vm| {
             vm.current_frame()
                 .unwrap()
                 .as_object()
@@ -83,7 +83,7 @@ mod tests {
 
     #[pyfunction]
     fn frame_globals_is_globals() -> bool {
-        rustpython_vm::vm::thread::with_current_vm(|vm| {
+        crate::pystate::with_current_vm(|vm| {
             let frame = vm.current_frame().unwrap();
             let got = unsafe { super::PyFrame_GetGlobals(current_frame_ptr()) };
             let expected = frame.iframe().globals().as_object().as_raw();
@@ -95,7 +95,7 @@ mod tests {
 
     #[pyfunction]
     fn frame_builtins_is_builtins() -> bool {
-        rustpython_vm::vm::thread::with_current_vm(|vm| {
+        crate::pystate::with_current_vm(|vm| {
             let frame = vm.current_frame().unwrap();
             let got = unsafe { super::PyFrame_GetBuiltins(current_frame_ptr()) };
             let expected = frame.iframe().builtins().as_object().as_raw();

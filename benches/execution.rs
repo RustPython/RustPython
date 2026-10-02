@@ -39,17 +39,19 @@ fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
     settings.write_bytecode = false;
     settings.user_site_directory = false;
     let builder = Interpreter::builder(settings);
-    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-    builder.add_native_modules(&defs).build().enter(|vm| {
-        // Note: bench_cpython is both compiling and executing the code.
-        // As such we compile the code in the benchmark loop as well.
-        b.iter(|| {
-            let code = vm.compile(source, Mode::Exec, name).unwrap();
-            let scope = vm.new_scope_with_builtins();
-            let res: PyResult = vm.run_code_obj(code, scope);
-            vm.unwrap_pyresult(res);
+    let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+    unsafe { builder.add_native_modules(&defs) }
+        .build()
+        .enter(|vm| {
+            // Note: bench_cpython is both compiling and executing the code.
+            // As such we compile the code in the benchmark loop as well.
+            b.iter(|| {
+                let code = vm.compile(source, Mode::Exec, name).unwrap();
+                let scope = vm.new_scope_with_builtins();
+                let res: PyResult = vm.run_code_obj(code, scope);
+                vm.unwrap_pyresult(res);
+            })
         })
-    })
 }
 
 pub fn benchmark_file_execution(

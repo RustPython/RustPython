@@ -129,7 +129,7 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
         }
     }
 
-    if let Some(signal_rx) = &vm.signal_rx {
+    if let Some(signal_rx) = vm.signal_rx.get() {
         for f in signal_rx.rx.try_iter() {
             f(vm)?;
         }
@@ -145,6 +145,7 @@ pub(crate) fn set_triggered() {
 }
 
 /// Any eval-breaker bit pending? One relaxed load; checked per instruction.
+#[cfg(not(target_arch = "wasm32"))]
 #[inline(always)]
 pub(crate) fn eval_breaker_pending() -> bool {
     !EVAL_BREAKER.is_empty()

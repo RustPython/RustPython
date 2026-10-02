@@ -376,7 +376,7 @@ impl Callee {
     /// The same, for the type a slot was written for.
     #[must_use]
     pub fn of<T: crate::PyPayload>(vm: &VirtualMachine) -> Self {
-        Self::for_type(T::class(&vm.ctx))
+        Self::for_type(&T::class(&vm.ctx))
     }
 
     /// Marks a call whose leading argument fills the method's instance parameter.

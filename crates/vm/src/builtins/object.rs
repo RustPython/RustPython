@@ -19,8 +19,8 @@ pub struct PyBaseObject;
 
 impl PyPayload for PyBaseObject {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.object_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.object_type).to_owned()
     }
 }
 

@@ -350,7 +350,7 @@ pub(crate) mod _ctypes {
             // Array types
             if type_obj
                 .class()
-                .fast_issubclass(super::array::PyCArrayType::static_type())
+                .fast_issubclass(unsafe { super::array::PyCArrayType::static_type() })
                 && let Ok(stg) = type_obj.stg_info(vm)
             {
                 return Ok(stg.size);
@@ -358,19 +358,19 @@ pub(crate) mod _ctypes {
             // Structure types
             if type_obj
                 .class()
-                .fast_issubclass(PyCStructType::static_type())
+                .fast_issubclass(unsafe { PyCStructType::static_type() })
             {
                 return super::structure::calculate_struct_size(type_obj, vm);
             }
             // Union types
             if type_obj
                 .class()
-                .fast_issubclass(PyCUnionType::static_type())
+                .fast_issubclass(unsafe { PyCUnionType::static_type() })
             {
                 return super::union::calculate_union_size(type_obj, vm);
             }
             // Simple types
-            if type_obj.fast_issubclass(PyCSimple::static_type()) {
+            if type_obj.fast_issubclass(unsafe { PyCSimple::static_type() }) {
                 if let Ok(type_attr) = type_obj.as_object().get_attr("_type_", vm)
                     && let Ok(type_str) = type_attr.str(vm)
                 {
@@ -382,7 +382,7 @@ pub(crate) mod _ctypes {
                 return Ok(rustpython_host_env::ctypes::pointer_size());
             }
             // Pointer types
-            if type_obj.fast_issubclass(PyCPointer::static_type()) {
+            if type_obj.fast_issubclass(unsafe { PyCPointer::static_type() }) {
                 return Ok(rustpython_host_env::ctypes::pointer_size());
             }
             return Err(vm.new_type_error("this type has no size"));
@@ -393,7 +393,7 @@ pub(crate) mod _ctypes {
         if let Some(cdata) = obj.downcast_ref::<PyCData>() {
             return Ok(cdata.size());
         }
-        if obj.fast_isinstance(PyCPointer::static_type()) {
+        if obj.fast_isinstance(unsafe { PyCPointer::static_type() }) {
             return Ok(rustpython_host_env::ctypes::pointer_size());
         }
 
@@ -601,8 +601,8 @@ pub(crate) mod _ctypes {
         use super::CArgValue;
 
         // Check if obj is a ctypes instance
-        if !obj.fast_isinstance(PyCData::static_type())
-            && !obj.fast_isinstance(PyCSimple::static_type())
+        if !obj.fast_isinstance(unsafe { PyCData::static_type() })
+            && !obj.fast_isinstance(unsafe { PyCSimple::static_type() })
         {
             return Err(vm.new_type_error(format!(
                 "byref() argument must be a ctypes instance, not '{}'",
@@ -657,26 +657,26 @@ pub(crate) mod _ctypes {
         }
 
         // 3. Fallback for simple types
-        if obj.fast_isinstance(PyCSimple::static_type())
+        if obj.fast_isinstance(unsafe { PyCSimple::static_type() })
             && let Ok(stg) = obj.class().stg_info(vm)
         {
             return Ok(stg.align);
         }
-        if obj.fast_isinstance(PyCArray::static_type())
+        if obj.fast_isinstance(unsafe { PyCArray::static_type() })
             && let Ok(stg) = obj.class().stg_info(vm)
         {
             return Ok(stg.align);
         }
-        if obj.fast_isinstance(PyCStructure::static_type()) {
+        if obj.fast_isinstance(unsafe { PyCStructure::static_type() }) {
             // Calculate alignment from _fields_
             let cls = obj.class();
             return alignment(Either::A(cls.to_owned()), vm);
         }
-        if obj.fast_isinstance(PyCPointer::static_type()) {
+        if obj.fast_isinstance(unsafe { PyCPointer::static_type() }) {
             // Pointer alignment is always pointer size
             return Ok(core::mem::align_of::<usize>());
         }
-        if obj.fast_isinstance(PyCUnion::static_type()) {
+        if obj.fast_isinstance(unsafe { PyCUnion::static_type() }) {
             // Calculate alignment from _fields_
             let cls = obj.class();
             return alignment(Either::A(cls.to_owned()), vm);
@@ -1045,26 +1045,26 @@ pub(crate) mod _ctypes {
         __module_exec(vm, module);
 
         let ctx = &vm.ctx;
-        let _ = PyCSimpleType::make_static_type();
-        let _ = array::PyCArrayType::make_static_type();
-        let _ = pointer::PyCPointerType::make_static_type();
-        let _ = structure::PyCStructType::make_static_type();
-        let _ = union::PyCUnionType::make_static_type();
-        let _ = function::PyCFuncPtrType::make_static_type();
-        let _ = function::RawMemoryBuffer::make_static_type();
+        let _ = unsafe { PyCSimpleType::make_static_type() };
+        let _ = unsafe { array::PyCArrayType::make_static_type() };
+        let _ = unsafe { pointer::PyCPointerType::make_static_type() };
+        let _ = unsafe { structure::PyCStructType::make_static_type() };
+        let _ = unsafe { union::PyCUnionType::make_static_type() };
+        let _ = unsafe { function::PyCFuncPtrType::make_static_type() };
+        let _ = unsafe { function::RawMemoryBuffer::make_static_type() };
 
         extend_module!(vm, module, {
-            "_CData" => PyCData::make_static_type(),
-            "_SimpleCData" => PyCSimple::make_static_type(),
-            "Array" => PyCArray::make_static_type(),
-            "CField" => PyCField::make_static_type(),
-            "CFuncPtr" => function::PyCFuncPtr::make_static_type(),
-            "_Pointer" => PyCPointer::make_static_type(),
+            "_CData" => unsafe { PyCData::make_static_type() },
+            "_SimpleCData" => unsafe { PyCSimple::make_static_type() },
+            "Array" => unsafe { PyCArray::make_static_type() },
+            "CField" => unsafe { PyCField::make_static_type() },
+            "CFuncPtr" => unsafe { function::PyCFuncPtr::make_static_type() },
+            "_Pointer" => unsafe { PyCPointer::make_static_type() },
             "_pointer_type_cache" => ctx.new_dict(),
             "_array_type_cache" => ctx.new_dict(),
-            "Structure" => PyCStructure::make_static_type(),
-            "CThunkObject" => function::PyCThunk::make_static_type(),
-            "Union" => PyCUnion::make_static_type(),
+            "Structure" => unsafe { PyCStructure::make_static_type() },
+            "CThunkObject" => unsafe { function::PyCThunk::make_static_type() },
+            "Union" => unsafe { PyCUnion::make_static_type() },
         });
 
         Ok(())

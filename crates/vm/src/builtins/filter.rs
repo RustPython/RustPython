@@ -16,8 +16,8 @@ pub struct PyFilter {
 
 impl PyPayload for PyFilter {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.filter_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.filter_type).to_owned()
     }
 }
 

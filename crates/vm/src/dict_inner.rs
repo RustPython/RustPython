@@ -1840,7 +1840,7 @@ mod tests {
 
     #[test]
     fn clone_compacts_deleted_entries() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let dict = Dict::default();
             for key in 0..128usize {
                 dict.insert(vm, &key, key).unwrap();
@@ -1872,7 +1872,7 @@ mod tests {
 
     #[test]
     fn clone_shrinks_indices_after_pop_back() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let dict = Dict::default();
             for key in 0..128usize {
                 dict.insert(vm, &key, ()).unwrap();
@@ -1900,7 +1900,7 @@ mod tests {
 
     #[test]
     fn module_attr_cache_rejects_mixed_entries_and_unsafe_layouts() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let name = vm.ctx.intern_str("target");
             let padding = vm.ctx.intern_str("padding");
             let first: Dict<i32> = Dict::default();
@@ -1959,7 +1959,7 @@ mod tests {
 
     #[test]
     fn insert_basic() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let dict = Dict::default();
             assert_eq!(0, dict.len());
 
@@ -1993,7 +1993,7 @@ mod tests {
 
     #[test]
     fn reserve_empty_avoids_growth() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let dict = Dict::default();
             dict.reserve_for_empty(usize::MAX);
             assert_eq!(dict.read().indices.len(), 8);
@@ -2047,7 +2047,7 @@ mod tests {
     }
 
     fn check_hash_equivalence(text: &str) {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let value1 = text;
             let value2 = vm.new_pyobj(value1.to_owned());
 
@@ -2059,7 +2059,7 @@ mod tests {
 
     #[test]
     fn replace_contents_invalidates_cached_indices() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let dict = Dict::default();
             dict.insert(vm, &1usize, ()).unwrap();
             let old_version = dict.assign_keys_version();

@@ -124,10 +124,15 @@ mod _io {
         },
         class::{PyClassDef, StaticType},
         common::lock::{
-            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-            PyThreadMutex, PyThreadMutexGuard,
+            PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
+            PyMappedThreadMutexGuard, PyRwLock, PyRwLockWriteGuard, PyThreadMutex,
+            PyThreadMutexGuard,
         },
         common::wtf8::{Wtf8, Wtf8Buf},
+        common::{
+            borrow::{BorrowedValue, BorrowedValueMut},
+            rc::PyRc,
+        },
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
@@ -201,7 +206,7 @@ mod _io {
         msg: T,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg.into())
+        vm.new_os_subtype_error(unsupported_operation(vm), None, msg.into())
             .upcast()
     }
 
@@ -762,10 +767,13 @@ mod _io {
                             )));
                         }
                         let n = n as usize;
-                        let mut bytes = b.borrow_buf_mut();
-                        bytes.truncate(n);
-                        // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
-                        bytes.clone().to_pyobject(vm)
+                        // readinto may have retained an export of b. Return the
+                        // requested prefix without resizing its backing storage.
+                        let bytes = {
+                            let bytes = b.borrow_buf();
+                            bytes[..n.min(bytes.len())].to_vec()
+                        };
+                        bytes.to_pyobject(vm)
                     }
                 })
             } else {
@@ -851,9 +859,9 @@ mod _io {
             if data.is(buf_obj) {
                 return Ok(l);
             }
-            let mut buf = b.borrow_buf_mut();
             let data = ArgBytesLike::try_from_object(vm, data)?;
-            let data = data.borrow_buf();
+            let data = data.borrow_buf_unlocked(vm)?;
+            let mut buf = b.borrow_buf_mut();
             match buf.get_mut(..data.len()) {
                 Some(slice) => {
                     slice.copy_from_slice(&data);
@@ -2019,7 +2027,7 @@ mod _io {
 
         #[pymethod]
         fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-            if zelf.class().is(Self::static_type()) {
+            if zelf.class().is(unsafe { Self::static_type() }) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
@@ -4248,7 +4256,7 @@ mod _io {
 
         #[pymethod]
         fn __reduce_ex__(zelf: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
-            if zelf.class().is(TextIOWrapper::static_type()) {
+            if zelf.class().is(unsafe { TextIOWrapper::static_type() }) {
                 return Err(
                     vm.new_type_error(format!("cannot pickle '{}' object", zelf.class().name()))
                 );
@@ -5131,9 +5139,45 @@ mod _io {
     #[derive(Debug)]
     struct BytesIO {
         _base: _BufferedIOBase,
-        buffer: PyRwLock<BufferedIO>,
+        storage: PyRc<BytesIOStorage>,
+    }
+
+    #[derive(Debug)]
+    struct BytesIOStorage {
+        buffer: PyDetachingRwLock<BufferedIO>,
         closed: AtomicCell<bool>,
         exports: AtomicCell<usize>,
+    }
+
+    impl core::ops::Deref for BytesIO {
+        type Target = BytesIOStorage;
+        fn deref(&self) -> &Self::Target {
+            &self.storage
+        }
+    }
+
+    #[derive(Debug)]
+    struct SharedBytesIO(PyRc<BytesIOStorage>);
+
+    impl Drop for SharedBytesIO {
+        fn drop(&mut self) {
+            self.0.exports.fetch_sub(1);
+        }
+    }
+
+    // SAFETY: exports prevent resizing/closing; BufferedIO owns only Rust bytes
+    // and cursor state. Every view shares its original lock.
+    unsafe impl crate::protocol::SharedBufferStorage for SharedBytesIO {
+        fn read(&self) -> BorrowedValue<'_, [u8]> {
+            PyDetachingRwLockReadGuard::map(self.0.buffer.read(), |x| x.cursor.get_ref().as_slice())
+                .into()
+        }
+        fn write(&self) -> BorrowedValueMut<'_, [u8]> {
+            PyDetachingRwLockWriteGuard::map(self.0.buffer.write(), |x| {
+                x.cursor.get_mut().as_mut_slice()
+            })
+            .into()
+        }
     }
 
     impl Constructor for BytesIO {
@@ -5142,9 +5186,11 @@ mod _io {
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 _base: Default::default(),
-                buffer: PyRwLock::new(BufferedIO::new(Cursor::new(Vec::new()))),
-                closed: AtomicCell::new(false),
-                exports: AtomicCell::new(0),
+                storage: PyRc::new(BytesIOStorage {
+                    buffer: PyDetachingRwLock::new(BufferedIO::new(Cursor::new(Vec::new()))),
+                    closed: AtomicCell::new(false),
+                    exports: AtomicCell::new(0),
+                }),
             })
         }
     }
@@ -5168,7 +5214,10 @@ mod _io {
     }
 
     impl BytesIO {
-        fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
+        fn buffer(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyDetachingRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
                 Ok(self.buffer.write())
             } else {
@@ -5236,25 +5285,14 @@ mod _io {
 
         #[pymethod]
         fn readinto(zelf: &Self, buffer: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
-            // Reading locks this object, and a destination that views it locks
-            // it too, so such a destination is filled after the read is done.
-            if buffer.source_object().is(zelf.as_object()) {
-                let mut data = vm.new_zeroed_bytes(buffer.len())?;
-                let ret = zelf
-                    .buffer(vm)?
-                    .cursor
-                    .read(&mut data)
-                    .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
-                buffer.borrow_buf_mut()[..ret].copy_from_slice(&data[..ret]);
-                return Ok(ret);
-            }
-            let mut buf = zelf.buffer(vm)?;
-            let ret = buf
-                .cursor
-                .read(&mut buffer.borrow_buf_mut())
-                .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
-
-            Ok(ret)
+            // A forwarding or XI destination can share our storage. Reading
+            // first also avoids ABBA between two simultaneous cross-VM copies.
+            let data = zelf
+                .buffer(vm)?
+                .read(Some(buffer.len()))
+                .unwrap_or_default();
+            buffer.borrow_buf_mut()[..data.len()].copy_from_slice(&data);
+            Ok(data.len())
         }
 
         //skip to the jth position
@@ -5392,26 +5430,40 @@ mod _io {
             if self.closed.load() {
                 return Err(vm.new_value_error("I/O operation on closed file."));
             }
-            let len = self.buffer.read().cursor.get_ref().len();
+            let data = self.buffer.read();
+            if self.closed.load() {
+                drop(data);
+                return Err(vm.new_value_error("I/O operation on closed file."));
+            }
+            let len = data.cursor.get_ref().len();
             let buffer = PyBuffer::new(
-                self.into(),
+                self.clone().into(),
                 BufferDescriptor::simple(len, false),
                 &BYTES_IO_BUFFER_METHODS,
             );
+            drop(data);
             let view = PyMemoryView::from_buffer(buffer, vm)?;
             Ok(view)
         }
     }
 
     static BYTES_IO_BUFFER_METHODS: BufferMethods = BufferMethods {
+        shared_storage: Some(|buffer| {
+            let storage = buffer.obj_as::<BytesIO>().storage.clone();
+            storage.exports.fetch_add(1);
+            Some(PyRc::new(SharedBytesIO(storage)))
+        }),
         obj_bytes: |buffer| {
             let zelf = buffer.obj_as::<BytesIO>();
-            PyRwLockReadGuard::map(zelf.buffer.read(), |x| x.cursor.get_ref().as_slice()).into()
+            PyDetachingRwLockReadGuard::map(zelf.buffer.read(), |x| x.cursor.get_ref().as_slice())
+                .into()
         },
         obj_bytes_mut: |buffer| {
             let zelf = buffer.obj_as::<BytesIO>();
-            PyRwLockWriteGuard::map(zelf.buffer.write(), |x| x.cursor.get_mut().as_mut_slice())
-                .into()
+            PyDetachingRwLockWriteGuard::map(zelf.buffer.write(), |x| {
+                x.cursor.get_mut().as_mut_slice()
+            })
+            .into()
         },
 
         release: |buffer| {
@@ -5424,7 +5476,7 @@ mod _io {
     };
 
     impl BufferResizeGuard for BytesIO {
-        type Resizable<'a> = PyRwLockWriteGuard<'a, BufferedIO>;
+        type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, BufferedIO>;
 
         fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             let w = self.buffer.write();
@@ -5599,7 +5651,7 @@ mod _io {
     #[cfg(all(unix, feature = "threading", feature = "host_env"))]
     pub(crate) unsafe fn reinit_std_streams_after_fork(vm: &VirtualMachine) {
         for name in ["stdin", "stdout", "stderr"] {
-            let Ok(stream) = vm.sys_module.get_attr(name, vm) else {
+            let Some(stream) = crate::vm::fork::namespace_item(&vm.sys_module.dict(), name) else {
                 continue;
             };
             reinit_io_locks(&stream);
@@ -5702,12 +5754,12 @@ mod _io {
         let file_io_class: &Py<PyType> = cfg_select! {
             all(feature = "host_env", windows) => {
                 if is_console {
-                    Some(super::winconsoleio::WindowsConsoleIO::static_type())
+                    Some(unsafe { super::winconsoleio::WindowsConsoleIO::static_type() })
                 } else {
-                    Some(super::fileio::FileIO::static_type())
+                    Some(unsafe { super::fileio::FileIO::static_type() })
                 }
             }
-            feature = "host_env" => Some(super::fileio::FileIO::static_type()),
+            feature = "host_env" => Some(unsafe { super::fileio::FileIO::static_type() }),
             _ => None,
         }
         .ok_or_else(|| {
@@ -5757,11 +5809,11 @@ mod _io {
         }
 
         let cls = if mode.plus {
-            BufferedRandom::static_type()
+            unsafe { BufferedRandom::static_type() }
         } else if let FileMode::Read = mode.file {
-            BufferedReader::static_type()
+            unsafe { BufferedReader::static_type() }
         } else {
-            BufferedWriter::static_type()
+            unsafe { BufferedWriter::static_type() }
         };
         let buffered = PyType::call(cls, (raw, buffering).into_args(vm), vm)?;
 
@@ -5780,7 +5832,7 @@ mod _io {
                         }
                     }
                 };
-                let tio = TextIOWrapper::static_type();
+                let tio = unsafe { TextIOWrapper::static_type() };
                 let wrapper = PyType::call(
                     tio,
                     (
@@ -5824,11 +5876,9 @@ mod _io {
         .unwrap()
     }
 
-    pub(super) fn unsupported_operation() -> &'static Py<PyType> {
-        rustpython_common::static_cell! {
-            static CELL: PyTypeRef;
-        }
-        CELL.get_or_init(|| create_unsupported_operation(Context::genesis()))
+    pub(super) fn unsupported_operation(vm: &VirtualMachine) -> PyTypeRef {
+        struct UnsupportedOperation;
+        vm.__cached_native::<UnsupportedOperation, _>(|| create_unsupported_operation(&vm.ctx))
     }
 
     #[pyfunction]
@@ -5921,7 +5971,7 @@ mod _io {
         #[cfg(all(feature = "host_env", windows))]
         super::winconsoleio::module_exec(vm, module)?;
 
-        let unsupported_operation = unsupported_operation().to_owned();
+        let unsupported_operation = unsupported_operation(vm);
         extend_module!(vm, module, {
             "UnsupportedOperation" => unsupported_operation,
             "BlockingIOError" => vm.ctx.exceptions.blocking_io_error.to_owned(),

@@ -43,8 +43,8 @@ gen()
 
 fn main() -> ExitCode {
     let builder = vm::Interpreter::builder(Default::default());
-    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-    let interp = builder.add_native_modules(&defs).build();
+    let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+    let interp = unsafe { builder.add_native_modules(&defs) }.build();
     let result = py_main(&interp);
     vm::host_env::os::exit_code(interp.run(|_vm| result))
 }

@@ -56,8 +56,8 @@ impl PyPayload for PySlice {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.slice_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.slice_type).to_owned()
     }
 
     #[inline]
@@ -370,8 +370,8 @@ pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.ellipsis_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.ellipsis_type).to_owned()
     }
 }
 

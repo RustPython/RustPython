@@ -23,6 +23,7 @@ pub(crate) use argument::{arity_message, unexpected_keyword_message};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{
     ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
+    UnlockedBuf,
 };
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use doctext::{ItemDoc, db_doc, plain_doc};

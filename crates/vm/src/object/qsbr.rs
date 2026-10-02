@@ -42,6 +42,21 @@ mod threading {
         pub(crate) requested: AtomicBool,
     }
 
+    impl QsbrSlot {
+        pub(crate) fn online(&self) {
+            QSBR.online(self);
+        }
+        pub(crate) fn offline(&self) {
+            QSBR.offline(self);
+            QSBR.process();
+        }
+        pub(crate) fn checkpoint(&self) {
+            self.requested.store(false, Ordering::Relaxed);
+            QSBR.quiescent_state(self);
+            QSBR.process();
+        }
+    }
+
     struct Retired {
         ptr: *mut u8,
         layout: Layout,
@@ -218,40 +233,53 @@ mod threading {
             }
         }
 
-        /// Free all retired allocations immediately.
-        ///
-        /// # Safety
-        /// Only sound when no other thread can be mid-read: the post-fork
-        /// child, or teardown after all threads exited.
         #[cfg(unix)]
-        pub(crate) unsafe fn drain_all(&self) {
-            let mut queue = self.queue.lock().unwrap();
-            for item in queue.drain(..) {
-                // SAFETY: guaranteed single-threaded by the caller.
-                unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
+        pub(crate) fn prepare_fork(&self) -> ForkDomain<'_> {
+            ForkDomain {
+                domain: self,
+                queue: self.queue.lock().unwrap(),
+                threads: self.threads.lock().unwrap(),
             }
-            self.pending.store(false, Ordering::Release);
-            self.update_breaker_bit(false);
-        }
-
-        /// Reset after fork: drop all registered thread entries (dead
-        /// parent threads' slots would otherwise stay online forever and
-        /// stall every future grace period) and free all retired
-        /// allocations.
-        ///
-        /// # Safety
-        /// Only sound in the single-threaded post-fork child, before the
-        /// surviving thread re-registers.
-        #[cfg(unix)]
-        pub(crate) unsafe fn reset_after_fork(&self) {
-            self.threads.lock().unwrap().clear();
-            // SAFETY: single-threaded child, no concurrent reader exists.
-            unsafe { self.drain_all() };
         }
 
         #[cfg(test)]
         fn pending(&self) -> usize {
             self.queue.lock().unwrap().len()
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) struct ForkDomain<'a> {
+        domain: &'a Qsbr,
+        queue: std::sync::MutexGuard<'a, Vec<Retired>>,
+        threads: std::sync::MutexGuard<'a, Vec<Weak<QsbrSlot>>>,
+    }
+
+    #[cfg(unix)]
+    impl ForkDomain<'_> {
+        /// # Safety
+        /// Only the fork child may run this, with no borrowed cache pointer on
+        /// its native stack. `surviving` contains only this thread's slots,
+        /// including detached slots of saved/nested interpreter entries.
+        pub(crate) unsafe fn repair_child(&mut self, surviving: &[Arc<QsbrSlot>]) {
+            self.threads.retain(|weak| {
+                surviving
+                    .iter()
+                    .any(|slot| core::ptr::eq(weak.as_ptr(), Arc::as_ptr(slot)))
+            });
+            for weak in self.threads.iter() {
+                if let Some(slot) = weak.upgrade() {
+                    if slot.seq.load(Ordering::Relaxed) != QSBR_OFFLINE {
+                        self.domain.quiescent_state(&slot);
+                    }
+                    slot.requested.store(false, Ordering::Relaxed);
+                }
+            }
+            for item in self.queue.drain(..) {
+                unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
+            }
+            self.domain.pending.store(false, Ordering::Release);
+            self.domain.update_breaker_bit(false);
         }
     }
 

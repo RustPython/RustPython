@@ -1865,7 +1865,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, D)
 
-    @unittest.expectedSuccess  # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
     @unittest.expectedFailure
     def test_bad_new(self):
         self.assertRaises(TypeError, object.__new__)

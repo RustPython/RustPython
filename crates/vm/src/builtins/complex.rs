@@ -43,8 +43,8 @@ impl PyPayload for PyComplex {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.complex_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.complex_type).to_owned()
     }
 
     #[inline]

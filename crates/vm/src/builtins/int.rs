@@ -60,8 +60,8 @@ impl PyPayload for PyInt {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.int_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.int_type).to_owned()
     }
 
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

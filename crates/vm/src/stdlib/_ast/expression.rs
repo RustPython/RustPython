@@ -94,63 +94,75 @@ impl Node for ast::Expr {
             Tuple,
             Slice,
         }
-        let kind = if is_node_instance(vm, &object, pyast::NodeExprBoolOp::static_type())? {
+        let kind = if is_node_instance(vm, &object, pyast::NodeExprBoolOp::make_class(&vm.ctx))? {
             ExprKind::BoolOp
-        } else if is_node_instance(vm, &object, pyast::NodeExprNamedExpr::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprNamedExpr::make_class(&vm.ctx))? {
             ExprKind::Named
-        } else if is_node_instance(vm, &object, pyast::NodeExprBinOp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprBinOp::make_class(&vm.ctx))? {
             ExprKind::BinOp
-        } else if is_node_instance(vm, &object, pyast::NodeExprUnaryOp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprUnaryOp::make_class(&vm.ctx))? {
             ExprKind::UnaryOp
-        } else if is_node_instance(vm, &object, pyast::NodeExprLambda::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprLambda::make_class(&vm.ctx))? {
             ExprKind::Lambda
-        } else if is_node_instance(vm, &object, pyast::NodeExprIfExp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprIfExp::make_class(&vm.ctx))? {
             ExprKind::If
-        } else if is_node_instance(vm, &object, pyast::NodeExprDict::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprDict::make_class(&vm.ctx))? {
             ExprKind::Dict
-        } else if is_node_instance(vm, &object, pyast::NodeExprSet::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprSet::make_class(&vm.ctx))? {
             ExprKind::Set
-        } else if is_node_instance(vm, &object, pyast::NodeExprListComp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprListComp::make_class(&vm.ctx))? {
             ExprKind::ListComp
-        } else if is_node_instance(vm, &object, pyast::NodeExprSetComp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprSetComp::make_class(&vm.ctx))? {
             ExprKind::SetComp
-        } else if is_node_instance(vm, &object, pyast::NodeExprDictComp::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprDictComp::make_class(&vm.ctx))? {
             ExprKind::DictComp
-        } else if is_node_instance(vm, &object, pyast::NodeExprGeneratorExp::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeExprGeneratorExp::make_class(&vm.ctx),
+        )? {
             ExprKind::Generator
-        } else if is_node_instance(vm, &object, pyast::NodeExprAwait::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprAwait::make_class(&vm.ctx))? {
             ExprKind::Await
-        } else if is_node_instance(vm, &object, pyast::NodeExprYield::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprYield::make_class(&vm.ctx))? {
             ExprKind::Yield
-        } else if is_node_instance(vm, &object, pyast::NodeExprYieldFrom::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprYieldFrom::make_class(&vm.ctx))? {
             ExprKind::YieldFrom
-        } else if is_node_instance(vm, &object, pyast::NodeExprCompare::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprCompare::make_class(&vm.ctx))? {
             ExprKind::Compare
-        } else if is_node_instance(vm, &object, pyast::NodeExprCall::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprCall::make_class(&vm.ctx))? {
             ExprKind::Call
-        } else if is_node_instance(vm, &object, pyast::NodeExprFormattedValue::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeExprFormattedValue::make_class(&vm.ctx),
+        )? {
             ExprKind::FormattedValue
-        } else if is_node_instance(vm, &object, pyast::NodeExprInterpolation::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeExprInterpolation::make_class(&vm.ctx),
+        )? {
             ExprKind::Interpolation
-        } else if is_node_instance(vm, &object, pyast::NodeExprJoinedStr::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprJoinedStr::make_class(&vm.ctx))? {
             ExprKind::JoinedStr
-        } else if is_node_instance(vm, &object, pyast::NodeExprTemplateStr::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprTemplateStr::make_class(&vm.ctx))? {
             ExprKind::TemplateStr
-        } else if is_node_instance(vm, &object, pyast::NodeExprConstant::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprConstant::make_class(&vm.ctx))? {
             ExprKind::Constant
-        } else if is_node_instance(vm, &object, pyast::NodeExprAttribute::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprAttribute::make_class(&vm.ctx))? {
             ExprKind::Attribute
-        } else if is_node_instance(vm, &object, pyast::NodeExprSubscript::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprSubscript::make_class(&vm.ctx))? {
             ExprKind::Subscript
-        } else if is_node_instance(vm, &object, pyast::NodeExprStarred::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprStarred::make_class(&vm.ctx))? {
             ExprKind::Starred
-        } else if is_node_instance(vm, &object, pyast::NodeExprName::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprName::make_class(&vm.ctx))? {
             ExprKind::Name
-        } else if is_node_instance(vm, &object, pyast::NodeExprList::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprList::make_class(&vm.ctx))? {
             ExprKind::List
-        } else if is_node_instance(vm, &object, pyast::NodeExprTuple::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprTuple::make_class(&vm.ctx))? {
             ExprKind::Tuple
-        } else if is_node_instance(vm, &object, pyast::NodeExprSlice::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodeExprSlice::make_class(&vm.ctx))? {
             ExprKind::Slice
         } else {
             return Err(vm.new_type_error(format!(
@@ -372,7 +384,7 @@ impl Node for ast::ExprBoolOp {
             runtime_values,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprBoolOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprBoolOp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(vm, source_file), vm)
@@ -420,7 +432,7 @@ impl Node for ast::ExprNamed {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprNamedExpr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprNamedExpr::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_file), vm)
@@ -471,7 +483,7 @@ impl Node for ast::ExprBinOp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprBinOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprBinOp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("left", left.ast_to_object(vm, source_file), vm)
@@ -522,7 +534,7 @@ impl Node for ast::ExprUnaryOp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprUnaryOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprUnaryOp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(vm, source_file), vm)
@@ -570,7 +582,7 @@ impl Node for ast::ExprLambda {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprLambda::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprLambda::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let args = match parameters {
@@ -620,7 +632,7 @@ impl Node for ast::ExprIf {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprIfExp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprIfExp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(vm, source_file), vm)
@@ -688,7 +700,7 @@ impl Node for ast::ExprDict {
                     (keys, values)
                 });
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprDict::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprDict::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("keys", keys.ast_to_object(vm, source_file), vm)
@@ -738,7 +750,7 @@ impl Node for ast::ExprSet {
             runtime_elts,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprSet::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSet::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let elts = runtime_elts.map_or_else(
@@ -783,7 +795,7 @@ impl Node for ast::ExprListComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprListComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprListComp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_file), vm)
@@ -828,7 +840,7 @@ impl Node for ast::ExprSetComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprSetComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSetComp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_file), vm)
@@ -881,7 +893,7 @@ impl Node for ast::ExprDictComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprDictComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprDictComp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("key", key.ast_to_object(vm, source_file), vm)
@@ -930,7 +942,7 @@ impl Node for ast::ExprGenerator {
             parenthesized: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_file), vm)
@@ -973,7 +985,7 @@ impl Node for ast::ExprAwait {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprAwait::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprAwait::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1015,7 +1027,7 @@ impl Node for ast::ExprYield {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprYield::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprYield::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1056,7 +1068,7 @@ impl Node for ast::ExprYieldFrom {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprYieldFrom::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprYieldFrom::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1106,7 +1118,7 @@ impl Node for ast::ExprCompare {
             runtime_comparators,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprCompare::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprCompare::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("left", left.ast_to_object(vm, source_file), vm)
@@ -1163,7 +1175,7 @@ impl Node for ast::ExprCall {
         } = self;
         let (positional_arguments, keyword_arguments) = split_function_call_arguments(arguments);
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprCall::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprCall::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("func", func.ast_to_object(vm, source_file), vm)
@@ -1224,7 +1236,7 @@ impl Node for ast::ExprAttribute {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprAttribute::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprAttribute::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1277,7 +1289,7 @@ impl Node for ast::ExprSubscript {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprSubscript::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSubscript::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1327,7 +1339,7 @@ impl Node for ast::ExprStarred {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprStarred::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprStarred::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1375,7 +1387,7 @@ impl Node for ast::ExprName {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprName::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprName::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("id", id.ast_to_object(vm, source_file), vm)
@@ -1429,7 +1441,7 @@ impl Node for ast::ExprList {
             runtime_elts,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprList::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let elts = runtime_elts.map_or_else(
@@ -1488,7 +1500,7 @@ impl Node for ast::ExprTuple {
             runtime_elts,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprTuple::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprTuple::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let elts = runtime_elts.map_or_else(
@@ -1544,7 +1556,7 @@ impl Node for ast::ExprSlice {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprSlice::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSlice::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("lower", lower.ast_to_object(vm, source_file), vm)
@@ -1571,9 +1583,9 @@ impl Node for ast::ExprSlice {
 impl Node for ast::ExprContext {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
-            Self::Load => pyast::NodeExprContextLoad::static_type(),
-            Self::Store => pyast::NodeExprContextStore::static_type(),
-            Self::Del => pyast::NodeExprContextDel::static_type(),
+            Self::Load => pyast::NodeExprContextLoad::make_class(&vm.ctx),
+            Self::Store => pyast::NodeExprContextStore::make_class(&vm.ctx),
+            Self::Del => pyast::NodeExprContextDel::make_class(&vm.ctx),
             Self::Invalid => {
                 unreachable!()
             }
@@ -1587,11 +1599,16 @@ impl Node for ast::ExprContext {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if is_node_instance(vm, &object, pyast::NodeExprContextLoad::static_type())? {
+            if is_node_instance(vm, &object, pyast::NodeExprContextLoad::make_class(&vm.ctx))? {
                 Self::Load
-            } else if is_node_instance(vm, &object, pyast::NodeExprContextStore::static_type())? {
+            } else if is_node_instance(
+                vm,
+                &object,
+                pyast::NodeExprContextStore::make_class(&vm.ctx),
+            )? {
                 Self::Store
-            } else if is_node_instance(vm, &object, pyast::NodeExprContextDel::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeExprContextDel::make_class(&vm.ctx))?
+            {
                 Self::Del
             } else {
                 return Err(vm.new_type_error(format!(
@@ -1617,7 +1634,7 @@ impl Node for ast::Comprehension {
             runtime_is_async,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeComprehension::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeComprehension::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_file), vm)

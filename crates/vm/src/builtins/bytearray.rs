@@ -17,10 +17,12 @@ use crate::{
     class::PyClassImpl,
     common::{
         atomic::{AtomicUsize, Ordering},
+        borrow::{BorrowedValue, BorrowedValueMut},
         lock::{
             PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
             PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
         },
+        rc::PyRc,
     },
     convert::{ToPyObject, ToPyResult},
     function::{ArgBytesLike, PyComparisonValue, PySsize},
@@ -41,8 +43,41 @@ use core::mem::size_of;
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
+    storage: PyRc<ByteArrayStorage>,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct ByteArrayStorage {
     inner: PyDetachingRwLock<PyBytesInner>,
     exports: AtomicUsize,
+}
+
+impl core::ops::Deref for PyByteArray {
+    type Target = ByteArrayStorage;
+    fn deref(&self) -> &Self::Target {
+        &self.storage
+    }
+}
+
+#[derive(Debug)]
+struct SharedByteArray(PyRc<ByteArrayStorage>);
+
+impl Drop for SharedByteArray {
+    fn drop(&mut self) {
+        self.0.exports.fetch_sub(1, Ordering::Release);
+    }
+}
+
+// SAFETY: the export keeps resizing disabled and the byte-only allocation alive;
+// both the exporter and all independent views use the same lock.
+unsafe impl crate::protocol::SharedBufferStorage for SharedByteArray {
+    fn read(&self) -> BorrowedValue<'_, [u8]> {
+        PyDetachingRwLockReadGuard::map(self.0.inner.read(), |x| x.elements.as_slice()).into()
+    }
+    fn write(&self) -> BorrowedValueMut<'_, [u8]> {
+        PyDetachingRwLockWriteGuard::map(self.0.inner.write(), |x| x.elements.as_mut_slice()).into()
+    }
 }
 
 pub(crate) type PyByteArrayRef = PyRef<PyByteArray>;
@@ -60,8 +95,8 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyPayload for PyByteArray {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytearray_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.bytearray_type).to_owned()
     }
 }
 
@@ -77,10 +112,12 @@ impl PyByteArray {
         Self::from(data).into_ref(ctx)
     }
 
-    const fn from_inner(inner: PyBytesInner) -> Self {
+    fn from_inner(inner: PyBytesInner) -> Self {
         Self {
-            inner: PyDetachingRwLock::new(inner),
-            exports: AtomicUsize::new(0),
+            storage: PyRc::new(ByteArrayStorage {
+                inner: PyDetachingRwLock::new(inner),
+                exports: AtomicUsize::new(0),
+            }),
         }
     }
 
@@ -88,8 +125,18 @@ impl PyByteArray {
         PyDetachingRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
     }
 
-    pub fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
+    fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
         PyDetachingRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
+    }
+
+    /// Return the native byte storage for C-API integration.
+    ///
+    /// # Safety
+    /// The caller must keep this bytearray alive, prevent resizing, and
+    /// synchronize all access for the entire lifetime of the returned pointer.
+    #[must_use]
+    pub unsafe fn as_mut_ptr_unchecked(&self) -> *mut u8 {
+        self.borrow_buf_mut().as_mut_ptr()
     }
 
     fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -173,11 +220,6 @@ impl PyByteArray {
     fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
-    #[inline]
-    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
-        self.inner.write()
-    }
-
     fn __len__(&self) -> usize {
         self.borrow_buf().len()
     }
@@ -757,7 +799,7 @@ impl Initializer for PyByteArray {
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
         let mut inner = options.get_inner(bytearray_from_object, vm)?;
-        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        core::mem::swap(&mut *zelf.try_resizable(vm)?, &mut inner);
         Ok(())
     }
 }
@@ -777,6 +819,11 @@ impl Comparable for PyByteArray {
 }
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
+    shared_storage: Some(|buffer| {
+        let storage = buffer.obj_as::<PyByteArray>().storage.clone();
+        storage.exports.fetch_add(1, Ordering::Release);
+        Some(PyRc::new(SharedByteArray(storage)))
+    }),
     obj_bytes: |buffer| buffer.obj_as::<PyByteArray>().borrow_buf().into(),
     obj_bytes_mut: |buffer| {
         PyMappedDetachingRwLockWriteGuard::map(
@@ -815,9 +862,10 @@ impl AsBuffer for PyByteArray {
     }
 
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        let inner = zelf.inner.read();
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.__len__(), false),
+            BufferDescriptor::simple(inner.elements.len(), false),
             &BUFFER_METHODS,
         ))
     }
@@ -829,7 +877,11 @@ impl BufferResizeGuard for PyByteArray {
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         // An export is a borrow someone else still holds, so it is answered
         // before the lock rather than by waiting on it.
-        (self.exports.load(Ordering::SeqCst) == 0).then(|| self.inner.write())
+        if self.exports.load(Ordering::Acquire) != 0 {
+            return None;
+        }
+        let inner = self.inner.write();
+        (self.exports.load(Ordering::Acquire) == 0).then_some(inner)
     }
 }
 
@@ -881,7 +933,7 @@ impl AsSequence for PyByteArray {
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, &value, vm)
                 } else {
-                    zelf.borrow_buf_mut().delitem_by_index(vm, i)
+                    zelf.try_resizable(vm)?.elements.delitem_by_index(vm, i)
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {
@@ -944,8 +996,8 @@ pub(crate) struct PyByteArrayIterator {
 
 impl PyPayload for PyByteArrayIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.bytearray_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.bytearray_iterator_type).to_owned()
     }
 }
 

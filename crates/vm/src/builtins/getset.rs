@@ -54,8 +54,8 @@ unsafe impl Traverse for PyGetSet {
 
 impl PyPayload for PyGetSet {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.getset_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.getset_type).to_owned()
     }
 }
 

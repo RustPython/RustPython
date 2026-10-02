@@ -2,7 +2,7 @@
  * iterator types
  */
 
-use super::{PyInt, PyTupleRef, PyType};
+use super::{PyInt, PyTupleRef};
 use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -232,8 +232,8 @@ pub struct PySequenceIterator {
 
 impl PyPayload for PySequenceIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.iter_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.iter_type).to_owned()
     }
 }
 
@@ -308,8 +308,8 @@ pub struct PyCallableIterator {
 
 impl PyPayload for PyCallableIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.callable_iterator
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.callable_iterator).to_owned()
     }
 }
 

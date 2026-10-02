@@ -89,7 +89,7 @@ pub(crate) mod ssl_error {
     #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_read_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
-            PySSLWantReadError::class(&vm.ctx).to_owned(),
+            PySSLWantReadError::class(&vm.ctx),
             Some(SSL_ERROR_WANT_READ),
             "The operation did not complete (read)",
         )
@@ -98,7 +98,7 @@ pub(crate) mod ssl_error {
     #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_want_write_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
-            PySSLWantWriteError::class(&vm.ctx).to_owned(),
+            PySSLWantWriteError::class(&vm.ctx),
             Some(SSL_ERROR_WANT_WRITE),
             "The operation did not complete (write)",
         )
@@ -107,7 +107,7 @@ pub(crate) mod ssl_error {
     #[cfg_attr(target_arch = "wasm32", expect(dead_code))]
     pub(crate) fn create_ssl_eof_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
-            PySSLEOFError::class(&vm.ctx).to_owned(),
+            PySSLEOFError::class(&vm.ctx),
             Some(SSL_ERROR_EOF),
             "EOF occurred in violation of protocol",
         )
@@ -122,7 +122,7 @@ pub(crate) mod ssl_error {
     )]
     pub(crate) fn create_ssl_zero_return_error(vm: &VirtualMachine) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
-            PySSLZeroReturnError::class(&vm.ctx).to_owned(),
+            PySSLZeroReturnError::class(&vm.ctx),
             Some(SSL_ERROR_ZERO_RETURN),
             "TLS/SSL connection has been closed (EOF)",
         )
@@ -140,7 +140,7 @@ pub(crate) mod ssl_error {
         msg: impl Into<String>,
     ) -> PyRef<PyOSError> {
         vm.new_os_subtype_error(
-            PySSLSyscallError::class(&vm.ctx).to_owned(),
+            PySSLSyscallError::class(&vm.ctx),
             Some(SSL_ERROR_SYSCALL),
             msg.into(),
         )

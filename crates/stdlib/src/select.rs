@@ -18,11 +18,10 @@ struct Selectable {
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fno = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "select arg must be an int or object with a fileno() method".to_owned(),
-            )?;
+            let meth =
+                vm.get_method_or_type_error(obj.clone(), vm.ctx.intern_str("fileno"), || {
+                    "select arg must be an int or object with a fileno() method".to_owned()
+                })?;
             meth.call((), vm)?.try_into_value(vm)
         })?;
         Ok(Self { obj, fno })
@@ -48,7 +47,7 @@ mod decl {
         #[cfg(unix)]
         {
             use crate::vm::class::PyClassImpl;
-            let _ = poll::PyPoll::make_static_type();
+            let _ = unsafe { poll::PyPoll::make_static_type() };
         }
 
         __module_exec(vm, module);
@@ -410,7 +409,7 @@ mod decl {
     #[pyattr(name = "epoll", once)]
     fn epoll(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        epoll::PyEpoll::make_static_type()
+        unsafe { epoll::PyEpoll::make_static_type() }
     }
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
@@ -649,7 +648,7 @@ mod decl {
     #[pyattr(name = "kqueue", once)]
     fn kqueue_type(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        kqueue::PyKqueue::make_static_type()
+        unsafe { kqueue::PyKqueue::make_static_type() }
     }
 
     #[cfg(any(
@@ -663,7 +662,7 @@ mod decl {
     #[pyattr(name = "kevent", once)]
     fn kevent_type(_vm: &VirtualMachine) -> PyTypeRef {
         use crate::vm::class::PyClassImpl;
-        kqueue::PyKevent::make_static_type()
+        unsafe { kqueue::PyKevent::make_static_type() }
     }
 
     #[cfg(any(

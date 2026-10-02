@@ -27,8 +27,8 @@ pub struct PyTemplate {
 
 impl PyPayload for PyTemplate {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.template_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.template_type).to_owned()
     }
 }
 
@@ -272,8 +272,8 @@ pub struct PyTemplateIter {
 
 impl PyPayload for PyTemplateIter {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.template_iter_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.template_iter_type).to_owned()
     }
 }
 
