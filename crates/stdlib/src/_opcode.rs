@@ -210,9 +210,8 @@ mod tests {
         const FNAME: &str = "<?>";
 
         let builder = vm::Interpreter::builder(Default::default());
-        let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
-        let interp = builder
-            .add_native_modules(&stdlib_defs)
+        let stdlib_defs = crate::stdlib_module_defs(unsafe { builder.context() });
+        let interp = unsafe { builder.add_native_modules(&stdlib_defs) }
             .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
             .build();
 

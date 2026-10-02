@@ -311,6 +311,8 @@ pub struct GcState {
     permanent_count: AtomicUsize,
     /// Mutex for collection (prevents concurrent collections)
     collecting: PyMutex<()>,
+    #[cfg(all(unix, feature = "threading"))]
+    collecting_thread: core::sync::atomic::AtomicU64,
     /// Next `gc_owner` tag to hand to an interpreter.
     next_owner: AtomicU16,
     /// Tags of interpreters that are gone. Their objects outlived them, so a
@@ -333,6 +335,15 @@ impl Default for GcState {
 }
 
 impl GcState {
+    #[cfg(all(unix, feature = "threading"))]
+    pub(crate) fn lock_for_fork(&self) -> Option<crate::common::lock::PyMutexGuard<'_, ()>> {
+        if self.collecting_thread.load(Ordering::Relaxed) == crate::stdlib::_thread::get_ident() {
+            None
+        } else {
+            Some(self.collecting.lock())
+        }
+    }
+
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -349,6 +360,8 @@ impl GcState {
             ],
             permanent_count: AtomicUsize::new(0),
             collecting: PyMutex::new(()),
+            #[cfg(all(unix, feature = "threading"))]
+            collecting_thread: core::sync::atomic::AtomicU64::new(0),
             next_owner: AtomicU16::new(GC_NO_OWNER + 1),
             retired: PyMutex::new(Vec::new()),
         }
@@ -577,9 +590,23 @@ impl GcState {
             return CollectResult::default();
         }
 
+        if gc
+            .interpreter_id
+            .is_some_and(crate::vm::native_types::initializing)
+        {
+            return CollectResult::default();
+        }
         // Try to acquire the collecting lock
         let Some(_guard) = self.collecting.try_lock() else {
             return CollectResult::default();
+        };
+        #[cfg(all(unix, feature = "threading"))]
+        let _collecting_thread = {
+            self.collecting_thread
+                .store(crate::stdlib::_thread::get_ident(), Ordering::Relaxed);
+            scopeguard::guard(&self.collecting_thread, |thread| {
+                thread.store(0, Ordering::Relaxed)
+            })
         };
 
         // A busy collector must not consume another interpreter's request.
@@ -1244,20 +1271,26 @@ impl GcState {
         self.counts[2].fetch_add(count, Ordering::Relaxed);
     }
 
-    /// Reset all locks to unlocked state after fork().
+    /// Reset locks after fork(), preserving an active collection on this thread.
     ///
     /// After fork(), only the forking thread survives. Any lock held by another
-    /// thread is permanently stuck. This resets them by zeroing the raw bytes.
+    /// thread is permanently stuck. This resets them by zeroing the raw bytes,
+    /// except for the collecting lock when a finalizer forks from its owner.
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
-    /// threads exist. The calling thread must NOT hold any of these locks.
+    /// threads exist. The calling thread must NOT hold any of these locks except
+    /// `collecting`, whose owner is recorded in `collecting_thread`.
     #[cfg(all(unix, feature = "threading"))]
     pub unsafe fn reinit_after_fork(&self) {
         use crate::common::lock::{reinit_mutex_after_fork, reinit_rwlock_after_fork};
 
         unsafe {
-            reinit_mutex_after_fork(&self.collecting);
+            if self.collecting_thread.load(Ordering::Relaxed) != crate::stdlib::_thread::get_ident()
+            {
+                self.collecting_thread.store(0, Ordering::Relaxed);
+                reinit_mutex_after_fork(&self.collecting);
+            }
             reinit_mutex_after_fork(&self.retired);
 
             for rw in &self.generation_lists {
@@ -1275,6 +1308,7 @@ impl GcState {
 /// collections consider, whether they run automatically, and where uncollectable
 /// objects end up.
 pub struct GcInterpreterState {
+    interpreter_id: Option<i64>,
     /// Tag written into every object this interpreter tracks.
     owner: GcOwner,
     /// Per-generation thresholds and statistics.
@@ -1296,9 +1330,27 @@ pub struct GcInterpreterState {
 }
 
 impl GcInterpreterState {
+    pub(crate) fn new_for_interpreter(ctx: &crate::Context, id: i64) -> Self {
+        let mut state = Self::new(ctx);
+        state.interpreter_id = Some(id);
+        state
+    }
+
+    pub(crate) fn allocation_scope(&self) -> AllocationScope {
+        AllocationScope::new(self.owner, self.interpreter_id)
+    }
+
+    pub(crate) fn clear_python_roots(&self) {
+        let garbage = core::mem::take(&mut *self.garbage.lock());
+        let saved = core::mem::take(&mut *self.py_garbage.borrow_vec_mut());
+        let callbacks = core::mem::take(&mut *self.py_callbacks.borrow_vec_mut());
+        drop((garbage, saved, callbacks));
+    }
+
     pub fn new(ctx: &crate::vm::Context) -> Self {
         Self {
             owner: gc_state().alloc_owner(),
+            interpreter_id: None,
             generations: [
                 GcGeneration::new(2000), // young
                 GcGeneration::new(10),   // old[0]
@@ -1434,9 +1486,48 @@ impl Drop for GcInterpreterState {
 /// The tag `track_object` should write for the interpreter running now.
 #[must_use]
 pub fn current_owner() -> GcOwner {
+    if let Some((owner, _)) = ALLOCATION_OWNER.with(core::cell::Cell::get) {
+        return owner;
+    }
     // SAFETY: the pointee is owned by the `PyGlobalState` of the VM on top of
     // this thread's VM stack, which outlives the section this call runs in.
     crate::vm::thread::current_gc_state().map_or(GC_NO_OWNER, |gc| unsafe { gc.as_ref() }.owner)
+}
+
+thread_local! {
+    static ALLOCATION_OWNER: core::cell::Cell<Option<(GcOwner, Option<i64>)>> = const {
+        core::cell::Cell::new(None)
+    };
+}
+
+/// Bootstrap allocation ownership before a VM can be published in TLS.
+pub(crate) struct AllocationScope {
+    previous: Option<(GcOwner, Option<i64>)>,
+}
+
+impl AllocationScope {
+    fn new(owner: GcOwner, interpreter: Option<i64>) -> Self {
+        Self {
+            previous: ALLOCATION_OWNER.with(|current| current.replace(Some((owner, interpreter)))),
+        }
+    }
+
+    pub(crate) fn shared() -> Self {
+        Self::new(GC_NO_OWNER, None)
+    }
+}
+
+impl Drop for AllocationScope {
+    fn drop(&mut self) {
+        ALLOCATION_OWNER.with(|current| current.set(self.previous));
+    }
+}
+
+pub(crate) fn current_interpreter_id() -> Option<i64> {
+    if let Some((_, owner)) = ALLOCATION_OWNER.with(core::cell::Cell::get) {
+        return owner;
+    }
+    crate::vm::thread::try_with_current_vm(|vm| vm.state.interpreter_id)
 }
 
 /// Track a freshly allocated object under the interpreter running now, and let
@@ -1449,12 +1540,12 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
         // this way. They are left unowned, so every interpreter collects them.
-        unsafe { state.track_object_fresh(obj, GC_NO_OWNER) };
+        unsafe { state.track_object_fresh(obj, current_owner()) };
         return;
     };
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
-    unsafe { state.track_object_fresh(obj, gc.owner) };
+    unsafe { state.track_object_fresh(obj, current_owner()) };
     state.maybe_collect(gc);
 }
 
@@ -1468,12 +1559,12 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
 pub(crate) unsafe fn track_new_pair(obj: NonNull<PyObject>, frame: NonNull<PyObject>) {
     let state = gc_state();
     let Some(gc) = crate::vm::thread::current_gc_state() else {
-        unsafe { state.track_pair_fresh(obj, frame, GC_NO_OWNER) };
+        unsafe { state.track_pair_fresh(obj, frame, current_owner()) };
         return;
     };
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
-    unsafe { state.track_pair_fresh(obj, frame, gc.owner) };
+    unsafe { state.track_pair_fresh(obj, frame, current_owner()) };
     state.maybe_collect(gc);
 }
 

@@ -120,8 +120,8 @@ impl PyPayload for PyTuple {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        ctx.types.tuple_type.to_owned()
     }
 
     #[inline]
@@ -728,8 +728,8 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        ctx.types.tuple_iterator_type.to_owned()
     }
 }
 

@@ -782,7 +782,7 @@ impl ModuleItem for ClassItem {
                     quote!(::rustpython_vm::class::assign_missing_doc(vm, &new_class, #doc);)
                 });
             let class_new = quote_spanned!(ident.span() =>
-                let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
+                let new_class = <#ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
                 // Only set __module__ string if the class doesn't already have a
                 // getset descriptor for __module__ (which provides instance-level
                 // module resolution, e.g. TypeAliasType)
@@ -880,7 +880,7 @@ impl ModuleItem for StructSequenceItem {
 
         // Generate the class creation code
         let class_new = quote_spanned!(pytype_ident.span() =>
-            let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_static_type();
+            let new_class = <#pytype_ident as ::rustpython_vm::class::PyClassImpl>::make_class(ctx);
             {
                 let module_key = rustpython_vm::identifier!(ctx, __module__);
                 let has_module_getset = new_class.payload().attributes
@@ -950,11 +950,18 @@ impl ModuleItem for AttributeItem {
         let (ident, py_name, let_obj) = match args.item {
             Item::Fn(syn::ItemFn { sig, block, .. }) => {
                 let ident = &sig.ident;
-                // If `once` keyword is in #[pyattr],
-                // wrapping it with static_cell for preventing it from using it as function
+                // `once` values belong to the interpreter, even when their
+                // native factory is shared by every module instance.
                 let attr_meta = AttrItemMeta::from_attr(ident.clone(), &attr)?;
                 if attr_meta.inner()._bool("once")? {
                     let stmts = &block.stmts;
+                    let Some(syn::FnArg::Typed(arg)) = sig.inputs.first() else {
+                        bail_span!(sig, "#[pyattr(once)] requires a VM argument");
+                    };
+                    let syn::Pat::Ident(vm_arg) = arg.pat.as_ref() else {
+                        bail_span!(arg, "#[pyattr(once)] requires a named VM argument");
+                    };
+                    let vm_arg = &vm_arg.ident;
                     let return_type = match &sig.output {
                         syn::ReturnType::Default => {
                             unreachable!("#[pyattr] attached function must have return type.")
@@ -963,14 +970,10 @@ impl ModuleItem for AttributeItem {
                     };
                     let stmt: syn::Stmt = parse_quote! {
                         {
-                            rustpython_common::static_cell! {
-                                static ERROR: #return_type;
-                            }
-                            ERROR
-                                .get_or_init(|| {
-                                    #(#stmts)*
-                                })
-                                .clone()
+                            struct __PyAttrCacheKey;
+                            #vm_arg.__cached_native::<__PyAttrCacheKey, #return_type>(|| {
+                                #(#stmts)*
+                            })
                         }
                     };
                     block.stmts = vec![stmt];

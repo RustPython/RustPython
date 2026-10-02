@@ -10,10 +10,17 @@ pub(crate) mod compile_mode;
 pub use compile::VmCompileError;
 mod context;
 pub mod crossinterp;
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) mod fork;
 mod interpreter;
 mod method;
+mod native_cache;
+pub(crate) mod native_types;
+pub(crate) mod owned;
+mod owner_lease;
 #[cfg(feature = "rustpython-compiler")]
 mod python_run;
+pub(crate) mod roots;
 pub mod runtime;
 mod setting;
 pub mod thread;
@@ -52,7 +59,7 @@ use alloc::{borrow::Cow, collections::BTreeMap};
 use core::ptr::NonNull;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -83,16 +90,17 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 ///
 /// To construct the main VM of an interpreter, use [`Interpreter`].
 pub struct VirtualMachine {
+    owner_lease: OnceCell<PyRc<owner_lease::OwnerLease>>,
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
     /// Thread-local data stack for bump-allocating frame-local data
     /// (localsplus arrays for non-generator frames).
     datastack: core::cell::UnsafeCell<crate::datastack::DataStack>,
-    pub wasm_id: Option<String>,
+    pub wasm_id: OnceCell<String>,
     exceptions: RefCell<ExceptionStack>,
-    pub import_func: PyObjectRef,
-    pub(crate) importlib: PyObjectRef,
+    pub(crate) import_func: owned::ExecutionRoot<PyObjectRef>,
+    pub(crate) importlib: owned::ExecutionRoot<PyObjectRef>,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
@@ -102,10 +110,10 @@ pub struct VirtualMachine {
     tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
-    pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
+    pub(crate) signal_rx: OnceCell<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
-    pub initialized: bool,
+    pub initialized: Cell<bool>,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
     /// where the stack pointer cannot be read. Everywhere else the native
@@ -789,11 +797,11 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct CallableCache {
-    pub len: Option<PyObjectRef>,
-    pub isinstance: Option<PyObjectRef>,
-    pub list_append: Option<PyObjectRef>,
-    pub builtin_all: Option<PyObjectRef>,
-    pub builtin_any: Option<PyObjectRef>,
+    pub len: owned::ExecutionRoot<PyObjectRef>,
+    pub isinstance: owned::ExecutionRoot<PyObjectRef>,
+    pub list_append: owned::ExecutionRoot<PyObjectRef>,
+    pub builtin_all: owned::ExecutionRoot<PyObjectRef>,
+    pub builtin_any: owned::ExecutionRoot<PyObjectRef>,
 }
 
 /// Per-interpreter shared state (≈ CPython `PyInterpreterState`).
@@ -802,6 +810,13 @@ pub(crate) struct CallableCache {
 /// `PyGlobalState`. Process-wide pieces live elsewhere (`Context::genesis`,
 /// GC, the interpreter registry in [`runtime`]).
 pub struct PyGlobalState {
+    owners: AtomicUsize,
+    owner_leases: owner_lease::OwnerLeases,
+    // Count native destruction until its last graph access and detach finish.
+    // An owner leaves `owners` earlier, to elect live-runtime finalization.
+    teardowns: AtomicUsize,
+    pub(crate) closed: AtomicBool,
+    pub(crate) admission_closed: AtomicBool,
     /// Unique process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
     pub interpreter_id: i64,
     /// Top-level interpreter whose runtime owns this interpreter.
@@ -825,6 +840,10 @@ pub struct PyGlobalState {
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
+    pub(crate) abc_invalidation_counter: AtomicU64,
+    native_cache: native_cache::NativeCache,
+    pub(crate) roots: PyRc<roots::Roots>,
+    pub(crate) native_types: native_types::NativeTypes,
     pub finalizing: AtomicBool,
     /// The thread performing finalization, which need not be the process main thread.
     #[cfg(feature = "threading")]
@@ -841,7 +860,8 @@ pub struct PyGlobalState {
     /// Global profile function for all threads (set by sys._setprofileallthreads)
     pub global_profile_func: PyMutex<Option<PyObjectRef>>,
     /// Global type mutation/versioning mutex for CPython-style FT type operations.
-    pub type_mutex: PyMutex<()>,
+    pub(crate) type_cache: crate::builtins::type_::TypeCache,
+    pub type_mutex: crate::common::lock::PyDetachingRwLock<()>,
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
@@ -881,6 +901,56 @@ pub struct PyGlobalState {
 }
 
 impl PyGlobalState {
+    /// Retire every shared Python root after Python execution is disabled.
+    /// Native registry snapshots may keep this state alive on a foreign thread.
+    pub(super) fn close_python_roots(&self) {
+        let mut cleanup = owned::Cleanup::default();
+        cleanup.run(|| self.roots.close());
+        cleanup.run(|| self.type_cache.close());
+        cleanup.run(|| self.native_cache.close());
+        cleanup.run(|| self.native_types.close());
+        cleanup.run(|| self.codec_registry.close());
+        cleanup.run(|| self.warnings.close());
+        cleanup.run(|| self.gc.clear_python_roots());
+        cleanup.run(|| self.retire_callbacks());
+        cleanup.finish();
+    }
+
+    pub(super) fn retire_python_roots(&self, ctx: &Context) {
+        let mut cleanup = owned::Cleanup::default();
+        cleanup.run(|| self.roots.close());
+        cleanup.run(|| self.type_cache.close());
+        cleanup.run(|| self.native_cache.close());
+        cleanup.run(|| self.native_types.close());
+        cleanup.run(|| self.retire_callbacks());
+        cleanup.run(|| self.warnings.retire_roots(ctx));
+        cleanup.run(|| self.gc.clear_python_roots());
+        cleanup.run(|| self.codec_registry.close());
+        cleanup.finish();
+    }
+
+    fn retire_callbacks(&self) {
+        let atexit = core::mem::take(&mut *self.atexit_funcs.lock());
+        let audit = core::mem::take(&mut *self.audit_hooks.lock());
+        let before_fork = core::mem::take(&mut *self.before_forkers.lock());
+        let after_child = core::mem::take(&mut *self.after_forkers_child.lock());
+        let after_parent = core::mem::take(&mut *self.after_forkers_parent.lock());
+        let trace = self.global_trace_func.lock().take();
+        let profile = self.global_profile_func.lock().take();
+        let monitoring = core::mem::take(&mut *self.monitoring.lock());
+        self.monitoring_events.store(0);
+        drop((
+            atexit,
+            audit,
+            before_fork,
+            after_child,
+            after_parent,
+            trace,
+            profile,
+            monitoring,
+        ));
+    }
+
     #[inline]
     #[must_use]
     pub fn is_main_interpreter(&self) -> bool {
@@ -1141,19 +1211,102 @@ enum LengthHint<'a> {
 }
 
 impl VirtualMachine {
-    fn init_callable_cache(&mut self) -> PyResult<()> {
-        self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
-        self.callable_cache.isinstance = Some(self.builtins.get_attr("isinstance", self)?);
+    fn owner_lease(&self) -> &PyRc<owner_lease::OwnerLease> {
+        self.owner_lease.get().expect("VM has no native owner")
+    }
+
+    pub(crate) fn owner_is_valid(&self) -> bool {
+        self.owner_lease().is_valid()
+    }
+
+    /// Release per-thread roots while this execution context is still usable.
+    pub(super) fn retire_execution_roots(&self) {
+        let signals = self
+            .signal_handlers
+            .get()
+            .map(|handlers| handlers.replace(Default::default()));
+        let exceptions = self.exceptions.replace(ExceptionStack::default());
+        let trace = self.trace_func.replace(self.ctx.none());
+        let profile = self.profile_func.replace(self.ctx.none());
+        self.use_tracing.set(false);
+        let firstiter = self.async_gen_firstiter.take();
+        let finalizer = self.async_gen_finalizer.take();
+        let running_loop = self.asyncio_running_loop.take();
+        let running_task = self.asyncio_running_task.take();
+        let contexts = self.context_stack.take();
+        drop((
+            exceptions,
+            signals,
+            trace,
+            profile,
+            firstiter,
+            finalizer,
+            running_loop,
+            running_task,
+            contexts,
+        ));
+    }
+
+    /// Release cached values before masking callbacks or dropping VM storage.
+    ///
+    /// # Safety
+    /// All execution scopes borrowing cached roots must have ended. The owner
+    /// may publish a fresh shared cleanup entry while these cells are emptied.
+    pub(super) unsafe fn retire_cached_roots(&self) {
+        // Take every root before dropping any value: finalizers can reenter.
+        let roots = unsafe {
+            (
+                self.callable_cache.len.retire(),
+                self.callable_cache.isinstance.retire(),
+                self.callable_cache.list_append.retire(),
+                self.callable_cache.builtin_all.retire(),
+                self.callable_cache.builtin_any.retire(),
+                self.import_func.retire(),
+                self.importlib.retire(),
+            )
+        };
+        drop(roots);
+    }
+
+    fn init_callable_cache(&self) -> PyResult<()> {
+        let _ = self
+            .callable_cache
+            .len
+            .set(self.builtins.get_attr("len", self)?);
+        let _ = self
+            .callable_cache
+            .isinstance
+            .set(self.builtins.get_attr("isinstance", self)?);
         let list_append = self
             .ctx
             .types
             .list_type
             .get_attr(self.ctx.intern_str("append"))
             .ok_or_else(|| self.new_runtime_error("failed to cache list.append"))?;
-        self.callable_cache.list_append = Some(list_append);
-        self.callable_cache.builtin_all = Some(self.builtins.get_attr("all", self)?);
-        self.callable_cache.builtin_any = Some(self.builtins.get_attr("any", self)?);
+        let _ = self.callable_cache.list_append.set(list_append);
+        let _ = self
+            .callable_cache
+            .builtin_all
+            .set(self.builtins.get_attr("all", self)?);
+        let _ = self
+            .callable_cache
+            .builtin_any
+            .set(self.builtins.get_attr("any", self)?);
         Ok(())
+    }
+
+    #[inline]
+    pub fn import_func(&self) -> &PyObject {
+        self.import_func
+            .get()
+            .map_or_else(|| self.ctx.none.as_object(), |value| value.as_ref())
+    }
+
+    #[inline]
+    pub(crate) fn importlib(&self) -> &PyObject {
+        self.importlib
+            .get()
+            .map_or_else(|| self.ctx.none.as_object(), |value| value.as_ref())
     }
 
     /// Bump-allocate `size` bytes from the thread data stack.
@@ -1245,18 +1398,19 @@ impl VirtualMachine {
         let builtins = new_module(stdlib::builtins::module_def(&ctx));
         let sys_module = new_module(stdlib::sys::module_def(&ctx));
 
-        let import_func = ctx.none();
-        let importlib = ctx.none();
+        let import_func = owned::ExecutionRoot::new();
+        let importlib = owned::ExecutionRoot::new();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
         let signal_handlers = OnceCell::from(SignalHandlers::default());
 
         let vm = Self {
+            owner_lease: OnceCell::new(),
             builtins,
             sys_module,
             ctx,
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
-            wasm_id: None,
+            wasm_id: OnceCell::new(),
             exceptions: RefCell::default(),
             import_func,
             importlib,
@@ -1267,10 +1421,10 @@ impl VirtualMachine {
             tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
-            signal_rx: None,
+            signal_rx: OnceCell::new(),
             repr_guards: RefCell::default(),
             state,
-            initialized: false,
+            initialized: Cell::new(false),
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1306,7 +1460,7 @@ impl VirtualMachine {
     /// set up the encodings search function
     /// init_importlib must be called before this call
     #[cfg(feature = "encodings")]
-    fn import_encodings(&mut self) -> PyResult<()> {
+    fn import_encodings(&self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
             let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
             let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
@@ -1343,7 +1497,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn import_ascii_utf8_encodings(&mut self) -> PyResult<()> {
+    fn import_ascii_utf8_encodings(&self) -> PyResult<()> {
         // Use the Python import machinery (FrozenImporter) so modules get
         // proper __spec__ and __loader__ attributes.
         self.import("codecs", 0)?;
@@ -1397,10 +1551,10 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&self) {
         flame_guard!("init VirtualMachine");
 
-        assert!(!self.initialized, "Double Initialize Error");
+        assert!(!self.initialized.get(), "Double Initialize Error");
 
         // Process main-thread identity is owned by the main interpreter only
         // (used for signal handling / `_thread._is_main_interpreter` helpers).
@@ -1423,7 +1577,7 @@ impl VirtualMachine {
             "failed to initialize bootstrap stderr",
         );
 
-        let mut essential_init = || -> PyResult {
+        let essential_init = || -> PyResult {
             import::import_builtin(self, "_typing")?;
             #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
             import::import_builtin(self, "_signal")?;
@@ -1578,12 +1732,15 @@ impl VirtualMachine {
             );
         }
 
-        self.initialized = true;
+        self.initialized.set(true);
     }
 
     /// Set the custom signal channel for the interpreter
-    pub fn set_user_signal_channel(&mut self, signal_rx: signal::UserSignalReceiver) {
-        self.signal_rx = Some(signal_rx);
+    pub fn set_user_signal_channel(&self, signal_rx: signal::UserSignalReceiver) {
+        assert!(
+            self.signal_rx.set(signal_rx).is_ok(),
+            "signal channel already set"
+        );
     }
 
     /// Execute Python bytecode (`.pyc`) from an in-memory buffer.
@@ -3219,7 +3376,7 @@ impl VirtualMachine {
             .builtins
             .get_attr(identifier!(self, __import__), self)
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
-        if !current_import.is(&self.import_func) {
+        if !current_import.is(self.import_func()) {
             // `builtins.__import__` was replaced by user code; must go
             // through it so overrides (test_import, test_importlib,
             // test_builtin) still take effect.
@@ -3534,7 +3691,7 @@ impl VirtualMachine {
     }
 
     pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
-        let method_name = self.ctx.interned_str(method_name)?;
+        let method_name = obj.class().interned_attr_name(method_name, self)?;
         self.get_method(obj, method_name)
     }
 
@@ -3548,8 +3705,14 @@ impl VirtualMachine {
     /// `check_signals` and never park, so `stop_the_world` waits forever.
     #[inline]
     pub(crate) fn eval_breaker_tripped(&self) -> bool {
+        if self.state.roots.has_pending() {
+            return true;
+        }
         #[cfg(feature = "threading")]
-        if thread::stop_requested_for_current_thread() || self.state.gc.collection_ready() {
+        if thread::stop_requested_for_current_thread()
+            || self.state.gc.collection_ready()
+            || crate::object::qsbr::QSBR.break_pending()
+        {
             return true;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -3581,9 +3744,13 @@ impl VirtualMachine {
         #[cfg(feature = "threading")]
         thread::suspend_if_needed(&self.state);
 
+        self.state.roots.drain_pending();
+
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
         #[cfg(feature = "threading")]
-        if crate::signal::qsbr_bit_set() && thread::qsbr_break_requested() {
+        if (crate::object::qsbr::QSBR.break_pending() || crate::signal::qsbr_bit_set())
+            && thread::qsbr_break_requested()
+        {
             thread::qsbr_checkpoint();
         }
 
@@ -3907,7 +4074,7 @@ mod tests {
                 dir = "../../../../extra_tests/snippets"
             ))
             .build()
-            .enter(|vm| {
+            .enter_raw(|vm| {
                 let scope = vm.new_scope_with_builtins();
 
                 let source = "from dir_module.dir_module_inner import value2";
@@ -3929,7 +4096,7 @@ mod tests {
 
         vm::Interpreter::builder(Default::default())
             .build()
-            .enter(|vm| {
+            .enter_raw(|vm| {
                 let check = |name, expected| {
                     let module = import::import_frozen(vm, name).unwrap();
                     let origname: PyStrRef = module

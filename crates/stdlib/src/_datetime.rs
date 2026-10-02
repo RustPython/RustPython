@@ -937,11 +937,11 @@ mod _datetime {
     // Type checks
 
     fn date_type() -> &'static Py<PyType> {
-        PyDate::static_type()
+        unsafe { PyDate::static_type() }
     }
 
     pub(crate) fn datetime_type() -> &'static Py<PyType> {
-        PyDateTime::static_type()
+        unsafe { PyDateTime::static_type() }
     }
 
     pub(crate) fn timedelta_from_seconds(
@@ -953,7 +953,7 @@ mod _datetime {
     }
 
     fn time_type() -> &'static Py<PyType> {
-        PyTime::static_type()
+        unsafe { PyTime::static_type() }
     }
 
     fn as_date(obj: &PyObject) -> Option<&Py<PyDate>> {
@@ -969,7 +969,7 @@ mod _datetime {
     }
 
     fn is_tzinfo(obj: &PyObject) -> bool {
-        obj.fast_isinstance(PyTzInfo::static_type())
+        obj.fast_isinstance(unsafe { PyTzInfo::static_type() })
     }
 
     /// The `tzinfo` a `time` or `datetime` holds; `None` for naive values and dates.
@@ -1575,7 +1575,7 @@ mod _datetime {
             return Ok(None);
         }
         if tzoffset == 0 && tz_useconds == 0 {
-            return Ok(Some(utc().to_owned().into()));
+            return Ok(Some(utc(vm).into()));
         }
         let delta = PyDelta::new_ref(0, i64::from(tzoffset), i64::from(tz_useconds), true, vm)?;
         Ok(Some(new_timezone(delta, None, vm)?.into()))
@@ -2053,7 +2053,7 @@ mod _datetime {
                 vm.ctx.new_int(day + 1).into(),
             ];
             Ok(PyTuple::new_unchecked(items.into_boxed_slice())
-                .into_ref_with_type(vm, PyIsoCalendarDate::make_static_type())?
+                .into_ref_with_type(vm, unsafe { PyIsoCalendarDate::make_static_type() })?
                 .into())
         }
 
@@ -2111,7 +2111,7 @@ mod _datetime {
             class.set_attr(ctx.intern_str("max"), make(MAXYEAR, 12, 31));
             let resolution = PyRef::new_ref(
                 PyDelta::new_unchecked(1, 0, 0),
-                PyDelta::static_type().to_owned(),
+                unsafe { PyDelta::static_type() }.to_owned(),
                 None,
             );
             class.set_attr(ctx.intern_str("resolution"), resolution.into());
@@ -2430,12 +2430,16 @@ mod _datetime {
         name: Option<PyStrRef>,
     }
 
-    fn utc() -> &'static Py<PyTimeZone> {
-        UTC.get().expect("the timezone type creates UTC")
-    }
-
-    rustpython_common::static_cell! {
-        static UTC: PyRef<PyTimeZone>;
+    fn utc(vm: &VirtualMachine) -> PyRef<PyTimeZone> {
+        struct Utc;
+        vm.__cached_native::<Utc, _>(|| {
+            PyTimeZone {
+                base: PyTzInfo::default(),
+                offset: PyDelta::new_unchecked(0, 0, 0).into_ref(&vm.ctx),
+                name: None,
+            }
+            .into_ref(&vm.ctx)
+        })
     }
 
     /// `new_timezone`: UTC for a zero, unnamed offset; the offset must be within a day.
@@ -2445,7 +2449,7 @@ mod _datetime {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyTimeZone>> {
         if name.is_none() && !offset.is_nonzero() {
-            return Ok(utc().to_owned());
+            return Ok(utc(vm));
         }
         if offset_out_of_range(&offset) {
             return Err(offset_range_error(offset.as_object(), vm)?);
@@ -2510,7 +2514,7 @@ mod _datetime {
             if let Some(name) = &zelf.name {
                 return name.clone();
             }
-            if zelf.is(utc()) || !zelf.offset.is_nonzero() {
+            if zelf.is(&utc(vm)) || !zelf.offset.is_nonzero() {
                 return vm.ctx.new_str("UTC");
             }
             vm.ctx
@@ -2546,7 +2550,7 @@ mod _datetime {
     impl Representable for PyTimeZone {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let type_name = type_name(zelf.as_object());
-            if zelf.is(utc()) {
+            if zelf.is(&utc(vm)) {
                 return Ok(format!("{type_name}.utc"));
             }
             let offset = zelf.offset.as_object().repr(vm)?;
@@ -2612,7 +2616,7 @@ mod _datetime {
 
         #[extend_class]
         fn extend_class(ctx: &crate::vm::Context, class: &Py<PyType>) {
-            let delta_type = PyDelta::static_type();
+            let delta_type = unsafe { PyDelta::static_type() };
             let make = |seconds: i32| {
                 let (days, seconds) = if seconds < 0 {
                     (-1, seconds + 24 * 3600)
@@ -2634,8 +2638,9 @@ mod _datetime {
                     None,
                 )
             };
-            let utc = UTC.get_or_init(|| make(0));
-            class.set_attr(ctx.intern_str("utc"), utc.clone().into());
+            // SAFETY: this native constructor runs in the currently attached owner.
+            let utc = unsafe { crate::vm::vm::thread::with_current_vm_unchecked(utc) };
+            class.set_attr(ctx.intern_str("utc"), utc.into());
             class.set_attr(ctx.intern_str("min"), make(-(23 * 3600 + 59 * 60)).into());
             class.set_attr(ctx.intern_str("max"), make(23 * 3600 + 59 * 60).into());
         }
@@ -3074,7 +3079,7 @@ mod _datetime {
             class.set_attr(ctx.intern_str("max"), make(23, 59, 59, 999_999));
             let resolution = PyRef::new_ref(
                 PyDelta::new_unchecked(0, 0, 1),
-                PyDelta::static_type().to_owned(),
+                unsafe { PyDelta::static_type() }.to_owned(),
                 None,
             );
             class.set_attr(ctx.intern_str("resolution"), resolution.into());
@@ -4018,7 +4023,7 @@ mod _datetime {
                     0,
                     0,
                     0,
-                    Some(utc().to_owned().into()),
+                    Some(utc(vm).into()),
                     0,
                     datetime_type(),
                     vm,
@@ -4162,7 +4167,7 @@ mod _datetime {
             let utc_result = Self::add_delta(zelf, &offset, -1, vm)?
                 .downcast::<Self>()
                 .map_err(|_| vm.new_type_error("datetime arithmetic must return a datetime"))?;
-            utc_result.set_tzinfo(utc().to_owned().into());
+            utc_result.set_tzinfo(utc(vm).into());
             let tzinfo: PyObjectRef = match target {
                 Some(tz) => tz,
                 None => {
@@ -4174,7 +4179,7 @@ mod _datetime {
                         0,
                         0,
                         0,
-                        Some(utc().to_owned().into()),
+                        Some(utc(vm).into()),
                         0,
                         datetime_type(),
                         vm,
@@ -4221,7 +4226,7 @@ mod _datetime {
             );
             let resolution = PyRef::new_ref(
                 PyDelta::new_unchecked(0, 0, 1),
-                PyDelta::static_type().to_owned(),
+                unsafe { PyDelta::static_type() }.to_owned(),
                 None,
             );
             class.set_attr(ctx.intern_str("resolution"), resolution.into());
@@ -4372,7 +4377,7 @@ mod _datetime {
     }
 
     #[pyattr(name = "UTC")]
-    fn utc_attr(_vm: &VirtualMachine) -> PyRef<PyTimeZone> {
-        utc().to_owned()
+    fn utc_attr(vm: &VirtualMachine) -> PyRef<PyTimeZone> {
+        utc(vm)
     }
 }

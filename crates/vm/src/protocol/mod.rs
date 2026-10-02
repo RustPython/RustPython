@@ -5,6 +5,7 @@ mod mapping;
 mod number;
 mod object;
 mod sequence;
+pub(crate) mod shared_buffer;
 
 pub use buffer::{
     BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, VecBuffer,
@@ -19,3 +20,4 @@ pub use number::{
     numeric_literal_from_str,
 };
 pub use sequence::{PySequence, PySequenceMethods, PySequenceSlots};
+pub use shared_buffer::{SharedBuffer, SharedBufferStorage};

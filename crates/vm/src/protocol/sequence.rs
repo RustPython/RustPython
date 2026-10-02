@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn unsupported_inplace_operations_keep_sequence_errors() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let range = PyRange {
                 start: vm.ctx.new_int(0),
                 stop: vm.ctx.new_int(3),
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn conversion_and_partial_result_cleanup() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let elements: Vec<PyObjectRef> =
                 (0..20).map(|value| vm.ctx.new_int(value).into()).collect();
             let list = vm.ctx.new_list(elements.clone());
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn capacity_overflow_precedes_conversion() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let range = PyRange {
                 start: vm.ctx.new_int(0),
                 stop: vm.ctx.new_int(isize::MAX),

@@ -53,9 +53,8 @@ fn main() {
     }
 
     let builder = Interpreter::builder(Default::default());
-    let defs = stdlib_module_defs(&builder.ctx);
-    let result = builder
-        .add_native_modules(&defs)
+    let defs = stdlib_module_defs(unsafe { builder.context() });
+    let result = unsafe { builder.add_native_modules(&defs) }
         .add_frozen_modules(FROZEN_STDLIB)
         .build()
         .run(|vm| {

@@ -212,10 +212,10 @@ impl ArgumentType for PyTypeRef {
         // Validate the argument type up front (mirrors the pre-conversion
         // check): pointer-like ctypes types are always acceptable; a simple
         // type must carry a known _type_ code; anything else is unsupported.
-        let type_code = if self.fast_issubclass(CArgObject::static_type())
-            || self.fast_issubclass(PyCPointer::static_type())
-            || self.fast_issubclass(PyCStructure::static_type())
-            || self.fast_issubclass(PyCUnion::static_type())
+        let type_code = if self.fast_issubclass(unsafe { CArgObject::static_type() })
+            || self.fast_issubclass(unsafe { PyCPointer::static_type() })
+            || self.fast_issubclass(unsafe { PyCStructure::static_type() })
+            || self.fast_issubclass(unsafe { PyCUnion::static_type() })
         {
             None
         } else {
@@ -255,7 +255,7 @@ impl ArgumentType for PyTypeRef {
         }
 
         // For pointer types (POINTER(T)), we need to pass the pointer VALUE stored in buffer
-        if self.fast_issubclass(PyCPointer::static_type()) {
+        if self.fast_issubclass(unsafe { PyCPointer::static_type() }) {
             if let Some(pointer) = converted.downcast_ref::<PyCPointer>() {
                 return Ok((CArgValue::pointer(pointer.get_ptr_value()), None));
             }
@@ -265,8 +265,8 @@ impl ArgumentType for PyTypeRef {
         // For structure/union types, pass the aggregate by value: snapshot the
         // instance bytes and build its call layout from the argtype. A byref()
         // result is a CArgObject and was already handled above (stays a pointer).
-        if self.fast_issubclass(PyCStructure::static_type())
-            || self.fast_issubclass(PyCUnion::static_type())
+        if self.fast_issubclass(unsafe { PyCStructure::static_type() })
+            || self.fast_issubclass(unsafe { PyCUnion::static_type() })
         {
             if let Some(cdata) = converted.downcast_ref::<PyCData>() {
                 let bytes = cdata.buffer.read().to_vec();
@@ -460,6 +460,7 @@ pub(super) struct RawMemoryBuffer {
 }
 
 static RAW_MEMORY_BUFFER_METHODS: crate::protocol::BufferMethods = crate::protocol::BufferMethods {
+    shared_storage: None,
     obj_bytes: |buffer| {
         let raw = buffer.obj_as::<RawMemoryBuffer>();
         let slice = unsafe { raw.memory.bytes() };
@@ -505,7 +506,10 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
     use super::pointer::PyCPointerType;
 
     // PyCPointerTypeObject_Check
-    if ctype.class().fast_issubclass(PyCPointerType::static_type()) {
+    if ctype
+        .class()
+        .fast_issubclass(unsafe { PyCPointerType::static_type() })
+    {
         return true;
     }
 
@@ -577,7 +581,10 @@ pub(super) fn cast_impl(
 
     // 4. _objects reference tracking
     // Share _objects dict between source and result, add id(src): src
-    if src.class().fast_issubclass(PyCData::static_type()) {
+    if src
+        .class()
+        .fast_issubclass(unsafe { PyCData::static_type() })
+    {
         // Get the source's _objects, create dict if needed
         let shared_objects: PyObjectRef = if let Some(src_cdata) = src.downcast_ref::<PyCData>() {
             let mut src_objects = src_cdata.objects.write();
@@ -1173,7 +1180,7 @@ fn get_buffer_addr(obj: &PyObject) -> Option<usize> {
 /// Create OUT buffer for a parameter type
 fn create_out_buffer(arg_type: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     // For POINTER(T) types, create T instance (the pointed-to type)
-    if arg_type.fast_issubclass(PyCPointer::static_type())
+    if arg_type.fast_issubclass(unsafe { PyCPointer::static_type() })
         && let Some(stg_info) = arg_type.stg_info_opt()
         && let Some(ref proto) = stg_info.proto
     {

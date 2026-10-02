@@ -130,68 +130,78 @@ impl Node for ast::Stmt {
             Break,
             Continue,
         }
-        let kind = if is_node_instance(vm, &object, pyast::NodeStmtFunctionDef::static_type())? {
-            StmtKind::FunctionDef { is_async: false }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAsyncFunctionDef::static_type())? {
-            StmtKind::FunctionDef { is_async: true }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtClassDef::static_type())? {
-            StmtKind::ClassDef
-        } else if is_node_instance(vm, &object, pyast::NodeStmtReturn::static_type())? {
-            StmtKind::Return
-        } else if is_node_instance(vm, &object, pyast::NodeStmtDelete::static_type())? {
-            StmtKind::Delete
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAssign::static_type())? {
-            StmtKind::Assign
-        } else if is_node_instance(vm, &object, pyast::NodeStmtTypeAlias::static_type())? {
-            StmtKind::TypeAlias
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAugAssign::static_type())? {
-            StmtKind::AugAssign
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAnnAssign::static_type())? {
-            StmtKind::AnnAssign
-        } else if is_node_instance(vm, &object, pyast::NodeStmtFor::static_type())? {
-            StmtKind::For { is_async: false }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAsyncFor::static_type())? {
-            StmtKind::For { is_async: true }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtWhile::static_type())? {
-            StmtKind::While
-        } else if is_node_instance(vm, &object, pyast::NodeStmtIf::static_type())? {
-            StmtKind::If
-        } else if is_node_instance(vm, &object, pyast::NodeStmtWith::static_type())? {
-            StmtKind::With { is_async: false }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAsyncWith::static_type())? {
-            StmtKind::With { is_async: true }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtMatch::static_type())? {
-            StmtKind::Match
-        } else if is_node_instance(vm, &object, pyast::NodeStmtRaise::static_type())? {
-            StmtKind::Raise
-        } else if is_node_instance(vm, &object, pyast::NodeStmtTry::static_type())? {
-            StmtKind::Try { is_star: false }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtTryStar::static_type())? {
-            StmtKind::Try { is_star: true }
-        } else if is_node_instance(vm, &object, pyast::NodeStmtAssert::static_type())? {
-            StmtKind::Assert
-        } else if is_node_instance(vm, &object, pyast::NodeStmtImport::static_type())? {
-            StmtKind::Import
-        } else if is_node_instance(vm, &object, pyast::NodeStmtImportFrom::static_type())? {
-            StmtKind::ImportFrom
-        } else if is_node_instance(vm, &object, pyast::NodeStmtGlobal::static_type())? {
-            StmtKind::Global
-        } else if is_node_instance(vm, &object, pyast::NodeStmtNonlocal::static_type())? {
-            StmtKind::Nonlocal
-        } else if is_node_instance(vm, &object, pyast::NodeStmtExpr::static_type())? {
-            StmtKind::Expr
-        } else if is_node_instance(vm, &object, pyast::NodeStmtPass::static_type())? {
-            StmtKind::Pass
-        } else if is_node_instance(vm, &object, pyast::NodeStmtBreak::static_type())? {
-            StmtKind::Break
-        } else if is_node_instance(vm, &object, pyast::NodeStmtContinue::static_type())? {
-            StmtKind::Continue
-        } else {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of stmt, but got {}",
-                object.repr(vm)?
-            )));
-        };
+        let kind =
+            if is_node_instance(vm, &object, pyast::NodeStmtFunctionDef::make_class(&vm.ctx))? {
+                StmtKind::FunctionDef { is_async: false }
+            } else if is_node_instance(
+                vm,
+                &object,
+                pyast::NodeStmtAsyncFunctionDef::make_class(&vm.ctx),
+            )? {
+                StmtKind::FunctionDef { is_async: true }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtClassDef::make_class(&vm.ctx))? {
+                StmtKind::ClassDef
+            } else if is_node_instance(vm, &object, pyast::NodeStmtReturn::make_class(&vm.ctx))? {
+                StmtKind::Return
+            } else if is_node_instance(vm, &object, pyast::NodeStmtDelete::make_class(&vm.ctx))? {
+                StmtKind::Delete
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAssign::make_class(&vm.ctx))? {
+                StmtKind::Assign
+            } else if is_node_instance(vm, &object, pyast::NodeStmtTypeAlias::make_class(&vm.ctx))?
+            {
+                StmtKind::TypeAlias
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAugAssign::make_class(&vm.ctx))?
+            {
+                StmtKind::AugAssign
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAnnAssign::make_class(&vm.ctx))?
+            {
+                StmtKind::AnnAssign
+            } else if is_node_instance(vm, &object, pyast::NodeStmtFor::make_class(&vm.ctx))? {
+                StmtKind::For { is_async: false }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAsyncFor::make_class(&vm.ctx))? {
+                StmtKind::For { is_async: true }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtWhile::make_class(&vm.ctx))? {
+                StmtKind::While
+            } else if is_node_instance(vm, &object, pyast::NodeStmtIf::make_class(&vm.ctx))? {
+                StmtKind::If
+            } else if is_node_instance(vm, &object, pyast::NodeStmtWith::make_class(&vm.ctx))? {
+                StmtKind::With { is_async: false }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAsyncWith::make_class(&vm.ctx))?
+            {
+                StmtKind::With { is_async: true }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtMatch::make_class(&vm.ctx))? {
+                StmtKind::Match
+            } else if is_node_instance(vm, &object, pyast::NodeStmtRaise::make_class(&vm.ctx))? {
+                StmtKind::Raise
+            } else if is_node_instance(vm, &object, pyast::NodeStmtTry::make_class(&vm.ctx))? {
+                StmtKind::Try { is_star: false }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtTryStar::make_class(&vm.ctx))? {
+                StmtKind::Try { is_star: true }
+            } else if is_node_instance(vm, &object, pyast::NodeStmtAssert::make_class(&vm.ctx))? {
+                StmtKind::Assert
+            } else if is_node_instance(vm, &object, pyast::NodeStmtImport::make_class(&vm.ctx))? {
+                StmtKind::Import
+            } else if is_node_instance(vm, &object, pyast::NodeStmtImportFrom::make_class(&vm.ctx))?
+            {
+                StmtKind::ImportFrom
+            } else if is_node_instance(vm, &object, pyast::NodeStmtGlobal::make_class(&vm.ctx))? {
+                StmtKind::Global
+            } else if is_node_instance(vm, &object, pyast::NodeStmtNonlocal::make_class(&vm.ctx))? {
+                StmtKind::Nonlocal
+            } else if is_node_instance(vm, &object, pyast::NodeStmtExpr::make_class(&vm.ctx))? {
+                StmtKind::Expr
+            } else if is_node_instance(vm, &object, pyast::NodeStmtPass::make_class(&vm.ctx))? {
+                StmtKind::Pass
+            } else if is_node_instance(vm, &object, pyast::NodeStmtBreak::make_class(&vm.ctx))? {
+                StmtKind::Break
+            } else if is_node_instance(vm, &object, pyast::NodeStmtContinue::make_class(&vm.ctx))? {
+                StmtKind::Continue
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "expected some sort of stmt, but got {}",
+                    object.repr(vm)?
+                )));
+            };
         let range = stmt_range_from_object(vm, source_file, &object)?;
         Ok(match kind {
             StmtKind::FunctionDef { is_async } => {
@@ -408,9 +418,9 @@ impl Node for ast::StmtFunctionDef {
         );
 
         let cls = if !is_async {
-            pyast::NodeStmtFunctionDef::static_type().to_owned()
+            pyast::NodeStmtFunctionDef::make_class(&vm.ctx)
         } else {
-            pyast::NodeStmtAsyncFunctionDef::static_type().to_owned()
+            pyast::NodeStmtAsyncFunctionDef::make_class(&vm.ctx)
         };
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
@@ -459,8 +469,11 @@ impl Node for ast::StmtFunctionDef {
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        let is_async =
-            is_node_instance(vm, &_object, pyast::NodeStmtAsyncFunctionDef::static_type())?;
+        let is_async = is_node_instance(
+            vm,
+            &_object,
+            pyast::NodeStmtAsyncFunctionDef::make_class(&vm.ctx),
+        )?;
         let typ = if is_async {
             "AsyncFunctionDef"
         } else {
@@ -522,7 +535,7 @@ impl Node for ast::StmtClassDef {
         let range =
             definition_range_from_name(source_file, name.range.start(), range.end(), "class");
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtClassDef::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtClassDef::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)
@@ -604,7 +617,7 @@ impl Node for ast::StmtReturn {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtReturn::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtReturn::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -648,7 +661,7 @@ impl Node for ast::StmtDelete {
             runtime_targets,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtDelete::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtDelete::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let targets = runtime_targets.map_or_else(
@@ -705,7 +718,7 @@ impl Node for ast::StmtAssign {
             runtime_type_comment_bytes,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtAssign::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAssign::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let targets = runtime_targets.map_or_else(
@@ -760,7 +773,7 @@ impl Node for ast::StmtTypeAlias {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtTypeAlias::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtTypeAlias::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)
@@ -820,7 +833,7 @@ impl Node for ast::StmtAugAssign {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtAugAssign::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAugAssign::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_file), vm)
@@ -881,7 +894,7 @@ impl Node for ast::StmtAnnAssign {
             runtime_simple,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtAnnAssign::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAnnAssign::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_file), vm)
@@ -960,9 +973,9 @@ impl Node for ast::StmtFor {
         } = self;
 
         let cls = if !is_async {
-            pyast::NodeStmtFor::static_type().to_owned()
+            pyast::NodeStmtFor::make_class(&vm.ctx)
         } else {
-            pyast::NodeStmtAsyncFor::static_type().to_owned()
+            pyast::NodeStmtAsyncFor::make_class(&vm.ctx)
         };
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
@@ -997,10 +1010,11 @@ impl Node for ast::StmtFor {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         debug_assert!(
-            is_node_instance(vm, &_object, pyast::NodeStmtFor::static_type())?
-                || is_node_instance(vm, &_object, pyast::NodeStmtAsyncFor::static_type())?
+            is_node_instance(vm, &_object, pyast::NodeStmtFor::make_class(&vm.ctx))?
+                || is_node_instance(vm, &_object, pyast::NodeStmtAsyncFor::make_class(&vm.ctx))?
         );
-        let is_async = is_node_instance(vm, &_object, pyast::NodeStmtAsyncFor::static_type())?;
+        let is_async =
+            is_node_instance(vm, &_object, pyast::NodeStmtAsyncFor::make_class(&vm.ctx))?;
         let typ = if is_async { "AsyncFor" } else { "For" };
         let range = range_from_object(vm, source_file, &_object, typ)?;
         stmt_for_from_object_with_range(vm, source_file, &_object, range, is_async)
@@ -1043,7 +1057,7 @@ impl Node for ast::StmtWhile {
             runtime_orelse,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtWhile::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtWhile::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(vm, source_file), vm)
@@ -1145,9 +1159,9 @@ impl Node for ast::StmtWith {
         } = self;
 
         let cls = if !is_async {
-            pyast::NodeStmtWith::static_type().to_owned()
+            pyast::NodeStmtWith::make_class(&vm.ctx)
         } else {
-            pyast::NodeStmtAsyncWith::static_type().to_owned()
+            pyast::NodeStmtAsyncWith::make_class(&vm.ctx)
         };
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
@@ -1174,10 +1188,11 @@ impl Node for ast::StmtWith {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         debug_assert!(
-            is_node_instance(vm, &_object, pyast::NodeStmtWith::static_type())?
-                || is_node_instance(vm, &_object, pyast::NodeStmtAsyncWith::static_type())?
+            is_node_instance(vm, &_object, pyast::NodeStmtWith::make_class(&vm.ctx))?
+                || is_node_instance(vm, &_object, pyast::NodeStmtAsyncWith::make_class(&vm.ctx))?
         );
-        let is_async = is_node_instance(vm, &_object, pyast::NodeStmtAsyncWith::static_type())?;
+        let is_async =
+            is_node_instance(vm, &_object, pyast::NodeStmtAsyncWith::make_class(&vm.ctx))?;
         let typ = if is_async { "AsyncWith" } else { "With" };
         let range = range_from_object(vm, source_file, &_object, typ)?;
         stmt_with_from_object_with_range(vm, source_file, &_object, range, is_async)
@@ -1207,7 +1222,7 @@ impl Node for ast::StmtMatch {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtMatch::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtMatch::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("subject", subject.ast_to_object(vm, source_file), vm)
@@ -1254,7 +1269,7 @@ impl Node for ast::StmtRaise {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtRaise::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtRaise::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("exc", exc.ast_to_object(vm, source_file), vm)
@@ -1381,11 +1396,10 @@ impl Node for ast::StmtTry {
         } = self;
 
         let cls = if is_star {
-            pyast::NodeStmtTryStar::static_type()
+            pyast::NodeStmtTryStar::make_class(&vm.ctx)
         } else {
-            pyast::NodeStmtTry::static_type()
-        }
-        .to_owned();
+            pyast::NodeStmtTry::make_class(&vm.ctx)
+        };
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
@@ -1417,10 +1431,10 @@ impl Node for ast::StmtTry {
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        let is_star = is_node_instance(vm, &_object, pyast::NodeStmtTryStar::static_type())?;
+        let is_star = is_node_instance(vm, &_object, pyast::NodeStmtTryStar::make_class(&vm.ctx))?;
         debug_assert!(
-            is_node_instance(vm, &_object, pyast::NodeStmtTry::static_type())?
-                || is_node_instance(vm, &_object, pyast::NodeStmtTryStar::static_type())?
+            is_node_instance(vm, &_object, pyast::NodeStmtTry::make_class(&vm.ctx))?
+                || is_node_instance(vm, &_object, pyast::NodeStmtTryStar::make_class(&vm.ctx))?
         );
         let typ = if is_star { "TryStar" } else { "Try" };
         let range = range_from_object(vm, source_file, &_object, typ)?;
@@ -1454,7 +1468,7 @@ impl Node for ast::StmtAssert {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtAssert::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAssert::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(vm, source_file), vm)
@@ -1497,7 +1511,7 @@ impl Node for ast::StmtImport {
             is_lazy: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtImport::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtImport::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(vm, source_file), vm)
@@ -1565,7 +1579,7 @@ impl Node for ast::StmtImportFrom {
             runtime_level,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtImportFrom::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtImportFrom::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("module", module.ast_to_object(vm, source_file), vm)
@@ -1612,7 +1626,7 @@ impl Node for ast::StmtGlobal {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtGlobal::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtGlobal::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(vm, source_file), vm)
@@ -1651,7 +1665,7 @@ impl Node for ast::StmtNonlocal {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtNonlocal::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtNonlocal::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(vm, source_file), vm)
@@ -1690,7 +1704,7 @@ impl Node for ast::StmtExpr {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtExpr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtExpr::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1722,7 +1736,7 @@ impl Node for ast::StmtPass {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtPass::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtPass::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let location = super::text_range_to_source_range(source_file, _range);
@@ -1774,7 +1788,7 @@ impl Node for ast::StmtBreak {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtBreak::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtBreak::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         node_add_location(&dict, _range, vm, source_file);
@@ -1806,7 +1820,7 @@ impl Node for ast::StmtContinue {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeStmtContinue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtContinue::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         node_add_location(&dict, _range, vm, source_file);

@@ -198,42 +198,42 @@ mod _ssl {
     struct PySSLCertVerificationError(PySSLError);
 
     fn ssl_error(vm: &VirtualMachine, msg: impl Into<String>) -> rustpython_vm::PyRef<PyOSError> {
-        vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, msg.into())
+        vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, msg.into())
     }
 
     fn map_tls(vm: &VirtualMachine, err: TlsError) -> PyBaseExceptionRef {
         match err {
             TlsError::WantRead => vm
                 .new_os_subtype_error(
-                    PySSLWantReadError::class(&vm.ctx).to_owned(),
+                    PySSLWantReadError::class(&vm.ctx),
                     Some(SSL_ERROR_WANT_READ),
                     "The operation did not complete (read)",
                 )
                 .upcast(),
             TlsError::WantWrite => vm
                 .new_os_subtype_error(
-                    PySSLWantWriteError::class(&vm.ctx).to_owned(),
+                    PySSLWantWriteError::class(&vm.ctx),
                     Some(SSL_ERROR_WANT_WRITE),
                     "The operation did not complete (write)",
                 )
                 .upcast(),
             TlsError::ZeroReturn => vm
                 .new_os_subtype_error(
-                    PySSLZeroReturnError::class(&vm.ctx).to_owned(),
+                    PySSLZeroReturnError::class(&vm.ctx),
                     Some(SSL_ERROR_ZERO_RETURN),
                     "TLS/SSL connection has been closed (EOF)",
                 )
                 .upcast(),
             TlsError::Eof => vm
                 .new_os_subtype_error(
-                    PySSLEOFError::class(&vm.ctx).to_owned(),
+                    PySSLEOFError::class(&vm.ctx),
                     Some(SSL_ERROR_EOF),
                     "EOF occurred in violation of protocol",
                 )
                 .upcast(),
             TlsError::CertVerification(err) => vm
                 .new_os_subtype_error(
-                    PySSLCertVerificationError::class(&vm.ctx).to_owned(),
+                    PySSLCertVerificationError::class(&vm.ctx),
                     Some(SSL_ERROR_SSL),
                     format!("{err}"),
                 )
@@ -685,7 +685,7 @@ mod _ssl {
             if *context.verify_mode.read() != CERT_NONE {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLCertVerificationError::class(&vm.ctx).to_owned(),
+                        PySSLCertVerificationError::class(&vm.ctx),
                         Some(SSL_ERROR_SSL),
                         "certificate verify failed: unable to get local issuer certificate",
                     )

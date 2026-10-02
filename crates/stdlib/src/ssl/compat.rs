@@ -64,11 +64,7 @@ pub(super) fn create_ssl_cert_verification_error(
     let msg =
         format!("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: {verify_message}",);
 
-    let exc = vm.new_os_subtype_error(
-        PySSLCertVerificationError::class(&vm.ctx).to_owned(),
-        None,
-        msg,
-    );
+    let exc = vm.new_os_subtype_error(PySSLCertVerificationError::class(&vm.ctx), None, msg);
 
     // Set verify_code and verify_message attributes
     // Ignore errors as they're extremely rare (e.g., out of memory)
@@ -181,7 +177,7 @@ impl SslError {
         let msg = message.into();
         // SSLError args should be (errno, message) format
         // FIXME: Use 1 as generic SSL error code
-        let exc = vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), Some(1), msg);
+        let exc = vm.new_os_subtype_error(PySSLError::class(&vm.ctx), Some(1), msg);
 
         // Set library and reason attributes
         // Ignore errors as they're extremely rare (e.g., out of memory)
@@ -249,7 +245,7 @@ impl SslError {
             }
             Self::Ssl(msg) => vm
                 .new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx),
                     None,
                     format!("SSL error: {msg}"),
                 )
@@ -274,7 +270,7 @@ impl SslError {
             }
             Self::Io(err) if err.raw_os_error().is_none() => vm
                 .new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx),
                     None,
                     format!("SSL error: {err}"),
                 )
@@ -358,7 +354,7 @@ pub(super) fn send_all_bytes(
     socket
         .flush_pending_tls_output(vm, deadline)
         .map_err(|error| {
-            if error.fast_isinstance(PySSLWantWriteError::class(&vm.ctx)) {
+            if error.fast_isinstance(&PySSLWantWriteError::class(&vm.ctx)) {
                 SslError::WantWrite
             } else if error.fast_isinstance(vm.ctx.exceptions.timeout_error) {
                 SslError::Timeout("The write operation timed out".to_owned())

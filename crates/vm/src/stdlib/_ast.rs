@@ -15,7 +15,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
     builtins::{PyDict, PyList, PyModule, PyTuple, PyType, PyUtf8StrRef},
-    class::{PyClassImpl, StaticType},
+    class::PyClassImpl,
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
 };
@@ -33,6 +33,15 @@ use ruff_python_parser as parser;
 use rustpython_codegen as codegen;
 
 pub(crate) use python::_ast::NodeAst;
+
+#[pyclass]
+pub(crate) trait AstNodeType {
+    fn extend_slots(slots: &mut crate::types::PyTypeSlots) {
+        // AST types are mutable (heap types, not IMMUTABLETYPE).
+        slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
+        slots.repr.store(Some(python::_ast::ast_repr));
+    }
+}
 
 mod python;
 mod repr;
@@ -57,26 +66,26 @@ mod type_parameters;
 
 /// Return the cached singleton instance for an operator/context node type,
 /// or create a new instance if none exists.
-fn singleton_node_to_object(vm: &VirtualMachine, node_type: &'static Py<PyType>) -> PyObjectRef {
+fn singleton_node_to_object(
+    vm: &VirtualMachine,
+    node_type: crate::builtins::PyTypeRef,
+) -> PyObjectRef {
     if let Some(instance) = node_type.get_attr(vm.ctx.intern_str("_instance")) {
         return instance;
     }
-    NodeAst
-        .into_ref_with_type(vm, node_type.to_owned())
-        .unwrap()
-        .into()
+    NodeAst.into_ref_with_type(vm, node_type).unwrap().into()
 }
 
 fn is_node_instance(
     vm: &VirtualMachine,
     object: &PyObject,
-    node_type: &'static Py<PyType>,
+    node_type: crate::builtins::PyTypeRef,
 ) -> PyResult<bool> {
     object.is_instance(node_type.as_object(), vm)
 }
 
 fn is_ast_instance(vm: &VirtualMachine, object: &PyObject) -> PyResult<bool> {
-    let ast_type = NodeAst::make_static_type();
+    let ast_type = NodeAst::make_class(&vm.ctx);
     object.is_instance(ast_type.as_object(), vm)
 }
 
@@ -506,21 +515,29 @@ fn copy_ast_passthrough_fields(
     }
 
     let fields: &[&str] =
-        if is_node_instance(vm, target, pyast::NodeStmtFunctionDef::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtAsyncFunctionDef::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtAssign::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtFor::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtAsyncFor::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtWith::static_type())?
-            || is_node_instance(vm, target, pyast::NodeStmtAsyncWith::static_type())?
-            || is_node_instance(vm, target, pyast::NodeArg::static_type())?
+        if is_node_instance(vm, target, pyast::NodeStmtFunctionDef::make_class(&vm.ctx))?
+            || is_node_instance(
+                vm,
+                target,
+                pyast::NodeStmtAsyncFunctionDef::make_class(&vm.ctx),
+            )?
+            || is_node_instance(vm, target, pyast::NodeStmtAssign::make_class(&vm.ctx))?
+            || is_node_instance(vm, target, pyast::NodeStmtFor::make_class(&vm.ctx))?
+            || is_node_instance(vm, target, pyast::NodeStmtAsyncFor::make_class(&vm.ctx))?
+            || is_node_instance(vm, target, pyast::NodeStmtWith::make_class(&vm.ctx))?
+            || is_node_instance(vm, target, pyast::NodeStmtAsyncWith::make_class(&vm.ctx))?
+            || is_node_instance(vm, target, pyast::NodeArg::make_class(&vm.ctx))?
         {
             &["type_comment"]
-        } else if is_node_instance(vm, target, pyast::NodeComprehension::static_type())? {
+        } else if is_node_instance(vm, target, pyast::NodeComprehension::make_class(&vm.ctx))? {
             &["is_async"]
-        } else if is_node_instance(vm, target, pyast::NodeExprConstant::static_type())? {
+        } else if is_node_instance(vm, target, pyast::NodeExprConstant::make_class(&vm.ctx))? {
             &["kind"]
-        } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
+        } else if is_node_instance(
+            vm,
+            target,
+            pyast::NodeExprInterpolation::make_class(&vm.ctx),
+        )? {
             &["str"]
         } else {
             &[]
@@ -934,13 +951,19 @@ fn node_add_location(
 /// builtin compile() accepts func_type only with PyCF_ONLY_AST.
 /// Source-string func_type parsing is handled separately, but Python AST
 /// FunctionType still uses the mode check before obj-to-AST conversion.
-pub(crate) fn mode_type_and_name(mode: &str) -> Option<(PyRef<PyType>, &'static str)> {
+pub(crate) fn mode_type_and_name(
+    mode: &str,
+    vm: &VirtualMachine,
+) -> Option<(PyRef<PyType>, &'static str)> {
     match mode {
-        "exec" => Some((pyast::NodeModModule::make_static_type(), "Module")),
-        "eval" => Some((pyast::NodeModExpression::make_static_type(), "Expression")),
-        "single" => Some((pyast::NodeModInteractive::make_static_type(), "Interactive")),
+        "exec" => Some((pyast::NodeModModule::make_class(&vm.ctx), "Module")),
+        "eval" => Some((pyast::NodeModExpression::make_class(&vm.ctx), "Expression")),
+        "single" => Some((
+            pyast::NodeModInteractive::make_class(&vm.ctx),
+            "Interactive",
+        )),
         "func_type" => Some((
-            pyast::NodeModFunctionType::make_static_type(),
+            pyast::NodeModFunctionType::make_class(&vm.ctx),
             "FunctionType",
         )),
         _ => None,
@@ -1658,18 +1681,18 @@ fn apply_type_comments_to_node(
     object: &PyObject,
 ) {
     let cls = object.class();
-    if cls.is(pyast::NodeStmtFunctionDef::static_type())
-        || cls.is(pyast::NodeStmtAsyncFunctionDef::static_type())
+    if cls.is(&pyast::NodeStmtFunctionDef::make_class(&vm.ctx))
+        || cls.is(&pyast::NodeStmtAsyncFunctionDef::make_class(&vm.ctx))
     {
         set_type_comment(vm, object, function_type_comment(vm, lines, object));
         if let Some(arguments) = node_optional_field(vm, object, "args") {
             apply_type_comments_to_arguments(vm, lines, &arguments);
         }
-    } else if cls.is(pyast::NodeStmtAssign::static_type())
-        || cls.is(pyast::NodeStmtFor::static_type())
-        || cls.is(pyast::NodeStmtAsyncFor::static_type())
-        || cls.is(pyast::NodeStmtWith::static_type())
-        || cls.is(pyast::NodeStmtAsyncWith::static_type())
+    } else if cls.is(&pyast::NodeStmtAssign::make_class(&vm.ctx))
+        || cls.is(&pyast::NodeStmtFor::make_class(&vm.ctx))
+        || cls.is(&pyast::NodeStmtAsyncFor::make_class(&vm.ctx))
+        || cls.is(&pyast::NodeStmtWith::make_class(&vm.ctx))
+        || cls.is(&pyast::NodeStmtAsyncWith::make_class(&vm.ctx))
     {
         set_type_comment(vm, object, same_line_type_comment(vm, lines, object));
     }
@@ -1767,7 +1790,7 @@ fn ipython_escape_command_syntax_error(
 /// Create an empty `arguments` AST node (no parameters).
 fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
     let node = NodeAst
-        .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeArguments::make_class(&vm.ctx))
         .unwrap();
     let dict = node.as_object().dict().unwrap();
     for list_field in [
@@ -1937,7 +1960,7 @@ pub(crate) fn parse(
     };
     let obj = top.ast_to_object(vm, &source_file);
     if let Some(lines) = &type_comment_source
-        && obj.class().is(pyast::NodeModModule::static_type())
+        && obj.class().is(&pyast::NodeModModule::make_class(&vm.ctx))
     {
         apply_type_comments_to_module(vm, lines, &obj);
         let type_ignores = type_ignores_from_source(vm, lines);
@@ -1950,12 +1973,15 @@ pub(crate) fn parse(
 
 #[cfg(feature = "parser")]
 pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: &PyObject) -> PyResult {
-    if !module_obj.class().is(pyast::NodeModModule::static_type()) {
+    if !module_obj
+        .class()
+        .is(&pyast::NodeModModule::make_class(&vm.ctx))
+    {
         return Err(vm.new_type_error("expected Module node"));
     }
     let body = get_node_field(vm, module_obj, "body", "Module")?;
     let node = NodeAst
-        .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeModInteractive::make_class(&vm.ctx))
         .unwrap();
     let dict = node.as_object().dict().unwrap();
     dict.set_item("body", body, vm).unwrap();
@@ -2121,10 +2147,7 @@ fn type_ignores_from_source(
             continue;
         };
         let node = NodeAst
-            .into_ref_with_type(
-                vm,
-                pyast::NodeTypeIgnoreTypeIgnore::static_type().to_owned(),
-            )
+            .into_ref_with_type(vm, pyast::NodeTypeIgnoreTypeIgnore::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let lineno = idx + 1;
@@ -2460,8 +2483,8 @@ pub(crate) fn rust_mod_from_object(
 ) -> PyResult<RustModFromObject> {
     let is_mod = object
         .class()
-        .fast_issubclass(pyast::NodeMod::static_type())
-        || object.is_instance(pyast::NodeMod::static_type().as_object(), vm)?;
+        .fast_issubclass(&pyast::NodeMod::make_class(&vm.ctx))
+        || object.is_instance(pyast::NodeMod::make_class(&vm.ctx).as_object(), vm)?;
     if !is_mod && !is_ast_instance(vm, &object)? {
         return Err(vm.new_type_error("expected an AST"));
     }

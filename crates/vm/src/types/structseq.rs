@@ -275,9 +275,9 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn from_data(data: Self::Data, vm: &VirtualMachine) -> PyTupleRef {
         let tuple =
             <Self::Data as ::rustpython_vm::types::PyStructSequenceData>::into_tuple(data, vm);
-        let typ = Self::static_type();
+        let typ = Self::make_class(&vm.ctx);
         tuple
-            .into_ref_with_type(vm, typ.to_owned())
+            .into_ref_with_type(vm, typ)
             .expect("Every PyStructSequence must be a valid tuple. This is a RustPython bug.")
     }
 
@@ -385,7 +385,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     }
 
     #[extend_class]
-    fn extend_pyclass(ctx: &Context, class: &'static Py<PyType>) {
+    fn extend_pyclass(ctx: &Context, class: &Py<PyType>) {
         // Getters for named visible fields (indices 0 to REQUIRED_FIELD_NAMES.len() - 1)
         for (i, &name) in Self::Data::REQUIRED_FIELD_NAMES.iter().enumerate() {
             class.set_attr(
@@ -438,28 +438,6 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             ctx.new_int(n_unnamed_fields).into(),
         );
 
-        // Override as_sequence and as_mapping slots to use visible length
-        class
-            .slots
-            .as_sequence
-            .copy_from(&STRUCT_SEQUENCE_AS_SEQUENCE);
-        class
-            .slots
-            .as_mapping
-            .copy_from(&STRUCT_SEQUENCE_AS_MAPPING);
-
-        // Override iter slot to return only visible elements
-        class.slots.iter.store(Some(struct_sequence_iter));
-
-        // Override hash slot to hash only visible elements
-        class.slots.hash.store(Some(struct_sequence_hash));
-
-        // Override richcompare slot to compare only visible elements
-        class
-            .slots
-            .richcompare
-            .store(Some(struct_sequence_richcompare));
-
         // Default __reduce__: only set if not already overridden by the impl's extend_class.
         // This allows struct sequences like sched_param to provide a custom __reduce__
         // (equivalent to METH_COEXIST in structseq.c).
@@ -469,6 +447,21 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
                 DEFAULT_STRUCTSEQ_REDUCE.to_proper_method(class, ctx),
             );
         }
+    }
+
+    fn extend_slots(slots: &mut crate::types::PyTypeSlots) {
+        // Override as_sequence and as_mapping slots to use visible length
+        slots.as_sequence.copy_from(&STRUCT_SEQUENCE_AS_SEQUENCE);
+        slots.as_mapping.copy_from(&STRUCT_SEQUENCE_AS_MAPPING);
+
+        // Override iter slot to return only visible elements
+        slots.iter.store(Some(struct_sequence_iter));
+
+        // Override hash slot to hash only visible elements
+        slots.hash.store(Some(struct_sequence_hash));
+
+        // Override richcompare slot to compare only visible elements
+        slots.richcompare.store(Some(struct_sequence_richcompare));
     }
 }
 

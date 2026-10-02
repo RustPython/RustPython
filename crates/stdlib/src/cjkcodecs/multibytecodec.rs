@@ -607,7 +607,7 @@ mod _multibytecodec {
             return Err(vm.new_lookup_error("no such codec is supported."));
         };
         // Keep the type alive whichever module was imported first.
-        let class = <MultibyteCodec as PyClassImpl>::make_static_type();
+        let class = unsafe { <MultibyteCodec as PyClassImpl>::make_static_type() };
         let payload = MultibyteCodec {
             codec: CodecRef { codec, encoding },
         };

@@ -22,7 +22,7 @@ impl Node for ast::Parameters {
         let (kwonlyargs, kw_defaults) =
             extract_keyword_parameter_defaults(kwonlyargs.into_iter().collect());
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeArguments::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item(
@@ -166,7 +166,7 @@ impl Node for ast::Parameter {
         let range = TextRange::new(name.start(), range.end());
 
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeArg::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeArg::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("arg", name.ast_to_object(vm, source_file), vm)
@@ -220,7 +220,7 @@ impl Node for ast::Keyword {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeKeyword::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeKeyword::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("arg", arg.ast_to_object(vm, source_file), vm)

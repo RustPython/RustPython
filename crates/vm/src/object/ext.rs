@@ -116,7 +116,7 @@ impl<T: PyPayload> PyRef<T> {
         ctx: &Context,
         f: impl FnOnce(Self) -> PyRefExact<T>,
     ) -> PyRefExact<T> {
-        if self.class().is(T::class(ctx)) {
+        if self.class().is(&T::class(ctx)) {
             unsafe { PyRefExact::new_unchecked(self) }
         } else {
             f(self)
@@ -156,12 +156,12 @@ impl<T: PyPayload> TryFromObject for PyRefExact<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let target_cls = T::class(&vm.ctx);
         let cls = obj.class();
-        if cls.is(target_cls) {
+        if cls.is(&target_cls) {
             let obj = obj
                 .downcast()
-                .map_err(|obj| vm.new_downcast_runtime_error(target_cls, &obj))?;
+                .map_err(|obj| vm.new_downcast_runtime_error(&target_cls, &obj))?;
             Ok(Self { inner: obj })
-        } else if cls.fast_issubclass(target_cls) {
+        } else if cls.fast_issubclass(&target_cls) {
             Err(vm.new_type_error(format!(
                 "Expected an exact instance of '{}', not a subclass '{}'",
                 target_cls.name(),
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn object_cell_snapshots_survive_replacement_and_clear() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let cell = PyObjectCell::from(Some(vm.ctx.new_bytes(vec![1, 2, 3]).into()));
             let first = cell.load_owned().unwrap();
             let previous = cell.store(Some(vm.ctx.new_bytes(vec![4, 5, 6]).into()));
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn object_cell_traverses_current_reference_once_without_cloning() {
-        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let cell = PyObjectCell::from(None);
             cell.traverse(&mut |_| panic!("empty cell owns no edge"));
             let value: PyObjectRef = vm.ctx.new_bytes(vec![1, 2, 3]).into();

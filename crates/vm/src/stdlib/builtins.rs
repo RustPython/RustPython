@@ -234,7 +234,7 @@ mod builtins {
                 return Err(vm.new_value_error(msg));
             };
 
-            let ast_type = _ast::NodeAst::make_static_type().as_object().to_owned();
+            let ast_type = _ast::NodeAst::make_class(&vm.ctx).as_object().to_owned();
             if args.source.is_instance(&ast_type, vm)? {
                 let explicit_future_annotations =
                     future_features.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
@@ -242,7 +242,7 @@ mod builtins {
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
-                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str)
+                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str, vm)
                         .ok_or_else(|| {
                             vm.new_value_error(
                                 "compile() mode must be 'exec', 'eval', 'single' or 'func_type'",
@@ -279,7 +279,7 @@ mod builtins {
                 }
                 #[cfg(feature = "rustpython-codegen")]
                 {
-                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str)
+                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str, vm)
                         .ok_or_else(|| {
                             vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'")
                         })?;
@@ -1450,14 +1450,14 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    let _ = crate::protocol::VecBuffer::make_static_type();
+    let _ = unsafe { crate::protocol::VecBuffer::make_static_type() };
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.config.settings.optimize == 0;
     // Create dynamic ExceptionGroup with multiple inheritance (BaseExceptionGroup + Exception)
-    let exception_group = crate::exception_group::exception_group();
+    let exception_group = crate::exception_group::exception_group(vm);
 
     extend_module!(vm, module, {
         "__debug__" => ctx.new_bool(debug_mode),
@@ -1499,7 +1499,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
         "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
-        "ExceptionGroup" => exception_group.to_owned(),
+        "ExceptionGroup" => exception_group,
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
         "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),

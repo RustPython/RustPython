@@ -79,7 +79,10 @@ unsafe fn owned_chain_frame(iframe: *const InterpreterFrame) -> Option<FrameObje
 
 /// The current thread's topmost frame object, if any.
 #[must_use]
-pub fn current_thread_frame() -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn current_thread_frame() -> Option<FrameObjectRef> {
     let ptr = crate::vm::thread::get_current_frame();
     unsafe { owned_chain_frame(ptr) }
 }
@@ -107,7 +110,7 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_globals() -> Option<PyDictRef> {
+pub(crate) fn current_globals() -> Option<PyDictRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -118,7 +121,7 @@ pub fn current_globals() -> Option<PyDictRef> {
 /// Read the code object from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_code() -> Option<PyRef<PyCode>> {
+pub(crate) fn current_code() -> Option<PyRef<PyCode>> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -128,7 +131,7 @@ pub fn current_code() -> Option<PyRef<PyCode>> {
 
 /// Read the builtins object from the topmost frame on this thread's chain.
 #[must_use]
-pub fn current_builtins() -> Option<PyObjectRef> {
+pub(crate) fn current_builtins() -> Option<PyObjectRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -157,7 +160,12 @@ pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObject
 /// If a FrameObject wrapping `target` InterpreterFrame is on the current
 /// thread's chain, return an owned reference to it; otherwise `None`.
 #[must_use]
-pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn find_owned_chain_frame_by_iframe(
+    target: *const InterpreterFrame,
+) -> Option<FrameObjectRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         if core::ptr::eq(cur, target) {
@@ -171,7 +179,10 @@ pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Opti
 /// If `target` FrameObject is on the current thread's chain, return an
 /// owned reference to it; otherwise `None`. Presence on the chain proves liveness.
 #[must_use]
-pub fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectRef> {
+/// # Safety
+/// Keep the returned frame attached to its owning interpreter for its entire
+/// lifetime, following [`crate::vm::thread`]'s native ownership contract.
+pub unsafe fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         let iframe_ref = unsafe { &*cur };
@@ -188,7 +199,7 @@ pub fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectR
 
 /// Invoke `f` for each frame on the current thread's chain, from the
 /// topmost frame down to the bottom.
-pub fn for_each_current_frame(mut f: impl FnMut(&Py<FrameObject>)) {
+pub(crate) fn for_each_current_frame(mut f: impl FnMut(&Py<FrameObject>)) {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         let iframe_ref = unsafe { &*cur };
@@ -1621,8 +1632,8 @@ impl PyPayload for FrameObject {
     const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.frame_type).to_owned()
     }
 
     #[inline]
@@ -5033,12 +5044,14 @@ impl ExecutingFrame<'_> {
                     CommonConstant::BuiltinAll => vm
                         .callable_cache
                         .builtin_all
-                        .clone()
+                        .get()
+                        .cloned()
                         .expect("builtin_all not initialized"),
                     CommonConstant::BuiltinAny => vm
                         .callable_cache
                         .builtin_any
-                        .clone()
+                        .get()
+                        .cloned()
                         .expect("builtin_any not initialized"),
                     CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
                     CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
@@ -6753,7 +6766,7 @@ impl ExecutingFrame<'_> {
                         && vm
                             .callable_cache
                             .len
-                            .as_ref()
+                            .get()
                             .is_some_and(|len_callable| callable.is(len_callable))
                     {
                         let len = obj.length(vm)?;
@@ -6780,7 +6793,7 @@ impl ExecutingFrame<'_> {
                     if vm
                         .callable_cache
                         .isinstance
-                        .as_ref()
+                        .get()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                     {
                         // Stack: [callable, self_or_null, args...]; effective_nargs == 2,
@@ -7005,7 +7018,7 @@ impl ExecutingFrame<'_> {
                     if vm
                         .callable_cache
                         .list_append
-                        .as_ref()
+                        .get()
                         .is_some_and(|list_append| callable.is(list_append))
                         && self_or_null_is_some
                         && self_is_list
@@ -7055,7 +7068,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                            .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7096,7 +7109,7 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                            .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                     {
                         let func = descr.method.func;
                         let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7137,7 +7150,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                        .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -7243,7 +7256,7 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
+                        .is_some_and(|self_obj| self_obj.class().is(&descr.common.typ))
                 {
                     let func = descr.method.func;
                     let callee = Callee::named(descr.method.name).with_instance_arg(true);
@@ -11014,7 +11027,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .list_append
-                        .as_ref()
+                        .get()
                         .is_some_and(|list_append| callable.is(list_append))
                 {
                     Instruction::CallListAppend
@@ -11058,7 +11071,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .len
-                        .as_ref()
+                        .get()
                         .is_some_and(|len_callable| callable.is(len_callable))
                 {
                     Instruction::CallLen
@@ -11071,7 +11084,7 @@ impl ExecutingFrame<'_> {
                     && vm
                         .callable_cache
                         .isinstance
-                        .as_ref()
+                        .get()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                 {
                     Instruction::CallIsinstance
@@ -11525,13 +11538,13 @@ impl ExecutingFrame<'_> {
 
         let new_op = if cls.is(vm.ctx.types.bool_type) {
             Some(Instruction::ToBoolBool)
-        } else if cls.is(PyInt::class(&vm.ctx)) {
+        } else if cls.is(&PyInt::class(&vm.ctx)) {
             Some(Instruction::ToBoolInt)
         } else if cls.is(vm.ctx.types.none_type) {
             Some(Instruction::ToBoolNone)
-        } else if cls.is(PyList::class(&vm.ctx)) {
+        } else if cls.is(&PyList::class(&vm.ctx)) {
             Some(Instruction::ToBoolList)
-        } else if cls.is(PyStr::class(&vm.ctx)) {
+        } else if cls.is(&PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
         } else if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
             // Capture the version before inspecting the bool/len slots so a

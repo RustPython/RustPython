@@ -235,7 +235,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     let typ = obj_ref.class();
     let pushed = if T::HAS_FREELIST
         && typ.heaptype_ext.is_none()
-        && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+        && core::ptr::eq(typ, &*T::class(crate::vm::Context::genesis()))
         && !obj_ref.0.ref_count.is_published()
     {
         if let Some(ext) = obj_ref.0.ext_ref() {
@@ -754,6 +754,7 @@ impl WeakRefList {
         // maybe_collect → GC → WeakRefList::clear on another object that
         // hashes to the same stripe, which would deadlock on the spinlock.
         let weak_payload = PyWeak {
+            owner: crate::gc_state::current_interpreter_id(),
             pointers: Pointers::new(),
             wr_object: Radium::new(obj as *const PyObject as *mut PyObject),
             callback: UnsafeCell::new(callback),
@@ -848,8 +849,8 @@ impl WeakRefList {
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
                 // subclasses must not be mistaken for it.
-                let is_proxy = node_cls.is(crate::builtins::PyWeakProxy::static_type())
-                    || node_cls.is(crate::builtins::PyWeakCallableProxy::static_type());
+                let is_proxy = node_cls.is(unsafe { crate::builtins::PyWeakProxy::static_type() })
+                    || node_cls.is(unsafe { crate::builtins::PyWeakCallableProxy::static_type() });
                 if has_callback || !is_proxy {
                     ptr::null_mut()
                 } else {
@@ -1018,6 +1019,7 @@ unsafe impl Link for WeakLink {
 #[pyclass(name = "ReferenceType", module = "weakref")]
 #[derive(Debug)]
 pub struct PyWeak {
+    owner: Option<i64>,
     pointers: Pointers<Py<Self>>,
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
@@ -1036,6 +1038,27 @@ cfg_select! {
 }
 
 impl PyWeak {
+    pub(crate) fn is_visible(&self) -> bool {
+        self.owner.is_none() || self.owner == crate::gc_state::current_interpreter_id()
+    }
+
+    /// A shared native base must never upgrade a private foreign subclass.
+    pub(crate) fn upgrade_visible(&self) -> Option<PyObjectRef> {
+        if !self.is_visible() {
+            return None;
+        }
+        let object = self.upgrade()?;
+        // Static classes join their base's bootstrap subclass list before
+        // initialization publishes them as immortal definitions. Another VM
+        // must not observe that unfinished payload through __subclasses__.
+        if self.owner.is_none()
+            && crate::gc_state::current_interpreter_id().is_some()
+            && !object.is_immortal()
+        {
+            return None;
+        }
+        Some(object)
+    }
     /// _PyWeakref_GET_REF: attempt to upgrade the weakref to a strong reference.
     pub(crate) fn upgrade(&self) -> Option<PyObjectRef> {
         let obj_ptr = self.wr_object.load(Ordering::Acquire);
@@ -1668,7 +1691,7 @@ impl PyObjectRef {
     /// another downcast can be attempted without unnecessary cloning.
     #[inline]
     pub fn downcast_exact<T: PyPayload>(self, vm: &VirtualMachine) -> Result<PyRefExact<T>, Self> {
-        if self.class().is(T::class(&vm.ctx)) {
+        if self.class().is(&T::class(&vm.ctx)) {
             // TODO: is this always true?
             assert!(
                 self.downcastable::<T>(),
@@ -1782,6 +1805,12 @@ impl PyObject {
         self.0.vtable.typeid == T::PAYLOAD_TYPE_ID
     }
 
+    #[doc(hidden)]
+    #[must_use]
+    pub fn supports_native_layout(&self, layout: core::any::TypeId) -> bool {
+        (self.0.vtable.supports_native_layout)(layout)
+    }
+
     /// Force to return payload as T.
     ///
     /// # Safety
@@ -1819,7 +1848,7 @@ impl PyObject {
     #[deprecated(note = "use downcast_ref_if_exact instead")]
     #[inline(always)]
     pub fn payload_if_exact<T: PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
-        if self.class().is(T::class(&vm.ctx)) {
+        if self.class().is(&T::class(&vm.ctx)) {
             #[allow(deprecated)]
             self.payload()
         } else {
@@ -1892,7 +1921,7 @@ impl PyObject {
     #[deprecated(note = "use downcast_ref instead")]
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
-        if self.class().fast_issubclass(T::class(&vm.ctx)) {
+        if self.class().fast_issubclass(&T::class(&vm.ctx)) {
             #[allow(deprecated)]
             self.payload()
         } else {
@@ -1935,7 +1964,7 @@ impl PyObject {
     #[inline(always)]
     pub fn downcast_ref_if_exact<T: PyPayload>(&self, vm: &VirtualMachine) -> Option<&Py<T>> {
         self.class()
-            .is(T::class(&vm.ctx))
+            .is(&T::class(&vm.ctx))
             .then(|| unsafe { self.downcast_unchecked_ref::<T>() })
     }
 
@@ -2875,11 +2904,11 @@ where
     #[inline]
     #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
-        let obj: PyObjectRef = self.into();
-        match obj.downcast() {
-            Ok(base_ref) => base_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
-        }
+        // PySubclass establishes the physical prefix; Python may have changed
+        // the object's class or MRO since this typed reference was constructed.
+        let ptr = self.ptr.cast();
+        core::mem::forget(self);
+        PyRef { ptr }
     }
     #[inline]
     #[must_use]
@@ -2887,12 +2916,8 @@ where
     where
         T: StaticType,
     {
-        debug_assert!(T::static_type().is_subtype(U::static_type()));
         let obj: PyObjectRef = self.into();
-        match obj.downcast::<U>() {
-            Ok(upcast_ref) => upcast_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
-        }
+        obj.downcast::<U>().expect("invalid native upcast")
     }
 }
 
@@ -2900,7 +2925,6 @@ impl<T: crate::class::PySubclass> Py<T> {
     /// Converts `&Py<T>` to `&Py<T::Base>`.
     #[inline]
     pub fn to_base(&self) -> &Py<T::Base> {
-        debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
         // SAFETY: T is #[repr(transparent)] over T::Base,
         // so Py<T> and Py<T::Base> have the same layout.
         unsafe { &*(self as *const Self as *const Py<T::Base>) }
@@ -2912,9 +2936,9 @@ impl<T: crate::class::PySubclass> Py<T> {
     where
         T: StaticType,
     {
-        debug_assert!(T::static_type().is_subtype(U::static_type()));
-        // SAFETY: T is a subtype of U, so Py<T> can be viewed as Py<U>.
-        unsafe { &*(self as *const Self as *const Py<U>) }
+        self.as_object()
+            .downcast_ref::<U>()
+            .expect("invalid native upcast")
     }
 }
 
@@ -3303,8 +3327,8 @@ mod tests {
 
         assert_eq!(core::mem::offset_of!(LayoutDerived, base), 0);
         crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let _ = LayoutBase::make_static_type();
-            let _ = LayoutDerived::make_static_type();
+            let _ = unsafe { LayoutBase::make_static_type() };
+            let _ = unsafe { LayoutDerived::make_static_type() };
             let value: PyObjectRef = vm.ctx.new_int(42).into();
             let obj = vm.new_pyobj(LayoutDerived {
                 base: LayoutBase {

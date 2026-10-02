@@ -29,7 +29,9 @@ pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
 }
 
+#[derive(Default)]
 struct RegistryInner {
+    closed: bool,
     search_path: Vec<PyObjectRef>,
     search_cache: HashMap<String, PyCodec>,
     errors: HashMap<String, PyObjectRef>,
@@ -215,6 +217,7 @@ impl CodecsRegistry {
         .collect();
 
         let inner = RegistryInner {
+            closed: false,
             search_path: Vec::new(),
             search_cache: HashMap::new(),
             errors,
@@ -230,8 +233,24 @@ impl CodecsRegistry {
             return Err(vm.new_type_error("argument must be callable"));
         }
 
-        self.inner.write().search_path.push(search_function);
+        let mut inner = self.inner.write();
+        if inner.closed {
+            drop(inner);
+            return Err(vm.new_runtime_error("codec registry is closed"));
+        }
+        inner.search_path.push(search_function);
         Ok(())
+    }
+
+    pub(crate) fn close(&self) {
+        let retired = core::mem::replace(
+            &mut *self.inner.write(),
+            RegistryInner {
+                closed: true,
+                ..Default::default()
+            },
+        );
+        drop(retired);
     }
 
     pub fn unregister(&self, search_function: &PyObject) {
@@ -241,29 +260,39 @@ impl CodecsRegistry {
             return;
         }
 
-        for (i, item) in inner.search_path.iter().enumerate() {
-            if item.get_id() == search_function.get_id() {
-                if !inner.search_cache.is_empty() {
-                    inner.search_cache.clear();
-                }
-                inner.search_path.remove(i);
-                return;
-            }
+        if let Some(i) = inner
+            .search_path
+            .iter()
+            .position(|item| item.get_id() == search_function.get_id())
+        {
+            let cache = core::mem::take(&mut inner.search_cache);
+            let function = inner.search_path.remove(i);
+            drop(inner);
+            drop((cache, function));
         }
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
         let name = normalize_encoding_name(name);
-        self.inner
-            .write()
-            .search_cache
-            .insert(name.into_owned(), codec);
+        let retired = {
+            let mut inner = self.inner.write();
+            if inner.closed {
+                None
+            } else {
+                inner.search_cache.insert(name.into_owned(), codec)
+            }
+        };
+        drop(retired);
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
         let encoding = normalize_encoding_name(encoding);
         let search_path = {
             let inner = self.inner.read();
+            if inner.closed {
+                drop(inner);
+                return Err(vm.new_runtime_error("codec registry is closed"));
+            }
             if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
                 // hit cache
                 return Ok(codec.clone());
@@ -276,13 +305,21 @@ impl CodecsRegistry {
             let res = func.call((encoding.clone(),), vm)?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
-                let mut inner = self.inner.write();
-                // someone might have raced us to this, so use theirs
-                let codec = inner
-                    .search_cache
-                    .entry(encoding.as_str().to_owned())
-                    .or_insert(codec);
-                return Ok(codec.clone());
+                let winner = {
+                    let mut inner = self.inner.write();
+                    // A search function can reenter the registry. Never release
+                    // the losing tuple or refill a closed registry under lock.
+                    if inner.closed {
+                        codec
+                    } else {
+                        inner
+                            .search_cache
+                            .entry(encoding.as_str().to_owned())
+                            .or_insert_with(|| codec.clone())
+                            .clone()
+                    }
+                };
+                return Ok(winner);
             }
         }
 
@@ -517,7 +554,11 @@ impl CodecsRegistry {
     }
 
     pub fn register_error(&self, name: String, handler: PyObjectRef) -> Option<PyObjectRef> {
-        self.inner.write().errors.insert(name, handler)
+        let mut inner = self.inner.write();
+        if inner.closed {
+            return Some(handler);
+        }
+        inner.errors.insert(name, handler)
     }
 
     pub fn unregister_error(&self, name: &str, vm: &VirtualMachine) -> PyResult<bool> {
@@ -536,7 +577,8 @@ impl CodecsRegistry {
                 "cannot un-register built-in error handler '{name}'"
             )));
         }
-        Ok(self.inner.write().errors.remove(name).is_some())
+        let retired = self.inner.write().errors.remove(name);
+        Ok(retired.is_some())
     }
 
     pub fn lookup_error_opt(&self, name: &str) -> Option<PyObjectRef> {

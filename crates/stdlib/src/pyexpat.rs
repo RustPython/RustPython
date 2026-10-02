@@ -856,7 +856,7 @@ mod _pyexpat {
         }
 
         #[extend_class]
-        fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        fn extend_class_with_fields(ctx: &Context, class: &Py<PyType>) {
             let attributes = &class.attributes;
 
             create_property!(ctx, attributes, "StartElementHandler", class, start_element);
@@ -1379,7 +1379,7 @@ mod _pyexpat {
                         self.teardown_backend();
                         self.finished.store(true, Ordering::SeqCst);
                         return Err(vm.new_exception_msg(
-                            PyExpatError::class(&vm.ctx).to_owned(),
+                            PyExpatError::class(&vm.ctx),
                             "cannot continue parsing across a fork()".to_owned().into(),
                         ));
                     }

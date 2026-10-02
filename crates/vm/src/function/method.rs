@@ -156,11 +156,7 @@ impl PyMethodDef {
         }
     }
 
-    pub fn to_proper_method(
-        &'static self,
-        class: &'static Py<PyType>,
-        ctx: &Context,
-    ) -> PyObjectRef {
+    pub fn to_proper_method(&'static self, class: &Py<PyType>, ctx: &Context) -> PyObjectRef {
         if self.flags.contains(PyMethodFlags::METHOD) {
             self.build_method(ctx, class).into()
         } else if self.flags.contains(PyMethodFlags::CLASS) {
@@ -183,19 +179,11 @@ impl PyMethodDef {
         }
     }
 
-    pub fn to_method(
-        &'static self,
-        class: &'static Py<PyType>,
-        ctx: &Context,
-    ) -> PyMethodDescriptor {
+    pub fn to_method(&'static self, class: &Py<PyType>, ctx: &Context) -> PyMethodDescriptor {
         PyMethodDescriptor::new(self, class, ctx)
     }
 
-    pub const fn to_bound_method(
-        &'static self,
-        obj: PyObjectRef,
-        class: &'static Py<PyType>,
-    ) -> PyNativeMethod {
+    pub fn to_bound_method(&'static self, obj: PyObjectRef, class: &Py<PyType>) -> PyNativeMethod {
         PyNativeMethod {
             func: PyNativeFunction {
                 zelf: Some(obj),
@@ -204,7 +192,7 @@ impl PyMethodDef {
                 module: crate::object::PyAtomicRef::new_empty(),
                 _method_def_owner: None,
             },
-            class,
+            class: class.to_owned(),
         }
     }
 
@@ -234,7 +222,7 @@ impl PyMethodDef {
     pub fn build_method(
         &'static self,
         ctx: &Context,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
     ) -> PyRef<PyMethodDescriptor> {
         debug_assert!(self.flags.contains(PyMethodFlags::METHOD));
         let method = self.to_method(class, ctx);
@@ -245,7 +233,7 @@ impl PyMethodDef {
         &'static self,
         ctx: &Context,
         obj: PyObjectRef,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
         PyRef::new_ref(
             self.to_bound_method(obj, class),
@@ -257,7 +245,7 @@ impl PyMethodDef {
     pub fn build_classmethod(
         &'static self,
         ctx: &Context,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
     ) -> PyRef<PyClassMethodDescriptor> {
         debug_assert!(self.flags.contains(PyMethodFlags::CLASS));
         PyClassMethodDescriptor::new(self, class, ctx).into_ref(ctx)
@@ -266,7 +254,7 @@ impl PyMethodDef {
     pub fn build_staticmethod(
         &'static self,
         ctx: &Context,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
     ) -> PyRef<PyNativeMethod> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
         // Set zelf to the class (m_self = type for static methods).
@@ -278,7 +266,11 @@ impl PyMethodDef {
             module: crate::object::PyAtomicRef::new_empty(),
             _method_def_owner: None,
         };
-        PyNativeMethod { func, class }.into_ref(ctx)
+        PyNativeMethod {
+            func,
+            class: class.to_owned(),
+        }
+        .into_ref(ctx)
     }
 
     /// Concatenate method groups. A pending body is copied from `docs`, then cleared.
@@ -375,15 +367,51 @@ impl core::fmt::Debug for PyMethodDef {
 // This is not a part of CPython API.
 // But useful to support dynamically generated methods
 #[pyclass(name, module = false, ctx = "method_def")]
-#[derive(Debug)]
 pub struct HeapMethodDef {
     method: PyMethodDef,
+    _function_owner: Option<Box<dyn PyNativeFn>>,
+}
+
+impl core::fmt::Debug for HeapMethodDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.method.fmt(f)
+    }
 }
 
 impl HeapMethodDef {
     #[must_use]
     pub const fn new(method: PyMethodDef) -> Self {
-        Self { method }
+        Self {
+            method,
+            _function_owner: None,
+        }
+    }
+
+    pub(crate) fn with_owned_function(
+        name: &'static str,
+        function: Box<dyn PyNativeFn>,
+        flags: PyMethodFlags,
+        doc: super::ItemDoc,
+    ) -> Self {
+        // SAFETY: the box has a stable address and is retained by this payload.
+        // The definition is private; all functions/descriptors referring to it
+        // retain this HeapMethodDef and expose no static reference to callers.
+        let func = unsafe { &*core::ptr::from_ref(&*function) };
+        Self {
+            method: PyMethodDef {
+                name,
+                func,
+                flags,
+                #[cfg(feature = "doc")]
+                doc_off: doc.offset,
+                #[cfg(feature = "doc")]
+                doc_len: doc.len,
+                #[cfg(feature = "doc")]
+                doc_body_pending: false,
+                doc: doc.text,
+            },
+            _function_owner: Some(function),
+        }
     }
 }
 
@@ -409,7 +437,7 @@ impl Py<HeapMethodDef> {
 
     pub fn build_method(
         &self,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyRef<PyMethodDescriptor> {
         let mut function = unsafe { self.method() }.to_method(class, &vm.ctx);
@@ -430,4 +458,42 @@ pub(crate) fn init(ctx: &'static Context) {
     // HeapMethodDef::extend_class(ctx, ctx.types.method_def);
 
     let _ = ctx.intern_str(HeapMethodDef::NAME);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AsObject;
+
+    #[test]
+    fn generated_functions_own_and_release_their_native_captures() {
+        use alloc::sync::Arc;
+        let captured = Arc::new(17);
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let capture = captured.clone();
+            let definition = vm.ctx.new_method_def(
+                "captured",
+                move || *capture,
+                PyMethodFlags::empty(),
+                super::super::ItemDoc::NONE,
+            );
+            let function = definition.build_function(vm, None);
+            let descriptor = definition.build_method(vm.ctx.types.object_type, vm);
+            drop(definition);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            assert_eq!(
+                function
+                    .as_object()
+                    .call((), vm)
+                    .unwrap()
+                    .try_into_value::<i32>(vm)
+                    .unwrap(),
+                17
+            );
+            drop(function);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            drop(descriptor);
+            assert_eq!(Arc::strong_count(&captured), 1);
+        });
+    }
 }

@@ -2,6 +2,8 @@
 
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpqueues::clear_interpreter;
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) use _interpqueues::with_fork;
 pub(crate) use _interpqueues::{
     is_external_queue, module_def, queue_from_xid, queue_id_from_object, queue_xid_decref,
     queue_xid_incref,
@@ -53,15 +55,15 @@ pub(crate) mod _interpqueues {
         fn into_py(self, qid: i64, vm: &VirtualMachine) -> PyBaseExceptionRef {
             let (class, msg) = match self {
                 Self::NoNextId => (
-                    PyQueueError::class(&vm.ctx).to_owned(),
+                    PyQueueError::class(&vm.ctx),
                     "ran out of queue IDs".to_owned(),
                 ),
                 Self::NotFound => (
-                    PyQueueNotFoundError::class(&vm.ctx).to_owned(),
+                    PyQueueNotFoundError::class(&vm.ctx),
                     format!("queue {qid} not found"),
                 ),
                 Self::NeverBound => (
-                    PyQueueError::class(&vm.ctx).to_owned(),
+                    PyQueueError::class(&vm.ctx),
                     format!("queue {qid} never bound"),
                 ),
             };
@@ -92,54 +94,8 @@ pub(crate) mod _interpqueues {
         full: PyTypeRef,
     }
 
-    #[cfg(feature = "threading")]
-    fn external_types() -> &'static Mutex<BTreeMap<i64, ExternalTypes>> {
-        static TYPES: OnceLock<Mutex<BTreeMap<i64, ExternalTypes>>> = OnceLock::new();
-        TYPES.get_or_init(|| Mutex::new(BTreeMap::new()))
-    }
-
-    #[cfg(not(feature = "threading"))]
-    std::thread_local! {
-        static EXTERNAL_TYPES: core::cell::RefCell<BTreeMap<i64, ExternalTypes>> =
-            const { core::cell::RefCell::new(BTreeMap::new()) };
-    }
-
-    fn get_external_types(interpid: i64) -> Option<ExternalTypes> {
-        #[cfg(feature = "threading")]
-        {
-            external_types().lock().get(&interpid).cloned()
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            EXTERNAL_TYPES.with(|types| types.borrow().get(&interpid).cloned())
-        }
-    }
-
-    fn set_external_types(interpid: i64, types: ExternalTypes) {
-        #[cfg(feature = "threading")]
-        {
-            external_types().lock().insert(interpid, types);
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            EXTERNAL_TYPES.with(|registered| {
-                registered.borrow_mut().insert(interpid, types);
-            });
-        }
-    }
-
-    #[cfg_attr(not(feature = "threading"), allow(dead_code))]
-    fn remove_external_types(interpid: i64) {
-        #[cfg(feature = "threading")]
-        {
-            external_types().lock().remove(&interpid);
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            EXTERNAL_TYPES.with(|types| {
-                types.borrow_mut().remove(&interpid);
-            });
-        }
+    fn get_external_types(vm: &VirtualMachine) -> Option<ExternalTypes> {
+        vm.__get_native::<ExternalTypes, ExternalTypes>()
     }
 
     fn ensure_highlevel_module_loaded(vm: &VirtualMachine) -> PyResult<()> {
@@ -147,12 +103,11 @@ pub(crate) mod _interpqueues {
     }
 
     fn ensure_external_types(vm: &VirtualMachine) -> PyResult<ExternalTypes> {
-        let interpid = vm.state.interpreter_id;
-        if let Some(types) = get_external_types(interpid) {
+        if let Some(types) = get_external_types(vm) {
             return Ok(types);
         }
         ensure_highlevel_module_loaded(vm)?;
-        get_external_types(interpid)
+        get_external_types(vm)
             .ok_or_else(|| vm.new_runtime_error("queue types were not registered"))
     }
 
@@ -195,6 +150,17 @@ pub(crate) mod _interpqueues {
                 next_id: 1,
             })
         })
+    }
+
+    #[cfg(all(unix, feature = "threading"))]
+    pub(crate) fn with_fork<R>(syscall: impl FnOnce() -> R) -> R {
+        let table = queues().lock();
+        let _states: Vec<_> = table
+            .refs
+            .values()
+            .map(|entry| entry.queue.lock())
+            .collect();
+        syscall()
     }
 
     fn queue_lookup(qid: i64) -> QueueResult<Arc<Mutex<Queue>>> {
@@ -596,16 +562,12 @@ pub(crate) mod _interpqueues {
             .ok()
             .filter(|ty| ty.fast_issubclass(vm.ctx.exceptions.base_exception_type))
             .ok_or_else(|| vm.new_type_error("expected an exception type for 'fullerror'"))?;
-        set_external_types(
-            vm.state.interpreter_id,
-            ExternalTypes { queue, empty, full },
-        );
+        vm.__replace_native::<ExternalTypes, _>(ExternalTypes { queue, empty, full });
         Ok(())
     }
 
     pub(crate) fn is_external_queue(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        get_external_types(vm.state.interpreter_id)
-            .is_some_and(|types| obj.class().is(&types.queue))
+        get_external_types(vm).is_some_and(|types| obj.class().is(&types.queue))
     }
 
     pub(crate) fn queue_id_from_object(
@@ -639,7 +601,6 @@ pub(crate) mod _interpqueues {
 
     #[cfg_attr(not(feature = "threading"), allow(dead_code))]
     pub(crate) fn clear_interpreter(interpid: i64) {
-        remove_external_types(interpid);
         let queues: Vec<_> = queues()
             .lock()
             .refs

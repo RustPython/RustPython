@@ -598,9 +598,9 @@ impl PyCPointer {
         // Write value at address
         // Handle Structure/Array types by copying their buffer
         if let Some(cdata) = value.downcast_ref::<super::PyCData>()
-            && (cdata.fast_isinstance(PyCStructure::static_type())
-                || cdata.fast_isinstance(PyCArray::static_type())
-                || cdata.fast_isinstance(PyCSimple::static_type()))
+            && (cdata.fast_isinstance(unsafe { PyCStructure::static_type() })
+                || cdata.fast_isinstance(unsafe { PyCArray::static_type() })
+                || cdata.fast_isinstance(unsafe { PyCSimple::static_type() }))
         {
             let src_buffer = cdata.buffer.read();
             unsafe {

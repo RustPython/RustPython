@@ -6,8 +6,7 @@ use crate::{
         PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
         bool_::PyBool,
         descriptor::{
-            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
-            PyMemberFlags,
+            MemberAccess, MemberKind, PyDescriptor, PyMemberDef, PyMemberDescriptor, PyMemberFlags,
         },
         getset::PyGetSet,
         object, pystr,
@@ -51,7 +50,7 @@ pub struct Context {
     pub(crate) ascii_char_cache: Vec<PyRef<PyStr>>,
     // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
-    pub(crate) slot_new_wrapper: PyMethodDef,
+    pub(crate) slot_new_wrapper: &'static PyMethodDef,
     pub names: ConstName,
     // GC module state (callbacks and garbage lists)
 }
@@ -282,15 +281,26 @@ declare_const_name! {
 
 // Basic objects:
 impl Context {
+    /// Access the process-wide native definitions and immutable singleton context.
+    ///
+    /// # Safety
+    /// Follow [`crate::vm::thread`]'s native ownership contract. In particular,
+    /// mutable objects created through this context belong to the attached VM.
+    #[must_use]
+    pub unsafe fn genesis_unchecked() -> &'static PyRc<Self> {
+        Self::genesis()
+    }
+
     pub const INT_CACHE_POOL_RANGE: core::ops::RangeInclusive<i32> = (-5)..=256;
     const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
     #[must_use]
-    pub fn genesis() -> &'static PyRc<Self> {
+    pub(crate) fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
             static CONTEXT: PyRc<Context>;
         }
         CONTEXT.get_or_init(|| {
+            let _owner = crate::gc_state::AllocationScope::shared();
             let ctx = PyRc::new(Self::init_genesis());
             // SAFETY: ctx is heap-allocated via PyRc and will be stored in
             // the CONTEXT static cell, so the Context lives for 'static.
@@ -311,14 +321,14 @@ impl Context {
             PyRef::new_ref(payload, cls.to_owned(), None)
         }
 
-        let none = create_object(PyNone, PyNone::static_type());
-        let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
-        let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
+        let none = create_object(PyNone, unsafe { PyNone::static_type() });
+        let ellipsis = create_object(PyEllipsis, unsafe { PyEllipsis::static_type() });
+        let not_implemented =
+            create_object(PyNotImplemented, unsafe { PyNotImplemented::static_type() });
 
-        let typing_no_default = create_object(
-            crate::stdlib::_typing::NoDefault,
-            crate::stdlib::_typing::NoDefault::static_type(),
-        );
+        let typing_no_default = create_object(crate::stdlib::_typing::NoDefault, unsafe {
+            crate::stdlib::_typing::NoDefault::static_type()
+        });
 
         let int_cache_pool = Self::INT_CACHE_POOL_RANGE
             .map(|v| {
@@ -356,8 +366,8 @@ impl Context {
 
         let names = unsafe { ConstName::new(&string_pool, types.str_type) };
 
-        let slot_new_wrapper = PyMethodDef::new_const(
-            names.__new__.as_str(),
+        const SLOT_NEW_WRAPPER: PyMethodDef = PyMethodDef::new_const(
+            "__new__",
             PyType::__new__,
             PyMethodFlags::METHOD,
             ItemDoc::static_text(
@@ -419,7 +429,7 @@ impl Context {
             latin1_char_cache,
             ascii_char_cache,
             string_pool,
-            slot_new_wrapper,
+            slot_new_wrapper: &SLOT_NEW_WRAPPER,
             names,
         }
     }
@@ -659,19 +669,7 @@ impl Context {
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let def = PyMethodDef {
-            name,
-            func: Box::leak(Box::new(f.into_func())),
-            flags,
-            #[cfg(feature = "doc")]
-            doc_off: doc.offset,
-            #[cfg(feature = "doc")]
-            doc_len: doc.len,
-            #[cfg(feature = "doc")]
-            doc_body_pending: false,
-            doc: doc.text,
-        };
-        let payload = HeapMethodDef::new(def);
+        let payload = HeapMethodDef::with_owned_function(name, Box::new(f.into_func()), flags, doc);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 
@@ -682,11 +680,11 @@ impl Context {
         kind: MemberKind,
         offset: isize,
         flags: PyMemberFlags,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
         doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
         let member_descriptor = PyMemberDescriptor {
-            common: PyDescriptorOwned {
+            common: PyDescriptor {
                 typ: class.to_owned(),
                 name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
@@ -706,12 +704,12 @@ impl Context {
     pub fn new_readonly_tuple_member(
         &self,
         name: &str,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
         index: usize,
         doc: ItemDoc,
     ) -> PyRef<PyMemberDescriptor> {
         let member_descriptor = PyMemberDescriptor {
-            common: PyDescriptorOwned {
+            common: PyDescriptor {
                 typ: class.to_owned(),
                 name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
@@ -728,12 +726,7 @@ impl Context {
         member_descriptor.into_ref(self)
     }
 
-    pub fn new_readonly_getset<F, T>(
-        &self,
-        name: &str,
-        class: &'static Py<PyType>,
-        f: F,
-    ) -> PyRef<PyGetSet>
+    pub fn new_readonly_getset<F, T>(&self, name: &str, class: &Py<PyType>, f: F) -> PyRef<PyGetSet>
     where
         F: IntoPyGetterFunc<T>,
     {
@@ -744,7 +737,7 @@ impl Context {
     pub fn new_static_getset<G, S, T, U>(
         &self,
         name: &str,
-        class: &'static Py<PyType>,
+        class: &Py<PyType>,
         g: G,
         s: S,
     ) -> PyRef<PyGetSet>

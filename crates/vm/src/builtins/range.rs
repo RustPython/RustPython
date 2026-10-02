@@ -1,5 +1,5 @@
 use super::{
-    PyGenericAlias, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter,
+    PyGenericAlias, PyInt, PyIntRef, PySlice, PyTupleRef, PyTypeRef, builtins_iter,
     tuple::tuple_hash,
 };
 use crate::common::lock::LazyLock;
@@ -82,8 +82,8 @@ impl PyPayload for PyRange {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.range_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.range_type).to_owned()
     }
 
     #[inline]
@@ -585,8 +585,8 @@ pub(crate) struct PyLongRangeIterator {
 
 impl PyPayload for PyLongRangeIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.long_range_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.long_range_iterator_type).to_owned()
     }
 }
 
@@ -650,8 +650,8 @@ pub(crate) struct PyRangeIterator {
 
 impl PyPayload for PyRangeIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.range_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.range_iterator_type).to_owned()
     }
 }
 

@@ -1,4 +1,3 @@
-use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObject, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -19,8 +18,8 @@ pub struct PyCapsule {
 
 impl PyPayload for PyCapsule {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.capsule_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.capsule_type).to_owned()
     }
 }
 

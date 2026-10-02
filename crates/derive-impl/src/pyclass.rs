@@ -199,8 +199,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &'static ::rustpython_vm::Context,
-                        class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                        ctx: &::rustpython_vm::Context,
+                        class: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -262,8 +262,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                         const INTERNAL_DOC: ::rustpython_vm::function::ItemDoc = #internal_doc;
 
                         fn impl_extend_class(
-                            ctx: &'static ::rustpython_vm::Context,
-                            class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                            ctx: &::rustpython_vm::Context,
+                            class: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                         ) {
                             #holder::__extend_py_class(ctx, class);
                             #with_impl
@@ -309,8 +309,9 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
             let slots_impl = &context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
             let call_extend_slots = if has_extend_slots {
+                let trait_name = &trai.ident;
                 quote! {
-                    Self::extend_slots(slots);
+                    <Self as #trait_name>::extend_slots(slots);
                 }
             } else {
                 quote! {}
@@ -321,8 +322,8 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                 },
                 parse_quote! {
                     fn __extend_py_class(
-                        ctx: &'static ::rustpython_vm::Context,
-                        class: &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
+                        ctx: &::rustpython_vm::Context,
+                        class: &::rustpython_vm::Py<::rustpython_vm::builtins::PyType>,
                     ) {
                         #getset_impl
                         #extend_impl
@@ -542,6 +543,7 @@ struct MemberTableTokens<'a> {
 struct ClassDefExtras<'a> {
     attrs: &'a [Attribute],
     member_table: MemberTableTokens<'a>,
+    interpreter_local: bool,
 }
 
 fn generate_class_def(
@@ -554,6 +556,7 @@ fn generate_class_def(
     extras: ClassDefExtras<'_>,
 ) -> Result<TokenStream> {
     let attrs = extras.attrs;
+    let interpreter_local = extras.interpreter_local;
     let module_key = module_name.unwrap_or("builtins");
     let (attr_docs, attr_names) = crate::class_docs::attr_docs_tokens(module_name, name);
     let rust_doc = attrs.doc().filter(|doc| !doc.is_empty());
@@ -621,9 +624,13 @@ fn generate_class_def(
     }
     .map(|typ| {
         quote! {
-            fn static_baseclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+            unsafe fn static_baseclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 use rustpython_vm::class::StaticType;
-                #typ::static_type()
+                unsafe { #typ::static_type() }
+            }
+
+            fn baseclass(ctx: &::rustpython_vm::Context) -> ::rustpython_vm::builtins::PyTypeRef {
+                <#typ as ::rustpython_vm::class::PyClassImpl>::make_class(ctx)
             }
         }
     });
@@ -631,9 +638,9 @@ fn generate_class_def(
     let meta_class = metaclass.map(|typ| {
         let typ = Ident::new(&typ, ident.span());
         quote! {
-            fn static_metaclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+            unsafe fn static_metaclass() -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
                 use rustpython_vm::class::StaticType;
-                #typ::static_type()
+                unsafe { #typ::static_type() }
             }
         }
     });
@@ -669,9 +676,22 @@ fn generate_class_def(
         checks: member_checks,
     } = extras.member_table;
 
+    let native_layout = if is_repr_transparent {
+        base.as_ref().map(|base| {
+            quote! {
+                const NATIVE_LAYOUT_ID: ::core::any::TypeId =
+                    <#base as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID;
+            }
+        })
+    } else {
+        None
+    };
+
     let tokens = quote! {
         impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
+            const INTERPRETER_LOCAL: bool = #interpreter_local;
+            #native_layout
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
@@ -694,7 +714,7 @@ fn generate_class_def(
         #member_parts_impl
 
         impl ::rustpython_vm::class::StaticType for #ident {
-            fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
+            unsafe fn static_cell() -> &'static ::rustpython_vm::common::static_cell::StaticCell<::rustpython_vm::builtins::PyTypeRef> {
                 ::rustpython_vm::common::static_cell! {
                     static CELL: ::rustpython_vm::builtins::PyTypeRef;
                 }
@@ -800,6 +820,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
         unhashable,
         ClassDefExtras {
             attrs,
+            interpreter_local: class_meta.interpreter_local()?,
             member_table: MemberTableTokens {
                 members: &members,
                 parts: &member_parts,
@@ -893,9 +914,9 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     } else if let Some(base_type) = &base {
         let class_fn = if let Some(ctx_type_name) = class_meta.ctx_name()? {
             let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
-            quote! { ctx.types.#ctx_type_ident }
+            quote! { ctx.types.#ctx_type_ident.to_owned() }
         } else {
-            quote! { <Self as ::rustpython_vm::class::StaticType>::static_type() }
+            quote! { <Self as ::rustpython_vm::class::PyClassImpl>::make_class(ctx) }
         };
 
         quote! {
@@ -903,12 +924,22 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
             impl ::rustpython_vm::PyPayload for #ident {
                 const PAYLOAD_TYPE_ID: ::core::any::TypeId = <#base_type as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
-                #[inline]
-                unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().payload().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                fn supports_native_layout(layout: ::core::any::TypeId) -> bool {
+                    layout == <Self as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID
+                        || <#base_type as ::rustpython_vm::PyPayload>::supports_native_layout(layout)
                 }
 
-                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                #[inline]
+                unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
+                    obj.supports_native_layout(<Self as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID)
+                        && if <Self as ::rustpython_vm::class::PyClassDef>::INTERPRETER_LOCAL {
+                            obj.class().is_native_subclass::<Self>()
+                        } else {
+                            obj.class().fast_issubclass(unsafe { <Self as ::rustpython_vm::class::StaticType>::static_type() })
+                        }
+                }
+
+                fn class(ctx: &::rustpython_vm::vm::Context) -> ::rustpython_vm::builtins::PyTypeRef {
                     #class_fn
                 }
             }
@@ -918,8 +949,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
             let ctx_type_ident = Ident::new(&ctx_type_name, ident.span());
             quote! {
                 impl ::rustpython_vm::PyPayload for #ident {
-                    fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                        ctx.types.#ctx_type_ident
+                    fn class(ctx: &::rustpython_vm::vm::Context) -> ::rustpython_vm::builtins::PyTypeRef {
+                        ctx.types.#ctx_type_ident.to_owned()
                     }
                 }
             }
@@ -2578,9 +2609,6 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                             ::rustpython_vm::types::PyTypeFlags::#ident
                         });
                     }
-                    flag_elems.push(quote! {
-                        ::rustpython_vm::types::PyTypeFlags::IMMUTABLETYPE
-                    });
                 } else {
                     bail_span!(path, "Unknown pyimpl attribute")
                 }

@@ -1,3 +1,13 @@
+//! Native thread attachment and interpreter-owned execution state.
+//!
+//! Native callbacks must access mutable Python state only while its interpreter
+//! is attached. Type namespaces and caches are selected through that attachment;
+//! a process-wide native definition is not a substitute for its local class.
+//! Release retained references under the same owner before interpreter shutdown.
+//! Before a VM exists, context access is limited to native definitions and
+//! immutable bootstrap values. Mutable runtime state belongs in an attached
+//! initialization hook. Terminal native teardown must not reenter Python.
+
 #[cfg(all(not(unix), feature = "threading"))]
 use super::FramePtr;
 #[cfg(feature = "threading")]
@@ -10,7 +20,6 @@ use alloc::sync::Arc;
 use rustpython_common::lock::PyMutex;
 
 use crate::frame::InterpreterFrame;
-#[cfg(feature = "threading")]
 use crate::vm::PyGlobalState;
 use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(all(unix, feature = "threading"))]
@@ -22,7 +31,6 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use itertools::Itertools;
 #[cfg(feature = "threading")]
 use std::collections::HashMap;
 use std::thread_local;
@@ -88,6 +96,9 @@ pub struct ThreadSlot {
     /// `tstate->c_profileobj`. Cross-thread source of truth for sys.getprofile /
     /// sys._setprofileallthreads.
     pub profile_func: PyMutex<PyObjectRef>,
+    /// A retired slot may remain in native TLS, but must never retain Python
+    /// callbacks again. Writers check this while holding the callback lock.
+    closed: core::sync::atomic::AtomicBool,
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED / SHUTTING_DOWN
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
@@ -100,6 +111,44 @@ pub struct ThreadSlot {
 
 #[cfg(feature = "threading")]
 pub type CurrentFrameSlot = Arc<ThreadSlot>;
+
+#[cfg(feature = "threading")]
+impl ThreadSlot {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn replace_trace(&self, function: PyObjectRef) -> Option<PyObjectRef> {
+        self.replace_callback(&self.trace_func, function)
+    }
+
+    pub(crate) fn replace_profile(&self, function: PyObjectRef) -> Option<PyObjectRef> {
+        self.replace_callback(&self.profile_func, function)
+    }
+
+    fn replace_callback(
+        &self,
+        callback: &PyMutex<PyObjectRef>,
+        function: PyObjectRef,
+    ) -> Option<PyObjectRef> {
+        let mut callback = callback.lock();
+        if self.is_closed() {
+            return None;
+        }
+        Some(core::mem::replace(&mut callback, function))
+    }
+
+    fn close(&self, vm: &VirtualMachine) {
+        self.closed.store(true, Ordering::Release);
+        // Swap everything before releasing any reference: destructors may call
+        // sys.settrace() or sys._setprofileallthreads() reentrantly.
+        let trace = core::mem::replace(&mut *self.trace_func.lock(), vm.ctx.none());
+        let profile = core::mem::replace(&mut *self.profile_func.lock(), vm.ctx.none());
+        // SAFETY: cleanup runs on the owner thread while still attached.
+        let exception = unsafe { self.exception.swap(None) };
+        drop((trace, profile, exception));
+    }
+}
 
 /// Coalesced per-thread frame-publishing state, touched on every
 /// `enter_iframe`/`exit_iframe`. Bundling `current_frame` together with
@@ -130,6 +179,17 @@ struct FrameSlotCache {
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
 
+    // The final destruction phase retains native control state, not a VM
+    // pointer. Python callbacks and nested interpreter entry are unavailable.
+    static NATIVE_TEARDOWN: RefCell<Option<crate::common::rc::PyRc<PyGlobalState>>> = const { RefCell::new(None) };
+    static NATIVE_SWEEP: Cell<bool> = const { Cell::new(false) };
+
+    // Native payloads may own another interpreter. Delay that destruction until
+    // the outer teardown has restored attachment, and drain without recursion.
+    #[expect(clippy::vec_box, reason = "queued VM owners retain stable addresses")]
+    static DEFERRED_VMS: RefCell<Vec<Box<VirtualMachine>>> = const { RefCell::new(Vec::new()) };
+    static DRAINING_VMS: Cell<bool> = const { Cell::new(false) };
+
     /// Thread state created through the GILState-style C API.
     ///
     /// This is separate from the current VM stack: it only means "attached now",
@@ -143,6 +203,9 @@ thread_local! {
     /// their VM.
     #[cfg(feature = "threading")]
     static GILSTATE_VM: RefCell<Option<Box<ThreadedVirtualMachine>>> = const { RefCell::new(None) };
+
+    #[cfg(feature = "threading")]
+    static GILSTATE_ENTRY: RefCell<Option<super::owner_lease::OwnerEntry>> = const { RefCell::new(None) };
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
 
@@ -181,12 +244,219 @@ thread_local! {
 
 }
 
+fn callbacks_permitted() -> bool {
+    if NATIVE_SWEEP.try_with(Cell::get).unwrap_or(true) {
+        return false;
+    }
+    NATIVE_TEARDOWN
+        .try_with(|state| state.borrow().is_none())
+        .unwrap_or(false)
+}
+
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) fn native_sweep<R>(f: impl FnOnce() -> R) -> R {
+    let previous = NATIVE_SWEEP.with(|sweep| sweep.replace(true));
+    scopeguard::defer! {
+        NATIVE_SWEEP.with(|sweep| sweep.set(previous));
+        if !previous {
+            drain_deferred_vms();
+        }
+    }
+    f()
+}
+
+pub(crate) fn native_teardown<R>(
+    state: &crate::common::rc::PyRc<PyGlobalState>,
+    f: impl FnOnce() -> R,
+) -> R {
+    NATIVE_TEARDOWN.with(|current| {
+        assert!(current.borrow().is_none(), "nested native teardown");
+        *current.borrow_mut() = Some(state.clone());
+    });
+    scopeguard::defer! {
+        let state = NATIVE_TEARDOWN.with(|current| current.borrow_mut().take());
+        drop(state);
+    }
+    f()
+}
+
+pub(super) fn destroy_vm(vm: Box<VirtualMachine>) {
+    if !callbacks_permitted() {
+        DEFERRED_VMS.with(|pending| pending.borrow_mut().push(vm));
+        return;
+    }
+    scopeguard::defer! { drain_deferred_vms(); }
+    let state = vm.state.clone();
+    let Some((vm, lease, owns_vm)) = state.owner_leases.begin_teardown(vm) else {
+        return;
+    };
+    let teardown = scopeguard::guard(&state, |state| {
+        lease.finish_teardown();
+        state.teardowns.fetch_sub(1, Ordering::Release);
+    });
+    #[cfg(feature = "threading")]
+    let has_outer_owner = VM_STACK.with(|stack| {
+        stack.borrow().iter().any(|vm| {
+            // SAFETY: stack entries remain borrowed by their enclosing entry.
+            unsafe { vm.as_ref() }.state.interpreter_id == state.interpreter_id
+        })
+    });
+    let closed = state.closed.load(Ordering::Acquire) || !owns_vm;
+    let mut entered = VmBootstrapGuard::enter_with_owner(&vm, closed, lease.enter());
+    let released = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+        if !closed {
+            let mut cleanup = super::owned::Cleanup::default();
+            cleanup.run(|| vm.retire_execution_roots());
+            #[cfg(feature = "threading")]
+            if !has_outer_owner {
+                cleanup.run(|| retire_thread_slot(&vm));
+            }
+            cleanup.finish();
+        }
+    }));
+    let last = if owns_vm {
+        lease.release_owner();
+        state.owners.fetch_sub(1, Ordering::AcqRel) == 1
+    } else {
+        false
+    };
+    let _finalization = (last && !closed)
+        .then(|| state.owner_leases.enter_finalization(&state))
+        .flatten();
+    let finalized = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+        let mut cleanup = super::owned::Cleanup::default();
+        if last && !closed {
+            state.admission_closed.store(true, Ordering::Release);
+            #[cfg(feature = "threading")]
+            state
+                .finalizing_thread_ident
+                .store(crate::stdlib::_thread::get_ident());
+            state.finalizing.store(true, Ordering::Release);
+            cleanup.run(|| state.roots.close());
+            if vm.initialized.get() {
+                cleanup.run(|| vm.finalize_modules());
+            }
+            cleanup.run(|| {
+                crate::stdlib::_interpchannels::clear_interpreter(state.interpreter_id);
+            });
+            cleanup.run(|| {
+                crate::stdlib::_interpqueues::clear_interpreter(state.interpreter_id);
+            });
+        }
+        if !closed {
+            // SAFETY: OwnedVm destruction runs after this VM's execution scopes
+            // have ended. The cleanup entry has not borrowed its cached roots.
+            cleanup.run(|| unsafe { vm.retire_cached_roots() });
+            if last {
+                #[cfg(feature = "threading")]
+                {
+                    cleanup.run(|| retire_interpreter_thread_roots(&vm));
+                }
+                cleanup.run(|| state.retire_python_roots(&vm.ctx));
+                cleanup.run(|| {
+                    state.gc.collect_force(2);
+                });
+            }
+        }
+        cleanup.finish();
+    }));
+    let entry = &mut entered;
+    let state_ref = &state;
+    let lease_ref = &lease;
+    let terminal = native_teardown(&state, move || {
+        // No TLS pointer may refer to a VM while its fields are being dropped.
+        // Pop before any native destructor can panic, including cache cleanup.
+        lease_ref.retire_vm();
+        entry.pop_vm();
+        let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(move || {
+            let mut cleanup = super::owned::Cleanup::default();
+            if last {
+                state_ref.closed.store(true, Ordering::Release);
+                cleanup.run(|| state_ref.close_python_roots());
+                #[cfg(feature = "threading")]
+                cleanup.run(|| retire_interpreter_thread_roots(&vm));
+            }
+            #[cfg(feature = "threading")]
+            if !has_outer_owner {
+                cleanup.run(|| retire_thread_slot(&vm));
+            }
+            cleanup.run(|| drop(vm));
+            if last {
+                cleanup.run(|| state_ref.gc.unfreeze());
+                cleanup.run(|| {
+                    state_ref.gc.collect_force(2);
+                });
+            }
+            cleanup.finish();
+        }));
+        // Unwind has dropped VM storage under the callback mask. Keep the slot
+        // attached until then, and unregister it before restoring an outer VM.
+        #[cfg(feature = "threading")]
+        if !has_outer_owner {
+            unregister_current_thread_frames(state_ref);
+        }
+        result
+    });
+    drop(entered);
+    drop(teardown);
+    if let Err(error) = released.and(finalized).and(terminal) {
+        std::panic::resume_unwind(error);
+    }
+}
+
+fn drain_deferred_vms() {
+    if !callbacks_permitted() || DRAINING_VMS.with(|draining| draining.replace(true)) {
+        return;
+    }
+    scopeguard::defer! { DRAINING_VMS.with(|draining| draining.set(false)); }
+    let mut cleanup = super::owned::Cleanup::default();
+    while let Some(vm) = DEFERRED_VMS.with(|pending| pending.borrow_mut().pop()) {
+        cleanup.run(|| destroy_vm(vm));
+    }
+    cleanup.finish();
+}
+
 #[must_use]
 pub fn current_vm_is_set() -> bool {
     VM_STACK.with(|vms| !vms.borrow().is_empty())
 }
 
-pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+pub(crate) fn is_current_attached(vm: &VirtualMachine) -> bool {
+    top_slot_is_attached()
+        && try_with_current_vm(|current| core::ptr::eq(current, vm)).unwrap_or(false)
+}
+
+pub(crate) fn try_with_attached_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+    if !callbacks_permitted() {
+        return None;
+    }
+    let vm = VM_STACK
+        .try_with(|stack| stack.try_borrow().ok()?.last().copied())
+        .ok()??;
+    #[cfg(feature = "threading")]
+    {
+        let attached = CURRENT_THREAD_SLOT
+            .try_with(|slot| {
+                slot.try_borrow()
+                    .ok()
+                    .and_then(|slot| {
+                        slot.as_ref().map(|slot| {
+                            slot.state.load(Ordering::Acquire) == ThreadState::Attached as i32
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if !attached {
+            return None;
+        }
+    }
+    // SAFETY: the active VM stack retains this reference until the entry exits.
+    Some(f(unsafe { vm.as_ref() }))
+}
+
+pub(crate) fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    assert!(callbacks_permitted(), "Python entry during native teardown");
     VM_STACK.with(|vms| {
         let vm = vms
             .borrow()
@@ -200,20 +470,9 @@ pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
 }
 
 fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-    // Attach to this VM's interpreter, detaching the enclosing one if this is a
-    // switch between interpreters on the same OS thread.
-    #[cfg(feature = "threading")]
-    let switched = begin_interpreter_section(vm);
-
-    VM_STACK.with(|vms| {
-        vms.borrow_mut().push(vm.into());
-        scopeguard::defer! {
-            vms.borrow_mut().pop();
-            #[cfg(feature = "threading")]
-            end_interpreter_section(switched);
-        }
-        f()
-    })
+    assert!(callbacks_permitted(), "Python entry during native teardown");
+    let _guard = VmBootstrapGuard::new(vm);
+    f()
 }
 
 /// Pointer to the GC state of the interpreter running on this thread.
@@ -222,6 +481,21 @@ fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// which is borrowed for the whole `set_current_vm` scope — so the pointer stays
 /// valid as long as the caller remains inside that scope.
 pub(crate) fn current_gc_state() -> Option<NonNull<crate::gc_state::GcInterpreterState>> {
+    if NATIVE_SWEEP.try_with(Cell::get).unwrap_or(true) {
+        return None;
+    }
+    if let Some(gc) = NATIVE_TEARDOWN
+        .try_with(|state| {
+            state
+                .borrow()
+                .as_ref()
+                .map(|state| NonNull::from(&state.gc))
+        })
+        .ok()
+        .flatten()
+    {
+        return Some(gc);
+    }
     // Reached from every tracked allocation, including ones a thread-local
     // destructor makes while the VM stack is being torn down, so neither a
     // destroyed key nor an outstanding borrow may panic here.
@@ -236,7 +510,10 @@ pub(crate) fn current_gc_state() -> Option<NonNull<crate::gc_state::GcInterprete
         .flatten()
 }
 
-pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+pub(crate) fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+    if !callbacks_permitted() {
+        return None;
+    }
     VM_STACK.with(|vms| {
         let vm = vms.borrow().last().copied()?;
         // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
@@ -248,16 +525,16 @@ pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R>
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Attach/detach is handled by `set_current_vm`, which pairs it with the
     // VM_STACK push so that switching interpreters mid-stack stays consistent.
-    set_current_vm(vm, f)
+    set_current_vm(vm, || {
+        vm.state.roots.drain_pending();
+        scopeguard::defer! { vm.state.roots.drain_pending(); }
+        f()
+    })
 }
 
-/// RAII counterpart to `enter_vm`, for code that runs Python bytecode across
-/// several statements interspersed with `&mut VirtualMachine` calls
-/// (`VirtualMachine::initialize`), where a single closure-based `enter_vm`
-/// scope cannot be expressed because the borrow checker won't let a closure
-/// hold `&mut VirtualMachine` at the same time `enter_vm` reborrows it as
-/// `&VirtualMachine`. Construction only needs a transient `&VirtualMachine`
-/// borrow, so it can be dropped before subsequent `&mut` use.
+/// RAII counterpart to `enter_vm` for bootstrap and owner teardown. The caller
+/// keeps the VM at a stable address and may only publish shared access until
+/// the guard is popped; in particular, publication forbids borrowing it mutably.
 ///
 /// Without this, code that runs Python bytecode before any `enter_vm` scope
 /// exists would leave the thread not ATTACHED, making lock-free type cache
@@ -266,30 +543,85 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 pub(crate) struct VmBootstrapGuard {
     #[cfg(feature = "threading")]
     switched: bool,
+    pushed: bool,
+    saved_frame: Option<*const InterpreterFrame>,
+    _owner: super::owner_lease::OwnerEntry,
 }
 
 impl VmBootstrapGuard {
     pub(crate) fn new(vm: &VirtualMachine) -> Self {
+        Self::enter(vm, false)
+    }
+
+    fn enter(vm: &VirtualMachine, cleanup: bool) -> Self {
+        Self::enter_with_owner(vm, cleanup, vm.owner_lease().enter())
+    }
+
+    fn enter_with_owner(
+        vm: &VirtualMachine,
+        cleanup: bool,
+        owner: super::owner_lease::OwnerEntry,
+    ) -> Self {
+        assert!(
+            callbacks_permitted(),
+            "Python bootstrap during native teardown"
+        );
+        let changed_vm = VM_STACK.with(|vms| {
+            vms.borrow()
+                .last()
+                .is_none_or(|p| p.as_ptr().cast_const() != core::ptr::from_ref(vm))
+        });
+        let saved_frame = changed_vm.then(get_current_frame);
         #[cfg(feature = "threading")]
-        let switched = begin_interpreter_section(vm);
+        let switched = {
+            if cleanup {
+                let slot = ensure_thread_slot(vm);
+                // A cancelled/idle native worker can be dropped after explicit
+                // shutdown. Cleanup is not a new Python entry and must not hang.
+                let _ = slot.state.compare_exchange(
+                    ThreadState::ShuttingDown as i32,
+                    ThreadState::Detached as i32,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+            }
+            begin_interpreter_section(vm)
+        };
+        #[cfg(not(feature = "threading"))]
+        let _ = cleanup;
+        if changed_vm {
+            let _ = set_current_frame(core::ptr::null());
+        }
 
         VM_STACK.with(|vms| vms.borrow_mut().push(vm.into()));
 
         Self {
             #[cfg(feature = "threading")]
             switched,
+            pushed: true,
+            saved_frame,
+            _owner: owner,
+        }
+    }
+
+    fn pop_vm(&mut self) {
+        if self.pushed {
+            VM_STACK.with(|vms| {
+                vms.borrow_mut().pop();
+            });
+            self.pushed = false;
         }
     }
 }
 
 impl Drop for VmBootstrapGuard {
     fn drop(&mut self) {
-        VM_STACK.with(|vms| {
-            vms.borrow_mut().pop();
-        });
-
+        self.pop_vm();
         #[cfg(feature = "threading")]
         end_interpreter_section(self.switched);
+        if let Some(frame) = self.saved_frame {
+            let _ = set_current_frame(frame);
+        }
     }
 }
 
@@ -305,28 +637,41 @@ pub enum CurrentVmAttachState {
 pub struct SavedThreadState {
     vm_stack: Vec<NonNull<VirtualMachine>>,
     gilstate_vm: Option<Box<ThreadedVirtualMachine>>,
+    gilstate_entry: Option<super::owner_lease::OwnerEntry>,
+    frame: *const InterpreterFrame,
 }
 
 /// Detach the current native thread and preserve its VM context for restoration.
 #[cfg(feature = "threading")]
 #[must_use = "the saved thread state must be restored"]
-pub fn save_current_thread() -> SavedThreadState {
+pub(crate) fn save_current_thread() -> SavedThreadState {
     let vm_stack = VM_STACK.with(|vms| core::mem::take(&mut *vms.borrow_mut()));
     assert!(
         !vm_stack.is_empty(),
         "save_current_thread() called without an attached VM"
     );
     let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    let gilstate_entry = GILSTATE_ENTRY.with(|entry| entry.borrow_mut().take());
     detach_thread();
+    // Keep the old interpreter's published frame intact for other threads,
+    // but do not let a subsequently attached interpreter inherit this chain.
+    let frame = FRAME_SLOT_CACHE.with(|cache| cache.current_frame.swap(0, Ordering::Relaxed))
+        as *const InterpreterFrame;
     SavedThreadState {
         vm_stack,
         gilstate_vm,
+        gilstate_entry,
+        frame,
     }
 }
 
 /// Restore a VM context previously returned by [`save_current_thread`].
 #[cfg(feature = "threading")]
-pub fn restore_current_thread(state: SavedThreadState) {
+pub(crate) fn restore_current_thread(state: SavedThreadState) {
+    assert!(
+        callbacks_permitted(),
+        "thread restoration during native teardown"
+    );
     assert!(
         !current_vm_is_set(),
         "restore_current_thread() called with an attached VM"
@@ -334,6 +679,8 @@ pub fn restore_current_thread(state: SavedThreadState) {
     let SavedThreadState {
         vm_stack,
         gilstate_vm,
+        gilstate_entry,
+        frame,
     } = state;
     let vm = vm_stack
         .last()
@@ -348,6 +695,11 @@ pub fn restore_current_thread(state: SavedThreadState) {
         );
         *current = gilstate_vm;
     });
+    GILSTATE_ENTRY.with(|current| {
+        let mut current = current.borrow_mut();
+        assert!(current.is_none());
+        *current = gilstate_entry;
+    });
 
     // SAFETY: borrowed VMs remain alive for the dynamic save/restore scope,
     // while an owned GILState VM was restored above before this dereference.
@@ -359,14 +711,20 @@ pub fn restore_current_thread(state: SavedThreadState) {
     init_thread_slot_if_needed(vm);
     attach_thread(vm);
     VM_STACK.with(|vms| *vms.borrow_mut() = vm_stack);
+    let _ = set_current_frame(frame);
 }
 
 /// Attach the current native thread to a RustPython VM until
 /// `release_current_thread()` is called.
+///
+/// # Safety
+/// Pair a newly attached state with exactly one release on this native thread.
+/// Python references must only be accessed while their VM is attached.
 #[cfg(feature = "threading")]
-pub fn attach_current_thread(
+pub unsafe fn attach_current_thread(
     make_vm: impl FnOnce() -> ThreadedVirtualMachine,
 ) -> CurrentVmAttachState {
+    assert!(callbacks_permitted(), "native attachment during teardown");
     if current_vm_is_set() {
         return CurrentVmAttachState::AlreadyAttached;
     }
@@ -374,7 +732,8 @@ pub fn attach_current_thread(
     GILSTATE_VM.with(|gilstate_vm| {
         let mut gilstate_vm = gilstate_vm.borrow_mut();
         let threaded_vm = gilstate_vm.get_or_insert_with(|| Box::new(make_vm()));
-        let vm = &threaded_vm.vm;
+        let vm: &VirtualMachine = &threaded_vm.vm;
+        let entry = vm.owner_lease().enter();
 
         vm.c_stack_soft_limit
             .set(VirtualMachine::calculate_c_stack_soft_limit());
@@ -387,19 +746,22 @@ pub fn attach_current_thread(
             debug_assert!(vms.borrow().is_empty());
             vms.borrow_mut().push(vm.into());
         });
+        GILSTATE_ENTRY.with(|current| *current.borrow_mut() = Some(entry));
     });
 
     CurrentVmAttachState::Attached
 }
 
+/// Release a native C-API attachment.
+///
+/// # Safety
+/// `state` must be the unmatched result of `attach_current_thread` on this
+/// thread. All references and callbacks using that attachment must have ended.
 #[cfg(feature = "threading")]
-pub fn release_current_thread(state: CurrentVmAttachState) {
+pub unsafe fn release_current_thread(state: CurrentVmAttachState) {
     if state == CurrentVmAttachState::AlreadyAttached {
         return;
     }
-
-    let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
-    drop(gilstate_vm);
 
     VM_STACK.with(|vms| {
         vms.borrow_mut()
@@ -407,7 +769,11 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
             .expect("release_current_thread() called without an attached VM");
     });
 
+    let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    drop(gilstate_vm);
+
     detach_thread();
+    GILSTATE_ENTRY.with(|entry| entry.borrow_mut().take());
 }
 
 /// Ensure this OS thread has a [`ThreadSlot`] registered with `vm`'s interpreter
@@ -436,6 +802,7 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
         let thread_id = crate::stdlib::_thread::get_ident();
         let mut registry = vm.state.thread_frames.lock();
         let new_slot = Arc::new(ThreadSlot {
+            closed: core::sync::atomic::AtomicBool::new(false),
             #[cfg(unix)]
             top_frame: AtomicPtr::new(core::ptr::null_mut()),
             top_iframe: AtomicUsize::new(0),
@@ -479,7 +846,7 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
 /// The current thread's `ThreadSlot` for the entered interpreter, if any.
 #[cfg(feature = "threading")]
 #[must_use]
-pub fn current_thread_slot() -> Option<CurrentFrameSlot> {
+pub(crate) fn current_thread_slot() -> Option<CurrentFrameSlot> {
     CURRENT_THREAD_SLOT.with(|slot| slot.borrow().clone())
 }
 
@@ -572,6 +939,11 @@ fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
 /// `PyThread_hang_thread`: park this OS thread forever.
 #[cfg(feature = "threading")]
 fn hang_thread() -> ! {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(slot) = slot.borrow().as_ref() {
+            slot.qsbr.offline();
+        }
+    });
     loop {
         std::thread::park();
     }
@@ -590,7 +962,7 @@ pub fn hang_current_thread(state: &PyGlobalState) -> ! {
                 .state
                 .swap(ThreadState::ShuttingDown as i32, Ordering::AcqRel);
             if prev == ThreadState::Attached as i32 {
-                crate::object::qsbr::QSBR.offline(&s.qsbr);
+                s.qsbr.offline();
             }
             s.stop_requested.store(false, Ordering::Release);
         }
@@ -621,12 +993,18 @@ pub fn set_other_threads_shutting_down(state: &PyGlobalState) {
         slot.stop_requested.store(false, Ordering::Release);
         slot.state
             .store(ThreadState::ShuttingDown as i32, Ordering::Release);
+        slot.qsbr.offline();
         slot.thread.unpark();
     }
 }
 
 #[cfg(feature = "threading")]
 fn attach_thread(vm: &VirtualMachine) {
+    attach_state(&vm.state);
+}
+
+#[cfg(feature = "threading")]
+fn attach_state(interpreter: &PyGlobalState) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             super::stw_trace(format_args!("attach begin"));
@@ -638,7 +1016,7 @@ fn attach_thread(vm: &VirtualMachine) {
                     Ordering::Relaxed,
                 ) {
                     Ok(_) => {
-                        crate::object::qsbr::QSBR.online(&s.qsbr);
+                        s.qsbr.online();
                         super::stw_trace(format_args!("attach DETACHED->ATTACHED"));
                         break;
                     }
@@ -647,7 +1025,9 @@ fn attach_thread(vm: &VirtualMachine) {
                             // Parked by stop-the-world — wait until released to DETACHED
                             super::stw_trace(format_args!("attach wait-suspended"));
                             let wait_yields = wait_while_suspended(s);
-                            vm.state.stop_the_world.add_attach_wait_yields(wait_yields);
+                            interpreter
+                                .stop_the_world
+                                .add_attach_wait_yields(wait_yields);
                             // Retry CAS
                         }
                         Some(ThreadState::ShuttingDown) => {
@@ -671,7 +1051,7 @@ fn attach_thread(vm: &VirtualMachine) {
     // it. Safe against a concurrent start_the_world: suspend_if_needed decides
     // whether to park under the registry lock, so it never parks after the
     // request has been withdrawn.
-    suspend_if_needed(&vm.state);
+    suspend_if_needed(interpreter);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
@@ -686,7 +1066,7 @@ fn detach_thread() {
                 Ordering::Acquire,
             ) {
                 Ok(_) => {
-                    crate::object::qsbr::QSBR.offline(&s.qsbr);
+                    s.qsbr.offline();
                 }
                 Err(state) => {
                     debug_assert!(
@@ -748,6 +1128,10 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// testing for DETACHED alone.
 #[cfg(feature = "threading")]
 pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    assert!(
+        callbacks_permitted(),
+        "Python callback during native teardown"
+    );
     let should_transition = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
             .as_ref()
@@ -769,6 +1153,10 @@ pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// No-op on non-threading builds.
 #[cfg(not(feature = "threading"))]
 pub fn attach_for_callback<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    assert!(
+        callbacks_permitted(),
+        "Python callback during native teardown"
+    );
     f()
 }
 
@@ -788,6 +1176,20 @@ pub fn attach_for_callback<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R 
 /// than on the reference behavior.
 #[cfg(feature = "threading")]
 fn wait_detached_from_interpreter(wait: &dyn Fn()) {
+    let terminal = NATIVE_TEARDOWN
+        .try_with(|state| state.borrow().clone())
+        .ok()
+        .flatten();
+    if let Some(state) = terminal {
+        if current_slot_is_attached() {
+            detach_thread();
+            scopeguard::defer! { attach_state(&state); }
+            wait();
+        } else {
+            wait();
+        }
+        return;
+    }
     // Read the VM out before waiting: attaching afterwards reaches for the
     // same thread locals, which must not still be borrowed here.
     let current = VM_STACK
@@ -866,6 +1268,7 @@ fn do_suspend(state: &PyGlobalState) {
             Some(Ok(_)) => {
                 // Consumed this thread's stop request bit.
                 s.stop_requested.store(false, Ordering::Release);
+                s.qsbr.offline();
             }
             Some(Err(state)) => match ThreadState::from_i32(state) {
                 Some(ThreadState::Detached) => {
@@ -929,6 +1332,7 @@ fn do_suspend(state: &PyGlobalState) {
                 },
             }
         }
+        s.qsbr.online();
         s.stop_requested.store(false, Ordering::Release);
         super::stw_trace(format_args!("suspend resume -> ATTACHED"));
     });
@@ -978,14 +1382,11 @@ pub(crate) fn qsbr_break_requested() -> bool {
 /// free retired allocations.
 #[cfg(feature = "threading")]
 pub(crate) fn qsbr_checkpoint() {
-    use crate::object::qsbr::QSBR;
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
-            s.qsbr.requested.store(false, Ordering::Relaxed);
-            QSBR.quiescent_state(&s.qsbr);
+            s.qsbr.checkpoint();
         }
     });
-    QSBR.process();
 }
 
 /// Debug check: lock-free type-cache reads are only sound on threads that
@@ -1009,7 +1410,7 @@ pub(crate) fn debug_assert_current_thread_attached() {
 /// Only used on non-unix threading builds; unix builds publish the top frame
 /// through `set_current_frame` writing `ThreadSlot::top_frame`.
 #[cfg(all(not(unix), feature = "threading"))]
-pub fn push_thread_frame(fp: FramePtr) {
+pub(crate) fn push_thread_frame(fp: FramePtr) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             s.frames.lock().push(fp);
@@ -1025,7 +1426,7 @@ pub fn push_thread_frame(fp: FramePtr) {
 /// Pop a frame from the current thread's shared frame stack.
 /// Called when a frame is exited.
 #[cfg(all(not(unix), feature = "threading"))]
-pub fn pop_thread_frame() {
+pub(crate) fn pop_thread_frame() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             s.frames.lock().pop();
@@ -1042,7 +1443,7 @@ pub fn pop_thread_frame() {
 /// Returns the previous pointer so it can be restored on pop.
 #[must_use]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+pub(crate) fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFrame {
     FRAME_SLOT_CACHE.with(|cache| {
         // Publish the top frame for cross-thread readers (faulthandler,
         // sys._current_frames).
@@ -1075,9 +1476,13 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
 /// Lightweight version that only writes to TLS `current_frame`, returning
 /// the previous value. Does not update cross-thread top_frame (that's
 /// updated by `set_current_frame` for FrameObject-based calls).
+///
+/// # Safety
+/// A non-null frame must belong to the attached interpreter and remain live
+/// until the previous pointer is restored, including during signal handlers.
 #[inline(always)]
 #[must_use]
-pub fn set_current_frame_nosave(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+pub unsafe fn set_current_frame_nosave(frame: *const InterpreterFrame) -> *const InterpreterFrame {
     FRAME_SLOT_CACHE.with(|cache| cache.current_frame.swap(frame as usize, Ordering::Relaxed))
         as *const InterpreterFrame
 }
@@ -1093,14 +1498,15 @@ pub fn get_current_frame() -> *const InterpreterFrame {
 /// Update the current thread's exception slot atomically (no locks).
 /// Called from push_exception/pop_exception/set_exception.
 #[cfg(feature = "threading")]
-pub fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
-    CURRENT_THREAD_SLOT.with(|slot| {
-        if let Some(s) = slot.borrow().as_ref() {
-            // SAFETY: Called only from the owning thread. The old ref is dropped
-            // here on the owning thread, which is safe.
-            let _old = unsafe { s.exception.swap(exc) };
-        }
-    });
+pub(crate) fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
+    let slot = CURRENT_THREAD_SLOT.with(|slot| slot.borrow().clone());
+    if let Some(slot) = slot
+        && !slot.is_closed()
+    {
+        // SAFETY: called only from the owning, attached thread. Release outside
+        // the TLS borrow, since a destructor may update the exception again.
+        drop(unsafe { slot.exception.swap(exc) });
+    }
 }
 
 /// Collect all threads' current exceptions for sys._current_exceptions().
@@ -1114,33 +1520,63 @@ pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBas
         .collect()
 }
 
-/// Cleanup thread slot for the current thread in `vm`'s interpreter.
-/// Called at thread exit (or when leaving an interpreter permanently).
 #[cfg(feature = "threading")]
-pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
-    let thread_id = crate::stdlib::_thread::get_ident();
+pub(crate) fn retire_thread_slot(vm: &VirtualMachine) {
     let interp_id = vm.state.interpreter_id;
 
-    // Prefer the slot registered for this interpreter; fall back to CURRENT.
-    let slot_for_interp = INTERP_THREAD_SLOTS.with(|slots| slots.borrow_mut().remove(&interp_id));
-    let current_slot = CURRENT_THREAD_SLOT.with(|slot| slot.borrow().as_ref().cloned());
-    let slot_to_clean = slot_for_interp.or(current_slot);
+    let slot_to_clean = INTERP_THREAD_SLOTS.with(|slots| slots.borrow().get(&interp_id).cloned());
+
+    // Keep the slot registered and attached throughout Python destruction.
+    // Native TLS can retain the emptied slot after its interpreter goes away.
+    if let Some(slot) = &slot_to_clean {
+        slot.top_iframe.store(0, Ordering::Release);
+        #[cfg(unix)]
+        slot.top_frame
+            .store(core::ptr::null_mut(), Ordering::Release);
+        #[cfg(not(unix))]
+        slot.frames.lock().clear();
+        slot.close(vm);
+    }
+}
+
+/// Release callbacks after all other execution contexts have exited or parked
+/// permanently for shutdown. Native TLS may retain the emptied slots.
+#[cfg(feature = "threading")]
+pub(super) fn retire_interpreter_thread_roots(vm: &VirtualMachine) {
+    let slots: Vec<_> = vm.state.thread_frames.lock().values().cloned().collect();
+    let mut cleanup = super::owned::Cleanup::default();
+    for slot in slots {
+        cleanup.run(|| slot.close(vm));
+    }
+    cleanup.finish();
+}
+
+#[cfg(feature = "threading")]
+fn unregister_current_thread_frames(state: &PyGlobalState) {
+    let thread_id = crate::stdlib::_thread::get_ident();
+    let interp_id = state.interpreter_id;
+    let slot_to_clean = INTERP_THREAD_SLOTS.with(|slots| slots.borrow_mut().remove(&interp_id));
 
     // A dying thread should not remain logically ATTACHED while its
     // thread-state slot is being removed.
-    if let Some(slot) = &slot_to_clean {
-        let _ = slot.state.compare_exchange(
-            ThreadState::Attached as i32,
-            ThreadState::Detached as i32,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+    if let Some(slot) = &slot_to_clean
+        && slot
+            .state
+            .compare_exchange(
+                ThreadState::Attached as i32,
+                ThreadState::Detached as i32,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    {
+        slot.qsbr.offline();
     }
 
     // Guard against OS thread-id reuse races: only remove the registry entry
     // if it still points at this thread's own slot.
     let _removed = if let Some(slot) = &slot_to_clean {
-        let mut registry = vm.state.thread_frames.lock();
+        let mut registry = state.thread_frames.lock();
         match registry.get(&thread_id) {
             Some(registered) if Arc::ptr_eq(registered, slot) => registry.remove(&thread_id),
             _ => None,
@@ -1150,13 +1586,13 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     };
 
     if let Some(slot) = &_removed
-        && vm.state.stop_the_world.requested.load(Ordering::Acquire)
-        && thread_id != vm.state.stop_the_world.requester_ident()
+        && state.stop_the_world.requested.load(Ordering::Acquire)
+        && thread_id != state.stop_the_world.requester_ident()
         && slot.state.load(Ordering::Relaxed) != ThreadState::Suspended as i32
     {
         // A non-requester thread disappeared while stop-the-world is pending.
         // Unblock requester countdown progress.
-        vm.state.stop_the_world.notify_thread_gone();
+        state.stop_the_world.notify_thread_gone();
     }
 
     // If CURRENT pointed at the cleaned slot, clear it (and top-frame cache).
@@ -1170,6 +1606,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
             *s.borrow_mut() = None;
             #[cfg(feature = "threading")]
             FRAME_SLOT_CACHE.with(|cache| {
+                cache.current_frame.store(0, Ordering::Relaxed);
                 #[cfg(unix)]
                 cache.top_frame.set(core::ptr::null());
                 cache.top_iframe.set(core::ptr::null());
@@ -1180,96 +1617,64 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     });
 }
 
-/// Reinitialize thread slot after fork. Called in child process.
-/// Creates a fresh slot and registers it for the current thread,
-/// preserving the current thread's frames from the signal-safe frame chain.
-///
-/// Precondition: `reinit_locks_after_fork()` has already reset all
-/// VmState locks to unlocked.
-#[cfg(feature = "threading")]
-pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
-    let current_ident = crate::stdlib::_thread::get_ident();
-    // On non-unix, rebuild the shared frame stack (bottom-to-top) from the
-    // current thread's frame chain, which walks top-to-bottom via `previous`.
-    #[cfg(not(unix))]
-    let current_frames: Vec<FramePtr> = {
-        let mut current_frames = Vec::new();
-        let mut cur = get_current_frame();
-        while !cur.is_null() {
-            // SAFETY: the forking thread's chain frames are alive.
-            let iframe = unsafe { &*cur };
-            if let Some(fo) = iframe.frame_obj() {
-                current_frames.push(FramePtr(unsafe {
-                    NonNull::new_unchecked(fo as *const _ as *mut _)
-                }));
-            }
-            cur = iframe.previous.load(Ordering::Relaxed) as *const InterpreterFrame;
-        }
-        current_frames.reverse();
-        current_frames
-    };
-    #[cfg(unix)]
-    let top_fo_ptr = {
-        let top_iframe = get_current_frame();
-        if top_iframe.is_null() {
-            core::ptr::null_mut()
-        } else {
-            match unsafe { (*top_iframe).frame_obj() } {
-                Some(fo) => fo as *const Py<FrameObject> as *mut Py<FrameObject>,
-                None => core::ptr::null_mut(),
-            }
-        }
-    };
-    let top_iframe_ptr = get_current_frame() as usize;
-    let new_slot = Arc::new(ThreadSlot {
-        // The surviving child thread keeps executing its current frame chain.
-        // Only publish heavy frames for signal safety.
-        #[cfg(unix)]
-        top_frame: AtomicPtr::new(top_fo_ptr),
-        top_iframe: AtomicUsize::new(top_iframe_ptr),
-        #[cfg(not(unix))]
-        frames: parking_lot::Mutex::new(current_frames),
-        exception: crate::PyAtomicRef::from(vm.topmost_exception()),
-        trace_func: PyMutex::new(vm.trace_func.borrow().clone()),
-        profile_func: PyMutex::new(vm.profile_func.borrow().clone()),
-        state: core::sync::atomic::AtomicI32::new(ThreadState::Attached as i32),
-        stop_requested: core::sync::atomic::AtomicBool::new(false),
-        thread: std::thread::current(),
-        qsbr: crate::object::qsbr::QSBR.register(),
-    });
-    FRAME_SLOT_CACHE.with(|cache| {
-        #[cfg(unix)]
-        cache.top_frame.set(&new_slot.top_frame);
-        cache.top_iframe.set(&new_slot.top_iframe);
-    });
-    #[cfg(feature = "threading")]
-    CURRENT_STOP_REQUESTED.with(|c| c.set(&new_slot.stop_requested));
-
-    // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
-    let mut registry = vm.state.thread_frames.lock();
-    registry.clear();
-    registry.insert(current_ident, new_slot.clone());
-    drop(registry);
-
-    CURRENT_THREAD_SLOT.with(|s| {
-        *s.borrow_mut() = Some(new_slot.clone());
-    });
+/// Snapshot this native thread's reclamation registrations before fork.
+#[cfg(all(unix, feature = "threading"))]
+pub(super) fn surviving_qsbr_slots() -> Vec<Arc<crate::object::qsbr::QsbrSlot>> {
     INTERP_THREAD_SLOTS.with(|slots| {
-        slots.borrow_mut().insert(vm.state.interpreter_id, new_slot);
+        slots
+            .borrow()
+            .values()
+            .map(|slot| slot.qsbr.clone())
+            .collect()
+    })
+}
+
+/// Remove vanished threads while preserving this native thread's slot. Its
+/// frames, tracing hooks and exception may belong to a saved/nested entry.
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) fn retain_frame_slot_after_fork(state: &PyGlobalState) {
+    let ident = crate::stdlib::_thread::get_ident();
+    let removed = {
+        let mut registry = state.thread_frames.lock();
+        let current = registry.remove(&ident);
+        let removed = core::mem::take(&mut *registry);
+        if let Some(slot) = current {
+            slot.stop_requested.store(false, Ordering::Relaxed);
+            slot.state
+                .store(ThreadState::Detached as i32, Ordering::Relaxed);
+            registry.insert(ident, slot);
+        }
+        removed
+    };
+    let _owner = state.gc.allocation_scope();
+    native_sweep(|| {
+        #[expect(clippy::iter_over_hash_type, reason = "independent vanished slots")]
+        for slot in removed.values() {
+            // Vanished native TLS retains copied Arc counts. Empty the roots
+            // explicitly; dropping this registry Arc alone cannot release them.
+            unsafe {
+                crate::common::lock::reinit_mutex_after_fork(&slot.trace_func);
+                crate::common::lock::reinit_mutex_after_fork(&slot.profile_func);
+            }
+            slot.closed.store(true, Ordering::Release);
+            let ctx = crate::vm::Context::genesis();
+            let trace = core::mem::replace(&mut *slot.trace_func.lock(), ctx.none());
+            let profile = core::mem::replace(&mut *slot.profile_func.lock(), ctx.none());
+            let exception = unsafe { slot.exception.swap(None) };
+            slot.qsbr.offline();
+            drop((trace, profile, exception));
+        }
+        drop(removed);
     });
 }
 
-/// Drop this thread's cached slots for every interpreter except `keep_id`.
-///
-/// After `fork()` only the calling thread survives, and the other
-/// interpreters' registries are cleared; a cached slot would otherwise stay
-/// current for an interpreter that no longer lists it, hiding the thread from
-/// that interpreter's stop-the-world. The next enter builds a fresh slot.
-#[cfg(feature = "threading")]
-pub fn purge_other_interpreter_slots_after_fork(keep_id: i64) {
-    INTERP_THREAD_SLOTS.with(|slots| {
-        slots.borrow_mut().retain(|&id, _| id == keep_id);
-    });
+/// Reattach the surviving slot after child repair. Keeping its identity also
+/// preserves the cached frame pointers and its QSBR registrations.
+#[cfg(all(unix, feature = "threading"))]
+pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
+    retain_frame_slot_after_fork(&vm.state);
+    init_thread_slot_if_needed(vm);
+    attach_thread(vm);
 }
 
 /// Whether the interpreter on top of `VM_STACK` is currently ATTACHED on this
@@ -1298,8 +1703,11 @@ enum WithVmTarget {
 
 pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
 where
-    F: Fn(&VirtualMachine) -> R,
+    F: FnOnce(&VirtualMachine) -> R,
 {
+    if !callbacks_permitted() {
+        return None;
+    }
     let vm_owns_obj = |interp: NonNull<VirtualMachine>| {
         // SAFETY: all references in VM_STACK should be valid
         let vm = unsafe { interp.as_ref() };
@@ -1339,13 +1747,7 @@ where
         {
             return Some(WithVmTarget::AlreadyCurrent(top));
         }
-        let interp = match vms.iter().copied().exactly_one() {
-            Ok(x) => {
-                debug_assert!(vm_owns_obj(x));
-                x
-            }
-            Err(mut others) => others.find(|x| vm_owns_obj(*x))?,
-        };
+        let interp = vms.iter().rev().copied().find(|x| vm_owns_obj(*x))?;
         Some(WithVmTarget::NeedsSwitch(interp))
     })?;
     match target {
@@ -1369,11 +1771,21 @@ where
 #[must_use = "ThreadedVirtualMachine does nothing unless you move it to another thread and call .run()"]
 #[cfg(feature = "threading")]
 pub struct ThreadedVirtualMachine {
-    pub(super) vm: VirtualMachine,
+    pub(super) vm: super::owned::OwnedVm,
 }
 
 #[cfg(feature = "threading")]
 impl ThreadedVirtualMachine {
+    /// Enter this interpreter on the current native thread.
+    pub fn run<R>(&self, f: impl FnOnce(&VirtualMachine) -> R) -> R {
+        self.run_raw(f)
+    }
+
+    /// Build an interpreter entry for a native thread.
+    pub fn make_spawn_func<R>(self, f: impl FnOnce(&VirtualMachine) -> R) -> impl FnOnce() -> R {
+        move || self.run(f)
+    }
+
     /// Create a `FnOnce()` that can easily be passed to a function like [`std::thread::Builder::spawn`]
     ///
     /// # Note
@@ -1382,11 +1794,11 @@ impl ThreadedVirtualMachine {
     /// on the thread this `FnOnce` runs in, there is a possibility that that thread will panic
     /// as `PyObjectRef`'s `Drop` implementation tries to run the `__del__` destructor of a
     /// Python object but finds that it's not in the context of any vm.
-    pub fn make_spawn_func<F, R>(self, f: F) -> impl FnOnce() -> R
+    pub(crate) fn make_spawn_func_raw<F, R>(self, f: F) -> impl FnOnce() -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
-        move || self.run(f)
+        move || self.run_raw(f)
     }
 
     /// Run a function in this thread context
@@ -1397,7 +1809,7 @@ impl ThreadedVirtualMachine {
     /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
     /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
     /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn run<F, R>(&self, f: F) -> R
+    pub(crate) fn run_raw<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
@@ -1425,7 +1837,7 @@ impl VirtualMachine {
         F: Send + 'static + FnOnce(&Self) -> R,
         R: Send + 'static,
     {
-        let func = self.new_thread().make_spawn_func(f);
+        let func = self.new_thread().make_spawn_func_raw(f);
         std::thread::spawn(func)
     }
 
@@ -1437,15 +1849,12 @@ impl VirtualMachine {
     /// # Usage
     ///
     /// ```
-    /// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    /// use std::thread::Builder;
-    /// let handle = Builder::new()
-    ///     .name("my thread :)".into())
-    ///     .spawn(vm.new_thread().make_spawn_func(|vm| vm.ctx.none()))
-    ///     .expect("couldn't spawn thread");
-    /// let returned_obj = handle.join().expect("thread panicked");
-    /// assert!(vm.is_none(&returned_obj));
-    /// # })
+    /// let interpreter = rustpython_vm::Interpreter::without_stdlib(Default::default());
+    /// let handle = std::thread::spawn(
+    ///     interpreter.new_thread().make_spawn_func(|vm| vm.ctx.new_int(42))
+    /// );
+    /// let returned = handle.join().unwrap();
+    /// assert_eq!(returned.to_string(), "42");
     /// ```
     ///
     /// Note: this function is safe, but running the returned ThreadedVirtualMachine in the same
@@ -1453,11 +1862,17 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
+        assert!(
+            !self.state.finalizing.load(Ordering::Acquire)
+                && !self.state.admission_closed.load(Ordering::Acquire),
+            "cannot create a worker during interpreter shutdown"
+        );
         let global_trace = self.state.global_trace_func.lock().clone();
         let global_profile = self.state.global_profile_func.lock().clone();
         let use_tracing = global_trace.is_some() || global_profile.is_some();
 
         let vm = Self {
+            owner_lease: core::cell::OnceCell::new(),
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
@@ -1473,10 +1888,10 @@ impl VirtualMachine {
             tracing_depth: Cell::new(0),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: core::cell::OnceCell::new(),
-            signal_rx: None,
+            signal_rx: core::cell::OnceCell::new(),
             repr_guards: RefCell::default(),
             state: self.state.clone(),
-            initialized: self.initialized,
+            initialized: self.initialized.clone(),
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1492,6 +1907,38 @@ impl VirtualMachine {
             pending_gen_resume: core::cell::UnsafeCell::new(None),
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
-        ThreadedVirtualMachine { vm }
+        ThreadedVirtualMachine {
+            vm: super::owned::OwnedVm::new(vm),
+        }
     }
+}
+
+/// Access the raw VM currently entered on this native thread.
+///
+/// # Safety
+/// The callback must only access objects belonging to the attached VM and must
+/// not leak raw references, and the thread must be attached for object access.
+pub unsafe fn with_current_vm_unchecked<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    with_current_vm(f)
+}
+
+/// Preserve the current attachment for native code that releases it manually.
+///
+/// # Safety
+/// Restore on this same native thread before any enclosing VM entry returns.
+/// No raw Python reference may be accessed while detached.
+#[cfg(feature = "threading")]
+#[must_use]
+pub unsafe fn save_current_thread_unchecked() -> SavedThreadState {
+    save_current_thread()
+}
+
+/// Restore a manually detached native entry.
+///
+/// # Safety
+/// The saved state's entries must all still be alive, on this native thread,
+/// and this thread must not have entered any other VM since saving it.
+#[cfg(feature = "threading")]
+pub unsafe fn restore_current_thread_unchecked(state: SavedThreadState) {
+    restore_current_thread(state);
 }

@@ -111,8 +111,8 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
     settings.user_site_directory = false;
 
     let builder = Interpreter::builder(settings);
-    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-    let interp = builder.add_native_modules(&defs).build();
+    let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+    let interp = unsafe { builder.add_native_modules(&defs) }.build();
     interp.enter(|vm| {
         let setup_code = vm
             .compile(&bench.setup, Mode::Exec, &bench.name)

@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn block_expr_return_const() {
-        interpreter().enter(|vm| {
+        interpreter().enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "1"));
             let value = vm.unwrap_pyresult(value.try_int(vm));
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn block_expr_return_nonconst() {
-        interpreter().enter(|vm| {
+        interpreter().enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             vm.unwrap_pyresult(scope.globals.set_item("x", vm.new_pyobj(3), vm));
             let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "2 + x"));
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn block_expr_return_function_def() {
-        interpreter().enter(|vm| {
+        interpreter().enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value =
                 vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "def f():\n    return 7"));
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn block_expr_return_class_def() {
-        interpreter().enter(|vm| {
+        interpreter().enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value =
                 vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "class C:\n    value = 11"));

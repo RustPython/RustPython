@@ -49,7 +49,7 @@ mod _sqlite3 {
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,
         lock::{PyMappedMutexGuard, PyMutex, PyMutexGuard},
-        static_cell,
+        rc::PyRc,
     };
     use rustpython_vm::{
         __exports::paste,
@@ -82,28 +82,23 @@ mod _sqlite3 {
     macro_rules! exceptions {
         ($(($x:ident, $base:expr)),*) => {
             paste::paste! {
-                static_cell! {
-                    $(
-                        static [<$x:snake:upper>]: PyTypeRef;
-                    )*
-                }
                 $(
                     #[allow(dead_code)]
                     fn [<new_ $x:snake>](vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
-                        vm.new_exception_msg([<$x:snake _type>]().to_owned(), msg.into())
+                        vm.new_exception_msg([<$x:snake _type>](vm), msg.into())
                     }
-                    fn [<$x:snake _type>]() -> &'static Py<PyType> {
-                        [<$x:snake:upper>].get().expect("exception type not initialize")
+                    fn [<$x:snake _type>](vm: &VirtualMachine) -> PyTypeRef {
+                        struct $x;
+                        vm.__cached_native::<$x, _>(|| {
+                            #[allow(clippy::redundant_closure_call)]
+                            let base = $base(vm);
+                            vm.ctx.new_exception_type("_sqlite3", stringify!($x), Some(vec![base.to_owned()]))
+                        })
                     }
                 )*
                 fn setup_module_exceptions(module: &PyObject, vm: &VirtualMachine) {
                     $(
-                        #[allow(clippy::redundant_closure_call)]
-                        let exception = [<$x:snake:upper>].get_or_init(|| {
-                            let base = $base(vm);
-                            vm.ctx.new_exception_type("_sqlite3", stringify!($x), Some(vec![base.to_owned()]))
-                        });
-                        module.set_attr(stringify!($x), exception.clone().into_object(), vm).unwrap();
+                        module.set_attr(stringify!($x), [<$x:snake _type>](vm).into_object(), vm).unwrap();
                     )*
                 }
             }
@@ -119,14 +114,23 @@ mod _sqlite3 {
             .ctx
             .exceptions
             .exception_type),
-        (InterfaceError, |_| error_type()),
-        (DatabaseError, |_| error_type()),
-        (DataError, |_| database_error_type()),
-        (OperationalError, |_| database_error_type()),
-        (IntegrityError, |_| database_error_type()),
-        (InternalError, |_| database_error_type()),
-        (ProgrammingError, |_| database_error_type()),
-        (NotSupportedError, |_| database_error_type())
+        (InterfaceError, |vm: &VirtualMachine| error_type(vm)),
+        (DatabaseError, |vm: &VirtualMachine| error_type(vm)),
+        (DataError, |vm: &VirtualMachine| database_error_type(vm)),
+        (OperationalError, |vm: &VirtualMachine| database_error_type(
+            vm
+        )),
+        (IntegrityError, |vm: &VirtualMachine| database_error_type(
+            vm
+        )),
+        (InternalError, |vm: &VirtualMachine| database_error_type(vm)),
+        (ProgrammingError, |vm: &VirtualMachine| database_error_type(
+            vm
+        )),
+        (
+            NotSupportedError,
+            |vm: &VirtualMachine| database_error_type(vm)
+        )
     );
 
     #[pyattr]
@@ -371,7 +375,7 @@ mod _sqlite3 {
         isolation_level: IsolationLevelArg,
         #[pyarg(any, default = true)]
         check_same_thread: bool,
-        #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
+        #[pyarg(any, default = Connection::class(&vm.ctx), py_default = "ConnectionType")]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
@@ -460,20 +464,32 @@ mod _sqlite3 {
     }
 
     struct CallbackData {
-        obj: NonNull<PyObject>,
-        vm: *const VirtualMachine,
+        obj: PyObjectRef,
     }
 
     impl CallbackData {
         fn new(obj: PyObjectRef, vm: &VirtualMachine) -> Option<Self> {
-            (!vm.is_none(&obj)).then_some(Self {
-                obj: obj.into_raw(),
-                vm,
-            })
+            (!vm.is_none(&obj)).then_some(Self { obj })
         }
 
-        fn retrieve(&self) -> (&PyObject, &VirtualMachine) {
-            unsafe { (self.obj.as_ref(), &*self.vm) }
+        fn with_vm<R>(&self, f: impl FnOnce(&PyObject, &VirtualMachine) -> R) -> Option<R> {
+            // Connections can outlive the VM thread that registered a function.
+            // Resolve the currently attached owner instead of retaining its VM.
+            rustpython_vm::vm::thread::with_vm(&self.obj, |vm| f(&self.obj, vm))
+        }
+
+        fn with_context(context: SqliteContext, f: impl FnOnce(&PyObject, &VirtualMachine)) {
+            // SAFETY: SQLite keeps user data alive throughout its callback.
+            let data = unsafe { &*context.user_data::<Self>() };
+            if data.with_vm(f).is_none() {
+                unsafe {
+                    sqlite3_result_error(
+                        context.ctx,
+                        c"Python interpreter is unavailable".as_ptr(),
+                        -1,
+                    )
+                };
+            }
         }
 
         unsafe extern "C" fn destructor(data: *mut c_void) {
@@ -486,25 +502,26 @@ mod _sqlite3 {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (func, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
+            Self::with_context(context, |func, vm| {
+                let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
 
-            let f = || -> PyResult<()> {
-                let db = context.db_handle();
-                let args = args
-                    .iter()
-                    .copied()
-                    .map(|val| value_to_object(val, db, vm))
-                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
+                let f = || -> PyResult<()> {
+                    let db = context.db_handle();
+                    let args = args
+                        .iter()
+                        .copied()
+                        .map(|val| value_to_object(val, db, vm))
+                        .collect::<PyResult<Vec<PyObjectRef>>>()?;
 
-                let val = func.call(args, vm)?;
+                    let val = func.call(args, vm)?;
 
-                context.result_from_object(&val, vm)
-            };
+                    context.result_from_object(&val, vm)
+                };
 
-            if let Err(exc) = f() {
-                context.result_exception(vm, exc, c"user-defined function raised exception")
-            }
+                if let Err(exc) = f() {
+                    context.result_exception(vm, exc, c"user-defined function raised exception")
+                }
+            });
         }
 
         unsafe extern "C" fn step_callback(
@@ -513,35 +530,47 @@ mod _sqlite3 {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (cls, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
-            let instance = context.aggregate_context::<*const PyObject>();
-            if unsafe { (*instance).is_null() } {
-                match cls.call((), vm) {
-                    Ok(obj) => unsafe { *instance = obj.into_raw().as_ptr() },
-                    Err(exc) => {
-                        return context.result_exception(
-                            vm,
-                            exc,
-                            c"user-defined aggregate's '__init__' method raised error",
-                        );
+            Self::with_context(context, |cls, vm| {
+                let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
+                let instance = context.aggregate_context::<*const PyObject>();
+                if instance.is_null() {
+                    unsafe { sqlite3_result_error_nomem(context.ctx) };
+                    return;
+                }
+                if unsafe { (*instance).is_null() } {
+                    match cls.call((), vm) {
+                        Ok(obj) => unsafe { *instance = obj.into_raw().as_ptr() },
+                        Err(exc) => {
+                            return context.result_exception(
+                                vm,
+                                exc,
+                                c"user-defined aggregate's '__init__' method raised error",
+                            );
+                        }
                     }
                 }
-            }
-            let instance = unsafe { &**instance };
+                let instance = unsafe { &**instance };
 
-            Self::call_method_with_args(context, instance, "step", args, vm);
+                Self::call_method_with_args(context, instance, "step", args, vm);
+            });
         }
 
         unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
             let instance = context.aggregate_context::<*const PyObject>();
-            let Some(instance) = (unsafe { (*instance).as_ref() }) else {
+            if instance.is_null() {
+                unsafe { sqlite3_result_error_nomem(context.ctx) };
                 return;
-            };
-
-            Self::callback_result_from_method(context, instance, "finalize", vm);
+            }
+            // xFinal owns the reference acquired by xStep, including when
+            // finalization runs from sqlite3_finalize during native teardown.
+            let object = unsafe { core::mem::replace(&mut *instance, core::ptr::null()) };
+            if let Some(object) = NonNull::new(object.cast_mut()) {
+                let instance = unsafe { PyObjectRef::from_raw(object) };
+                Self::with_context(context, move |_, vm| {
+                    Self::callback_result_from_method(context, &instance, "finalize", vm);
+                });
+            }
         }
 
         unsafe extern "C" fn collation_callback(
@@ -551,38 +580,45 @@ mod _sqlite3 {
             b_len: c_int,
             b_ptr: *const c_void,
         ) -> c_int {
-            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
+            let data = unsafe { &*data.cast::<Self>() };
+            data.with_vm(|callable, vm| {
+                let f = || -> PyResult<c_int> {
+                    let text1 = ptr_to_string(a_ptr.cast(), a_len, null_mut(), vm)?;
+                    let text1 = vm.ctx.new_str(text1);
+                    let text2 = ptr_to_string(b_ptr.cast(), b_len, null_mut(), vm)?;
+                    let text2 = vm.ctx.new_str(text2);
 
-            let f = || -> PyResult<c_int> {
-                let text1 = ptr_to_string(a_ptr.cast(), a_len, null_mut(), vm)?;
-                let text1 = vm.ctx.new_str(text1);
-                let text2 = ptr_to_string(b_ptr.cast(), b_len, null_mut(), vm)?;
-                let text2 = vm.ctx.new_str(text2);
+                    let val = callable.call((text1, text2), vm)?;
+                    let Some(val) = val.number().index(vm) else {
+                        return Ok(0);
+                    };
 
-                let val = callable.call((text1, text2), vm)?;
-                let Some(val) = val.number().index(vm) else {
-                    return Ok(0);
+                    let val = match val?.as_bigint().sign() {
+                        Sign::Plus => 1,
+                        Sign::Minus => -1,
+                        Sign::NoSign => 0,
+                    };
+
+                    Ok(val)
                 };
 
-                let val = match val?.as_bigint().sign() {
-                    Sign::Plus => 1,
-                    Sign::Minus => -1,
-                    Sign::NoSign => 0,
-                };
-
-                Ok(val)
-            };
-
-            f().unwrap_or(0)
+                f().unwrap_or(0)
+            })
+            .unwrap_or(0)
         }
 
         unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let instance = context.aggregate_context::<*const PyObject>();
-            let instance = unsafe { &**instance };
-
-            Self::callback_result_from_method(context, instance, "value", vm);
+            Self::with_context(context, |_, vm| {
+                let instance = context.aggregate_context::<*const PyObject>();
+                if instance.is_null() {
+                    unsafe { sqlite3_result_error_nomem(context.ctx) };
+                    return;
+                }
+                if let Some(instance) = unsafe { (*instance).as_ref() } {
+                    Self::callback_result_from_method(context, instance, "value", vm);
+                }
+            });
         }
 
         unsafe extern "C" fn inverse_callback(
@@ -591,12 +627,17 @@ mod _sqlite3 {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
-            let instance = context.aggregate_context::<*const PyObject>();
-            let instance = unsafe { &**instance };
-
-            Self::call_method_with_args(context, instance, "inverse", args, vm);
+            Self::with_context(context, |_, vm| {
+                let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
+                let instance = context.aggregate_context::<*const PyObject>();
+                if instance.is_null() {
+                    unsafe { sqlite3_result_error_nomem(context.ctx) };
+                    return;
+                }
+                if let Some(instance) = unsafe { (*instance).as_ref() } {
+                    Self::call_method_with_args(context, instance, "inverse", args, vm);
+                }
+            });
         }
 
         unsafe extern "C" fn authorizer_callback(
@@ -607,21 +648,24 @@ mod _sqlite3 {
             db_name: *const libc::c_char,
             access: *const libc::c_char,
         ) -> c_int {
-            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
-            let f = || -> PyResult<c_int> {
-                let arg1 = ptr_to_str_or_none(arg1, vm)?;
-                let arg2 = ptr_to_str_or_none(arg2, vm)?;
-                let db_name = ptr_to_str_or_none(db_name, vm)?;
-                let access = ptr_to_str_or_none(access, vm)?;
+            let data = unsafe { &*data.cast::<Self>() };
+            data.with_vm(|callable, vm| {
+                let f = || -> PyResult<c_int> {
+                    let arg1 = ptr_to_str_or_none(arg1, vm)?;
+                    let arg2 = ptr_to_str_or_none(arg2, vm)?;
+                    let db_name = ptr_to_str_or_none(db_name, vm)?;
+                    let access = ptr_to_str_or_none(access, vm)?;
 
-                let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
-                let Some(val) = val.downcast_ref::<PyInt>() else {
-                    return Ok(SQLITE_DENY);
+                    let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
+                    let Some(val) = val.downcast_ref::<PyInt>() else {
+                        return Ok(SQLITE_DENY);
+                    };
+                    val.try_to_primitive::<c_int>(vm)
                 };
-                val.try_to_primitive::<c_int>(vm)
-            };
 
-            f().unwrap_or(SQLITE_DENY)
+                f().unwrap_or(SQLITE_DENY)
+            })
+            .unwrap_or(SQLITE_DENY)
         }
 
         unsafe extern "C" fn trace_callback(
@@ -630,25 +674,31 @@ mod _sqlite3 {
             stmt: *mut c_void,
             sql: *mut c_void,
         ) -> c_int {
-            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
-            let expanded = unsafe { sqlite3_expanded_sql(stmt.cast()) };
-            let f = || -> PyResult<()> {
-                let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
-                callable.call((stmt,), vm)?;
-                Ok(())
-            };
-            let _ = f();
+            let data = unsafe { &*data.cast::<Self>() };
+            data.with_vm(|callable, vm| {
+                let expanded = unsafe { sqlite3_expanded_sql(stmt.cast()) };
+                scopeguard::defer! { unsafe { libsqlite3_sys::sqlite3_free(expanded.cast()) }; }
+                let f = || -> PyResult<()> {
+                    let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                    callable.call((stmt,), vm)?;
+                    Ok(())
+                };
+                let _ = f();
+            });
             0
         }
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
-            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
-            if let Ok(val) = callable.call((), vm)
-                && let Ok(val) = val.is_true(vm)
-            {
-                return val as c_int;
-            }
-            -1
+            let data = unsafe { &*data.cast::<Self>() };
+            data.with_vm(|callable, vm| {
+                if let Ok(val) = callable.call((), vm)
+                    && let Ok(val) = val.is_true(vm)
+                {
+                    return val as c_int;
+                }
+                -1
+            })
+            .unwrap_or(-1)
         }
 
         fn callback_result_from_method(
@@ -730,14 +780,6 @@ mod _sqlite3 {
         }
     }
 
-    impl Drop for CallbackData {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = PyObjectRef::from_raw(self.obj);
-            };
-        }
-    }
-
     #[pyfunction]
     fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
         let factory = args.factory.clone();
@@ -753,22 +795,28 @@ mod _sqlite3 {
     }
 
     #[pyfunction]
-    fn enable_callback_tracebacks(flag: bool) {
-        enable_traceback().store(flag, Ordering::Relaxed);
+    fn enable_callback_tracebacks(flag: bool, vm: &VirtualMachine) {
+        module_state(vm)
+            .enable_traceback
+            .store(flag, Ordering::Relaxed);
     }
 
     #[pyfunction]
     fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
-        if typ.is(PyInt::class(&vm.ctx))
-            || typ.is(PyFloat::class(&vm.ctx))
-            || typ.is(PyStr::class(&vm.ctx))
-            || typ.is(PyByteArray::class(&vm.ctx))
+        if typ.is(&PyInt::class(&vm.ctx))
+            || typ.is(&PyFloat::class(&vm.ctx))
+            || typ.is(&PyStr::class(&vm.ctx))
+            || typ.is(&PyByteArray::class(&vm.ctx))
         {
-            let _ = BASE_TYPE_ADAPTED.set(());
+            module_state(vm)
+                .base_type_adapted
+                .store(true, Ordering::Relaxed);
         }
-        let protocol = PrepareProtocol::class(&vm.ctx).to_owned();
+        let protocol = PrepareProtocol::class(&vm.ctx);
         let key = vm.ctx.new_tuple(vec![typ.into(), protocol.into()]);
-        adapters().set_item(key.as_object(), adapter.into(), vm)
+        module_state(vm)
+            .adapters
+            .set_item(key.as_object(), adapter.into(), vm)
     }
 
     #[pyfunction]
@@ -778,7 +826,9 @@ mod _sqlite3 {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let name = typename.expect_str().to_uppercase();
-        converters().set_item(&name, converter.into(), vm)
+        module_state(vm)
+            .converters
+            .set_item(&name, converter.into(), vm)
     }
 
     fn _adapt<F>(obj: &PyObject, proto: PyTypeRef, alt: F, vm: &VirtualMachine) -> PyResult
@@ -790,7 +840,10 @@ mod _sqlite3 {
             .ctx
             .new_tuple(vec![obj.class().to_owned().into(), proto.clone()]);
 
-        if let Some(adapter) = adapters().get_item_opt(key.as_object(), vm)? {
+        if let Some(adapter) = module_state(vm)
+            .adapters
+            .get_item_opt(key.as_object(), vm)?
+        {
             return adapter.call((obj,), vm);
         }
         if let Ok(adapter) = proto.get_attr("__adapt__", vm) {
@@ -842,7 +895,7 @@ mod _sqlite3 {
 
         let proto = proto
             .flatten()
-            .unwrap_or_else(|| PrepareProtocol::class(&vm.ctx).to_owned());
+            .unwrap_or_else(|| PrepareProtocol::class(&vm.ctx));
 
         _adapt(
             &obj,
@@ -859,7 +912,7 @@ mod _sqlite3 {
     }
 
     fn need_adapt(obj: &PyObject, vm: &VirtualMachine) -> bool {
-        if BASE_TYPE_ADAPTED.get().is_some() {
+        if module_state(vm).base_type_adapted.load(Ordering::Relaxed) {
             true
         } else {
             let cls = obj.class();
@@ -870,32 +923,24 @@ mod _sqlite3 {
         }
     }
 
-    static_cell! {
-        static CONVERTERS: PyDictRef;
-        static ADAPTERS: PyDictRef;
-        static BASE_TYPE_ADAPTED: ();
-        static USER_FUNCTION_EXCEPTION: PyAtomicRef<Option<PyBaseException>>;
-        static ENABLE_TRACEBACK: PyAtomic<bool>;
+    struct ModuleState {
+        converters: PyDictRef,
+        adapters: PyDictRef,
+        base_type_adapted: PyAtomic<bool>,
+        user_function_exception: PyAtomicRef<Option<PyBaseException>>,
+        enable_traceback: PyAtomic<bool>,
     }
 
-    fn converters() -> &'static Py<PyDict> {
-        CONVERTERS.get().expect("converters not initialize")
-    }
-
-    fn adapters() -> &'static Py<PyDict> {
-        ADAPTERS.get().expect("adapters not initialize")
-    }
-
-    fn user_function_exception() -> &'static PyAtomicRef<Option<PyBaseException>> {
-        USER_FUNCTION_EXCEPTION
-            .get()
-            .expect("user function exception not initialize")
-    }
-
-    fn enable_traceback() -> &'static PyAtomic<bool> {
-        ENABLE_TRACEBACK
-            .get()
-            .expect("enable traceback not initialize")
+    fn module_state(vm: &VirtualMachine) -> PyRc<ModuleState> {
+        vm.__cached_native::<ModuleState, _>(|| {
+            PyRc::new(ModuleState {
+                converters: vm.ctx.new_dict(),
+                adapters: vm.ctx.new_dict(),
+                base_type_adapted: Radium::new(false),
+                user_function_exception: PyAtomicRef::from(None),
+                enable_traceback: Radium::new(false),
+            })
+        })
     }
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -909,13 +954,8 @@ mod _sqlite3 {
 
         setup_module_exceptions(module.as_object(), vm);
 
-        let _ = CONVERTERS.set(vm.ctx.new_dict());
-        let _ = ADAPTERS.set(vm.ctx.new_dict());
-        let _ = USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
-        let _ = ENABLE_TRACEBACK.set(Radium::new(false));
-
-        module.set_attr("converters", converters().to_owned(), vm)?;
-        module.set_attr("adapters", adapters().to_owned(), vm)?;
+        module.set_attr("converters", module_state(vm).converters.to_owned(), vm)?;
+        module.set_attr("adapters", module_state(vm).adapters.to_owned(), vm)?;
 
         Ok(())
     }
@@ -945,11 +985,11 @@ mod _sqlite3 {
         type Args = ConnectArgs;
 
         fn py_new(cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
+            let text_factory = PyStr::class(&vm.ctx).into_object();
 
             // For non-subclassed Connection, initialize in __new__
             // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Self::class(&vm.ctx));
+            let is_base_class = cls.is(&Self::class(&vm.ctx));
 
             let db = if is_base_class {
                 // Initialize immediately for base class
@@ -1049,7 +1089,7 @@ mod _sqlite3 {
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
-            let default_text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
+            let default_text_factory = PyStr::class(&vm.ctx).into_object();
             let _ = unsafe { self.row_factory.swap(None) };
             let _ = unsafe { self.text_factory.swap(default_text_factory) };
         }
@@ -1102,12 +1142,12 @@ mod _sqlite3 {
 
             let factory = match args.factory {
                 OptionalArg::Present(f) => f,
-                OptionalArg::Missing => Cursor::class(&vm.ctx).to_owned().into(),
+                OptionalArg::Missing => Cursor::class(&vm.ctx).into(),
             };
 
             let cursor = factory.call((zelf.clone(),), vm)?;
 
-            if !cursor.class().fast_issubclass(Cursor::class(&vm.ctx)) {
+            if !cursor.class().fast_issubclass(&Cursor::class(&vm.ctx)) {
                 return Err(vm.new_type_error(format!(
                     "factory must return a cursor, not {}",
                     cursor.class()
@@ -1765,44 +1805,44 @@ mod _sqlite3 {
         }
 
         #[pygetset(name = "Warning")]
-        fn exc_warning(_zelf: &Py<Self>) -> PyTypeRef {
-            warning_type().to_owned()
+        fn exc_warning(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            warning_type(vm)
         }
         #[pygetset(name = "Error")]
-        fn exc_error(_zelf: &Py<Self>) -> PyTypeRef {
-            error_type().to_owned()
+        fn exc_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            error_type(vm)
         }
         #[pygetset(name = "InterfaceError")]
-        fn exc_interface_error(_zelf: &Py<Self>) -> PyTypeRef {
-            interface_error_type().to_owned()
+        fn exc_interface_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            interface_error_type(vm)
         }
         #[pygetset(name = "DatabaseError")]
-        fn exc_database_error(_zelf: &Py<Self>) -> PyTypeRef {
-            database_error_type().to_owned()
+        fn exc_database_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            database_error_type(vm)
         }
         #[pygetset(name = "DataError")]
-        fn exc_data_error(_zelf: &Py<Self>) -> PyTypeRef {
-            data_error_type().to_owned()
+        fn exc_data_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            data_error_type(vm)
         }
         #[pygetset(name = "OperationalError")]
-        fn exc_operational_error(_zelf: &Py<Self>) -> PyTypeRef {
-            operational_error_type().to_owned()
+        fn exc_operational_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            operational_error_type(vm)
         }
         #[pygetset(name = "IntegrityError")]
-        fn exc_integrity_error(_zelf: &Py<Self>) -> PyTypeRef {
-            integrity_error_type().to_owned()
+        fn exc_integrity_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            integrity_error_type(vm)
         }
         #[pygetset(name = "InternalError")]
-        fn exc_internal_error(_zelf: &Py<Self>) -> PyTypeRef {
-            internal_error_type().to_owned()
+        fn exc_internal_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            internal_error_type(vm)
         }
         #[pygetset(name = "ProgrammingError")]
-        fn exc_programming_error(_zelf: &Py<Self>) -> PyTypeRef {
-            programming_error_type().to_owned()
+        fn exc_programming_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            programming_error_type(vm)
         }
         #[pygetset(name = "NotSupportedError")]
-        fn exc_not_supported_error(_zelf: &Py<Self>) -> PyTypeRef {
-            not_supported_error_type().to_owned()
+        fn exc_not_supported_error(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyTypeRef {
+            not_supported_error_type(vm)
         }
     }
 
@@ -1953,7 +1993,7 @@ mod _sqlite3 {
             let ret = st.step();
 
             if ret != SQLITE_DONE && ret != SQLITE_ROW {
-                if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+                if let Some(exc) = unsafe { module_state(vm).user_function_exception.swap(None) } {
                     return Err(exc);
                 }
                 return Err(db.error_extended(vm));
@@ -2044,7 +2084,7 @@ mod _sqlite3 {
                     st.reset();
                 }
 
-                // if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+                // if let Some(exc) = unsafe { module_state(vm).user_function_exception.swap(None) } {
                 //     return Err(exc);
                 // }
             }
@@ -2234,7 +2274,9 @@ mod _sqlite3 {
                         .take_while(|&x| x != ']')
                         .flat_map(|x| x.to_uppercase())
                         .collect::<Box<str>>();
-                    if let Some(converter) = converters().get_item_opt(&*col_name, vm)? {
+                    if let Some(converter) =
+                        module_state(vm).converters.get_item_opt(&*col_name, vm)?
+                    {
                         cast_map.push(Some(converter));
                         continue;
                     }
@@ -2244,7 +2286,9 @@ mod _sqlite3 {
                     let decltype = ptr_to_str(decltype, vm)?;
                     if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
                         let decltype = decltype.to_uppercase();
-                        if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
+                        if let Some(converter) =
+                            module_state(vm).converters.get_item_opt(&decltype, vm)?
+                        {
                             cast_map.push(Some(converter));
                             continue;
                         }
@@ -2344,7 +2388,7 @@ mod _sqlite3 {
 
                             let text_factory = zelf.connection.text_factory.to_owned();
 
-                            if text_factory.is(PyStr::class(&vm.ctx)) {
+                            if text_factory.is(&PyStr::class(&vm.ctx)) {
                                 let text = String::from_utf8(text).map_err(|err| {
                                     let col_name = st.column_name(i);
                                     let col_name_str = ptr_to_str(col_name, vm).unwrap_or("?");
@@ -2356,9 +2400,9 @@ mod _sqlite3 {
                                     new_operational_error(vm, msg)
                                 })?;
                                 vm.ctx.new_str(text).into()
-                            } else if text_factory.is(PyBytes::class(&vm.ctx)) {
+                            } else if text_factory.is(&PyBytes::class(&vm.ctx)) {
                                 vm.ctx.new_bytes(text).into()
-                            } else if text_factory.is(PyByteArray::class(&vm.ctx)) {
+                            } else if text_factory.is(&PyByteArray::class(&vm.ctx)) {
                                 PyByteArray::from(text).into_ref(&vm.ctx).into()
                             } else {
                                 let bytes = vm.ctx.new_bytes(text);
@@ -3091,7 +3135,7 @@ mod _sqlite3 {
             let errmsg = unsafe { CStr::from_ptr(errmsg) };
             let errmsg = errmsg.to_str().unwrap().to_owned();
 
-            raise_exception(typ.to_owned(), extended_errcode, errmsg, vm)
+            raise_exception(typ, extended_errcode, errmsg, vm)
         }
 
         fn open(path: *const libc::c_char, uri: bool, vm: &VirtualMachine) -> PyResult<Self> {
@@ -3288,7 +3332,7 @@ mod _sqlite3 {
         fn step_row_else_done(self, vm: &VirtualMachine) -> PyResult<bool> {
             let ret = self.step();
 
-            if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+            if let Some(exc) = unsafe { module_state(vm).user_function_exception.swap(None) } {
                 Err(exc)
             } else if ret == SQLITE_ROW {
                 Ok(true)
@@ -3317,7 +3361,7 @@ mod _sqlite3 {
             let obj = if need_adapt(parameter, vm) {
                 adapted = _adapt(
                     parameter,
-                    PrepareProtocol::class(&vm.ctx).to_owned(),
+                    PrepareProtocol::class(&vm.ctx),
                     |x| Ok(x.to_owned()),
                     vm,
                 )?;
@@ -3599,7 +3643,7 @@ mod _sqlite3 {
             } else {
                 unsafe { sqlite3_result_error(self.ctx, msg.as_ptr(), -1) }
             }
-            if enable_traceback().load(Ordering::Relaxed) {
+            if module_state(vm).enable_traceback.load(Ordering::Relaxed) {
                 vm.print_exception(&exc);
             }
         }
@@ -3772,18 +3816,18 @@ mod _sqlite3 {
         Ok((ptr, len))
     }
 
-    fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
+    fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> PyTypeRef {
         match errcode {
-            SQLITE_INTERNAL | SQLITE_NOTFOUND => internal_error_type(),
-            SQLITE_NOMEM => vm.ctx.exceptions.memory_error,
+            SQLITE_INTERNAL | SQLITE_NOTFOUND => internal_error_type(vm),
+            SQLITE_NOMEM => vm.ctx.exceptions.memory_error.to_owned(),
             SQLITE_ERROR | SQLITE_PERM | SQLITE_ABORT | SQLITE_BUSY | SQLITE_LOCKED
             | SQLITE_READONLY | SQLITE_INTERRUPT | SQLITE_IOERR | SQLITE_FULL | SQLITE_CANTOPEN
-            | SQLITE_PROTOCOL | SQLITE_EMPTY | SQLITE_SCHEMA => operational_error_type(),
-            SQLITE_CORRUPT => database_error_type(),
-            SQLITE_TOOBIG => data_error_type(),
-            SQLITE_CONSTRAINT | SQLITE_MISMATCH => integrity_error_type(),
-            SQLITE_MISUSE | SQLITE_RANGE => interface_error_type(),
-            _ => database_error_type(),
+            | SQLITE_PROTOCOL | SQLITE_EMPTY | SQLITE_SCHEMA => operational_error_type(vm),
+            SQLITE_CORRUPT => database_error_type(vm),
+            SQLITE_TOOBIG => data_error_type(vm),
+            SQLITE_CONSTRAINT | SQLITE_MISMATCH => integrity_error_type(vm),
+            SQLITE_MISUSE | SQLITE_RANGE => interface_error_type(vm),
+            _ => database_error_type(vm),
         }
     }
 
