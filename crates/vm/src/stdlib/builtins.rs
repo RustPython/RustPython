@@ -118,6 +118,8 @@ mod builtins {
         dont_inherit: ArgIntoBool,
         #[pyarg(any, default = -1)]
         optimize: i32,
+        #[pyarg(named, optional)]
+        module: Option<PyObjectRef>,
         #[pyarg(named, default = -1)]
         _feature_version: i32,
     }
@@ -208,6 +210,17 @@ mod builtins {
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
+            let module = args.module.filter(|module| !vm.is_none(module));
+            let module = module
+                .map(|module| {
+                    PyStrRef::try_from_object(vm, module.clone()).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "compile() argument 'module' must be str or None, not {}",
+                            module.class().name()
+                        ))
+                    })
+                })
+                .transpose()?;
             let dont_inherit = args.dont_inherit.into_bool();
             let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
@@ -297,7 +310,14 @@ mod builtins {
                     opts.optimize = optimize;
                     opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
                     opts.future_features = future_features;
-                    return _ast::compile(vm, args.source, &filename.to_string_lossy(), mode, opts);
+                    return _ast::compile(
+                        vm,
+                        args.source,
+                        &filename.to_string_lossy(),
+                        mode,
+                        opts,
+                        module.as_deref(),
+                    );
                 }
             }
 
@@ -314,13 +334,14 @@ mod builtins {
                 let mut compile_flags = flags | future_features.bits() as i32;
                 #[cfg(feature = "rustpython-compiler")]
                 let compile_source = |source: &[u8], compile_flags: i32| {
-                    vm.compile_string_object_with_flags(
+                    vm.compile_string_object_with_flags_and_module(
                         source,
                         &filename.to_string_lossy(),
                         start.as_i32(),
                         compile_flags,
                         feature_version,
                         optimize as i32,
+                        module.as_deref(),
                     )
                 };
                 match &source {
