@@ -24,7 +24,7 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyFrozenSet, PyInt, PyList,
+        self, PyAnyDictRef, PyBaseExceptionRef, PyBaseObject, PyDict, PyFrozenSet, PyInt, PyList,
         PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
         PyWeak,
         code::PyCode,
@@ -3115,7 +3115,7 @@ impl VirtualMachine {
             .locals(self)
     }
 
-    pub fn current_globals(&self) -> PyDictRef {
+    pub fn current_globals(&self) -> PyAnyDictRef {
         let ptr = crate::vm::thread::get_current_frame();
         if !ptr.is_null() {
             return unsafe { (*ptr).globals().to_owned() };
@@ -3228,7 +3228,7 @@ impl VirtualMachine {
             // Locals fallback: use the heavy frame if available, otherwise
             // use globals as locals (light frame locals are on the data stack).
             let locals_mapping = self.current_frame().map_or_else(
-                || ArgMapping::from_dict_exact(globals.clone()),
+                || ArgMapping::from_anydict_exact(globals.clone()),
                 |f| f.iframe().locals.clone_mapping(self),
             );
             (Some(locals_mapping), Some(globals))

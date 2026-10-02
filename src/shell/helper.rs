@@ -1,14 +1,14 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 use rustpython_vm::{
     AsObject, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyDictRef, PyStrRef},
+    builtins::{PyAnyDictRef, PyStrRef},
     function::ArgIterable,
     identifier,
 };
 
 pub(super) struct ShellHelper<'vm> {
     vm: &'vm VirtualMachine,
-    globals: PyDictRef,
+    globals: PyAnyDictRef,
 }
 
 fn reverse_string(s: &mut String) {
@@ -54,7 +54,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
 }
 
 impl<'vm> ShellHelper<'vm> {
-    pub(super) const fn new(vm: &'vm VirtualMachine, globals: PyDictRef) -> Self {
+    pub(super) const fn new(vm: &'vm VirtualMachine, globals: PyAnyDictRef) -> Self {
         ShellHelper { vm, globals }
     }
 

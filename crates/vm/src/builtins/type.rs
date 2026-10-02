@@ -1,6 +1,6 @@
 use super::{
-    PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned, PyStrRef,
-    PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
+    PyAnyDictRef, PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned,
+    PyStrRef, PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
     AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -1798,24 +1798,8 @@ impl Constructor for PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyAnyDictRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
-
-        // A mapping that is not an exact dict (e.g. OrderedDict) keeps its
-        // own iteration order; copy via the mapping protocol so that order
-        // lands in the type dict.
-        let dict = if args.args[2].class().is(vm.ctx.types.dict_type) {
-            dict
-        } else {
-            let copied = vm.ctx.new_dict();
-            copied.merge_object(args.args[2].clone(), vm)?;
-            copied
-        };
-
-        if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters"));
-        }
-        let name = name.try_into_utf8(vm)?;
 
         let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1855,6 +1839,25 @@ impl Constructor for PyType {
 
             (metatype, base.to_owned(), bases, base_is_type)
         };
+
+        // Copy only after resolving the metaclass: its __new__ receives the
+        // original namespace. A subclass with a custom iterator (e.g.
+        // OrderedDict) keeps its own mapping order in the mutable type dict.
+        let dict = if let Some(dict) = dict.as_object().downcast_ref_if_exact::<PyDict>(vm) {
+            dict.to_owned()
+        } else {
+            let copied = vm.ctx.new_dict();
+            // Like dict.copy(), an empty table bypasses subclass hooks.
+            if !dict.is_empty() {
+                copied.merge_object(dict.into(), vm)?;
+            }
+            copied
+        };
+
+        if name.as_bytes().contains(&0) {
+            return Err(vm.new_value_error("type name must not contain null characters"));
+        }
+        let name = name.try_into_utf8(vm)?;
 
         let qualname = dict
             .get_item_opt(identifier!(vm, __qualname__), vm)?

@@ -184,7 +184,7 @@ impl PyMapping<'_> {
 
     pub fn keys(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictKeys::new(dict.to_owned()).to_pyresult(vm)
+            PyDictKeys::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, keys), vm)
         }
@@ -192,7 +192,7 @@ impl PyMapping<'_> {
 
     pub fn values(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictValues::new(dict.to_owned()).to_pyresult(vm)
+            PyDictValues::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, values), vm)
         }
@@ -200,7 +200,7 @@ impl PyMapping<'_> {
 
     pub fn items(self, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = self.obj.downcast_ref_if_exact::<PyDict>(vm) {
-            PyDictItems::new(dict.to_owned()).to_pyresult(vm)
+            PyDictItems::new(dict.to_owned().into()).to_pyresult(vm)
         } else {
             self.method_output_as_list(identifier!(vm, items), vm)
         }
