@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType, object,
+    PyAnyDictRef, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -66,7 +66,7 @@ fn format_missing_args(
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
     #[pymember(name = "__globals__")]
-    pub(crate) globals: PyDictRef,
+    pub(crate) globals: PyAnyDictRef,
     #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
     #[pymember(name = "__closure__")]
@@ -179,15 +179,17 @@ impl PyFunction {
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
-        globals: PyDictRef,
+        globals: PyAnyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let name = PyMutex::new(code.obj_name.to_owned());
-        let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-        let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
-            // If not in globals, inherit from current execution context
-            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
-        });
+        let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
+        let builtins = globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .unwrap_or_else(|| {
+                // If not in globals, inherit from current execution context.
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
+            });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
             module.dict().into()
@@ -621,7 +623,7 @@ impl Py<PyFunction> {
             } else if let Some(locals) = locals {
                 Some(locals)
             } else {
-                Some(ArgMapping::from_dict_exact(self.globals.clone()))
+                Some(ArgMapping::from_anydict_exact(self.globals.clone()))
             };
             let use_datastack = !is_gen && !is_coro && !is_async_gen;
             let frame = FrameObject::new_ref(
@@ -654,7 +656,7 @@ impl Py<PyFunction> {
         } else if let Some(locals) = locals {
             crate::frame::FrameLocals::with_locals(locals)
         } else {
-            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -805,7 +807,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         let frame = FrameObject::new_ref(
@@ -862,7 +864,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         // Heap-backed: the frame outlives the call that made it.
@@ -897,7 +899,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
         } else {
-            crate::frame::FrameLocals::with_locals(ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -1318,7 +1320,7 @@ impl Constructor for PyFunction {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
         // Set function name if provided
         if let Some(name) = args.name.into_option() {
             *func.name.lock() = name.clone();

@@ -762,7 +762,7 @@ fn setup_context(
                 d.downcast::<crate::builtins::PyDict>()
                     .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
             })?;
-        (globals, vm.ctx.intern_str("<sys>"), 0)
+        (globals.into(), vm.ctx.intern_str("<sys>"), 0)
     };
 
     let registry = match globals.get_item("__warningregistry__", vm) {
