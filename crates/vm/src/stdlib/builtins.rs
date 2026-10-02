@@ -1479,6 +1479,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "object" => ctx.types.object_type.to_owned(),
         "property" => ctx.types.property_type.to_owned(),
         "range" => ctx.types.range_type.to_owned(),
+        "sentinel" => ctx.types.sentinel_type.to_owned(),
         "set" => ctx.types.set_type.to_owned(),
         "slice" => ctx.types.slice_type.to_owned(),
         "staticmethod" => ctx.types.staticmethod_type.to_owned(),
