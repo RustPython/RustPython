@@ -81,13 +81,14 @@ macro_rules! py_namespace {
 /// # Examples
 ///
 /// ```rust
+/// # unsafe {
 /// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::{PyPayload, match_class};
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
 ///
-/// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+/// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter_unchecked(|vm| {
 /// let obj = PyInt::from(0).into_pyobject(vm);
 /// assert_eq!(
 ///     "int",
@@ -99,18 +100,20 @@ macro_rules! py_namespace {
 /// );
 /// # });
 ///
+/// # }
 /// ```
 ///
 /// With a binding to the downcasted type:
 ///
 /// ```rust
+/// # unsafe {
 /// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::{PyPayload, match_class};
 /// use rustpython_vm::builtins::{PyFloat, PyInt};
 ///
-/// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+/// # rustpython_vm::Interpreter::without_stdlib(Default::default()).enter_unchecked(|vm| {
 /// let obj = PyInt::from(0).into_pyobject(vm);
 ///
 /// let int_value = match_class!(match obj {
@@ -121,6 +124,7 @@ macro_rules! py_namespace {
 ///
 /// assert!(int_value.is_zero());
 /// # });
+/// # }
 /// ```
 #[macro_export]
 macro_rules! match_class {

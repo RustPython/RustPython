@@ -35,8 +35,8 @@ impl fmt::Debug for PyUnion {
 
 impl PyPayload for PyUnion {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.union_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.union_type).to_owned()
     }
 }
 

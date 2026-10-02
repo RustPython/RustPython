@@ -5,7 +5,7 @@ use crate::{
     Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
-        lock::{MapImmutable, PyMutex, PyMutexGuard},
+        lock::{PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard},
         rc::PyRc,
     },
     object::PyObjectPayload,
@@ -101,7 +101,10 @@ impl BufferFlags {
     }
 }
 
+type ShareStorage = fn(&PyBuffer) -> Option<PyRc<dyn super::SharedBufferStorage>>;
+
 pub struct BufferMethods {
+    pub shared_storage: Option<ShareStorage>,
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
     pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<'_, [u8]>,
     pub release: fn(&PyBuffer),
@@ -162,6 +165,17 @@ impl Clone for PyBuffer {
 }
 
 impl PyBuffer {
+    pub(crate) fn obj_bytes_unlocked(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::function::UnlockedBuf<'_>> {
+        crate::function::UnlockedBuf::new(self.obj_bytes(), vm)
+    }
+
+    pub(crate) fn shared_storage(&self) -> Option<PyRc<dyn super::SharedBufferStorage>> {
+        self.methods.shared_storage.and_then(|share| share(self))
+    }
+
     #[must_use]
     pub fn new(obj: PyObjectRef, desc: BufferDescriptor, methods: &'static BufferMethods) -> Self {
         #[cfg(debug_assertions)]
@@ -813,20 +827,41 @@ pub trait BufferResizeGuard {
 #[pyclass(module = false, name = "vec_buffer")]
 #[derive(Debug, PyPayload)]
 pub struct VecBuffer {
-    data: PyMutex<Vec<u8>>,
+    data: PyRc<VecStorage>,
+}
+
+#[derive(Debug)]
+struct VecStorage(PyDetachingRwLock<Vec<u8>>);
+
+// SAFETY: the private vector is only resized by take(), which preserves it
+// whenever an independent storage export exists. All access uses this mutex.
+unsafe impl super::SharedBufferStorage for VecStorage {
+    fn read(&self) -> BorrowedValue<'_, [u8]> {
+        PyDetachingRwLockReadGuard::map(self.0.read(), |x| x.as_slice()).into()
+    }
+
+    fn write(&self) -> BorrowedValueMut<'_, [u8]> {
+        PyDetachingRwLockWriteGuard::map(self.0.write(), |x| x.as_mut_slice()).into()
+    }
 }
 
 #[pyclass(flags(BASETYPE, DISALLOW_INSTANTIATION))]
 impl VecBuffer {
+    #[must_use]
     pub fn take(&self) -> Vec<u8> {
-        core::mem::take(&mut self.data.lock())
+        let mut data = self.data.0.write();
+        if PyRc::strong_count(&self.data) > 1 {
+            data.clone()
+        } else {
+            core::mem::take(&mut data)
+        }
     }
 }
 
 impl From<Vec<u8>> for VecBuffer {
     fn from(data: Vec<u8>) -> Self {
         Self {
-            data: PyMutex::new(data),
+            data: PyRc::new(VecStorage(PyDetachingRwLock::new(data))),
         }
     }
 }
@@ -834,7 +869,7 @@ impl From<Vec<u8>> for VecBuffer {
 impl PyRef<VecBuffer> {
     #[must_use]
     pub fn into_pybuffer(self, readonly: bool) -> PyBuffer {
-        let len = self.data.lock().len();
+        let len = self.data.0.read().len();
         PyBuffer::new(
             self.into(),
             BufferDescriptor::simple(len, readonly),
@@ -849,12 +884,15 @@ impl PyRef<VecBuffer> {
 }
 
 static VEC_BUFFER_METHODS: BufferMethods = BufferMethods {
+    shared_storage: Some(|buffer| Some(buffer.obj_as::<VecBuffer>().data.clone())),
     obj_bytes: |buffer| {
-        PyMutexGuard::map_immutable(buffer.obj_as::<VecBuffer>().data.lock(), |x| x.as_slice())
-            .into()
+        PyDetachingRwLockReadGuard::map(buffer.obj_as::<VecBuffer>().data.0.read(), |x| {
+            x.as_slice()
+        })
+        .into()
     },
     obj_bytes_mut: |buffer| {
-        PyMutexGuard::map(buffer.obj_as::<VecBuffer>().data.lock(), |x| {
+        PyDetachingRwLockWriteGuard::map(buffer.obj_as::<VecBuffer>().data.0.write(), |x| {
             x.as_mut_slice()
         })
         .into()

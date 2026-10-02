@@ -63,7 +63,7 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     let mut interp = get_main_interpreter();
     assert!(interp.is_none(), "Main interpreter is already set");
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
-    unsafe { init_exception_statics(&Context::genesis().exceptions) };
+    unsafe { init_exception_statics(&Context::genesis_unchecked().exceptions) };
     *interp = Some(interpreter);
     MAIN_INTERP_PTR.store(
         interp.as_ref().unwrap() as *const _ as *mut _,

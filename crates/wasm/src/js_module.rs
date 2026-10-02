@@ -126,20 +126,12 @@ mod _js {
         }
 
         #[pymethod]
-        fn new_closure(
-            _zelf: &Py<Self>,
-            obj: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<JsClosure> {
+        fn new_closure(_zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
             JsClosure::new(obj, false, vm)
         }
 
         #[pymethod]
-        fn new_closure_once(
-            _zelf: &Py<Self>,
-            obj: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<JsClosure> {
+        fn new_closure_once(_zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
             JsClosure::new(obj, true, vm)
         }
 
@@ -322,21 +314,15 @@ mod _js {
 
     #[pyclass]
     impl JsClosure {
-        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> Self {
             let wasm_vm = WASMVirtualMachine {
-                id: vm.wasm_id.clone().unwrap(),
+                id: vm.wasm_id.get().cloned().unwrap(),
             };
-            let weak_py_obj = wasm_vm.push_held_rc(obj).unwrap()?;
+            let py_handle = crate::vm_class::hold_object(vm, obj);
             let f = move |this: JsValue, args: Box<[JsValue]>| {
-                let py_obj = match wasm_vm.assert_valid() {
-                    Ok(_) => weak_py_obj
-                        .upgrade()
-                        .expect("weak_py_obj to be valid if VM is valid"),
-                    Err(err) => {
-                        return Err(err);
-                    }
-                };
-                stored_vm_from_wasm(&wasm_vm).interp.enter(move |vm| {
+                wasm_vm.assert_valid()?;
+                stored_vm_from_wasm(&wasm_vm).enter(|vm| {
+                    let py_obj = crate::vm_class::bind_object(vm, &py_handle);
                     let mut pyargs = vec![PyJsValue::new(this).into_pyobject(vm)];
                     pyargs.extend(
                         Vec::from(args)
@@ -353,11 +339,11 @@ mod _js {
                 Closure::once(Box::new(f))
             };
             let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(&vm.ctx);
-            Ok(Self {
+            Self {
                 closure: Some((closure, wrapped)).into(),
                 destroyed: false.into(),
                 detached: false.into(),
-            })
+            }
         }
 
         #[pygetset]
@@ -521,6 +507,11 @@ mod _js {
                     let weak_vm = weak_vm(vm);
                     let prom = JsFuture::from(prom.clone());
 
+                    let on_fulfill =
+                        on_fulfill.map(|f| crate::vm_class::hold_object(vm, f.into_object()));
+                    let on_reject =
+                        on_reject.map(|f| crate::vm_class::hold_object(vm, f.into_object()));
+
                     let ret_future = async move {
                         let stored_vm = &weak_vm
                             .upgrade()
@@ -528,17 +519,19 @@ mod _js {
                         let res = prom.await;
                         match res {
                             Ok(val) => match on_fulfill {
-                                Some(on_fulfill) => stored_vm.interp.enter(move |vm| {
+                                Some(on_fulfill) => stored_vm.enter(move |vm| {
                                     let val = convert::js_to_py(vm, val);
-                                    let res = on_fulfill.invoke((val,), vm);
+                                    let res = crate::vm_class::bind_object(vm, &on_fulfill)
+                                        .call((val,), vm);
                                     convert::pyresult_to_js_result(vm, res)
                                 }),
                                 None => Ok(val),
                             },
                             Err(err) => match on_reject {
-                                Some(on_reject) => stored_vm.interp.enter(move |vm| {
+                                Some(on_reject) => stored_vm.enter(move |vm| {
                                     let err = new_js_error(vm, err);
-                                    let res = on_reject.invoke((err,), vm);
+                                    let res = crate::vm_class::bind_object(vm, &on_reject)
+                                        .call((err,), vm);
                                     convert::pyresult_to_js_result(vm, res)
                                 }),
                                 None => Err(err),
@@ -656,13 +649,12 @@ mod _js {
     #[pyattr(name = "JSError", once)]
     fn js_error(vm: &VirtualMachine) -> PyTypeRef {
         let ctx = &vm.ctx;
-        let js_error = PyRef::leak(
-            PyType::new_simple_heap("JSError", vm.ctx.exceptions.exception_type, ctx).unwrap(),
-        );
+        let js_error =
+            PyType::new_simple_heap("JSError", vm.ctx.exceptions.exception_type, ctx).unwrap();
         extend_class!(ctx, js_error, {
-            "value" => ctx.new_readonly_getset("value", js_error, |exc: PyBaseExceptionRef| exc.get_arg(0)),
+            "value" => ctx.new_readonly_getset("value", &js_error, |exc: PyBaseExceptionRef| exc.get_arg(0)),
         });
-        js_error.to_owned()
+        js_error
     }
 }
 

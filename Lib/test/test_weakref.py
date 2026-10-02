@@ -751,7 +751,6 @@ class ReferencesTestCase(TestBase):
         del c1, c2, C, D
         gc.collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callback_in_cycle_resurrection(self):
         import gc
 
@@ -798,7 +797,6 @@ class ReferencesTestCase(TestBase):
         gc.collect()
         self.assertEqual(alist, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callbacks_on_callback(self):
         import gc
 

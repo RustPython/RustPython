@@ -838,12 +838,8 @@ mod _ssl {
                             let msg = io_err.to_string();
                             if msg.contains("Failed to decrypt") || msg.contains("wrong password") {
                                 // Wrong password error
-                                vm.new_os_subtype_error(
-                                    PySSLError::class(&vm.ctx).to_owned(),
-                                    None,
-                                    msg,
-                                )
-                                .upcast()
+                                vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, msg)
+                                    .upcast()
                             } else {
                                 // [SSL] PEM lib
                                 super::compat::SslError::create_ssl_error_with_reason(
@@ -880,7 +876,7 @@ mod _ssl {
                 } else {
                     e
                 };
-                vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), Some(0), msg)
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx), Some(0), msg)
                     .upcast()
             })?;
 
@@ -903,7 +899,7 @@ mod _ssl {
             // Additional validation: Create CertifiedKey to ensure rustls accepts it
             let signing_key = crypto_ext.any_supported_key(&key).map_err(|_| {
                 vm.new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx),
                     None,
                     "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
                 )
@@ -914,7 +910,7 @@ mod _ssl {
             if certified_key.keys_match().is_err() {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "[SSL: KEY_VALUES_MISMATCH] key values mismatch",
                     )
@@ -1227,7 +1223,7 @@ mod _ssl {
                     .filter(|(suites, _)| suites.iter().any(|s| s.tls13().is_none()))
                     .ok_or_else(|| {
                         vm.new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
+                            PySSLError::class(&vm.ctx),
                             None,
                             "No cipher can be selected.".to_owned(),
                         )
@@ -1588,7 +1584,7 @@ mod _ssl {
             if args.server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
                     )
@@ -1597,7 +1593,7 @@ mod _ssl {
             if !args.server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
                     )
@@ -1668,7 +1664,7 @@ mod _ssl {
             if server_side && zelf.protocol == PROTOCOL_TLS_CLIENT {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot create a server socket with a PROTOCOL_TLS_CLIENT context",
                     )
@@ -1677,7 +1673,7 @@ mod _ssl {
             if !server_side && zelf.protocol == PROTOCOL_TLS_SERVER {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot create a client socket with a PROTOCOL_TLS_SERVER context",
                     )
@@ -1821,25 +1817,21 @@ mod _ssl {
                     let err_msg = e.to_string();
                     if err_msg.contains("no start line") {
                         vm.new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
+                            PySSLError::class(&vm.ctx),
                             None,
                             "no start line: cadata does not contain a certificate",
                         )
                         .upcast()
                     } else if err_msg.contains("not enough data") {
                         vm.new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
+                            PySSLError::class(&vm.ctx),
                             None,
                             "not enough data: cadata does not contain a certificate",
                         )
                         .upcast()
                     } else {
-                        vm.new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            err_msg,
-                        )
-                        .upcast()
+                        vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, err_msg)
+                            .upcast()
                     }
                 })
         }
@@ -3190,7 +3182,7 @@ mod _ssl {
             if matches!(*zelf.state.lock(), TlsState::ShutDown) {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "cannot read after shutdown",
                     )
@@ -3344,7 +3336,7 @@ mod _ssl {
             ) {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "cannot write after shutdown",
                     )
@@ -3740,9 +3732,9 @@ mod _ssl {
                     .map_err(|e| e.into_py_err(vm))?;
             })();
             if let Err(error) = &result
-                && error.fast_isinstance(PySSLError::class(&vm.ctx))
-                && !error.fast_isinstance(PySSLWantReadError::class(&vm.ctx))
-                && !error.fast_isinstance(PySSLWantWriteError::class(&vm.ctx))
+                && error.fast_isinstance(&PySSLError::class(&vm.ctx))
+                && !error.fast_isinstance(&PySSLWantReadError::class(&vm.ctx))
+                && !error.fast_isinstance(&PySSLWantWriteError::class(&vm.ctx))
             {
                 // A protocol failure cannot resume as a normal shutdown. Keep
                 // any fatal alert rustls queued and preserve the original error.
@@ -3846,7 +3838,7 @@ mod _ssl {
             // Raise SSLError instead of NotImplementedError for compatibility
             Err(vm
                 .new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx),
                     None,
                     "Post-handshake authentication is not supported by the rustls backend. \
                  The rustls TLS library does not provide an API to request client certificates \
@@ -3969,12 +3961,8 @@ mod _ssl {
             let bytes_like = ArgBytesLike::try_from_object(vm, b)?;
             let data = bytes_like.borrow_buf();
             zelf.inner.lock().write(&data).map_err(|err| {
-                vm.new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    None,
-                    err.to_string(),
-                )
-                .upcast()
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, err.to_string())
+                    .upcast()
             })
         }
 

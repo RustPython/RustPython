@@ -10,7 +10,10 @@ pub unsafe extern "C" fn PyObject_GC_Track(op: *mut PyObject) {
     with_vm(|_vm| {
         let obj = unsafe { op.assume_borrowed() };
         if !obj.is_gc_tracked() {
-            unsafe { gc_state::gc_state().track_object(obj.into(), gc_state::current_owner()) };
+            unsafe {
+                gc_state::gc_state_unchecked()
+                    .track_object(obj.into(), gc_state::current_owner_unchecked())
+            };
         }
     })
 }
@@ -20,7 +23,7 @@ pub unsafe extern "C" fn PyObject_GC_UnTrack(op: *mut PyObject) {
     with_vm(|_vm| {
         let obj = unsafe { op.assume_borrowed() };
         if obj.is_gc_tracked() {
-            unsafe { gc_state::gc_state().untrack_object(obj.into()) };
+            unsafe { gc_state::gc_state_unchecked().untrack_object(obj.into()) };
         }
     })
 }

@@ -1,19 +1,23 @@
-use super::{PyStrInterned, PyStrRef, PyType, type_};
+use super::{PyStrInterned, PyStrRef, PyType, PyTypeRef, type_};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{Callee, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
+    object::{Traverse, TraverseFn},
     types::{Callable, Comparable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
 
 // PyCFunctionObject in CPython
 #[repr(C)]
-#[pyclass(name = "builtin_function_or_method", module = false, traverse)]
+#[pyclass(
+    name = "builtin_function_or_method",
+    module = false,
+    traverse = "manual"
+)]
 pub struct PyNativeFunction {
-    #[pytraverse(skip)]
     pub(crate) value: &'static PyMethodDef,
     pub(crate) zelf: Option<PyObjectRef>,
     // Module that owns this function. Not passed as a call argument.
@@ -24,9 +28,26 @@ pub struct PyNativeFunction {
     pub(crate) _method_def_owner: Option<PyObjectRef>,
 }
 
+unsafe impl Traverse for PyNativeFunction {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.zelf.traverse(tracer_fn);
+        self.module_object.traverse(tracer_fn);
+        self.module.traverse(tracer_fn);
+        self._method_def_owner.traverse(tracer_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        out.extend(self.zelf.take());
+        out.extend(self.module_object.take());
+        // GC has exclusive access while clearing this unreachable object.
+        out.extend(unsafe { self.module.swap(None) });
+        // Keep the definition owner until deallocation: `value` borrows it.
+    }
+}
+
 impl PyPayload for PyNativeFunction {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.builtin_function_or_method_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.builtin_function_or_method_type).to_owned()
     }
 }
 
@@ -78,7 +99,7 @@ impl PyNativeFunction {
         self.zelf.as_deref().or(self.module_object.as_deref())
     }
 
-    pub const fn as_func(&self) -> &'static dyn PyNativeFn {
+    pub const fn as_func(&self) -> &dyn PyNativeFn {
         self.value.func
     }
 }
@@ -234,10 +255,40 @@ impl PyNativeFunction {
 }
 
 // PyCMethodObject in CPython
-#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type")]
+#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type", traverse = "manual", payload = "manual")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
-    pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
+    pub(crate) class: PyRef<PyType>,
+}
+
+impl PyPayload for PyNativeMethod {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = PyNativeFunction::PAYLOAD_TYPE_ID;
+
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        layout == core::any::TypeId::of::<Self>()
+            || PyNativeFunction::supports_native_layout(layout)
+    }
+
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        // Both payloads use builtin_function_or_method as their Python class.
+        // The immutable allocation vtable distinguishes the larger CMethod.
+        obj.supports_native_layout(core::any::TypeId::of::<Self>())
+    }
+
+    fn class(ctx: &Context) -> PyTypeRef {
+        ctx.types.builtin_function_or_method_type.to_owned()
+    }
+}
+
+unsafe impl Traverse for PyNativeMethod {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self.func.traverse(tracer_fn);
+        self.class.traverse(tracer_fn);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.func.clear(out);
+    }
 }
 
 // All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.

@@ -20,8 +20,8 @@ pub struct PyMap {
 
 impl PyPayload for PyMap {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.map_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.map_type).to_owned()
     }
 }
 

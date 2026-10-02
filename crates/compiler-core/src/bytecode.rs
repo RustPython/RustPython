@@ -6,7 +6,14 @@ use crate::{
     varint::{read_varint, read_varint_with_start, write_varint_be, write_varint_with_start},
     {OneIndexed, SourceLocation},
 };
-use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
+use alloc::{
+    borrow::{Cow, ToOwned},
+    boxed::Box,
+    collections::BTreeSet,
+    fmt,
+    string::String,
+    vec::Vec,
+};
 use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
@@ -303,8 +310,12 @@ impl Constant for ConstantData {
             Self::Bytes { value } => BorrowedConstant::Bytes { value },
             Self::Code { code } => BorrowedConstant::Code { code },
             Self::Tuple { elements } => BorrowedConstant::Tuple { elements },
-            Self::Slice { elements } => BorrowedConstant::Slice { elements },
-            Self::Frozenset { elements } => BorrowedConstant::Frozenset { elements },
+            Self::Slice { elements } => BorrowedConstant::Slice {
+                elements: elements.each_ref(),
+            },
+            Self::Frozenset { elements } => BorrowedConstant::Frozenset {
+                elements: Cow::Borrowed(elements),
+            },
             Self::None => BorrowedConstant::None,
             Self::Ellipsis => BorrowedConstant::Ellipsis,
         }
@@ -1112,7 +1123,9 @@ impl hash::Hash for ConstantData {
     }
 }
 
-/// A borrowed Constant
+/// A constant view. Containers may own a temporary snapshot when their native
+/// representation cannot expose a contiguous slice of constants.
+#[derive(Clone)]
 pub enum BorrowedConstant<'a, C: Constant> {
     Integer { value: &'a BigInt },
     Float { value: f64 },
@@ -1122,18 +1135,10 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Bytes { value: &'a [u8] },
     Code { code: &'a CodeObject<C> },
     Tuple { elements: &'a [C] },
-    Slice { elements: &'a [C; 3] },
-    Frozenset { elements: &'a [C] },
+    Slice { elements: [&'a C; 3] },
+    Frozenset { elements: Cow<'a, [C]> },
     None,
     Ellipsis,
-}
-
-impl<C: Constant> Copy for BorrowedConstant<'_, C> {}
-
-impl<C: Constant> Clone for BorrowedConstant<'_, C> {
-    fn clone(&self) -> Self {
-        *self
-    }
 }
 
 impl<C: Constant> BorrowedConstant<'_, C> {
@@ -1173,7 +1178,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
             BorrowedConstant::Frozenset { elements } => {
                 write!(f, "frozenset({{")?;
                 let mut first = true;
-                for c in *elements {
+                for c in elements.iter() {
                     if first {
                         first = false
                     } else {
@@ -1213,7 +1218,7 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                     .collect(),
             },
             BorrowedConstant::Slice { elements } => ConstantData::Slice {
-                elements: Box::new(elements.each_ref().map(|c| c.borrow_constant().to_owned())),
+                elements: Box::new(elements.map(|c| c.borrow_constant().to_owned())),
             },
             BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
                 elements: elements

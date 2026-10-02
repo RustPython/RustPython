@@ -6,7 +6,7 @@ fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObject) -> PyResult
         || !is_node_instance(
             vm,
             object,
-            pyast::NodeExceptHandlerExceptHandler::static_type(),
+            pyast::NodeExceptHandlerExceptHandler::make_class(&vm.ctx),
         )?
     {
         return Err(vm.new_type_error(format!(
@@ -89,7 +89,7 @@ impl Node for ast::ExceptHandlerExceptHandler {
         let node = NodeAst
             .into_ref_with_type(
                 vm,
-                pyast::NodeExceptHandlerExceptHandler::static_type().to_owned(),
+                pyast::NodeExceptHandlerExceptHandler::make_class(&vm.ctx),
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();

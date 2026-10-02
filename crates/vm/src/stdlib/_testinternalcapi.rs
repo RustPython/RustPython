@@ -31,8 +31,7 @@ mod _testinternalcapi {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
-            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
-            descriptor::PyWrapper,
+            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyTypeRef, descriptor::PyWrapper,
         },
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
@@ -393,13 +392,7 @@ mod _testinternalcapi {
                 continue;
             }
             out.push(cls.clone().into());
-            for weak in cls.subclasses.read().iter() {
-                if let Some(sub) = weak.upgrade()
-                    && let Ok(sub) = sub.downcast::<PyType>()
-                {
-                    stack.push(sub);
-                }
-            }
+            stack.extend(cls.subclass_snapshot());
         }
         out
     }

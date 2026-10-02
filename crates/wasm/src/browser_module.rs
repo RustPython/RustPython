@@ -8,7 +8,7 @@ mod _browser {
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
         class::PyClassImpl,
-        convert::ToPyObject,
+        convert::{IntoObject, ToPyObject},
         function::{ArgCallable, OptionalArg},
         import::import_source,
     };
@@ -123,15 +123,16 @@ mod _browser {
         let g = f.clone();
 
         let weak_vm = weak_vm(vm);
+        let func = crate::vm_class::hold_object(vm, func.into_object());
 
         *g.borrow_mut() = Some(Closure::wrap(Box::new(move |time: f64| {
             let stored_vm = weak_vm
                 .upgrade()
                 .expect("that the vm is valid from inside of request_animation_frame");
-            stored_vm.interp.enter(|vm| {
-                let func = func.clone();
+            stored_vm.enter(|vm| {
+                let func = crate::vm_class::bind_object(vm, &func);
                 let args = vec![vm.ctx.new_float(time).into()];
-                let _ = func.invoke(args, vm);
+                let _ = func.call(args, vm);
 
                 let closure = f.borrow_mut().take();
                 drop(closure);
@@ -183,7 +184,7 @@ mod _browser {
             Document {
                 doc: window().document().expect("Document missing from window"),
             },
-            Document::make_static_type(),
+            unsafe { Document::make_static_type() },
             None,
         )
     }
@@ -236,6 +237,8 @@ mod _browser {
         let window = window();
         let request_prom = window.fetch_with_request(&request);
 
+        let module = module.expect_str().to_owned();
+
         let future = async move {
             let val = JsFuture::from(request_prom).await?;
             let response = val
@@ -245,9 +248,9 @@ mod _browser {
             let stored_vm = &weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
-            stored_vm.interp.enter(move |vm| {
+            stored_vm.enter(move |vm| {
                 let resp_text = text.as_string().unwrap();
-                let res = import_source(vm, module.expect_str(), &resp_text);
+                let res = import_source(vm, &module, &resp_text);
                 match res {
                     Ok(_) => Ok(JsValue::null()),
                     Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

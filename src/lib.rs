@@ -11,10 +11,9 @@
 //!
 //! fn main() -> std::process::ExitCode {
 //!     let builder = InterpreterBuilder::new().init_stdlib();
-//!     // Add a native module using builder.ctx
-//!     let my_mod_def = my_mod::module_def(&builder.ctx);
-//!     let builder = builder
-//!         .add_native_module(my_mod_def)
+//!     // SAFETY: these native callbacks retain no Python references.
+//!     let my_mod_def = my_mod::module_def(unsafe { builder.context() });
+//!     let builder = unsafe { builder.add_native_module(my_mod_def) }
 //!         // Add a frozen module
 //!         .add_frozen_modules(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
 //!
@@ -120,14 +119,17 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     builder = builder.settings(settings);
 
     let interp = builder.interpreter();
-    let exitcode = cfg_select! {
-        feature = "capi" => {{
-            let local_vm = interp.enter(|vm| vm.new_thread());
-            rustpython_capi::init_main_interpreter(interp);
-            let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
-            rustpython_capi::get_main_interpreter().take().unwrap().finalize(result.err())
-        }},
-        _ => interp.run(move |vm| run_rustpython(vm, run_mode)),
+    // SAFETY: the CLI keeps raw references within this interpreter execution.
+    let exitcode = unsafe {
+        cfg_select! {
+            feature = "capi" => {{
+                let local_vm = interp.new_thread();
+                rustpython_capi::init_main_interpreter(interp);
+                let result = local_vm.run_unchecked(|vm| run_rustpython(vm, run_mode));
+                rustpython_capi::get_main_interpreter().take().unwrap().finalize_unchecked(result.err())
+            }},
+            _ => interp.run_unchecked(move |vm| run_rustpython(vm, run_mode)),
+        }
     };
 
     rustpython_vm::host_env::os::exit_code(exitcode)
@@ -469,21 +471,24 @@ mod tests {
 
     #[test]
     fn run_script() {
-        interpreter().enter(|vm| {
-            vm.unwrap_pyresult((|| {
-                let scope = vm.new_scope_with_main()?;
-                // test file run
-                run_file(vm, scope, "extra_tests/snippets/dir_main/__main__.py")?;
-
-                #[cfg(feature = "host_env")]
-                {
+        // SAFETY: the test releases scopes and exceptions before leaving the entry.
+        unsafe {
+            interpreter().enter_unchecked(|vm| {
+                vm.unwrap_pyresult((|| {
                     let scope = vm.new_scope_with_main()?;
-                    // test module run (directory with __main__.py)
-                    run_file(vm, scope, "extra_tests/snippets/dir_main")?;
-                }
+                    // test file run
+                    run_file(vm, scope, "extra_tests/snippets/dir_main/__main__.py")?;
 
-                Ok(())
-            })());
-        })
+                    #[cfg(feature = "host_env")]
+                    {
+                        let scope = vm.new_scope_with_main()?;
+                        // test module run (directory with __main__.py)
+                        run_file(vm, scope, "extra_tests/snippets/dir_main")?;
+                    }
+
+                    Ok(())
+                })());
+            })
+        }
     }
 }

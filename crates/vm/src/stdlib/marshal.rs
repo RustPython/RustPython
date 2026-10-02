@@ -35,7 +35,7 @@ mod decl {
             &self,
             f: impl FnOnce(DumpableValue<'_, Self>) -> R,
         ) -> Result<R, Self::Error> {
-            if self.is(PyStopIteration::static_type()) {
+            if self.is(unsafe { PyStopIteration::static_type() }) {
                 return Ok(f(DumpableValue::StopIter));
             }
 
@@ -43,7 +43,7 @@ mod decl {
                 PyNone => f(DumpableValue::None),
                 PyEllipsis => f(DumpableValue::Ellipsis),
                 ref pyint @ PyInt => {
-                    if self.class().is(PyBool::static_type()) {
+                    if self.class().is(unsafe { PyBool::static_type() }) {
                         f(DumpableValue::Boolean(!pyint.as_bigint().is_zero()))
                     } else {
                         f(DumpableValue::Integer(pyint.as_bigint()))
@@ -229,8 +229,8 @@ mod decl {
 
         // Singletons: no FLAG_REF needed
         let is_singleton = vm.is_none(obj)
-            || obj.class().is(PyBool::static_type())
-            || obj.is(PyStopIteration::static_type())
+            || obj.class().is(unsafe { PyBool::static_type() })
+            || obj.is(unsafe { PyStopIteration::static_type() })
             || obj.downcast_ref::<crate::builtins::PyEllipsis>().is_some();
 
         // FLAG_REF: check if already written, otherwise reserve slot
@@ -260,9 +260,9 @@ mod decl {
 
         if vm.is_none(obj) {
             buf.write_u8(b'N');
-        } else if obj.is(PyStopIteration::static_type()) {
+        } else if obj.is(unsafe { PyStopIteration::static_type() }) {
             buf.write_u8(b'S');
-        } else if obj.class().is(PyBool::static_type()) {
+        } else if obj.class().is(unsafe { PyBool::static_type() }) {
             let val = obj
                 .downcast_ref::<PyInt>()
                 .is_some_and(|i| !i.as_bigint().is_zero());
@@ -577,7 +577,13 @@ mod decl {
             len: usize,
         ) -> Result<Option<Self::Value>, marshal::MarshalError> {
             let elements = self.placeholder_elements(len)?;
-            Ok(Some(PyTuple::new_ref(elements, &self.vm.ctx).into()))
+            Ok(Some(
+                crate::PyRef::new_ref_tracked(
+                    PyTuple::new_unchecked(elements.into_boxed_slice()),
+                    self.vm.ctx.types.tuple_type.to_owned(),
+                )
+                .into(),
+            ))
         }
         fn set_tuple_item(
             &self,
@@ -874,18 +880,18 @@ mod decl {
     fn check_exact_type(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         let cls = obj.class();
         // bool is a subclass of int but is marshallable
-        if cls.is(PyBool::static_type()) {
+        if cls.is(unsafe { PyBool::static_type() }) {
             return Ok(());
         }
         for base in [
-            PyInt::static_type(),
-            PyFloat::static_type(),
-            PyComplex::static_type(),
-            PyTuple::static_type(),
-            PyList::static_type(),
-            PyDict::static_type(),
-            PySet::static_type(),
-            PyFrozenSet::static_type(),
+            unsafe { PyInt::static_type() },
+            unsafe { PyFloat::static_type() },
+            unsafe { PyComplex::static_type() },
+            unsafe { PyTuple::static_type() },
+            unsafe { PyList::static_type() },
+            unsafe { PyDict::static_type() },
+            unsafe { PySet::static_type() },
+            unsafe { PyFrozenSet::static_type() },
         ] {
             if cls.fast_issubclass(base) && !cls.is(base) {
                 return Err(vm.new_value_error("unmarshallable object"));

@@ -164,7 +164,7 @@ pub(super) fn expr_constant_to_object(
     } = expr;
     let constant = ast_constant_value_to_constant_data(value);
     let node = NodeAst
-        .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeExprConstant::make_class(&vm.ctx))
         .unwrap();
     let dict = node.as_object().dict().unwrap();
     dict.set_item("value", constant_data_to_object(vm, constant), vm)
@@ -362,7 +362,7 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: &PyObject) -> 
                 .map_err(|obj| {
                     vm.new_type_error(format!(
                         "Expected type {}, not {}",
-                        PyTuple::static_type().name(),
+                        PyTuple::make_class(&vm.ctx).name(),
                         obj.class().name()
                     ))
                 })?;
@@ -481,7 +481,7 @@ impl Node for Constant {
             invalid_type: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprConstant::make_class(&vm.ctx))
             .unwrap();
         let kind = kind
             .or_else(|| constant_literal_kind(&value))
@@ -567,7 +567,7 @@ impl Node for ConstantLiteral {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "Expected type {}, not {}",
-                    PyTuple::static_type().name(),
+                    PyTuple::make_class(&vm.ctx).name(),
                     obj.class().name()
                 ))
             })?;
@@ -602,7 +602,7 @@ impl Node for ConstantLiteral {
                 None => {
                     return Err(vm.new_type_error(format!(
                         "Expected type {}, not {}",
-                        PyComplex::static_type().name(),
+                        PyComplex::make_class(&vm.ctx).name(),
                         value_object.class().name()
                     )));
                 }

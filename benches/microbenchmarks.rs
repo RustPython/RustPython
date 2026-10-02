@@ -111,58 +111,61 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
     settings.user_site_directory = false;
 
     let builder = Interpreter::builder(settings);
-    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-    let interp = builder.add_native_modules(&defs).build();
-    interp.enter(|vm| {
-        let setup_code = vm
-            .compile(&bench.setup, Mode::Exec, &bench.name)
-            .expect("Error compiling setup code");
-        let bench_code = vm
-            .compile(&bench.code, Mode::Exec, &bench.name)
-            .expect("Error compiling bench code");
+    let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+    let interp = unsafe { builder.add_native_modules(&defs) }.build();
+    // SAFETY: benchmark scopes and code objects are released before leaving.
+    unsafe {
+        interp.enter_unchecked(|vm| {
+            let setup_code = vm
+                .compile(&bench.setup, Mode::Exec, &bench.name)
+                .expect("Error compiling setup code");
+            let bench_code = vm
+                .compile(&bench.code, Mode::Exec, &bench.name)
+                .expect("Error compiling bench code");
 
-        let bench_func = |scope| {
-            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope);
-            vm.unwrap_pyresult(res);
-        };
+            let bench_func = |scope| {
+                let res: PyResult = vm.run_code_obj(bench_code.clone(), scope);
+                vm.unwrap_pyresult(res);
+            };
 
-        let bench_setup = |iterations| {
-            let scope = vm.new_scope_with_builtins();
-            if let Some(idx) = iterations {
+            let bench_setup = |iterations| {
+                let scope = vm.new_scope_with_builtins();
+                if let Some(idx) = iterations {
+                    scope
+                        .locals
+                        .as_ref()
+                        .expect("new_scope_with_builtins always provides locals")
+                        .as_object()
+                        .set_item("ITERATIONS", vm.new_pyobj(idx), vm)
+                        .expect("Error adding ITERATIONS local variable");
+                }
+                let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());
+                vm.unwrap_pyresult(setup_result);
                 scope
-                    .locals
-                    .as_ref()
-                    .expect("new_scope_with_builtins always provides locals")
-                    .as_object()
-                    .set_item("ITERATIONS", vm.new_pyobj(idx), vm)
-                    .expect("Error adding ITERATIONS local variable");
-            }
-            let setup_result = vm.run_code_obj(setup_code.clone(), scope.clone());
-            vm.unwrap_pyresult(setup_result);
-            scope
-        };
+            };
 
-        if bench.iterate {
-            for idx in iteration_counts() {
-                group.throughput(Throughput::Elements(idx as u64));
-                group.bench_with_input(
-                    BenchmarkId::new("rustpython", &bench.name),
-                    &idx,
-                    |b, idx| {
-                        b.iter_batched(
-                            || bench_setup(Some(*idx)),
-                            bench_func,
-                            BatchSize::LargeInput,
-                        );
-                    },
-                );
+            if bench.iterate {
+                for idx in iteration_counts() {
+                    group.throughput(Throughput::Elements(idx as u64));
+                    group.bench_with_input(
+                        BenchmarkId::new("rustpython", &bench.name),
+                        &idx,
+                        |b, idx| {
+                            b.iter_batched(
+                                || bench_setup(Some(*idx)),
+                                bench_func,
+                                BatchSize::LargeInput,
+                            );
+                        },
+                    );
+                }
+            } else {
+                group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {
+                    b.iter_batched(|| bench_setup(None), bench_func, BatchSize::LargeInput);
+                });
             }
-        } else {
-            group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {
-                b.iter_batched(|| bench_setup(None), bench_func, BatchSize::LargeInput);
-            });
-        }
-    })
+        })
+    }
 }
 
 /// `true` when the benchmarks are executed by the CodSpeed runner.

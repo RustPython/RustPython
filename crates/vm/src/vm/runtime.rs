@@ -296,35 +296,8 @@ pub(crate) fn alloc_interpreter_id() -> i64 {
     registry().next_id.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Gate between registering an interpreter and a collection's stop-the-world.
-///
-/// A collection snapshots the registry, stops every interpreter in the
-/// snapshot, and then reads tracked objects with those threads parked. An
-/// interpreter that registered after the snapshot was taken would not be in it,
-/// so nothing would stop it, and its bootstrap — which runs Python and mutates
-/// the shared generation lists — would run underneath that scan. Registration
-/// therefore waits for an in-flight stop to end; the next collection's snapshot
-/// then contains the new interpreter.
-fn admission() -> &'static Mutex<()> {
-    static ADMISSION: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-    ADMISSION.get_or_init(|| Mutex::new(()))
-}
-
-/// Take the admission gate for the duration of a stop-the-world.
-#[cfg(feature = "threading")]
-pub(crate) fn lock_admission_for_stop() -> parking_lot::MutexGuard<'static, ()> {
-    admission().lock()
-}
-
-/// Add the registry entry, behind the admission gate.
-///
-/// Only ever called with this thread detached, because the gate is held across
-/// a stop-the-world: an attached thread waiting here, or re-attaching while
-/// holding the gate, would leave that stop no safepoint to complete at. Nothing
-/// under the gate blocks or allocates a tracked object, so this cannot re-enter
-/// the collection it waits for.
+/// Add a weak entry without coordinating unrelated interpreters' collections.
 fn insert_registry_entry(state: &PyRc<PyGlobalState>) {
-    let _admission = admission().lock();
     let mut entries = registry().entries.lock();
     // Entries are weak and an interpreter's lifetime is decided by its last
     // `PyRc<PyGlobalState>` — which outlives the `Interpreter` handle whenever
@@ -354,39 +327,49 @@ pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
             Ordering::Relaxed,
         );
     }
-    // A subinterpreter is registered by a thread that is running its parent, so
-    // detach for the whole insert rather than only for the wait.
-    let detached = crate::vm::thread::try_with_current_vm(|vm| {
-        vm.allow_threads(|| insert_registry_entry(state))
-    });
-    if detached.is_none() {
-        insert_registry_entry(state);
-    }
+    insert_registry_entry(state);
 }
 
 /// Look up a live interpreter state by id.
 #[must_use]
-pub fn lookup_interpreter(id: i64) -> Option<PyRc<PyGlobalState>> {
+pub(crate) fn lookup_interpreter(id: i64) -> Option<PyRc<PyGlobalState>> {
     let entries = registry().entries.lock();
     entries.get(&id).and_then(|e| e.state.upgrade())
+}
+
+/// Python APIs must not expose orphaned runtimes retained only for native cleanup.
+pub(crate) fn lookup_open_interpreter(id: i64) -> Option<PyRc<PyGlobalState>> {
+    lookup_interpreter(id).filter(|state| !state.closed.load(Ordering::Acquire))
 }
 
 /// List all currently registered (still-alive) interpreters.
 #[must_use]
 pub fn list_interpreters() -> Vec<InterpreterInfo> {
-    let entries = registry().entries.lock();
-    let mut out: Vec<InterpreterInfo> = entries
+    #[expect(
+        clippy::needless_collect,
+        reason = "release strong state references only after unlocking"
+    )]
+    let states: Vec<_> = registry()
+        .entries
+        .lock()
         .iter()
         .filter_map(|(&id, entry)| {
-            // Drop dead weak refs from the listing.
-            if entry.state.strong_count() == 0 {
-                return None;
-            }
-            Some(InterpreterInfo {
-                id,
-                whence: entry.whence,
+            entry.state.upgrade().map(|state| {
+                (
+                    InterpreterInfo {
+                        id,
+                        whence: entry.whence,
+                    },
+                    state,
+                )
             })
         })
+        .collect();
+    // Release state snapshots outside the directory mutex. Terminal state
+    // destruction can revisit the runtime and heap directories.
+    let mut out: Vec<_> = states
+        .into_iter()
+        .filter_map(|(info, state)| (!state.closed.load(Ordering::Acquire)).then_some(info))
         .collect();
     out.sort_by_key(|info| info.id);
     out
@@ -402,7 +385,7 @@ pub fn interpreter_count() -> usize {
 ///
 /// The tables are reachable from every thread, so a thread that died in the
 /// fork may have left one locked; the child would then deadlock the first time
-/// it enumerates interpreters (which the collector now does on every stop).
+/// it enumerates interpreters.
 ///
 /// # Safety
 /// Must only be called after `fork()` in the child process, when no other
@@ -412,18 +395,29 @@ pub unsafe fn reinit_after_fork() {
     unsafe {
         crate::common::lock::reinit_mutex_after_fork(&registry().entries);
         crate::common::lock::reinit_mutex_after_fork(owned_interpreters());
-        crate::common::lock::reinit_mutex_after_fork(admission());
+    }
+}
+
+#[cfg(all(unix, feature = "threading"))]
+pub(super) struct ForkRegistries {
+    _entries: parking_lot::MutexGuard<'static, HashMap<i64, RegistryEntry>>,
+    _owned: parking_lot::MutexGuard<'static, HashMap<i64, OwnedInterpreter>>,
+}
+
+#[cfg(all(unix, feature = "threading"))]
+pub(super) fn prepare_fork() -> ForkRegistries {
+    ForkRegistries {
+        _entries: registry().entries.lock(),
+        _owned: owned_interpreters().lock(),
     }
 }
 
 /// All live interpreter states, ordered by id.
 ///
-/// Used by the cyclic collector, which must stop every interpreter's threads
-/// (not just the collecting one) because GC-tracked objects from all
-/// interpreters share one object graph. Ordering is deterministic so that
-/// multiple stop-the-world requesters always take exclusions in the same order.
+/// Used to repair inherited runtime bookkeeping in the post-fork child.
+#[cfg(all(unix, feature = "threading"))]
 #[must_use]
-pub fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
+pub(crate) fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
     let entries = registry().entries.lock();
     let mut states: Vec<(i64, PyRc<PyGlobalState>)> = entries
         .iter()
@@ -466,6 +460,7 @@ fn owned_interpreters() -> &'static Mutex<HashMap<i64, OwnedInterpreter>> {
 
 /// Transfer ownership of `interp` to the runtime, returning its id.
 #[cfg(feature = "threading")]
+#[must_use]
 pub fn store_owned_interpreter(interp: crate::Interpreter) -> i64 {
     let id = interp.id();
     let root_id = interp.global_state.runtime_root_id;
@@ -494,6 +489,30 @@ pub fn take_owned_interpreter(id: i64) -> Option<crate::Interpreter> {
         .map(|owned| owned.interpreter)
 }
 
+#[cfg(all(unix, feature = "threading"))]
+pub(super) fn discard_invalid_owned_after_fork() {
+    let removed: Vec<_> = {
+        let mut owned = owned_interpreters().lock();
+        #[expect(
+            clippy::needless_collect,
+            reason = "end immutable iteration before removing map entries"
+        )]
+        let ids: Vec<_> = owned
+            .iter()
+            .filter_map(|(&id, entry)| (!entry.interpreter.owner_is_valid()).then_some(id))
+            .collect();
+        ids.into_iter()
+            .map(|id| owned.remove(&id).unwrap())
+            .collect()
+    };
+    // Destruction can visit the registry, so never release these under its lock.
+    let mut cleanup = super::owned::Cleanup::default();
+    for entry in removed {
+        cleanup.run(|| drop(entry));
+    }
+    cleanup.finish();
+}
+
 /// Create a thread-state VM for a runtime-owned interpreter.
 ///
 /// The lock is held only while cloning shared interpreter fields.
@@ -503,7 +522,10 @@ pub fn owned_new_thread(id: i64) -> Option<crate::vm::thread::ThreadedVirtualMac
     owned_interpreters()
         .lock()
         .get(&id)
-        .map(|owned| owned.interpreter.new_thread())
+        // The runtime owns this immutable, idle anchor exclusively. Clone its
+        // native fields here; entering it would drain roots and call Python
+        // while holding the directory mutex.
+        .and_then(|owned| owned.interpreter.new_thread_from_idle())
 }
 
 /// Whether `id` refers to a runtime-owned interpreter.
@@ -548,9 +570,9 @@ pub fn owned_interpreter_ids_for(root_id: i64) -> Vec<i64> {
 /// current one and is not running `__main__`.
 #[cfg(feature = "threading")]
 #[must_use]
-pub fn destroy_owned_interpreter(id: i64) -> Option<()> {
+pub(crate) fn destroy_owned_interpreter(id: i64) -> Option<()> {
     let interp = take_owned_interpreter(id)?;
     // Finalize like `Py_EndInterpreter`: flush, join non-daemons, atexit, GC.
-    let _ = interp.finalize(None);
+    let _ = interp.finalize_raw(None);
     Some(())
 }

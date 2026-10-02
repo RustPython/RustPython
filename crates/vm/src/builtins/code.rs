@@ -207,7 +207,10 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
-            if obj.class().is(super::bool_::PyBool::static_type()) {
+            if obj
+                .class()
+                .is(unsafe { super::bool_::PyBool::static_type() })
+            {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),
                 }
@@ -236,21 +239,30 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         super::singletons::PyNone => BorrowedConstant::None,
         super::slice::PyEllipsis => BorrowedConstant::Ellipsis,
         ref s @ super::slice::PySlice => {
-            // Constant pool slices always store Some() for start/step (even for None).
-            // Box::leak the array so it outlives the borrow. Leak is acceptable since
-            // constant pool objects live for the program's lifetime.
-            let start = s.start.clone().unwrap();
-            let stop = s.stop.clone();
-            let step = s.step.clone().unwrap();
-            let arr = Box::leak(Box::new([Literal(start), Literal(stop), Literal(step)]));
-            BorrowedConstant::Slice { elements: arr }
+            let literal = |object: &PyObjectRef| {
+                // SAFETY: Literal is transparent over PyObjectRef. Slice
+                // constants contain only other constants.
+                unsafe { &*core::ptr::from_ref(object).cast::<Literal>() }
+            };
+            // SAFETY: PyRef<PyNone> and PyObjectRef are transparent, thin
+            // references to the same Python allocation; Literal wraps the
+            // latter. This immortal None reference outlives the slice view.
+            let none: &Literal =
+                unsafe { &*core::ptr::from_ref(&Context::genesis().none).cast::<Literal>() };
+            BorrowedConstant::Slice {
+                elements: [
+                    s.start.as_ref().map_or(none, literal),
+                    literal(&s.stop),
+                    s.step.as_ref().map_or(none, literal),
+                ],
+            }
         }
         ref fs @ super::set::PyFrozenSet => {
-            // Box::leak the elements so they outlive the borrow. Leak is acceptable since
-            // constant pool objects live for the program's lifetime.
-            let elems: Vec<Literal> = fs.elements().into_iter().map(Literal).collect();
-            let elements = Box::leak(elems.into_boxed_slice());
-            BorrowedConstant::Frozenset { elements }
+            BorrowedConstant::Frozenset {
+                elements: alloc::borrow::Cow::Owned(
+                    fs.elements().into_iter().map(Literal).collect(),
+                ),
+            }
         }
         _ => panic!("unexpected payload for constant python value"),
     })
@@ -310,8 +322,7 @@ impl ConstantBag for PyObjBag<'_> {
                 let start_obj = self.make_constant(start.borrow_constant()).0;
                 let stop_obj = self.make_constant(stop.borrow_constant()).0;
                 let step_obj = self.make_constant(step.borrow_constant()).0;
-                // Store as PySlice with Some() for all fields (even None values)
-                // so borrow_obj_constant can reference them.
+                // Preserve all three constant fields, including explicit None.
                 use crate::builtins::PySlice;
                 PySlice {
                     start: Some(start_obj),
@@ -783,8 +794,8 @@ impl PyCode {
 
 impl PyPayload for PyCode {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.code_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.code_type).to_owned()
     }
 }
 
@@ -1720,4 +1731,35 @@ impl<'a> LineTableReader<'a> {
 
 pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_snapshots_release_their_temporary_references() {
+        crate::Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let element: PyObjectRef = vm.ctx.new_str("owned constant element").into();
+            let slice: PyObjectRef = super::super::PySlice {
+                start: None,
+                stop: element.clone(),
+                step: None,
+            }
+            .into_ref(&vm.ctx)
+            .into();
+            let frozen: PyObjectRef = PyFrozenSet::from_iter(vm, [element.clone()])
+                .unwrap()
+                .into_ref(&vm.ctx)
+                .into();
+            for object in [slice, frozen] {
+                let before = element.strong_count();
+                let expected = borrow_obj_constant(&object).to_owned();
+                for _ in 0..3 {
+                    assert_eq!(borrow_obj_constant(&object).to_owned(), expected);
+                    assert_eq!(element.strong_count(), before);
+                }
+            }
+        });
+    }
 }

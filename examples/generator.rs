@@ -1,50 +1,33 @@
+use rustpython::InterpreterBuilderExt;
 use rustpython_vm as vm;
 use std::process::ExitCode;
-use vm::{
-    Interpreter, PyResult,
-    builtins::PyIntRef,
-    protocol::{PyIter, PyIterReturn},
-};
+use vm::Interpreter;
 
-fn py_main(interp: &Interpreter) -> vm::PyResult<()> {
+fn py_main(interp: &Interpreter) -> vm::embedding::Result<()> {
     let generator = interp.enter(|vm| {
-        let scope = vm.new_scope_with_builtins();
-        let generator = vm.run_block_expr(
-            scope,
-            r#"
-def gen():
-    for i in range(10):
-        yield i
-
-gen()
-"#,
-        )?;
-        Ok(generator)
+        vm.exec("def gen():\n    yield from range(10)")?;
+        Ok(vm.eval("gen()")?.unbind())
     })?;
 
     loop {
-        let r = interp.enter(|vm| {
-            let v = match PyIter::new(generator.clone()).next(vm)? {
-                PyIterReturn::Return(obj) => {
-                    PyIterReturn::Return(obj.try_into_value::<PyIntRef>(vm)?)
-                }
-                PyIterReturn::StopIteration(x) => PyIterReturn::StopIteration(x),
-            };
-            PyResult::Ok(v)
+        let value = interp.enter(|vm| {
+            vm.bind(&generator)?
+                .next()?
+                .map(|value| value.to_i64())
+                .transpose()
         })?;
-        match r {
-            PyIterReturn::Return(value) => println!("{value}"),
-            PyIterReturn::StopIteration(_) => break,
+        match value {
+            Some(value) => println!("{value}"),
+            None => break,
         }
     }
-
     Ok(())
 }
 
 fn main() -> ExitCode {
-    let builder = vm::Interpreter::builder(Default::default());
-    let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-    let interp = builder.add_native_modules(&defs).build();
+    let interp = vm::Interpreter::builder(Default::default())
+        .init_stdlib()
+        .build();
     let result = py_main(&interp);
-    vm::host_env::os::exit_code(interp.run(|_vm| result))
+    vm::host_env::os::exit_code(interp.run(|_vm| result).expect("no native workers remain"))
 }

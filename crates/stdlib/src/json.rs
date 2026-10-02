@@ -12,7 +12,6 @@ mod _json {
         protocol::PyIterReturn,
         types::{Callable, Constructor, PyComparisonOp},
     };
-    use core::cell::RefCell;
     use core::str::FromStr;
     use malachite_bigint::BigInt;
     use rustpython_common::{
@@ -44,7 +43,7 @@ mod _json {
     }
 
     #[pyattr(name = "make_scanner")]
-    #[pyclass(name = "Scanner", traverse)]
+    #[pyclass(name = "Scanner", traverse, interpreter_local)]
     #[derive(Debug, PyPayload)]
     struct JsonScanner {
         #[pytraverse(skip)]
@@ -725,32 +724,24 @@ mod _json {
         basic_fn: PyObjectRef,
     }
 
-    thread_local! {
-        static BUILTIN_ESCAPERS: RefCell<Option<BuiltinEscapers>> = const { RefCell::new(None) };
-    }
-
     fn builtin_escaper_refs(vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        use crate::vm::common::rc::PyRc;
+        struct EscaperCache;
         let module = vm.import("_json", 0)?;
-
-        let hit = BUILTIN_ESCAPERS.with_borrow(|c| {
-            c.as_ref()
-                .filter(|c| c.module.is(&module))
-                .map(|c| (c.ascii_fn.clone(), c.basic_fn.clone()))
-        });
-        if let Some(r) = hit {
-            return Ok(r);
+        if let Some(cache) = vm.__get_native::<EscaperCache, PyRc<BuiltinEscapers>>()
+            && cache.module.is(&module)
+        {
+            return Ok((cache.ascii_fn.clone(), cache.basic_fn.clone()));
         }
 
         let ascii_fn = module.get_attr("encode_basestring_ascii", vm)?;
         let basic_fn = module.get_attr("encode_basestring", vm)?;
         let result = (ascii_fn.clone(), basic_fn.clone());
-        BUILTIN_ESCAPERS.with_borrow_mut(|c| {
-            *c = Some(BuiltinEscapers {
-                module,
-                ascii_fn,
-                basic_fn,
-            })
-        });
+        vm.__replace_native::<EscaperCache, _>(PyRc::new(BuiltinEscapers {
+            module,
+            ascii_fn,
+            basic_fn,
+        }));
         Ok(result)
     }
 
@@ -761,7 +752,7 @@ mod _json {
     // (matching what `json/encoder.py`'s `encode()` does with the result:
     // `''.join(chunks)`).
     #[pyattr(name = "make_encoder")]
-    #[pyclass(name = "Encoder", traverse)]
+    #[pyclass(name = "Encoder", traverse, interpreter_local)]
     #[derive(Debug, PyPayload)]
     struct JsonEncoder {
         #[pytraverse(skip)]

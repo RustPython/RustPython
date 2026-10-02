@@ -137,6 +137,10 @@ pub struct PyTypeSlots {
     /// Full `tp_basicsize`: object header plus payload. `0` before type
     /// creation means "inherit the base size".
     pub basicsize: usize,
+    /// Native payload identity, independent of Python MRO and slot sizes.
+    pub(crate) native_layout_id: Option<core::any::TypeId>,
+    /// Constructor captured before mutable Python slots are installed.
+    pub(crate) native_new: Option<NewFunc>,
     pub itemsize: usize, // tp_itemsize
 
     // Methods to implement standard operations
@@ -856,15 +860,7 @@ impl PyType {
     /// Recursively update subclasses' slots
     /// recurse_down_subclasses
     fn update_subclasses<const ADD: bool>(&self, name: &'static PyStrInterned, ctx: &Context) {
-        let subclasses = self.subclasses.read();
-        for weak_ref in subclasses.iter() {
-            let Some(subclass) = weak_ref.upgrade() else {
-                continue;
-            };
-            let Some(subclass) = subclass.downcast_ref::<Self>() else {
-                continue;
-            };
-
+        for subclass in self.subclass_snapshot() {
             // Skip if subclass has its own definition for this attribute
             if subclass.attributes.contains(name) {
                 continue;
@@ -1042,31 +1038,27 @@ impl PyType {
                 }
             }
             SlotAccessor::TpNew => {
-                // __new__ is a staticmethod, not a PyWrapper descriptor, so
-                // lookup_slot_in_mro cannot classify it. Resolve __new__
-                // through the MRO dicts instead: a Python-level definition
-                // needs the dynamic new_wrapper, while a native type's
-                // builtin __new__ entry (or no entry at all) means the slot
-                // is inherited from the solid base, matching update_one_slot's
-                // tp_new special case over the tp_base-inherited value.
-                let needs_wrapper = if ADD && self.attributes.contains(name) {
-                    true
-                } else {
-                    // mro[0] is self, so skip it
-                    self.mro.read()[1..]
-                        .iter()
-                        .find(|cls| cls.attributes.contains(name))
-                        .is_some_and(|cls| {
-                            cls.slots.new.load().map(|f| fn_addr(f))
-                                == Some(fn_addr(new_wrapper as NewFunc))
-                        })
-                };
-                if needs_wrapper {
-                    self.slots.new.store(Some(new_wrapper));
-                    self.slots.vectorcall.store(None);
-                } else {
-                    let inherited = self.base.deref().and_then(|base| base.slots.new.load());
-                    self.slots.new.store(inherited);
+                // tp_new_wrapper descriptors preserve the constructor already
+                // inherited by the type. Direct descriptor calls still validate
+                // their original native constructor in call_slot_new.
+                let mro = self.mro.read().clone();
+                let method = mro.iter().find_map(|class| class.attributes.get(name));
+                match method {
+                    Some(method) => {
+                        let native = method
+                            .downcast_ref::<crate::builtins::builtin_func::PyNativeMethod>()
+                            .is_some_and(|method| {
+                                core::ptr::eq(method.func.value, ctx.slot_new_wrapper)
+                            });
+                        if !native {
+                            self.slots.new.store(Some(new_wrapper));
+                            self.slots.vectorcall.store(None);
+                        }
+                    }
+                    None => {
+                        let inherited = self.base.deref().and_then(|base| base.slots.new.load());
+                        self.slots.new.store(inherited);
+                    }
                 }
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
@@ -1863,7 +1855,7 @@ impl PyType {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ
-                    if is_subclass_of(for_class_mro, wrapper.typ) {
+                    if is_subclass_of(for_class_mro, &wrapper.typ) {
                         extract(&wrapper.wrapped)
                     } else {
                         None
@@ -1938,7 +1930,7 @@ pub trait Constructor: PyPayload + core::fmt::Debug {
         // The name is the type the slot was written for, not the subclass being
         // constructed, so a subclass reports what its base declares.
         let args = if Self::DROP_KWARGS_WHEN_INIT_OVERRIDDEN {
-            drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args)
+            drop_kwargs_if_init_overridden(&cls, &Self::class(&vm.ctx), args)
         } else {
             args
         };

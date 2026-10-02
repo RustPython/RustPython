@@ -60,8 +60,8 @@ impl PySuper {
 
 impl PyPayload for PySuper {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.super_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.super_type).to_owned()
     }
 }
 
@@ -188,7 +188,28 @@ fn super_init_without_args(vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyObject
     with(GetAttr, GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE)
 )]
-impl PySuper {}
+impl PySuper {
+    #[extend_class]
+    fn extend_super(ctx: &crate::Context, class: &Py<PyType>) {
+        const SUPER_DOC: &str = "\
+super() -> same as super(__class__, <first argument>)
+super(type) -> unbound super object
+super(type, obj) -> bound super object; requires isinstance(obj, type)
+super(type, type2) -> bound super object; requires issubclass(type2, type)
+Typical use to call a cooperative superclass method:
+class C(B):
+    def meth(self, arg):
+        super().meth(arg)
+This works for class methods too:
+class C(B):
+    @classmethod
+    def cmeth(cls, arg):
+        super().cmeth(arg)
+";
+
+        class.set_attr(ctx.names.__doc__, ctx.new_str(SUPER_DOC).into());
+    }
+}
 
 impl GetAttr for PySuper {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
@@ -206,18 +227,15 @@ impl GetAttr for PySuper {
             return skip(zelf, name);
         }
 
-        if let Some(name) = vm.ctx.interned_str(name) {
-            // Walk start_type's MRO by reference (no Vec allocation, no
-            // per-class clone) up to and including zelf.typ, then look for
-            // the first class past it that declares `name` directly.
-            // Both locks are dropped before any arbitrary Python code
-            // (the descriptor call below) runs, so they can't be held
-            // across a call that might re-enter and want them again.
+        if let Some(name) = start_type.interned_attr_name(name, vm) {
+            // Walk a snapshot past zelf.typ to the first direct declaration.
+            // Release the MRO lock before reading namespaces, whose lazy
+            // initialization can re-enter type code, and calling descriptors.
             let Some(su_type) = zelf.typ.load_owned() else {
                 return skip(zelf, name);
             };
             let descr = {
-                let mro = start_type.mro.read();
+                let mro = start_type.mro.read().clone();
                 mro.iter()
                     .skip_while(|cls| !cls.is(&su_type))
                     .skip(1) // skip su->type (if any)
@@ -319,26 +337,5 @@ fn super_check(ty: &Py<PyType>, obj: &PyObject, vm: &VirtualMachine) -> PyResult
 }
 
 pub(crate) fn init(context: &'static Context) {
-    let super_type = &context.types.super_type;
-    PySuper::extend_class(context, super_type);
-
-    const SUPER_DOC: &str = "\
-super() -> same as super(__class__, <first argument>)
-super(type) -> unbound super object
-super(type, obj) -> bound super object; requires isinstance(obj, type)
-super(type, type2) -> bound super object; requires issubclass(type2, type)
-Typical use to call a cooperative superclass method:
-class C(B):
-    def meth(self, arg):
-        super().meth(arg)
-This works for class methods too:
-class C(B):
-    @classmethod
-    def cmeth(cls, arg):
-        super().cmeth(arg)
-";
-
-    extend_class!(context, super_type, {
-        "__doc__" => context.new_str(SUPER_DOC),
-    });
+    PySuper::extend_class(context, context.types.super_type);
 }

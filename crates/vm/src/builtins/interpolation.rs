@@ -28,8 +28,8 @@ pub struct PyInterpolation {
 
 impl PyPayload for PyInterpolation {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.interpolation_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.interpolation_type).to_owned()
     }
 }
 

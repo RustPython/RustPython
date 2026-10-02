@@ -27,8 +27,8 @@ impl From<PyObjectRef> for PyClassMethod {
 
 impl PyPayload for PyClassMethod {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.classmethod_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.classmethod_type).to_owned()
     }
 }
 

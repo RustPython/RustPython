@@ -23,7 +23,7 @@ pub(super) fn ast_to_object(
         );
     };
     let node = NodeAst
-        .into_ref_with_type(vm, pyast::NodeStmtIf::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeStmtIf::make_class(&vm.ctx))
         .unwrap();
     let dict = node.as_object().dict().unwrap();
 

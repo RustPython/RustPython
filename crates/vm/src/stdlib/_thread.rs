@@ -1,7 +1,7 @@
 //! Implementation of the _thread module
 
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
-pub(crate) use _thread::after_fork_child;
+pub(crate) use _thread::{after_fork_child, repair_handles_after_fork};
 
 pub use _thread::get_ident;
 
@@ -23,7 +23,7 @@ pub(crate) mod _thread {
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
-        common::{lock::PyMutex, wtf8::Wtf8Buf},
+        common::{lock::PyMutex, rc::PyRc, wtf8::Wtf8Buf},
         convert::ToPyException,
         frame::FrameObjectRef,
         function::{
@@ -32,6 +32,7 @@ pub(crate) mod _thread {
         },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
+        vm::roots::RootLease,
     };
 
     use alloc::sync::{Arc, Weak};
@@ -152,7 +153,24 @@ pub(crate) mod _thread {
     #[pyclass(module = "_thread", name = "lock")]
     #[derive(PyPayload)]
     struct Lock {
-        mu: RawMutex,
+        mu: LockStorage,
+    }
+
+    enum LockStorage {
+        Inline(RawMutex),
+        // Thread-exit sentinels must unlock without entering Python, including
+        // after their VM has closed. Ordinary locks need no extra allocation.
+        Shared(Arc<RawMutex>),
+    }
+
+    impl core::ops::Deref for LockStorage {
+        type Target = RawMutex;
+        fn deref(&self) -> &RawMutex {
+            match self {
+                Self::Inline(lock) => lock,
+                Self::Shared(lock) => lock,
+            }
+        }
     }
 
     impl fmt::Debug for Lock {
@@ -189,7 +207,7 @@ pub(crate) mod _thread {
         fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
-            unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
+            unsafe { rustpython_common::lock::zero_reinit_after_fork(&*self.mu) };
         }
 
         #[pymethod]
@@ -211,7 +229,9 @@ pub(crate) mod _thread {
         type Args = ();
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self { mu: RawMutex::INIT })
+            Ok(Self {
+                mu: LockStorage::Inline(RawMutex::INIT),
+            })
         }
     }
 
@@ -591,7 +611,9 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     const fn allocate_lock() -> Lock {
-        Lock { mu: RawMutex::INIT }
+        Lock {
+            mu: LockStorage::Inline(RawMutex::INIT),
+        }
     }
 
     struct StartNewThreadArgs {
@@ -691,6 +713,10 @@ pub(crate) mod _thread {
             .state
             .finalizing
             .load(core::sync::atomic::Ordering::Acquire)
+            || vm
+                .state
+                .admission_closed
+                .load(core::sync::atomic::Ordering::Acquire)
         {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.python_finalization_error.to_owned(),
@@ -716,8 +742,8 @@ pub(crate) mod _thread {
         let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
         thread_builder
             .spawn(
-                vm.new_thread()
-                    .make_spawn_func(move |vm| run_thread(func, args, vm)),
+                vm.new_python_thread()
+                    .make_spawn_func_raw(move |vm| run_thread(func, args, vm)),
             )
             .map(|handle| thread_to_id(&handle))
             .map_err(|_err| vm.new_runtime_error("can't start new thread"))
@@ -740,11 +766,8 @@ pub(crate) mod _thread {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
 
-        // Inner scope: drop `func` (and its Python refs) before the thread
-        // slot is torn down below. Otherwise the parameter `func` would drop
-        // at end-of-function, after cleanup_current_thread_frames has cleared
-        // CURRENT_THREAD_SLOT, and a weakref callback fired during that drop
-        // would panic in push_thread_frame.
+        // Drop `func` and its Python references before releasing sentinels and
+        // thread-local roots. The slot stays attached through the entry drain.
         {
             let func = func;
             if let Err(exc) = func.invoke(args, vm)
@@ -753,16 +776,11 @@ pub(crate) mod _thread {
                 report_unraisable_thread_exception(exc, &func, vm);
             }
         }
-        for lock in SENTINELS.take() {
-            if lock.mu.is_locked() {
-                unsafe { lock.mu.unlock() };
-            }
-        }
+        release_sentinels(vm);
         // Clean up thread-local storage while VM context is still active
         // This ensures __del__ methods are called properly
-        cleanup_thread_local_data();
-        // Clean up frame tracking
-        crate::vm::thread::cleanup_current_thread_frames(vm);
+        cleanup_thread_local_data(vm);
+        crate::vm::thread::retire_thread_slot(vm);
         vm.state.thread_count.fetch_sub(1);
     }
 
@@ -808,11 +826,18 @@ pub(crate) mod _thread {
 
     /// Clean up thread-local data for the current thread.
     /// This triggers __del__ on objects stored in thread-local variables.
-    fn cleanup_thread_local_data() {
-        // Move all guards out before dropping them. A local dict's __del__ may
-        // re-enter thread-local access and borrow LOCAL_GUARDS again.
-        let guards = LOCAL_GUARDS.take();
-        drop(guards);
+    fn cleanup_thread_local_data(vm: &VirtualMachine) {
+        // Move this owner's guards out before dropping them. A local dict's
+        // __del__ may re-enter thread-local access and borrow LOCAL_GUARDS again.
+        let guards = LOCAL_GUARDS.with_borrow_mut(|guards| {
+            guards
+                .extract_if(.., |guard| guard.lease.owner() == vm.state.interpreter_id)
+                .collect::<Vec<_>>()
+        });
+        for guard in guards {
+            guard.lease.release_now(vm);
+        }
+        vm.state.roots.drain_pending();
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
@@ -835,13 +860,44 @@ pub(crate) mod _thread {
         Err(vm.new_system_exit(vec![].into()))
     }
 
-    thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });
+    thread_local!(static SENTINELS: RefCell<Vec<Sentinel>> = const { RefCell::new(Vec::new()) });
+
+    struct Sentinel {
+        owner: i64,
+        lock: Arc<RawMutex>,
+    }
+
+    impl Drop for Sentinel {
+        fn drop(&mut self) {
+            if self.lock.is_locked() {
+                unsafe { self.lock.unlock() };
+            }
+        }
+    }
+
+    fn release_sentinels(vm: &VirtualMachine) {
+        let sentinels = SENTINELS.with_borrow_mut(|sentinels| {
+            sentinels
+                .extract_if(.., |sentinel| sentinel.owner == vm.state.interpreter_id)
+                .collect::<Vec<_>>()
+        });
+        drop(sentinels);
+        vm.state.roots.drain_pending();
+    }
 
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
-        let lock = Lock { mu: RawMutex::INIT }.into_ref(&vm.ctx);
-        SENTINELS.with_borrow_mut(|sentinels| sentinels.push(lock.clone()));
-        lock
+        let mu = Arc::new(RawMutex::INIT);
+        SENTINELS.with_borrow_mut(|sentinels| {
+            sentinels.push(Sentinel {
+                owner: vm.state.interpreter_id,
+                lock: mu.clone(),
+            })
+        });
+        Lock {
+            mu: LockStorage::Shared(mu),
+        }
+        .into_ref(&vm.ctx)
     }
 
     #[derive(FromArgs)]
@@ -1012,14 +1068,15 @@ pub(crate) mod _thread {
     #[pystruct_sequence(
         name = "_ExceptHookArgs",
         module = "_thread",
-        data = "ExceptHookArgsData"
+        data = "ExceptHookArgsData",
+        interpreter_local
     )]
     struct PyExceptHookArgs;
 
     #[pyclass(with(PyStructSequence))]
     impl PyExceptHookArgs {
         #[extend_class]
-        fn extend_pyclass(ctx: &crate::vm::Context, class: &'static Py<crate::builtins::PyType>) {
+        fn extend_pyclass(ctx: &crate::vm::Context, class: &Py<crate::builtins::PyType>) {
             // (type, (sequence, dict)). Set before the trait installs its default.
             const EXCEPT_HOOK_ARGS_REDUCE: crate::function::PyMethodDef =
                 crate::function::PyMethodDef::new_const(
@@ -1123,7 +1180,14 @@ pub(crate) mod _thread {
     // Thread-local storage for cleanup guards
     // When a thread terminates, the guard is dropped, which triggers cleanup
     thread_local! {
-        static LOCAL_GUARDS: RefCell<Vec<LocalGuard>> = const { RefCell::new(Vec::new()) };
+        static LOCAL_GUARDS: RefCell<Vec<LocalGuardKey>> = const { RefCell::new(Vec::new()) };
+    }
+
+    // TLS holds no Python references and only queues owner-local retirement.
+    struct LocalGuardKey {
+        local: Weak<LocalData>,
+        thread_id: u64,
+        lease: PyRc<RootLease>,
     }
 
     // Guard that removes thread-local data when dropped
@@ -1243,19 +1307,25 @@ pub(crate) mod _thread {
 
             // Register cleanup guard only if we inserted a new entry
             if need_guard {
-                let guard = LocalGuard {
-                    local: Arc::downgrade(&self.inner),
+                let local = Arc::downgrade(&self.inner);
+                if let Some(lease) = vm.state.roots.insert_resource(LocalGuard {
+                    local: local.clone(),
                     thread_id,
-                };
-                LOCAL_GUARDS.with(|guards| {
-                    guards.borrow_mut().push(guard);
-                });
+                }) {
+                    LOCAL_GUARDS.with_borrow_mut(|guards| {
+                        guards.push(LocalGuardKey {
+                            local,
+                            thread_id,
+                            lease,
+                        });
+                    });
+                }
             }
 
             (dict, need_guard)
         }
 
-        fn remove_current_dict(&self) {
+        fn remove_current_dict(&self, vm: &VirtualMachine) {
             let thread_id = current_thread_id();
             let guard = LOCAL_GUARDS.with(|guards| {
                 let mut guards = guards.borrow_mut();
@@ -1269,7 +1339,7 @@ pub(crate) mod _thread {
             });
 
             if let Some(guard) = guard {
-                drop(guard);
+                guard.lease.release_now(vm);
             } else {
                 let removed = self.inner.state.lock().dicts.remove(&thread_id);
                 drop(removed);
@@ -1287,7 +1357,7 @@ pub(crate) mod _thread {
             };
             let init_args = zelf.inner.state.lock().init_args.clone();
             if let Err(err) = init(zelf.as_object(), init_args, vm) {
-                zelf.remove_current_dict();
+                zelf.remove_current_dict(vm);
                 return Err(err);
             }
 
@@ -1478,83 +1548,51 @@ pub(crate) mod _thread {
         // Reinitialize frame slot for current thread.
         // Locks are already reinit'd, so lock() is safe.
         crate::vm::thread::reinit_frame_slot_after_fork(vm);
+    }
 
-        // Clean up thread handles. All VmState locks were reinit'd to unlocked,
-        // so lock() won't deadlock. Per-thread Arc<Mutex<ThreadHandleInner>>
-        // locks are also reinit'd below before use.
-        {
-            let mut handles = vm.state.thread_handles.lock();
-            handles.retain(|(inner_weak, done_event_weak): &HandleEntry| {
-                let Some(inner) = inner_weak.upgrade() else {
-                    return false;
-                };
-                let Some(done_event) = done_event_weak.upgrade() else {
-                    return false;
-                };
-
-                // Reinit this per-handle lock in case a dead thread held it
-                reinit_parking_lot_mutex(&inner);
-                let mut inner_guard = inner.lock();
-
-                if inner_guard.ident == current_ident {
-                    return true;
-                }
-                if inner_guard.state == ThreadHandleState::NotStarted {
-                    return true;
-                }
-
-                inner_guard.state = ThreadHandleState::Done;
-                // The OS thread did not survive the fork. Dropping JoinHandle
-                // would pthread_detach a copied thread descriptor.
-                if let Some(handle) = inner_guard.join_handle.take() {
-                    core::mem::forget(handle);
-                }
-                drop(inner_guard);
-
-                // Reinit and set the done event. Do not notify: no other
-                // thread exists in the child, and notify_all would unpark
-                // waiters that did not survive the fork.
-                let (lock, cvar) = &*done_event;
-                reinit_parking_lot_mutex(lock);
-                reinit_parking_lot_condvar(cvar);
-                *lock.lock() = true;
-
-                true
-            });
-        }
-
-        // Clean up shutdown_handles.
-        {
-            let mut handles = vm.state.shutdown_handles.lock();
-            handles.retain(|(inner_weak, done_event_weak): &ShutdownEntry| {
-                let Some(inner) = inner_weak.upgrade() else {
-                    return false;
-                };
-                let Some(done_event) = done_event_weak.upgrade() else {
-                    return false;
-                };
-
-                reinit_parking_lot_mutex(&inner);
-                let mut inner_guard = inner.lock();
-
-                if inner_guard.ident == current_ident {
-                    return true;
-                }
-                if inner_guard.state == ThreadHandleState::NotStarted {
-                    return true;
-                }
-
-                inner_guard.state = ThreadHandleState::Done;
-                drop(inner_guard);
-
-                let (lock, cvar) = &*done_event;
-                reinit_parking_lot_mutex(lock);
-                reinit_parking_lot_condvar(cvar);
-                *lock.lock() = true;
-
-                false
-            });
-        }
+    /// Repair native handles before any child callback can create a thread or
+    /// join a parent thread. Every interpreter must complete this phase first.
+    #[cfg(all(unix, feature = "threading", feature = "host_env"))]
+    pub(crate) fn repair_handles_after_fork(state: &crate::vm::PyGlobalState) {
+        let current_ident = get_ident();
+        state.main_thread_ident.store(current_ident);
+        let repair = |inner_weak: &alloc::sync::Weak<parking_lot::Mutex<ThreadHandleInner>>,
+                      done_event_weak: &alloc::sync::Weak<(
+            parking_lot::Mutex<bool>,
+            parking_lot::Condvar,
+        )>| {
+            let (Some(inner), Some(done_event)) = (inner_weak.upgrade(), done_event_weak.upgrade())
+            else {
+                return false;
+            };
+            reinit_parking_lot_mutex(&inner);
+            let mut inner = inner.lock();
+            if inner.ident != current_ident && inner.state != ThreadHandleState::NotStarted {
+                inner.state = ThreadHandleState::Done;
+            }
+            // Copied JoinHandles no longer identify joinable native threads in
+            // this process, including the thread that called fork.
+            if let Some(handle) = inner.join_handle.take() {
+                core::mem::forget(handle);
+            }
+            inner.joining = false;
+            inner.joined = inner.state == ThreadHandleState::Done;
+            let done = inner.joined;
+            drop(inner);
+            let (lock, cvar) = &*done_event;
+            reinit_parking_lot_mutex(lock);
+            reinit_parking_lot_condvar(cvar);
+            *lock.lock() = done;
+            true
+        };
+        state
+            .thread_handles
+            .lock()
+            .retain(|(inner, event)| repair(inner, event));
+        state
+            .shutdown_handles
+            .lock()
+            .retain(|(inner, event)| repair(inner, event));
     }
 
     /// Take a thread handle's completion mutex, detaching first.
@@ -1999,7 +2037,7 @@ pub(crate) mod _thread {
             let handle = if let Some(handle_obj) = handle_obj {
                 if vm.is_none(&handle_obj) {
                     None
-                } else if !handle_obj.class().is(thread_handle_type) {
+                } else if !handle_obj.class().is(&thread_handle_type) {
                     return Err(vm.new_type_error("'handle' must be a _ThreadHandle").into());
                 } else {
                     Some(
@@ -2051,6 +2089,10 @@ pub(crate) mod _thread {
             .state
             .finalizing
             .load(core::sync::atomic::Ordering::Acquire)
+            || vm
+                .state
+                .admission_closed
+                .load(core::sync::atomic::Ordering::Acquire)
         {
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.python_finalization_error.to_owned(),
@@ -2103,7 +2145,7 @@ pub(crate) mod _thread {
         let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
 
         let join_handle = thread_builder
-            .spawn(vm.new_thread().make_spawn_func(move |vm| {
+            .spawn(vm.new_python_thread().make_spawn_func_raw(move |vm| {
                 // Publish ident for the parent starter thread.
                 {
                     inner_clone.lock().ident = get_ident();
@@ -2141,17 +2183,12 @@ pub(crate) mod _thread {
                     inner_for_cleanup.lock().state = ThreadHandleState::Done;
 
                     // Handle sentinels
-                    for lock in SENTINELS.take() {
-                        if lock.mu.is_locked() {
-                            unsafe { lock.mu.unlock() };
-                        }
-                    }
+                    release_sentinels(vm);
 
                     // Clean up thread-local data while VM context is still active
-                    cleanup_thread_local_data();
+                    cleanup_thread_local_data(vm);
 
-                    // Clean up frame tracking
-                    crate::vm::thread::cleanup_current_thread_frames(vm);
+                    crate::vm::thread::retire_thread_slot(vm);
 
                     vm_state.thread_count.fetch_sub(1);
 
@@ -2170,12 +2207,8 @@ pub(crate) mod _thread {
                 // Increment thread count when thread actually starts executing
                 vm_state.thread_count.fetch_add(1);
 
-                // Inner scope: drop `func` (and its Python refs) before the
-                // outer scopeguard::defer tears down the thread slot. As a
-                // `move` closure capture, `func` would otherwise drop after
-                // all locals (including the scopeguard `_guard`), and a
-                // weakref callback fired during that drop would panic in
-                // push_thread_frame.
+                // Drop `func` and its Python references before the outer
+                // cleanup guard releases thread-local roots and signals done.
                 {
                     let func = func;
                     // Run the function
@@ -2256,7 +2289,7 @@ pub(crate) mod _thread {
         #[test]
         #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
         fn default_python_thread_stack_size_debug() {
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 assert_eq!(vm.state.stacksize.load(), 0);
                 let builder = apply_thread_stack_size(thread::Builder::new(), vm);
                 let stack_size = builder
@@ -2280,7 +2313,7 @@ pub(crate) mod _thread {
         fn explicit_python_thread_stack_size_is_a_floor_debug() {
             const REQUESTED: usize = 256 * 1024;
 
-            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
                 vm.state.stacksize.store(REQUESTED);
                 let builder = apply_thread_stack_size(thread::Builder::new(), vm);
                 let stack_size = builder

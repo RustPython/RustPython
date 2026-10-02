@@ -178,7 +178,7 @@ pub(crate) mod ordered_dict {
 
     impl PyOrderedDict {
         fn is_exact(zelf: &Py<Self>) -> bool {
-            zelf.class().is(Self::static_type())
+            zelf.class().is(unsafe { Self::static_type() })
         }
 
         fn mutated_error(vm: &VirtualMachine) -> crate::builtins::PyBaseExceptionRef {

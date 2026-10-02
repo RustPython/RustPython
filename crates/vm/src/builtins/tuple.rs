@@ -8,7 +8,7 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
-    class::{PyClassDef, PyClassImpl},
+    class::{PyClassDef, PyClassImpl, StaticType},
     convert::{ToPyObject, TransmuteFromObject},
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     iter::PyExactSizeIterator,
@@ -119,9 +119,19 @@ impl PyPayload for PyTuple {
     const MAX_FREELIST: usize = 2000;
     const HAS_FREELIST: bool = true;
 
+    fn gc_is_acyclic(&self, class: &Py<PyType>) -> bool {
+        unsafe { Self::static_cell() }
+            .get()
+            .is_some_and(|base| class.is(base))
+            && self
+                .elements
+                .iter()
+                .all(|obj| obj.gc_is_atomic() || obj.gc_is_acyclic())
+    }
+
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.tuple_type).to_owned()
     }
 
     #[inline]
@@ -728,8 +738,8 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.tuple_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.tuple_iterator_type).to_owned()
     }
 }
 

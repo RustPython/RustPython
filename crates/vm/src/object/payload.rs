@@ -66,6 +66,16 @@ pub(crate) fn cold_downcast_type_error(
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<Self>();
 
+    /// Exact instances contain no Python references, mutable state or callbacks
+    /// requiring an interpreter. Subclasses never inherit this exemption.
+    const OWNER_NEUTRAL: bool = false;
+
+    #[doc(hidden)]
+    #[must_use]
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        layout == core::any::TypeId::of::<Self>()
+    }
+
     /// # Safety
     /// This function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]
@@ -79,10 +89,12 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
         }
 
         let class = Self::class(&vm.ctx);
-        Err(cold_downcast_type_error(vm, class, obj))
+        Err(cold_downcast_type_error(vm, &class, obj))
     }
 
-    fn class(ctx: &Context) -> &'static Py<PyType>;
+    /// Return this payload's class in the entered interpreter. Immutable native
+    /// types share their Rust definition; mutable native types own a heap class.
+    fn class(ctx: &Context) -> PyTypeRef;
 
     /// Whether `PyRef::new_ref` skips auto-tracking this type in the GC even
     /// when it would otherwise qualify (has traverse, dict, or heap type).
@@ -90,6 +102,14 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// and when they can become part of a reference cycle. Used by `FrameObject`,
     /// which is created untracked and tracked lazily only on escape.
     const NEW_REF_UNTRACKED: bool = false;
+
+    /// Whether a completed exact instance can never participate in a cycle.
+    /// Mutable/partially initialized objects and objects with hidden mutable
+    /// references must return false. Implementations must check the exact class;
+    /// subclasses can carry additional references beyond this payload.
+    fn gc_is_acyclic(&self, _class: &Py<PyType>) -> bool {
+        false
+    }
 
     /// Whether this type has a freelist. Types with freelists require
     /// immediate (non-deferred) GC untracking during dealloc to prevent
@@ -164,7 +184,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
         Self: core::fmt::Debug,
     {
         let cls = Self::class(ctx);
-        self._into_ref(cls.to_owned(), ctx)
+        self._into_ref(cls, ctx)
     }
 
     #[inline]
@@ -201,7 +221,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
         Self: core::fmt::Debug,
     {
         let exact_class = Self::class(&vm.ctx);
-        if cls.fast_issubclass(exact_class) {
+        if cls.fast_issubclass(&exact_class) {
             if exact_class.slots.basicsize != cls.slots.basicsize {
                 #[cold]
                 #[inline(never)]
@@ -216,7 +236,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                         exact_class.name()
                     ))
                 }
-                return Err(_into_ref_size_error(vm, &cls, exact_class));
+                return Err(_into_ref_size_error(vm, &cls, &exact_class));
             }
             let dict = if eager_dict && cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
                 Some(vm.ctx.new_dict())
@@ -238,7 +258,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                     exact_class.name()
                 ))
             }
-            Err(_into_ref_with_type_error(vm, &cls, exact_class))
+            Err(_into_ref_with_type_error(vm, &cls, &exact_class))
         }
     }
 }

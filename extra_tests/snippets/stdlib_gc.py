@@ -13,6 +13,7 @@ cycle is then classified as reachable and `node` is never freed.
 
 import gc
 import itertools
+import sys
 import weakref
 from collections import defaultdict, deque
 
@@ -39,8 +40,11 @@ def collects(wrap):
 
 # containers keeping their items in a field of their own
 assert collects(deque)
+assert collects(tuple)
 assert collects(lambda c: defaultdict(int, {"k": c}))
 assert collects(lambda c: classmethod(lambda cls: c))
+assert collects(lambda c: c.append)
+assert collects(lambda c: c.__iter__)
 
 # iterators: the wrapper holds an iterator, and that iterator holds the
 # container
@@ -198,5 +202,160 @@ def retained_cycles_are_promoted():
 
 
 retained_cycles_are_promoted()
+
+
+def automatic_collection_visits_older_generations():
+    enabled = gc.isenabled()
+    thresholds = gc.get_threshold()
+    phases = []
+
+    def callback(phase, info):
+        phases.append((phase, info["generation"]))
+        # A callback must not recursively start another collection.
+        assert gc.collect() == 0
+
+    gc.disable()
+    try:
+        gc.collect()
+        node = Node()
+        node.cycle = node
+        ref = weakref.ref(node)
+        gc.collect(2)
+        del node
+        gc.callbacks.append(callback)
+        gc.set_threshold(50, 1, 1)
+        gc.enable()
+        held = [[i] for i in range(5000)]
+        gc.disable()
+        assert ref() is None
+        assert len(held) == 5000
+        assert {generation for phase, generation in phases} == {0, 1, 2}
+        assert len(phases) % 2 == 0
+        for start, stop in zip(phases[::2], phases[1::2]):
+            assert start[0] == "start" and stop == ("stop", start[1])
+    finally:
+        gc.callbacks.remove(callback)
+        gc.set_threshold(*thresholds)
+        if enabled:
+            gc.enable()
+
+
+automatic_collection_visits_older_generations()
+
+
+def finalizer_can_replace_edges_and_create_weakrefs():
+    refs = []
+    calls = []
+
+    class Finalized:
+        def __del__(self):
+            refs.append(weakref.ref(self, lambda ref: calls.append(ref)))
+            self.cycle = [self]
+
+    node = Finalized()
+    node.cycle = node
+    del node
+    # The replacement list is new and may be collected in the next cycle.
+    gc.collect()
+    gc.collect()
+    assert len(refs) == 1 and refs[0]() is None
+    assert calls == refs
+
+
+finalizer_can_replace_edges_and_create_weakrefs()
+
+
+def immutable_tuple_chains_and_subclass_cycles():
+    chain = None
+    for _ in range(20000):
+        chain = (chain,)
+    gc.collect()
+    # Releasing an untracked immutable chain still needs bounded stack usage.
+    del chain
+
+    class Tuple(tuple):
+        pass
+
+    obj = Tuple((1,))
+    obj.cycle = obj
+    node = Node()
+    obj.node = node
+    ref = weakref.ref(node)
+    del node, obj
+    gc.collect()
+    assert ref() is None
+
+
+immutable_tuple_chains_and_subclass_cycles()
+
+
+def native_descriptors_release_their_references():
+    if sys.implementation.name == "rustpython":
+        # CPython 3.14 also retains this cycle: builtin methods have no tp_clear.
+        container = []
+        references = sys.getrefcount(container)
+        method = container.append
+        method.__module__ = method
+        del method
+        gc.collect()
+        assert sys.getrefcount(container) == references
+
+    class Slotted:
+        __slots__ = ("value",)
+
+    ref = weakref.ref(Slotted)
+    descriptor = Slotted.value
+    del Slotted
+    gc.collect()
+    assert ref() is descriptor.__objclass__
+    del descriptor
+    gc.collect()
+    assert ref() is None
+
+
+native_descriptors_release_their_references()
+
+
+def weakref_callbacks_do_not_hide_cycles():
+    for factory in (weakref.ref, weakref.proxy):
+        marker = Node()
+        ref = weakref.ref(marker)
+        items = [marker]
+
+        def callback(_, items=items):
+            pass
+
+        items.append(factory(int, callback))
+        del marker, items, callback
+        gc.collect()
+        assert ref() is None
+
+
+weakref_callbacks_do_not_hide_cycles()
+
+
+def only_reachable_weakrefs_run_callbacks():
+    for keep_ref in (False, True):
+        events = []
+        node = Node()
+        roots = [node]
+        node.cycle = node
+
+        def callback(_, roots=roots):
+            events.append("called")
+
+        ref = weakref.ref(node, callback)
+        roots.append(ref)
+        # A live weakref whose callback owns the target keeps that target alive.
+        if keep_ref:
+            roots.clear()
+        del node, roots, callback
+        if not keep_ref:
+            del ref
+        gc.collect()
+        assert events == (["called"] if keep_ref else [])
+
+
+only_reachable_weakrefs_run_callbacks()
 
 print("ok")

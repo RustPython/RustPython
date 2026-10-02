@@ -186,9 +186,9 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", self, attr_name, value);
-        let descr = vm
-            .ctx
-            .interned_str(attr_name)
+        let descr = self
+            .class()
+            .interned_attr_name(attr_name, vm)
             .and_then(|attr_name| self.get_class_attr(attr_name));
         if let Some(attr) = &descr
             && let Some(descriptor) = attr.class().slots().descr_set.load()
@@ -256,7 +256,7 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let obj_cls = self.class();
-        let cls_attr_name = vm.ctx.interned_str(name_str);
+        let cls_attr_name = obj_cls.interned_attr_name(name_str, vm);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();

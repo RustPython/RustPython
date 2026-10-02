@@ -8,8 +8,7 @@ use crate::{
     builtins::{
         PyBaseExceptionRef,
         descriptor::{
-            MemberAccess, MemberKind, PyDescriptorOwned, PyMemberDef, PyMemberDescriptor,
-            PyMemberFlags,
+            MemberAccess, MemberKind, PyDescriptor, PyMemberDef, PyMemberDescriptor, PyMemberFlags,
         },
         function::{PyCellRef, PyFunction},
         tuple::{IntoPyTuple, PyTuple},
@@ -23,6 +22,7 @@ use crate::{
         ArgumentError, FromArgs, FuncArgs, ItemDoc, KwArgs, Param, PyMethodDef, PySetterValue,
         db_doc,
     },
+    intern::MaybeInternedString,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
@@ -34,7 +34,7 @@ use crate::{
 use core::{
     any::Any,
     borrow::Borrow,
-    cell::Cell,
+    cell::RefCell,
     ops::Deref,
     pin::Pin,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
@@ -58,7 +58,6 @@ pub struct PyType {
     pub attributes: TypeNamespace,
     #[pymember(name = "__itemsize__", path = "itemsize")]
     #[pymember(name = "__basicsize__", path = "basicsize")]
-    #[pymember(name = "__flags__", path = "flags")]
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
@@ -104,7 +103,7 @@ struct TypeCacheEntry {
     name: AtomicPtr<PyStrInterned>,
     /// Cached lookup result as raw pointer. null = empty.
     /// The cache holds a **borrowed** pointer (no refcount increment).
-    /// Safety: `type_cache_clear()` nullifies all entries during GC,
+    /// Safety: `TypeCache::clear()` nullifies all entries during GC,
     /// and `type_cache_clear_version()` nullifies entries when a type
     /// is modified — both before the source dict entry is removed.
     /// Types are always part of reference cycles (via `mro` self-reference)
@@ -184,19 +183,25 @@ impl TypeCacheEntry {
     }
 }
 
-// std::sync::LazyLock is used here (not crate::common::lock::LazyLock)
-// because TYPE_CACHE is a global shared across test threads. The common
-// LazyLock delegates to LazyCell in non-threading mode, which is !Sync.
-static TYPE_CACHE: std::sync::LazyLock<Box<[TypeCacheEntry]>> = std::sync::LazyLock::new(|| {
-    (0..TYPE_CACHE_SIZE)
-        .map(|_| TypeCacheEntry::new())
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
-});
+/// Borrowed lookup results never leave the interpreter that owns their
+/// namespace. Type version tags remain globally unique.
+pub(crate) struct TypeCache {
+    entries: Box<[TypeCacheEntry]>,
+    clearing: AtomicBool,
+    closed: AtomicBool,
+}
 
-/// When true, find_name_in_mro skips populating the cache.
-/// Set during GC's type_cache_clear to prevent re-population from drops.
-static TYPE_CACHE_CLEARING: AtomicBool = AtomicBool::new(false);
+impl Default for TypeCache {
+    fn default() -> Self {
+        Self {
+            entries: (0..TYPE_CACHE_SIZE)
+                .map(|_| TypeCacheEntry::new())
+                .collect(),
+            clearing: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+        }
+    }
+}
 
 /// MCACHE_HASH: XOR of version and name pointer hash, masked to cache size.
 #[inline]
@@ -208,52 +213,57 @@ fn type_cache_hash(version: u32, name: &'static PyStrInterned) -> usize {
 /// Invalidate cache entries for a specific version tag.
 /// Called from modified() when a type is changed.
 fn type_cache_clear_version(version: u32) {
-    for entry in TYPE_CACHE.iter() {
-        if entry.version.load(Ordering::Relaxed) == version {
-            entry.begin_write();
+    crate::vm::thread::try_with_current_vm(|vm| vm.state.type_cache.clear_version(version));
+}
+
+impl TypeCache {
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.clear();
+    }
+
+    fn available(&self, vm: &VirtualMachine) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && !crate::vm::native_types::initializing(vm.state.interpreter_id)
+    }
+
+    fn clear_version(&self, version: u32) {
+        for entry in &self.entries {
             if entry.version.load(Ordering::Relaxed) == version {
-                entry.version.store(0, Ordering::Release);
-                entry.clear_value();
+                entry.begin_write();
+                if entry.version.load(Ordering::Relaxed) == version {
+                    entry.version.store(0, Ordering::Release);
+                    entry.clear_value();
+                }
+                entry.end_write();
             }
+        }
+    }
+
+    pub(crate) fn clear(&self) {
+        self.clearing.store(true, Ordering::Release);
+        for entry in &self.entries {
+            entry.begin_write();
+            entry.version.store(0, Ordering::Release);
+            entry.clear_value();
             entry.end_write();
         }
+        self.clearing.store(false, Ordering::Release);
     }
-}
 
-/// Clear all method cache entries (_PyType_ClearCache).
-/// Called during GC collection to nullify borrowed pointers before
-/// the collector breaks cycles.
-///
-/// Sets TYPE_CACHE_CLEARING to suppress cache re-population during the
-/// entire operation, preventing concurrent lookups from repopulating
-/// entries while we're clearing them.
-pub(crate) fn type_cache_clear() {
-    TYPE_CACHE_CLEARING.store(true, Ordering::Release);
-    for entry in TYPE_CACHE.iter() {
-        entry.begin_write();
-        entry.version.store(0, Ordering::Release);
-        entry.clear_value();
-        entry.end_write();
-    }
-    TYPE_CACHE_CLEARING.store(false, Ordering::Release);
-}
-
-/// Repair type-cache SeqLock state in the post-fork child.
-///
-/// If fork happens while a writer holds an entry SeqLock, the child inherits
-/// the odd sequence value with no surviving writer to release it. Clear only
-/// those in-progress entries, matching `_PyTypes_AfterFork()`.
-#[cfg(all(feature = "host_env", unix))]
-pub(crate) unsafe fn type_cache_after_fork() {
-    for entry in TYPE_CACHE.iter() {
-        let seq = entry.sequence.load(Ordering::Relaxed);
-        if (seq & 1) == 0 {
-            continue;
+    /// A vanished fork writer may have left its sequence odd.
+    #[cfg(all(feature = "host_env", unix))]
+    pub(crate) unsafe fn after_fork(&self) {
+        for entry in &self.entries {
+            if entry.sequence.load(Ordering::Relaxed) & 1 == 0 {
+                continue;
+            }
+            entry.value.store(core::ptr::null_mut(), Ordering::Relaxed);
+            entry.name.store(core::ptr::null_mut(), Ordering::Relaxed);
+            entry.version.store(0, Ordering::Relaxed);
+            entry.sequence.store(0, Ordering::Relaxed);
         }
-        entry.value.store(core::ptr::null_mut(), Ordering::Relaxed);
-        entry.name.store(core::ptr::null_mut(), Ordering::Relaxed);
-        entry.version.store(0, Ordering::Relaxed);
-        entry.sequence.store(0, Ordering::Relaxed);
+        self.clearing.store(false, Ordering::Relaxed);
     }
 }
 
@@ -283,7 +293,10 @@ unsafe impl crate::object::Traverse for PyType {
         // Clone the empty tuple before taking the write lock: `object`'s
         // `bases` is this same lock, and `.read()` while exclusive panics
         // on CellRwLock (and hangs on parking_lot).
-        let empty = object::PyBaseObject::static_type().bases.read().clone();
+        let empty = unsafe { object::PyBaseObject::static_type() }
+            .bases
+            .read()
+            .clone();
         if let Some(mut bases) = self.bases.try_write() {
             let old_bases = core::mem::replace(&mut *bases, empty);
             out.push(old_bases.into_untyped().into());
@@ -315,12 +328,14 @@ pub struct HeapTypeExt {
     /// The interpreter this type was created in, or `None` for the types the
     /// shared context builds before any interpreter exists.
     pub interpreter_id: Option<i64>,
+    /// Rust payload definition, independent of the Python identity of this VM's type.
+    native_definition: Option<core::any::TypeId>,
 }
 
 impl HeapTypeExt {
     /// The interpreter a type created right now belongs to.
     fn creating_interpreter_id() -> Option<i64> {
-        crate::vm::thread::try_with_current_vm(|vm| vm.state.interpreter_id)
+        crate::gc_state::current_interpreter_id()
     }
 }
 
@@ -427,14 +442,17 @@ unsafe impl Traverse for PyAttributes {
 /// The types `Context::genesis` builds cannot have one: hashing a string needs
 /// a VM and none exists yet, so they keep an interned-key map instead.
 pub enum TypeNamespace {
-    Attributes(PyRwLock<PyAttributes>),
+    Attributes(
+        PyRwLock<PyAttributes>,
+        std::sync::OnceLock<crate::vm::native_types::NativeNamespaceDefinition>,
+    ),
     Dict(PyDictRef),
 }
 
 unsafe impl Traverse for TypeNamespace {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
-            Self::Attributes(attrs) => {
+            Self::Attributes(attrs, _) => {
                 if let Some(attrs) = attrs.try_read_recursive() {
                     attrs.traverse(tracer_fn);
                 }
@@ -446,21 +464,47 @@ unsafe impl Traverse for TypeNamespace {
 
 impl Default for TypeNamespace {
     fn default() -> Self {
-        Self::Attributes(PyRwLock::default())
+        Self::Attributes(PyRwLock::default(), std::sync::OnceLock::new())
     }
 }
 
 impl From<PyAttributes> for TypeNamespace {
     fn from(attrs: PyAttributes) -> Self {
-        Self::Attributes(PyRwLock::new(attrs))
+        Self::Attributes(PyRwLock::new(attrs), std::sync::OnceLock::new())
     }
 }
 
 impl TypeNamespace {
+    pub(crate) fn define_native(
+        &self,
+        definition: crate::vm::native_types::NativeNamespaceDefinition,
+    ) {
+        let Self::Attributes(_, slot) = self else {
+            panic!("native definition installed on a heap namespace");
+        };
+        assert!(
+            slot.set(definition).is_ok(),
+            "native namespace defined twice"
+        );
+    }
+
+    fn local(&self) -> Option<crate::common::rc::PyRc<Self>> {
+        let Self::Attributes(_, definition) = self else {
+            return None;
+        };
+        let definition = definition.get()?;
+        let owner = crate::gc_state::current_interpreter_id()?;
+        crate::vm::thread::try_with_current_vm(|vm| {
+            (vm.state.interpreter_id == owner)
+                .then(|| vm.state.native_types.namespace(definition, vm))
+        })
+        .flatten()
+    }
+
     /// The namespace as a dict, for the types that have one.
     pub fn as_dict(&self) -> Option<&Py<PyDict>> {
         match self {
-            Self::Attributes(_) => None,
+            Self::Attributes(_, _) => None,
             Self::Dict(dict) => Some(dict),
         }
     }
@@ -482,15 +526,21 @@ impl TypeNamespace {
     }
 
     pub fn get(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        if let Some(local) = self.local() {
+            return local.get(name);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.read().get(name).cloned(),
+            Self::Attributes(attrs, _) => attrs.read().get(name).cloned(),
             Self::Dict(dict) => dict_get(dict, name),
         }
     }
 
     pub fn contains(&self, name: &'static PyStrInterned) -> bool {
+        if let Some(local) = self.local() {
+            return local.contains(name);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.read().contains_key(name),
+            Self::Attributes(attrs, _) => attrs.read().contains_key(name),
             Self::Dict(dict) => {
                 match crate::vm::thread::try_with_current_vm(|vm| dict.contains_key(name, vm)) {
                     Some(found) => found,
@@ -508,8 +558,11 @@ impl TypeNamespace {
     /// Bind `name` to `value` and hand back what it displaced, so the caller
     /// can decide where the old value is dropped.
     pub fn insert(&self, name: &'static PyStrInterned, value: PyObjectRef) -> Option<PyObjectRef> {
+        if let Some(local) = self.local() {
+            return local.insert(name, value);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.write().insert(name, value),
+            Self::Attributes(attrs, _) => attrs.write().insert(name, value),
             Self::Dict(dict) => {
                 let previous = dict_get(dict, name);
                 if let Some(Err(_)) | None =
@@ -523,8 +576,11 @@ impl TypeNamespace {
     }
 
     pub fn remove(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
+        if let Some(local) = self.local() {
+            return local.remove(name);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.write().shift_remove(name),
+            Self::Attributes(attrs, _) => attrs.write().shift_remove(name),
             Self::Dict(dict) => {
                 let previous = dict_get(dict, name)?;
                 crate::vm::thread::try_with_current_vm(|vm| dict.del_item(name, vm).ok());
@@ -535,8 +591,11 @@ impl TypeNamespace {
 
     /// The namespace contents in insertion order.
     pub fn entries(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        if let Some(local) = self.local() {
+            return local.entries();
+        }
         match self {
-            Self::Attributes(attrs) => attrs
+            Self::Attributes(attrs, _) => attrs
                 .read()
                 .iter()
                 .map(|(name, value)| ((*name).to_object(), value.clone()))
@@ -548,8 +607,11 @@ impl TypeNamespace {
     /// The namespace keyed by interned name; dict keys that are not strings
     /// are left out, since `PyAttributes` has nowhere to put them.
     pub fn attributes(&self, ctx: &Context) -> PyAttributes {
+        if let Some(local) = self.local() {
+            return local.attributes(ctx);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.read().clone(),
+            Self::Attributes(attrs, _) => attrs.read().clone(),
             Self::Dict(dict) => dict
                 .into_iter()
                 .filter_map(|(key, value)| {
@@ -563,8 +625,11 @@ impl TypeNamespace {
     /// The interned names in the namespace; dict keys that are not strings are
     /// left out.
     pub fn interned_names(&self, ctx: &Context) -> Vec<&'static PyStrInterned> {
+        if let Some(local) = self.local() {
+            return local.interned_names(ctx);
+        }
         match self {
-            Self::Attributes(attrs) => attrs.read().keys().copied().collect(),
+            Self::Attributes(attrs, _) => attrs.read().keys().copied().collect(),
             Self::Dict(dict) => dict
                 .into_iter()
                 .filter_map(|(key, _)| {
@@ -578,7 +643,7 @@ impl TypeNamespace {
     /// Empty the namespace, handing the values to the caller. Used by tp_clear.
     fn drain_into(&mut self, out: &mut Vec<PyObjectRef>) {
         match self {
-            Self::Attributes(attrs) => {
+            Self::Attributes(attrs, _) => {
                 if let Some(mut guard) = attrs.try_write() {
                     out.extend(guard.drain(..).map(|(_, value)| value));
                 }
@@ -620,8 +685,8 @@ impl core::fmt::Debug for PyType {
 
 impl PyPayload for PyType {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.type_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.type_type).to_owned()
     }
 }
 
@@ -651,28 +716,38 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
     a_mro.iter().any(|item| item.is(b))
 }
 
+thread_local! {
+    static HELD_TYPE_LOCKS: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+}
+
 impl PyType {
+    #[cfg(all(unix, feature = "threading"))]
+    pub(crate) unsafe fn repair_type_lock_after_fork(state: &crate::vm::PyGlobalState) {
+        if !HELD_TYPE_LOCKS.with(|held| held.borrow().contains(&state.interpreter_id)) {
+            unsafe { crate::common::lock::zero_reinit_after_fork(state.type_mutex.raw()) };
+        }
+    }
+
     #[inline]
-    fn with_type_lock<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    pub(crate) fn with_type_lock<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
         // Drops deferred via try_defer_drop inside the critical section run
         // after the guard is released, outside the lock.
         //
         // The lock is reentrant on the same thread so a custom mro() can
         // assign __bases__ (and re-enter here) without deadlocking.
-        thread_local! {
-            static HELD: Cell<bool> = const { Cell::new(false) };
-        }
         rustpython_common::refcount::with_deferred_drops(|| {
-            HELD.with(|held| {
-                if held.get() {
-                    f()
-                } else {
-                    let _guard = vm.state.type_mutex.lock();
-                    held.set(true);
-                    let result = f();
-                    held.set(false);
-                    result
+            HELD_TYPE_LOCKS.with(|held| {
+                let owner = vm.state.interpreter_id;
+                if held.borrow().contains(&owner) {
+                    return f();
                 }
+                let _lock = vm.state.type_mutex.write();
+                held.borrow_mut().push(owner);
+                let _recursion = scopeguard::guard((), |()| {
+                    let previous = held.borrow_mut().pop();
+                    debug_assert_eq!(previous, Some(owner));
+                });
+                f()
             })
         })
     }
@@ -708,6 +783,9 @@ impl PyType {
     }
 
     pub(crate) fn version_for_specialization(&self, vm: &VirtualMachine) -> u32 {
+        if !vm.state.type_cache.available(vm) {
+            return 0;
+        }
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             return version;
@@ -728,11 +806,8 @@ impl PyType {
         if old_version == 0 {
             return;
         }
-        let subclasses = self.subclasses.read();
-        for weak_ref in subclasses.iter() {
-            if let Some(sub) = weak_ref.upgrade() {
-                sub.downcast_ref::<Self>().unwrap().modified_inner();
-            }
+        for sub in self.subclass_snapshot() {
+            sub.modified_inner();
         }
         self.tp_version_tag.store(0, Ordering::SeqCst);
         // Nullify borrowed pointers in cache entries for this version
@@ -776,6 +851,65 @@ impl PyType {
         }
     }
 
+    fn local_subclasses(&self) -> Option<crate::common::rc::PyRc<PyRwLock<Vec<PyRef<PyWeak>>>>> {
+        if self.heaptype_ext.is_some() {
+            return None;
+        }
+        let owner = crate::gc_state::current_interpreter_id()?;
+        crate::vm::thread::try_with_current_vm(|vm| {
+            (vm.state.interpreter_id == owner).then(|| vm.state.native_types.subclasses(self))
+        })
+        .flatten()
+    }
+
+    fn with_subclass_registry<R>(&self, f: impl FnOnce(&PyRwLock<Vec<PyRef<PyWeak>>>) -> R) -> R {
+        if let Some(registry) = self.local_subclasses() {
+            f(&registry)
+        } else {
+            f(&self.subclasses)
+        }
+    }
+
+    fn add_subclass(&self, subclass: &Py<Self>) {
+        let weak = subclass
+            .as_object()
+            .downgrade_with_weakref_typ_opt(
+                None,
+                unsafe { super::PyWeak::static_type() }.to_owned(),
+            )
+            .unwrap();
+        self.with_subclass_registry(|registry| registry.write().push(weak));
+    }
+
+    pub(crate) fn subclass_snapshot(&self) -> Vec<PyTypeRef> {
+        fn snapshot(registry: &PyRwLock<Vec<PyRef<PyWeak>>>) -> Vec<PyTypeRef> {
+            let mut retired = Vec::new();
+            let mut subclasses = registry.write();
+            let mut live = Vec::with_capacity(subclasses.len());
+            subclasses.retain(|weak| {
+                if let Some(subclass) = weak.upgrade_visible() {
+                    live.push(subclass.downcast::<PyType>().unwrap());
+                    true
+                } else if weak.is_dead() {
+                    retired.push(weak.clone());
+                    false
+                } else {
+                    true
+                }
+            });
+            drop(subclasses);
+            drop(retired);
+            live
+        }
+        // Shared native parents retain only other shared native classes.
+        // Their private descendants are rooted in the current interpreter.
+        let mut live = snapshot(&self.subclasses);
+        if let Some(registry) = self.local_subclasses() {
+            live.extend(snapshot(&registry));
+        }
+        live
+    }
+
     pub fn new_simple_heap(
         name: &str,
         base: &Py<Self>,
@@ -786,7 +920,7 @@ impl PyType {
             vec![base.to_owned()],
             Default::default(),
             Default::default(),
-            Self::static_type().to_owned(),
+            unsafe { Self::static_type() }.to_owned(),
             ctx,
         )
     }
@@ -813,6 +947,7 @@ impl PyType {
             type_data: PyRwLock::new(None),
             specialization_cache: TypeSpecializationCache::new(),
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
+            native_definition: None,
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
         let base = bases.as_slice()[0].clone();
@@ -827,6 +962,48 @@ impl PyType {
             ctx,
             false,
         )
+    }
+
+    pub(crate) fn new_native_heap<T: 'static>(
+        name: &str,
+        base: PyTypeRef,
+        slots: PyTypeSlots,
+        metaclass: PyTypeRef,
+        ctx: &Context,
+    ) -> Result<PyTypeRef, String> {
+        slots.flags.insert(PyTypeFlags::HEAPTYPE);
+        let name = ctx.new_utf8_str(name);
+        let ext = HeapTypeExt {
+            qualname: PyRwLock::new(name.clone().into_wtf8()),
+            name: PyRwLock::new(name),
+            slots: None,
+            type_data: PyRwLock::new(None),
+            specialization_cache: TypeSpecializationCache::new(),
+            interpreter_id: HeapTypeExt::creating_interpreter_id(),
+            native_definition: Some(core::any::TypeId::of::<T>()),
+        };
+        let bases = PyTuple::new_ref_typed(vec![base.clone()], ctx);
+        Self::new_heap_inner(
+            base,
+            bases,
+            Default::default(),
+            slots,
+            ext,
+            metaclass,
+            ctx,
+            false,
+        )
+    }
+
+    /// Only for Rust payload validation. Python subclass checks use actual types.
+    pub fn is_native_subclass<T: 'static>(&self) -> bool {
+        let key = core::any::TypeId::of::<T>();
+        self.mro.read().iter().any(|class| {
+            class
+                .heaptype_ext
+                .as_ref()
+                .is_some_and(|ext| ext.native_definition == Some(key))
+        })
     }
 
     /// Equivalent to CPython's PyType_Check macro
@@ -861,7 +1038,7 @@ impl PyType {
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = base.slots.flags.load() & PyTypeFlags::COLLECTION;
+            let base_flags = base.effective_flags() & PyTypeFlags::COLLECTION;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
@@ -870,34 +1047,55 @@ impl PyType {
     }
 
     pub fn has_patma_collection_flag(&self, flag: u8) -> bool {
-        debug_assert!(flag == PyTypeFlags::SEQUENCE || flag == PyTypeFlags::MAPPING);
-        self.slots.flags.has_feature(flag)
+        debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
+        self.effective_flags().contains(&flag)
+    }
+
+    pub fn effective_flags(&self) -> PyTypeFlags {
+        let flags = self.slots.flags.load();
+        if self.heaptype_ext.is_some() || crate::gc_state::current_interpreter_id().is_none() {
+            return flags;
+        }
+        crate::vm::thread::try_with_current_vm(|vm| vm.state.native_types.runtime_flags(self))
+            .flatten()
+            .map_or(flags, |local| {
+                (flags & !crate::vm::native_types::RUNTIME_FLAGS) | local
+            })
+    }
+
+    fn set_runtime_flags(&self, mask: PyTypeFlags, flags: PyTypeFlags) {
+        if self.heaptype_ext.is_some() {
+            self.slots.flags.replace_masked(mask, flags);
+        } else {
+            crate::vm::thread::with_current_vm(|vm| {
+                vm.state.native_types.set_runtime_flags(self, mask, flags);
+            });
+        }
+        self.modified();
     }
 
     pub fn set_is_abstract(&self, is_abstract: bool) {
-        if is_abstract {
-            self.slots.flags.insert(PyTypeFlags::IS_ABSTRACT);
-        } else {
-            self.slots.flags.remove(PyTypeFlags::IS_ABSTRACT);
-        }
-        self.modified();
+        self.set_runtime_flags(
+            PyTypeFlags::from_element(PyTypeFlags::IS_ABSTRACT),
+            if is_abstract {
+                PyTypeFlags::from_element(PyTypeFlags::IS_ABSTRACT)
+            } else {
+                PyTypeFlags::empty()
+            },
+        );
     }
 
     pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
         let flags = flags & PyTypeFlags::COLLECTION;
-        if flags.is_empty() {
+        if flags.is_empty()
+            || self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE)
+            || self.effective_flags() & PyTypeFlags::COLLECTION == flags
+        {
             return;
         }
-        self.slots
-            .flags
-            .replace_masked(PyTypeFlags::COLLECTION, flags);
-        self.modified();
-        for weak_ref in self.subclasses.read().iter() {
-            if let Some(subclass) = weak_ref.upgrade()
-                && let Some(subclass) = subclass.downcast_ref::<Self>()
-            {
-                subclass.set_abc_collection_flags_recursive(flags);
-            }
+        self.set_runtime_flags(PyTypeFlags::COLLECTION, flags);
+        for subclass in self.subclass_snapshot() {
+            subclass.set_abc_collection_flags_recursive(flags);
         }
     }
 
@@ -970,6 +1168,9 @@ impl PyType {
         ctx: &Context,
         defer_mro: bool,
     ) -> Result<PyRef<Self>, String> {
+        if slots.native_layout_id.is_none() {
+            slots.native_layout_id = base.slots.native_layout_id;
+        }
         let mro = if defer_mro {
             // Leave tp_mro unset so a custom metaclass mro() sees __mro__ is None.
             Vec::new()
@@ -1042,17 +1243,22 @@ impl PyType {
         );
         if !defer_mro {
             new_type.mro.write().insert(0, new_type.clone());
-            new_type.init_slots(ctx);
+            if new_type
+                .heaptype_ext
+                .as_ref()
+                .unwrap()
+                .native_definition
+                .is_none()
+            {
+                new_type.init_slots(ctx);
+            } else {
+                Self::set_new(&new_type.slots, new_type.base.deref());
+                Self::set_alloc(&new_type.slots, new_type.base.deref());
+            }
         }
 
-        let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().as_slice() {
-            base.subclasses.write().push(
-                new_type
-                    .as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                    .unwrap(),
-            );
+            base.add_subclass(&new_type);
         }
 
         Ok(new_type)
@@ -1084,8 +1290,10 @@ impl PyType {
             slots.flags.insert(PyTypeFlags::MANAGED_WEAKREF);
         }
 
-        let bases =
-            PyTuple::new_ref_typed_with_type(vec![base.clone()], PyTuple::static_type().to_owned());
+        let bases = PyTuple::new_ref_typed_with_type(
+            vec![base.clone()],
+            unsafe { PyTuple::static_type() }.to_owned(),
+        );
         let mro = base.mro_map_collect(|x| x.to_owned());
 
         let new_type = PyRef::new_ref(
@@ -1122,14 +1330,8 @@ impl PyType {
         Self::set_new(&new_type.slots, new_type.base.deref());
         Self::set_alloc(&new_type.slots, new_type.base.deref());
 
-        let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().as_slice() {
-            base.subclasses.write().push(
-                new_type
-                    .as_object()
-                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                    .unwrap(),
-            );
+            base.add_subclass(&new_type);
         }
 
         Ok(new_type)
@@ -1152,7 +1354,7 @@ impl PyType {
         let mut slot_name_set = std::collections::HashSet::new();
 
         // mro[0] is self, so skip it; self.attributes is checked separately below
-        for cls in &self.mro.read()[1..] {
+        for cls in &mro {
             for name in cls.attributes.interned_names(ctx) {
                 if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);
@@ -1265,10 +1467,13 @@ impl PyType {
         #[cfg(all(feature = "threading", debug_assertions))]
         crate::vm::thread::debug_assert_current_thread_attached();
 
+        if !vm.state.type_cache.available(vm) {
+            return (self.find_name_in_mro_uncached(name), 0);
+        }
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);
-            let entry = &TYPE_CACHE[idx];
+            let entry = &vm.state.type_cache.entries[idx];
             let name_ptr = name as *const _ as *mut _;
             loop {
                 let seq1 = entry.begin_read();
@@ -1306,13 +1511,18 @@ impl PyType {
             };
             let result = self.find_name_in_mro_uncached(name);
             if assigned != 0
-                && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
+                && vm.state.type_cache.available(vm)
+                && !vm.state.type_cache.clearing.load(Ordering::Acquire)
                 && self.tp_version_tag.load(Ordering::Acquire) == assigned
             {
                 let idx = type_cache_hash(assigned, name);
-                let entry = &TYPE_CACHE[idx];
+                let entry = &vm.state.type_cache.entries[idx];
                 let name_ptr = name as *const _ as *mut _;
                 entry.begin_write();
+                if !vm.state.type_cache.available(vm) {
+                    entry.end_write();
+                    return (result, 0);
+                }
                 entry.version.store(0, Ordering::Release);
                 let new_ptr = result.as_ref().map_or(core::ptr::null_mut(), |found| {
                     // Defer memory reclamation of cached values via QSBR so
@@ -1459,12 +1669,41 @@ impl PyType {
 
     /// _PyType_LookupRef: look up a name through the MRO without setting an exception.
     pub fn lookup_ref(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let interned_name = vm.ctx.interned_str(name)?;
+        let interned_name = self.interned_attr_name(name, vm)?;
         self.lookup_ref_and_version_interned(interned_name, vm).0
     }
 
+    pub(crate) fn interned_attr_name<S: MaybeInternedString + ?Sized>(
+        &self,
+        name: &S,
+        vm: &VirtualMachine,
+    ) -> Option<&'static PyStrInterned> {
+        vm.ctx
+            .interned_str(name)
+            .or_else(|| self.interned_attr_name_cold(name.as_ref(), vm))
+    }
+
+    #[cold]
+    fn interned_attr_name_cold(
+        &self,
+        name: &Wtf8,
+        vm: &VirtualMachine,
+    ) -> Option<&'static PyStrInterned> {
+        // Lazy native namespaces may not have interned their attribute names
+        // yet. Populate them before treating an unknown name as absent, while
+        // keeping arbitrary missing names out of the immortal string pool.
+        let mro = self.mro.read().clone();
+        for class in &mro {
+            drop(class.attributes.local());
+            if let Some(name) = vm.ctx.interned_str(name) {
+                return Some(name);
+            }
+        }
+        None
+    }
+
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        let mro = self.mro.read();
+        let mro = self.mro.read().clone();
         mro.get(1..)?
             .iter()
             .find_map(|class| class.attributes.get(attr_name))
@@ -1478,36 +1717,39 @@ impl PyType {
     /// Check if attribute exists in MRO, using method cache for fast check.
     /// Unlike find_name_in_mro, avoids cloning the value on cache hit.
     fn has_name_in_mro(&self, name: &'static PyStrInterned) -> bool {
-        #[cfg(all(feature = "threading", debug_assertions))]
-        crate::vm::thread::debug_assert_current_thread_attached();
+        crate::vm::thread::try_with_current_vm(|vm| {
+            #[cfg(all(feature = "threading", debug_assertions))]
+            crate::vm::thread::debug_assert_current_thread_attached();
 
-        let version = self.tp_version_tag.load(Ordering::Acquire);
-        if version != 0 {
-            let idx = type_cache_hash(version, name);
-            let entry = &TYPE_CACHE[idx];
-            let name_ptr = name as *const _ as *mut _;
-            loop {
-                let seq1 = entry.begin_read();
-                let v1 = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if v1 != type_version
-                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
-                {
-                    break;
-                }
-                let ptr = entry.value.load(Ordering::Acquire);
-                if entry.end_read(seq1) {
-                    if !ptr.is_null() {
-                        return true;
+            let version = self.tp_version_tag.load(Ordering::Acquire);
+            if version != 0 {
+                let idx = type_cache_hash(version, name);
+                let entry = &vm.state.type_cache.entries[idx];
+                let name_ptr = name as *const _ as *mut _;
+                loop {
+                    let seq1 = entry.begin_read();
+                    let v1 = entry.version.load(Ordering::Acquire);
+                    let type_version = self.tp_version_tag.load(Ordering::Acquire);
+                    if v1 != type_version
+                        || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
+                    {
+                        break;
                     }
-                    break;
+                    let ptr = entry.value.load(Ordering::Acquire);
+                    if entry.end_read(seq1) {
+                        if !ptr.is_null() {
+                            return Some(true);
+                        }
+                        break;
+                    }
+                    continue;
                 }
-                continue;
             }
-        }
 
-        // Cache miss — use find_name_in_mro which populates cache
-        self.find_name_in_mro(name).is_some()
+            None
+        })
+        .flatten()
+        .unwrap_or_else(|| self.find_name_in_mro(name).is_some())
     }
 
     pub fn get_attributes(&self, ctx: &Context) -> PyAttributes {
@@ -1515,7 +1757,8 @@ impl PyType {
         let mut attributes = PyAttributes::default();
 
         // mro[0] is self, so we iterate through the entire MRO in reverse
-        for bc in self.mro.read().iter().map(|cls| -> &Self { cls }).rev() {
+        let mro = self.mro.read().clone();
+        for bc in mro.iter().rev() {
             attributes.extend(bc.attributes.attributes(ctx));
         }
 
@@ -1695,7 +1938,8 @@ impl Py<PyType> {
     where
         F: Fn(&Self) -> R,
     {
-        self.mro.read().iter().map(|x| &**x).map(f).collect()
+        let mro = self.mro.read().clone();
+        mro.iter().map(|x| &**x).map(f).collect()
     }
 
     pub fn mro_collect(&self) -> Vec<PyRef<PyType>> {
@@ -1711,7 +1955,7 @@ impl Py<PyType> {
         core::iter::successors(Some(self), |cls| cls.base.deref())
     }
 
-    pub fn extend_methods(&'static self, method_defs: &'static [PyMethodDef], ctx: &Context) {
+    pub fn extend_methods(&self, method_defs: &'static [PyMethodDef], ctx: &Context) {
         for method_def in method_defs {
             let method = method_def.to_proper_method(self, ctx);
             self.set_attr(ctx.intern_str(method_def.name), method);
@@ -2091,6 +2335,7 @@ impl Constructor for PyType {
                 type_data: PyRwLock::new(None),
                 specialization_cache: TypeSpecializationCache::new(),
                 interpreter_id: HeapTypeExt::creating_interpreter_id(),
+                native_definition: None,
             };
             (slots, heaptype_ext)
         };
@@ -2167,7 +2412,7 @@ impl Constructor for PyType {
                 let attr_name = vm.ctx.intern_str(mangled_name.as_str());
                 let member_descriptor: PyRef<PyMemberDescriptor> =
                     vm.ctx.new_pyref(PyMemberDescriptor {
-                        common: PyDescriptorOwned {
+                        common: PyDescriptor {
                             typ: typ.clone(),
                             name: attr_name,
                             qualname: PyRwLock::new(None),
@@ -2378,11 +2623,14 @@ impl GetAttr for PyType {
             ))
         }
 
-        let Some(name) = vm.ctx.interned_str(name_str) else {
+        let mcl = zelf.class();
+        let Some(name) = zelf
+            .interned_attr_name(name_str, vm)
+            .or_else(|| mcl.interned_attr_name(name_str, vm))
+        else {
             return Err(attribute_error(zelf, name_str.as_wtf8(), vm));
         };
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
-        let mcl = zelf.class();
         let mcl_attr = mcl.get_attr(name);
 
         if let Some(ref attr) = mcl_attr {
@@ -2581,34 +2829,39 @@ impl Py<PyType> {
         };
 
         let add_as_subclass = |bases: &[PyTypeRef]| {
-            let weakref_type = super::PyWeak::static_type();
             for base in bases {
-                base.subclasses.write().push(
-                    zelf.as_object()
-                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                        .unwrap(),
-                );
+                base.add_subclass(zelf);
             }
         };
 
         let remove_as_subclass = |bases: &[PyTypeRef], retired: &mut Vec<PyObjectRef>| {
             for base in bases {
-                let mut subclasses = base.subclasses.write();
-                let mut kept = Vec::with_capacity(subclasses.len());
-                for weak in subclasses.drain(..) {
-                    match weak.upgrade() {
-                        Some(obj) if obj.is(zelf.as_object()) => {
-                            retired.push(obj);
+                base.with_subclass_registry(|registry| {
+                    let mut subclasses = registry.write();
+                    let mut kept = Vec::with_capacity(subclasses.len());
+                    for weak in subclasses.drain(..) {
+                        if weak.is_dead() {
                             retired.push(weak.into());
+                            continue;
                         }
-                        Some(obj) => {
-                            retired.push(obj);
+                        if !weak.is_visible() {
                             kept.push(weak);
+                            continue;
                         }
-                        None => retired.push(weak.into()),
+                        match weak.upgrade_visible() {
+                            Some(obj) if obj.is(zelf.as_object()) => {
+                                retired.push(obj);
+                                retired.push(weak.into());
+                            }
+                            Some(obj) => {
+                                retired.push(obj);
+                                kept.push(weak);
+                            }
+                            None => retired.push(weak.into()),
+                        }
                     }
-                }
-                *subclasses = kept;
+                    *subclasses = kept;
+                });
             }
         };
 
@@ -2640,13 +2893,7 @@ impl Py<PyType> {
                 let old_mro = core::mem::replace(&mut *cls.mro.write(), new_mro);
                 undo.push((cls.to_owned(), old_mro));
                 cls.modified_inner();
-                let subclasses: Vec<PyTypeRef> = cls
-                    .subclasses
-                    .read()
-                    .iter()
-                    .filter_map(|subclass| subclass.upgrade())
-                    .filter_map(|subclass| subclass.downcast::<PyType>().ok())
-                    .collect();
+                let subclasses = cls.subclass_snapshot();
                 for subclass in subclasses {
                     update_mro_recursively(&subclass, undo, vm)?;
                 }
@@ -2710,6 +2957,11 @@ impl Py<PyType> {
         }
         zelf.get_direct_attr(identifier!(vm, __abstractmethods__))
             .ok_or_else(|| vm.new_attribute_error("__abstractmethods__"))
+    }
+
+    #[pygetset]
+    fn __flags__(&self) -> u64 {
+        self.effective_flags().bits()
     }
 
     #[pygetset(setter)]
@@ -3025,17 +3277,12 @@ impl Py<PyType> {
 
     #[pymethod]
     fn __subclasses__(&self, vm: &VirtualMachine) -> PyList {
-        let mut subclasses = self.subclasses.write();
-        subclasses.retain(|x| x.upgrade().is_some());
         let interpreter_id = vm.state.interpreter_id;
         PyList::from(
-            subclasses
-                .iter()
-                .filter_map(|x| x.upgrade())
-                .filter(|obj| {
-                    obj.downcast_ref::<PyType>()
-                        .is_none_or(|typ| typ.is_visible_to_interpreter(interpreter_id))
-                })
+            self.subclass_snapshot()
+                .into_iter()
+                .filter(|typ| typ.is_visible_to_interpreter(interpreter_id))
+                .map(Into::into)
                 .collect::<Vec<_>>(),
         )
     }
@@ -3468,6 +3715,7 @@ pub(crate) fn call_slot_new(
         .new
         .load()
         .is_some_and(|f| fn_addr(f) == fn_addr(new_wrapper as NewFunc))
+        && staticbase.slots.native_new.is_none()
     {
         match staticbase.base.load_owned() {
             Some(base) => staticbase = base,
@@ -3475,8 +3723,11 @@ pub(crate) fn call_slot_new(
         }
     }
 
-    let typ_new = typ.slots.new.load();
-    let staticbase_new = staticbase.slots.new.load();
+    let typ_new = typ.slots.native_new.or_else(|| typ.slots.new.load());
+    let staticbase_new = staticbase
+        .slots
+        .native_new
+        .or_else(|| staticbase.slots.new.load());
     if typ_new.map(fn_addr) != staticbase_new.map(fn_addr) {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
@@ -3486,11 +3737,7 @@ pub(crate) fn call_slot_new(
         )));
     }
 
-    let slot_new = typ
-        .slots
-        .new
-        .load()
-        .expect("Should be able to find a new slot somewhere in the mro");
+    let slot_new = typ_new.expect("Should be able to find a new slot somewhere in the mro");
     slot_new(subtype, args, vm)
 }
 
@@ -3798,7 +4045,8 @@ pub(crate) fn compatible_for_assignment(
         (None, None) => true,
         _ => false,
     };
-    let compatible = newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
+    let compatible = old_to.slots.native_layout_id == new_to.slots.native_layout_id
+        && (newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase)));
     if compatible {
         return Ok(());
     }

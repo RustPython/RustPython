@@ -92,8 +92,8 @@ impl PyPayload for PyList {
     const HAS_FREELIST: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.list_type).to_owned()
     }
 
     #[inline]
@@ -1080,8 +1080,8 @@ pub(crate) struct PyListIterator {
 
 impl PyPayload for PyListIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.list_iterator_type).to_owned()
     }
 }
 
@@ -1144,8 +1144,8 @@ pub(crate) struct PyListReverseIterator {
 
 impl PyPayload for PyListReverseIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.list_reverseiterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.list_reverseiterator_type).to_owned()
     }
 }
 

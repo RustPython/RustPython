@@ -24,9 +24,13 @@ pub struct WeakNewArgs {
 }
 
 impl PyPayload for PyWeak {
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        layout == core::any::TypeId::of::<Self>()
+            || layout == core::any::TypeId::of::<super::weakproxy::PyWeakProxy>()
+    }
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.weakref_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.weakref_type).to_owned()
     }
 }
 

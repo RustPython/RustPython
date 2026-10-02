@@ -31,19 +31,24 @@ fn pyperformance_benchmarks_run_in_rustpython() {
             .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
         let source_path = path.to_string_lossy();
 
-        InterpreterBuilder::new()
-            .init_stdlib()
-            .interpreter()
-            .enter(|vm| {
-                let code = vm
-                    .compile(&source, rustpython::vm::compiler::Mode::Exec, &*source_path)
-                    .unwrap_or_else(|err| panic!("failed to compile {}: {err}", path.display()));
-                let scope = vm.new_scope_with_builtins();
-                if let Err(err) = vm.run_code_obj(code, scope) {
-                    vm.print_exception(&err);
-                    panic!("failed to execute {}", path.display());
-                }
-            });
+        // SAFETY: the test retains no raw references after execution.
+        unsafe {
+            InterpreterBuilder::new()
+                .init_stdlib()
+                .interpreter()
+                .enter_unchecked(|vm| {
+                    let code = vm
+                        .compile(&source, rustpython::vm::compiler::Mode::Exec, &*source_path)
+                        .unwrap_or_else(|err| {
+                            panic!("failed to compile {}: {err}", path.display())
+                        });
+                    let scope = vm.new_scope_with_builtins();
+                    if let Err(err) = vm.run_code_obj(code, scope) {
+                        vm.print_exception(&err);
+                        panic!("failed to execute {}", path.display());
+                    }
+                });
+        }
     }
 }
 
@@ -73,13 +78,16 @@ assert sys.modules.get("_pickle", missing) is pickle_accelerator
 assert decimal.getcontext().prec == decimal_precision
 "#;
 
-    InterpreterBuilder::new()
-        .init_stdlib()
-        .interpreter()
-        .enter(|vm| {
-            if let Err(err) = vm.run_simple_string(source) {
-                vm.print_exception(&err);
-                panic!("pyperformance benchmarks leaked interpreter state");
-            }
-        });
+    // SAFETY: the test releases exceptions inside the native entry.
+    unsafe {
+        InterpreterBuilder::new()
+            .init_stdlib()
+            .interpreter()
+            .enter_unchecked(|vm| {
+                if let Err(err) = vm.run_simple_string(source) {
+                    vm.print_exception(&err);
+                    panic!("pyperformance benchmarks leaked interpreter state");
+                }
+            });
+    }
 }

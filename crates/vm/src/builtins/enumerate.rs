@@ -46,8 +46,8 @@ pub struct PyEnumerate {
 
 impl PyPayload for PyEnumerate {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.enumerate_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.enumerate_type).to_owned()
     }
 }
 
@@ -140,8 +140,8 @@ pub(crate) struct PyReverseSequenceIterator {
 
 impl PyPayload for PyReverseSequenceIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.reverse_iter_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.reverse_iter_type).to_owned()
     }
 }
 

@@ -19,8 +19,8 @@ pub struct PyZip {
 
 impl PyPayload for PyZip {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.zip_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.zip_type).to_owned()
     }
 }
 

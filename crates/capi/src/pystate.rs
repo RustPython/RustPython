@@ -4,9 +4,15 @@ use core::ffi::c_int;
 use core::sync::atomic::Ordering;
 use rustpython_vm::vm::thread::{
     CurrentVmAttachState, SavedThreadState, attach_current_thread, release_current_thread,
-    restore_current_thread, save_current_thread, with_current_vm,
+    restore_current_thread_unchecked, save_current_thread_unchecked,
 };
 use rustpython_vm::{Interpreter, VirtualMachine};
+
+// Native C API callbacks already require an attached interpreter and follow
+// CPython's ownership rules. Keep that boundary inside this crate.
+pub(crate) fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    unsafe { rustpython_vm::vm::thread::with_current_vm_unchecked(f) }
+}
 
 pub(crate) fn with_vm<R: FfiResult<O>, O>(f: impl FnOnce(&VirtualMachine) -> R) -> O {
     with_current_vm(|vm| f(vm).into_output(vm))
@@ -28,7 +34,8 @@ pub struct PyThreadState {
 /// Make sure this thread has a running vm attached. This only creates a new vm if we don't already
 /// have one. So this will only create a new vm when we are in a new thread created outside RustPython.
 pub(crate) fn ensure_thread_has_vm_attached() -> CurrentVmAttachState {
-    attach_current_thread(request_vm_from_interpreter)
+    // SAFETY: the C API pairs Ensure/Release on the calling native thread.
+    unsafe { attach_current_thread(request_vm_from_interpreter) }
 }
 
 #[unsafe(no_mangle)]
@@ -42,7 +49,7 @@ pub extern "C" fn PyGILState_Ensure() -> PyGILState_STATE {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGILState_Release(state: PyGILState_STATE) {
     if state == PYGILSTATE_UNLOCKED {
-        release_current_thread(CurrentVmAttachState::Attached);
+        unsafe { release_current_thread(CurrentVmAttachState::Attached) };
     }
 }
 
@@ -51,7 +58,7 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
     let interp = PyInterpreterState_Get();
     let state = Box::new(PyThreadState {
         interp,
-        vm: save_current_thread(),
+        vm: unsafe { save_current_thread_unchecked() },
     });
     Box::into_raw(state)
 }
@@ -62,7 +69,7 @@ pub unsafe extern "C" fn PyEval_RestoreThread(state: *mut PyThreadState) {
     // SAFETY: PyEval_SaveThread returns this allocation and CPython's API
     // requires callers to restore exactly that thread state once.
     let state = unsafe { Box::from_raw(state) };
-    restore_current_thread(state.vm);
+    unsafe { restore_current_thread_unchecked(state.vm) };
 }
 
 #[unsafe(no_mangle)]
@@ -87,10 +94,11 @@ pub extern "C" fn PyInterpreterState_GetID(interp: *mut PyInterpreterState) -> i
 
 #[cfg(test)]
 mod tests {
+    use super::with_current_vm;
     use crate::get_main_interpreter;
     use crate::pystate::{PyGILState_Ensure, PyGILState_Release};
     use pyo3::prelude::*;
-    use rustpython_vm::vm::thread::{current_vm_is_set, with_current_vm};
+    use rustpython_vm::vm::thread::current_vm_is_set;
 
     #[test]
     fn new_thread() {
@@ -128,21 +136,20 @@ mod tests {
         Python::initialize();
 
         // let RustPython create a vm for this thread.
-        let vm = get_main_interpreter()
-            .as_ref()
-            .unwrap()
-            .enter(|vm| vm.new_thread());
+        let vm = get_main_interpreter().as_ref().unwrap().new_thread();
 
         // Attach the vm using RustPython
-        vm.run(|_vm| {
-            assert!(current_vm_is_set(), "This thread should have a vm attached");
+        unsafe {
+            vm.run_unchecked(|_vm| {
+                assert!(current_vm_is_set(), "This thread should have a vm attached");
 
-            Python::attach(|_py| {
-                with_current_vm(|_vm| {
-                    assert!(current_vm_is_set());
+                Python::attach(|_py| {
+                    with_current_vm(|_vm| {
+                        assert!(current_vm_is_set());
+                    })
                 })
             })
-        });
+        };
     }
 
     #[test]

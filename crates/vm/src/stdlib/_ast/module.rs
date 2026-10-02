@@ -41,21 +41,26 @@ impl Node for Mod {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if object.is_instance(pyast::NodeModModule::static_type().as_object(), vm)? {
+            if object.is_instance(pyast::NodeModModule::make_class(&vm.ctx).as_object(), vm)? {
                 Self::Module(ModModule::ast_from_object(vm, source_file, object)?)
-            } else if object
-                .is_instance(pyast::NodeModInteractive::static_type().as_object(), vm)?
-            {
+            } else if object.is_instance(
+                pyast::NodeModInteractive::make_class(&vm.ctx).as_object(),
+                vm,
+            )? {
                 Self::Interactive(ModInteractive::ast_from_object(vm, source_file, object)?)
-            } else if object.is_instance(pyast::NodeModExpression::static_type().as_object(), vm)? {
+            } else if object.is_instance(
+                pyast::NodeModExpression::make_class(&vm.ctx).as_object(),
+                vm,
+            )? {
                 Self::Expression(ast::ModExpression::ast_from_object(
                     vm,
                     source_file,
                     object,
                 )?)
-            } else if object
-                .is_instance(pyast::NodeModFunctionType::static_type().as_object(), vm)?
-            {
+            } else if object.is_instance(
+                pyast::NodeModFunctionType::make_class(&vm.ctx).as_object(),
+                vm,
+            )? {
                 Self::FunctionType(ModFunctionType::ast_from_object(vm, source_file, object)?)
             } else {
                 return Err(vm.new_type_error(format!(
@@ -86,7 +91,7 @@ impl Node for ModModule {
             runtime_body,
         } = module;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModModule::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let body = runtime_body.map_or_else(
@@ -139,7 +144,7 @@ impl Node for ModInteractive {
             runtime_body,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModInteractive::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let body = runtime_body.map_or_else(
@@ -175,7 +180,7 @@ impl Node for ast::ModExpression {
             range: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeModExpression::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModExpression::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_file), vm)
@@ -211,7 +216,7 @@ impl Node for ModFunctionType {
             runtime_argtypes,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeModFunctionType::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModFunctionType::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let argtypes = runtime_argtypes.map_or_else(

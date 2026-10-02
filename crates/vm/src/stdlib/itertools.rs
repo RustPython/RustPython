@@ -39,7 +39,7 @@ mod decl {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args =
-                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
+                crate::types::drop_kwargs_if_init_overridden(&cls, &Self::class(&vm.ctx), args);
             if !args.kwargs.is_empty() {
                 return Err(
                     vm.new_type_error(format!("{}() takes no keyword arguments", Self::NAME))
@@ -796,7 +796,7 @@ mod decl {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let args =
-                crate::types::drop_kwargs_if_init_overridden(&cls, Self::class(&vm.ctx), args);
+                crate::types::drop_kwargs_if_init_overridden(&cls, &Self::class(&vm.ctx), args);
             let (iter, start, stop, step) = match args.args.len() {
                 0 | 1 => {
                     return Err(vm.new_arity_type_error(Self::NAME, 2..=4, args.args.len()));
@@ -1103,7 +1103,7 @@ mod decl {
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
             let class = Self::class(&vm.ctx);
-            if iterator.class().is(class) {
+            if iterator.class().is(&class) {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
@@ -1111,7 +1111,7 @@ mod decl {
                 index: AtomicCell::new(0),
                 advancing: AtomicBool::new(false),
             }
-            .into_ref_with_type(vm, class.to_owned())?
+            .into_ref_with_type(vm, class)?
             .into())
         }
     }

@@ -58,8 +58,8 @@ pub struct PyProperty {
 
 impl PyPayload for PyProperty {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.property_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.property_type).to_owned()
     }
 }
 

@@ -218,7 +218,7 @@ mod _zoneinfo {
     }
 
     fn is_base(cls: &Py<PyType>) -> bool {
-        cls.is(ZoneInfo::static_type())
+        cls.is(unsafe { ZoneInfo::static_type() })
     }
 
     fn strong_entries(vm: &VirtualMachine) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {

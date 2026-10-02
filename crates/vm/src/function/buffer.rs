@@ -60,15 +60,7 @@ impl ArgBytesLike {
     /// object's -- are borrowed where they lie, which is all CPython holds in
     /// either case.
     pub fn borrow_buf_unlocked(&self, vm: &VirtualMachine) -> PyResult<UnlockedBuf<'_>> {
-        let borrowed = self.borrow_buf();
-        if !borrowed.is_locked() {
-            return Ok(UnlockedBuf::Borrowed(borrowed));
-        }
-        let mut copy = Vec::new();
-        copy.try_reserve_exact(borrowed.len())
-            .map_err(|_| vm.no_memory_error())?;
-        copy.extend_from_slice(&borrowed);
-        Ok(UnlockedBuf::Copied(copy))
+        UnlockedBuf::new(self.borrow_buf(), vm)
     }
 
     #[must_use]
@@ -158,6 +150,19 @@ impl<'a> TryFromBorrowedObject<'a> for ArgContiguousBytesLike {
 pub enum UnlockedBuf<'a> {
     Borrowed(BorrowedValue<'a, [u8]>),
     Copied(Vec<u8>),
+}
+
+impl<'a> UnlockedBuf<'a> {
+    pub(crate) fn new(borrowed: BorrowedValue<'a, [u8]>, vm: &VirtualMachine) -> PyResult<Self> {
+        if !borrowed.is_locked() {
+            return Ok(Self::Borrowed(borrowed));
+        }
+        let mut copy = Vec::new();
+        copy.try_reserve_exact(borrowed.len())
+            .map_err(|_| vm.no_memory_error())?;
+        copy.extend_from_slice(&borrowed);
+        Ok(Self::Copied(copy))
+    }
 }
 
 impl core::ops::Deref for UnlockedBuf<'_> {

@@ -5,20 +5,21 @@ use rustpython::vm::{
 
 pub fn main() {
     let builder = rustpython::Interpreter::builder(Default::default());
-    let def = rust_py_module::module_def(&builder.ctx);
-    let interp = builder.init_stdlib().add_native_module(def).build();
+    let def = rust_py_module::module_def(unsafe { builder.context() });
+    // SAFETY: module callbacks use raw objects only within their native entry.
+    let interp = unsafe { builder.init_stdlib().add_native_module(def) }.build();
 
     interp.enter(|vm| {
-        vm.insert_sys_path(vm.new_pyobj("examples"))
-            .expect("add path");
+        vm.exec("import sys; sys.path.insert(0, 'examples')")
+            .unwrap();
 
-        let module = vm.import("call_between_rust_and_python", 0).unwrap();
-        let init_fn = module.get_attr("python_callback", vm).unwrap();
-        init_fn.call((), vm).unwrap();
+        let module = vm.import("call_between_rust_and_python").unwrap();
+        let init_fn = module.get_attr("python_callback").unwrap();
+        init_fn.call(&[]).unwrap();
 
-        let take_string_fn = module.get_attr("take_string", vm).unwrap();
+        let take_string_fn = module.get_attr("take_string").unwrap();
         take_string_fn
-            .call((String::from("Rust string sent to python"),), vm)
+            .call(&[vm.new_str("Rust string sent to python").unwrap()])
             .unwrap();
     })
 }

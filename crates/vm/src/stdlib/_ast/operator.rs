@@ -5,8 +5,8 @@ use rustpython_compiler_core::SourceFile;
 impl Node for ast::BoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
-            Self::And => pyast::NodeBoolOpAnd::static_type(),
-            Self::Or => pyast::NodeBoolOpOr::static_type(),
+            Self::And => pyast::NodeBoolOpAnd::make_class(&vm.ctx),
+            Self::Or => pyast::NodeBoolOpOr::make_class(&vm.ctx),
         };
         singleton_node_to_object(vm, node_type)
     }
@@ -17,9 +17,9 @@ impl Node for ast::BoolOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if is_node_instance(vm, &object, pyast::NodeBoolOpAnd::static_type())? {
+            if is_node_instance(vm, &object, pyast::NodeBoolOpAnd::make_class(&vm.ctx))? {
                 Self::And
-            } else if is_node_instance(vm, &object, pyast::NodeBoolOpOr::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeBoolOpOr::make_class(&vm.ctx))? {
                 Self::Or
             } else {
                 return Err(vm.new_type_error(format!(
@@ -35,19 +35,19 @@ impl Node for ast::BoolOp {
 impl Node for ast::Operator {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
-            Self::Add => pyast::NodeOperatorAdd::static_type(),
-            Self::Sub => pyast::NodeOperatorSub::static_type(),
-            Self::Mult => pyast::NodeOperatorMult::static_type(),
-            Self::MatMult => pyast::NodeOperatorMatMult::static_type(),
-            Self::Div => pyast::NodeOperatorDiv::static_type(),
-            Self::Mod => pyast::NodeOperatorMod::static_type(),
-            Self::Pow => pyast::NodeOperatorPow::static_type(),
-            Self::LShift => pyast::NodeOperatorLShift::static_type(),
-            Self::RShift => pyast::NodeOperatorRShift::static_type(),
-            Self::BitOr => pyast::NodeOperatorBitOr::static_type(),
-            Self::BitXor => pyast::NodeOperatorBitXor::static_type(),
-            Self::BitAnd => pyast::NodeOperatorBitAnd::static_type(),
-            Self::FloorDiv => pyast::NodeOperatorFloorDiv::static_type(),
+            Self::Add => pyast::NodeOperatorAdd::make_class(&vm.ctx),
+            Self::Sub => pyast::NodeOperatorSub::make_class(&vm.ctx),
+            Self::Mult => pyast::NodeOperatorMult::make_class(&vm.ctx),
+            Self::MatMult => pyast::NodeOperatorMatMult::make_class(&vm.ctx),
+            Self::Div => pyast::NodeOperatorDiv::make_class(&vm.ctx),
+            Self::Mod => pyast::NodeOperatorMod::make_class(&vm.ctx),
+            Self::Pow => pyast::NodeOperatorPow::make_class(&vm.ctx),
+            Self::LShift => pyast::NodeOperatorLShift::make_class(&vm.ctx),
+            Self::RShift => pyast::NodeOperatorRShift::make_class(&vm.ctx),
+            Self::BitOr => pyast::NodeOperatorBitOr::make_class(&vm.ctx),
+            Self::BitXor => pyast::NodeOperatorBitXor::make_class(&vm.ctx),
+            Self::BitAnd => pyast::NodeOperatorBitAnd::make_class(&vm.ctx),
+            Self::FloorDiv => pyast::NodeOperatorFloorDiv::make_class(&vm.ctx),
         };
         singleton_node_to_object(vm, node_type)
     }
@@ -58,31 +58,44 @@ impl Node for ast::Operator {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if is_node_instance(vm, &object, pyast::NodeOperatorAdd::static_type())? {
+            if is_node_instance(vm, &object, pyast::NodeOperatorAdd::make_class(&vm.ctx))? {
                 Self::Add
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorSub::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorSub::make_class(&vm.ctx))? {
                 Self::Sub
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorMult::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorMult::make_class(&vm.ctx))? {
                 Self::Mult
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorMatMult::static_type())? {
+            } else if is_node_instance(
+                vm,
+                &object,
+                pyast::NodeOperatorMatMult::make_class(&vm.ctx),
+            )? {
                 Self::MatMult
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorDiv::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorDiv::make_class(&vm.ctx))? {
                 Self::Div
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorMod::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorMod::make_class(&vm.ctx))? {
                 Self::Mod
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorPow::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorPow::make_class(&vm.ctx))? {
                 Self::Pow
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorLShift::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorLShift::make_class(&vm.ctx))?
+            {
                 Self::LShift
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorRShift::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorRShift::make_class(&vm.ctx))?
+            {
                 Self::RShift
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitOr::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitOr::make_class(&vm.ctx))?
+            {
                 Self::BitOr
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitXor::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitXor::make_class(&vm.ctx))?
+            {
                 Self::BitXor
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitAnd::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitAnd::make_class(&vm.ctx))?
+            {
                 Self::BitAnd
-            } else if is_node_instance(vm, &object, pyast::NodeOperatorFloorDiv::static_type())? {
+            } else if is_node_instance(
+                vm,
+                &object,
+                pyast::NodeOperatorFloorDiv::make_class(&vm.ctx),
+            )? {
                 Self::FloorDiv
             } else {
                 return Err(vm.new_type_error(format!(
@@ -98,10 +111,10 @@ impl Node for ast::Operator {
 impl Node for ast::UnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
-            Self::Invert => pyast::NodeUnaryOpInvert::static_type(),
-            Self::Not => pyast::NodeUnaryOpNot::static_type(),
-            Self::UAdd => pyast::NodeUnaryOpUAdd::static_type(),
-            Self::USub => pyast::NodeUnaryOpUSub::static_type(),
+            Self::Invert => pyast::NodeUnaryOpInvert::make_class(&vm.ctx),
+            Self::Not => pyast::NodeUnaryOpNot::make_class(&vm.ctx),
+            Self::UAdd => pyast::NodeUnaryOpUAdd::make_class(&vm.ctx),
+            Self::USub => pyast::NodeUnaryOpUSub::make_class(&vm.ctx),
         };
         singleton_node_to_object(vm, node_type)
     }
@@ -112,13 +125,13 @@ impl Node for ast::UnaryOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if is_node_instance(vm, &object, pyast::NodeUnaryOpInvert::static_type())? {
+            if is_node_instance(vm, &object, pyast::NodeUnaryOpInvert::make_class(&vm.ctx))? {
                 Self::Invert
-            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpNot::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpNot::make_class(&vm.ctx))? {
                 Self::Not
-            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUAdd::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUAdd::make_class(&vm.ctx))? {
                 Self::UAdd
-            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUSub::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUSub::make_class(&vm.ctx))? {
                 Self::USub
             } else {
                 return Err(vm.new_type_error(format!(
@@ -134,16 +147,16 @@ impl Node for ast::UnaryOp {
 impl Node for ast::CmpOp {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         let node_type = match self {
-            Self::Eq => pyast::NodeCmpOpEq::static_type(),
-            Self::NotEq => pyast::NodeCmpOpNotEq::static_type(),
-            Self::Lt => pyast::NodeCmpOpLt::static_type(),
-            Self::LtE => pyast::NodeCmpOpLtE::static_type(),
-            Self::Gt => pyast::NodeCmpOpGt::static_type(),
-            Self::GtE => pyast::NodeCmpOpGtE::static_type(),
-            Self::Is => pyast::NodeCmpOpIs::static_type(),
-            Self::IsNot => pyast::NodeCmpOpIsNot::static_type(),
-            Self::In => pyast::NodeCmpOpIn::static_type(),
-            Self::NotIn => pyast::NodeCmpOpNotIn::static_type(),
+            Self::Eq => pyast::NodeCmpOpEq::make_class(&vm.ctx),
+            Self::NotEq => pyast::NodeCmpOpNotEq::make_class(&vm.ctx),
+            Self::Lt => pyast::NodeCmpOpLt::make_class(&vm.ctx),
+            Self::LtE => pyast::NodeCmpOpLtE::make_class(&vm.ctx),
+            Self::Gt => pyast::NodeCmpOpGt::make_class(&vm.ctx),
+            Self::GtE => pyast::NodeCmpOpGtE::make_class(&vm.ctx),
+            Self::Is => pyast::NodeCmpOpIs::make_class(&vm.ctx),
+            Self::IsNot => pyast::NodeCmpOpIsNot::make_class(&vm.ctx),
+            Self::In => pyast::NodeCmpOpIn::make_class(&vm.ctx),
+            Self::NotIn => pyast::NodeCmpOpNotIn::make_class(&vm.ctx),
         };
         singleton_node_to_object(vm, node_type)
     }
@@ -154,25 +167,25 @@ impl Node for ast::CmpOp {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if is_node_instance(vm, &object, pyast::NodeCmpOpEq::static_type())? {
+            if is_node_instance(vm, &object, pyast::NodeCmpOpEq::make_class(&vm.ctx))? {
                 Self::Eq
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotEq::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotEq::make_class(&vm.ctx))? {
                 Self::NotEq
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLt::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLt::make_class(&vm.ctx))? {
                 Self::Lt
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLtE::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLtE::make_class(&vm.ctx))? {
                 Self::LtE
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGt::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGt::make_class(&vm.ctx))? {
                 Self::Gt
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGtE::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGtE::make_class(&vm.ctx))? {
                 Self::GtE
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIs::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIs::make_class(&vm.ctx))? {
                 Self::Is
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIsNot::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIsNot::make_class(&vm.ctx))? {
                 Self::IsNot
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIn::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIn::make_class(&vm.ctx))? {
                 Self::In
-            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotIn::static_type())? {
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotIn::make_class(&vm.ctx))? {
                 Self::NotIn
             } else {
                 return Err(vm.new_type_error(format!(

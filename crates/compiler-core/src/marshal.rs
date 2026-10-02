@@ -778,7 +778,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
         let elements = [start, stop, step];
         Ok(
             self.make_constant::<Bag::Constant>(BorrowedConstant::Slice {
-                elements: &elements,
+                elements: elements.each_ref(),
             }),
         )
     }
@@ -806,7 +806,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
         let elements: Vec<Self::Value> = it.collect();
         Ok(
             self.make_constant::<Bag::Constant>(BorrowedConstant::Frozenset {
-                elements: &elements,
+                elements: alloc::borrow::Cow::Borrowed(&elements),
             }),
         )
     }
@@ -1271,19 +1271,19 @@ pub enum DumpableValue<'a, D: Dumpable> {
     Slice(&'a D, &'a D, &'a D),
 }
 
-impl<'a, C: Constant> From<BorrowedConstant<'a, C>> for DumpableValue<'a, C> {
-    fn from(c: BorrowedConstant<'a, C>) -> Self {
+impl<'a, C: Constant> From<&'a BorrowedConstant<'_, C>> for DumpableValue<'a, C> {
+    fn from(c: &'a BorrowedConstant<'_, C>) -> Self {
         match c {
             BorrowedConstant::Integer { value } => Self::Integer(value),
-            BorrowedConstant::Float { value } => Self::Float(value),
-            BorrowedConstant::Complex { value } => Self::Complex(value),
-            BorrowedConstant::Boolean { value } => Self::Boolean(value),
+            BorrowedConstant::Float { value } => Self::Float(*value),
+            BorrowedConstant::Complex { value } => Self::Complex(*value),
+            BorrowedConstant::Boolean { value } => Self::Boolean(*value),
             BorrowedConstant::Str { value } => Self::Str(value),
             BorrowedConstant::Bytes { value } => Self::Bytes(value),
             BorrowedConstant::Code { code } => Self::Code(code),
             BorrowedConstant::Tuple { elements } => Self::Tuple(elements),
             BorrowedConstant::Slice { elements } => {
-                Self::Slice(&elements[0], &elements[1], &elements[2])
+                Self::Slice(elements[0], elements[1], elements[2])
             }
             BorrowedConstant::Frozenset { elements } => Self::Frozenset(elements),
             BorrowedConstant::None => Self::None,
@@ -1298,7 +1298,7 @@ impl<C: Constant> Dumpable for C {
 
     #[inline(always)]
     fn with_dump<R>(&self, f: impl FnOnce(DumpableValue<'_, Self>) -> R) -> Result<R, Self::Error> {
-        Ok(f(self.borrow_constant().into()))
+        Ok(f((&self.borrow_constant()).into()))
     }
 }
 
@@ -1463,7 +1463,7 @@ pub fn serialize_value<W: Write, D: Dumpable>(
 /// co_localsplusnames/co_localspluskinds.
 pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) {
     serialize_code_with(buf, code, |buf, constant| {
-        serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {});
+        serialize_value(buf, (&constant.borrow_constant()).into()).unwrap_or_else(|x| match x {});
         Ok::<(), core::convert::Infallible>(())
     })
     .unwrap_or_else(|x| match x {})

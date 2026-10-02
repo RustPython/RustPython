@@ -2,6 +2,7 @@
 use super::StopTheWorldState;
 use super::{
     Context, PyConfig, PyGlobalState, VirtualMachine,
+    owned::OwnedVm,
     runtime::{self, InterpreterWhence},
     setting::Settings,
     thread,
@@ -13,7 +14,8 @@ use crate::{
 use alloc::collections::BTreeMap;
 use core::sync::atomic::Ordering;
 
-type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
+type InitFunc = Box<dyn FnOnce(&VirtualMachine)>;
+type ConfigFunc = Box<dyn FnOnce(&mut PyConfig)>;
 
 /// Exit code used when stdout/stderr flush fails during interpreter shutdown.
 /// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
@@ -30,15 +32,16 @@ const EXITCODE_FLUSH_FAILURE: u32 = 120;
 /// use rustpython_vm::Interpreter;
 ///
 /// let builder = Interpreter::builder(Default::default());
-/// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(&builder.ctx))
+/// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(unsafe { builder.context() }))
 /// let interp = builder.build();
 /// ```
 pub struct InterpreterBuilder {
     settings: Settings,
-    pub ctx: PyRc<Context>,
+    ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
+    config_hooks: Vec<ConfigFunc>,
 }
 
 /// Options for constructing a main or sub-interpreter VM.
@@ -48,6 +51,7 @@ struct InitializeVmOpts<'a> {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
+    config_hooks: Vec<ConfigFunc>,
     is_main: bool,
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
@@ -56,9 +60,9 @@ struct InitializeVmOpts<'a> {
 }
 
 /// Shared constructor for main and sub-interpreters.
-fn initialize_vm<F>(opts: InitializeVmOpts<'_>, init: F) -> (VirtualMachine, PyRc<PyGlobalState>)
+fn initialize_vm<F>(opts: InitializeVmOpts<'_>, init: F) -> (OwnedVm, PyRc<PyGlobalState>)
 where
-    F: FnOnce(&mut VirtualMachine),
+    F: FnOnce(&VirtualMachine),
 {
     let InitializeVmOpts {
         settings,
@@ -66,6 +70,7 @@ where
         module_defs,
         frozen_modules,
         init_hooks,
+        config_hooks,
         is_main,
         whence,
         parent_state,
@@ -74,7 +79,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -94,7 +99,10 @@ where
         // First top-level interpreter wins. Later seeds are ignored.
         super::init_hash_secret(settings.hash_seed);
         let paths = getpath::init_path_config(&settings);
-        let config = PyConfig::new(settings, paths);
+        let mut config = PyConfig::new(settings, paths);
+        for hook in config_hooks {
+            hook(&mut config);
+        }
 
         // Build module_defs map from builtin modules + additional modules
         let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
@@ -131,10 +139,14 @@ where
     };
 
     // Per-interpreter ephemeral state (must not be shared across interpreters).
+    #[cfg(all(unix, feature = "threading"))]
+    let publication = super::fork::native_phase();
+    let interpreter_id = runtime::alloc_interpreter_id();
+    let gc = crate::gc_state::GcInterpreterState::new_for_interpreter(&ctx, interpreter_id);
+    let allocation_owner = gc.allocation_scope();
     let codec_registry = CodecsRegistry::new(&ctx);
     let warnings = WarningsState::init_state(&ctx);
 
-    let interpreter_id = runtime::alloc_interpreter_id();
     let runtime_root_id = parent_state.map_or(interpreter_id, |parent| parent.runtime_root_id);
 
     // Process main OS thread identity is process-global; subinterpreters inherit
@@ -148,7 +160,12 @@ where
 
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
-        gc: crate::gc_state::GcInterpreterState::new(&ctx),
+        owners: AtomicUsize::new(0),
+        owner_leases: super::owner_lease::OwnerLeases::default(),
+        teardowns: AtomicUsize::new(0),
+        closed: AtomicBool::new(false),
+        admission_closed: AtomicBool::new(false),
+        gc,
         interpreter_id,
         runtime_root_id,
         whence,
@@ -162,6 +179,10 @@ where
         audit_hooks: PyMutex::default(),
         codec_registry,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        abc_invalidation_counter: AtomicU64::new(0),
+        native_cache: super::native_cache::NativeCache::default(),
+        roots: PyRc::new(super::roots::Roots::new(interpreter_id)),
+        native_types: super::native_types::NativeTypes::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
         finalizing_thread_ident: AtomicCell::new(0),
@@ -174,7 +195,8 @@ where
         switch_interval: AtomicCell::new(0.005),
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
-        type_mutex: PyMutex::default(),
+        type_cache: crate::builtins::type_::TypeCache::default(),
+        type_mutex: crate::common::lock::PyDetachingRwLock::default(),
         #[cfg(feature = "threading")]
         main_thread_ident,
         #[cfg(feature = "threading")]
@@ -197,31 +219,36 @@ where
     });
 
     // Create VM with the global state
-    // Note: Don't clone here - init_hooks need exclusive access to mutate state
-    let mut vm = VirtualMachine::new(ctx, global_state);
+    let vm = OwnedVm::new(VirtualMachine::new(ctx, global_state));
 
-    // Execute initialization hooks (can mutate vm.state)
-    for hook in init_hooks {
-        hook(&mut vm);
-    }
-
-    // Call custom init function (can mutate vm.state)
-    init(&mut vm);
-
-    // Register before `initialize()` runs any Python: it allocates GC-tracked
-    // objects, so a collection on another thread has to be able to stop this
-    // interpreter while that happens. It cannot be registered earlier — the
-    // hooks above take `PyRc::get_mut` on the state, which fails once the
-    // registry holds a weak reference to it.
-    runtime::register_interpreter(&vm.state);
-
-    // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
-    // and `encodings`) before any `enter_vm` scope exists, so attach this
-    // thread for the duration so type cache reads see it as ATTACHED.
+    // Keep the VM address stable and attached throughout user hooks as well as
+    // Python initialization. Unwinding hooks release their locals before this
+    // guard ends; OwnedVm then performs the remaining partial-state teardown.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
-    vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
+    drop(allocation_owner);
+    // Hooks can execute Python and must be visible to GC on other threads.
+    runtime::register_interpreter(&vm.state);
+    #[cfg(all(unix, feature = "threading"))]
+    drop(publication);
+    let initialized = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+        // Runtime hooks receive shared access after attachment.
+        for hook in init_hooks {
+            hook(&vm);
+        }
+
+        // Run custom native initialization under the same shared entry.
+        init(&vm);
+
+        // Imports in initialize() execute Python under the bootstrap guard,
+        // before the first ordinary enter_vm scope.
+        vm.initialize();
+        vm.state.ready.store(true, Ordering::Release);
+    }));
     drop(vm_guard);
+    if let Err(error) = initialized {
+        drop(vm);
+        std::panic::resume_unwind(error);
+    }
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -257,6 +284,7 @@ fn create_subinterpreter_from_parent(
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            config_hooks: Vec::new(),
             is_main: false,
             whence: InterpreterWhence::Stdlib,
             parent_state: Some(&parent.state),
@@ -266,13 +294,23 @@ fn create_subinterpreter_from_parent(
     );
     let interp = Interpreter { global_state, vm };
     // Every interpreter has a `__main__` module once it is initialized.
-    interp.enter(|vm| {
+    interp.enter_raw(|vm| {
         let _ = vm.ensure_main_module();
     });
     Ok(interp)
 }
 
 impl InterpreterBuilder {
+    /// Access the raw type context for defining native modules.
+    ///
+    /// # Safety
+    /// Follow the native ownership contract in [`crate::embedding`]. Do not retain
+    /// Python objects through this context outside their attached interpreter.
+    #[must_use]
+    pub unsafe fn context(&self) -> &Context {
+        &self.ctx
+    }
+
     /// Create a new interpreter configuration with default settings.
     #[must_use]
     pub fn new() -> Self {
@@ -282,7 +320,15 @@ impl InterpreterBuilder {
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            config_hooks: Vec::new(),
         }
+    }
+
+    /// Configure Rust-owned settings and paths before creating runtime objects.
+    #[must_use]
+    pub fn configure(mut self, configure: impl FnOnce(&mut PyConfig) + 'static) -> Self {
+        self.config_hooks.push(Box::new(configure));
+        self
     }
 
     /// Set custom settings for the interpreter.
@@ -302,13 +348,16 @@ impl InterpreterBuilder {
     ///
     /// let builder = Interpreter::builder(Default::default());
     /// // Note: In practice, use module_def from your #[pymodule]
-    /// // let def = mymodule::module_def(&builder.ctx);
+    /// // let def = mymodule::module_def(unsafe { builder.context() });
     /// // let interp = builder.add_native_module(def).build();
     /// let interp = builder.build();
     /// ```
     #[must_use]
-    pub fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
-        self.add_native_modules(&[def])
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::embedding`],
+    /// including owner-local access and destruction of all Python references.
+    pub unsafe fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
+        unsafe { self.add_native_modules(&[def]) }
     }
 
     /// Add multiple native module definitions.
@@ -319,12 +368,15 @@ impl InterpreterBuilder {
     ///
     /// let builder = Interpreter::builder(Default::default());
     /// // In practice, use module_defs from rustpython_stdlib:
-    /// // let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    /// // let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
     /// // let interp = builder.add_native_modules(&defs).build();
     /// let interp = builder.build();
     /// ```
     #[must_use]
-    pub fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::embedding`],
+    /// including owner-local access and destruction of all Python references.
+    pub unsafe fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
         self.module_defs.extend_from_slice(defs);
         self
     }
@@ -339,16 +391,18 @@ impl InterpreterBuilder {
     /// ```
     /// use rustpython_vm::Interpreter;
     ///
-    /// let interp = Interpreter::builder(Default::default())
-    ///     .init_hook(|vm| {
-    ///         // Custom initialization
-    ///     })
+    /// // SAFETY: this hook retains no Python references.
+    /// let interp = unsafe { Interpreter::builder(Default::default())
+    ///     .init_hook(|_vm| {}) }
     ///     .build();
     /// ```
     #[must_use]
-    pub fn init_hook<F>(mut self, init: F) -> Self
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::embedding`],
+    /// including owner-local access and destruction of all Python references.
+    pub unsafe fn init_hook<F>(mut self, init: F) -> Self
     where
-        F: FnOnce(&mut VirtualMachine) + 'static,
+        F: FnOnce(&VirtualMachine) + 'static,
     {
         self.init_hooks.push(Box::new(init));
         self
@@ -388,6 +442,7 @@ impl InterpreterBuilder {
                 module_defs: self.module_defs,
                 frozen_modules: self.frozen_modules,
                 init_hooks: self.init_hooks,
+                config_hooks: self.config_hooks,
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -423,21 +478,52 @@ impl Default for InterpreterBuilder {
 /// Runs a simple embedded hello world program.
 /// ```
 /// use rustpython_vm::Interpreter;
-/// use rustpython_vm::compiler::Mode;
 /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
-///     let scope = vm.new_scope_with_builtins();
-///     let source = r#"print("Hello World!")"#;
-///     let code_obj = vm.compile(
-///             source,
-///             Mode::Exec,
-///             "<embedded>",
-///     ).map_err(|err| err.into_pyexception(vm, Some(source))).unwrap();
-///     vm.run_code_obj(code_obj, scope).unwrap();
+///     vm.exec(r#"print("Hello World!")"#).unwrap();
 /// });
 /// ```
 pub struct Interpreter {
-    pub global_state: PyRc<PyGlobalState>,
-    vm: VirtualMachine,
+    pub(crate) global_state: PyRc<PyGlobalState>,
+    vm: OwnedVm,
+}
+
+/// Finalization was not started because native workers still own this runtime.
+/// Drop or join them, then call [`Self::retry`].
+pub struct FinalizeBusy {
+    interpreter: Interpreter,
+    result: crate::embedding::Result<()>,
+}
+
+impl core::fmt::Debug for FinalizeBusy {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FinalizeBusy")
+            .field("interpreter", &self.interpreter.id())
+            .finish_non_exhaustive()
+    }
+}
+
+impl core::fmt::Display for FinalizeBusy {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("native workers still own the interpreter")
+    }
+}
+
+impl core::error::Error for FinalizeBusy {}
+
+impl FinalizeBusy {
+    #[must_use]
+    pub fn interpreter(&self) -> &Interpreter {
+        &self.interpreter
+    }
+
+    pub fn retry(self) -> Result<u32, Self> {
+        self.interpreter.finish_scoped(self.result)
+    }
+
+    #[must_use]
+    pub fn into_interpreter(self) -> Interpreter {
+        self.interpreter
+    }
 }
 
 impl Interpreter {
@@ -448,7 +534,7 @@ impl Interpreter {
     /// use rustpython_vm::Interpreter;
     ///
     /// let builder = Interpreter::builder(Default::default());
-    /// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(&builder.ctx))
+    /// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(unsafe { builder.context() }))
     /// let interp = builder.build();
     /// ```
     #[must_use]
@@ -462,15 +548,18 @@ impl Interpreter {
     /// try to build one from the source code of `InterpreterBuilder`. It will not be a one-liner but it also will not be too hard.
     #[must_use]
     pub fn without_stdlib(settings: Settings) -> Self {
-        Self::with_init(settings, |_| {})
+        Self::builder(settings).build()
     }
 
     /// Create with initialize function taking mutable vm reference.
     ///
     /// Note: This is a legacy API. To add stdlib, use `Interpreter::builder()` instead.
-    pub fn with_init<F>(settings: Settings, init: F) -> Self
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::embedding`],
+    /// including owner-local access and destruction of all Python references.
+    pub unsafe fn with_init<F>(settings: Settings, init: F) -> Self
     where
-        F: FnOnce(&mut VirtualMachine),
+        F: FnOnce(&VirtualMachine),
     {
         let (vm, global_state) = initialize_vm(
             InitializeVmOpts {
@@ -479,6 +568,7 @@ impl Interpreter {
                 module_defs: Vec::new(),
                 frozen_modules: Vec::new(),
                 init_hooks: Vec::new(),
+                config_hooks: Vec::new(),
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -574,29 +664,119 @@ impl Interpreter {
         &self,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(&self.vm, config)
+        self.enter_raw(|vm| create_subinterpreter_from_parent(vm, config))
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
-        self.vm.new_thread()
+        self.enter_raw(VirtualMachine::new_thread)
     }
 
-    /// Run a function with the main virtual machine and return a PyResult of the result.
-    ///
-    /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
-    /// `enter` is lightweight and it returns a python object in PyResult.
-    /// You can stop or continue the execution multiple times by calling `enter`.
-    ///
-    /// To finalize the vm once all desired `enter`s are called, calling `finalize` will be helpful.
-    ///
-    /// See also [`Interpreter::run`] for managed way to run the interpreter.
-    pub fn enter<F, R>(&self, f: F) -> R
+    #[cfg(feature = "threading")]
+    pub(super) fn owner_is_valid(&self) -> bool {
+        self.vm.owner_is_valid()
+    }
+
+    // Only the runtime directory uses an exclusively owned, idle anchor.
+    // Entering it while holding that directory's mutex could run Python.
+    #[cfg(feature = "threading")]
+    pub(super) fn new_thread_from_idle(&self) -> Option<thread::ThreadedVirtualMachine> {
+        (self.owner_is_valid() && !self.vm.state.admission_closed.load(Ordering::Acquire))
+            .then(|| self.vm.new_thread())
+    }
+
+    /// Internal entry for the interpreter implementation.
+    pub(crate) fn enter_raw<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
         thread::enter_vm(&self.vm, || f(&self.vm))
+    }
+
+    /// Enter with scoped object access. Only opaque handles and Rust values can
+    /// leave the callback; bound objects are tied to this individual entry.
+    pub fn enter<R>(&self, f: impl for<'vm> FnOnce(crate::embedding::Vm<'vm>) -> R) -> R {
+        if !self.vm.owner_lease().is_valid() {
+            return f(crate::embedding::Vm::new(&self.vm));
+        }
+        self.enter_raw(|vm| {
+            vm.state.roots.drain_pending();
+            scopeguard::defer! { vm.state.roots.drain_pending(); }
+            f(crate::embedding::Vm::new(vm))
+        })
+    }
+
+    /// Enter the native API without scoped object wrappers.
+    ///
+    /// # Safety
+    /// Follow the ownership and attachment contract in [`crate::embedding`].
+    /// Raw references must not escape, cross interpreters, or be accessed while
+    /// detached. Use opaque handles for values retained by the host.
+    pub unsafe fn enter_unchecked<R>(&self, f: impl FnOnce(&VirtualMachine) -> R) -> R {
+        self.enter_raw(f)
+    }
+
+    /// Run Python with scoped access, then finalize the interpreter.
+    pub fn run(
+        self,
+        f: impl for<'vm> FnOnce(crate::embedding::Vm<'vm>) -> crate::embedding::Result<()>,
+    ) -> Result<u32, FinalizeBusy> {
+        let result = self.enter(f);
+        self.finish_scoped(result)
+    }
+
+    fn finish_scoped(self, result: crate::embedding::Result<()>) -> Result<u32, FinalizeBusy> {
+        if !self.vm.owner_lease().is_valid() {
+            // An inherited inactive handle cannot finalize a surviving owner.
+            // Its Drop only releases its native VM storage.
+            return Ok(0);
+        }
+        // Stale post-fork handles are not counted as owners, but their native
+        // cleanup can still race finalization. Reserve native admission under
+        // the same lock that admits those cleanup entries. Python workers
+        // remain admissible until finalize_raw finishes joining them.
+        let Some(_finalization) = self
+            .global_state
+            .owner_leases
+            .try_finalize(&self.global_state)
+        else {
+            return Err(FinalizeBusy {
+                interpreter: self,
+                result,
+            });
+        };
+        // Local owners drop before the permit even if error conversion panics.
+        let interpreter = self;
+        let exception = interpreter.enter_raw(|vm| match result {
+            Ok(()) => None,
+            Err(crate::embedding::Error::Python(error)) => error.exception(vm),
+            Err(error) => Some(vm.new_runtime_error(error.to_string())),
+        });
+        Ok(interpreter.finalize_raw(exception))
+    }
+
+    /// Finalize an interpreter after repeated scoped entries.
+    pub fn finalize(self) -> Result<u32, FinalizeBusy> {
+        self.finish_scoped(Ok(()))
+    }
+
+    /// Finalize with an exception returned by native code.
+    ///
+    /// # Safety
+    /// The exception and every object reachable from it must belong to this
+    /// interpreter. No raw reference may be accessed after finalization.
+    #[must_use]
+    pub unsafe fn finalize_unchecked(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        self.finalize_raw(exc)
+    }
+
+    /// Run the raw native API and finalize the interpreter.
+    ///
+    /// # Safety
+    /// The callback must obey [`Self::enter_unchecked`]'s contract.
+    pub unsafe fn run_unchecked(self, f: impl FnOnce(&VirtualMachine) -> PyResult<()>) -> u32 {
+        self.run_raw(f)
     }
 
     /// Run [`Interpreter::enter`] and call [`VirtualMachine::expect_pyresult`] for the result.
@@ -605,11 +785,13 @@ impl Interpreter {
     /// but also print useful panic information when exception raised.
     ///
     /// See also [`Interpreter::enter`] and [`VirtualMachine::expect_pyresult`] for more information.
-    pub fn enter_and_expect<F, R>(&self, f: F, msg: &str) -> R
+    /// # Safety
+    /// The callback must obey [`Self::enter_unchecked`]'s contract.
+    pub unsafe fn enter_and_expect_unchecked<F, R>(&self, f: F, msg: &str) -> R
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
     {
-        self.enter(|vm| {
+        self.enter_raw(|vm| {
             let result = f(vm);
             vm.expect_pyresult(result, msg)
         })
@@ -623,12 +805,12 @@ impl Interpreter {
     ///
     /// See [`Interpreter::finalize`] for the finalization steps.
     /// See also [`Interpreter::enter`] for pure function call to obtain Python exception.
-    pub fn run<F>(self, f: F) -> u32
+    pub(crate) fn run_raw<F>(self, f: F) -> u32
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
-        let res = self.enter(|vm| f(vm));
-        self.finalize(res.err())
+        let res = self.enter_raw(|vm| f(vm));
+        self.finalize_raw(res.err())
     }
 
     /// Finalize vm and turns an exception to exit code.
@@ -645,8 +827,14 @@ impl Interpreter {
     /// 1. Final stdout/stderr flush.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
-    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
-        self.enter(|vm| {
+    pub(crate) fn finalize_raw(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        let finalization = self
+            .global_state
+            .owner_leases
+            .enter_finalization(&self.global_state);
+        // This local must drop before the permit, including on unwind.
+        let interpreter = self;
+        let result = interpreter.enter_raw(|vm| {
             let mut flush_status = vm.flush_std();
 
             // See if any exception leaked out:
@@ -680,6 +868,10 @@ impl Interpreter {
             // blocked.
             #[cfg(feature = "threading")]
             finalize_subinterpreters(vm);
+
+            // Running non-daemon threads may start children while shutdown
+            // joins them. Close native admission only after that join phase.
+            vm.state.admission_closed.store(true, Ordering::Release);
 
             // Remaining daemon threads hang in `_PyThreadState_HangThread` when
             // they next attach (or at the eval-breaker if they are already
@@ -715,9 +907,31 @@ impl Interpreter {
             crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
             crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
 
+            vm.state.roots.close();
+            vm.state.type_cache.close();
+            vm.state.native_cache.close();
+            vm.state.native_types.close();
+            vm.state.gc.collect_force(2);
+
             if vm.flush_std() < 0 && flush_status == 0 {
                 flush_status = -1;
             }
+
+            vm.retire_execution_roots();
+            #[cfg(feature = "threading")]
+            thread::retire_interpreter_thread_roots(vm);
+            // SAFETY: consuming finalization has ended this VM's user entries;
+            // no reference into its execution caches remains in this closure.
+            unsafe { vm.retire_cached_roots() };
+            vm.state.retire_python_roots(&vm.ctx);
+            vm.state.gc.collect_force(2);
+
+            // Python execution has ended. Late native destructors may release
+            // buffers or SQLite statements, but cannot reenter cleared services.
+            thread::native_teardown(&vm.state, || {
+                vm.state.closed.store(true, Ordering::Release);
+                vm.state.close_python_roots();
+            });
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
             let exit_code = if exit_code == 0 && flush_status < 0 {
@@ -729,10 +943,16 @@ impl Interpreter {
             // Daemon threads may still exist, so use the safe `process()`,
             // not `drain_all()`.
             #[cfg(feature = "threading")]
-            crate::object::qsbr::QSBR.process();
+            {
+                vm.state.gc.qsbr().process();
+                crate::object::qsbr::shared().process();
+            }
 
             exit_code
-        })
+        });
+        drop(interpreter);
+        drop(finalization);
+        result
     }
 }
 
@@ -876,7 +1096,7 @@ mod tests {
 
     #[test]
     fn add_py_integers() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let a: PyObjectRef = vm.ctx.new_int(33_i32).into();
             let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
@@ -887,7 +1107,7 @@ mod tests {
 
     #[test]
     fn multiply_str() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let a = vm.new_pyobj(crate::common::ascii!("Hello "));
             let b = vm.new_pyobj(4_i32);
             let res = vm._mul(&a, &b).unwrap();
@@ -957,41 +1177,30 @@ mod tests {
         }
     }
 
-    /// A collection snapshots the registry and then reads tracked objects with
-    /// the interpreters it found parked. An interpreter that registered inside
-    /// that window would be missing from the snapshot, so nothing would stop it
-    /// and its bootstrap would run under the scan; registration therefore waits
-    /// for the stop to end.
+    /// Independent heaps allow bootstrap while an unrelated owner is stopped.
     #[cfg(feature = "threading")]
     #[test]
-    fn registering_waits_for_an_in_flight_stop() {
+    fn registering_does_not_wait_for_another_interpreters_stop() {
         use core::time::Duration;
         use std::sync::mpsc;
 
-        // Stands in for a collector between its snapshot and its restart.
-        let admission = runtime::lock_admission_for_stop();
-
+        let first = Interpreter::without_stdlib(Default::default());
         let (tx, rx) = mpsc::channel();
-        let worker = std::thread::spawn(move || {
-            let interp = Interpreter::without_stdlib(Default::default());
-            tx.send(interp.id()).expect("receiver is alive");
-            interp
+        let (worker, result) = first.enter_raw(|vm| {
+            vm.state.stop_the_world.with_stopped(&vm.state, || {
+                let worker = std::thread::spawn(move || {
+                    let interp = Interpreter::without_stdlib(Default::default());
+                    tx.send(interp.id()).expect("receiver is alive");
+                    interp
+                });
+                let result = rx.recv_timeout(Duration::from_secs(5));
+                (worker, result)
+            })
         });
-
-        assert!(
-            matches!(
-                rx.recv_timeout(Duration::from_millis(200)),
-                Err(mpsc::RecvTimeoutError::Timeout)
-            ),
-            "an interpreter registered while a stop-the-world was in flight"
-        );
-
-        drop(admission);
-        let id = rx
-            .recv_timeout(Duration::from_secs(30))
-            .expect("registration proceeds once the world restarts");
+        let interp = worker.join().expect("worker did not panic");
+        let id = result.expect("unrelated interpreter stop delayed bootstrap");
         assert!(runtime::lookup_interpreter(id).is_some());
-        drop(worker.join().expect("worker did not panic"));
+        drop(interp);
         wait_until_unregistered(id);
     }
 
@@ -1015,15 +1224,16 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        let (main_sys_ptr, main_builtins_ptr, main_ctx_ptr, main_state_ptr) = main.enter(|vm| {
-            (
-                vm.sys_module.as_object() as *const _,
-                vm.builtins.as_object() as *const _,
-                PyRc::as_ptr(&vm.ctx),
-                PyRc::as_ptr(&vm.state),
-            )
-        });
-        let (sub_sys_ptr, sub_builtins_ptr, sub_ctx_ptr, sub_state_ptr) = sub.enter(|vm| {
+        let (main_sys_ptr, main_builtins_ptr, main_ctx_ptr, main_state_ptr) =
+            main.enter_raw(|vm| {
+                (
+                    vm.sys_module.as_object() as *const _,
+                    vm.builtins.as_object() as *const _,
+                    PyRc::as_ptr(&vm.ctx),
+                    PyRc::as_ptr(&vm.state),
+                )
+            });
+        let (sub_sys_ptr, sub_builtins_ptr, sub_ctx_ptr, sub_state_ptr) = sub.enter_raw(|vm| {
             (
                 vm.sys_module.as_object() as *const _,
                 vm.builtins.as_object() as *const _,
@@ -1048,7 +1258,7 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             vm.builtins
                 .set_attr(PROBE, vm.ctx.new_int(11_i32), vm)
                 .unwrap();
@@ -1059,7 +1269,7 @@ mod tests {
                 .unwrap();
         });
 
-        sub.enter(|vm| {
+        sub.enter_raw(|vm| {
             assert!(vm.builtins.get_attr(PROBE, vm).is_err());
             let modules = vm.sys_module.get_attr("modules", vm).unwrap();
             assert!(modules.get_item(PROBE, vm).is_err());
@@ -1072,7 +1282,7 @@ mod tests {
                 .unwrap();
         });
 
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             let builtin_probe = vm.builtins.get_attr(PROBE, vm).unwrap();
             assert_eq!(*int::get_value(&builtin_probe), 11_i32.to_bigint().unwrap());
 
@@ -1091,7 +1301,7 @@ mod tests {
     #[test]
     fn create_subinterpreter_while_parent_entered() {
         let main = Interpreter::without_stdlib(Default::default());
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             let before = vm.state.interpreter_id;
             let sub = main.create_subinterpreter();
             assert_ne!(sub.id(), before);
@@ -1111,14 +1321,14 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             assert!(vm.state.is_main_interpreter());
             let a: PyObjectRef = vm.ctx.new_int(1_i32).into();
             let b: PyObjectRef = vm.ctx.new_int(2_i32).into();
             let res = vm._add(&a, &b).unwrap();
             assert_eq!(*int::get_value(&res), 3_i32.to_bigint().unwrap());
         });
-        sub.enter(|vm| {
+        sub.enter_raw(|vm| {
             assert!(!vm.state.is_main_interpreter());
             let a: PyObjectRef = vm.ctx.new_int(10_i32).into();
             let b: PyObjectRef = vm.ctx.new_int(5_i32).into();
@@ -1126,7 +1336,7 @@ mod tests {
             assert_eq!(*int::get_value(&res), 50_i32.to_bigint().unwrap());
         });
         // Re-enter main after sub.
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             assert!(vm.state.is_main_interpreter());
         });
     }
@@ -1143,11 +1353,11 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
 
         let c1 = Arc::clone(&counter);
-        let h_main = main.enter(|vm| {
+        let h_main = main.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             let c = Arc::clone(&c1);
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     for _ in 0..100 {
                         let a: PyObjectRef = vm.ctx.new_int(1_i32).into();
                         let b: PyObjectRef = vm.ctx.new_int(1_i32).into();
@@ -1160,11 +1370,11 @@ mod tests {
         });
 
         let c2 = Arc::clone(&counter);
-        let h_sub = sub.enter(|vm| {
+        let h_sub = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             let c = Arc::clone(&c2);
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     for _ in 0..100 {
                         let a: PyObjectRef = vm.ctx.new_int(2_i32).into();
                         let b: PyObjectRef = vm.ctx.new_int(3_i32).into();
@@ -1204,10 +1414,10 @@ mod tests {
 
         let spawn_worker = |interpreter: &Interpreter| {
             let state = Arc::clone(&state);
-            interpreter.enter(|vm| {
+            interpreter.enter_raw(|vm| {
                 let thread_vm = vm.new_thread();
                 std::thread::spawn(move || {
-                    thread_vm.run(|vm| {
+                    thread_vm.run_raw(|vm| {
                         let a: PyObjectRef = vm.ctx.new_int(20_i32).into();
                         let b: PyObjectRef = vm.ctx.new_int(22_i32).into();
                         assert_eq!(
@@ -1283,10 +1493,10 @@ mod tests {
 
         let main_started_worker = Arc::clone(&main_started);
         let sub_finished_worker = Arc::clone(&sub_finished);
-        let main_worker = main.enter(|vm| {
+        let main_worker = main.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     main_started_worker.store(true, Ordering::Release);
                     let deadline = Instant::now() + Duration::from_secs(30);
                     let mut operations = 0;
@@ -1311,13 +1521,13 @@ mod tests {
 
         let main_started_worker = Arc::clone(&main_started);
         let sub_finished_worker = Arc::clone(&sub_finished);
-        let sub_worker = sub.enter(|vm| {
+        let sub_worker = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
                 while !main_started_worker.load(Ordering::Acquire) {
                     std::thread::yield_now();
                 }
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     let a: PyObjectRef = vm.ctx.new_int(6_i32).into();
                     let b: PyObjectRef = vm.ctx.new_int(7_i32).into();
                     let result = vm._mul(&a, &b).unwrap();
@@ -1346,10 +1556,10 @@ mod tests {
         let sub = main.create_subinterpreter();
         let sub_id = sub.id();
 
-        let handle = sub.enter(|vm| {
+        let handle = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     assert_eq!(vm.state.interpreter_id, sub_id);
                     assert!(!vm.state.is_main_interpreter());
                 });
@@ -1367,7 +1577,7 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        sub.enter(|vm| {
+        sub.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             let source = "x = 40 + 2\n";
             let code = vm
@@ -1409,32 +1619,32 @@ mod tests {
 
         // The scopes are what keep the classes alive; a subclass list holds
         // only weak references, so both must outlive every assertion below.
-        let main_scope = main.enter(|vm| {
+        let main_scope = main.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, "class MainOnly(int): pass\n");
             scope
         });
-        let sub_scope = sub.enter(|vm| {
+        let sub_scope = sub.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, "class SubOnly(int): pass\n");
             scope
         });
 
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             assert!(lists_subclass(vm, &main_scope, "MainOnly"));
             assert!(!lists_subclass(vm, &main_scope, "SubOnly"));
             // A subclass built before either interpreter existed belongs to the
             // shared context, so it stays visible to both.
             assert!(lists_subclass(vm, &main_scope, "bool"));
         });
-        sub.enter(|vm| {
+        sub.enter_raw(|vm| {
             assert!(lists_subclass(vm, &sub_scope, "SubOnly"));
             assert!(!lists_subclass(vm, &sub_scope, "MainOnly"));
             assert!(lists_subclass(vm, &sub_scope, "bool"));
         });
 
-        main.enter(|_| drop(main_scope));
-        sub.enter(|_| drop(sub_scope));
+        main.enter_raw(|_| drop(main_scope));
+        sub.enter_raw(|_| drop(sub_scope));
     }
 
     /// A cycle allocated in one interpreter is not the parent's to collect.
@@ -1463,7 +1673,7 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        let sub_scope = sub.enter(|vm| {
+        let sub_scope = sub.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, CYCLE);
             assert_eq!(live_nodes(vm), 2);
@@ -1478,16 +1688,16 @@ mod tests {
         // bytecode never reaches a safepoint, and the collection this is
         // waiting for cannot stop it.
         let deadline = Instant::now() + Duration::from_secs(30);
-        while !main.enter(|vm| vm.state.gc.collect_force(2).candidates > 0) {
+        while !main.enter_raw(|vm| vm.state.gc.collect_force(2).candidates > 0) {
             assert!(
                 Instant::now() < deadline,
                 "no collection ran in the parent interpreter"
             );
             std::thread::sleep(Duration::from_millis(5));
         }
-        sub.enter(|vm| assert_eq!(live_nodes(vm), 2));
+        sub.enter_raw(|vm| assert_eq!(live_nodes(vm), 2));
 
-        sub.enter(|_| drop(sub_scope));
+        sub.enter_raw(|_| drop(sub_scope));
     }
 
     /// And it is not the parent's to enumerate either.
@@ -1504,28 +1714,28 @@ mod tests {
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
 
-        let main_scope = main.enter(|vm| {
+        let main_scope = main.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, "class MainNode:\n    pass\nkeep = MainNode()\n");
             scope
         });
-        let sub_scope = sub.enter(|vm| {
+        let sub_scope = sub.enter_raw(|vm| {
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, "class SubNode:\n    pass\nkeep = SubNode()\n");
             scope
         });
 
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             assert!(tracks_class(vm, "MainNode"));
             assert!(!tracks_class(vm, "SubNode"));
         });
-        sub.enter(|vm| {
+        sub.enter_raw(|vm| {
             assert!(tracks_class(vm, "SubNode"));
             assert!(!tracks_class(vm, "MainNode"));
         });
 
-        main.enter(|_| drop(main_scope));
-        sub.enter(|_| drop(sub_scope));
+        main.enter_raw(|_| drop(main_scope));
+        sub.enter_raw(|_| drop(sub_scope));
     }
 
     /// The runtime can own a subinterpreter by id and hand it back on destroy.
@@ -1580,13 +1790,13 @@ mod tests {
         let sub1 = main1.create_owned_subinterpreter();
         let sub2 = main2.create_owned_subinterpreter();
 
-        main1.enter(finalize_subinterpreters);
+        main1.enter_raw(finalize_subinterpreters);
 
         assert!(!runtime::is_owned_interpreter(sub1));
         assert!(runtime::is_owned_interpreter(sub2));
 
         let sub2 = runtime::take_owned_interpreter(sub2).expect("owned by second runtime");
-        let _ = sub2.finalize(None);
+        let _ = sub2.finalize_raw(None);
     }
 
     /// A collection must stop every interpreter, not just the collecting one:
@@ -1628,10 +1838,10 @@ for _ in range(40):
 
         // Subinterpreter thread: allocate cycles continuously.
         let stop_worker = Arc::clone(&stop);
-        let churner = sub.enter(|vm| {
+        let churner = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     while !stop_worker.load(Ordering::Acquire) {
                         run_source(vm, CHURN);
                     }
@@ -1640,7 +1850,7 @@ for _ in range(40):
         });
 
         // Main interpreter: force collections while the sub keeps mutating.
-        main.enter(|vm| {
+        main.enter_raw(|vm| {
             run_source(vm, CHURN);
             let deadline = Instant::now() + Duration::from_secs(2);
             let mut collections = 0;
@@ -1671,7 +1881,7 @@ for _ in range(40):
 
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
-        let sub_state = sub.enter(|vm| vm.state.clone());
+        let sub_state = sub.enter_raw(|vm| vm.state.clone());
 
         let progress = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
@@ -1680,10 +1890,10 @@ for _ in range(40):
         // reports progress every iteration.
         let progress_worker = Arc::clone(&progress);
         let stop_worker = Arc::clone(&stop);
-        let worker = sub.enter(|vm| {
+        let worker = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     let source = "x = 1 + 1\n";
                     let code = vm
                         .compile(source, Mode::Exec, "<spin>")
@@ -1703,7 +1913,7 @@ for _ in range(40):
             std::thread::yield_now();
         }
 
-        main.enter(|_vm| {
+        main.enter_raw(|_vm| {
             // Stop the *subinterpreter* from a thread whose current interpreter
             // is main — the cross-interpreter stop a collection performs.
             sub_state.stop_the_world.stop_the_world(&sub_state);
@@ -1743,7 +1953,7 @@ for _ in range(40):
 
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
-        let sub_state = sub.enter(|vm| vm.state.clone());
+        let sub_state = sub.enter_raw(|vm| vm.state.clone());
 
         let progress = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
@@ -1751,10 +1961,10 @@ for _ in range(40):
 
         let progress_worker = Arc::clone(&progress);
         let stop_worker = Arc::clone(&stop);
-        let worker = sub.enter(|vm| {
+        let worker = sub.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     let source = "x = 1 + 1\n";
                     let code = vm
                         .compile(source, Mode::Exec, "<spin>")
@@ -1854,7 +2064,7 @@ for _ in range(40):
     #[test]
     fn eval_breaker_tripped_when_stop_requested() {
         let interp = Interpreter::without_stdlib(Default::default());
-        interp.enter(|vm| {
+        interp.enter_raw(|vm| {
             crate::signal::clear_eval_breaker_for_test();
             assert!(
                 crate::vm::thread::set_stop_requested_for_current_thread(true),
@@ -1883,7 +2093,7 @@ for _ in range(40):
 
         let main = Interpreter::without_stdlib(Default::default());
         let sub = main.create_subinterpreter();
-        let sub_state = sub.enter(|vm| vm.state.clone());
+        let sub_state = sub.enter_raw(|vm| vm.state.clone());
 
         let progress = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
@@ -1891,11 +2101,11 @@ for _ in range(40):
         // Worker runs the SUB nested inside an active MAIN section.
         let progress_worker = Arc::clone(&progress);
         let stop_worker = Arc::clone(&stop);
-        let main_vm = main.enter(|vm| vm.new_thread());
-        let sub_vm = sub.enter(|vm| vm.new_thread());
+        let main_vm = main.enter_raw(|vm| vm.new_thread());
+        let sub_vm = sub.enter_raw(|vm| vm.new_thread());
         let worker = std::thread::spawn(move || {
-            main_vm.run(|_main| {
-                sub_vm.run(|vm| {
+            main_vm.run_raw(|_main| {
+                sub_vm.run_raw(|vm| {
                     let source = "x = 1 + 1\n";
                     let code = vm
                         .compile(source, Mode::Exec, "<nested>")
@@ -1951,7 +2161,7 @@ for _ in range(40):
         };
 
         let interp = Interpreter::without_stdlib(Default::default());
-        let state = interp.enter(|vm| vm.state.clone());
+        let state = interp.enter_raw(|vm| vm.state.clone());
 
         let lock: Arc<PyDetachingRwLock<()>> = Arc::new(PyDetachingRwLock::new(()));
         // The worker's thread id, published from inside the interpreter. No
@@ -1963,10 +2173,10 @@ for _ in range(40):
 
         let worker_lock = Arc::clone(&lock);
         let published_ident = Arc::clone(&worker_ident);
-        let worker = interp.enter(|vm| {
+        let worker = interp.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|_vm| {
+                thread_vm.run_raw(|_vm| {
                     published_ident.store(crate::stdlib::_thread::get_ident(), Ordering::Release);
                     let _read = worker_lock.read();
                 });
@@ -2040,7 +2250,7 @@ for _ in range(40):
         };
 
         let interp = Interpreter::without_stdlib(Default::default());
-        let state = interp.enter(|vm| vm.state.clone());
+        let state = interp.enter_raw(|vm| vm.state.clone());
 
         let detached = Arc::new(AtomicBool::new(false));
         let ran = Arc::new(AtomicBool::new(false));
@@ -2049,10 +2259,10 @@ for _ in range(40):
         let worker_detached = Arc::clone(&detached);
         let worker_ran = Arc::clone(&ran);
         let worker_go = Arc::clone(&go);
-        let worker = interp.enter(|vm| {
+        let worker = interp.enter_raw(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
-                thread_vm.run(|vm| {
+                thread_vm.run_raw(|vm| {
                     vm.allow_threads(|| {
                         worker_detached.store(true, Ordering::Release);
                         // Spinning here is spinning *detached*, which is what a
@@ -2133,7 +2343,7 @@ for _ in range(40):
             ..Settings::default()
         };
         let first = Interpreter::without_stdlib(settings);
-        first.enter(|vm| {
+        first.enter_raw(|vm| {
             vm.ctx
                 .intern_str("zz_hash_seed_regression")
                 .to_object()
@@ -2146,7 +2356,7 @@ for _ in range(40):
             ..Settings::default()
         };
         let second = Interpreter::without_stdlib(settings);
-        second.enter(|vm| {
+        second.enter_raw(|vm| {
             let interned = vm.ctx.intern_str("zz_hash_seed_regression").to_object();
             let dict = vm.ctx.new_dict();
             dict.set_item(&*interned, vm.ctx.new_int(1).into(), vm)
