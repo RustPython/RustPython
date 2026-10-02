@@ -2163,4 +2163,34 @@ for _ in range(40):
             assert!(result.try_to_bool(vm).unwrap());
         });
     }
+
+    /// Set and `for` literals become frozenset constants. Materializing them
+    /// needs the VM so element hashing can run.
+    #[cfg(feature = "compiler")]
+    #[test]
+    fn new_code_materializes_frozenset_constants() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let source = "\
+a = 2 in {1, 2, 3}
+n = 0
+for e in {1, 2, 3}:
+    n += e
+";
+            let code = crate::compiler::compile(
+                source,
+                crate::compiler::Mode::Exec,
+                "<test>",
+                vm.compile_opts(),
+            )
+            .unwrap();
+            let code = vm.new_code(code);
+            let scope = vm.new_scope_with_builtins();
+            vm.run_code_obj(code, scope.clone()).unwrap();
+
+            let a = scope.globals.get_item("a", vm).unwrap();
+            assert!(a.is(&vm.ctx.true_value));
+            let n = scope.globals.get_item("n", vm).unwrap();
+            assert_eq!(*int::get_value(&n), 6_i32.to_bigint().unwrap());
+        })
+    }
 }

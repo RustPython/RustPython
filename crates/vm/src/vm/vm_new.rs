@@ -18,6 +18,7 @@ use crate::{
         PyImportError, PyMemoryError, PyModule, PyNameError, PyOSError, PyStopIteration, PyStrRef,
         PySyntaxError, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
+        code::{IntoCodeObject, PyCode},
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
@@ -309,6 +310,11 @@ impl VirtualMachine {
     /// Create a new python object
     pub fn new_pyobj(&self, value: impl ToPyObject) -> PyObjectRef {
         value.to_pyobject(self)
+    }
+
+    pub fn new_code(&self, code: impl IntoCodeObject) -> PyRef<PyCode> {
+        let code = code.into_code_object(self);
+        PyRef::new_ref(PyCode::new(code), self.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
