@@ -844,6 +844,19 @@ def _module_repr_from_spec(spec):
             return f'<module {spec.name!r} ({spec.origin})>'
 
 
+def _reorder_module(spec):
+    # RustPython: an exact dict can update shutdown order without exposing a
+    # temporarily absent module to another importing thread.
+    modules = sys.modules
+    if type(modules) is dict and hasattr(_imp, '_dict_move_to_end'):
+        return _imp._dict_move_to_end(modules, spec.name)
+    # Preserve custom pop/setitem behavior, including a pop that rebinds
+    # sys.modules or changes spec.name. CPython also uses this fallback.
+    module = sys.modules.pop(spec.name)
+    sys.modules[spec.name] = module
+    return module
+
+
 # Used by importlib.reload() and _load_module_shim().
 def _exec(spec, module):
     """Execute the spec's specified module in an existing module's namespace."""
@@ -870,8 +883,7 @@ def _exec(spec, module):
         finally:
             # Update the order of insertion into sys.modules for module
             # clean-up at shutdown.
-            module = sys.modules.pop(spec.name)
-            sys.modules[spec.name] = module
+            module = _reorder_module(spec)
     return module
 
 
@@ -882,13 +894,11 @@ def _load_backward_compatible(spec):
         spec.loader.load_module(spec.name)
     except:
         if spec.name in sys.modules:
-            module = sys.modules.pop(spec.name)
-            sys.modules[spec.name] = module
+            module = _reorder_module(spec)
         raise
     # The module must be in sys.modules at this point!
     # Move it to the end of sys.modules.
-    module = sys.modules.pop(spec.name)
-    sys.modules[spec.name] = module
+    module = _reorder_module(spec)
     if getattr(module, '__loader__', None) is None:
         try:
             module.__loader__ = spec.loader
@@ -946,8 +956,7 @@ def _load_unlocked(spec):
         # We don't ensure that the import-related module attributes get
         # set in the sys.modules replacement case.  Such modules are on
         # their own.
-        module = sys.modules.pop(spec.name)
-        sys.modules[spec.name] = module
+        module = _reorder_module(spec)
         _verbose_message('import {!r} # {!r}', spec.name, spec.loader)
     finally:
         spec._initializing = False
