@@ -255,7 +255,7 @@ pub(crate) mod _ctypes {
     };
 
     #[pyattr(name = "ArgumentError", once)]
-    fn argument_error(vm: &VirtualMachine) -> PyTypeRef {
+    pub(crate) fn argument_error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
             "ctypes",
             "ArgumentError",
