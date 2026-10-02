@@ -18,11 +18,11 @@ mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
-pub(crate) fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
+fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
     tuple.as_slice().to_vec().into()
 }
 
-pub(crate) fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
+fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
     dict.items_vec()
         .into_iter()
         .map(|(key, value)| {
@@ -36,6 +36,16 @@ pub(crate) fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult
         })
         .collect::<PyResult<_>>()
         .map(KwArgs::new)
+}
+
+fn varargs_to_args(mut args: core::ffi::VaList<'_>) -> PosArgs {
+    core::iter::from_fn(|| unsafe {
+        args.next_arg::<*mut PyObject>()
+            .assume_borrowed_or_opt()
+            .map(ToOwned::to_owned)
+    })
+    .collect::<Vec<_>>()
+    .into()
 }
 
 #[unsafe(no_mangle)]
@@ -77,22 +87,24 @@ pub unsafe extern "C" fn PyObject_CallObject(
 }
 
 #[unsafe(no_mangle)]
-#[cfg(feature = "nightly")]
 pub unsafe extern "C" fn PyObject_CallMethodObjArgs(
     receiver: *mut PyObject,
     name: *mut PyObject,
-    mut args: ...
+    args: ...
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
-        let callable = unsafe { (&*receiver).get_attr(method_name, vm)? };
-        let arguments = core::iter::from_fn(|| unsafe {
-            core::ptr::NonNull::new(args.next_arg::<*mut PyObject>())
-                .map(|obj| obj.as_ref().to_owned())
-        })
-        .collect::<Vec<_>>();
-        callable.call(arguments, vm)
+        let method_name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let callable = unsafe { receiver.assume_borrowed().get_attr(method_name, vm)? };
+        callable.call(varargs_to_args(args), vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_CallFunctionObjArgs(
+    callable: *mut PyObject,
+    args: ...
+) -> *mut PyObject {
+    with_vm(|vm| unsafe { callable.assume_borrowed() }.call(varargs_to_args(args), vm))
 }
 
 #[unsafe(no_mangle)]
@@ -293,8 +305,7 @@ mod tests {
     use pyo3::types::{PyDict, PyString};
 
     #[test]
-    #[cfg(feature = "nightly")]
-    fn test_call_method0() {
+    fn call_method0() {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
             assert_eq!(

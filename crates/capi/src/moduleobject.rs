@@ -2,8 +2,9 @@ use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::slots::{PySlot, PySlotKind, PySlotModule};
-use crate::util::FfiPtrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::c_int;
+use rustpython_vm::AsObject;
 use rustpython_vm::builtins::{PyModule, PyModuleDef, PyStr};
 
 define_py_check!(fn PyModule_Check, types.module_type);
@@ -102,10 +103,51 @@ pub unsafe extern "C" fn PyModule_NewObject(name: *mut PyObject) -> *mut PyObjec
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyModule_New(name: *const core::ffi::c_char) -> *mut PyObject {
+    with_vm(|vm| {
+        let name_str = unsafe { name.try_as_str(vm) }?;
+        Ok(vm.new_module(name_str, vm.ctx.new_dict(), None))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyModule_GetDict(module: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let module = unsafe { module.assume_borrowed_and_cast::<PyModule>(vm) }?;
+        Ok(module.dict().as_object().as_raw().cast_mut())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::ffi;
     use pyo3::prelude::*;
+    use pyo3::types::{PyAnyMethods, PyDict, PyModule, PyString};
+
+    #[test]
+    fn module_new_and_get_dict() {
+        Python::attach(|py| {
+            let mod_name = c"dynamic_mod";
+            let m_ptr = unsafe { super::PyModule_New(mod_name.as_ptr()) };
+            assert!(!m_ptr.is_null());
+            let m = unsafe { pyo3::Bound::from_owned_ptr(py, m_ptr.cast()) };
+            assert!(m.is_instance_of::<PyModule>());
+
+            let name_ptr = unsafe { super::PyModule_GetNameObject(m_ptr) };
+            assert!(!name_ptr.is_null());
+            let name = unsafe { pyo3::Bound::from_owned_ptr(py, name_ptr.cast()) };
+            assert_eq!(
+                name.cast::<PyString>().unwrap().to_str().unwrap(),
+                "dynamic_mod"
+            );
+
+            let dict_ptr = unsafe { super::PyModule_GetDict(m_ptr) };
+            assert!(!dict_ptr.is_null());
+            let dict = unsafe { pyo3::Bound::from_borrowed_ptr(py, dict_ptr.cast()) };
+            assert!(dict.is_instance_of::<PyDict>());
+        });
+    }
 
     #[test]
     fn create_module() {

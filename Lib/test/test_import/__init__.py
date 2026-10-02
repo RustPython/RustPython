@@ -1248,7 +1248,6 @@ os.does_not_exist
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, expected_error)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _imp.create_dynamic not implemented
     def test_create_dynamic_null(self):
         with self.assertRaisesRegex(ValueError, 'embedded null character'):
             class Spec:
