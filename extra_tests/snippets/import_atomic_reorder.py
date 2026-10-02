@@ -77,8 +77,9 @@ def check_trace_presence(bootstrap, mode):
     codes = {
         bootstrap._exec.__code__,
         bootstrap._load_unlocked.__code__,
-        bootstrap._load_backward_compatible.__code__,
     }
+    if hasattr(bootstrap, "_load_backward_compatible"):
+        codes.add(bootstrap._load_backward_compatible.__code__)
     if hasattr(bootstrap, "_reorder_module"):
         codes.add(bootstrap._reorder_module.__code__)
 
@@ -185,16 +186,20 @@ def check_loader_semantics(bootstrap):
         )
         assert list(sys.modules)[-2:] == [after, name]
 
-        class LegacyLoader:
-            def load_module(self, fullname):
-                sys.modules[fullname] = None
-                del sys.modules[fullname]
-                raise failure
+        if hasattr(bootstrap, "_load_backward_compatible"):
 
-        spec = bootstrap.ModuleSpec(name, LegacyLoader())
-        sys.modules = original.copy()
-        raises(RuntimeError, lambda: bootstrap._load_backward_compatible(spec), failure)
-        assert name not in sys.modules
+            class LegacyLoader:
+                def load_module(self, fullname):
+                    sys.modules[fullname] = None
+                    del sys.modules[fullname]
+                    raise failure
+
+            spec = bootstrap.ModuleSpec(name, LegacyLoader())
+            sys.modules = original.copy()
+            raises(
+                RuntimeError, lambda: bootstrap._load_backward_compatible(spec), failure
+            )
+            assert name not in sys.modules
     finally:
         sys.modules = original
 
@@ -445,7 +450,10 @@ for bootstrap in (frozen, source):
     if sys.implementation.name == "rustpython":
         # Run this before inspecting the new helper so a baseline executable
         # fails on the actual pop/set gap, not just a missing private API.
-        for mode in ("load", "exec", "legacy", "legacy_error"):
+        modes = ("load", "exec")
+        if hasattr(bootstrap, "_load_backward_compatible"):
+            modes += ("legacy", "legacy_error")
+        for mode in modes:
             check_trace_presence(bootstrap, mode)
     check_loader_semantics(bootstrap)
     if hasattr(bootstrap, "_reorder_module"):
