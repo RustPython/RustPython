@@ -181,9 +181,6 @@ mod termios;
 ))]
 mod uuid;
 
-#[cfg(all(feature = "host_env", feature = "tkinter"))]
-mod tkinter;
-
 use rustpython_common as common;
 use rustpython_vm as vm;
 
@@ -309,8 +306,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
             not(any(target_os = "ios", target_os = "redox"))
         ))]
         termios::module_def(ctx),
-        #[cfg(all(feature = "host_env", feature = "tkinter"))]
-        tkinter::module_def(ctx),
         unicodedata::module_def(ctx),
         #[cfg(all(
             feature = "host_env",

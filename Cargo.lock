@@ -281,7 +281,7 @@ version = "0.13.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c0e6249c249b8916c98ebae7bc06216c8dcab3002f32872b4abe642d17063b1"
 dependencies = [
- "bindgen 0.72.1",
+ "bindgen",
  "cc",
  "cmake",
  "dunce",
@@ -331,26 +331,6 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
-
-[[package]]
-name = "bindgen"
-version = "0.71.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f58bf3d7db68cfbac37cfc485a8d711e87e064c3d0fe0435b92f7a407f9d6b3"
-dependencies = [
- "bitflags 2.13.1",
- "cexpr",
- "clang-sys",
- "itertools 0.10.5",
- "log",
- "prettyplease",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash",
- "shlex 1.3.0",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "bindgen"
@@ -2811,7 +2791,8 @@ dependencies = [
 [[package]]
 name = "parking_lot_core"
 version = "0.9.12"
-source = "git+https://github.com/youknowone/parking_lot?branch=rustpython#f4ee53a7b803354a8f0a6de2f28e93fc141240bf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
 dependencies = [
  "cfg-if",
  "libc",
@@ -4067,8 +4048,6 @@ dependencies = [
  "rustpython-unicode",
  "rustpython-vm",
  "scopeguard",
- "tcl-sys",
- "tk-sys",
  "uuid",
  "webpki-roots",
  "widestring",
@@ -4438,14 +4417,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shared-build"
-version = "0.2.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
-dependencies = [
- "bindgen 0.71.1",
-]
-
-[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4664,15 +4635,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
-name = "tcl-sys"
-version = "0.2.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
-dependencies = [
- "pkg-config",
- "shared-build",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4802,15 +4764,6 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
-
-[[package]]
-name = "tk-sys"
-version = "0.2.0"
-source = "git+https://github.com/arihant2math/tkinter.git?tag=v0.2.0#198fc35b1f18f4eda401f97a641908f321b1403a"
-dependencies = [
- "pkg-config",
- "shared-build",
-]
 
 [[package]]
 name = "toml"
