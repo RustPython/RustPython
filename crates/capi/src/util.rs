@@ -163,6 +163,15 @@ impl FfiResult for c_ulong {
     }
 }
 
+#[cfg(not(windows))]
+impl FfiResult for u32 {
+    const ERR_VALUE: Self = Self::MAX;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 #[cfg(windows)]
 impl FfiResult for core::ffi::c_longlong {
     const ERR_VALUE: Self = -1;
@@ -403,6 +412,8 @@ mod tests {
         assert_error_value::<c_int, _>(-1); // i32
         assert_error_value::<c_long, _>(-1); //Windows i32, unix i64
         assert_error_value::<c_ulong, _>(c_ulong::MAX); // Windows u32, unix u64
+        #[cfg(not(windows))]
+        assert_error_value::<u32, _>(u32::MAX);
         assert_error_value::<c_longlong, _>(-1); // i64
         assert_error_value::<c_ulonglong, _>(c_ulonglong::MAX); // u64
         assert_error_value::<c_double, _>(-1.0);
