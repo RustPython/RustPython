@@ -1268,14 +1268,6 @@ impl Py<PyCSimple> {
     }
 }
 
-impl PyCSimple {
-    /// Snapshot this object's buffer as a simple-typed foreign-call value.
-    pub(crate) fn to_carg_value(&self, code: char) -> CArgValue {
-        let buffer = self.0.buffer.read();
-        CArgValue::typed(code, &buffer)
-    }
-}
-
 impl AsBuffer for PyCSimple {
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let stg_info = zelf

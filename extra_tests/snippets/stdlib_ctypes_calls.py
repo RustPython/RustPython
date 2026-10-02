@@ -75,4 +75,48 @@ for bad in (1.5, 0.0, 1e300):
 assert libc.abs(-3) == 3
 assert libc.abs(True) == 1
 
+
+# 8. Custom argtypes converter with from_param (issue #8341 / rich._win32_console pattern)
+class CustomIntAdapter:
+    @classmethod
+    def from_param(cls, val):
+        if isinstance(val, str):
+            return int(val)
+        elif isinstance(val, tuple):
+            return val[0]
+        raise ValueError(f"cannot adapt {val!r}")
+
+
+libc.abs.argtypes = [CustomIntAdapter]
+assert libc.abs("-42") == 42
+assert libc.abs((-99, "extra")) == 99
+
+try:
+    libc.abs(3.14)
+except ctypes.ArgumentError as e:
+    assert "argument 1" in str(e)
+    assert "ValueError: cannot adapt 3.14" in str(e)
+else:
+    assert False, "expected ArgumentError for failed custom from_param"
+
+
+# 9. Validation of items in argtypes (must have from_param)
+class NoFromParam:
+    pass
+
+
+try:
+    libc.abs.argtypes = [NoFromParam]
+except TypeError as e:
+    assert "has no from_param method" in str(e)
+else:
+    assert False, "expected TypeError when argtypes item has no from_param method"
+
+try:
+    libc.abs.argtypes = [c_int, 42]
+except TypeError as e:
+    assert "item 2 in _argtypes_ has no from_param method" in str(e)
+else:
+    assert False, "expected TypeError when item 2 in argtypes has no from_param method"
+
 print("OK")
