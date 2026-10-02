@@ -559,15 +559,7 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          extra_args=()
-          if [ -n "${EXTRA_TEST_ARGS}" ]; then
-            read -r -a extra_args <<< "${EXTRA_TEST_ARGS}"
-          fi
-          skips=()
-          if [ -n "${SKIPS}" ]; then
-            read -r -a skips <<< "${SKIPS}"
-          fi
-          target/release/rustpython -u -m test --slow-ci -j "${CORES}" "${extra_args[@]}" "${skips[@]}"
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
