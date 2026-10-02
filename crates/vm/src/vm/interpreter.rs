@@ -4,7 +4,7 @@ use super::{
     Context, PyConfig, PyGlobalState, VirtualMachine,
     owned::OwnedVm,
     runtime::{self, InterpreterWhence},
-    setting::Settings,
+    setting::{Paths, Settings},
     thread,
 };
 use crate::{
@@ -15,7 +15,7 @@ use alloc::collections::BTreeMap;
 use core::sync::atomic::Ordering;
 
 type InitFunc = Box<dyn FnOnce(&VirtualMachine)>;
-type ConfigFunc = Box<dyn FnOnce(&mut PyConfig)>;
+type PathConfigFunc = Box<dyn FnOnce(&mut Paths)>;
 
 /// Exit code used when stdout/stderr flush fails during interpreter shutdown.
 /// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
@@ -41,7 +41,7 @@ pub struct InterpreterBuilder {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
-    config_hooks: Vec<ConfigFunc>,
+    path_hooks: Vec<PathConfigFunc>,
 }
 
 /// Options for constructing a main or sub-interpreter VM.
@@ -51,7 +51,7 @@ struct InitializeVmOpts<'a> {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
-    config_hooks: Vec<ConfigFunc>,
+    path_hooks: Vec<PathConfigFunc>,
     is_main: bool,
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
@@ -70,7 +70,7 @@ where
         module_defs,
         frozen_modules,
         init_hooks,
-        config_hooks,
+        path_hooks,
         is_main,
         whence,
         parent_state,
@@ -98,11 +98,11 @@ where
     } else {
         // First top-level interpreter wins. Later seeds are ignored.
         super::init_hash_secret(settings.hash_seed);
-        let paths = getpath::init_path_config(&settings);
-        let mut config = PyConfig::new(settings, paths);
-        for hook in config_hooks {
-            hook(&mut config);
+        let mut paths = getpath::init_path_config(&settings);
+        for hook in path_hooks {
+            hook(&mut paths);
         }
+        let config = PyConfig::new(settings, paths);
 
         // Build module_defs map from builtin modules + additional modules
         let mut all_module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef> =
@@ -284,7 +284,7 @@ fn create_subinterpreter_from_parent(
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
-            config_hooks: Vec::new(),
+            path_hooks: Vec::new(),
             is_main: false,
             whence: InterpreterWhence::Stdlib,
             parent_state: Some(&parent.state),
@@ -320,14 +320,25 @@ impl InterpreterBuilder {
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
-            config_hooks: Vec::new(),
+            path_hooks: Vec::new(),
         }
     }
 
-    /// Configure Rust-owned settings and paths before creating runtime objects.
+    /// Modify settings immediately, before deriving paths or the hash secret.
+    ///
+    /// Calls to this method and [`Self::settings`] take effect in call order.
     #[must_use]
-    pub fn configure(mut self, configure: impl FnOnce(&mut PyConfig) + 'static) -> Self {
-        self.config_hooks.push(Box::new(configure));
+    pub fn configure(mut self, configure: impl FnOnce(&mut Settings)) -> Self {
+        configure(&mut self.settings);
+        self
+    }
+
+    /// Customize paths derived from the final settings during [`Self::build`].
+    ///
+    /// Hooks run in registration order, before runtime objects are created.
+    #[must_use]
+    pub fn configure_paths(mut self, configure: impl FnOnce(&mut Paths) + 'static) -> Self {
+        self.path_hooks.push(Box::new(configure));
         self
     }
 
@@ -442,7 +453,7 @@ impl InterpreterBuilder {
                 module_defs: self.module_defs,
                 frozen_modules: self.frozen_modules,
                 init_hooks: self.init_hooks,
-                config_hooks: self.config_hooks,
+                path_hooks: self.path_hooks,
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -530,7 +541,7 @@ impl Interpreter {
                 module_defs: Vec::new(),
                 frozen_modules: Vec::new(),
                 init_hooks: Vec::new(),
-                config_hooks: Vec::new(),
+                path_hooks: Vec::new(),
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -2265,6 +2276,75 @@ for _ in range(40):
             );
             let result = scope.globals.get_item("result", vm).unwrap();
             assert!(result.try_to_bool(vm).unwrap());
+        });
+    }
+
+    #[test]
+    fn builder_configuration_precedes_runtime_initialization() {
+        const CHILD: &str = "RUSTPYTHON_TEST_CONFIGURED_HASH_SEED";
+        if crate::host_env::os::var_os(CHILD).is_none() {
+            // A fresh process is needed because the first interpreter fixes the
+            // hash secret for every subsequent interpreter in that process.
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the test harness must restart itself with a fresh process hash secret"
+            )]
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    concat!(
+                        module_path!(),
+                        "::builder_configuration_precedes_runtime_initialization"
+                    )
+                    .strip_prefix("rustpython_vm::")
+                    .unwrap(),
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let interp = Interpreter::builder(Settings {
+            hash_seed: Some(7),
+            ..Settings::default()
+        })
+        .configure_paths(|paths| {
+            assert_eq!(paths.module_search_paths[0], "configured_path");
+            paths.module_search_paths.insert(0, "explicit_path".into());
+            paths.stdlib_dir = Some("explicit_stdlib".into());
+        })
+        .configure(|settings| {
+            settings.hash_seed = Some(8);
+            settings.path_list = vec!["configured_path".into()];
+        })
+        .configure_paths(|paths| {
+            assert_eq!(paths.module_search_paths[0], "explicit_path");
+        })
+        .build();
+
+        interp.enter(|vm| {
+            let expected = crate::common::hash::HashSecret::new(8);
+            assert_eq!(
+                vm.ctx
+                    .new_str("configured hash seed")
+                    .as_object()
+                    .hash(vm)
+                    .unwrap(),
+                expected.hash_str("configured hash seed")
+            );
+            let paths = &vm.state.config.paths;
+            assert_eq!(paths.stdlib_dir.as_deref(), Some("explicit_stdlib"));
+            let sys_path = vm.sys_module.get_attr("path", vm).unwrap();
+            let sys_path: Vec<String> = sys_path.try_into_value(vm).unwrap();
+            assert_eq!(sys_path, paths.module_search_paths);
+            assert_eq!(&sys_path[..2], ["explicit_path", "configured_path"]);
         });
     }
 

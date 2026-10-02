@@ -23,9 +23,9 @@ impl InterpreterBuilderExt for InterpreterBuilder {
             feature = "freeze-stdlib" => {
                 builder
                     .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
-                    .configure(set_frozen_stdlib_dir)
+                    .configure_paths(set_frozen_stdlib_dir)
             }
-            _ => builder.configure(setup_dynamic_stdlib),
+            _ => builder.configure_paths(setup_dynamic_stdlib),
         }
     }
 }
@@ -55,13 +55,13 @@ fn install_default_tls_provider(_vm: &crate::VirtualMachine) {
 
 /// Set stdlib_dir for frozen standard library
 #[cfg(all(feature = "stdlib", feature = "freeze-stdlib"))]
-fn set_frozen_stdlib_dir(config: &mut rustpython_vm::vm::PyConfig) {
-    config.paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
+fn set_frozen_stdlib_dir(paths: &mut rustpython_vm::vm::Paths) {
+    paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
 }
 
 /// Setup dynamic standard library loading from filesystem
 #[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
-fn setup_dynamic_stdlib(config: &mut rustpython_vm::vm::PyConfig) {
+fn setup_dynamic_stdlib(config: &mut rustpython_vm::vm::Paths) {
     let paths: Vec<String> = collect_stdlib_paths()
         .into_iter()
         .map(|p| {
@@ -82,12 +82,12 @@ fn setup_dynamic_stdlib(config: &mut rustpython_vm::vm::PyConfig) {
 
     // Set stdlib_dir to the first stdlib path if available
     if let Some(first_path) = paths.first() {
-        config.paths.stdlib_dir = Some(first_path.clone());
+        config.stdlib_dir = Some(first_path.clone());
     }
 
     // Insert at the beginning so stdlib comes before user paths
     for path in paths.into_iter().rev() {
-        config.paths.module_search_paths.insert(0, path);
+        config.module_search_paths.insert(0, path);
     }
 }
 

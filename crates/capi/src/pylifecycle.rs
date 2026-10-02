@@ -45,11 +45,11 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
         *interp = unsafe {
             builder
                 .add_native_modules(&defs)
-                .configure(|config| {
+                .configure_paths(|paths| {
                     let path = rustpython_pylib::LIB_PATH.to_owned();
 
-                    config.paths.stdlib_dir = Some(path.clone());
-                    config.paths.module_search_paths.insert(0, path);
+                    paths.stdlib_dir = Some(path.clone());
+                    paths.module_search_paths.insert(0, path);
                 })
                 .build()
                 .into()
