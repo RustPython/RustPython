@@ -1392,6 +1392,134 @@ impl<T: Clone> Dict<T> {
         Ok(removed)
     }
 
+    /// Move an existing entry to the end and return its current value without
+    /// making the key temporarily absent. Hashing and equality run unlocked.
+    pub(crate) fn move_to_end<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<T>> {
+        struct ProbeWitness {
+            index_index: IndexIndex,
+            entry_index: IndexEntry,
+            key: Option<(HashValue, PyObjectRef)>,
+        }
+
+        let hash_value = key.key_hash(vm)?;
+        let mut idxs = None;
+        let mut prefix = Vec::<ProbeWitness>::new();
+        let mut compared: Option<(EntryIndex, IndexIndex, PyObjectRef, bool)> = None;
+        'lookup: loop {
+            // Keep the compared key alive until after the guard is released,
+            // including when equality cleared the dictionary and recycled its
+            // entry and bucket for a different key.
+            let comparison = compared.take();
+            let mut inner = self.write();
+            let mask = (inner.indices.len() - 1) as i64;
+            let probes = idxs.get_or_insert_with(|| GenIndexes::new(hash_value, mask));
+            if probes.mask != mask {
+                drop(inner);
+                prefix.clear();
+                idxs = None;
+                continue;
+            }
+            let matched = if let Some((entry_index, index_index, candidate, equal)) = &comparison {
+                let valid = inner.indices.get(*index_index).and_then(|i| i.index())
+                    == Some(*entry_index)
+                    && inner
+                        .get_entry_checked(*entry_index, *index_index)
+                        .is_some_and(|entry| entry.hash == hash_value && entry.key.is(candidate));
+                // A false comparison can survive while another previously
+                // probed bucket changes (including after nested compaction).
+                // Revalidate the whole prefix before continuing past it.
+                let prefix_valid = *equal
+                    || prefix.iter().all(|witness| {
+                        inner.indices.get(witness.index_index) == Some(&witness.entry_index)
+                            && witness.key.as_ref().is_none_or(|(hash, key)| {
+                                inner
+                                    .get_entry_checked(
+                                        witness.entry_index.index().unwrap(),
+                                        witness.index_index,
+                                    )
+                                    .is_some_and(|entry| entry.hash == *hash && entry.key.is(key))
+                            })
+                    });
+                if !valid || !prefix_valid {
+                    drop(inner);
+                    prefix.clear();
+                    idxs = None;
+                    continue;
+                }
+                equal.then_some(*entry_index)
+            } else {
+                None
+            };
+            let entry_index = match matched {
+                Some(index) => index,
+                None => loop {
+                    let index_index = probes.next();
+                    let index_entry = inner.indices[index_index];
+                    match index_entry {
+                        IndexEntry::FREE => return Ok(None),
+                        IndexEntry::DUMMY => {
+                            prefix.push(ProbeWitness {
+                                index_index,
+                                entry_index: index_entry,
+                                key: None,
+                            });
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    let entry_index = index_entry.index().unwrap();
+                    let entry = inner.entries[entry_index].as_ref().unwrap();
+                    if key.key_is(&entry.key) {
+                        break entry_index;
+                    }
+                    prefix.push(ProbeWitness {
+                        index_index,
+                        entry_index: index_entry,
+                        key: Some((entry.hash, entry.key.clone())),
+                    });
+                    if entry.hash == hash_value {
+                        let candidate = entry.key.clone();
+                        drop(inner);
+                        drop(comparison);
+                        let equal = key.key_eq(vm, &candidate)?;
+                        compared = Some((entry_index, index_index, candidate, equal));
+                        continue 'lookup;
+                    }
+                },
+            };
+            let value = inner.entries[entry_index].as_ref().unwrap().value.clone();
+            if inner.entries[entry_index + 1..].iter().any(Option::is_some) {
+                // Reserve before taking the entry. No reader can observe an
+                // absent entry, and no hashing, equality or finalizer runs in
+                // this critical section.
+                inner.entries.reserve(1);
+                self.invalidate_keys_version();
+                let entry = inner.entries[entry_index].take().unwrap();
+                let new_index = inner.entries.len();
+                inner.indices[entry.index] = unsafe {
+                    // SAFETY: new_index is a valid nonnegative entry index.
+                    IndexEntry::from_index_unchecked(new_index)
+                };
+                inner.entries.push(Some(entry));
+                let holes = inner.entries.len() - inner.used;
+                if holes >= 2 && holes >= inner.used {
+                    // Moves do not increase `filled`, so ordinary insertion's
+                    // resize threshold cannot bound their accumulated holes.
+                    // Two holes also ensure this operation changes DictSize,
+                    // allowing existing iterators to detect the relocation.
+                    let indices_size = inner.indices.len();
+                    inner.resize(indices_size);
+                }
+            }
+            drop(inner);
+            return Ok(Some(value));
+        }
+    }
+
     pub(crate) fn pop_back(&self) -> Option<(PyObjectRef, T)> {
         let inner = &mut *self.write();
         let entry = loop {
@@ -1837,6 +1965,114 @@ impl DictKey for usize {
 mod tests {
     use super::*;
     use crate::{Interpreter, common::ascii};
+
+    #[test]
+    fn move_to_end_preserves_values_and_invalidates_layout() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = Dict::default();
+            let keys = [
+                vm.ctx.intern_str("first"),
+                vm.ctx.intern_str("middle"),
+                vm.ctx.intern_str("last"),
+            ];
+            for (value, key) in keys.iter().enumerate() {
+                dict.insert(vm, *key, value).unwrap();
+            }
+            let hint = dict.hint_for_key(vm, keys[1]).unwrap().unwrap() as usize;
+            let version = dict.assign_keys_version();
+            let size = dict.size();
+            assert_ne!(version, 0);
+            assert_eq!(dict.move_to_end(vm, keys[1]).unwrap(), Some(1));
+            assert_eq!(dict.values(), vec![0, 2, 1]);
+            assert_eq!(dict.keys_version(), 0);
+            assert_eq!(dict.get_index_if_keys_version(version, hint), None);
+            assert_eq!(dict.get_hint(vm, keys[1], hint).unwrap(), None);
+            assert!(dict.next_entry_checked(0, &size, |_, v| *v).is_err());
+            assert!(
+                dict.prev_entry_checked(size.entries_size - 1, &size, |_, v| *v)
+                    .is_err()
+            );
+
+            let version = dict.assign_keys_version();
+            let size = dict.size();
+            assert_eq!(dict.move_to_end(vm, keys[1]).unwrap(), Some(1));
+            assert_eq!(dict.keys_version(), version);
+            assert_eq!(dict.size(), size);
+            assert_eq!(dict.move_to_end(vm, "absent").unwrap(), None);
+            assert_eq!(dict.keys_version(), version);
+            assert_eq!(dict.size(), size);
+            assert_eq!(dict.values(), vec![0, 2, 1]);
+        });
+    }
+
+    #[test]
+    fn move_to_end_compacts_and_keeps_indices_consistent() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for count in [2, 3, 32] {
+                let dict = Dict::default();
+                for key in 0..count {
+                    dict.insert(vm, &key, key).unwrap();
+                }
+                for step in 0..1024 {
+                    let key = step % count;
+                    let size = dict.size();
+                    let hint = dict.hint_for_key(vm, &key).unwrap().unwrap() as usize;
+                    let version = dict.assign_keys_version();
+                    assert_eq!(dict.move_to_end(vm, &key).unwrap(), Some(key));
+                    assert_eq!(dict.get_index_if_keys_version(version, hint), None);
+                    assert!(dict.next_entry_checked(0, &size, |_, v| *v).is_err());
+                    assert!(
+                        dict.prev_entry_checked(size.entries_size - 1, &size, |_, v| *v)
+                            .is_err()
+                    );
+                    let inner = dict.read();
+                    assert_eq!(inner.used, count);
+                    assert_eq!(inner.filled, count);
+                    assert!(inner.entries.len() < 2 * count);
+                    assert!(inner.entries.capacity() <= 4 * count);
+                    let values: Vec<_> = inner.entries.iter().flatten().map(|e| e.value).collect();
+                    assert_eq!(
+                        values,
+                        (1..=count).map(|i| (key + i) % count).collect::<Vec<_>>()
+                    );
+                    for (index, entry) in inner.entries.iter().enumerate() {
+                        if let Some(entry) = entry {
+                            assert_eq!(inner.indices[entry.index].index(), Some(index));
+                            assert_eq!(entry.hash, entry.value.key_hash(vm).unwrap());
+                        }
+                    }
+                    for (bucket, index) in inner.indices.iter().enumerate() {
+                        if let Some(index) = index.index() {
+                            assert_eq!(inner.entries[index].as_ref().unwrap().index, bucket);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn move_to_end_restores_only_matching_shared_shapes() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let first = vm.ctx.intern_str("move_first");
+            let last = vm.ctx.intern_str("move_last");
+            let dict = Dict::default();
+            let peer = Dict::default();
+            for table in [&dict, &peer] {
+                table.insert(vm, first, 1).unwrap();
+                table.insert(vm, last, 2).unwrap();
+            }
+            let version = dict.assign_keys_version();
+            assert_eq!(peer.assign_keys_version(), version);
+            dict.move_to_end(vm, first).unwrap();
+            assert_ne!(dict.assign_keys_version(), version);
+            dict.move_to_end(vm, last).unwrap();
+            // The second move compacts back to the original hole-free layout.
+            assert_eq!(dict.assign_keys_version(), version);
+            assert_eq!(dict.get_index_if_keys_version(version, 0), Some(1));
+            assert_eq!(dict.get_index_if_keys_version(version, 1), Some(2));
+        });
+    }
 
     #[test]
     fn clone_compacts_deleted_entries() {
