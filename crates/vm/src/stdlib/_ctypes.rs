@@ -312,8 +312,8 @@ pub(crate) mod _ctypes {
         // Create slots with IMMUTABLETYPE flag
         let slots = PyTypeSlots {
             name: "COMError",
-            flags: crate::types::PyAtomicTypeFlags::new(
-                PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT | PyTypeFlags::IMMUTABLETYPE,
+            flags: crate::types::AtomicPyTypeFlags::from_plain(
+                PyTypeFlags::HEAP_TYPE_DICT_IMMUTABLE,
             ),
             ..PyTypeSlots::default()
         };

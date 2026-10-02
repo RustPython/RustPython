@@ -202,7 +202,7 @@ base64 = "0.23"
 blake2b_simd = "1.0.4"
 blake2s_simd = "1.0.4"
 bitflags = "2.11.0"
-bitflagset = "0.0.3"
+bitflagset = "0.0.4"
 bstr = { version = "1", default-features = false, features = ["unicode"] }
 bzip2 = "0.6"
 console_error_panic_hook = "0.1"
