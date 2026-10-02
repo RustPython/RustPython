@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::methodobject::PyMethodDef;
+use crate::modsupport::PyABIInfo;
 use crate::object::PyType_Slot;
 use crate::util::CStrExt;
 use core::ffi::{c_char, c_int, c_void};
@@ -127,36 +128,6 @@ pub union PySlotValue {
     pub sl_size: isize,
     pub sl_int64: i64,
     pub sl_uint64: u64,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct PyABIInfo {
-    pub abiinfo_major_version: u8,
-    pub abiinfo_minor_version: u8,
-    pub flags: u16,
-    pub build_version: u32,
-    pub abi_version: u32,
-}
-
-impl PyABIInfo {
-    #[allow(dead_code)]
-    #[must_use]
-    pub(crate) fn is_supported(&self) -> bool {
-        const PY_ABIINFO_STABLE: u16 = 0x0001;
-        const PY_ABIINFO_FREETHREADED: u16 = 0x0004;
-
-        if self.abiinfo_major_version != 1 || self.abiinfo_minor_version != 0 {
-            return false;
-        }
-
-        // Only accept abi3t
-        if self.flags & PY_ABIINFO_STABLE == 0 || self.flags & PY_ABIINFO_FREETHREADED == 0 {
-            return false;
-        }
-
-        true
-    }
 }
 
 #[allow(dead_code)]
