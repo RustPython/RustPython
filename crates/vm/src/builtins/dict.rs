@@ -1085,6 +1085,16 @@ impl Py<PyDict> {
 }
 
 impl PyExact<PyDict> {
+    pub(crate) fn move_to_end(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        self.entries
+            .move_to_end(vm, &*key)?
+            .ok_or_else(|| vm.new_key_error(key))
+    }
+
     /// Look up `key` in `self`, falling back to `other`.
     /// Both dicts must be exact `dict` types (enforced by `PyExact`).
     pub(crate) fn get_chain_exact<K: DictKey + ?Sized>(
