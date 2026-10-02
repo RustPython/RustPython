@@ -1060,14 +1060,14 @@ impl AsBuffer for PyCArray {
             }
             dim_desc.reverse();
 
-            BufferDescriptor {
-                offset: 0,
-                len: buffer_len,
-                readonly: false,
+            BufferDescriptor::from_dim_desc(
+                buffer_len,
+                0,
+                false,
                 itemsize,
-                format: alloc::borrow::Cow::Owned(fmt),
+                alloc::borrow::Cow::Owned(fmt),
                 dim_desc,
-            }
+            )
         } else {
             // Fallback to simple buffer if no format/shape info
             BufferDescriptor::simple(buffer_len, false)
