@@ -29,7 +29,9 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
         install.call((vm.sys_module.clone(), imp), vm)?;
         Ok(bootstrap)
     })?;
-    vm.import_func = importlib.get_attr(identifier!(vm, __import__), vm)?;
+    // Importlib callbacks must use the native import function, whose cache-hit
+    // path accepts partially initialized modules in concurrent circular imports.
+    vm.import_func = vm.builtins.get_attr(identifier!(vm, __import__), vm)?;
     vm.importlib = importlib.clone();
     Ok(importlib)
 }
