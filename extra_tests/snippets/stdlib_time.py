@@ -115,6 +115,7 @@ if hasattr(time, "tzset"):
         assert time.timezone == 0
         if hasattr(time, "daylight"):
             assert time.daylight == 0
+        assert time.tzname == ("UTC", "UTC")
     finally:
         if old_tz is not None:
             os.environ["TZ"] = old_tz
