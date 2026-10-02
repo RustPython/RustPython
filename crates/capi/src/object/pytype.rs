@@ -8,7 +8,7 @@ use crate::util::FfiPtrExt;
 use core::ffi::{c_char, c_int, c_ulong, c_void};
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::function::{ItemDoc, PyMethodFlags};
-use rustpython_vm::types::{PyAtomicTypeFlags, PyTypeFlags, PyTypeSlots, SlotAccessor};
+use rustpython_vm::types::{AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Py, PyObject};
 
 pub type PyTypeObject = Py<PyType>;
@@ -129,7 +129,7 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                     "Invalid type flags: {value:#x} for PyType_FromSlots"
                                 ))
                             })?;
-                            type_slots.flags = PyAtomicTypeFlags::new(flags);
+                            type_slots.flags = AtomicPyTypeFlags::from_plain(flags);
                         }
                         PySlotType::BasicSize(size) | PySlotType::ExtraBasicSize(size) => {
                             if size != 0 {
