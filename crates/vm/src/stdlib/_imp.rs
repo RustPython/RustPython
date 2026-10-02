@@ -308,7 +308,7 @@ mod _imp {
             module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
-            sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
+            sys_modules.set_item(&*name, module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
             if let Some(exec) = def.slots.exec {
