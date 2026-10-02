@@ -629,6 +629,8 @@ impl PyRef<PyBytes> {
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
     shared_storage: Some(|buffer| {
+        // PyBytes owns its Vec inside a Python payload. An independent export
+        // copies it so a foreign interpreter never borrows that payload.
         Some(crate::common::rc::PyRc::new(
             crate::protocol::shared_buffer::ImmutableBuffer(
                 buffer.obj_as::<PyBytes>().as_bytes().into(),

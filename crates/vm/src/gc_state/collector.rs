@@ -273,7 +273,11 @@ impl GcState {
             garbage.borrow_vec_mut().extend(saved);
         }
         callbacks(gc, "stop", generation, &result);
-        self.collect_retired();
+        // Retired heaps need a full graph scan. Keep that work out of young
+        // collections; teardown also sweeps them when an interpreter retires.
+        if generation == 2 {
+            self.collect_retired();
+        }
         result
     }
 }

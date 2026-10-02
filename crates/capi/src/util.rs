@@ -243,6 +243,16 @@ pub(crate) trait FfiPtrExt: Sized {
     }
     unsafe fn assume_owned(self) -> Self::Owned;
     unsafe fn assume_borrowed_or_opt<'a>(self) -> Option<&'a Self::Borrowed>;
+    unsafe fn assume_borrowed_or_err<'a>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Self::Borrowed> {
+        unsafe { self.assume_borrowed_or_opt() }.ok_or_else(|| {
+            vm.take_raised_exception().unwrap_or_else(|| {
+                vm.new_system_error("Native function returned NULL, but there was no exception set")
+            })
+        })
+    }
     unsafe fn assume_borrowed<'a>(self) -> &'a Self::Borrowed;
 
     unsafe fn assume_borrowed_and_cast<'a, T: PyPayload>(

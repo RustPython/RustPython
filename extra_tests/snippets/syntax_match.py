@@ -149,3 +149,19 @@ def test_mapping_comprehensive():
 
 
 test_mapping_comprehensive()
+
+# Native collection patterns must not depend on ABC registration changing flags.
+from collections import deque
+from types import MappingProxyType
+
+match deque([1, 2]):
+    case [first, *rest]:
+        assert (first, rest) == (1, [2])
+    case _:
+        assert False, "deque must match sequence patterns"
+
+match MappingProxyType({"a": 1, "b": 2}):
+    case {"a": value, **rest}:
+        assert (value, rest) == (1, {"b": 2})
+    case _:
+        assert False, "mappingproxy must match mapping patterns"

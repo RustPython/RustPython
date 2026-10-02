@@ -84,12 +84,20 @@ pub(super) struct OwnedVm(Option<Box<VirtualMachine>>);
 
 impl OwnedVm {
     pub(super) fn new(vm: VirtualMachine) -> Self {
+        Self::with_kind(vm, super::owner_lease::OwnerKind::Host)
+    }
+
+    pub(super) fn with_kind(vm: VirtualMachine, kind: super::owner_lease::OwnerKind) -> Self {
         assert!(
             !vm.state.closed.load(Ordering::Acquire),
             "interpreter is closed"
         );
         let vm = Box::new(vm);
-        assert!(vm.owner_lease.set(vm.state.owner_leases.register()).is_ok());
+        assert!(
+            vm.owner_lease
+                .set(vm.state.owner_leases.register_kind(kind))
+                .is_ok()
+        );
         vm.owner_lease().publish_vm(&vm);
         vm.state.owners.fetch_add(1, Ordering::Relaxed);
         Self(Some(vm))

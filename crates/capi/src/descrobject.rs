@@ -29,11 +29,18 @@ pub struct PyGetSetDef {
 }
 
 impl PyGetSetDef {
-    pub(crate) fn build(
-        &self,
-        ty: &'static Py<PyType>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyGetSet>> {
+    pub(crate) fn iter<'a>(mut defs: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*defs };
+            if def.name.is_null() {
+                None
+            } else {
+                defs = unsafe { defs.add(1) };
+                Some(def)
+            }
+        })
+    }
+    pub(crate) fn build(&self, ty: &Py<PyType>, vm: &VirtualMachine) -> PyResult<PyRef<PyGetSet>> {
         let name = unsafe { self.name.try_as_str(vm) }?;
         let closure = self.closure as usize;
 
@@ -114,6 +121,18 @@ pub struct PyMemberDef {
 }
 
 impl PyMemberDef {
+    pub(crate) fn iter<'a>(mut defs: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*defs };
+            if def.name.is_null() {
+                None
+            } else {
+                defs = unsafe { defs.add(1) };
+                Some(def)
+            }
+        })
+    }
+
     pub(crate) fn build(
         &self,
         ty: &Py<PyType>,

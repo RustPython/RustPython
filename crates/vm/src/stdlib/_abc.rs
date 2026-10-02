@@ -250,8 +250,7 @@ mod _abc {
         {
             // _abc_register propagates Py_TPFLAGS_SEQUENCE/MAPPING
             // recursively so MATCH_SEQUENCE/MATCH_MAPPING see ABC registration.
-            let collection_mask = PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING;
-            let collection_flags = cls_type.effective_flags() & collection_mask;
+            let collection_flags = cls_type.effective_flags() & PyTypeFlags::COLLECTION;
             if !subclass_type.is(vm.ctx.types.str_type)
                 && !subclass_type.is(vm.ctx.types.bytes_type)
                 && !subclass_type.is(vm.ctx.types.bytearray_type)

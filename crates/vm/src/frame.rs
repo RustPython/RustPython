@@ -5316,7 +5316,7 @@ impl ExecutingFrame<'_> {
                             // For built-in types like bool, int, str, list, tuple, dict, etc.
                             // they match the subject itself as the single positional argument
                             let is_match_self_type =
-                                cls_type.slots.flags.contains(PyTypeFlags::_MATCH_SELF);
+                                cls_type.slots.flags.has_feature(PyTypeFlags::_MATCH_SELF);
 
                             if is_match_self_type {
                                 if nargs_val == 1 {

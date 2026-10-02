@@ -742,7 +742,7 @@ pub(crate) mod _thread {
         let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
         thread_builder
             .spawn(
-                vm.new_thread()
+                vm.new_python_thread()
                     .make_spawn_func_raw(move |vm| run_thread(func, args, vm)),
             )
             .map(|handle| thread_to_id(&handle))
@@ -2145,7 +2145,7 @@ pub(crate) mod _thread {
         let thread_builder = apply_thread_stack_size(thread::Builder::new(), vm);
 
         let join_handle = thread_builder
-            .spawn(vm.new_thread().make_spawn_func_raw(move |vm| {
+            .spawn(vm.new_python_thread().make_spawn_func_raw(move |vm| {
                 // Publish ident for the parent starter thread.
                 {
                     inner_clone.lock().ident = get_ident();

@@ -424,7 +424,7 @@ impl WASMVirtualMachine {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
             let code = vm.compile(source, mode, source_path.as_str());
             let code = code.map_err(|err| compile_err_to_js(vm, err))?;
-            let result = vm.run_code_obj(code, scope.clone());
+            let result = vm.run_code_obj(code, scope);
             convert::pyresult_to_js_result(vm, result)
         })?
     }
@@ -452,7 +452,7 @@ impl WASMVirtualMachine {
             let future_features = *stored.future_features.borrow();
             let Some(chunks) = statement_chunks(source, future_features) else {
                 let code = compile(source, Mode::Single)?;
-                let result = vm.run_code_obj(code, scope.clone());
+                let result = vm.run_code_obj(code, scope);
                 return convert::pyresult_to_js_result(vm, result);
             };
 

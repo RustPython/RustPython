@@ -16,6 +16,13 @@ const RELEASING: u8 = 1;
 const RELEASED: u8 = 2;
 const FINISHED: u8 = 3;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OwnerKind {
+    Host,
+    #[cfg(feature = "threading")]
+    PythonThread,
+}
+
 #[derive(Default)]
 pub(super) struct OwnerLeases {
     registry: PyMutex<Registry>,
@@ -24,7 +31,7 @@ pub(super) struct OwnerLeases {
 #[derive(Default)]
 struct Registry {
     entries: Vec<Weak<OwnerLease>>,
-    finalizer: Option<u64>,
+    finalizer: Option<Finalizer>,
     // A foreign stale owner must not block in Drop: the finalizer may join
     // that native thread. The finalization permit drains these outside locks.
     #[expect(
@@ -34,9 +41,20 @@ struct Registry {
     pending: Vec<Box<super::VirtualMachine>>,
 }
 
+#[derive(Clone, Copy)]
+struct Finalizer {
+    thread: u64,
+    reserve_host_admission: bool,
+}
+
 impl OwnerLeases {
+    #[cfg(test)]
     pub(super) fn register(&self) -> PyRc<OwnerLease> {
-        self.registry.lock().register(OWNED)
+        self.register_kind(OwnerKind::Host)
+    }
+
+    pub(super) fn register_kind(&self, kind: OwnerKind) -> PyRc<OwnerLease> {
+        self.registry.lock().register(OWNED, kind)
     }
 
     /// # Safety
@@ -66,7 +84,7 @@ impl OwnerLeases {
         if !owns_vm
             && registry
                 .finalizer
-                .is_some_and(|id| id != native_thread_id())
+                .is_some_and(|finalizer| finalizer.thread != native_thread_id())
         {
             registry.pending.push(vm);
             return None;
@@ -76,7 +94,7 @@ impl OwnerLeases {
             lease.begin_teardown();
             lease
         } else {
-            registry.register(RELEASED)
+            registry.register(RELEASED, OwnerKind::Host)
         };
         vm.state.teardowns.fetch_add(1, Ordering::Relaxed);
         Some((vm, lease, owns_vm))
@@ -84,14 +102,30 @@ impl OwnerLeases {
 
     pub(super) fn try_finalize(&self, state: &PyRc<super::PyGlobalState>) -> Option<Finalization> {
         let mut registry = self.registry.lock();
-        if registry.finalizer.is_some()
-            || state.owners.load(Ordering::Acquire) != 1
-            || state.teardowns.load(Ordering::Acquire) != 0
-        {
+        if registry.finalizer.is_some() {
             return None;
         }
-        registry.finalizer = Some(native_thread_id());
-        state.admission_closed.store(true, Ordering::Release);
+        let mut owners = 0;
+        for lease in registry.entries.iter().filter_map(Weak::upgrade) {
+            if !lease.is_valid() || lease.kind != OwnerKind::Host {
+                continue;
+            }
+            match lease.phase.load(Ordering::Acquire) {
+                OWNED => owners += 1,
+                RELEASING | RELEASED => return None,
+                FINISHED => (),
+                _ => unreachable!(),
+            }
+        }
+        if owners != 1 {
+            return None;
+        }
+        registry.finalizer = Some(Finalizer {
+            thread: native_thread_id(),
+            reserve_host_admission: true,
+        });
+        // Reserve host admission under the registry lock. Python workers
+        // must still be able to start children while _shutdown joins them.
         Some(Finalization(state.clone()))
     }
 
@@ -104,13 +138,16 @@ impl OwnerLeases {
         let mut registry = self.registry.lock();
         if let Some(finalizer) = registry.finalizer {
             assert_eq!(
-                finalizer,
+                finalizer.thread,
                 native_thread_id(),
                 "concurrent native finalization"
             );
             return None;
         }
-        registry.finalizer = Some(native_thread_id());
+        registry.finalizer = Some(Finalizer {
+            thread: native_thread_id(),
+            reserve_host_admission: false,
+        });
         Some(Finalization(state.clone()))
     }
 
@@ -137,8 +174,17 @@ impl OwnerLeases {
 }
 
 impl Registry {
-    fn register(&mut self, phase: u8) -> PyRc<OwnerLease> {
+    fn register(&mut self, phase: u8, kind: OwnerKind) -> PyRc<OwnerLease> {
+        assert!(
+            phase != OWNED
+                || kind != OwnerKind::Host
+                || self
+                    .finalizer
+                    .is_none_or(|finalizer| !finalizer.reserve_host_admission),
+            "cannot create a native owner during interpreter shutdown"
+        );
         let lease = PyRc::new(OwnerLease {
+            kind,
             valid: AtomicBool::new(true),
             active: AtomicUsize::new(0),
             thread: AtomicU64::new(0),
@@ -180,6 +226,7 @@ impl Drop for Finalization {
 }
 
 pub(super) struct OwnerLease {
+    kind: OwnerKind,
     valid: AtomicBool,
     active: AtomicUsize,
     thread: AtomicU64,
@@ -272,7 +319,11 @@ impl ForkOwners<'_> {
         let ident = native_thread_id();
         let mut owners = 0;
         let mut teardowns = 0;
-        if self.registry.finalizer.is_some_and(|id| id != ident) {
+        if self
+            .registry
+            .finalizer
+            .is_some_and(|finalizer| finalizer.thread != ident)
+        {
             self.registry.finalizer = None;
         }
         self.registry.entries.retain(|entry| {
@@ -307,6 +358,27 @@ impl ForkOwners<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "threading")]
+    #[test]
+    fn scoped_admission_preserves_raw_finalization_workers() {
+        let interpreter = crate::Interpreter::without_stdlib(Default::default());
+        let state = interpreter.enter_raw(|vm| vm.state.clone());
+        {
+            let _raw = state.owner_leases.enter_finalization(&state);
+            let worker = interpreter.new_thread();
+            drop(worker);
+        }
+        let _scoped = state.owner_leases.try_finalize(&state).unwrap();
+        let nested = state.owner_leases.enter_finalization(&state);
+        assert!(nested.is_none());
+        assert!(
+            std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| interpreter.new_thread()))
+                .is_err()
+        );
+        let worker = interpreter.enter_raw(super::super::VirtualMachine::new_python_thread);
+        drop(worker);
+    }
 
     #[test]
     fn repair_keeps_nested_entries_and_rejects_idle_owners() {

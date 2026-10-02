@@ -888,7 +888,7 @@ pub mod array {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_WEAKREF),
+        flags(BASETYPE, HAS_WEAKREF, SEQUENCE),
         with(
             Comparable,
             AsBuffer,

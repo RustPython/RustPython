@@ -66,6 +66,32 @@ fn retired_cycles_are_reclaimed_without_a_live_owner() {
 }
 
 #[test]
+fn retired_cycles_wait_for_full_collection_and_recheck_external_roots() {
+    let ctx = crate::Context::genesis();
+    let collector = GcState::new();
+    let heap = collector.new_heap(crate::vm::runtime::alloc_interpreter_id());
+    let state = GcInterpreterState::new(ctx);
+    let node = {
+        let _owner = AllocationScope::new(heap.clone());
+        let node = ctx.new_list(Vec::new());
+        node.borrow_vec_mut().push(node.clone().into());
+        node
+    };
+    heap.retired.store(true, Ordering::Release);
+    collector.collect_retired();
+    assert_eq!(heap.snapshot(None).len(), 1);
+    // Dropping an external root leaves both membership and the cycle intact.
+    // A membership-only dirty flag would miss the next chance to collect it.
+    drop(node);
+    collector.collect_inner(&state, Some(0), true);
+    collector.collect_inner(&state, Some(1), true);
+    let retained_after_young_collections = heap.snapshot(None).len();
+    collector.collect_inner(&state, Some(2), true);
+    assert!(heap.snapshot(None).is_empty());
+    assert_eq!(retained_after_young_collections, 1);
+}
+
+#[test]
 fn heap_introspection_and_freezing_are_owner_local() {
     let first = crate::Interpreter::without_stdlib(Default::default());
     let second = first.create_subinterpreter();

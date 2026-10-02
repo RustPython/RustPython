@@ -2529,17 +2529,7 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     let mut withs = Vec::new();
     let mut with_method_defs = Vec::new();
     let mut with_slots = Vec::new();
-    let mut flags = vec![quote! {
-        {
-            #[cfg(not(debug_assertions))] {
-                ::rustpython_vm::types::PyTypeFlags::DEFAULT
-            }
-            #[cfg(debug_assertions)] {
-                ::rustpython_vm::types::PyTypeFlags::DEFAULT
-                    .union(::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS)
-            }
-        }
-    }];
+    let mut flag_elems = Vec::new();
     let mut payload = None;
     let mut itemsize = None;
     let mut has_initializer = false;
@@ -2615,8 +2605,8 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                         let ident = path.get_ident().ok_or_else(|| {
                             err_span!(path, "#[pyclass(flags(...))] arguments should be ident")
                         })?;
-                        flags.push(quote_spanned! { ident.span() =>
-                             .union(::rustpython_vm::types::PyTypeFlags::#ident)
+                        flag_elems.push(quote_spanned! { ident.span() =>
+                            ::rustpython_vm::types::PyTypeFlags::#ident
                         });
                     }
                 } else {
@@ -2647,7 +2637,11 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
     Ok(ExtractedImplAttrs {
         payload,
         flags: quote! {
-            #(#flags)*
+            ::rustpython_vm::types::PyTypeFlags::from_slice(&[
+                #[cfg(debug_assertions)]
+                ::rustpython_vm::types::PyTypeFlags::_CREATED_WITH_FLAGS,
+                #(#flag_elems),*
+            ])
         },
         with_impl: quote! {
             #(#withs)*

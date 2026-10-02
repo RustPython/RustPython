@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustpython = { path = "../../", default-features = false, features = ["freeze-stdlib"] }
+rustpython = { path = "../../", default-features = false, features = ["freeze-stdlib", "stdio"] }
 rustpython-vm = { path = "../../crates/vm", default-features = false, features = ["freeze-stdlib"] }
 rustpython-pylib = { path = "../../crates/pylib", default-features = false, features = ["freeze-stdlib"] }
 

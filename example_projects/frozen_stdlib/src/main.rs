@@ -5,15 +5,15 @@
 //! See also: `aheui-rust.md` for freezing your own package.
 
 use rustpython::InterpreterBuilderExt;
-use rustpython_vm::{PyResult, VirtualMachine};
+use rustpython_vm::embedding::{Result, Vm};
 
-fn run(keyword: &str, vm: &VirtualMachine) -> PyResult<()> {
-    let json = vm.import("json", 0)?;
-    let json_loads = json.get_attr("loads", vm)?;
+fn run(keyword: &str, vm: Vm<'_>) -> Result<()> {
+    let json = vm.import("json")?;
+    let json_loads = json.get_attr("loads")?;
     let template = r#"{"key": "value"}"#;
     let json_string = template.replace("value", keyword);
-    let dict = json_loads.call((vm.ctx.new_str(json_string),), vm)?;
-    vm.print((dict,))?;
+    let dict = json_loads.call(&[vm.new_str(&json_string)?])?;
+    vm.import("builtins")?.get_attr("print")?.call(&[dict])?;
     Ok(())
 }
 
@@ -22,7 +22,9 @@ fn interpreter_with_config() {
         .init_stdlib()
         .interpreter();
     // Use interpreter.enter to reuse the same interpreter later
-    interpreter.run(|vm| run("rustpython::InterpreterBuilder", vm));
+    interpreter
+        .run(|vm| run("rustpython::InterpreterBuilder", vm))
+        .expect("no native workers remain");
 }
 
 fn interpreter_with_vm() {
@@ -30,7 +32,9 @@ fn interpreter_with_vm() {
         .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
         .build();
     // Use interpreter.enter to reuse the same interpreter later
-    interpreter.run(|vm| run("rustpython_vm::Interpreter::builder", vm));
+    interpreter
+        .run(|vm| run("rustpython_vm::Interpreter::builder", vm))
+        .expect("no native workers remain");
 }
 
 fn main() {

@@ -321,7 +321,7 @@ pub const fn attr_doc(table: &[(&str, u32, u32)], name: &str) -> Option<(u32, u3
 }
 
 pub trait PyClassImpl: PyClassDef {
-    const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
+    const TP_FLAGS: PyTypeFlags = PyTypeFlags::empty();
 
     /// Signature-bearing class doc. [`ItemDoc::NONE`] when the constructor has no signature.
     const INTERNAL_DOC: ItemDoc = ItemDoc::NONE;
@@ -367,11 +367,15 @@ pub trait PyClassImpl: PyClassDef {
     where
         Self: Sized,
     {
-        // NOTE: `is_created_with_flags` if only available when debug_assertions is true
         #[cfg(debug_assertions)]
-        debug_assert!(class.slots().flags.is_created_with_flags());
+        debug_assert!(
+            class
+                .slots()
+                .flags
+                .contains(&PyTypeFlags::_CREATED_WITH_FLAGS)
+        );
 
-        if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT)
+        if Self::TP_FLAGS.contains(&PyTypeFlags::HAS_DICT)
             && !Self::MEMBERS.iter().any(|member| member.name == "__dict__")
         {
             let __dict__ = identifier!(ctx, __dict__);
@@ -497,7 +501,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {
-            flags: crate::types::PyAtomicTypeFlags::new(Self::TP_FLAGS),
+            flags: crate::types::AtomicPyTypeFlags::from_plain(Self::TP_FLAGS),
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             native_layout_id: Some(Self::NATIVE_LAYOUT_ID),
@@ -522,7 +526,7 @@ pub trait PyClassImpl: PyClassDef {
         slots.native_new = slots.new.load();
         if !Self::INTERPRETER_LOCAL {
             // Shared native layouts and slots cannot be changed by an interpreter.
-            slots.flags.set(PyTypeFlags::IMMUTABLETYPE);
+            slots.flags.insert(PyTypeFlags::IMMUTABLETYPE);
         }
         slots
     }

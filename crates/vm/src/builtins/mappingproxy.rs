@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyStr, PyTuple, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
@@ -98,7 +98,8 @@ impl PyMappingProxy {
         match class.attributes.as_dict() {
             Some(dict) => dict.get_item_opt(key, vm),
             None => Ok(key
-                .as_interned_str(vm)
+                .downcast_ref::<PyStr>()
+                .and_then(|name| class.interned_attr_name(name, vm))
                 .and_then(|key| class.attributes.get(key))),
         }
     }
@@ -121,7 +122,8 @@ impl PyMappingProxy {
         match class.attributes.as_dict() {
             Some(dict) => dict.contains_key(key, vm),
             None => key
-                .as_interned_str(vm)
+                .downcast_ref::<PyStr>()
+                .and_then(|name| class.interned_attr_name(name, vm))
                 .is_some_and(|key| class.attributes.contains(key)),
         }
     }
@@ -170,16 +172,19 @@ impl PyMappingProxy {
     }
 }
 
-#[pyclass(with(
-    AsMapping,
-    Iterable,
-    Constructor,
-    AsSequence,
-    Comparable,
-    Hashable,
-    AsNumber,
-    Representable
-))]
+#[pyclass(
+    flags(MAPPING),
+    with(
+        AsMapping,
+        Iterable,
+        Constructor,
+        AsSequence,
+        Comparable,
+        Hashable,
+        AsNumber,
+        Representable
+    )
+)]
 impl Py<PyMappingProxy> {
     #[pymethod]
     fn get(

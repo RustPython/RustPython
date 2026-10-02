@@ -1889,6 +1889,16 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
+        self.new_thread_with_kind(super::owner_lease::OwnerKind::Host)
+    }
+
+    #[cfg(feature = "threading")]
+    pub(crate) fn new_python_thread(&self) -> ThreadedVirtualMachine {
+        self.new_thread_with_kind(super::owner_lease::OwnerKind::PythonThread)
+    }
+
+    #[cfg(feature = "threading")]
+    fn new_thread_with_kind(&self, kind: super::owner_lease::OwnerKind) -> ThreadedVirtualMachine {
         assert!(
             !self.state.finalizing.load(Ordering::Acquire)
                 && !self.state.admission_closed.load(Ordering::Acquire),
@@ -1935,7 +1945,7 @@ impl VirtualMachine {
             trampoline_stack: core::cell::UnsafeCell::new(Vec::new()),
         };
         ThreadedVirtualMachine {
-            vm: super::owned::OwnedVm::new(vm),
+            vm: super::owned::OwnedVm::with_kind(vm, kind),
         }
     }
 }

@@ -227,13 +227,10 @@ impl GetAttr for PySuper {
             return skip(zelf, name);
         }
 
-        if let Some(name) = vm.ctx.interned_str(name) {
-            // Walk start_type's MRO by reference (no Vec allocation, no
-            // per-class clone) up to and including zelf.typ, then look for
-            // the first class past it that declares `name` directly.
-            // Both locks are dropped before any arbitrary Python code
-            // (the descriptor call below) runs, so they can't be held
-            // across a call that might re-enter and want them again.
+        if let Some(name) = start_type.interned_attr_name(name, vm) {
+            // Walk a snapshot past zelf.typ to the first direct declaration.
+            // Release the MRO lock before reading namespaces, whose lazy
+            // initialization can re-enter type code, and calling descriptors.
             let Some(su_type) = zelf.typ.load_owned() else {
                 return skip(zelf, name);
             };

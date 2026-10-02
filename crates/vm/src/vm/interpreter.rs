@@ -733,8 +733,9 @@ impl Interpreter {
             return Ok(0);
         }
         // Stale post-fork handles are not counted as owners, but their native
-        // cleanup can still race finalization. Close admission under the same
-        // lock that admits those cleanup entries.
+        // cleanup can still race finalization. Reserve native admission under
+        // the same lock that admits those cleanup entries. Python workers
+        // remain admissible until finalize_raw finishes joining them.
         let Some(_finalization) = self
             .global_state
             .owner_leases

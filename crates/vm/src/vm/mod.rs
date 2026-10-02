@@ -3709,7 +3709,7 @@ impl VirtualMachine {
     }
 
     pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
-        let method_name = self.ctx.interned_str(method_name)?;
+        let method_name = obj.class().interned_attr_name(method_name, self)?;
         self.get_method(obj, method_name)
     }
 

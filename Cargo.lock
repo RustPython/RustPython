@@ -386,9 +386,9 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "bitflagset"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64b6ee310aa7af14142c8c9121775774ff601ae055ed98ba7fac96098bcde1b9"
+checksum = "b20ef61bbe50b5243319d8f4d2dfb492435ba267e184aa0468587ad08c8bef70"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -3187,9 +3187,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3"
-version = "0.29.2"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4688ddedf473e32662b9b067670129a8afb8c18e351482c70d62ba4a88171e8b"
+checksum = "700d18fa267b73b9b521fd7e13580e2f446916f176cacee1ab63fcc8191f1655"
 dependencies = [
  "libc",
  "once_cell",
@@ -3201,18 +3201,18 @@ dependencies = [
 
 [[package]]
 name = "pyo3-build-config"
-version = "0.29.2"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f41027e41b4bd03f6e60f9f417fe24a6341a6bb744edd62b6f709f2a52ea30e9"
+checksum = "7b3fc0c4d08f6bb10e71fe39dfb9e2f59c6eb6854e22ec8092f50c69a4499adb"
 dependencies = [
  "target-lexicon",
 ]
 
 [[package]]
 name = "pyo3-ffi"
-version = "0.29.2"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e591a95526fead067432c3b3a33fc74770b87b1e04e73671090d9c2055a2b327"
+checksum = "dfc0b8e19df29aad7086cf977bb0c2a2f143e30567eb113e9cf72b62ca698330"
 dependencies = [
  "libc",
  "pyo3-build-config",
@@ -3220,9 +3220,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros"
-version = "0.29.2"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73225868fc1cd84eef2c3c230ddb91273bf1de46aeb8a4248da76d32a0924a1c"
+checksum = "6100e8a4b5eba53afaa5ed078364851a0b2499c553a44c31026b929049b49dc6"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
@@ -3232,9 +3232,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros-backend"
-version = "0.29.2"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "571575aa3749fa6216757dd47d2a3e7ef360f329a40f0666a9fbd14889024952"
+checksum = "6143877a16e82b5a727b7127ff4cd86858a24a28d745d72f43e6f227c7b1bdb3"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3317,9 +3317,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
+checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
 dependencies = [
  "chacha20 0.10.2",
  "getrandom 0.4.3",
@@ -3694,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "codspeed-criterion-compat",
  "dirs",
@@ -3720,7 +3720,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-capi"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.1",
  "itertools 0.15.0",
@@ -3735,7 +3735,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-codegen"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.1",
  "indexmap",
@@ -3758,7 +3758,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-common"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ascii",
  "base64",
@@ -3797,7 +3797,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-compiler"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustpython-codegen",
  "rustpython-compiler-core",
@@ -3810,7 +3810,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-compiler-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.1",
  "bitflagset",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
@@ -3834,7 +3834,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-derive-impl"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "itertools 0.15.0",
  "proc-macro2",
@@ -3848,14 +3848,14 @@ dependencies = [
 
 [[package]]
 name = "rustpython-doc"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "xz",
 ]
 
 [[package]]
 name = "rustpython-host_env"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.1",
  "bitflagset",
@@ -3897,7 +3897,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-jit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "approx",
  "cranelift",
@@ -3913,20 +3913,20 @@ dependencies = [
 
 [[package]]
 name = "rustpython-literal"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "hexf-parse",
  "is-macro",
  "lexical-parse-float",
  "num-traits",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
 [[package]]
 name = "rustpython-pylib"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "glob",
  "rustpython-compiler-core",
@@ -4012,7 +4012,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-sre_engine"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.13.1",
  "codspeed-criterion-compat",
@@ -4024,7 +4024,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-stdlib"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "adler32",
  "ascii",
@@ -4052,7 +4052,7 @@ dependencies = [
  "pem-rfc7468 1.0.0",
  "phf 0.14.0",
  "pymath",
- "rand 0.10.2",
+ "rand 0.10.3",
  "rapidhash",
  "rustls",
  "rustls-pemfile",
@@ -4078,7 +4078,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-unicode"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "icu_casemap",
  "icu_locale",
@@ -4092,11 +4092,11 @@ dependencies = [
 
 [[package]]
 name = "rustpython-venvlauncher"
-version = "0.6.0"
+version = "0.6.1"
 
 [[package]]
 name = "rustpython-vm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ascii",
  "bitflags 2.13.1",
@@ -4156,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython-wtf8"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ascii",
  "bstr",
@@ -4166,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython_wasm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.2.17",
@@ -4679,7 +4679,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

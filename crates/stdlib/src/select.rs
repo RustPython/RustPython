@@ -18,11 +18,10 @@ struct Selectable {
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fno = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "select arg must be an int or object with a fileno() method".to_owned(),
-            )?;
+            let meth =
+                vm.get_method_or_type_error(obj.clone(), vm.ctx.intern_str("fileno"), || {
+                    "select arg must be an int or object with a fileno() method".to_owned()
+                })?;
             meth.call((), vm)?.try_into_value(vm)
         })?;
         Ok(Self { obj, fno })

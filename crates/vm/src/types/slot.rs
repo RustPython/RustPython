@@ -179,7 +179,7 @@ pub struct PyTypeSlots {
 
     // Flags to define presence of optional/expanded features.
     // One atomic word: runtime code sets and clears bits in place.
-    pub flags: PyAtomicTypeFlags,
+    pub flags: AtomicPyTypeFlags,
 
     // tp_doc
     pub doc: ItemDoc,
@@ -222,7 +222,7 @@ impl PyTypeSlots {
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
             name,
-            flags: PyAtomicTypeFlags::new(flags),
+            flags: AtomicPyTypeFlags::from_plain(flags),
             ..Default::default()
         }
     }
@@ -245,160 +245,97 @@ impl core::fmt::Debug for PyTypeSlots {
     }
 }
 
-bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
-    #[non_exhaustive]
-    pub struct PyTypeFlags: u64 {
-        const INLINE_VALUES = 1 << 2;
-        const MANAGED_WEAKREF = 1 << 3;
-        const MANAGED_DICT = 1 << 4;
-        const SEQUENCE = 1 << 5;
-        const MAPPING = 1 << 6;
-        const DISALLOW_INSTANTIATION = 1 << 7;
-        const IMMUTABLETYPE = 1 << 8;
-        const HEAPTYPE = 1 << 9;
-        const BASETYPE = 1 << 10;
-        const METHOD_DESCRIPTOR = 1 << 17;
-        const IS_ABSTRACT = 1 << 20;
-        // For built-in types that match the subject itself in pattern matching
-        // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset)
-        // This is not a stable API
-        const _MATCH_SELF = 1 << 22;
-        const HAS_DICT = 1 << 40;
-        const HAS_WEAKREF = 1 << 41;
-
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct PyTypeFlags(u64) {
+        const INLINE_VALUES = 2;
+        const MANAGED_WEAKREF = 3;
+        const MANAGED_DICT = 4;
+        const SEQUENCE = 5;
+        const MAPPING = 6;
+        const DISALLOW_INSTANTIATION = 7;
+        const IMMUTABLETYPE = 8;
+        const HEAPTYPE = 9;
+        const BASETYPE = 10;
+        const METHOD_DESCRIPTOR = 17;
+        const IS_ABSTRACT = 20;
+        // Built-in types that match the subject itself in pattern matching
+        // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset).
+        // This is not a stable API.
+        const _MATCH_SELF = 22;
+        const HAS_DICT = 40;
+        const HAS_WEAKREF = 41;
         #[cfg(debug_assertions)]
-        const _CREATED_WITH_FLAGS = 1 << 63;
+        const _CREATED_WITH_FLAGS = 63;
     }
 }
+
+bitflagset::atomic_bitflagset!(
+    pub struct AtomicPyTypeFlags(core::sync::atomic::AtomicU64) on PyTypeFlags
+);
 
 impl PyTypeFlags {
-    // Default used for both built-in and normal classes: empty, for now.
-    // CPython default: Py_TPFLAGS_HAVE_STACKLESS_EXTENSION | Py_TPFLAGS_HAVE_VERSION_TAG
-    pub const DEFAULT: Self = Self::empty();
+    pub const HEAP_TYPE: Self = Self::from_slice(&[Self::HEAPTYPE, Self::BASETYPE]);
 
-    // CPython: See initialization of flags in type_new.
-    /// Used for types created in Python. Subclassable and are a
-    /// heaptype.
-    #[must_use]
-    pub const fn heap_type_flags() -> Self {
-        match Self::from_bits(Self::DEFAULT.bits() | Self::HEAPTYPE.bits() | Self::BASETYPE.bits())
-        {
-            Some(flags) => flags,
-            None => unreachable!(),
-        }
-    }
+    pub const HEAP_TYPE_WITH_DICT: Self =
+        Self::from_bits_retain(Self::HEAP_TYPE.bits() | (1u64 << (Self::HAS_DICT as u32)));
 
-    #[must_use]
-    pub const fn has_feature(self, flag: Self) -> bool {
-        self.contains(flag)
-    }
+    pub const HEAP_TYPE_DICT_IMMUTABLE: Self = Self::from_bits_retain(
+        Self::HEAP_TYPE_WITH_DICT.bits() | (1u64 << (Self::IMMUTABLETYPE as u32)),
+    );
 
-    #[cfg(debug_assertions)]
-    #[must_use]
-    pub const fn is_created_with_flags(self) -> bool {
-        self.contains(Self::_CREATED_WITH_FLAGS)
-    }
+    pub const COLLECTION: Self = Self::from_slice(&[Self::SEQUENCE, Self::MAPPING]);
 }
 
-impl Default for PyTypeFlags {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
-
-/// `tp_flags` as one atomic word. Reads match [`PyTypeFlags`]; bits that change
-/// after the type is published are set and cleared in place.
-#[repr(transparent)]
-pub struct PyAtomicTypeFlags(core::sync::atomic::AtomicU64);
-
-impl core::fmt::Debug for PyAtomicTypeFlags {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.load().fmt(f)
-    }
-}
-
-impl Default for PyAtomicTypeFlags {
-    fn default() -> Self {
-        Self::new(PyTypeFlags::DEFAULT)
-    }
-}
-
-impl PyAtomicTypeFlags {
-    #[must_use]
-    pub const fn new(flags: PyTypeFlags) -> Self {
-        Self(core::sync::atomic::AtomicU64::new(flags.bits()))
-    }
-
+impl AtomicPyTypeFlags {
     #[must_use]
     pub fn load(&self) -> PyTypeFlags {
-        PyTypeFlags::from_bits_truncate(self.bits())
+        // Callers read `.bits()` (for example `PyType_GetFlags`), so bits
+        // outside the named set must survive.
+        PyTypeFlags::from_bits_retain(self.as_bits().load(core::sync::atomic::Ordering::Acquire))
     }
 
     #[must_use]
-    pub fn bits(&self) -> u64 {
-        self.0.load(core::sync::atomic::Ordering::Acquire)
-    }
-
-    #[must_use]
-    pub fn has_feature(&self, flag: PyTypeFlags) -> bool {
-        self.load().has_feature(flag)
-    }
-
-    #[must_use]
-    pub fn contains(&self, flag: PyTypeFlags) -> bool {
-        self.load().contains(flag)
-    }
-
-    #[must_use]
-    pub fn intersects(&self, flag: PyTypeFlags) -> bool {
-        self.load().intersects(flag)
-    }
-
-    pub fn remove(&self, flag: PyTypeFlags) {
-        self.0
-            .fetch_and(!flag.bits(), core::sync::atomic::Ordering::AcqRel);
-    }
-
-    pub fn set(&self, flag: PyTypeFlags) {
-        self.0
-            .fetch_or(flag.bits(), core::sync::atomic::Ordering::AcqRel);
+    pub fn has_feature(&self, flag: u8) -> bool {
+        self.contains(&flag)
     }
 
     /// Replace `mask` bits with `value & mask`.
     pub fn replace_masked(&self, mask: PyTypeFlags, value: PyTypeFlags) {
         let mask_bits = mask.bits();
         let value_bits = (value & mask).bits();
-        let _ = self.0.try_update(
+        let _ = self.as_bits().try_update(
             core::sync::atomic::Ordering::AcqRel,
             core::sync::atomic::Ordering::Acquire,
             |old| Some((old & !mask_bits) | value_bits),
         );
     }
 
-    #[cfg(debug_assertions)]
-    #[must_use]
-    pub fn is_created_with_flags(&self) -> bool {
-        self.load().is_created_with_flags()
+    /// Clear every bit set in `mask`.
+    pub fn remove_masked(&self, mask: PyTypeFlags) {
+        let _ = self
+            .as_bits()
+            .fetch_and(!mask.bits(), core::sync::atomic::Ordering::AcqRel);
     }
 }
 
-impl core::ops::BitOrAssign<PyTypeFlags> for PyAtomicTypeFlags {
+impl core::ops::BitOrAssign<PyTypeFlags> for AtomicPyTypeFlags {
     fn bitor_assign(&mut self, rhs: PyTypeFlags) {
-        self.set(rhs);
+        self.as_bits()
+            .fetch_or(rhs.bits(), core::sync::atomic::Ordering::AcqRel);
     }
 }
 
 // `__flags__` is `PyMemberFlags::ATOMIC`, so the load reads this field as an `AtomicU64`.
-// A plain `u64` may be less aligned; the load does not use that alignment.
+// That relies on `AtomicPyTypeFlags` being `repr(transparent)` over `AtomicU64`.
 const _: () = assert!(
-    core::mem::size_of::<PyAtomicTypeFlags>()
+    core::mem::size_of::<AtomicPyTypeFlags>()
         == core::mem::size_of::<core::sync::atomic::AtomicU64>()
-        && core::mem::align_of::<PyAtomicTypeFlags>()
+        && core::mem::align_of::<AtomicPyTypeFlags>()
             == core::mem::align_of::<core::sync::atomic::AtomicU64>()
 );
 
-impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
+impl crate::builtins::descriptor::MemberLayout for AtomicPyTypeFlags {
     const KIND: crate::builtins::descriptor::MemberKind = {
         if core::mem::size_of::<core::ffi::c_ulong>() == 8 {
             crate::builtins::descriptor::MemberKind::ULong
@@ -407,6 +344,20 @@ impl crate::builtins::descriptor::MemberLayout for PyAtomicTypeFlags {
         }
     };
     const ATOMIC: bool = true;
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(debug_assertions)]
+    #[test]
+    fn created_with_flags_bit_roundtrips() {
+        use super::{AtomicPyTypeFlags, PyTypeFlags};
+
+        let flags = PyTypeFlags::from_element(PyTypeFlags::_CREATED_WITH_FLAGS);
+        assert!(flags.contains(&PyTypeFlags::_CREATED_WITH_FLAGS));
+        let atomic = AtomicPyTypeFlags::from_plain(flags);
+        assert!(atomic.contains(&PyTypeFlags::_CREATED_WITH_FLAGS));
+    }
 }
 
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;

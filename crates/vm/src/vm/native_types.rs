@@ -19,9 +19,11 @@ pub struct NativeNamespaceDefinition {
     pub(crate) populate: fn(&Context, &Py<PyType>, &NativeOperators),
 }
 
-pub(crate) const RUNTIME_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_retain(
-    PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits() | PyTypeFlags::IS_ABSTRACT.bits(),
-);
+pub(crate) const RUNTIME_FLAGS: PyTypeFlags = PyTypeFlags::from_slice(&[
+    PyTypeFlags::SEQUENCE,
+    PyTypeFlags::MAPPING,
+    PyTypeFlags::IS_ABSTRACT,
+]);
 
 #[derive(Default)]
 pub(crate) struct NativeTypes {
@@ -236,6 +238,54 @@ mod tests {
             assert!(Self::make_class(ctx).is(class));
             class.set_str_attr("state", ctx.new_list(Vec::new()), ctx);
         }
+    }
+
+    #[pyclass(module = false, name = "ColdNativeAttributes")]
+    #[derive(Debug, PyPayload)]
+    struct ColdNativeAttributes;
+
+    #[pyclass]
+    impl ColdNativeAttributes {
+        #[extend_class]
+        fn populate(ctx: &Context, class: &Py<PyType>) {
+            class.set_str_attr("cold_native_attribute", ctx.new_int(42), ctx);
+        }
+    }
+
+    #[pyclass(module = false, name = "ColdNativeMethod")]
+    #[derive(Debug, PyPayload)]
+    struct ColdNativeMethod;
+
+    #[pyclass]
+    impl ColdNativeMethod {
+        #[pymethod]
+        fn cold_native_method(_zelf: &Py<Self>) -> i32 {
+            43
+        }
+    }
+
+    #[test]
+    fn lazy_native_names_are_resolved_on_first_lookup() {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
+            let _ = ColdNativeAttributes::make_class(&vm.ctx);
+            let object = ColdNativeAttributes.into_ref(&vm.ctx);
+            let name = vm.ctx.new_str("cold_native_attribute");
+            assert!(vm.ctx.interned_str(&*name).is_none());
+            let value = object.as_object().get_attr(&*name, vm).unwrap();
+            assert_eq!(value.try_to_value::<i32>(vm).unwrap(), 42);
+
+            let _ = ColdNativeMethod::make_class(&vm.ctx);
+            let object = ColdNativeMethod.into_ref(&vm.ctx);
+            assert!(vm.ctx.interned_str("cold_native_method").is_none());
+            let value = vm
+                .call_method(object.as_object(), "cold_native_method", ())
+                .unwrap();
+            assert_eq!(value.try_to_value::<i32>(vm).unwrap(), 43);
+
+            let missing = vm.ctx.new_str("cold_native_missing_attribute");
+            assert!(object.class().lookup_ref(&missing, vm).is_none());
+            assert!(vm.ctx.interned_str(&*missing).is_none());
+        });
     }
 
     #[test]

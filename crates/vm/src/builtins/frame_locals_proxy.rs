@@ -165,15 +165,18 @@ impl FrameLocalsProxy {
     }
 }
 
-#[pyclass(with(
-    Constructor,
-    AsMapping,
-    AsSequence,
-    AsNumber,
-    Iterable,
-    Comparable,
-    Representable
-))]
+#[pyclass(
+    flags(MAPPING),
+    with(
+        Constructor,
+        AsMapping,
+        AsSequence,
+        AsNumber,
+        Iterable,
+        Comparable,
+        Representable
+    )
+)]
 impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn keys(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {

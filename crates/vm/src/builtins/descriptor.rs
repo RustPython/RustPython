@@ -413,7 +413,7 @@ bitflags::bitflags! {
         const AUDIT_READ = 2;
         // `_Py_WRITE_RESTRICTED` (4) is deprecated. The bit is reserved and must not be reused.
         const RELATIVE_OFFSET = 8;
-        /// The field is atomic storage (`Atomic*` or `PyAtomicTypeFlags`).
+        /// The field is atomic storage (`Atomic*` or `AtomicPyTypeFlags`).
         ///
         /// Not a public member flag. The defined flags are `Py_READONLY` (1),
         /// `Py_AUDIT_READ` (2), `_Py_WRITE_RESTRICTED` (4, deprecated, do not reuse),

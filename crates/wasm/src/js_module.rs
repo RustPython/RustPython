@@ -126,20 +126,12 @@ mod _js {
         }
 
         #[pymethod]
-        fn new_closure(
-            _zelf: &Py<Self>,
-            obj: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<JsClosure> {
+        fn new_closure(_zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
             JsClosure::new(obj, false, vm)
         }
 
         #[pymethod]
-        fn new_closure_once(
-            _zelf: &Py<Self>,
-            obj: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<JsClosure> {
+        fn new_closure_once(_zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> JsClosure {
             JsClosure::new(obj, true, vm)
         }
 
@@ -322,7 +314,7 @@ mod _js {
 
     #[pyclass]
     impl JsClosure {
-        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        fn new(obj: PyObjectRef, once: bool, vm: &VirtualMachine) -> Self {
             let wasm_vm = WASMVirtualMachine {
                 id: vm.wasm_id.get().cloned().unwrap(),
             };
@@ -347,11 +339,11 @@ mod _js {
                 Closure::once(Box::new(f))
             };
             let wrapped = PyJsValue::new(wrap_closure(closure.as_ref())).into_ref(&vm.ctx);
-            Ok(Self {
+            Self {
                 closure: Some((closure, wrapped)).into(),
                 destroyed: false.into(),
                 detached: false.into(),
-            })
+            }
         }
 
         #[pygetset]
@@ -662,7 +654,7 @@ mod _js {
         extend_class!(ctx, js_error, {
             "value" => ctx.new_readonly_getset("value", &js_error, |exc: PyBaseExceptionRef| exc.get_arg(0)),
         });
-        js_error.to_owned()
+        js_error
     }
 }
 

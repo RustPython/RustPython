@@ -549,6 +549,61 @@ mod tests {
 
     #[cfg(feature = "threading")]
     #[test]
+    fn scoped_shutdown_joins_python_workers_after_native_owners_leave() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Mutex;
+
+        let interpreter = Interpreter::without_stdlib(Default::default());
+        let native_worker = interpreter.new_thread();
+        let pending = Arc::new(Mutex::new(Some(
+            interpreter.enter_raw(VirtualMachine::new_python_thread),
+        )));
+        let joined = Arc::new(AtomicBool::new(false));
+        interpreter.enter_raw(|vm| {
+            let pending = pending.clone();
+            let joined = joined.clone();
+            let shutdown = vm.new_function("_shutdown", move |vm: &VirtualMachine| {
+                let worker = pending.lock().unwrap().take().unwrap();
+                let parent = std::thread::spawn(move || {
+                    worker.run_raw(|vm| {
+                        let child = vm.new_python_thread();
+                        let child = std::thread::spawn(move || {
+                            child.run(|vm| {
+                                assert_eq!(vm.new_int(42).unwrap().to_i64().unwrap(), 42);
+                            });
+                        });
+                        vm.allow_threads(|| child.join().unwrap());
+                    });
+                });
+                vm.allow_threads(|| parent.join().unwrap());
+                joined.store(true, Ordering::Release);
+            });
+            let attrs = vm.ctx.new_dict();
+            attrs.set_item("_shutdown", shutdown.into(), vm).unwrap();
+            let module = vm.new_module("threading", attrs, None);
+            vm.sys_module
+                .get_attr("modules", vm)
+                .unwrap()
+                .set_item("threading", module.into(), vm)
+                .unwrap();
+        });
+        let busy = interpreter.run(|_| Ok(())).unwrap_err();
+        assert!(!joined.load(Ordering::Acquire));
+        busy.interpreter().enter(|vm| {
+            assert_eq!(vm.new_int(7).unwrap().to_i64().unwrap(), 7);
+        });
+        drop(native_worker);
+        let result = busy.retry();
+        // On a regression, release the pending worker before asserting so
+        // its capture cannot retain the interpreter through the module.
+        drop(pending.lock().unwrap().take());
+        assert_eq!(result.unwrap(), 0);
+        assert!(joined.load(Ordering::Acquire));
+    }
+
+    #[cfg(feature = "threading")]
+    #[test]
     fn last_worker_closes_roots_before_foreign_state_snapshot_is_released() {
         let interpreter = Interpreter::without_stdlib(Default::default());
         let state = interpreter.enter_raw(|vm| vm.state.clone());
