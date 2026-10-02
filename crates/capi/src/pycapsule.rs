@@ -9,6 +9,14 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 #[allow(non_camel_case_types)]
 pub type PyCapsule_Destructor = unsafe extern "C" fn(capsule: *mut PyObject);
 
+impl crate::util::FfiResult for Option<PyCapsule_Destructor> {
+    const ERR_VALUE: Self = None;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn PyCapsule_New(
     pointer: *mut c_void,
@@ -146,6 +154,44 @@ fn checked_capsule<'a>(
     Ok(capsule)
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyCapsule_GetDestructor(
+    capsule: *mut PyObject,
+) -> Option<PyCapsule_Destructor> {
+    with_vm(|vm| {
+        let capsule = unsafe { capsule.assume_borrowed() }
+            .downcast_ref_if_exact::<PyCapsule>(vm)
+            .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
+        Ok(capsule.destructor())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyCapsule_SetDestructor(
+    capsule: *mut PyObject,
+    destructor: Option<PyCapsule_Destructor>,
+) -> c_int {
+    with_vm(|vm| {
+        let capsule = unsafe { capsule.assume_borrowed() }
+            .downcast_ref_if_exact::<PyCapsule>(vm)
+            .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
+        capsule.set_destructor(destructor);
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyCapsule_SetName(capsule: *mut PyObject, name: *const c_char) -> c_int {
+    with_vm(|vm| {
+        let capsule = unsafe { capsule.assume_borrowed() }
+            .downcast_ref_if_exact::<PyCapsule>(vm)
+            .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
+        let name = NonNull::new(name.cast_mut()).map(|ptr| unsafe { CStr::from_ptr(ptr.as_ptr()) });
+        capsule.set_name(name);
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::ffi;
@@ -160,6 +206,40 @@ mod tests {
             assert!(capsule.is_valid_checked(Some(c"my_capsule")));
             let ptr = capsule.pointer_checked(Some(c"my_capsule")).unwrap();
             assert_eq!(unsafe { ptr.cast::<String>().as_ref() }, "Some data");
+        })
+    }
+
+    #[test]
+    fn capsule_destructor_and_name() {
+        Python::attach(|py| unsafe {
+            let cap = PyCapsule::new_with_value(py, 42u32, c"old_name").unwrap();
+            let raw_cap: *mut crate::PyObject = cap.as_ptr().cast();
+
+            let old_name = super::PyCapsule_GetName(raw_cap);
+            assert_eq!(core::ffi::CStr::from_ptr(old_name), c"old_name");
+
+            let rc_name = super::PyCapsule_SetName(raw_cap, c"new_name".as_ptr());
+            assert_eq!(rc_name, 0);
+
+            let new_name = super::PyCapsule_GetName(raw_cap);
+            assert_eq!(core::ffi::CStr::from_ptr(new_name), c"new_name");
+
+            unsafe extern "C" fn custom_dtor(_cap: *mut crate::PyObject) {}
+
+            let old_dtor = super::PyCapsule_GetDestructor(raw_cap);
+            assert!(old_dtor.is_some());
+
+            let rc_dtor = super::PyCapsule_SetDestructor(
+                raw_cap,
+                Some(custom_dtor as super::PyCapsule_Destructor),
+            );
+            assert_eq!(rc_dtor, 0);
+
+            let cur_dtor = super::PyCapsule_GetDestructor(raw_cap);
+            assert_eq!(
+                cur_dtor.map(|f| f as usize),
+                Some(custom_dtor as *const () as usize)
+            );
         })
     }
 
