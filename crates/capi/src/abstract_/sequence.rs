@@ -1,6 +1,7 @@
 use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_int;
+use rustpython_vm::AsObject;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Check(obj: *mut PyObject) -> c_int {
@@ -178,6 +179,35 @@ pub unsafe extern "C" fn PySequence_In(obj: *mut PyObject, value: *mut PyObject)
     unsafe { PySequence_Contains(obj, value) }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PySequence_Fast(
+    obj: *mut PyObject,
+    m: *const core::ffi::c_char,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { obj.assume_borrowed() };
+        if obj.class().is(vm.ctx.types.list_type) || obj.class().is(vm.ctx.types.tuple_type) {
+            return Ok(obj.to_owned());
+        }
+        let iter = match obj.to_owned().get_iter(vm) {
+            Ok(iter) => iter,
+            Err(err) => {
+                if !m.is_null() && err.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    let msg = unsafe { core::ffi::CStr::from_ptr(m) }
+                        .to_str()
+                        .unwrap_or("not a sequence");
+                    return Err(vm.new_type_error(msg.to_owned()));
+                }
+                return Err(err);
+            }
+        };
+        let elements = iter
+            .into_iter_sized::<rustpython_vm::PyObjectRef>(vm)?
+            .collect::<rustpython_vm::PyResult<Vec<_>>>()?;
+        Ok(vm.ctx.new_list(elements).into())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
@@ -282,6 +312,47 @@ mod tests {
             let any = dict.into_any();
             assert!(any.contains("k").unwrap());
             assert!(!any.contains("missing").unwrap());
+        });
+    }
+
+    #[test]
+    fn sequence_fast() {
+        Python::attach(|py| unsafe {
+            let list = PyList::new(py, [1, 2, 3]).unwrap();
+            let fast_list = super::PySequence_Fast(list.as_ptr().cast(), core::ptr::null());
+            assert_eq!(fast_list, list.as_ptr().cast());
+            crate::refcount::_Py_DecRef(fast_list);
+
+            let tuple = PyTuple::new(py, [1, 2, 3]).unwrap();
+            let fast_tuple = super::PySequence_Fast(tuple.as_ptr().cast(), core::ptr::null());
+            assert_eq!(fast_tuple, tuple.as_ptr().cast());
+            crate::refcount::_Py_DecRef(fast_tuple);
+
+            let set = py.eval(c"{10, 20}", None, None).unwrap();
+            let fast_set = super::PySequence_Fast(set.as_ptr().cast(), core::ptr::null());
+            assert!(!fast_set.is_null());
+            assert_ne!(fast_set, set.as_ptr().cast());
+            crate::refcount::_Py_DecRef(fast_set);
+
+            let num = py.eval(c"123", None, None).unwrap();
+            let fast_num = super::PySequence_Fast(num.as_ptr().cast(), c"custom error".as_ptr());
+            assert!(fast_num.is_null());
+            let err = pyo3::PyErr::take(py).unwrap();
+            assert_eq!(err.to_string(), "TypeError: custom error");
+
+            let globals = PyDict::new(py);
+            py.run(
+                c"def failing_gen():\n    yield 1\n    raise ValueError('boom')",
+                Some(&globals),
+                None,
+            )
+            .unwrap();
+            let failing_iter = py.eval(c"failing_gen()", Some(&globals), None).unwrap();
+            let fast_gen =
+                super::PySequence_Fast(failing_iter.as_ptr().cast(), c"custom error".as_ptr());
+            assert!(fast_gen.is_null());
+            let err_gen = pyo3::PyErr::take(py).unwrap();
+            assert_eq!(err_gen.to_string(), "ValueError: boom");
         });
     }
 }
