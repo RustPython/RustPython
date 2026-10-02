@@ -1271,20 +1271,26 @@ impl GcState {
         self.counts[2].fetch_add(count, Ordering::Relaxed);
     }
 
-    /// Reset all locks to unlocked state after fork().
+    /// Reset locks after fork(), preserving an active collection on this thread.
     ///
     /// After fork(), only the forking thread survives. Any lock held by another
-    /// thread is permanently stuck. This resets them by zeroing the raw bytes.
+    /// thread is permanently stuck. This resets them by zeroing the raw bytes,
+    /// except for the collecting lock when a finalizer forks from its owner.
     ///
     /// # Safety
     /// Must only be called after fork() in the child process when no other
-    /// threads exist. The calling thread must NOT hold any of these locks.
+    /// threads exist. The calling thread must NOT hold any of these locks except
+    /// `collecting`, whose owner is recorded in `collecting_thread`.
     #[cfg(all(unix, feature = "threading"))]
     pub unsafe fn reinit_after_fork(&self) {
         use crate::common::lock::{reinit_mutex_after_fork, reinit_rwlock_after_fork};
 
         unsafe {
-            reinit_mutex_after_fork(&self.collecting);
+            if self.collecting_thread.load(Ordering::Relaxed) != crate::stdlib::_thread::get_ident()
+            {
+                self.collecting_thread.store(0, Ordering::Relaxed);
+                reinit_mutex_after_fork(&self.collecting);
+            }
             reinit_mutex_after_fork(&self.retired);
 
             for rw in &self.generation_lists {

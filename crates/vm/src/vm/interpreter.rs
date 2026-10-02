@@ -352,10 +352,10 @@ impl InterpreterBuilder {
     /// // let interp = builder.add_native_module(def).build();
     /// let interp = builder.build();
     /// ```
-    #[must_use]
     /// # Safety
     /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
     /// including owner-local access and destruction of all Python references.
+    #[must_use]
     pub unsafe fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
         unsafe { self.add_native_modules(&[def]) }
     }
@@ -372,10 +372,10 @@ impl InterpreterBuilder {
     /// // let interp = builder.add_native_modules(&defs).build();
     /// let interp = builder.build();
     /// ```
-    #[must_use]
     /// # Safety
     /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
     /// including owner-local access and destruction of all Python references.
+    #[must_use]
     pub unsafe fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
         self.module_defs.extend_from_slice(defs);
         self
@@ -396,10 +396,10 @@ impl InterpreterBuilder {
     ///     .init_hook(|_vm| {}) }
     ///     .build();
     /// ```
-    #[must_use]
     /// # Safety
     /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
     /// including owner-local access and destruction of all Python references.
+    #[must_use]
     pub unsafe fn init_hook<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&VirtualMachine) + 'static,

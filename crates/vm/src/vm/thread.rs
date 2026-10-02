@@ -253,7 +253,7 @@ fn callbacks_permitted() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(feature = "threading")]
+#[cfg(all(unix, feature = "threading"))]
 pub(crate) fn native_sweep<R>(f: impl FnOnce() -> R) -> R {
     let previous = NATIVE_SWEEP.with(|sweep| sweep.replace(true));
     scopeguard::defer! {

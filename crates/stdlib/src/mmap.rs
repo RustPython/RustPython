@@ -1120,6 +1120,10 @@ mod mmap {
 
             // Get the lock on mmap
             let mut mmap_guard = zelf.mmap.write();
+            if zelf.exports.load() > 0 {
+                drop(mmap_guard);
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
+            }
 
             // Check if this is a Named mmap - these cannot be resized
             if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {

@@ -60,3 +60,40 @@ for w in workers:
     w.join()
 
 print("ok")
+
+
+def test_fork_from_gc_finalizer():
+    enabled = gc.isenabled()
+    gc.disable()
+    child_pid = None
+    nested_collection = None
+
+    class ForkingCycle:
+        def __del__(self):
+            nonlocal child_pid, nested_collection
+            child_pid = os.fork()
+            if child_pid == 0:
+                cycle = []
+                cycle.append(cycle)
+                del cycle
+                # The outer collector's guard survives fork and still excludes
+                # another collection until this finalizer returns.
+                nested_collection = gc.collect()
+
+    try:
+        cycle = ForkingCycle()
+        cycle.link = cycle
+        del cycle
+        gc.collect()
+        if child_pid == 0:
+            collected_after = gc.collect()
+            os._exit(0 if nested_collection == 0 and collected_after > 0 else 1)
+        assert child_pid is not None and child_pid > 0
+        _, status = os.waitpid(child_pid, 0)
+        assert status == 0, status
+    finally:
+        if enabled:
+            gc.enable()
+
+
+test_fork_from_gc_finalizer()

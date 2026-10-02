@@ -201,7 +201,7 @@ pub trait PyClassDef: 'static {
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
     const DOC: ItemDoc = ItemDoc::NONE;
-    /// Attribute name â†’ database span, sorted by name.
+    /// Attribute name → database span, sorted by name.
     /// `(u32::MAX, 0)` is an explicit empty doc.
     #[cfg(feature = "doc")]
     const ATTR_DOCS: &'static [(&'static str, u32, u32)] = &[];

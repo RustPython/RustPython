@@ -1755,10 +1755,8 @@ impl VirtualMachine {
     /// First, compile a Python source file into bytecode:
     ///
     /// ```sh
-    /// # unsafe {
     /// # Generate a .pyc file
     /// $ rustpython -m py_compile <input>.py
-    /// # }
     /// ```
     ///
     /// ## Running the bytecode
