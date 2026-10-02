@@ -3,8 +3,54 @@ use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_long};
-use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyModule;
+use rustpython_vm::{AsObject, PyResult, VirtualMachine};
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct PyABIInfo {
+    pub abiinfo_major_version: u8,
+    pub abiinfo_minor_version: u8,
+    pub flags: u16,
+    pub build_version: u32,
+    pub abi_version: u32,
+}
+
+impl PyABIInfo {
+    pub(crate) fn is_supported(
+        &self,
+        vm: &VirtualMachine,
+        module_name: Option<&str>,
+    ) -> PyResult<()> {
+        const PY_ABIINFO_STABLE: u16 = 0x0001;
+        const PY_ABIINFO_FREETHREADED: u16 = 0x0004;
+
+        let module_name = module_name.unwrap_or("<unknown>");
+
+        if self.abiinfo_major_version == 0 {
+            return Ok(());
+        }
+
+        if self.abiinfo_major_version > 1 {
+            return Err(
+                vm.new_import_error("PyABIInfo version too high", vm.ctx.new_str(module_name))
+            );
+        }
+
+        if self.flags & PY_ABIINFO_STABLE == 0 {
+            return Err(vm.new_import_error("not using stable ABI", vm.ctx.new_str(module_name)));
+        }
+
+        if self.flags & PY_ABIINFO_FREETHREADED == 0 {
+            return Err(vm.new_import_error(
+                "incompatible with free-threaded python",
+                vm.ctx.new_str(module_name),
+            ));
+        }
+
+        Ok(())
+    }
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyModule_AddObjectRef(
@@ -81,6 +127,17 @@ pub unsafe extern "C" fn PyModule_AddType(
             .dict()
             .set_item(short_name, ty.as_object().to_owned(), vm)?;
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyABIInfo_Check(
+    info: *mut PyABIInfo,
+    module_name: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let module_name = unsafe { module_name.try_as_str_opt(vm) }?;
+        unsafe { &*info }.is_supported(vm, module_name)
     })
 }
 
