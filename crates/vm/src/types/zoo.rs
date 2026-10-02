@@ -2,10 +2,10 @@ use crate::{
     Py,
     builtins::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
-        coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy, function,
-        generator, genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory,
-        module, namespace, object, property, pystr, range, sentinel, set, singletons, slice,
-        staticmethod, super_, template, traceback, tuple,
+        coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy,
+        frozendict, function, generator, genericalias, getset, int, interpolation, iter, list, map,
+        mappingproxy, memory, module, namespace, object, property, pystr, range, sentinel, set,
+        singletons, slice, staticmethod, super_, template, traceback, tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
@@ -40,6 +40,7 @@ pub struct TypeZoo {
     pub float_type: &'static Py<PyType>,
     pub frame_type: &'static Py<PyType>,
     pub frame_locals_proxy_type: &'static Py<PyType>,
+    pub frozendict_type: &'static Py<PyType>,
     pub frozenset_type: &'static Py<PyType>,
     pub generator_type: &'static Py<PyType>,
     pub int_type: &'static Py<PyType>,
@@ -139,6 +140,7 @@ impl TypeZoo {
             dict_type: dict::PyDict::init_builtin_type(),
             enumerate_type: enumerate::PyEnumerate::init_builtin_type(),
             float_type: float::PyFloat::init_builtin_type(),
+            frozendict_type: frozendict::PyFrozenDict::init_builtin_type(),
             frozenset_type: set::PyFrozenSet::init_builtin_type(),
             filter_type: filter::PyFilter::init_builtin_type(),
             list_type: list::PyList::init_builtin_type(),
@@ -235,6 +237,7 @@ impl TypeZoo {
         set::init(context);
         tuple::init(context);
         dict::init(context);
+        frozendict::init(context);
         builtin_func::init(context);
         function::init(context);
         staticmethod::init(context);
