@@ -3728,6 +3728,7 @@ dependencies = [
  "malachite-bigint",
  "num-complex",
  "pyo3",
+ "rustpython-compiler-core",
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",

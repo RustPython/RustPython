@@ -20,6 +20,7 @@ num-complex = { workspace = true }
 rustpython-vm = { workspace = true, features = ["threading", "compiler", "importlib", "host_env"] }
 rustpython-stdlib = {workspace = true, features = ["threading"] }
 rustpython-pylib = { workspace = true }
+rustpython-compiler-core = { workspace = true }
 
 [dev-dependencies]
 pyo3 = { workspace = true, features = ["auto-initialize", "abi3t"] }
