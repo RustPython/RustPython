@@ -161,7 +161,7 @@ members = [
 exclude = ["pymath"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.6.1"
 authors = ["RustPython Team"]
 edition = "2024"
 rust-version = "1.95.0"
@@ -169,23 +169,23 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-capi = { path = "crates/capi", version = "0.6.0" }
-rustpython-compiler-core = { path = "crates/compiler-core", version = "0.6.0" }
-rustpython-compiler = { path = "crates/compiler", version = "0.6.0" }
-rustpython-codegen = { path = "crates/codegen", version = "0.6.0" }
-rustpython-common = { path = "crates/common", version = "0.6.0" }
-rustpython-host_env = { path = "crates/host_env", version = "0.6.0" }
-rustpython-derive = { path = "crates/derive", version = "0.6.0" }
-rustpython-derive-impl = { path = "crates/derive-impl", version = "0.6.0" }
-rustpython-jit = { path = "crates/jit", version = "0.6.0" }
-rustpython-literal = { path = "crates/literal", version = "0.6.0" }
-rustpython-vm = { path = "crates/vm", default-features = false, version = "0.6.0" }
-rustpython-pylib = { path = "crates/pylib", version = "0.6.0" }
-rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.6.0" }
-rustpython-sre_engine = { path = "crates/sre_engine", version = "0.6.0" }
-rustpython-unicode = { path = "crates/unicode", version = "0.6.0" }
-rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.0" }
-rustpython-doc = { path = "crates/doc", version = "0.6.0" }
+rustpython-capi = { path = "crates/capi", version = "0.6.1" }
+rustpython-compiler-core = { path = "crates/compiler-core", version = "0.6.1" }
+rustpython-compiler = { path = "crates/compiler", version = "0.6.1" }
+rustpython-codegen = { path = "crates/codegen", version = "0.6.1" }
+rustpython-common = { path = "crates/common", version = "0.6.1" }
+rustpython-host_env = { path = "crates/host_env", version = "0.6.1" }
+rustpython-derive = { path = "crates/derive", version = "0.6.1" }
+rustpython-derive-impl = { path = "crates/derive-impl", version = "0.6.1" }
+rustpython-jit = { path = "crates/jit", version = "0.6.1" }
+rustpython-literal = { path = "crates/literal", version = "0.6.1" }
+rustpython-vm = { path = "crates/vm", default-features = false, version = "0.6.1" }
+rustpython-pylib = { path = "crates/pylib", version = "0.6.1" }
+rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.6.1" }
+rustpython-sre_engine = { path = "crates/sre_engine", version = "0.6.1" }
+rustpython-unicode = { path = "crates/unicode", version = "0.6.1" }
+rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.1" }
+rustpython-doc = { path = "crates/doc", version = "0.6.1" }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
 ruff_python_parser = { package = "rustpython-ruff_python_parser", version = "0.16.5" }
