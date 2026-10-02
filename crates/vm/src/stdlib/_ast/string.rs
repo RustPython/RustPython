@@ -1,6 +1,5 @@
 use super::constant::{Constant, ConstantLiteral};
 use super::*;
-use crate::warn;
 use ast::str_prefix::StringLiteralPrefix;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -175,42 +174,41 @@ fn normalize_template_str_parts(values: Vec<TemplateStrPart>) -> Vec<TemplateStr
     output
 }
 
-fn warn_invalid_escape_sequences_in_format_spec(
-    vm: &VirtualMachine,
+#[cfg(feature = "parser")]
+fn warn_invalid_escape_sequences_in_format_spec<E>(
     source_file: &SourceFile,
     range: TextRange,
-) {
+    emit_warning: &mut impl FnMut(usize, char) -> Result<(), E>,
+) -> Result<(), E> {
     let source = source_file.source_text();
     let start = range.start().to_usize();
     let end = range.end().to_usize();
     if start >= end || end > source.len() {
-        return;
+        return Ok(());
     }
-    let mut raw = &source[start..end];
-    if raw.starts_with(':') {
-        raw = &raw[1..];
-    }
-
-    let mut chars = raw.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let Some(raw) = source.get(start..end) else {
+        return Ok(());
+    };
+    let mut chars = raw.char_indices().peekable();
+    while let Some((offset, ch)) = chars.next() {
         if ch != '\\' {
             continue;
         }
-        let Some(next) = chars.next() else {
+        let Some((_, next)) = chars.next() else {
             break;
         };
         let valid = match next {
             '\\' | '\'' | '"' | 'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' => true,
             '\n' => true,
             '\r' => {
-                if let Some('\n') = chars.peek().copied() {
+                if let Some((_, '\n')) = chars.peek().copied() {
                     chars.next();
                 }
                 true
             }
             '0'..='7' => {
                 for _ in 0..2 {
-                    if let Some('0'..='7') = chars.peek().copied() {
+                    if let Some((_, '0'..='7')) = chars.peek().copied() {
                         chars.next();
                     } else {
                         break;
@@ -220,7 +218,7 @@ fn warn_invalid_escape_sequences_in_format_spec(
             }
             'x' => {
                 for _ in 0..2 {
-                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                    if chars.peek().is_some_and(|(_, c)| c.is_ascii_hexdigit()) {
                         chars.next();
                     } else {
                         break;
@@ -230,7 +228,7 @@ fn warn_invalid_escape_sequences_in_format_spec(
             }
             'u' => {
                 for _ in 0..4 {
-                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                    if chars.peek().is_some_and(|(_, c)| c.is_ascii_hexdigit()) {
                         chars.next();
                     } else {
                         break;
@@ -240,7 +238,7 @@ fn warn_invalid_escape_sequences_in_format_spec(
             }
             'U' => {
                 for _ in 0..8 {
-                    if chars.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+                    if chars.peek().is_some_and(|(_, c)| c.is_ascii_hexdigit()) {
                         chars.next();
                     } else {
                         break;
@@ -249,9 +247,9 @@ fn warn_invalid_escape_sequences_in_format_spec(
                 true
             }
             'N' => {
-                if let Some('{') = chars.peek().copied() {
+                if let Some((_, '{')) = chars.peek().copied() {
                     chars.next();
-                    for c in chars.by_ref() {
+                    for (_, c) in chars.by_ref() {
                         if c == '}' {
                             break;
                         }
@@ -262,18 +260,196 @@ fn warn_invalid_escape_sequences_in_format_spec(
             _ => false,
         };
         if !valid {
-            let message = vm.ctx.new_str(format!(
-                "\"\\{next}\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\{next}\"? A raw string is also an option."
-            ));
-            let _ = warn::warn(
-                message.into(),
-                Some(vm.ctx.exceptions.syntax_warning.to_owned()),
-                1,
-                None,
-                vm,
-            );
+            return emit_warning(start + offset, next);
         }
     }
+    Ok(())
+}
+
+/// Keep AST parsing's existing format-spec diagnostics at a fallible boundary,
+/// rather than emitting warnings from the infallible Python AST conversion.
+#[cfg(feature = "parser")]
+pub(super) fn emit_format_spec_warnings<E>(
+    statements: &[ast::Stmt],
+    expressions: &[ast::Expr],
+    source_file: &SourceFile,
+    emit_warning: &mut impl FnMut(usize, char) -> Result<(), E>,
+) -> Result<(), E> {
+    use ast::visitor::{self, Visitor};
+    use std::collections::HashSet;
+
+    struct LiteralVisitor<'a, F, E> {
+        source_file: &'a SourceFile,
+        emit_warning: F,
+        emitted: HashSet<usize>,
+        error: Option<E>,
+    }
+
+    impl<F, E> LiteralVisitor<'_, F, E>
+    where
+        F: FnMut(usize, char) -> Result<(), E>,
+    {
+        fn check_literal(&mut self, mut range: TextRange, interpolated: bool) {
+            if self.error.is_some() {
+                return;
+            }
+            // Ruff leaves the interpolation delimiter outside the literal range.
+            // Include it so a trailing backslash can still diagnose \{ or \}.
+            if interpolated
+                && self
+                    .source_file
+                    .source_text()
+                    .as_bytes()
+                    .get(range.end().to_usize())
+                    .is_some_and(|byte| matches!(byte, b'{' | b'}'))
+            {
+                range = TextRange::new(range.start(), range.end() + TextSize::from(1));
+            }
+            let result = warn_invalid_escape_sequences_in_format_spec(
+                self.source_file,
+                range,
+                &mut |offset, ch| {
+                    if !self.emitted.contains(&offset) {
+                        (self.emit_warning)(offset, ch)?;
+                        self.emitted.insert(offset);
+                    }
+                    Ok(())
+                },
+            );
+            if let Err(error) = result {
+                self.error = Some(error);
+            }
+        }
+
+        fn visit_elements<'a>(&mut self, elements: &'a ast::InterpolatedStringElements, raw: bool)
+        where
+            Self: Visitor<'a>,
+        {
+            for element in elements {
+                match element {
+                    ast::InterpolatedStringElement::Literal(literal) => {
+                        if !raw {
+                            self.check_literal(literal.range, true);
+                        }
+                    }
+                    ast::InterpolatedStringElement::Interpolation(interpolation) => {
+                        self.visit_expr(&interpolation.expression);
+                        if let Some(spec) = &interpolation.format_spec {
+                            self.visit_elements(&spec.elements, raw);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Visit only literal spans within an existing format-spec warning region.
+    // An enclosing spec can include nested raw strings, nonraw expressions in a
+    // raw f-string, and comments; scanning its entire source range conflates them.
+    impl<'a, F, E> Visitor<'a> for LiteralVisitor<'_, F, E>
+    where
+        F: FnMut(usize, char) -> Result<(), E>,
+    {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_none() {
+                visitor::walk_expr(self, expr);
+            }
+        }
+
+        fn visit_string_literal(&mut self, literal: &'a ast::StringLiteral) {
+            if !matches!(
+                literal.flags.prefix(),
+                ast::str_prefix::StringLiteralPrefix::Raw { .. }
+            ) {
+                self.check_literal(literal.range, false);
+            }
+        }
+
+        fn visit_bytes_literal(&mut self, literal: &'a ast::BytesLiteral) {
+            if !literal.flags.prefix().is_raw() {
+                self.check_literal(literal.range, false);
+            }
+        }
+
+        fn visit_f_string(&mut self, fstring: &'a ast::FString) {
+            self.visit_elements(&fstring.elements, fstring.flags.prefix().is_raw());
+        }
+
+        fn visit_t_string(&mut self, tstring: &'a ast::TString) {
+            self.visit_elements(&tstring.elements, tstring.flags.prefix().is_raw());
+        }
+    }
+
+    struct FormatSpecVisitor<'a, F, E> {
+        literals: LiteralVisitor<'a, F, E>,
+    }
+
+    impl<'a, F, E> Visitor<'a> for FormatSpecVisitor<'_, F, E>
+    where
+        F: FnMut(usize, char) -> Result<(), E>,
+    {
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.literals.error.is_some() {
+                return;
+            }
+            if let ast::Expr::FString(fstring) = expr {
+                // Conversion checked all enclosing specs before converting their
+                // expressions, including across concatenated f-string parts.
+                for part in fstring.value.as_slice() {
+                    if let ast::FStringPart::FString(part) = part {
+                        self.visit_format_specs(&part.elements, part.flags.prefix().is_raw());
+                    }
+                }
+            }
+            visitor::walk_expr(self, expr);
+        }
+
+        fn visit_t_string(&mut self, tstring: &'a ast::TString) {
+            let raw = tstring.flags.prefix().is_raw();
+            for element in &tstring.elements {
+                if let ast::InterpolatedStringElement::Interpolation(interpolation) = element {
+                    self.visit_expr(&interpolation.expression);
+                    if let Some(spec) = &interpolation.format_spec {
+                        // Template specs become JoinedStr nodes during conversion;
+                        // their nested format specs already emitted warnings too.
+                        self.visit_format_specs(&spec.elements, raw);
+                        for element in &spec.elements {
+                            self.visit_interpolated_string_element(element);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    impl<F, E> FormatSpecVisitor<'_, F, E>
+    where
+        F: FnMut(usize, char) -> Result<(), E>,
+    {
+        fn visit_format_specs(&mut self, elements: &ast::InterpolatedStringElements, raw: bool) {
+            for element in elements {
+                if let ast::InterpolatedStringElement::Interpolation(interpolation) = element
+                    && let Some(spec) = &interpolation.format_spec
+                {
+                    self.literals.visit_elements(&spec.elements, raw);
+                }
+            }
+        }
+    }
+
+    let mut visitor = FormatSpecVisitor {
+        literals: LiteralVisitor {
+            source_file,
+            emit_warning,
+            emitted: HashSet::new(),
+            error: None,
+        },
+    };
+    visitor.visit_body(statements);
+    for expr in expressions {
+        visitor.visit_expr(expr);
+    }
+    visitor.literals.error.map_or(Ok(()), Err)
 }
 
 fn ruff_format_spec_to_joined_str(
@@ -763,13 +939,6 @@ pub(super) fn fstring_to_object(
         }
     }
     let values = normalize_joined_str_parts(values);
-    for part in &values {
-        if let JoinedStrPart::FormattedValue(value) = part
-            && let Some(format_spec) = &value.format_spec
-        {
-            warn_invalid_escape_sequences_in_format_spec(vm, source_file, format_spec.range());
-        }
-    }
     let c = JoinedStr {
         range,
         values: values.into_boxed_slice(),
