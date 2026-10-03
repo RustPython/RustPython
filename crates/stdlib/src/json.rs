@@ -98,8 +98,8 @@ mod _json {
     #[pyclass(with(Callable, Constructor))]
     impl JsonScanner {
         #[pygetset]
-        fn array_hook(&self) -> Option<PyObjectRef> {
-            self.array_hook.clone()
+        fn array_hook(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.array_hook.clone()
         }
 
         fn parse(
