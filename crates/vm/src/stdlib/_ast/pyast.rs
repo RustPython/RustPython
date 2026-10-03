@@ -72,17 +72,13 @@ macro_rules! impl_base_node {
                 super::python::_ast::ast_reduce(&zelf, vm)
             }
 
-            #[pymethod]
-            fn __replace__(
-                zelf: PyObjectRef,
-                args: super::python::_ast::AstReplaceArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, args.0, vm)
-            }
-
             #[extend_class]
             fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_str_attr(
+                    "__replace__",
+                    super::python::_ast::AST_REPLACE.to_proper_method(class, ctx),
+                    ctx,
+                );
                 // AST types are mutable (heap types, not IMMUTABLETYPE).
                 class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
                 class.set_attr(
@@ -116,17 +112,13 @@ macro_rules! impl_base_node {
                 super::python::_ast::ast_reduce(&zelf, vm)
             }
 
-            #[pymethod]
-            fn __replace__(
-                zelf: PyObjectRef,
-                args: super::python::_ast::AstReplaceArgs,
-                vm: &VirtualMachine,
-            ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, args.0, vm)
-            }
-
             #[extend_class]
             fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+                class.set_str_attr(
+                    "__replace__",
+                    super::python::_ast::AST_REPLACE.to_proper_method(class, ctx),
+                    ctx,
+                );
                 // AST types are mutable (heap types, not IMMUTABLETYPE).
                 class.slots.flags.remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
                 class.set_attr(

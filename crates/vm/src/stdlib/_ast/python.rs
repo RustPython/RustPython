@@ -10,10 +10,7 @@ pub(crate) mod _ast {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDict, PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
-        function::{
-            ArgIterable, ArgumentError, FromArgs, FuncArgs, KwArgs, Param, PyMethodDef,
-            PyMethodFlags,
-        },
+        function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
         warn,
@@ -172,17 +169,16 @@ pub(crate) mod _ast {
         obj.set_attr(&name, value, vm)
     }
 
-    // Keep the public keyword-only signature while letting ast_replace report
-    // the same positional-argument error as CPython.
-    pub(crate) struct AstReplaceArgs(pub(crate) FuncArgs);
-
-    impl FromArgs for AstReplaceArgs {
-        const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword("fields")]);
-
-        fn from_args(_vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            Ok(Self(core::mem::take(args)))
-        }
-    }
+    pub(crate) const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+        "__replace__",
+        |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+            ast_replace(&zelf, args, vm)
+        },
+        PyMethodFlags::METHOD,
+        crate::function::ItemDoc::static_text(
+            "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
+        ),
+    );
 
     pub(crate) fn ast_replace(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
@@ -565,16 +561,6 @@ This will become an error in Python 3.20",
             },
             PyMethodFlags::METHOD,
             crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
-        );
-        const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-            "__replace__",
-            |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                ast_replace(&zelf, args, vm)
-            },
-            PyMethodFlags::METHOD,
-            crate::function::ItemDoc::static_text(
-                "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
-            ),
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(
