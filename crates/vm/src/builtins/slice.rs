@@ -187,7 +187,10 @@ impl PySlice {
 
         Ok((start, stop, step))
     }
+}
 
+#[pyclass(with(Comparable, Representable, Hashable))]
+impl Py<PySlice> {
     #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
@@ -196,10 +199,7 @@ impl PySlice {
     ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
-}
 
-#[pyclass(with(Comparable, Representable, Hashable))]
-impl Py<PySlice> {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let slice: PySlice = match args.args.len() {
