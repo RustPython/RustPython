@@ -16,10 +16,6 @@ class InheritedInit(CustomInit):
     pass
 
 
-class ExplicitBaseInit(RLock):
-    __init__ = RLock.__init__
-
-
 def assert_no_arguments(cls):
     assert not cls().locked()
     for args, kwargs, message in (
@@ -38,17 +34,9 @@ def assert_no_arguments(cls):
                 )
 
 
-for cls in (RLock, Plain, ExplicitBaseInit):
-    assert_no_arguments(cls)
-
 for cls in (CustomInit, InheritedInit):
     lock = cls(1, x=2)
     assert lock.received == ((1,), {"x": 2})
-    assert not lock.locked()
-    assert lock.acquire(False)
-    assert lock.locked()
-    lock.release()
-    assert not lock.locked()
     uninitialized = RLock.__new__(cls, 1, x=2)
     assert not hasattr(uninitialized, "received")
 

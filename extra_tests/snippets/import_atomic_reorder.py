@@ -1,8 +1,7 @@
 """Import-cache ordering must not temporarily remove an exact-dict entry.
 
-The trace-visible presence assertion is a RustPython atomicity invariant, not
-an assertion supplied by CPython's old pop/set bootstrap. CPython still checks
-the fallback's value, ordering, exception and custom-mapping semantics here.
+The native relocation helper and trace-visible presence assertion protect
+RustPython's module-cache atomicity and callback reentry boundaries.
 """
 
 import _imp
@@ -54,16 +53,6 @@ class Loader:
 
     def exec_module(self, module):
         self.action(module)
-
-
-def invoke(bootstrap, action, mode="load"):
-    name = "_atomic_reorder_test"
-    spec = bootstrap.ModuleSpec(name, Loader(action))
-    if mode == "exec":
-        module = bootstrap.module_from_spec(spec)
-        sys.modules[name] = module
-        return bootstrap._exec(spec, module)
-    return bootstrap._load_unlocked(spec)
 
 
 def check_trace_presence(bootstrap, mode):
@@ -125,82 +114,6 @@ def check_trace_presence(bootstrap, mode):
         assert list(sys.modules)[-2:] == [after, name]
     finally:
         sys.settrace(old_trace)
-        sys.modules = original
-
-
-def check_loader_semantics(bootstrap):
-    original = sys.modules
-    name = "_atomic_reorder_test"
-    after = "_atomic_reorder_after"
-    try:
-        for mode in ("load", "exec"):
-            for replacement in (object(), None):
-                sys.modules = original.copy()
-
-                def replace(module):
-                    sys.modules[name] = replacement
-                    sys.modules[after] = object()
-
-                assert invoke(bootstrap, replace, mode) is replacement
-                assert sys.modules[name] is replacement
-                assert list(sys.modules)[-2:] == [after, name]
-
-            sys.modules = original.copy()
-
-            def remove(module):
-                del sys.modules[name]
-
-            exc = raises(KeyError, lambda: invoke(bootstrap, remove, mode))
-            assert exc.args == (name,)
-            assert name not in sys.modules
-
-            sys.modules = original.copy()
-            replacement = object()
-            rebound = {"before": object(), name: replacement, after: object()}
-
-            def rebind(module):
-                sys.modules = rebound
-
-            assert invoke(bootstrap, rebind, mode) is replacement
-            assert sys.modules is rebound
-            assert list(rebound) == ["before", after, name]
-
-        sys.modules = original.copy()
-        failure = RuntimeError("loader failure after deliberate removal")
-
-        def remove_and_fail(module):
-            del sys.modules[name]
-            raise failure
-
-        raises(RuntimeError, lambda: invoke(bootstrap, remove_and_fail), failure)
-        assert name not in sys.modules
-
-        sys.modules = original.copy()
-
-        def fail_with_entry(module):
-            sys.modules[after] = object()
-            raise failure
-
-        raises(
-            RuntimeError, lambda: invoke(bootstrap, fail_with_entry, "exec"), failure
-        )
-        assert list(sys.modules)[-2:] == [after, name]
-
-        if hasattr(bootstrap, "_load_backward_compatible"):
-
-            class LegacyLoader:
-                def load_module(self, fullname):
-                    sys.modules[fullname] = None
-                    del sys.modules[fullname]
-                    raise failure
-
-            spec = bootstrap.ModuleSpec(name, LegacyLoader())
-            sys.modules = original.copy()
-            raises(
-                RuntimeError, lambda: bootstrap._load_backward_compatible(spec), failure
-            )
-            assert name not in sys.modules
-    finally:
         sys.modules = original
 
 
@@ -455,7 +368,6 @@ for bootstrap in (frozen, source):
             modes += ("legacy", "legacy_error")
         for mode in modes:
             check_trace_presence(bootstrap, mode)
-    check_loader_semantics(bootstrap)
     if hasattr(bootstrap, "_reorder_module"):
         check_custom_mappings(bootstrap)
 

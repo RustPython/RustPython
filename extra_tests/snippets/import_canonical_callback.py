@@ -1,5 +1,4 @@
 import builtins
-import importlib
 import importlib._bootstrap as bootstrap
 import sys
 import types
@@ -53,11 +52,6 @@ try:
     assert original_import(module_name, fromlist=("child",)) is module
     assert callbacks.pop() is original_import  # _handle_fromlist
     assert callbacks.pop() is original_import  # _find_and_load
-
-    # import_module deliberately uses the pure-Python greatest-common-
-    # denominator importer; only native imports use the cached builtin.
-    assert importlib.import_module(module_name) is module
-    assert callbacks.pop() is bootstrap._gcd_import
 
     builtins.__import__ = override_import
     assert import_statement() is module

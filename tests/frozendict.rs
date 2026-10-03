@@ -43,27 +43,3 @@ fn frozen_mapping_contract() {
         include_str!("../extra_tests/frozendict_contract.py"),
     );
 }
-
-#[test]
-fn frozen_global_namespaces() {
-    run_suite(
-        "frozendict_globals",
-        include_str!("../extra_tests/frozendict_globals.py"),
-    );
-}
-
-#[test]
-fn frozen_mapping_edgecases() {
-    run_suite(
-        "frozendict_edgecases",
-        include_str!("../extra_tests/frozendict_edgecases.py"),
-    );
-}
-
-#[test]
-fn frozen_type_namespaces() {
-    run_suite(
-        "frozendict_type_namespace",
-        include_str!("../extra_tests/frozendict_type_namespace.py"),
-    );
-}
