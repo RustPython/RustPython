@@ -284,7 +284,7 @@ mod decl {
                             bits: 6,
                             padded: padded.into_bool(),
                             strict: strict_mode,
-                            canonical: canonical,
+                            canonical,
                         },
                     )
                 })
@@ -378,7 +378,7 @@ mod decl {
                             bits: 5,
                             padded: padded.into_bool(),
                             strict: strict_mode,
-                            canonical: canonical,
+                            canonical,
                         },
                     )
                 })
