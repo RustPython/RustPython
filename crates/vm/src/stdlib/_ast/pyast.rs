@@ -75,10 +75,10 @@ macro_rules! impl_base_node {
             #[pymethod]
             fn __replace__(
                 zelf: PyObjectRef,
-                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
+                args: super::python::_ast::AstReplaceArgs,
                 vm: &VirtualMachine,
             ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
+                super::python::_ast::ast_replace(&zelf, args.0, vm)
             }
 
             #[extend_class]
@@ -119,10 +119,10 @@ macro_rules! impl_base_node {
             #[pymethod]
             fn __replace__(
                 zelf: PyObjectRef,
-                fields: crate::function::KwArgs<PyObjectRef, crate::function::NameFields>,
+                args: super::python::_ast::AstReplaceArgs,
                 vm: &VirtualMachine,
             ) -> PyResult {
-                super::python::_ast::ast_replace(&zelf, fields.into(), vm)
+                super::python::_ast::ast_replace(&zelf, args.0, vm)
             }
 
             #[extend_class]

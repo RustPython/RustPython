@@ -217,14 +217,14 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
         if let Err(exc) = result {
             if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                repl.save_history(&repl_history_path).unwrap();
+                let _ = repl.save_history(&repl_history_path);
                 return Err(exc);
             }
             vm.print_exception(&exc);
         }
         flush_stdio(vm);
     }
-    repl.save_history(&repl_history_path).unwrap();
+    let _ = repl.save_history(&repl_history_path);
 
     Ok(())
 }

@@ -254,7 +254,18 @@ pub(crate) mod _thread {
     #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
     impl Py<RLock> {
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let rlock_type = RLock::class(&vm.ctx);
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let rlock_init = rlock_type.slots.init.load().map(crate::types::fn_addr);
+            if cls.is(rlock_type) || cls_init == rlock_init {
+                if !args.args.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no positional arguments"));
+                }
+                if !args.kwargs.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no keyword arguments"));
+                }
+            }
             RLock {
                 mu: RawRMutex::INIT,
                 count: core::sync::atomic::AtomicUsize::new(0),

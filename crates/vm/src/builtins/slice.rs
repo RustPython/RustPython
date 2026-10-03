@@ -188,8 +188,7 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
-    // TODO: Uncomment when Python adds __class_getitem__ to slice
-    // #[pyclassmethod]
+    #[pyclassmethod]
     fn __class_getitem__(
         cls: PyTypeRef,
         args: PyObjectRef,
