@@ -235,6 +235,11 @@ class EnvBuilder:
             if self.prompt is not None:
                 f.write(f'prompt = {self.prompt!r}\n')
             f.write('executable = %s\n' % os.path.realpath(sys.executable))
+            if sys.implementation.name == 'rustpython':
+                # RustPython: copied aliases must retain the real base even
+                # when the environment which created them is later removed.
+                f.write('base-executable = %s\n' %
+                        os.path.realpath(sys._base_executable))
             args = []
             nt = os.name == 'nt'
             if nt and self.symlinks:

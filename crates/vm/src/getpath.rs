@@ -299,14 +299,74 @@ fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str) -> String {
     }
 }
 
+/// Follow venv creator metadata for copied aliases and real targets for symlinks.
+/// A generic `home/python` may belong to CPython rather than this interpreter.
+fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
+    let mut current = executable.to_path_buf();
+    let mut visited = std::collections::HashSet::new();
+    // Configurations can refer to parent environments; malformed cycles must
+    // not turn interpreter startup into an unbounded traversal.
+    for _ in 0..32 {
+        if !visited.insert(current.clone()) {
+            return None;
+        }
+        let resolved = std::fs::canonicalize(&current).ok()?;
+        if !resolved.is_file() {
+            return None;
+        }
+        let directory = current.parent()?.to_path_buf();
+        let (prefix, home) = detect_venv(Some(&directory));
+        let Some(prefix) = prefix else {
+            if resolved != current {
+                current = resolved;
+                continue;
+            }
+            return Some(resolved);
+        };
+        let real_prefix = std::fs::canonicalize(&prefix).ok()?;
+        if !resolved.starts_with(&real_prefix) {
+            // A symlink identifies the actual interpreter, even when a
+            // different executable happens to exist at home/python.
+            current = resolved;
+            continue;
+        }
+        let cfg = prefix.join(platform::VENV_LANDMARK);
+        if let Some(base) = parse_pyvenv_value(&cfg, "base-executable") {
+            let base = PathBuf::from(base);
+            if base.is_absolute() {
+                // Do not silently substitute another interpreter if the
+                // explicitly recorded base has been removed.
+                if !base.is_file() {
+                    return Some(base);
+                }
+                current = base;
+                continue;
+            }
+        }
+        if let Some(creator) = parse_pyvenv_value(&cfg, "executable") {
+            let creator = PathBuf::from(creator);
+            if creator.is_absolute() && creator.is_file() {
+                current = creator;
+                continue;
+            }
+        }
+        // Older/third-party configurations may contain only home. Preserve
+        // that fallback, using the resolved filename for an internal symlink.
+        current = home?.join(resolved.file_name()?);
+    }
+    None
+}
+
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    // If in venv and we have home, construct base_executable from home
-    if let (Some(exe), Some(home)) = (executable, home_dir)
-        && let Some(exe_name) = exe.file_name()
-    {
-        let base = home.join(exe_name);
-        return base.to_string_lossy().into_owned();
+    if let (Some(exe), Some(home)) = (executable, home_dir) {
+        if let Some(base) = resolve_venv_base_executable(exe) {
+            return base.to_string_lossy().into_owned();
+        }
+        // Keep the previous fallback for incomplete or malformed metadata.
+        if let Some(exe_name) = exe.file_name() {
+            return home.join(exe_name).to_string_lossy().into_owned();
+        }
     }
 
     // Otherwise, base_executable == executable
@@ -394,6 +454,10 @@ fn get_executable_path() -> Option<PathBuf> {
 
 /// Parse pyvenv.cfg and extract the 'home' key value
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
+    parse_pyvenv_value(pyvenv_cfg, "home")
+}
+
+fn parse_pyvenv_value(pyvenv_cfg: &Path, wanted_key: &str) -> Option<String> {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
     #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -401,7 +465,7 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')
-            && key.trim().to_lowercase() == "home"
+            && key.trim().eq_ignore_ascii_case(wanted_key)
         {
             return Some(value.trim().to_string());
         }
