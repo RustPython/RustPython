@@ -91,14 +91,24 @@ mod decl {
         vm.ctx.new_exception_type("binascii", "Incomplete", None)
     }
 
+    #[derive(FromArgs)]
+    struct HexlifyArgs {
+        #[pyarg(any)]
+        data: ArgBytesLike,
+        #[pyarg(any, optional)]
+        sep: OptionalArg<ArgAsciiBuffer>,
+        #[pyarg(any, optional)]
+        bytes_per_sep: OptionalArg<isize>,
+    }
+
     #[pyfunction(name = "b2a_hex")]
     #[pyfunction]
-    fn hexlify(
-        data: ArgBytesLike,
-        sep: OptionalArg<ArgAsciiBuffer>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    fn hexlify(args: HexlifyArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let HexlifyArgs {
+            data,
+            sep,
+            bytes_per_sep,
+        } = args;
         let sep = match sep {
             OptionalArg::Present(sep) => sep.with_ref(|sep| {
                 let [sep] = sep else {
