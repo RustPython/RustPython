@@ -6,8 +6,6 @@ import inspect
 import unittest
 import unittest.mock
 from test.support import import_helper
-# TODO: RUSTPYTHON; these private read-only tables do not need frozendict hashing.
-from types import MappingProxyType as frozendict
 
 
 def _parse_fullname(fullname, *, strict=False):
