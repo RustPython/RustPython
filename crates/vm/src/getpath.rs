@@ -310,7 +310,7 @@ fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
         if !visited.insert(current.clone()) {
             return None;
         }
-        let resolved = std::fs::canonicalize(&current).ok()?;
+        let resolved = rustpython_host_env::fs::canonicalize(&current).ok()?;
         if !resolved.is_file() {
             return None;
         }
@@ -323,7 +323,7 @@ fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
             }
             return Some(resolved);
         };
-        let real_prefix = std::fs::canonicalize(&prefix).ok()?;
+        let real_prefix = rustpython_host_env::fs::canonicalize(&prefix).ok()?;
         if !resolved.starts_with(&real_prefix) {
             // A symlink identifies the actual interpreter, even when a
             // different executable happens to exist at home/python.
@@ -359,14 +359,14 @@ fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
 
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    if let (Some(exe), Some(_)) = (executable, home_dir) {
-        if let Some(base) = resolve_venv_base_executable(exe) {
-            return base.to_string_lossy().into_owned();
-        }
-        // The resolver already handles legacy home-only configurations.
-        // If provenance is cyclic or invalid, retain this interpreter instead
-        // of selecting an unrelated executable at home/<invoked alias>.
+    if let (Some(exe), Some(_)) = (executable, home_dir)
+        && let Some(base) = resolve_venv_base_executable(exe)
+    {
+        return base.to_string_lossy().into_owned();
     }
+    // The resolver already handles legacy home-only configurations.
+    // If provenance is cyclic or invalid, retain this interpreter instead
+    // of selecting an unrelated executable at home/<invoked alias>.
 
     // Otherwise, base_executable == executable
     executable

@@ -938,8 +938,9 @@ impl WeakRefList {
                 // its callback edge intact until the later tp_clear phase.
                 if !is_unreachable(wr.as_object()) && wr.ref_count.safe_inc() {
                     let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
-                    if let Some(cb) = wr.payload.callback.read().clone() {
-                        callbacks.push((wr_ref, cb));
+                    let callback = wr.payload.callback.read().clone();
+                    if let Some(callback) = callback {
+                        callbacks.push((wr_ref, callback));
                     }
                 }
             }
@@ -1125,7 +1126,8 @@ unsafe impl Traverse for PyWeak {
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         self.clear_ref();
-        if let Some(callback) = self.callback.write().take() {
+        let callback = self.callback.write().take();
+        if let Some(callback) = callback {
             out.push(callback);
         }
     }
@@ -2309,7 +2311,7 @@ impl PyObject {
     /// belonging to reachable weakrefs for invocation outside the list lock.
     pub fn gc_clear_weakrefs_collect_callbacks(
         &self,
-        is_unreachable: &impl Fn(&PyObject) -> bool,
+        is_unreachable: &impl Fn(&Self) -> bool,
     ) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
         if let Some(wrl) = self.weak_ref_list() {
             wrl.clear_for_gc_collect_callbacks(self, is_unreachable)

@@ -181,22 +181,19 @@ pub(crate) fn import_name(
     let globals = vm.current_globals();
     let mut lazy =
         explicit || (vm.state.lazy_imports.all.load(Ordering::Acquire) && is_module_level(vm));
-    if !lazy && is_module_level(vm) {
-        if let Some(names) = optional_item(
+    if !lazy
+        && is_module_level(vm)
+        && let Some(names) = optional_item(
             globals.as_object(),
             vm.ctx.intern_str("__lazy_modules__"),
             vm,
-        )? {
-            let absolute = crate::import::absolute_import_name(
-                name,
-                Some(globals.as_object()),
-                level as i32,
-                vm,
-            )?;
-            lazy = names
-                .sequence_unchecked()
-                .contains(absolute.as_object(), vm)?;
-        }
+        )?
+    {
+        let absolute =
+            crate::import::absolute_import_name(name, Some(globals.as_object()), level as i32, vm)?;
+        lazy = names
+            .sequence_unchecked()
+            .contains(absolute.as_object(), vm)?;
     }
     if !lazy {
         return vm.import_from(name, fromlist, level);
@@ -364,9 +361,8 @@ pub(crate) fn resolve(deferred: &Py<PyLazyImport>, vm: &VirtualMachine) -> PyRes
             Some(value) => value.clone(),
             None => vm.ctx.none(),
         };
-        let globals = frame::current_globals()
-            .map(|g| g.as_object().to_owned())
-            .unwrap_or_else(|| vm.ctx.none());
+        let globals =
+            frame::current_globals().map_or_else(|| vm.ctx.none(), |g| g.as_object().to_owned());
         let module = callback
             .call(
                 (
