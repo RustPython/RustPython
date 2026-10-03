@@ -8,7 +8,7 @@ from test.support.script_helper import assert_python_ok
 from test.support.import_helper import import_fresh_module
 
 import collections.abc
-from collections import namedtuple, UserDict
+from collections import namedtuple, UserDict, OrderedDict
 import copy
 # XXX: RUSTPYTHON
 try:
@@ -25,6 +25,7 @@ import types
 import unittest.mock
 import weakref
 import typing
+import re
 
 import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
@@ -46,7 +47,7 @@ def clear_typing_caches():
 class TypesTests(unittest.TestCase):
 
     def test_names(self):
-        c_only_names = {'CapsuleType'}
+        c_only_names = {'CapsuleType', 'LazyImportType'}
         ignored = {'new_class', 'resolve_bases', 'prepare_class',
                    'get_original_bases', 'DynamicClassAttribute', 'coroutine'}
 
@@ -58,11 +59,13 @@ class TypesTests(unittest.TestCase):
             'AsyncGeneratorType', 'BuiltinFunctionType', 'BuiltinMethodType',
             'CapsuleType', 'CellType', 'ClassMethodDescriptorType', 'CodeType',
             'CoroutineType', 'EllipsisType', 'FrameType', 'FunctionType',
+            'FrameLocalsProxyType',
             'GeneratorType', 'GenericAlias', 'GetSetDescriptorType',
-            'LambdaType', 'MappingProxyType', 'MemberDescriptorType',
-            'MethodDescriptorType', 'MethodType', 'MethodWrapperType',
-            'ModuleType', 'NoneType', 'NotImplementedType', 'SimpleNamespace',
-            'TracebackType', 'UnionType', 'WrapperDescriptorType',
+            'LambdaType', 'LazyImportType', 'MappingProxyType',
+            'MemberDescriptorType', 'MethodDescriptorType', 'MethodType',
+            'MethodWrapperType', 'ModuleType', 'NoneType',
+            'NotImplementedType', 'SimpleNamespace', 'TracebackType',
+            'UnionType', 'WrapperDescriptorType',
         }
         self.assertEqual(all_names, set(c_types.__all__))
         self.assertEqual(all_names - c_only_names, set(py_types.__all__))
@@ -716,6 +719,19 @@ class TypesTests(unittest.TestCase):
             pass
         """
         assert_python_ok("-c", code)
+
+    def test_frame_locals_proxy_type(self):
+        self.assertIsInstance(types.FrameLocalsProxyType, type)
+        if MISSING_C_DOCSTRINGS:
+            self.assertIsNone(types.FrameLocalsProxyType.__doc__)
+        else:
+            self.assertIsInstance(types.FrameLocalsProxyType.__doc__, str)
+        self.assertEqual(types.FrameLocalsProxyType.__module__, 'builtins')
+        self.assertEqual(types.FrameLocalsProxyType.__name__, 'FrameLocalsProxy')
+
+        frame = inspect.currentframe()
+        self.assertIsNotNone(frame)
+        self.assertIsInstance(frame.f_locals, types.FrameLocalsProxyType)
 
 
 class UnionTests(unittest.TestCase):
@@ -1382,6 +1398,128 @@ class MappingProxyTests(unittest.TestCase):
         view = self.mappingproxy(mapping)
         self.assertEqual(hash(view), hash(mapping))
 
+    def check_richcompare(self, mapping_type):
+        data1 = mapping_type({'a': 1})
+        data2 = mapping_type({'a': 2})
+        mp1 = self.mappingproxy(data1)
+        copy1 = self.mappingproxy(data1)
+        mp2 = self.mappingproxy(data2)
+
+        self.assertTrue(mp1 == data1)
+        self.assertTrue(data1 == mp1)
+        self.assertTrue(copy1 == data1)
+
+        self.assertTrue(mp1 == copy1)
+        self.assertFalse(mp1 != copy1)
+
+        self.assertFalse(mp1 == mp2)
+        self.assertTrue(mp1 != mp2)
+        self.assertFalse(mp2 == data1)
+        self.assertTrue(mp2 != data1)
+        self.assertTrue(data1 != mp2)
+
+        msg = "not supported between instances of 'mappingproxy' and 'mappingproxy'"
+        with self.assertRaisesRegex(TypeError, msg):
+            mp1 > mp2
+        with self.assertRaisesRegex(TypeError, msg):
+            mp1 < copy1
+        with self.assertRaisesRegex(TypeError, msg):
+            mp2 >= mp2
+        with self.assertRaisesRegex(TypeError, msg):
+            copy1 <= mp1
+
+        if mapping_type.__module__ == 'collections':
+            mapping_name = f'{mapping_type.__module__}.{mapping_type.__name__}'
+        else:
+            mapping_name = mapping_type.__name__
+        with self.assertRaisesRegex(
+            TypeError,
+            f"not supported between instances of 'mappingproxy' and '{mapping_name}'",
+        ):
+            copy1 <= data1
+
+        class Evil:
+            def __eq__(self, other):
+                return other
+
+        result = (mp1 == Evil())
+        self.assertIs(type(result), mapping_type)
+        if mapping_type == dict:
+            # Evil.__eq__() gets a copy of the mapping
+            self.assertEqual(result, data1)
+        else:
+            self.assertIs(result, data1)
+
+    def test_richcompare_dict(self):
+        self.check_richcompare(dict)
+
+    def test_richcompare_custom_mapping(self):
+        class CustomMapping(collections.abc.Mapping):
+            def __init__(self, data):
+                self._data = data
+
+            def __getitem__(self, key):
+                return self._data[key]
+
+            def __iter__(self):
+                return iter(self._data)
+
+            def __len__(self):
+                return len(self._data)
+
+            def __contains__(self, item):
+                return item in self._data
+
+        self.check_richcompare(CustomMapping)
+
+        class CustomMapping2(CustomMapping):
+            def __eq__(self, other):
+                return (
+                    isinstance(other, CustomMapping)
+                    and self._data == other._data
+                )
+
+        mp1 = self.mappingproxy(CustomMapping({'a': 1}))
+        self.assertEqual(mp1, CustomMapping2({'a': 1}))
+        self.assertNotEqual(CustomMapping2({'a': 1}), mp1)
+
+    def test_richcompare_odict(self):
+        self.check_richcompare(OrderedDict)
+
+    def test_richcompare_frozendict(self):
+        self.check_richcompare(frozendict)
+
+    def test_richcompare_evil(self):
+        # This test used to mutate the list dictionary,
+        # but MappingProxyType now creates a copy to call `__eq__`:
+        # https://github.com/python/cpython/issues/152405
+        key = "__mappingproxy_crash_key__"
+
+        class Evil:
+            def __eq__(self, other):
+                other[key] = 1
+                return other
+
+        # Checks that it does not mutate the internals of `MappingProxyType`:
+        dc = {}
+        leaked = self.mappingproxy(dc) == Evil()
+        self.assertIs(type(leaked), dict)
+        self.assertIn(key, leaked)
+        self.assertNotIn(key, dc)
+
+        # Exposes the internals of `MappingProxyType` via richcompare:
+        leaked = vars(list) == Evil()
+        self.assertIs(type(leaked), dict)
+        self.assertIn(key, leaked)
+        name = "__mappingproxy_crash_probe__"
+        leaked[name] = lambda self: "probe"
+        self.assertIn(name, leaked)
+        self.assertNotHasAttr(list, key)
+        self.assertNotHasAttr(list, name)  # it used to return `True`
+        del leaked[name]
+        self.assertNotIn(name, leaked)
+        self.assertNotHasAttr(list, name)  # it used to crash
+
 
 class ClassCreationTests(unittest.TestCase):
 
@@ -2015,6 +2153,24 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertEqual(types.SimpleNamespace(), types.SimpleNamespace())
         self.assertEqual(ns1, ns2)
         self.assertNotEqual(ns2, types.SimpleNamespace())
+
+    def test_richcompare_unsupported(self):
+        ns1 = types.SimpleNamespace(x=1)
+        ns2 = types.SimpleNamespace(y=2)
+
+        msg = re.escape(
+            "not supported between instances of "
+            "'types.SimpleNamespace' and 'types.SimpleNamespace'"
+        )
+
+        with self.assertRaisesRegex(TypeError, msg):
+            ns1 > ns2
+        with self.assertRaisesRegex(TypeError, msg):
+            ns1 >= ns2
+        with self.assertRaisesRegex(TypeError, msg):
+            ns1 < ns2
+        with self.assertRaisesRegex(TypeError, msg):
+            ns1 <= ns2
 
     def test_nested(self):
         ns1 = types.SimpleNamespace(a=1, b=2)

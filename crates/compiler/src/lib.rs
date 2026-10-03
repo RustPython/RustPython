@@ -950,6 +950,55 @@ pub fn too_deeply_nested_error(
     }))
 }
 
+/// Source-only rejection performed by CPython's checked_from_import parser action.
+#[doc(hidden)]
+#[must_use]
+pub fn lazy_future_import_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::statement_visitor::StatementVisitor;
+
+    struct Checker<'a> {
+        pending: Vec<&'a ast::Stmt>,
+    }
+
+    impl<'a> StatementVisitor<'a> for Checker<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            self.pending.push(stmt);
+        }
+    }
+
+    let ast::Mod::Module(module) = ast else {
+        return None;
+    };
+    let mut checker = Checker {
+        pending: module.body.iter().collect(),
+    };
+    let mut first = None;
+    while let Some(stmt) = checker.pending.pop() {
+        if let ast::Stmt::ImportFrom(import) = stmt
+            && import.is_lazy
+            && import.level == 0
+            && import
+                .module
+                .as_ref()
+                .is_some_and(|name| name.as_str() == "__future__")
+        {
+            let start = import.range.start().to_usize();
+            first = Some(first.map_or(start, |previous: usize| previous.min(start)));
+        }
+        ast::statement_visitor::walk_stmt(&mut checker, stmt);
+    }
+    first.map(|start| {
+        CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new(
+                "lazy from __future__ import is not allowed".to_owned(),
+                start,
+                start + 4,
+            ),
+        )
+    })
+}
+
 /// Syntax the reference grammar has no rule for, but that this parser accepts.
 ///
 /// A bare generator expression is one: `f(x for x in y)` is the `primary
@@ -1362,6 +1411,11 @@ fn _compile_with_syntax_warning_handler<'a>(
     );
     pre_parse_source_error(&source_file)?;
     let parsed = parser::parse_unchecked(barry_source.source(), parser_options);
+    if parsed.errors().is_empty()
+        && let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file)
+    {
+        return Err(error);
+    }
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
     {
@@ -1669,6 +1723,11 @@ pub fn _compile_symtable(
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            if parsed.errors().is_empty()
+                && let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file)
+            {
+                return Err(error);
+            }
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
             {

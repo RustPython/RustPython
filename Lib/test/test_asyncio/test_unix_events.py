@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 from test import support
-from test.support import os_helper
+from test.support import os_helper, warnings_helper
 from test.support import socket_helper
 from test.support import wait_process
 from test.support import hashlib_helper
@@ -1182,6 +1182,7 @@ class TestFunctional(unittest.TestCase):
 @support.requires_fork()
 class TestFork(unittest.TestCase):
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     def test_fork_not_share_current_task(self):
         loop = object()
         task = object()
@@ -1214,6 +1215,7 @@ class TestFork(unittest.TestCase):
             self.assertEqual(result, b'NO TASK')
             wait_process(pid, exitcode=0)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     def test_fork_not_share_event_loop(self):
         # The forked process should not share the event loop with the parent
         loop = object()
@@ -1241,6 +1243,7 @@ class TestFork(unittest.TestCase):
             self.assertEqual(result, b'NO LOOP')
             wait_process(pid, exitcode=0)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
     def test_fork_signal_handling(self):
@@ -1288,6 +1291,7 @@ class TestFork(unittest.TestCase):
         self.assertFalse(parent_handled.is_set())
         self.assertTrue(child_handled.is_set())
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
     def test_fork_asyncio_run(self):
@@ -1308,6 +1312,7 @@ class TestFork(unittest.TestCase):
 
         self.assertEqual(result.value, 42)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @hashlib_helper.requires_hashdigest('md5')
     @support.skip_if_sanitizer("TSAN doesn't support threads after fork", thread=True)
     def test_fork_asyncio_subprocess(self):

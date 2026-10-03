@@ -1,4 +1,4 @@
-// spell-checker: ignore ssleof aesccm aesgcm capath getblocking setblocking ENDTLS TLSEXT
+// spell-checker: ignore ssleof aesccm aesgcm capath getblocking setblocking ENDTLS TLSEXT ktls sigalgs rsae mldsa
 
 //! Pure Rust SSL/TLS implementation using rustls
 //!
@@ -280,6 +280,8 @@ mod _ssl {
     const HAS_ALPN: bool = true;
     #[pyattr]
     const HAS_PSK: bool = false; // PSK not supported in rustls
+    #[pyattr]
+    const HAS_PSK_TLS13: bool = false; // External PSK callbacks are not supported.
     #[pyattr]
     const HAS_SSLv2: bool = false;
     #[pyattr]
@@ -3441,6 +3443,55 @@ mod _ssl {
         }
 
         #[pymethod]
+        fn group(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Option<String>> {
+            let group = {
+                let conn_guard = zelf.connection.lock();
+                let Some(conn) = conn_guard.as_ref() else {
+                    return Ok(None);
+                };
+                let Some(group) = conn.inner().negotiated_key_exchange_group() else {
+                    return Ok(None);
+                };
+                group.name()
+            };
+            group
+                .as_str()
+                .map(|name| Some(name.to_owned()))
+                .ok_or_else(|| {
+                    vm.new_not_implemented_error(format!(
+                        "The TLS provider has no name for negotiated group {:#06x}",
+                        u16::from(group)
+                    ))
+                })
+        }
+
+        #[pymethod]
+        fn client_sigalg(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Option<String>> {
+            Err(vm.new_not_implemented_error(
+                "Rustls does not expose the selected client authentication signature algorithm",
+            ))
+        }
+
+        #[pymethod]
+        fn server_sigalg(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Option<String>> {
+            Err(vm.new_not_implemented_error(
+                "Rustls does not expose the selected server handshake signature algorithm",
+            ))
+        }
+
+        #[pymethod]
+        fn uses_ktls_for_send(_zelf: &Py<Self>) -> bool {
+            // This transport encrypts records in rustls; it never enables kernel TLS.
+            false
+        }
+
+        #[pymethod]
+        fn uses_ktls_for_recv(_zelf: &Py<Self>) -> bool {
+            // This transport decrypts records in rustls; it never enables kernel TLS.
+            false
+        }
+
+        #[pymethod]
         fn version(zelf: &Py<Self>) -> Option<String> {
             // Extract cipher suite, releasing lock quickly
             let suite = {
@@ -4182,6 +4233,47 @@ mod _ssl {
         ]);
 
         tuple.into()
+    }
+
+    #[pyfunction]
+    fn get_sigalgs(vm: &VirtualMachine) -> PyResult<PyListRef> {
+        // These are the TLS schemes advertised by the installed provider, in its
+        // preference order, rather than certificate signature algorithms.
+        let names = CryptoExt::get_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+            .into_iter()
+            .map(|scheme| {
+                // IANA TLS SignatureScheme names differ from several rustls names.
+                use rustls::SignatureScheme::*;
+                let name = match scheme {
+                    RSA_PKCS1_SHA1 => "rsa_pkcs1_sha1",
+                    ECDSA_SHA1_Legacy => "ecdsa_sha1",
+                    RSA_PKCS1_SHA256 => "rsa_pkcs1_sha256",
+                    RSA_PKCS1_SHA384 => "rsa_pkcs1_sha384",
+                    RSA_PKCS1_SHA512 => "rsa_pkcs1_sha512",
+                    ECDSA_NISTP256_SHA256 => "ecdsa_secp256r1_sha256",
+                    ECDSA_NISTP384_SHA384 => "ecdsa_secp384r1_sha384",
+                    ECDSA_NISTP521_SHA512 => "ecdsa_secp521r1_sha512",
+                    RSA_PSS_SHA256 => "rsa_pss_rsae_sha256",
+                    RSA_PSS_SHA384 => "rsa_pss_rsae_sha384",
+                    RSA_PSS_SHA512 => "rsa_pss_rsae_sha512",
+                    ED25519 => "ed25519",
+                    ED448 => "ed448",
+                    ML_DSA_44 => "mldsa44",
+                    ML_DSA_65 => "mldsa65",
+                    ML_DSA_87 => "mldsa87",
+                    _ => {
+                        return Err(vm.new_not_implemented_error(format!(
+                            "The TLS provider uses an unrecognized signature scheme {:#06x}",
+                            u16::from(scheme)
+                        )));
+                    }
+                };
+                Ok(vm.ctx.new_str(name).into())
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(vm.ctx.new_list(names))
     }
 
     #[pyfunction]

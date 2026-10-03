@@ -221,6 +221,36 @@ const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 )))]
 const LONG_DOUBLE_SIZE: usize = core::mem::size_of::<c_double>();
 
+/// Return the loader's current shared-object names, including its empty main entry.
+#[cfg(target_os = "linux")]
+pub fn dllist() -> Vec<std::ffi::OsString> {
+    use std::os::unix::ffi::OsStringExt;
+
+    unsafe extern "C" fn collect(
+        info: *mut libc::dl_phdr_info,
+        _size: libc::size_t,
+        data: *mut c_void,
+    ) -> c_int {
+        // dl_iterate_phdr supplies a valid record and calls synchronously while
+        // the loader keeps the object and its NUL-terminated name alive.
+        let name = unsafe { (*info).dlpi_name };
+        let names = unsafe { &mut *data.cast::<Vec<std::ffi::OsString>>() };
+        if !name.is_null() {
+            let bytes = unsafe { CStr::from_ptr(name) }.to_bytes().to_vec();
+            names.push(std::ffi::OsString::from_vec(bytes));
+        }
+        0
+    }
+
+    let mut names = Vec::new();
+    // The callback only copies loader-owned bytes into this live, exclusive
+    // vector. It never invokes Python or mutates the loader's object list.
+    unsafe {
+        libc::dl_iterate_phdr(Some(collect), core::ptr::from_mut(&mut names).cast());
+    }
+    names
+}
+
 pub fn simple_type_size(ty: &str) -> Option<usize> {
     match ty {
         "c" | "b" => Some(core::mem::size_of::<c_schar>()),

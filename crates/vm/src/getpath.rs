@@ -359,14 +359,13 @@ fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
 
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    if let (Some(exe), Some(home)) = (executable, home_dir) {
+    if let (Some(exe), Some(_)) = (executable, home_dir) {
         if let Some(base) = resolve_venv_base_executable(exe) {
             return base.to_string_lossy().into_owned();
         }
-        // Keep the previous fallback for incomplete or malformed metadata.
-        if let Some(exe_name) = exe.file_name() {
-            return home.join(exe_name).to_string_lossy().into_owned();
-        }
+        // The resolver already handles legacy home-only configurations.
+        // If provenance is cyclic or invalid, retain this interpreter instead
+        // of selecting an unrelated executable at home/<invoked alias>.
     }
 
     // Otherwise, base_executable == executable

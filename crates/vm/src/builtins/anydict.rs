@@ -106,6 +106,14 @@ impl PyAnyDictRef {
     pub fn is_empty(&self) -> bool {
         self.as_dict().is_empty()
     }
+    pub fn copy_as_dict(&self, vm: &VirtualMachine) -> PyResult<PyDict> {
+        if self.is_empty() || self.uses_builtin_iter(vm) {
+            return Ok(self.as_dict().copy());
+        }
+        let copied = PyDict::default();
+        copied.merge_object(self.as_object().to_owned(), vm)?;
+        Ok(copied)
+    }
     #[must_use]
     pub fn keys_vec(&self) -> Vec<PyObjectRef> {
         self.as_dict().keys_vec()

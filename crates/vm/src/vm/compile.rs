@@ -559,6 +559,28 @@ impl VirtualMachine {
         self.compile_with_opts_and_module(source, mode, source_path, opts, None, &[])
     }
 
+    pub(crate) fn compile_symtable_with_module(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        filename: &str,
+        module: Option<&Py<PyStr>>,
+    ) -> Result<compiler::codegen::symboltable::SymbolTable, VmCompileError> {
+        #[cfg(feature = "parser")]
+        {
+            self.emit_tokenizer_syntax_warnings(source, filename, module)
+                .map_err(VmCompileError::Warning)?;
+            self.emit_string_escape_warnings(source, filename, module, &[])
+                .map_err(VmCompileError::Warning)?;
+        }
+        #[cfg(not(feature = "parser"))]
+        let _ = module;
+        // Symbol-table construction emits parser warnings, not codegen or
+        // AST-preprocessing warnings. Reuse compile()'s module filtering and
+        // warning-to-SyntaxError conversion without compiling bytecode.
+        compiler::compile_symtable(source, mode, filename).map_err(VmCompileError::Compile)
+    }
+
     pub(crate) fn compile_with_opts_and_module(
         &self,
         source: &str,

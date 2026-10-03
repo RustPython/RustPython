@@ -370,8 +370,7 @@ class ElementTreeTest(unittest.TestCase):
         self.serialize_check(element, '<tag key="value"><subtag /></tag>') # 4
         element.remove(subelement)
         self.serialize_check(element, '<tag key="value" />') # 5
-        with self.assertRaisesRegex(ValueError,
-                                    r'Element\.remove\(.+\): element not found'):
+        with self.assertRaises(ValueError):
             element.remove(subelement)
         self.serialize_check(element, '<tag key="value" />') # 6
         element[0:0] = [subelement, subelement, subelement]
@@ -381,6 +380,19 @@ class ElementTreeTest(unittest.TestCase):
         del element[1:2]
         self.serialize_check(element,
                 '<tag key="value"><subtag /><subtag /></tag>')
+
+    def test_positional_only_parameter(self):
+        # Test Element positional-only parameters (gh-144846).
+
+        # 'tag' is positional-only
+        with self.assertRaises(TypeError):
+            ET.Element(tag='fail')
+
+        # 'tag' and 'attrib' as kwarg/attribute names
+        e = ET.Element('e', attrib={'attrib': 'foo'}, tag='bar')
+        self.assertEqual(e.tag, 'e')
+        self.assertEqual(e.get('attrib'), 'foo')
+        self.assertEqual(e.get('tag'), 'bar')
 
     def test_cdata(self):
         # Test CDATA handling (etc).
@@ -484,6 +496,28 @@ class ElementTreeTest(unittest.TestCase):
         elem.set('d', '\n\n\r\r\t\t  ')
         self.assertEqual(ET.tostring(elem),
                 b'<test a="&#13;" b="&#13;&#10;" c="&#09;&#10;&#13; " d="&#10;&#10;&#13;&#13;&#09;&#09;  " />')
+
+    def test_subelement_positional_only_parameter(self):
+        # Test SubElement positional-only parameters (gh-144270).
+        parent = ET.Element('parent')
+
+        # 'parent' and 'tag' are positional-only
+        with self.assertRaises(TypeError):
+            ET.SubElement(parent=parent, tag='fail')
+        with self.assertRaises(TypeError):
+            ET.SubElement(parent, tag='fail')
+
+        # 'attrib' can be passed as keyword
+        sub1 = ET.SubElement(parent, 'sub1', attrib={'key': 'value'})
+        self.assertEqual(sub1.get('key'), 'value')
+
+        # 'tag' and 'parent' as kwargs become XML attributes, not func params
+        sub2 = ET.SubElement(parent, 'sub2', attrib={'attrib': 'foo'},
+                             tag='bar', parent='baz')
+        self.assertEqual(sub2.tag, 'sub2')
+        self.assertEqual(sub2.get('attrib'), 'foo')
+        self.assertEqual(sub2.get('tag'), 'bar')
+        self.assertEqual(sub2.get('parent'), 'baz')
 
     def test_makeelement(self):
         # Test makeelement handling.
@@ -1255,6 +1289,9 @@ class ElementTreeTest(unittest.TestCase):
         comm = ET.Comment('<spam> & ham')
         # comments are not escaped
         self.assertEqual(ET.tostring(comm), b'<!--<spam> & ham-->')
+        self.assertEqual(ET.tostring(comm, method='html'), b'<!--<spam> & ham-->')
+        # no comments in text serialization
+        self.assertEqual(ET.tostring(comm, method='text'), b'')
 
     def test_processinginstruction_serialization(self):
         # Test ProcessingInstruction directly
@@ -1271,6 +1308,17 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(ET.tostring(ET.PI('test', '<testing&>\xe3'), 'latin-1'),
                 b"<?xml version='1.0' encoding='latin-1'?>\n"
                 b"<?test <testing&>\xe3?>")
+        pi = ET.PI('test', 'ham & eggs < spam')
+        self.assertEqual(ET.tostring(pi), b'<?test ham & eggs < spam?>')
+        self.assertEqual(ET.tostring(pi, method='html'), b'<?test ham & eggs < spam?>')
+        # no processing instructions in text serialization
+        self.assertEqual(ET.tostring(pi, method='text'), b'')
+
+    def test_empty_attribute_serialization(self):
+        # empty attrs only work in html
+        elem = ET.Element('tag', attrib={'attr': None})
+        self.assertRaises(TypeError, ET.tostring, elem)
+        self.assertEqual(ET.tostring(elem, method='html'), b'<tag attr></tag>')
 
     @support.subTests('tag', ("script", "style", "xmp", "iframe", "noembed", "noframes"))
     def test_html_cdata_elems_serialization(self, tag):
@@ -1469,17 +1517,39 @@ class IterparseTest(unittest.TestCase):
 
     def test_resource_warnings_not_exhausted(self):
         # Not exhausting the iterator still closes the underlying file (bpo-43292)
+        # Not closing before del should emit ResourceWarning
         it = ET.iterparse(SIMPLE_XMLFILE)
         with warnings_helper.check_no_resource_warning(self):
+            it.close()
             del it
             gc_collect()
 
         it = ET.iterparse(SIMPLE_XMLFILE)
+        with self.assertWarns(ResourceWarning) as wm:
+            del it
+            gc_collect()
+        # Not 'unclosed file'.
+        self.assertIn('unclosed iterparse iterator', str(wm.warning))
+        self.assertIn(repr(SIMPLE_XMLFILE), str(wm.warning))
+        self.assertEqual(wm.filename, __file__)
+
+        it = ET.iterparse(SIMPLE_XMLFILE)
         with warnings_helper.check_no_resource_warning(self):
+            action, elem = next(it)
+            it.close()
+            self.assertEqual((action, elem.tag), ('end', 'element'))
+            del it, elem
+            gc_collect()
+
+        it = ET.iterparse(SIMPLE_XMLFILE)
+        with self.assertWarns(ResourceWarning) as wm:
             action, elem = next(it)
             self.assertEqual((action, elem.tag), ('end', 'element'))
             del it, elem
             gc_collect()
+        self.assertIn('unclosed iterparse iterator', str(wm.warning))
+        self.assertIn(repr(SIMPLE_XMLFILE), str(wm.warning))
+        self.assertEqual(wm.filename, __file__)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_resource_warnings_failed_iteration(self):
@@ -1495,15 +1565,40 @@ class IterparseTest(unittest.TestCase):
                 next(it)
             self.assertEqual(str(cm.exception),
                     'junk after document element: line 1, column 12')
+            it.close()
             del cm, it
             gc_collect()
+
+        it = ET.iterparse(TESTFN)
+        action, elem = next(it)
+        self.assertEqual((action, elem.tag), ('end', 'document'))
+        with self.assertWarns(ResourceWarning) as wm:
+            with self.assertRaises(ET.ParseError) as cm:
+                next(it)
+            self.assertEqual(str(cm.exception),
+                    'junk after document element: line 1, column 12')
+            del cm, it
+            gc_collect()
+        self.assertIn('unclosed iterparse iterator', str(wm.warning))
+        self.assertIn(repr(TESTFN), str(wm.warning))
+        self.assertEqual(wm.filename, __file__)
 
     def test_resource_warnings_exhausted(self):
         it = ET.iterparse(SIMPLE_XMLFILE)
         with warnings_helper.check_no_resource_warning(self):
             list(it)
+            it.close()
             del it
             gc_collect()
+
+        it = ET.iterparse(SIMPLE_XMLFILE)
+        with self.assertWarns(ResourceWarning) as wm:
+            list(it)
+            del it
+            gc_collect()
+        self.assertIn('unclosed iterparse iterator', str(wm.warning))
+        self.assertIn(repr(SIMPLE_XMLFILE), str(wm.warning))
+        self.assertEqual(wm.filename, __file__)
 
     def test_close_not_exhausted(self):
         iterparse = ET.iterparse
@@ -2755,6 +2850,17 @@ class BasicElementTest(ElementTestCase, unittest.TestCase):
                 self.assertEqual(e2.tag, 'group')
                 self.assertEqual(e2[0].tag, 'dogs')
 
+    def test_remove_errors(self):
+        e = ET.Element('tag')
+        with self.assertRaisesRegex(ValueError,
+                r"<Element 'subtag'.*> not in <Element 'tag'.*>"):
+            e.remove(ET.Element('subtag'))
+        with self.assertRaisesRegex(TypeError,
+                r".*\bElement, not type"):
+            e.remove(ET.Element)
+        with self.assertRaisesRegex(TypeError,
+                r".*\bElement, not int"):
+            e.remove(1)
 
 class BadElementTest(ElementTestCase, unittest.TestCase):
 
@@ -3143,7 +3249,7 @@ class BadElementTest(ElementTestCase, unittest.TestCase):
                          [a.tag, b.tag, a.tag, b.tag])
 
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; stack overflow on Windows")
-    @support.skip_if_unlimited_stack_size
+    @support.skip_if_huge_c_stack(500_000)
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_deeply_nested_deepcopy(self):
@@ -3373,6 +3479,37 @@ class ElementFindTest(unittest.TestCase):
         self.assertRaisesRegex(SyntaxError, 'XPath', e.find, './tag[-1]')
         self.assertRaisesRegex(SyntaxError, 'XPath', e.find, './tag[last()-0]')
         self.assertRaisesRegex(SyntaxError, 'XPath', e.find, './tag[last()+1]')
+
+    def test_find_xpath_index_no_quadratic_complexity(self):
+        class CountingElement(ET.Element):
+            findall_calls = 0
+            def findall(self, *args, **kwargs):
+                type(self).findall_calls += 1
+                return super().findall(*args, **kwargs)
+
+        def work(n, pattern):
+            root = CountingElement("root")
+            for _ in range(n):
+                ET.SubElement(root, "a")
+            CountingElement.findall_calls = 0
+            root.findall(pattern)
+            return CountingElement.findall_calls
+
+        for pattern in [".//a[1]", ".//a[last()]"]:
+            w1 = work(1024, pattern)
+            w2 = work(2048, pattern)
+            w3 = work(4096, pattern)
+
+            self.assertGreater(w1, 0)
+            r1 = w2 / w1
+            r2 = w3 / w2
+            # Doubling N must not ~double the parent.findall calls.
+            # Linear-in-N call counts indicate the cache is missing.
+            self.assertLess(
+                max(r1, r2), 1.5,
+                msg=f"Possible quadratic behavior on {pattern!r}: "
+                    f"calls={w1, w2, w3} ratios={r1, r2}",
+            )
 
     def test_findall(self):
         e = ET.XML(SAMPLE_XML)
@@ -4514,6 +4651,9 @@ class KeywordArgsTest(unittest.TestCase):
             ET.Element('a', dict(href="#"), id="foo"),
             ET.Element('a', href="#", id="foo"),
             ET.Element('a', dict(href="#", id="foo"), href="#", id="foo"),
+            ET.Element('a', frozendict(href="#", id="foo")),
+            ET.Element('a', frozendict(href="#"), id="foo"),
+            ET.Element('a', attrib=frozendict(href="#", id="foo")),
         ]
         for e in elements:
             self.assertEqual(e.tag, 'a')
@@ -4521,10 +4661,14 @@ class KeywordArgsTest(unittest.TestCase):
 
         e2 = ET.SubElement(elements[0], 'foobar', attrib={'key1': 'value1'})
         self.assertEqual(e2.attrib['key1'], 'value1')
+        e3 = ET.SubElement(elements[0], 'foobar',
+                           attrib=frozendict({'key1': 'value1'}))
+        self.assertEqual(e3.attrib['key1'], 'value1')
 
-        with self.assertRaisesRegex(TypeError, 'must be dict, not str'):
+        errmsg = 'must be dict or frozendict, not str'
+        with self.assertRaisesRegex(TypeError, errmsg):
             ET.Element('a', "I'm not a dict")
-        with self.assertRaisesRegex(TypeError, 'must be dict, not str'):
+        with self.assertRaisesRegex(TypeError, errmsg):
             ET.Element('a', attrib="I'm not a dict")
 
 # --------------------------------------------------------------------
@@ -4797,6 +4941,19 @@ class C14NTest(unittest.TestCase):
                             expected = expected.replace(' attr="default"', '')
                             text = text.replace(' attr="default"', '')
                     self.assertEqual(expected, text)
+
+# --------------------------------------------------------------------
+
+
+class TestModule(unittest.TestCase):
+    def test_deprecated_version(self):
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            "'VERSION' is deprecated and slated for removal in Python 3.20",
+        ) as cm:
+                getattr(ET, "VERSION")
+        self.assertEqual(cm.filename, __file__)
+
 
 # --------------------------------------------------------------------
 

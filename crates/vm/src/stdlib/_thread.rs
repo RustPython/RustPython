@@ -104,29 +104,42 @@ pub(crate) mod _thread {
         }
     }
 
-    macro_rules! acquire_lock_impl {
-        ($mu:expr, $args:expr, $vm:expr) => {{
-            let (mu, args, vm) = ($mu, $args, $vm);
-            let timeout = args.timeout.to_secs_f64();
-            match args.blocking {
-                true if timeout == -1.0 => {
-                    vm.allow_threads(|| mu.lock());
-                    Ok(true)
-                }
-                true if timeout < 0.0 => {
-                    Err(vm.new_value_error("timeout value must be a non-negative number"))
-                }
-                true => {
-                    if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error("timeout value is too large"));
-                    }
+    fn validate_acquire_args(args: AcquireArgs, vm: &VirtualMachine) -> PyResult<(bool, f64)> {
+        let timeout = args.timeout.to_secs_f64();
+        if !args.blocking && timeout != -1.0 {
+            return Err(vm.new_value_error("can't specify a timeout for a non-blocking call"));
+        }
+        if args.blocking && timeout < 0.0 && timeout != -1.0 {
+            return Err(vm.new_value_error("timeout value must be a non-negative number"));
+        }
+        if timeout > TIMEOUT_MAX {
+            return Err(vm.new_overflow_error("timeout value is too large"));
+        }
+        Ok((args.blocking, timeout))
+    }
 
-                    Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
-                }
-                false if timeout != -1.0 => {
-                    Err(vm.new_value_error("can't specify a timeout for a non-blocking call"))
-                }
-                false => Ok(mu.try_lock()),
+    macro_rules! acquire_lock_impl {
+        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr) => {{
+            let (mu, blocking, timeout, vm) = ($mu, $blocking, $timeout, $vm);
+            if mu.try_lock() {
+                Ok(true)
+            } else if !blocking || timeout == 0.0 {
+                Ok(false)
+            } else if vm
+                .state
+                .finalizing
+                .load(core::sync::atomic::Ordering::Acquire)
+            {
+                // Other Python threads cannot run to release the lock once
+                // finalization begins. Uncontested/nonblocking calls still work.
+                Err(vm.new_python_finalization_error(
+                    "cannot acquire lock at interpreter finalization",
+                ))
+            } else if timeout == -1.0 {
+                vm.allow_threads(|| mu.lock());
+                Ok(true)
+            } else {
+                Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
             }
         }};
     }
@@ -166,7 +179,8 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
-            acquire_lock_impl!(&self.mu, args, vm)
+            let (blocking, timeout) = validate_acquire_args(args, vm)?;
+            acquire_lock_impl!(&self.mu, blocking, timeout, vm)
         }
 
         #[pymethod]
@@ -252,6 +266,7 @@ pub(crate) mod _thread {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
+            let (blocking, timeout) = validate_acquire_args(args, vm)?;
             if self.mu.is_owned_by_current_thread() {
                 // Re-entrant acquisition: just increment our count.
                 // parking_lot stays at 1 level; we track recursion ourselves.
@@ -259,7 +274,7 @@ pub(crate) mod _thread {
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 return Ok(true);
             }
-            let result = acquire_lock_impl!(&self.mu, args, vm)?;
+            let result = acquire_lock_impl!(&self.mu, blocking, timeout, vm)?;
             if result {
                 self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }

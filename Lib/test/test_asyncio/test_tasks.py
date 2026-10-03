@@ -1218,6 +1218,19 @@ class BaseTaskTests:
         loop.advance_time(10)
         loop.run_until_complete(asyncio.wait([a, b]))
 
+    def test_wait_discards_awaited_by_for_pending(self):
+        # gh-152569: wait() must remove itself from the await-graph of every
+        # future once it returns, including futures that never resolved.
+        async def coro():
+            immortal = self.loop.create_future()
+            done = self.new_task(self.loop, asyncio.sleep(0))
+            await asyncio.wait({done, immortal},
+                               return_when=asyncio.FIRST_COMPLETED)
+            self.assertFalse(immortal._asyncio_awaited_by)
+            immortal.cancel()
+
+        self.loop.run_until_complete(self.new_task(self.loop, coro()))
+
     def test_wait_really_done(self):
         # there is possibility that some tasks in the pending list
         # became done but their callbacks haven't all been called yet
@@ -2739,6 +2752,18 @@ class BaseTaskTests:
             self.assertEqual(name, "example")
             await t
 
+    def test_eager_start_true_no_loop(self):
+        # gh-154695: eager_start must use the resolved loop, not loop=None.
+        async def asyncfn():
+            return 42
+
+        async def main():
+            t = self.__class__.Task(asyncfn(), eager_start=True)
+            self.assertTrue(t.done())
+            self.assertEqual(await t, 42)
+
+        asyncio.run(main(), loop_factory=asyncio.EventLoop)
+
     def test_eager_start_false(self):
         name = None
 
@@ -2776,28 +2801,17 @@ class BaseTaskTests:
         finally:
             loop.close()
 
-    def test_proper_refcounts(self):
-        # see: https://github.com/python/cpython/issues/126083
-        class Break:
-            def __str__(self):
-                raise RuntimeError("break")
+    def test_task_disallow_multiple_initialization(self):
+        async def foo():
+            pass
 
-        obj = object()
-        initial_refcount = sys.getrefcount(obj)
+        coro = foo()
+        self.addCleanup(coro.close)
+        task = self.new_task(self.loop, coro)
+        task._log_destroy_pending = False
 
-        coro = coroutine_function()
-        with contextlib.closing(asyncio.EventLoop()) as loop:
-            task = asyncio.Task.__new__(asyncio.Task)
-            for _ in range(5):
-                with self.assertRaisesRegex(RuntimeError, 'break'):
-                    task.__init__(coro, loop=loop, context=obj, name=Break())
-
-            coro.close()
-            task._log_destroy_pending = False
-            del task
-
-            self.assertEqual(sys.getrefcount(obj), initial_refcount)
-
+        with self.assertRaises(RuntimeError, msg="is already initialized"):
+            task.__init__(coro, loop=self.loop)
 
 def add_subclass_tests(cls):
     BaseTask = cls.Task
@@ -2921,19 +2935,6 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
     all_tasks = getattr(tasks, '_c_all_tasks', None)
     current_task = staticmethod(getattr(tasks, '_c_current_task', None))
 
-    @support.refcount_test
-    def test_refleaks_in_task___init__(self):
-        gettotalrefcount = support.get_attribute(sys, 'gettotalrefcount')
-        async def coro():
-            pass
-        task = self.new_task(self.loop, coro())
-        self.loop.run_until_complete(task)
-        refs_before = gettotalrefcount()
-        for i in range(100):
-            task.__init__(coro(), loop=self.loop)
-            self.loop.run_until_complete(task)
-        self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
-
     def test_del__log_destroy_pending_segfault(self):
         async def coro():
             pass
@@ -2941,6 +2942,16 @@ class CTask_CFuture_Tests(BaseTaskTests, SetMethodsTest,
         self.loop.run_until_complete(task)
         with self.assertRaises(AttributeError):
             del task._log_destroy_pending
+
+    def test_get_context_uninitialized_segfault(self):
+        # https://github.com/python/cpython/issues/154871
+
+        class UninitializedTask(self.Task):
+            def __init__(self, *args, **kwargs):
+                pass
+
+        task = UninitializedTask()
+        self.assertIsNone(task.get_context())
 
 
 @unittest.skipUnless(hasattr(futures, '_CFuture') and

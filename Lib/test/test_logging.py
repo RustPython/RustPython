@@ -62,7 +62,7 @@ import warnings
 import weakref
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from unittest.mock import patch
+from unittest.mock import call, Mock, patch
 from urllib.parse import urlparse, parse_qs
 from socketserver import (ThreadingUDPServer, DatagramRequestHandler,
                           ThreadingTCPServer, StreamRequestHandler)
@@ -404,6 +404,20 @@ class BasicFilterTest(BaseTest):
         r = logging.makeLogRecord({'name': 'spam.eggs'})
         self.assertTrue(f.filter(r))
 
+    def test_filter_repr(self):
+        f = logging.Filter('myapp')
+        self.assertEqual(repr(f), '<Filter (myapp)>')
+
+    def test_filter_repr_empty(self):
+        f = logging.Filter()
+        self.assertEqual(repr(f), '<Filter ()>')
+
+    def test_filter_repr_subclass(self):
+        class MyFilter(logging.Filter):
+            pass
+        f = MyFilter('myapp')
+        self.assertEqual(repr(f), '<MyFilter (myapp)>')
+
 #
 #   First, we define our levels. There can be as many as you want - the only
 #     limitations are that they should be integers, the lowest should be > 0 and
@@ -731,6 +745,7 @@ class HandlerTest(BaseTest):
     # based on os.fork existing because that is what users and this test use.
     # This helps ensure that when fork exists (the important concept) that the
     # register_at_fork mechanism is also present and used.
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @support.requires_fork()
     @threading_helper.requires_working_threading()
     @skip_if_asan_fork
@@ -798,6 +813,23 @@ class HandlerTest(BaseTest):
             lock_holder_thread.join()
 
             support.wait_process(pid, exitcode=0)
+
+    def test_remove_handler_while_emitting(self):
+        # Removing a handler while callHandlers() iterates over the handlers
+        # should not cause the following handlers to be skipped (gh-79366).
+        logger = logging.Logger('test_remove_handler_while_emitting')
+        calls = []
+        class RemovingHandler(logging.Handler):
+            def emit(self, record):
+                calls.append('removing')
+                logger.removeHandler(self)
+        class CountingHandler(logging.Handler):
+            def emit(self, record):
+                calls.append('counting')
+        logger.addHandler(RemovingHandler())
+        logger.addHandler(CountingHandler())
+        logger.error('spam')
+        self.assertEqual(calls, ['removing', 'counting'])
 
 
 class BadStream(object):
@@ -3634,14 +3666,14 @@ class ConfigDictTest(BaseTest):
         # Ask for a randomly assigned port (by using port 0)
         t = logging.config.listen(0, verify)
         t.start()
-        t.ready.wait()
+        self.assertTrue(t.ready.wait(support.LONG_TIMEOUT),
+                        msg='the listener did not start')
         # Now get the port allocated
         port = t.port
         t.ready.clear()
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
-            sock.connect(('localhost', port))
+            # The server can listen on IPv6, so do not force a family.
+            sock = socket.create_connection(('localhost', port), timeout=2.0)
 
             slen = struct.pack('>L', len(text))
             s = slen + text
@@ -3755,6 +3787,18 @@ class ConfigDictTest(BaseTest):
             ('INFO', '1'),
             ('ERROR', '2'),
         ], pat=r"^[\w.]+ -> (\w+): (\d+)$")
+
+    @support.requires_working_socket()
+    def test_listen_server_error(self):
+        # The "ready" event should be set even if the server fails to start.
+        t = logging.config.listen(-1)
+        t.daemon = True
+        with threading_helper.catch_threading_exception() as cm:
+            t.start()
+            self.assertTrue(t.ready.wait(support.SHORT_TIMEOUT),
+                            msg='the listener did not report the failure')
+            threading_helper.join_thread(t)
+            self.assertIs(cm.exc_type, OverflowError)
 
     def test_bad_format(self):
         self.assertRaises(ValueError, self.apply_config, self.bad_format)
@@ -4046,6 +4090,7 @@ class ConfigDictTest(BaseTest):
                 self._apply_simple_queue_listener_configuration(qspec)
                 manager.assert_not_called()
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @skip_if_tsan_fork
     @support.requires_subprocess()
     @unittest.skipUnless(support.Py_DEBUG, "requires a debug build for testing"
@@ -4068,6 +4113,7 @@ class ConfigDictTest(BaseTest):
                 with self.assertRaises(ValueError):
                     self._apply_simple_queue_listener_configuration(qspec)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @skip_if_tsan_fork
     @support.requires_subprocess()
     @unittest.skipUnless(support.Py_DEBUG, "requires a debug build for testing"
@@ -4108,6 +4154,7 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @skip_if_tsan_fork
     @support.requires_subprocess()
     def test_multiprocessing_queues(self):
@@ -4911,6 +4958,20 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
                 # After PR gh-102412, precision (places) increases from 3 to 7
                 self.assertAlmostEqual(relativeCreated, offset_ns / 1e6, places=7)
 
+    def test_formatter_repr(self):
+        f = logging.Formatter('%(message)s')
+        self.assertEqual(repr(f), '<Formatter (%(message)s)>')
+
+    def test_formatter_repr_default(self):
+        f = logging.Formatter()
+        self.assertEqual(repr(f), '<Formatter (%(message)s)>')
+
+    def test_formatter_repr_subclass(self):
+        class MyFormatter(logging.Formatter):
+            pass
+        f = MyFormatter('%(message)s')
+        self.assertEqual(repr(f), '<MyFormatter (%(message)s)>')
+
 
 class TestBufferingFormatter(logging.BufferingFormatter):
     def formatHeader(self, records):
@@ -5339,6 +5400,7 @@ class LogRecordTest(BaseTest):
         else:
             return results
 
+    @warnings_helper.ignore_fork_in_thread_deprecation_warnings()
     @skip_if_tsan_fork
     def test_multiprocessing(self):
         support.skip_if_broken_multiprocessing_synchronize()
@@ -5574,12 +5636,19 @@ class BasicConfigTest(unittest.TestCase):
         assertRaises = self.assertRaises
         handlers = [logging.StreamHandler()]
         stream = sys.stderr
+        formatter = logging.Formatter()
         assertRaises(ValueError, logging.basicConfig, filename='test.log',
                                                       stream=stream)
         assertRaises(ValueError, logging.basicConfig, filename='test.log',
                                                       handlers=handlers)
         assertRaises(ValueError, logging.basicConfig, stream=stream,
                                                       handlers=handlers)
+        assertRaises(ValueError, logging.basicConfig, formatter=formatter,
+                                                      format='%(message)s')
+        assertRaises(ValueError, logging.basicConfig, formatter=formatter,
+                                                      datefmt='%H:%M:%S')
+        assertRaises(ValueError, logging.basicConfig, formatter=formatter,
+                                                      style='%')
         # Issue 23207: test for invalid kwargs
         assertRaises(ValueError, logging.basicConfig, loglevel=logging.INFO)
         # Should pop both filename and filemode even if filename is None
@@ -5713,6 +5782,20 @@ class BasicConfigTest(unittest.TestCase):
             os.remove('test.log')
             # didn't write anything due to the encoding error
             self.assertEqual(data, r'')
+
+    def test_formatter_given(self):
+        mock_formatter = Mock()
+        mock_handler = Mock(formatter=None)
+        with patch("logging.Formatter") as mock_formatter_init:
+            logging.basicConfig(formatter=mock_formatter, handlers=[mock_handler])
+        self.assertEqual(mock_handler.setFormatter.call_args_list, [call(mock_formatter)])
+        self.assertEqual(mock_formatter_init.call_count, 0)
+
+    def test_formatter_not_given(self):
+        mock_handler = Mock(formatter=None)
+        with patch("logging.Formatter") as mock_formatter_init:
+            logging.basicConfig(handlers=[mock_handler])
+        self.assertEqual(mock_formatter_init.call_count, 1)
 
     @support.requires_working_socket()
     def test_log_taskName(self):
@@ -6276,11 +6359,12 @@ class BaseFileTest(BaseTest):
         self.rmfiles = []
 
     def tearDown(self):
-        for fn in self.rmfiles:
-            os.unlink(fn)
-        if os.path.exists(self.fn):
-            os.unlink(self.fn)
-        BaseTest.tearDown(self)
+        try:
+            for fn in self.rmfiles:
+                os_helper.unlink(fn)
+            os_helper.unlink(self.fn)
+        finally:
+            BaseTest.tearDown(self)
 
     def assertLogFile(self, filename):
         "Assert a log file is there and register it for deletion"
@@ -7223,8 +7307,8 @@ for when, exp in (('S', 1),
         setattr(TimedRotatingFileHandlerTest, name, test_compute_rollover)
 
 
-@unittest.skipUnless(win32evtlog, 'win32evtlog/win32evtlogutil/pywintypes required for this test.')
 class NTEventLogHandlerTest(BaseTest):
+    @unittest.skipUnless(win32evtlog, 'win32evtlog/win32evtlogutil/pywintypes required for this test.')
     def test_basic(self):
         logtype = 'Application'
         elh = win32evtlog.OpenEventLog(None, logtype)
@@ -7258,6 +7342,17 @@ class NTEventLogHandlerTest(BaseTest):
         msg = 'Record not found in event log, went back %d records' % GO_BACK
         self.assertTrue(found, msg=msg)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows required for this test")
+    def test_without_pywin32(self):
+        h = logging.handlers.NTEventLogHandler('python_test')
+        self.addCleanup(h.close)
+
+        # Verify that the handler uses _winapi module
+        self.assertIsNotNone(h._winapi, "_winapi module should be available")
+
+        r = logging.makeLogRecord({'msg': 'Hello!'})
+        h.emit(r)
+
 
 class MiscTestCase(unittest.TestCase):
     def test__all__(self):
@@ -7267,6 +7362,16 @@ class MiscTestCase(unittest.TestCase):
             'Filterer', 'PlaceHolder', 'Manager', 'RootLogger', 'root',
             'threading', 'logAsyncioTasks'}
         support.check__all__(self, logging, not_exported=not_exported)
+
+
+class TestModule(unittest.TestCase):
+    def test_deprecated__version__and__date__(self):
+        msg = "is deprecated and slated for removal in Python 3.20"
+        for attr in ("__version__", "__date__"):
+            with self.subTest(attr=attr):
+                with self.assertWarnsRegex(DeprecationWarning, msg) as cm:
+                    getattr(logging, attr)
+                self.assertEqual(cm.filename, __file__)
 
 
 # Set the locale to the platform-dependent default.  I have no idea

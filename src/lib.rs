@@ -302,22 +302,27 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
     let scope = vm.new_scope_with_main()?;
 
-    // Initialize warnings module to process sys.warnoptions
-    // _PyWarnings_Init()
-    if vm.import("warnings", 0).is_err() {
+    // The native warnings state already holds the default filters. Import the
+    // Python module only when startup options require processing (-W, -b, dev).
+    let warnoptions = vm.sys_module.dict().get_item_opt("warnoptions", vm)?;
+    if warnoptions
+        .as_ref()
+        .and_then(|options| options.downcast_ref::<rustpython_vm::builtins::PyList>())
+        .is_some_and(|options| options.__len__() > 0)
+        && vm.import("warnings", 0).is_err()
+    {
         warn!("Failed to import warnings module");
     }
 
-    // Import site first, before setting sys.path[0]
-    // This matches CPython's behavior where site.removeduppaths() runs
-    // before sys.path[0] is set, preventing '' from being converted to cwd
-    let site_result = vm.import("site", 0);
-    if site_result.is_err() {
+    // Import site before setting sys.path[0], matching site.removeduppaths().
+    if vm.state.config.settings.import_site && vm.import("site", 0).is_err() {
         warn!(
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
              environment variable",
         );
     }
+    // CPython activates configured all-mode after site to avoid startup cycles.
+    vm.apply_startup_lazy_imports();
 
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
     if !vm.state.config.settings.safe_path {

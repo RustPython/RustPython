@@ -1,6 +1,7 @@
 import _pyio
 import array
 import contextlib
+import errno
 import importlib.util
 import io
 import itertools
@@ -20,14 +21,15 @@ from tempfile import TemporaryFile
 from random import randint, random, randbytes
 
 from test import archiver_tests
-from test.support import script_helper, os_helper
+from test.support import script_helper
 from test.support import (
     findfile, requires_zlib, requires_bz2, requires_lzma,
     requires_zstd, captured_stdout, captured_stderr, requires_subprocess,
     cpython_only
 )
 from test.support.os_helper import (
-    TESTFN, unlink, rmtree, temp_dir, temp_cwd, fd_count, FakePath
+    TESTFN, unlink, rmtree, temp_dir, temp_cwd, fd_count, FakePath,
+    with_source_date_epoch, without_source_date_epoch,
 )
 from test.support.import_helper import ensure_lazy_imports
 
@@ -653,6 +655,12 @@ class StoredTestsWithSourceFile(AbstractTestsWithSourceFile,
         try:
             os.utime(TESTFN, (ts, ts))
         except OverflowError:
+            self.skipTest('Host fs cannot set timestamp to required value.')
+        except OSError as exc:
+            # Some file systems (e.g. UFS and ZFS on illumos) do not
+            # support timestamps that do not fit in 32 bits.
+            if exc.errno != errno.EOVERFLOW:
+                raise
             self.skipTest('Host fs cannot set timestamp to required value.')
 
         mtime_ns = os.stat(TESTFN).st_mtime_ns
@@ -1880,29 +1888,24 @@ class OtherTests(unittest.TestCase):
                 zinfo.flag_bits |= zipfile._MASK_USE_DATA_DESCRIPTOR  # Include an extended local header.
                 orig_zip.writestr(zinfo, data)
 
+    @with_source_date_epoch(epoch=1735715999)
     def test_write_with_source_date_epoch(self):
-        with os_helper.EnvironmentVarGuard() as env:
-            # Set the SOURCE_DATE_EPOCH environment variable to a specific timestamp
-            env['SOURCE_DATE_EPOCH'] = "1735715999"
+        with zipfile.ZipFile(TESTFN, "w") as zf:
+            zf.writestr("test_source_date_epoch.txt", "Testing SOURCE_DATE_EPOCH")
 
-            with zipfile.ZipFile(TESTFN, "w") as zf:
-                zf.writestr("test_source_date_epoch.txt", "Testing SOURCE_DATE_EPOCH")
+        with zipfile.ZipFile(TESTFN, "r") as zf:
+            zip_info = zf.getinfo("test_source_date_epoch.txt")
+            expected_utc = (2025, 1, 1, 7, 19, 58)
+            self.assertEqual(zip_info.date_time, expected_utc)
 
-            with zipfile.ZipFile(TESTFN, "r") as zf:
-                zip_info = zf.getinfo("test_source_date_epoch.txt")
-                expected_utc = (2025, 1, 1, 7, 19, 58)
-                self.assertEqual(zip_info.date_time, expected_utc)
-
+    @without_source_date_epoch
     def test_write_without_source_date_epoch(self):
-        with os_helper.EnvironmentVarGuard() as env:
-            del env['SOURCE_DATE_EPOCH']
+        with zipfile.ZipFile(TESTFN, "w") as zf:
+            zf.writestr("test_no_source_date_epoch.txt", "Testing without SOURCE_DATE_EPOCH")
 
-            with zipfile.ZipFile(TESTFN, "w") as zf:
-                zf.writestr("test_no_source_date_epoch.txt", "Testing without SOURCE_DATE_EPOCH")
-
-            with zipfile.ZipFile(TESTFN, "r") as zf:
-                zip_info = zf.getinfo("test_no_source_date_epoch.txt")
-                self.assertTimestampAlmostEqual(time.localtime(), zip_info.date_time, tolerance=2)
+        with zipfile.ZipFile(TESTFN, "r") as zf:
+            zip_info = zf.getinfo("test_no_source_date_epoch.txt")
+            self.assertTimestampAlmostEqual(time.localtime(), zip_info.date_time, tolerance=2)
 
     def assertTimestampAlmostEqual(self, time1, time2, tolerance):
         import datetime
@@ -2718,6 +2721,48 @@ class OtherTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
         unlink(TESTFN2)
+
+
+class AbstractBoundedDecompressTests:
+    # ZipExtFile._read1() bounds the output of each decompress() call so that a
+    # small member declaring a large uncompressed size cannot expand into one
+    # unbounded read.
+    def test_read1_output_is_bounded(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=self.compression) as zf:
+            zf.writestr("big", b"\0" * (4 * 1024 * 1024))
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as zf:
+            with zf.open("big") as f:
+                self.assertLessEqual(len(f._read1(100)), f.MIN_READ_SIZE)
+
+
+class StoredBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                   unittest.TestCase):
+    compression = zipfile.ZIP_STORED
+
+
+@requires_zlib()
+class DeflateBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                    unittest.TestCase):
+    compression = zipfile.ZIP_DEFLATED
+
+
+@requires_bz2()
+class Bzip2BoundedDecompressTests(AbstractBoundedDecompressTests,
+                                  unittest.TestCase):
+    compression = zipfile.ZIP_BZIP2
+
+
+@requires_lzma()
+class LzmaBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                 unittest.TestCase):
+    compression = zipfile.ZIP_LZMA
+
+
+@requires_zstd()
+class ZstdBoundedDecompressTests(AbstractBoundedDecompressTests,
+                                 unittest.TestCase):
+    compression = zipfile.ZIP_ZSTANDARD
 
 
 class AbstractBadCrcTests:

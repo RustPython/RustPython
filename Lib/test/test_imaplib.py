@@ -13,8 +13,7 @@ import select
 import socket
 
 from test.support import verbose, run_with_tz, run_with_locale, cpython_only
-from test.support import hashlib_helper
-from test.support import threading_helper
+from test.support import hashlib_helper, threading_helper
 import unittest
 from unittest import mock
 from datetime import datetime, timezone, timedelta
@@ -684,17 +683,12 @@ class NewIMAPTestsMixin:
         ret, _ = client.login_cram_md5("tim", "tanstaaftanstaaf")
         self.assertEqual(ret, "OK")
 
+    @hashlib_helper.block_algorithm("md5")
     def test_login_cram_md5_blocked(self):
-        def side_effect(*a, **kw):
-            raise ValueError
-
         client, _ = self._setup(AuthHandler_CRAM_MD5)
         self.assertIn('AUTH=CRAM-MD5', client.capabilities)
         msg = re.escape("CRAM-MD5 authentication is not supported")
-        with (
-            mock.patch("hmac.HMAC", side_effect=side_effect),
-            self.assertRaisesRegex(imaplib.IMAP4.error, msg)
-        ):
+        with self.assertRaisesRegex(imaplib.IMAP4.error, msg):
             client.login_cram_md5("tim", b"tanstaaftanstaaf")
 
     def test_aborted_authentication(self):
@@ -1831,11 +1825,33 @@ class NewIMAPTestsMixin:
 
     # property tests
 
-    def test_file_property_should_not_be_accessed(self):
+    def test_file_property_getter(self):
         client, _ = self._setup(SimpleIMAPHandler)
-        # the 'file' property replaced a private attribute that is now unsafe
-        with self.assertWarns(RuntimeWarning):
-            client.file
+        with self.assertWarns(DeprecationWarning):
+            self.assertIsInstance(client.file.raw, socket.SocketIO)
+
+    def test_file_property_setter(self):
+        client, _ = self._setup(SimpleIMAPHandler)
+        with self.assertWarns(DeprecationWarning):
+            # ensure that the caller closes the existing file
+            client.file.close()
+        for new_file in [mock.Mock(), None]:
+            with self.assertWarns(DeprecationWarning):
+                client.file = new_file
+            with self.assertWarns(DeprecationWarning):
+                self.assertIs(client.file, new_file)
+
+    def test_file_property_setter_should_not_close_previous_file(self):
+        client, _ = self._setup(SimpleIMAPHandler)
+        with mock.patch.object(client, "_imaplib_file", mock.Mock()) as f:
+            f.close.assert_not_called()
+            with self.assertWarns(DeprecationWarning):
+                self.assertIs(client.file, f)
+            with self.assertWarns(DeprecationWarning):
+                client.file = None
+            with self.assertWarns(DeprecationWarning):
+                self.assertIsNone(client.file)
+            f.close.assert_not_called()
 
 
 class NewIMAPTests(NewIMAPTestsMixin, unittest.TestCase):
@@ -2286,6 +2302,16 @@ class ThreadedNetworkedTestsSSL(ThreadedNetworkedTests):
             client = self.imap_class("localhost", server.server_address[1],
                                      ssl_context=ssl_context)
             client.shutdown()
+
+
+class TestModule(unittest.TestCase):
+    def test_deprecated__version__(self):
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            "'__version__' is deprecated and slated for removal in Python 3.20",
+        ) as cm:
+            getattr(imaplib, "__version__")
+        self.assertEqual(cm.filename, __file__)
 
 
 if __name__ == "__main__":

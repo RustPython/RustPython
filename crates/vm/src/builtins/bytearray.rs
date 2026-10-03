@@ -23,7 +23,7 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, FuncArgs, PyComparisonValue, PySsize},
+    function::{ArgBytesLike, FuncArgs, OptionalOption, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -173,10 +173,6 @@ impl PyByteArray {
     fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
-    #[inline]
-    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
-        self.inner.write()
-    }
 
     fn __len__(&self) -> usize {
         self.borrow_buf().len()
@@ -263,6 +259,12 @@ impl PyByteArray {}
 struct ByteArrayReduceExArgs {
     #[pyarg(positional, default)]
     proto: usize,
+}
+
+#[derive(FromArgs)]
+struct ByteArrayTakeBytesArgs {
+    #[pyarg(positional, optional, py_default = "None")]
+    n: OptionalOption<PyObjectRef>,
 }
 
 #[derive(FromArgs)]
@@ -353,7 +355,7 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_resizable(vm)?.elements.clear();
+        self.try_resizable(vm)?.elements = Vec::new();
         Ok(())
     }
 
@@ -715,6 +717,73 @@ impl Py<PyByteArray> {
         self.borrow_buf().to_vec().into()
     }
 
+    /// Take n bytes from the bytearray and return them as a bytes object.
+    #[pymethod]
+    fn take_bytes(
+        &self,
+        args: ByteArrayTakeBytesArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyBytes>> {
+        // __index__ can resize self or acquire/release a buffer export.
+        // Convert it before locking, then read the current length.
+        let n = args.n.flatten();
+        let requested = n
+            .as_ref()
+            .map(|n| {
+                let index = n
+                    .try_index_opt(vm)
+                    .ok_or_else(|| vm.new_type_error("n must be an integer or None"))??;
+                index.try_to_primitive::<isize>(vm).map_err(|_| {
+                    vm.new_index_error(format!(
+                        "cannot fit '{}' into an index-sized integer",
+                        n.class().name()
+                    ))
+                })
+            })
+            .transpose()?;
+        let take_count = |size: usize| -> PyResult<usize> {
+            let size = size as isize;
+            let count = match requested {
+                Some(n) if n < 0 => n + size,
+                Some(n) => n,
+                None => size,
+            };
+            if count < 0 || count > size {
+                return Err(
+                    vm.new_index_error(format!("can't take {count} bytes outside size {size}"))
+                );
+            }
+            Ok(count as usize)
+        };
+
+        let taken = {
+            let mut inner = match self.try_resizable(vm) {
+                Ok(inner) => inner,
+                Err(error) => {
+                    // Bounds errors precede BufferError, including for an
+                    // active export. Avoid waiting on its write lock.
+                    take_count(self.borrow_buf().len())?;
+                    return Err(error);
+                }
+            };
+            let count = take_count(inner.elements.len())?;
+            if count == 0 {
+                Vec::new()
+            } else if count == inner.elements.len() {
+                core::mem::take(&mut inner.elements)
+            } else {
+                let mut taken = Vec::new();
+                taken
+                    .try_reserve_exact(count)
+                    .map_err(|_| vm.no_memory_error())?;
+                taken.extend_from_slice(&inner.elements[..count]);
+                drop(inner.elements.drain(..count));
+                taken
+            }
+        };
+        Ok(vm.ctx.new_bytes(taken))
+    }
+
     #[pymethod]
     fn title(&self) -> PyByteArray {
         self.inner().title().into()
@@ -781,9 +850,13 @@ impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
 
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // First unpack bytearray and *then* get a lock to set it.
+        if zelf.exports.load(Ordering::SeqCst) != 0 {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        }
+        // Conversion may invoke Python and create a new buffer export. Do it
+        // before locking, then validate export ownership again under the lock.
         let mut inner = options.get_inner(bytearray_from_object, vm)?;
-        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        core::mem::swap(&mut *zelf.try_resizable(vm)?, &mut inner);
         Ok(())
     }
 }
@@ -841,9 +914,12 @@ impl AsBuffer for PyByteArray {
     }
 
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        // Register the export before releasing the storage read lock, so a
+        // resize cannot slip between the length snapshot and retain().
+        let inner = zelf.inner.read();
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.__len__(), false),
+            BufferDescriptor::simple(inner.elements.len(), false),
             &BUFFER_METHODS,
         ))
     }
@@ -853,9 +929,13 @@ impl BufferResizeGuard for PyByteArray {
     type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
-        // An export is a borrow someone else still holds, so it is answered
-        // before the lock rather than by waiting on it.
-        (self.exports.load(Ordering::SeqCst) == 0).then(|| self.inner.write())
+        // Reject an existing export before waiting on the storage lock.
+        if self.exports.load(Ordering::SeqCst) != 0 {
+            return None;
+        }
+        let inner = self.inner.write();
+        // A new export may have been registered while the writer waited.
+        (self.exports.load(Ordering::SeqCst) == 0).then_some(inner)
     }
 }
 

@@ -1952,16 +1952,6 @@ impl Constructor for PyType {
                 tuple.try_into_typed(vm)?
             };
 
-            // Any nonempty __slots__ is rejected when the base has a variable
-            // item size, including a tuple of only `__dict__` or `__weakref__`.
-            // Types like weakref.ref have itemsize 0 and do allow slots.
-            if !slots.as_slice().is_empty() && base.slots.itemsize > 0 {
-                return Err(vm.new_type_error(format!(
-                    "nonempty __slots__ not supported for subtype of '{}'",
-                    base.name()
-                )));
-            }
-
             // Validate slot names and track duplicates
             let mut seen_dict = false;
             let mut seen_weakref = false;
@@ -2033,6 +2023,19 @@ impl Constructor for PyType {
                 .cloned()
                 .collect();
             filtered.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            // CPython 3.15 permits named slots on tuple subclasses. Our
+            // member cells live in the object prefix, independently of the
+            // tuple's elements. Other variable-size bases still only accept
+            // the managed __dict__ and __weakref__ slots filtered above.
+            if !filtered.is_empty()
+                && base.slots.itemsize > 0
+                && !base.fast_issubclass(vm.ctx.types.tuple_type)
+            {
+                return Err(vm.new_type_error(format!(
+                    "arbitrary __slots__ not supported for subtype of '{}'",
+                    base.name()
+                )));
+            }
             let filtered_slots = PyTuple::new_ref_typed(filtered, &vm.ctx);
 
             (Some(filtered_slots), has_dict, add_weakref)
@@ -3680,7 +3683,11 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
+    // Prefix member cells do not change basicsize, but still make a base
+    // solid: unrelated slotted bases cannot share the same member indexes.
+    t1.slots.basicsize != t2.slots.basicsize
+        || t1.slots.itemsize != t2.slots.itemsize
+        || t1.slots.member_count != t2.slots.member_count
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {

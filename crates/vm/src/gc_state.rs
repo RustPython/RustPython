@@ -910,11 +910,15 @@ impl GcState {
             })
             .collect();
 
-        // 6c: Clear existing weakrefs BEFORE calling __del__
+        // 6c: Clear callback-bearing weakrefs BEFORE calling __del__. Keep
+        // callback-free weakrefs usable throughout finalization.
+        let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
+        let is_unreachable =
+            |obj: &PyObject| unreachable_set.contains(&GcPtr(core::ptr::NonNull::from(obj)));
         let mut all_callbacks: Vec<(crate::PyRef<crate::object::PyWeak>, crate::PyObjectRef)> =
             Vec::new();
         for obj_ref in &unreachable_refs {
-            let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks();
+            let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks(&is_unreachable);
             all_callbacks.extend(callbacks);
         }
         for (wr, cb) in all_callbacks {
@@ -934,7 +938,6 @@ impl GcState {
 
         // Detect resurrection
         let mut resurrected_set: GcSet<GcPtr> = GcSet::default();
-        let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
 
         for obj in &unreachable_refs {
             let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
@@ -1028,6 +1031,14 @@ impl GcState {
             // skips tp_clear for saved objects).
             let save_all = debug.contains(GcDebugFlags::SAVEALL);
 
+            // Callback-free weakrefs remain usable during finalizers, so a
+            // thread can still acquire an external reference at this point.
+            // Stop before taking generation/list locks, and keep the final
+            // liveness check and weakref closure in the same stopped phase.
+            // No callbacks, finalizers or tp_clear may run under this guard.
+            #[cfg(feature = "threading")]
+            let mut clear_stw = CollectStopTheWorld::new();
+
             // Untrack dead objects BEFORE clearing them, mirroring the
             // untrack-then-clear ordering of the refcount dealloc path.
             // A cleared object (e.g. a frame husk with iframe == None) must
@@ -1045,11 +1056,10 @@ impl GcState {
                     // One strong reference held by the `truly_dead` vec itself.
                     expected_counts.insert(GcPtr(NonNull::from(obj)), 1);
                 }
-                // With the objects out of the generation lists, no new external
-                // reference can appear. Count the references coming from within
-                // the dead set; any surplus in strong_count means another thread
-                // grabbed a reference before untracking (late resurrection) and
-                // the object must not be cleared.
+                // With the world stopped and these objects off the generation
+                // lists, count references from within the dead set. Any surplus
+                // means an external reference appeared before this stopped phase
+                // (late resurrection), and the object must not be cleared.
                 let mut referents: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
                 for obj_ref in &truly_dead {
                     let referent_ptrs = unsafe { obj_ref.gc_get_referent_ptrs() };
@@ -1095,6 +1105,20 @@ impl GcState {
                     unsafe { self.track_object(ptr.0, owner) };
                 }
             }
+            // Clear every weakref in or pointing to objects that will be
+            // cleared, including weakrefs created by finalizers. Do not run
+            // or drop callbacks here: all objects must remain intact until
+            // this pass finishes. Resurrected objects retain their weakrefs.
+            for obj_ref in &truly_dead {
+                if !late_resurrected.contains(&GcPtr(NonNull::from(obj_ref.as_ref()))) {
+                    obj_ref.gc_clear_weakrefs();
+                }
+            }
+            // Every remaining dead object is now unreachable through both
+            // generation lists and weakrefs. Resume before tp_clear can release
+            // edges or invoke arbitrary Python through deallocation.
+            #[cfg(feature = "threading")]
+            clear_stw.restart();
             rustpython_common::refcount::with_deferred_drops(|| {
                 if !save_all {
                     for obj_ref in &truly_dead {

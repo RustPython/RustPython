@@ -4859,7 +4859,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ImportName { namei: idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
+                let packed = idx.get(arg);
+                self.import(vm, self.code.names[(packed >> 2) as usize], packed & 3)?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -4996,7 +4997,10 @@ impl ExecutingFrame<'_> {
 
                 self.push_value(match value {
                     Some(v) => v,
-                    None => self.load_global_or_builtin(name, vm)?,
+                    None => crate::lazy_import::resolve_value(
+                        self.load_global_or_builtin_raw(name, vm)?,
+                        vm,
+                    )?,
                 });
                 Ok(None)
             }
@@ -5145,13 +5149,15 @@ impl ExecutingFrame<'_> {
             Instruction::LoadName { namei: idx } => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping(vm).subscript(name, vm);
-                match result {
-                    Ok(x) => self.push_value(x),
+                let value = match result {
+                    Ok(x) => x,
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        self.push_value(self.load_name_global_or_builtin(name, vm)?);
+                        self.load_name_global_or_builtin(name, vm)?
                     }
                     Err(e) => return Err(e),
-                }
+                };
+                let value = self.resolve_global_binding(name, value, vm)?;
+                self.push_value(value);
                 Ok(None)
             }
             Instruction::LoadSpecial { method } => {
@@ -6158,6 +6164,9 @@ impl ExecutingFrame<'_> {
                         module
                             .dict()
                             .get_cached_module_attr(attr_name, keys_version, index, vm)
+                    && value
+                        .downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+                        .is_none()
                 {
                     self.pop_stackref();
                     if oparg.is_method() {
@@ -7941,6 +7950,8 @@ impl ExecutingFrame<'_> {
                     && let Some(x) =
                         globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = self.resolve_global_binding(name, x, vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -7970,6 +7981,8 @@ impl ExecutingFrame<'_> {
                     && let Some(x) = builtins_dict
                         .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = self.resolve_global_binding(name, x, vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -8433,6 +8446,31 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        let value = self.load_global_or_builtin_raw(name, vm)?;
+        self.resolve_global_binding(name, value, vm)
+    }
+
+    fn resolve_global_binding(
+        &self,
+        name: &Py<PyStr>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if let Some(deferred) = value.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+        {
+            let resolved = crate::lazy_import::resolve(deferred, vm)?;
+            if let Some(dict) = self.globals.as_mutable() {
+                dict.inner_setitem(name, resolved.clone(), vm)?;
+            } else {
+                self.globals.set_item(name, resolved.clone(), vm)?;
+            }
+            Ok(resolved)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn load_global_or_builtin_raw(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
@@ -8476,12 +8514,16 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
-    fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
-        let module_name = module_name.unwrap_or(vm.ctx.empty_str);
+    fn import(
+        &mut self,
+        vm: &VirtualMachine,
+        module_name: &Py<PyStr>,
+        policy: u32,
+    ) -> PyResult<()> {
         let from_list = self.pop_value();
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, from_list, level)?;
+        let module = crate::lazy_import::import_name(module_name, from_list, level, policy, vm)?;
 
         self.push_value(module);
         Ok(())
@@ -8492,107 +8534,11 @@ impl ExecutingFrame<'_> {
         let module = self.top_value();
         let name = self.code.names[idx as usize];
 
-        // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module, name)? {
-            return Ok(obj);
+        if let Some(deferred) = module.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+        {
+            return crate::lazy_import::import_from(deferred, name, vm);
         }
-        // fallback to importing '{module.__name__}.{name}' from sys.modules
-        let fallback_module = (|| {
-            let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
-            let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
-            let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
-            let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
-            sys_modules.get_item(&*full_mod_name, vm).ok()
-        })();
-
-        if let Some(sub_module) = fallback_module {
-            return Ok(sub_module);
-        }
-
-        use crate::import::{
-            get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name,
-        };
-
-        // Get module name for the error message
-        let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
-        let mod_name = mod_name_obj
-            .as_ref()
-            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
-        let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
-
-        let spec = module
-            .get_attr("__spec__", vm)
-            .ok()
-            .filter(|s| !vm.is_none(s));
-
-        let origin = get_spec_file_origin(spec.as_deref(), vm);
-
-        let is_possibly_shadowing = origin
-            .as_ref()
-            .is_some_and(|o| is_possibly_shadowing_path(o, vm));
-        let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
-            if let Some(ref mod_name) = mod_name_obj {
-                is_stdlib_module_name(mod_name, vm)?
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        let msg = if is_possibly_shadowing_stdlib {
-            let origin = origin.as_ref().unwrap();
-            format!(
-                "cannot import name '{name}' from '{module_name}' \
-                 (consider renaming '{origin}' since it has the same \
-                 name as the standard library module named '{module_name}' \
-                 and prevents importing that standard library module)"
-            )
-        } else {
-            let is_init = is_module_initializing(module, vm);
-            if is_init {
-                if is_possibly_shadowing {
-                    let origin = origin.as_ref().unwrap();
-                    format!(
-                        "cannot import name '{name}' from '{module_name}' \
-                         (consider renaming '{origin}' if it has the same name \
-                         as a library you intended to import)"
-                    )
-                } else if let Some(ref path) = origin {
-                    format!(
-                        "cannot import name '{name}' from partially initialized module \
-                         '{module_name}' (most likely due to a circular import) ({path})"
-                    )
-                } else {
-                    format!(
-                        "cannot import name '{name}' from partially initialized module \
-                         '{module_name}' (most likely due to a circular import)"
-                    )
-                }
-            } else if let Some(ref path) = origin {
-                format!("cannot import name '{name}' from '{module_name}' ({path})")
-            } else {
-                format!("cannot import name '{name}' from '{module_name}' (unknown location)")
-            }
-        };
-        let err = vm.new_import_error(
-            msg,
-            match mod_name {
-                Some(s) => s.to_owned().into_wtf8(),
-                None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
-            },
-        );
-
-        if let Some(ref path) = origin {
-            let _ignore = err
-                .as_object()
-                .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
-        }
-
-        // name_from = the attribute name that failed to import (best-effort metadata)
-        let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
-
-        Err(err)
+        crate::import::import_from_attribute(module, name, vm)
     }
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
@@ -12656,19 +12602,6 @@ fn get_special_method_error_msg(
             ),
         }
     }
-}
-
-fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> bool {
-    let Ok(spec) = module.get_attr(&vm.ctx.new_str("__spec__"), vm) else {
-        return false;
-    };
-    if vm.is_none(&spec) {
-        return false;
-    }
-    let Ok(initializing_attr) = spec.get_attr(&vm.ctx.new_str("_initializing"), vm) else {
-        return false;
-    };
-    initializing_attr.try_to_bool(vm).unwrap_or(false)
 }
 
 fn expect_unchecked<T: fmt::Debug>(optional: Option<T>, err_msg: &'static str) -> T {

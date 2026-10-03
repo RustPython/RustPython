@@ -553,10 +553,10 @@ class BaseBytesTest:
         self.assertEqual(three_bytes.hex('*', -2), 'b901*ef')
         self.assertEqual(three_bytes.hex(sep=':', bytes_per_sep=2), 'b9:01ef')
         self.assertEqual(three_bytes.hex(sep='*', bytes_per_sep=-2), 'b901*ef')
-        for bytes_per_sep in 3, -3, 2**31-1, -(2**31-1):
+        for bytes_per_sep in 3, -3, sys.maxsize, -sys.maxsize:
             with self.subTest(bytes_per_sep=bytes_per_sep):
                 self.assertEqual(three_bytes.hex(':', bytes_per_sep), 'b901ef')
-        for bytes_per_sep in 2**31, -2**31, 2**1000, -2**1000:
+        for bytes_per_sep in sys.maxsize+1, -sys.maxsize-1, 2**1000, -2**1000:
             with self.subTest(bytes_per_sep=bytes_per_sep):
                 try:
                     self.assertEqual(three_bytes.hex(':', bytes_per_sep), 'b901ef')
@@ -585,6 +585,37 @@ class BaseBytesTest:
         self.assertEqual(six_bytes.hex(b'@', -5), '0306090c0f@12')
         self.assertEqual(six_bytes.hex(':', -6), '0306090c0f12')
         self.assertEqual(six_bytes.hex(' ', -95), '0306090c0f12')
+
+    def test_hex_simd_boundaries(self):
+        # Test lengths around the SIMD threshold (16 bytes).
+        # SIMD processes 16 bytes at a time; smaller inputs use scalar code.
+        for length in (14, 15, 16, 17, 31, 32, 33, 64, 65):
+            data = self.type2test(bytes(range(length)))
+            expected = ''.join(f'{b:02x}' for b in range(length))
+            with self.subTest(length=length):
+                self.assertEqual(data.hex(), expected)
+
+    def test_hex_nibble_boundaries(self):
+        # Test the nibble value boundary at 9/10 (where '9' becomes 'a').
+        # SIMD uses signed comparison for efficiency; verify correctness
+        # at this boundary for various nibble combinations.
+        boundary_bytes = self.type2test(bytes([
+            0x09,  # both nibbles: 0, 9
+            0x0a,  # both nibbles: 0, 10
+            0x90,  # both nibbles: 9, 0
+            0x99,  # both nibbles: 9, 9 (max all-digit)
+            0x9a,  # both nibbles: 9, 10
+            0xa0,  # both nibbles: 10, 0
+            0xa9,  # both nibbles: 10, 9
+            0xaa,  # both nibbles: 10, 10 (min all-letter)
+            0x00,  # min value
+            0xff,  # max value
+        ]))
+        self.assertEqual(boundary_bytes.hex(), '090a90999aa0a9aa00ff')
+
+        # Repeat with 16+ bytes to exercise SIMD path
+        simd_boundary = self.type2test(boundary_bytes * 2)
+        self.assertEqual(simd_boundary.hex(), '090a90999aa0a9aa00ff' * 2)
 
     def test_join(self):
         self.assertEqual(self.type2test(b"").join([]), b"")
@@ -615,6 +646,32 @@ class BaseBytesTest:
             dot_join([bytearray(b"ab"), "cd", b"ef"])
         with self.assertRaises(TypeError):
             dot_join([memoryview(b"ab"), "cd", b"ef"])
+
+    def test_join_concurrent_buffer_mutation(self):
+        # __buffer__() can release the GIL, letting another thread concurrently
+        # mutate the joined sequence (simulated here by mutating in __buffer__).
+        # See: https://github.com/python/cpython/issues/151295
+        def make_seq(mutate):
+            # Item is only referenced from the list slot, so mutate() frees it.
+            class Item:
+                def __buffer__(self, flags):
+                    mutate(seq)
+                    return memoryview(b'x')
+            seq = [b'a', Item(), b'c']
+            return seq
+
+        for sep in (self.type2test(b''), self.type2test(b'::')):
+            with self.subTest(sep=sep):
+                # Changing the list length is reported as a RuntimeError.
+                seq = make_seq(lambda seq: seq.clear())
+                self.assertRaises(RuntimeError, sep.join, seq)
+
+                # The list length is unchanged, so the size-change recheck
+                # cannot fire: only keeping the item alive avoids the crash.
+                def replace(seq):
+                    seq[1] = b'z'
+                seq = make_seq(replace)
+                self.assertEqual(sep.join(seq), sep.join([b'a', b'x', b'c']))
 
     def test_count(self):
         b = self.type2test(b'mississippi')
@@ -794,16 +851,16 @@ class BaseBytesTest:
         pi = PseudoFloat(3.1415)
 
         exceptions_params = [
-            ('%x format: an integer is required, not float', b'%x', 3.14),
-            ('%X format: an integer is required, not float', b'%X', 2.11),
-            ('%o format: an integer is required, not float', b'%o', 1.79),
-            ('%x format: an integer is required, not PseudoFloat', b'%x', pi),
-            ('%x format: an integer is required, not complex', b'%x', 3j),
-            ('%X format: an integer is required, not complex', b'%X', 2j),
-            ('%o format: an integer is required, not complex', b'%o', 1j),
-            ('%u format: a real number is required, not complex', b'%u', 3j),
-            ('%i format: a real number is required, not complex', b'%i', 2j),
-            ('%d format: a real number is required, not complex', b'%d', 2j),
+            ('%x requires an integer, not float', b'%x', 3.14),
+            ('%X requires an integer, not float', b'%X', 2.11),
+            ('%o requires an integer, not float', b'%o', 1.79),
+            (r'%x requires an integer, not .*\.PseudoFloat', b'%x', pi),
+            ('%x requires an integer, not complex', b'%x', 3j),
+            ('%X requires an integer, not complex', b'%X', 2j),
+            ('%o requires an integer, not complex', b'%o', 1j),
+            ('%u requires a real number, not complex', b'%u', 3j),
+            ('%i requires a real number, not complex', b'%i', 2j),
+            ('%d requires a real number, not complex', b'%d', 2j),
             (
                 r'%c requires an integer in range\(256\)'
                 r' or a single byte, not .*\.PseudoFloat',
@@ -812,7 +869,7 @@ class BaseBytesTest:
         ]
 
         for msg, format_bytes, value in exceptions_params:
-            with self.assertRaisesRegex(TypeError, msg):
+            with self.assertRaisesRegex(TypeError, 'format argument: ' + msg):
                 operator.mod(format_bytes, value)
 
     def test_memory_leak_gh_140939(self):
@@ -848,6 +905,13 @@ class BaseBytesTest:
         b = self.type2test(b'mississippi')
         self.assertEqual(b.replace(b'i', b'a'), b'massassappa')
         self.assertEqual(b.replace(b'ss', b'x'), b'mixixippi')
+
+    def test_replace_count_keyword(self):
+        b = self.type2test(b'aa')
+        self.assertEqual(b.replace(b'a', b'b', count=0), b'aa')
+        self.assertEqual(b.replace(b'a', b'b', count=1), b'ba')
+        self.assertEqual(b.replace(b'a', b'b', count=2), b'bb')
+        self.assertEqual(b.replace(b'a', b'b', count=3), b'bb')
 
     def test_replace_int_error(self):
         self.assertRaises(TypeError, self.type2test(b'a b').replace, 32, b'')
@@ -1432,6 +1496,16 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         b.append(ord('p'))
         self.assertEqual(b, b'p')
 
+        # Cleared object should be empty.
+        b = bytearray(b'abc')
+        b.clear()
+        self.assertEqual(b.__alloc__(), 0)
+        base_size = sys.getsizeof(bytearray())
+        self.assertEqual(sys.getsizeof(b), base_size)
+        c = b.copy()
+        self.assertEqual(c.__alloc__(), 0)
+        self.assertEqual(sys.getsizeof(c), base_size)
+
     def test_copy(self):
         b = bytearray(b'abc')
         bb = b.copy()
@@ -1494,6 +1568,116 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertRaises(MemoryError, bytearray().resize, sys.maxsize)
         self.assertRaises(MemoryError, bytearray(1000).resize, sys.maxsize)
 
+    def test_take_bytes(self):
+        ba = bytearray(b'ab')
+        self.assertEqual(ba.take_bytes(), b'ab')
+        self.assertEqual(len(ba), 0)
+        self.assertEqual(ba, bytearray(b''))
+        self.assertEqual(ba.__alloc__(), 0)
+        base_size = sys.getsizeof(bytearray())
+        self.assertEqual(sys.getsizeof(ba), base_size)
+
+        # Positive and negative slicing.
+        ba = bytearray(b'abcdef')
+        self.assertEqual(ba.take_bytes(1), b'a')
+        self.assertEqual(ba, bytearray(b'bcdef'))
+        self.assertEqual(len(ba), 5)
+        self.assertEqual(ba.take_bytes(-5), b'')
+        self.assertEqual(ba, bytearray(b'bcdef'))
+        self.assertEqual(len(ba), 5)
+        self.assertEqual(ba.take_bytes(-3), b'bc')
+        self.assertEqual(ba, bytearray(b'def'))
+        self.assertEqual(len(ba), 3)
+        self.assertEqual(ba.take_bytes(3), b'def')
+        self.assertEqual(ba, bytearray(b''))
+        self.assertEqual(len(ba), 0)
+
+        # Take nothing from emptiness.
+        self.assertEqual(ba.take_bytes(0), b'')
+        self.assertEqual(ba.take_bytes(), b'')
+        self.assertEqual(ba.take_bytes(None), b'')
+
+        # Out of bounds, bad take value.
+        self.assertRaises(IndexError, ba.take_bytes, -1)
+        self.assertRaises(TypeError, ba.take_bytes, 3.14)
+        ba = bytearray(b'abcdef')
+        self.assertRaises(IndexError, ba.take_bytes, 7)
+
+        # Offset between physical and logical start (ob_bytes != ob_start).
+        ba = bytearray(b'abcde')
+        del ba[:2]
+        self.assertEqual(ba, bytearray(b'cde'))
+        self.assertEqual(ba.take_bytes(), b'cde')
+
+        # Overallocation at end.
+        ba = bytearray(b'abcde')
+        del ba[-2:]
+        self.assertEqual(ba, bytearray(b'abc'))
+        self.assertEqual(ba.take_bytes(), b'abc')
+        ba = bytearray(b'abcde')
+        ba.resize(4)
+        self.assertEqual(ba.take_bytes(), b'abcd')
+
+        # Take of a bytearray with references should fail.
+        ba = bytearray(b'abc')
+        with memoryview(ba) as mv:
+            self.assertRaises(BufferError, ba.take_bytes)
+        self.assertEqual(ba.take_bytes(), b'abc')
+
+    @support.cpython_only  # tests an implementation detail
+    def test_take_bytes_optimization(self):
+        # Validate optimization around taking lots of little chunks out of a
+        # much bigger buffer. Save work by only copying a little rather than
+        # moving a lot.
+        ba = bytearray(b'abcdef' + b'0' * 1000)
+        start_alloc = ba.__alloc__()
+
+        # Take two bytes at a time, checking alloc doesn't change.
+        self.assertEqual(ba.take_bytes(2), b'ab')
+        self.assertEqual(ba.__alloc__(), start_alloc)
+        self.assertEqual(len(ba), 4 + 1000)
+        self.assertEqual(ba.take_bytes(2), b'cd')
+        self.assertEqual(ba.__alloc__(), start_alloc)
+        self.assertEqual(len(ba), 2 + 1000)
+        self.assertEqual(ba.take_bytes(2), b'ef')
+        self.assertEqual(ba.__alloc__(), start_alloc)
+        self.assertEqual(len(ba), 0 + 1000)
+        self.assertEqual(ba.__alloc__(), start_alloc)
+
+        # Take over half, alloc shrinks to exact size.
+        self.assertEqual(ba.take_bytes(501), b'0' * 501)
+        self.assertEqual(len(ba), 499)
+        bytes_header_size = sys.getsizeof(b'')
+        self.assertEqual(ba.__alloc__(), 499 + bytes_header_size)
+
+    def test_take_bytes_reentrant_resize(self):
+        # gh-153570: n.__index__() can resize the bytearray, so take_bytes()
+        # must re-read the size afterwards.  It cached the size before the
+        # call and used it for the bounds check and the buffer reads, so a
+        # reentrant clear() returned freed memory (a use-after-free read).
+        def take(target, resize, n):
+            class Evil:
+                def __index__(self):
+                    resize(target)
+                    return n
+            return target.take_bytes(Evil())
+
+        # clear() during __index__: nothing is left to take.
+        ba = bytearray(b'abcdefgh')
+        with self.assertRaises(IndexError):
+            take(ba, lambda b: b.clear(), 8)
+        self.assertEqual(ba, b'')
+
+        # shrink during __index__: n past the new size is out of range.
+        ba = bytearray(b'abcdefgh')
+        with self.assertRaises(IndexError):
+            take(ba, lambda b: b.__delitem__(slice(4, None)), 8)
+        self.assertEqual(ba, b'abcd')
+
+        # grow during __index__: the take runs against the new, larger size.
+        ba = bytearray(b'abcd')
+        self.assertEqual(take(ba, lambda b: b.extend(b'efgh'), 8), b'abcdefgh')
+        self.assertEqual(ba, b'')
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_setitem(self):
@@ -1691,11 +1875,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b1)
         self.assertIs(b, b1)
 
-    # NOTE: RUSTPYTHON:
-    #
-    # The second instance of self.assertGreater was replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
     def test_alloc(self):
         b = bytearray()
         alloc = b.__alloc__()
@@ -1704,16 +1883,10 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         for i in range(100):
             b += b"x"
             alloc = b.__alloc__()
-            # self.assertGreater(alloc, len(b))  # including trailing null byte
-            self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+            self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON; Vec has no trailing null byte
             if alloc not in seq:
                 seq.append(alloc)
 
-    # NOTE: RUSTPYTHON:
-    #
-    # The usages of self.assertGreater were replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
     def test_init_alloc(self):
         b = bytearray()
         def g():
@@ -1724,14 +1897,12 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
                 self.assertEqual(len(b), len(a))
                 self.assertLessEqual(len(b), i)
                 alloc = b.__alloc__()
-                # self.assertGreater(alloc, len(b))  # including trailing null byte
-                self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+                self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON; Vec has no trailing null byte
         b.__init__(g())
         self.assertEqual(list(b), list(range(1, 100)))
         self.assertEqual(len(b), 99)
         alloc = b.__alloc__()
-        # self.assertGreater(alloc, len(b))
-        self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON patched
+        self.assertGreaterEqual(alloc, len(b))  # NOTE: RUSTPYTHON; Vec has no trailing null byte
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_extend(self):
@@ -2074,6 +2245,46 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
 
         self.assertRaises(BufferError, ba.hex, S(b':'))
 
+    def test_no_init_called(self):
+        # A bytearray created without calling bytearray.__init__
+        # should not crash the interpreter (see gh-153419).
+        def bytearray_new():
+            return bytearray.__new__(bytearray)
+
+        bytearray_new().insert(0, 1)
+        bytearray_new().extend(b"x")
+        bytearray_new().extend([1, 2, 3])
+        bytearray_new().resize(4)
+        bytearray_new().__init__(5)
+        bytearray_new().__init__(b"xyz")
+        bytearray_new().take_bytes()
+        bytearray_new().take_bytes(0)
+
+        a = bytearray_new()
+        a.append(1)
+
+        a = bytearray_new()
+        a += b"x"
+
+        a = bytearray_new()
+        a[:] = b"xyz"
+
+    def test_reinit_length(self):
+        # There is a shortcut taken when resizing, where alloc/2 < newsize.
+        # In this case, the existing buffer is reused, rather than reset.
+        # If this happens when newsize == 0 and alloc == 1, then various
+        # code assumptions can be violated.  This test should catch those
+        # in debug builds. (see gh-153419)
+        a = bytearray(1)
+        a.__init__()
+        self.assertEqual(a, b"")
+
+    def test_reinit_with_view(self):
+        a = bytearray()
+        with memoryview(a):
+            self.assertRaises(BufferError, a.__init__, "x", "ascii")
+        self.assertEqual(a, b"")
+
     @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mod(self):
         return super().test_mod()
@@ -2106,7 +2317,7 @@ class AssortedBytesTest(unittest.TestCase):
         self.assertEqual(f(bytearray([7, 8, 9, 10, 11, 12, 13])),
                             r"bytearray(b'\x07\x08\t\n\x0b\x0c\r')")
         self.assertEqual(f(bytearray(b'"')), """bytearray(b'"')""") # '"'
-        self.assertEqual(f(bytearray(b"'")), r'''bytearray(b"\'")''') # "\'"
+        self.assertEqual(f(bytearray(b"'")), '''bytearray(b"'")''') # "'"
         self.assertEqual(f(bytearray(b"'\"")), r"""bytearray(b'\'"')""") # '\'"'
         self.assertEqual(f(bytearray(b"\"'\"")), r"""bytearray(b'"\'"')""") # '"\'"'
         self.assertEqual(f(bytearray(b'\'"\'')), r"""bytearray(b'\'"\'')""") # '\'"\''
@@ -2699,6 +2910,18 @@ class FreeThreadingTest(unittest.TestCase):
             b.wait()
             a.resize(10)
 
+        def take_bytes(b, a):  # MODIFIES!
+            b.wait()
+            c = a.take_bytes()
+            assert not c or c[0] == 48  # '0'
+
+        def take_bytes_n(b, a):  # MODIFIES!
+            b.wait()
+            try:
+                c = a.take_bytes(10)
+                assert c == b'0123456789'
+            except IndexError: pass
+
         def check(funcs, a=None, *args):
             if a is None:
                 a = bytearray(b'0' * 0x400000)
@@ -2762,6 +2985,10 @@ class FreeThreadingTest(unittest.TestCase):
         check([clear] + [strip] * 10)
 
         check([clear] + [resize] * 10)
+
+        check([clear] + [take_bytes] * 10)
+        check([take_bytes_n] * 10, bytearray(b'0123456789' * 0x400))
+        check([take_bytes_n] * 10, bytearray(b'0123456789' * 5))
 
         check([clear] + [contains] * 10)
         check([clear] + [subscript] * 10)

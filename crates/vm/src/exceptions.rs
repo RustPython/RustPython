@@ -549,6 +549,7 @@ pub struct ExceptionZoo {
     pub attribute_error: &'static Py<PyType>,
     pub buffer_error: &'static Py<PyType>,
     pub eof_error: &'static Py<PyType>,
+    pub import_cycle_error: &'static Py<PyType>,
     pub import_error: &'static Py<PyType>,
     pub module_not_found_error: &'static Py<PyType>,
     pub lookup_error: &'static Py<PyType>,
@@ -926,6 +927,7 @@ impl ExceptionZoo {
         let eof_error = PyEOFError::init_builtin_type();
 
         let import_error = PyImportError::init_builtin_type();
+        let import_cycle_error = PyImportCycleError::init_builtin_type();
         let module_not_found_error = PyModuleNotFoundError::init_builtin_type();
 
         let lookup_error = PyLookupError::init_builtin_type();
@@ -1011,6 +1013,7 @@ impl ExceptionZoo {
             buffer_error,
             eof_error,
             import_error,
+            import_cycle_error,
             module_not_found_error,
             lookup_error,
             index_error,
@@ -1104,6 +1107,7 @@ impl ExceptionZoo {
         extend_exception!(PyEOFError, ctx, excs.eof_error);
 
         extend_exception!(PyImportError, ctx, excs.import_error);
+        extend_exception!(PyImportCycleError, ctx, excs.import_cycle_error);
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
@@ -2186,6 +2190,11 @@ pub(super) mod types {
             unreachable!("slot_init is defined")
         }
     }
+
+    #[pyexception(name, base = PyImportError, ctx = "import_cycle_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyImportCycleError(PyImportError);
 
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]

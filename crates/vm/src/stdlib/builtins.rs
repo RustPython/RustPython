@@ -1299,6 +1299,53 @@ mod builtins {
         )
     }
 
+    #[derive(FromArgs)]
+    struct LazyImportArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
+        globals: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default, py_default = "()")]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
+    #[pyfunction]
+    fn __lazy_import__(args: LazyImportArgs, vm: &VirtualMachine) -> PyResult {
+        let globals = args
+            .globals
+            .into_option()
+            .or_else(|| crate::frame::current_globals().map(Into::into))
+            .ok_or_else(|| {
+                vm.new_type_error("__lazy_import__() missing globals when called without a frame")
+            })?;
+        let globals_dict = globals
+            .downcast_ref::<crate::builtins::PyDict>()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "expect dict for globals, got {}",
+                    globals.class().name()
+                ))
+            })?;
+        let builtins = globals_dict
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .ok_or_else(|| vm.new_value_error("unable to get builtins for lazy import"))?;
+        let builtins = if let Some(module) = builtins.downcast_ref::<crate::builtins::PyModule>() {
+            module.dict().into()
+        } else {
+            builtins
+        };
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        let _ = args.locals;
+        crate::lazy_import::create(name, &globals, args.fromlist, args.level, builtins, vm)
+    }
+
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
@@ -1549,6 +1596,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "BufferError" => ctx.exceptions.buffer_error.to_owned(),
         "EOFError" => ctx.exceptions.eof_error.to_owned(),
         "ImportError" => ctx.exceptions.import_error.to_owned(),
+        "ImportCycleError" => ctx.exceptions.import_cycle_error.to_owned(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.to_owned(),
         "LookupError" => ctx.exceptions.lookup_error.to_owned(),
         "IndexError" => ctx.exceptions.index_error.to_owned(),

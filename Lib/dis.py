@@ -593,6 +593,12 @@ class ArgResolver:
                     argval, argrepr = _get_name_info(arg//2, get_name)
                     if (arg & 1) and argrepr:
                         argrepr = f"{argrepr} + NULL"
+                elif deop == opmap['IMPORT_NAME']:
+                    argval, argrepr = _get_name_info(arg//4, get_name)
+                    if argrepr and (arg & 1):
+                        argrepr = f"{argrepr} + lazy"
+                    elif argrepr and (arg & 2):
+                        argrepr = f"{argrepr} + eager"
                 elif deop == LOAD_ATTR:
                     argval, argrepr = _get_name_info(arg//2, get_name)
                     if (arg & 1) and argrepr:
@@ -1013,7 +1019,7 @@ def _find_imports(co):
                 (level_op[0] in hasconst or level_op[0] == LOAD_SMALL_INT)):
                 level = _get_const_value(level_op[0], level_op[1], consts)
                 fromlist = _get_const_value(from_op[0], from_op[1], consts)
-                yield (names[oparg], level, fromlist)
+                yield (names[oparg >> 2], level, fromlist)
 
 def _find_store_names(co):
     """Find names of variables which are written in the code

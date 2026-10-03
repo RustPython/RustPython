@@ -67,49 +67,8 @@ class MimeTypesModuleTestCase(unittest.TestCase):
         with unittest.mock.patch.object(mimetypes, 'open',
                                         return_value=fp) as mock_open:
             mime_dict = mimetypes.read_mime_types(filename)
-            mock_open.assert_called_with(filename, encoding='utf-8',
-                                         errors='surrogateescape')
+            mock_open.assert_called_with(filename, encoding='utf-8')
         eq(mime_dict[".Français"], "application/no-mans-land")
-
-    def test_read_mime_types_invalid_utf8_comment(self):
-        with os_helper.temp_dir() as directory:
-            data = (b"# non-UTF-8 comment: \x83\n"
-                    b"x-application/x-unittest pyunit\n")
-            file = os.path.join(directory, "sample.mimetype")
-            with open(file, "wb") as f:
-                f.write(data)
-
-            mime_dict = mimetypes.read_mime_types(file)
-            self.assertEqual(
-                mime_dict[".pyunit"], "x-application/x-unittest")
-
-            db = mimetypes.MimeTypes()
-            db.read(file)
-            self.assertEqual(
-                db.guess_file_type("sample.pyunit")[0],
-                "x-application/x-unittest")
-
-            mimetypes.init(files=[file])
-            self.assertEqual(
-                mimetypes.guess_file_type("sample.pyunit")[0],
-                "x-application/x-unittest")
-
-    def test_read_mime_types_invalid_utf8_type(self):
-        # A non-UTF-8 byte in a type or extension (not only in a comment) is
-        # preserved via surrogateescape, so the mapping is not corrupted.
-        with os_helper.temp_dir() as directory:
-            data = (b"x-application/x-unittest pyunit\n"
-                    b"application/bad\x83 badext\x83\n")
-            file = os.path.join(directory, "sample.mimetype")
-            with open(file, "wb") as f:
-                f.write(data)
-
-            bad_type = b"application/bad\x83".decode("utf-8", "surrogateescape")
-            bad_ext = b".badext\x83".decode("utf-8", "surrogateescape")
-
-            mime_dict = mimetypes.read_mime_types(file)
-            self.assertEqual(mime_dict[".pyunit"], "x-application/x-unittest")
-            self.assertEqual(mime_dict[bad_ext], bad_type)
 
     def test_init_reinitializes(self):
         # Issue 4936: make sure an init starts clean
@@ -135,9 +94,15 @@ class MimeTypesModuleTestCase(unittest.TestCase):
             for mime_type, ext in (
                 ("application/epub+zip", ".epub"),
                 ("application/octet-stream", ".bin"),
+                ("application/dicom", ".dcm"),
                 ("application/gzip", ".gz"),
                 ("application/ogg", ".ogx"),
+                ("application/pdf", ".pdf"),
                 ("application/postscript", ".ps"),
+                ("application/rtf", ".rtf"),
+                ("application/sql", ".sql"),
+                ("application/texinfo", ".texi"),
+                ("application/toml", ".toml"),
                 ("application/vnd.apple.mpegurl", ".m3u"),
                 ("application/vnd.ms-excel", ".xls"),
                 ("application/vnd.ms-fontobject", ".eot"),
@@ -150,11 +115,11 @@ class MimeTypesModuleTestCase(unittest.TestCase):
                 ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"),
                 ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"),
                 ("application/vnd.rar", ".rar"),
+                ("application/vnd.sqlite3", ".sqlite3"),
                 ("application/x-7z-compressed", ".7z"),
                 ("application/x-debian-package", ".deb"),
                 ("application/x-httpd-php", ".php"),
                 ("application/x-rpm", ".rpm"),
-                ("application/x-texinfo", ".texi"),
                 ("application/x-troff", ".roff"),
                 ("application/xml", ".xsl"),
                 ("application/yaml", ".yaml"),
@@ -176,6 +141,7 @@ class MimeTypesModuleTestCase(unittest.TestCase):
                 ("image/jp2", ".jp2"),
                 ("image/jpeg", ".jpg"),
                 ("image/jpm", ".jpm"),
+                ("image/jxl", ".jxl"),
                 ("image/t38", ".t38"),
                 ("image/tiff", ".tiff"),
                 ("image/tiff-fx", ".tfx"),
@@ -187,7 +153,6 @@ class MimeTypesModuleTestCase(unittest.TestCase):
                 ("model/stl", ".stl"),
                 ("text/html", ".html"),
                 ("text/plain", ".txt"),
-                ("text/rtf", ".rtf"),
                 ("text/x-rst", ".rst"),
                 ("video/matroska", ".mkv"),
                 ("video/matroska-3d", ".mk3d"),
@@ -349,13 +314,12 @@ class MimeTypesClassTestCase(unittest.TestCase):
         eq = self.assertEqual
         # First try strict
         eq(self.db.guess_file_type('foo.xul', strict=True), (None, None))
-        eq(self.db.guess_extension('image/jpg', strict=True), None)
         # And then non-strict
         eq(self.db.guess_file_type('foo.xul', strict=False), ('text/xul', None))
         eq(self.db.guess_file_type('foo.XUL', strict=False), ('text/xul', None))
         eq(self.db.guess_file_type('foo.invalid', strict=False), (None, None))
-        eq(self.db.guess_extension('image/jpg', strict=False), '.jpg')
-        eq(self.db.guess_extension('image/JPG', strict=False), '.jpg')
+        eq(self.db.guess_extension('image/jpeg', strict=False), '.jpg')
+        eq(self.db.guess_extension('image/JPEG', strict=False), '.jpg')
 
     def test_filename_with_url_delimiters(self):
         # bpo-38449: URL delimiters cases should be handled also.
@@ -416,8 +380,8 @@ class MimeTypesClassTestCase(unittest.TestCase):
         self.assertTrue(set(all) >= {'.bat', '.c', '.h', '.ksh', '.pl', '.txt'})
         self.assertEqual(len(set(all)), len(all))  # no duplicates
         # And now non-strict
-        all = self.db.guess_all_extensions('image/jpg', strict=False)
-        self.assertEqual(all, ['.jpg'])
+        all = self.db.guess_all_extensions('image/jpeg', strict=False)
+        self.assertEqual(all, ['.jpg', '.jpe', '.jpeg'])
         # And now for no hits
         all = self.db.guess_all_extensions('image/jpg', strict=True)
         self.assertEqual(all, [])
@@ -475,9 +439,7 @@ class MimeTypesClassTestCase(unittest.TestCase):
         self.assertEqual(self.db.guess_type(
             url="scheme:foo.html", strict=True), ("text/html", None))
         self.assertEqual(self.db.guess_all_extensions(
-            type='image/jpg', strict=True), [])
-        self.assertEqual(self.db.guess_extension(
-            type='image/jpg', strict=False), '.jpg')
+            type='image/jpeg', strict=True), ['.jpg', '.jpe', '.jpeg'])
 
 
 @unittest.skipUnless(sys.platform.startswith("win"), "Windows only")
@@ -539,15 +501,15 @@ class CommandLineTest(unittest.TestCase):
         args, help_text = mimetypes._parse_args("--invalid")
         self.assertTrue(help_text.startswith("usage: "))
 
-        args, _ = mimetypes._parse_args(shlex.split("-l -e image/jpg"))
+        args, _ = mimetypes._parse_args(shlex.split("-l -e image/jpeg"))
         self.assertTrue(args.extension)
         self.assertTrue(args.lenient)
-        self.assertEqual(args.type, ["image/jpg"])
+        self.assertEqual(args.type, ["image/jpeg"])
 
-        args, _ = mimetypes._parse_args(shlex.split("-e image/jpg"))
+        args, _ = mimetypes._parse_args(shlex.split("-e image/jpeg"))
         self.assertTrue(args.extension)
         self.assertFalse(args.lenient)
-        self.assertEqual(args.type, ["image/jpg"])
+        self.assertEqual(args.type, ["image/jpeg"])
 
         args, _ = mimetypes._parse_args(shlex.split("-l foo.webp"))
         self.assertFalse(args.extension)
@@ -578,7 +540,6 @@ class CommandLineTest(unittest.TestCase):
 
     def test_invocation(self):
         for command, expected in [
-            ("-l -e image/jpg", ".jpg"),
             ("-e image/jpeg", ".jpg"),
             ("-l foo.webp", "type: image/webp encoding: None"),
         ]:

@@ -10,10 +10,30 @@ mod _remote_debugging {
     };
 
     #[pystruct_sequence_data]
+    struct LocationInfoData {
+        lineno: PyObjectRef,
+        end_lineno: PyObjectRef,
+        col_offset: PyObjectRef,
+        end_col_offset: PyObjectRef,
+    }
+
+    #[pyattr]
+    #[pystruct_sequence(
+        name = "LocationInfo",
+        module = "_remote_debugging",
+        data = "LocationInfoData"
+    )]
+    struct LocationInfo;
+
+    #[pyclass(with(PyStructSequence))]
+    impl LocationInfo {}
+
+    #[pystruct_sequence_data]
     struct FrameInfoData {
         filename: String,
-        lineno: i64,
+        location: PyObjectRef,
         funcname: String,
+        opcode: PyObjectRef,
     }
 
     #[pyattr]
@@ -58,6 +78,7 @@ mod _remote_debugging {
     #[pystruct_sequence_data]
     struct ThreadInfoData {
         thread_id: PyObjectRef,
+        status: PyObjectRef,
         frame_info: PyObjectRef,
     }
 

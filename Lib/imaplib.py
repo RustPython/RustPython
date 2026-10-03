@@ -21,8 +21,6 @@ Public functions:       Internaldate2tuple
 # GET/SETANNOTATION contributed by Tomas Lindroos <skitta@abo.fi> June 2005.
 # IDLE contributed by Forest <forestix@nom.one> August 2024.
 
-__version__ = "2.60"
-
 import binascii, errno, random, re, socket, subprocess, sys, time, calendar
 from datetime import datetime, timezone, timedelta
 from io import DEFAULT_BUFFER_SIZE
@@ -258,7 +256,6 @@ class IMAP4:
             self._cmd_log_idx = 0
             self._cmd_log = {}           # Last '_cmd_log_len' interactions
             if self.debug >= 1:
-                self._mesg('imaplib version %s' % __version__)
                 self._mesg('new IMAP4 connection, tag=%s' % self.tagpre)
 
         self.welcome = self._get_response()
@@ -331,25 +328,34 @@ class IMAP4:
         self.host = host
         self.port = port
         self.sock = self._create_socket(timeout)
-        self._file = self.sock.makefile('rb')
-
+        # Since IMAP4 implements its own read() and readline() buffering,
+        # the '_imaplib_file' attribute is unused. Nonetheless it is kept
+        # and exposed solely for backward compatibility purposes.
+        self._imaplib_file = self.sock.makefile('rb')
 
     @property
     def file(self):
-        # The old 'file' attribute is no longer used now that we do our own
-        # read() and readline() buffering, with which it conflicts.
-        # As an undocumented interface, it should never have been accessed by
-        # external code, and therefore does not warrant deprecation.
-        # Nevertheless, we provide this property for now, to avoid suddenly
-        # breaking any code in the wild that might have been using it in a
-        # harmless way.
         import warnings
-        warnings.warn(
-            'IMAP4.file is unsupported, can cause errors, and may be removed.',
-            RuntimeWarning,
-            stacklevel=2)
-        return self._file
+        warnings._deprecated("IMAP4.file", remove=(3, 19))
+        return self._imaplib_file
 
+    @file.setter
+    def file(self, value):
+        import warnings
+        warnings._deprecated("IMAP4.file", remove=(3, 19))
+        # Ideally, we would want to close the previous file,
+        # but since we do not know how subclasses will use
+        # that setter, it is probably better to leave it to
+        # the caller.
+        self._imaplib_file = value
+
+    def _close_imaplib_file(self):
+        file = self._imaplib_file
+        if file is not None:
+            try:
+                file.close()
+            except OSError:
+                pass
 
     def read(self, size):
         """Read 'size' bytes from remote."""
@@ -435,7 +441,7 @@ class IMAP4:
 
     def shutdown(self):
         """Close I/O established in "open"."""
-        self._file.close()
+        self._close_imaplib_file()
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
         except OSError as exc:
@@ -952,9 +958,10 @@ class IMAP4:
             ssl_context = ssl._create_stdlib_context()
         typ, dat = self._simple_command(name)
         if typ == 'OK':
+            self._close_imaplib_file()
             self.sock = ssl_context.wrap_socket(self.sock,
                                                 server_hostname=self.host)
-            self._file = self.sock.makefile('rb')
+            self._imaplib_file = self.sock.makefile('rb')
             self._tls_established = True
             self._get_capabilities()
         else:
@@ -1392,7 +1399,7 @@ class IMAP4:
 
             try:
                 self._get_response()
-            except self.abort as val:
+            except self.abort:
                 if __debug__:
                     if self.debug >= 1:
                         self.print_log()
@@ -1800,7 +1807,7 @@ class IMAP4_stream(IMAP4):
         self.host = None        # For compatibility with parent class
         self.port = None
         self.sock = None
-        self._file = None
+        self._imaplib_file = None
         self.process = subprocess.Popen(self.command,
             bufsize=DEFAULT_BUFFER_SIZE,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -1988,7 +1995,7 @@ if __name__ == '__main__':
 
     try:
         optlist, args = getopt.getopt(sys.argv[1:], 'd:s:')
-    except getopt.error as val:
+    except getopt.error:
         optlist, args = (), ()
 
     stream_command = None
@@ -2083,3 +2090,12 @@ try: %s -d5
 ''' % sys.argv[0])
 
         raise
+
+
+def __getattr__(name):
+    if name == "__version__":
+        from warnings import _deprecated
+
+        _deprecated("__version__", remove=(3, 20))
+        return "2.60"  # Do not change
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -151,9 +151,42 @@ impl Py<PyModule> {
         Ok(())
     }
 
-    fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn getattr_inner(
+        &self,
+        name: &Py<PyStr>,
+        suppress_cycle: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
+            if let Some(deferred) =
+                attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+            {
+                if let Some(getattr) = self.dict().get_item_opt(identifier!(vm, __getattr__), vm)? {
+                    match getattr.call((name.to_owned(),), vm) {
+                        Ok(value) => return Ok(value),
+                        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+                        Err(exc) => return Err(exc),
+                    }
+                }
+                let value = match crate::lazy_import::resolve(deferred, vm) {
+                    Ok(value) => value,
+                    Err(exc)
+                        if suppress_cycle
+                            && exc.fast_isinstance(vm.ctx.exceptions.import_cycle_error) =>
+                    {
+                        return Err(
+                            vm.new_attribute_error(format!("module has no attribute '{name}'"))
+                        );
+                    }
+                    Err(exc) => return Err(exc),
+                };
+                self.dict().set_item(name, value.clone(), vm)?;
+                return Ok(value);
+            }
             return Ok(attr);
+        }
+        if let Some(value) = crate::lazy_import::try_load_submodule(self, name, vm)? {
+            return Ok(value);
         }
         if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
             return getattr.call((name.to_owned(),), vm);
@@ -272,7 +305,7 @@ impl Py<PyModule> {
 
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.as_pystr(&vm.ctx);
-        self.getattr_inner(attr_name, vm)
+        self.getattr_inner(attr_name, false, vm)
     }
 
     pub fn set_attr<'a>(
@@ -438,7 +471,7 @@ impl Initializer for PyModule {
 
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        zelf.getattr_inner(name, vm)
+        zelf.getattr_inner(name, false, vm)
     }
 }
 

@@ -4,6 +4,18 @@ pub(crate) use _sysconfig::module_def;
 pub(crate) mod _sysconfig {
     use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject};
 
+    #[cfg(windows)]
+    #[pyfunction]
+    fn get_platform() -> Option<&'static str> {
+        cfg_select! {
+            target_arch = "x86_64" => Some("win-amd64"),
+            target_arch = "aarch64" => Some("win-arm64"),
+            target_arch = "x86" => Some("win32"),
+            target_arch = "arm" => Some("win-arm32"),
+            _ => None,
+        }
+    }
+
     #[pyfunction]
     fn config_vars(vm: &VirtualMachine) -> PyDictRef {
         let vars = vm.ctx.new_dict();

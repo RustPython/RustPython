@@ -133,6 +133,7 @@ where
     // Per-interpreter ephemeral state (must not be shared across interpreters).
     let codec_registry = CodecsRegistry::new(&ctx);
     let warnings = WarningsState::init_state(&ctx);
+    let lazy_imports = crate::lazy_import::LazyImportsState::new(&ctx);
 
     let interpreter_id = runtime::alloc_interpreter_id();
     let runtime_root_id = parent_state.map_or(interpreter_id, |parent| parent.runtime_root_id);
@@ -161,6 +162,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
@@ -268,6 +270,7 @@ fn create_subinterpreter_from_parent(
     // Every interpreter has a `__main__` module once it is initialized.
     interp.enter(|vm| {
         let _ = vm.ensure_main_module();
+        vm.apply_startup_lazy_imports();
     });
     Ok(interp)
 }

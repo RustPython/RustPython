@@ -445,6 +445,7 @@ define_opcodes!(
             namei: Arg<oparg::NameIdx>,
         } = 72,
         ImportName {
+            // (co_names index << 2) | policy: 0 eligible, 1 lazy, 2 forced eager.
             namei: Arg<oparg::NameIdx>,
         } = 73,
         IsOp {

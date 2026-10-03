@@ -522,12 +522,26 @@ fn copy_ast_passthrough_fields(
             &["kind"]
         } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
             &["str"]
+        } else if is_node_instance(vm, target, pyast::NodeStmtImport::static_type())?
+            || is_node_instance(vm, target, pyast::NodeStmtImportFrom::static_type())?
+        {
+            &["is_lazy"]
         } else {
             &[]
         };
 
     for field in fields {
         if let Some(value) = vm.get_attribute_opt(source, *field)? {
+            let value = if *field == "is_lazy" {
+                let value = if vm.is_none(&value) {
+                    0
+                } else {
+                    node_object_to_i32(vm, &value)?
+                };
+                vm.ctx.new_int(value).into()
+            } else {
+                value
+            };
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -1804,7 +1818,10 @@ pub(crate) fn parse<E: From<CompileError>>(
 ) -> Result<PyObjectRef, E> {
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
     let mut options = parser::ParseOptions::from(mode);
-    let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
+    let target_version = target_version.unwrap_or(ast::PythonVersion {
+        major: crate::version::MAJOR as u8,
+        minor: crate::version::MINOR as u8,
+    });
     if let Some(error) = feature_version_syntax_error(source, &source_file, target_version) {
         return Err(error.into());
     }
@@ -1845,6 +1862,11 @@ pub(crate) fn parse<E: From<CompileError>>(
             is_unclosed_string: false,
         })
         .into());
+    }
+    if let Some(error) =
+        rustpython_compiler::lazy_future_import_error(parsed.syntax(), &source_file)
+    {
+        return Err(error.into());
     }
     if let Some(error) = barry_source.diagnostic(None, &source_file) {
         return Err(error.into());
@@ -1995,6 +2017,10 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
     mut emit_warning: impl FnMut(usize, char) -> Result<(), E>,
 ) -> Result<PyObjectRef, E> {
     let _ = optimize;
+    let target_version = target_version.unwrap_or(ast::PythonVersion {
+        major: crate::version::MAJOR as u8,
+        minor: crate::version::MINOR as u8,
+    });
     let leading_space = source.len() - source.trim_start().len();
     let source = source.trim();
     let invalid_func_type = || -> CompileError {
@@ -2045,7 +2071,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
         let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version);
         let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
             CompileError::from(ParseError {
@@ -2080,7 +2106,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         let call_source = format!("{ARG_PREFIX}{inner})");
         let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version);
         let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
             CompileError::from(ParseError {

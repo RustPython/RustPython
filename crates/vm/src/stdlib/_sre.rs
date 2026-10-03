@@ -533,6 +533,7 @@ mod _sre {
         flags(HAS_WEAKREF)
     )]
     impl Py<Pattern> {
+        #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(
             zelf: PyRef<Pattern>,
@@ -1151,6 +1152,7 @@ mod _sre {
             self.pattern.clone()
         }
 
+        #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(self.pattern, &self.string.clone(), vm, |s| {

@@ -73,6 +73,7 @@ pub mod getpath;
 pub mod import;
 mod intern;
 pub mod iter;
+pub(crate) mod lazy_import;
 pub mod object;
 
 #[cfg(feature = "host_env")]

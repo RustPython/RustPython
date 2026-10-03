@@ -6,13 +6,14 @@ import sys
 import threading
 import unittest
 from functools import partial
-from test.support import os_helper, force_not_colorized_test_class
+from _colorize import ANSIColors
+from test.support import force_color, os_helper, force_not_colorized_test_class
 from test.support import threading_helper
 
 from unittest import TestCase
 from unittest.mock import MagicMock, call, patch, ANY, Mock
 
-from .support import handle_all_events, code_to_events
+from .support import handle_all_events, code_to_events, more_lines
 
 try:
     from _pyrepl.console import Event
@@ -56,6 +57,7 @@ handle_events_short_unix_console = partial(
 handle_events_unix_console_height_3 = partial(
     handle_all_events, prepare_console=partial(unix_console, height=3)
 )
+
 
 def __rustpython_patch_terminfo_tparm(s, *args):
     return s + b":" + b",".join(str(i).encode() for i in args)
@@ -148,12 +150,70 @@ def __rustpython_patch_termios_tcsetattr(a, b, c):
 @patch("os.write")
 @force_not_colorized_test_class
 class TestConsole(TestCase):
+    @staticmethod
+    def _prepare_reader_with_prompts(console, **kwargs):
+        from _pyrepl.readline import ReadlineAlikeReader, ReadlineConfig
+
+        config = ReadlineConfig(
+            readline_completer=kwargs.pop("readline_completer", None)
+        )
+        reader = ReadlineAlikeReader(console=console, config=config)
+        reader.paste_mode = False
+        for key, val in kwargs.items():
+            setattr(reader, key, val)
+        return reader
+
+    def test_colorized_multiline_typing_does_not_redraw_previous_line(self, _os_write):
+        def prepare_reader_with_prompts(console, **kwargs):
+            reader = self._prepare_reader_with_prompts(console, **kwargs)
+            reader.more_lines = partial(more_lines, namespace=None)
+            return reader
+
+        with force_color(True):
+            events = itertools.chain(
+                code_to_events("def foo():"),
+                [Event(evt="key", data="\n", raw=bytearray(b"\n"))],
+                code_to_events("x = 1"),
+                [Event(evt="key", data="\n", raw=bytearray(b"\n"))],
+                code_to_events("y"),
+            )
+            _, con = handle_all_events(
+                events,
+                prepare_console=unix_console,
+                prepare_reader=prepare_reader_with_prompts,
+            )
+            con.restore()
+
+        self.assertNotIn(
+            call(ANY, b" \x1b[0m    x \x1b[0m=\x1b[0m "),
+            _os_write.mock_calls,
+        )
+        self.assertIn(call(ANY, b"y"), _os_write.mock_calls)
+
     def test_no_newline(self, _os_write):
         code = "1"
         events = code_to_events(code)
         _, con = handle_events_unix_console(events)
         self.assertNotIn(call(ANY, b'\n'), _os_write.mock_calls)
         con.restore()
+
+    def test_reset_on_finish(self, _os_write):
+        # gh-152068: finish() must emit the ANSI reset sequence so any
+        # active color does not leak past the prompt.
+        code = "1"
+        events = code_to_events(code)
+        _, con = handle_events_unix_console(events)
+        con.finish()
+        _os_write.assert_any_call(ANY, ANSIColors.RESET.encode(con.encoding))
+        con.restore()
+
+    def test_reset_on_restore(self, _os_write):
+        # gh-152068: restore() must emit the ANSI reset sequence.
+        code = "1"
+        events = code_to_events(code)
+        _, con = handle_events_unix_console(events)
+        con.restore()
+        _os_write.assert_any_call(ANY, ANSIColors.RESET.encode(con.encoding))
 
     def test_newline(self, _os_write):
         code = "\n"

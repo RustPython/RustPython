@@ -1,4 +1,6 @@
-// spell-checker:ignore hexlify unhexlify uuencodes rlecode rledecode
+// spell-checker:ignore hexlify unhexlify uuencodes rlecode rledecode ABCDEFGHIJKLMNPQRSTUVXYZ abcdefhijklmpqr
+
+mod base_n;
 
 pub(super) use decl::crc32;
 pub(crate) use decl::module_def;
@@ -8,13 +10,72 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 
 #[pymodule(name = "binascii")]
 mod decl {
-    use super::new_binascii_error;
+    use super::{base_n, new_binascii_error};
     use crate::vm::{
-        PyResult, VirtualMachine,
-        builtins::PyTypeRef,
-        function::{ArgAsciiBuffer, ArgBytesLike, ArgIndex, OptionalArg},
+        PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyBytesRef, PyTypeRef},
+        function::{ArgAsciiBuffer, ArgBytesLike, ArgIndex, ArgIntoBool, OptionalArg},
     };
     use rustpython_common::binascii;
+
+    #[pyattr(name = "BASE64_ALPHABET")]
+    fn base64_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".to_vec())
+    }
+
+    #[pyattr(name = "URLSAFE_BASE64_ALPHABET")]
+    fn urlsafe_base64_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".to_vec())
+    }
+
+    #[pyattr(name = "CRYPT_ALPHABET")]
+    fn crypt_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".to_vec())
+    }
+
+    #[pyattr(name = "UU_ALPHABET")]
+    fn uu_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(
+            b" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_".to_vec(),
+        )
+    }
+
+    #[pyattr(name = "BINHEX_ALPHABET")]
+    fn binhex_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(
+            b"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr".to_vec(),
+        )
+    }
+
+    #[pyattr(name = "BASE85_ALPHABET")]
+    fn base85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~".to_vec())
+    }
+
+    #[pyattr(name = "ASCII85_ALPHABET")]
+    fn ascii85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu".to_vec())
+    }
+
+    #[pyattr(name = "Z85_ALPHABET")]
+    fn z85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#".to_vec())
+    }
+
+    #[pyattr(name = "BASE32_ALPHABET")]
+    fn base32_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".to_vec())
+    }
+
+    #[pyattr(name = "BASE32HEX_ALPHABET")]
+    fn base32hex_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"0123456789ABCDEFGHIJKLMNOPQRSTUV".to_vec())
+    }
 
     #[pyattr(name = "Error", once)]
     pub(super) fn error_type(vm: &VirtualMachine) -> PyTypeRef {
@@ -54,12 +115,24 @@ mod decl {
         Ok(data.with_ref(|bytes| binascii::hexlify(bytes, sep, bytes_per_sep)))
     }
 
+    #[derive(FromArgs)]
+    struct UnhexlifyArgs {
+        #[pyarg(positional)]
+        hexstr: ArgAsciiBuffer,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+    }
+
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(hexstr: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        hexstr
-            .with_ref(binascii::unhexlify)
-            .map_err(|e| new_binascii_error(e, vm))
+    fn unhexlify(args: UnhexlifyArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let ignorechars = ignored_argument(&args.ignorechars);
+        let result = args
+            .hexstr
+            .with_ref(|data| base_n::decode_hex(data, &ignorechars));
+        drop(args.hexstr);
+        drop(args.ignorechars);
+        base_n_result(result, vm)
     }
 
     #[derive(FromArgs)]
@@ -86,30 +159,410 @@ mod decl {
         data.with_ref(|bytes| binascii::crc_hqx(bytes, crc.into_int_ref().as_u32_mask()))
     }
 
+    fn base_n_result(
+        result: Result<Vec<u8>, base_n::Error>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        result.map_err(|error| match error {
+            base_n::Error::InvalidAlphabet(size) => {
+                vm.new_value_error(format!("alphabet must have length {size}"))
+            }
+            base_n::Error::Codec(message) => vm.new_exception_msg(error_type(vm), message.into()),
+            base_n::Error::Memory => vm.no_memory_error(),
+        })
+    }
+
+    fn encoder_alphabet(
+        argument: &OptionalArg<ArgBytesLike>,
+        default: &[u8],
+    ) -> Result<Vec<u8>, base_n::Error> {
+        match argument {
+            OptionalArg::Present(value) => {
+                value.with_ref(|bytes| base_n::copy_alphabet(bytes, default.len()))
+            }
+            OptionalArg::Missing => base_n::copy_alphabet(default, default.len()),
+        }
+    }
+
+    fn decoder_alphabet(
+        argument: &OptionalArg<PyBytesRef>,
+        default: &[u8],
+    ) -> Result<Vec<u8>, base_n::Error> {
+        match argument {
+            OptionalArg::Present(value) => base_n::copy_alphabet(value.as_bytes(), default.len()),
+            OptionalArg::Missing => base_n::copy_alphabet(default, default.len()),
+        }
+    }
+
+    fn ignored_argument(argument: &OptionalArg<ArgBytesLike>) -> [bool; 256] {
+        match argument {
+            OptionalArg::Present(value) => value.with_ref(base_n::ignored),
+            OptionalArg::Missing => [false; 256],
+        }
+    }
+
+    fn canonical_argument(
+        argument: &OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        match argument {
+            OptionalArg::Present(value) => value.try_to_bool(vm),
+            OptionalArg::Missing => Ok(false),
+        }
+    }
+
     #[derive(FromArgs)]
-    struct NewlineArg {
-        #[pyarg(named, default = true)]
-        newline: bool,
+    struct B2aBase64Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        newline: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "BASE64_ALPHABET")]
+        alphabet: OptionalArg<ArgBytesLike>,
     }
 
     #[derive(FromArgs)]
     struct A2bBase64Args {
         #[pyarg(positional)]
         data: ArgAsciiBuffer,
-        #[pyarg(named, default)]
-        strict_mode: bool,
+        #[pyarg(named, optional)]
+        strict_mode: OptionalArg<ArgIntoBool>,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "BASE64_ALPHABET")]
+        alphabet: OptionalArg<PyBytesRef>,
+        #[pyarg(named, optional)]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
     }
 
     #[pyfunction]
     fn a2b_base64(args: A2bBase64Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let A2bBase64Args { data, strict_mode } = args;
-        data.with_ref(|b| binascii::a2b_base64(b, strict_mode))
-            .map_err(|e| new_binascii_error(e, vm))
+        let A2bBase64Args {
+            data,
+            strict_mode,
+            padded,
+            alphabet,
+            ignorechars,
+            canonical,
+        } = args;
+        let strict_mode = match strict_mode {
+            OptionalArg::Present(value) => value.into_bool(),
+            OptionalArg::Missing => matches!(&ignorechars, OptionalArg::Present(_)),
+        };
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let result = decoder_alphabet(&alphabet, base_n::BASE64).and_then(|alphabet_bytes| {
+                let ignore = if strict_mode {
+                    ignored_argument(&ignorechars)
+                } else {
+                    [false; 256]
+                };
+                data.with_ref(|data| {
+                    base_n::decode_bits(
+                        data,
+                        &alphabet_bytes,
+                        &ignore,
+                        base_n::BitDecodeOptions {
+                            bits: 6,
+                            padded: padded.into_bool(),
+                            strict: strict_mode,
+                            canonical: canonical,
+                        },
+                    )
+                })
+            });
+            base_n_result(result, vm)
+        })();
+        // Match Argument Clinic cleanup: release data before auxiliary exports.
+        drop(data);
+        drop(ignorechars);
+        result
     }
 
     #[pyfunction]
-    fn b2a_base64(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
-        data.with_ref(|bytes| binascii::b2a_base64(bytes, newline))
+    fn b2a_base64(args: B2aBase64Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aBase64Args {
+            data,
+            padded,
+            wrapcol,
+            newline,
+            alphabet,
+        } = args;
+        let result = encoder_alphabet(&alphabet, base_n::BASE64).and_then(|alphabet_bytes| {
+            data.with_ref(|data| {
+                base_n::encode_bits(
+                    data,
+                    6,
+                    padded.into_bool(),
+                    wrapcol,
+                    newline.into_bool(),
+                    &alphabet_bytes,
+                )
+            })
+        });
+        drop(data);
+        drop(alphabet);
+        base_n_result(result, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct B2aBase32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, optional, py_default = "BASE32_ALPHABET")]
+        alphabet: OptionalArg<ArgBytesLike>,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bBase32Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "BASE32_ALPHABET")]
+        alphabet: OptionalArg<PyBytesRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn a2b_base32(args: A2bBase32Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let A2bBase32Args {
+            data,
+            padded,
+            alphabet,
+            ignorechars,
+            canonical,
+        } = args;
+        let strict_mode = true;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let result = decoder_alphabet(&alphabet, base_n::BASE32).and_then(|alphabet_bytes| {
+                let ignore = if strict_mode {
+                    ignored_argument(&ignorechars)
+                } else {
+                    [false; 256]
+                };
+                data.with_ref(|data| {
+                    base_n::decode_bits(
+                        data,
+                        &alphabet_bytes,
+                        &ignore,
+                        base_n::BitDecodeOptions {
+                            bits: 5,
+                            padded: padded.into_bool(),
+                            strict: strict_mode,
+                            canonical: canonical,
+                        },
+                    )
+                })
+            });
+            base_n_result(result, vm)
+        })();
+        // Match Argument Clinic cleanup: release data before auxiliary exports.
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_base32(args: B2aBase32Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aBase32Args {
+            data,
+            padded,
+            wrapcol,
+            alphabet,
+        } = args;
+        let result = encoder_alphabet(&alphabet, base_n::BASE32).and_then(|alphabet_bytes| {
+            data.with_ref(|data| {
+                base_n::encode_bits(data, 5, padded.into_bool(), wrapcol, false, &alphabet_bytes)
+            })
+        });
+        drop(data);
+        drop(alphabet);
+        base_n_result(result, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct B2aBase85Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        pad: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, optional, py_default = "BASE85_ALPHABET")]
+        alphabet: OptionalArg<ArgBytesLike>,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bBase85Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, optional, py_default = "BASE85_ALPHABET")]
+        alphabet: OptionalArg<PyBytesRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn a2b_base85(args: A2bBase85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let A2bBase85Args {
+            data,
+            alphabet,
+            ignorechars,
+            canonical,
+        } = args;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let result = decoder_alphabet(&alphabet, base_n::BASE85).and_then(|alphabet_bytes| {
+                let ignore = ignored_argument(&ignorechars);
+                data.with_ref(|data| {
+                    base_n::decode85(
+                        data,
+                        &alphabet_bytes,
+                        &ignore,
+                        canonical,
+                        false,
+                        false,
+                        false,
+                    )
+                })
+            });
+            base_n_result(result, vm)
+        })();
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_base85(args: B2aBase85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aBase85Args {
+            data,
+            pad,
+            wrapcol,
+            alphabet,
+        } = args;
+        let result = encoder_alphabet(&alphabet, base_n::BASE85).and_then(|alphabet_bytes| {
+            data.with_ref(|data| {
+                base_n::encode85(
+                    data,
+                    pad.into_bool(),
+                    wrapcol,
+                    &alphabet_bytes,
+                    false,
+                    false,
+                    false,
+                )
+            })
+        });
+        drop(data);
+        drop(alphabet);
+        base_n_result(result, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct B2aAscii85Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        foldspaces: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        pad: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        adobe: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bAscii85Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        foldspaces: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        adobe: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn a2b_ascii85(args: A2bAscii85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let A2bAscii85Args {
+            data,
+            foldspaces,
+            adobe,
+            ignorechars,
+            canonical,
+        } = args;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let ignore = ignored_argument(&ignorechars);
+            let result = data.with_ref(|data| {
+                base_n::decode85(
+                    data,
+                    base_n::ASCII85,
+                    &ignore,
+                    canonical,
+                    true,
+                    foldspaces.into_bool(),
+                    adobe.into_bool(),
+                )
+            });
+            base_n_result(result, vm)
+        })();
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_ascii85(args: B2aAscii85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aAscii85Args {
+            data,
+            foldspaces,
+            wrapcol,
+            pad,
+            adobe,
+        } = args;
+        let result = data.with_ref(|data| {
+            base_n::encode85(
+                data,
+                pad.into_bool(),
+                wrapcol,
+                base_n::ASCII85,
+                true,
+                foldspaces.into_bool(),
+                adobe.into_bool(),
+            )
+        });
+        base_n_result(result, vm)
     }
 
     #[derive(FromArgs)]

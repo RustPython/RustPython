@@ -188,6 +188,13 @@ pub(crate) mod _asyncio {
             loop_: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            if zelf.fut_loop.read().is_some() {
+                return Err(vm.new_runtime_error(format!(
+                    "{} object is already initialized",
+                    zelf.class().fully_qualified_name(vm)?
+                )));
+            }
+
             // Get the event loop
             let loop_obj = match loop_ {
                 Some(l) if !vm.is_none(&l) => l,
@@ -1183,6 +1190,13 @@ pub(crate) mod _asyncio {
     )]
     impl PyTask {
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if zelf.base.fut_loop.read().is_some() {
+                return Err(vm.new_runtime_error(format!(
+                    "{} object is already initialized",
+                    zelf.class().fully_qualified_name(vm)?
+                )));
+            }
+
             // Validate coroutine
             if !is_coroutine(args.coro.clone(), vm)? {
                 return Err(vm.new_type_error(format!(

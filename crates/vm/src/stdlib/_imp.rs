@@ -19,6 +19,12 @@ mod lock {
         static IMP_LOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
     }
 
+    pub(super) fn release_lazy_lock() {
+        // A native reification guard owns one recursive hold.
+        unsafe { IMP_LOCK.unlock() };
+        drop_depth();
+    }
+
     fn bump_depth() {
         IMP_LOCK_DEPTH.with(|c| c.set(c.get() + 1));
     }
@@ -138,6 +144,25 @@ mod lock {
     }
 }
 
+pub(crate) struct ImportLockGuard;
+
+impl ImportLockGuard {
+    pub(crate) fn acquire(vm: &VirtualMachine) -> Self {
+        #[cfg(feature = "threading")]
+        vm.allow_threads(lock::acquire_lock_for_fork);
+        #[cfg(not(feature = "threading"))]
+        let _ = vm;
+        Self
+    }
+}
+
+impl Drop for ImportLockGuard {
+    fn drop(&mut self) {
+        #[cfg(feature = "threading")]
+        lock::release_lazy_lock();
+    }
+}
+
 #[allow(dead_code)]
 enum FrozenError {
     BadName,  // The given module name wasn't valid.
@@ -227,17 +252,14 @@ mod _imp {
         Vec::new()
     }
 
-    // CPython removes the name from its pending lazy-module registry here.
-    // RustPython currently performs only eager imports, so that registry is empty.
+    // This hook is also used by eager imports that satisfy pending lazy targets.
     #[pyfunction]
     fn _set_lazy_attributes(
         _modobj: PyObjectRef,
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Even an empty set checks the hash of a str subclass.
-        name.as_object().hash(vm)?;
-        Ok(())
+        vm.state.lazy_imports.modules.discard(name.into(), vm)
     }
 
     #[pyfunction]

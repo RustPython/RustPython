@@ -382,6 +382,73 @@ pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyR
     result.try_to_bool(vm)
 }
 
+/// Read a completed module without loading an absent target. A failed concurrent
+/// import must not leave the caller holding a stale partially initialized module.
+pub(crate) fn get_imported_module(
+    name: &Py<crate::builtins::PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
+    let modules = vm.sys_module.get_attr("modules", vm)?;
+    let get = || match modules.get_item(name, vm) {
+        Ok(module) => Ok(Some(module)),
+        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
+        Err(exc) => Err(exc),
+    };
+    let Some(module) = get()? else {
+        return Ok(None);
+    };
+    if !vm.is_none(&module) {
+        if is_module_initializing(&module, vm)? {
+            vm.importlib
+                .get_attr("_lock_unlock_module", vm)?
+                .call((name.to_owned(),), vm)
+                .inspect_err(|exc| remove_importlib_frames(vm, exc))?;
+        }
+        if !get()?.is_some_and(|current| current.is(&module)) {
+            return Ok(None);
+        }
+    }
+    Ok(Some(module))
+}
+
+/// Resolve an import target without finding or executing its module.
+pub(crate) fn absolute_import_name(
+    name: &Py<crate::builtins::PyStr>,
+    globals: Option<&PyObject>,
+    level: i32,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyStrRef> {
+    if level < 0 {
+        return Err(vm.new_value_error("level must be >= 0"));
+    }
+    if level == 0 {
+        if name.is_empty() {
+            return Err(vm.new_value_error("Empty module name"));
+        }
+        return Ok(name.to_owned());
+    }
+    let name = name
+        .as_utf8()
+        .ok_or_else(|| vm.new_import_error(format!("No module named '{name}'"), name.to_owned()))?;
+    let globals = globals
+        .ok_or_else(|| vm.new_key_error(vm.ctx.new_str("'__name__' not in globals").into()))?;
+    let empty: PyObjectRef;
+    let globals = if vm.is_none(globals) {
+        empty = vm.ctx.new_dict().into();
+        &empty
+    } else {
+        globals
+    };
+    let package = calc_package(Some(globals), vm)?;
+    if package.is_empty() {
+        return Err(vm.new_import_error(
+            "attempted relative import with no known parent package",
+            vm.ctx.new_utf8_str(""),
+        ));
+    }
+    Ok(resolve_name(name, &package, level as usize, vm)?.into_wtf8())
+}
+
 /// PyImport_ImportModuleLevelObject
 pub(crate) fn import_module_level(
     name: &Py<PyStr>,
@@ -637,4 +704,110 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyU
     } else {
         Ok(mod_name_str)
     }
+}
+
+pub(crate) fn import_from_attribute(
+    module: &PyObject,
+    name: &Py<crate::builtins::PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    // Load attribute, and transform any error into import error.
+    if let Some(obj) = vm.get_attribute_opt(module, name)? {
+        return Ok(obj);
+    }
+    // fallback to importing '{module.__name__}.{name}' from sys.modules
+    let fallback_module = (|| {
+        let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
+        let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
+        let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
+        let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
+        sys_modules.get_item(&*full_mod_name, vm).ok()
+    })();
+
+    if let Some(sub_module) = fallback_module {
+        return Ok(sub_module);
+    }
+
+    use crate::import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name};
+
+    // Get module name for the error message
+    let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
+    let mod_name = mod_name_obj
+        .as_ref()
+        .and_then(|n| n.downcast_ref::<PyUtf8Str>());
+    let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
+
+    let spec = module
+        .get_attr("__spec__", vm)
+        .ok()
+        .filter(|s| !vm.is_none(s));
+
+    let origin = get_spec_file_origin(spec.as_deref(), vm);
+
+    let is_possibly_shadowing = origin
+        .as_ref()
+        .is_some_and(|o| is_possibly_shadowing_path(o, vm));
+    let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
+        if let Some(ref mod_name) = mod_name_obj {
+            is_stdlib_module_name(mod_name, vm)?
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let msg = if is_possibly_shadowing_stdlib {
+        let origin = origin.as_ref().unwrap();
+        format!(
+            "cannot import name '{name}' from '{module_name}' \
+                 (consider renaming '{origin}' since it has the same \
+                 name as the standard library module named '{module_name}' \
+                 and prevents importing that standard library module)"
+        )
+    } else {
+        let is_init = is_module_initializing(module, vm).unwrap_or(false);
+        if is_init {
+            if is_possibly_shadowing {
+                let origin = origin.as_ref().unwrap();
+                format!(
+                    "cannot import name '{name}' from '{module_name}' \
+                         (consider renaming '{origin}' if it has the same name \
+                         as a library you intended to import)"
+                )
+            } else if let Some(ref path) = origin {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import) ({path})"
+                )
+            } else {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import)"
+                )
+            }
+        } else if let Some(ref path) = origin {
+            format!("cannot import name '{name}' from '{module_name}' ({path})")
+        } else {
+            format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+        }
+    };
+    let err = vm.new_import_error(
+        msg,
+        match mod_name {
+            Some(s) => s.to_owned().into_wtf8(),
+            None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
+        },
+    );
+
+    if let Some(ref path) = origin {
+        let _ignore = err
+            .as_object()
+            .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
+    }
+
+    // name_from = the attribute name that failed to import (best-effort metadata)
+    let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
+
+    Err(err)
 }

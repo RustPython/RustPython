@@ -3507,6 +3507,30 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
+    fn import_policy(&mut self, explicit: bool, star: bool) -> u32 {
+        if explicit {
+            return 1;
+        }
+        if star || self.current_symbol_table().typ != CompilerScope::Module {
+            return 2;
+        }
+        if self.current_code_info().fblock.iter().any(|block| {
+            matches!(
+                block.fb_type,
+                FBlockType::TryExcept
+                    | FBlockType::FinallyTry
+                    | FBlockType::FinallyEnd
+                    | FBlockType::HandlerCleanup
+                    | FBlockType::ExceptionHandler
+                    | FBlockType::ExceptionGroupHandler
+            )
+        }) {
+            2
+        } else {
+            0
+        }
+    }
+
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
         let prev_source_range = self.current_source_range;
@@ -3527,7 +3551,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         match &statement {
-            ast::Stmt::Import(ast::StmtImport { names, .. }) => {
+            ast::Stmt::Import(ast::StmtImport { names, is_lazy, .. }) => {
                 // import a, b, c as d
                 for name in names {
                     let name = &name;
@@ -3535,7 +3559,7 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    let namei = self.name(&name.name);
+                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3560,6 +3584,7 @@ impl<'warnings> Compiler<'warnings> {
                 level,
                 module,
                 names,
+                is_lazy,
                 ..
             }) => {
                 let import_star = names.first().is_some_and(|n| &n.name == "*");
@@ -3580,7 +3605,8 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                let module_idx = self.name(module_name);
+                let module_idx =
+                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -5238,10 +5264,10 @@ impl<'warnings> Compiler<'warnings> {
 
         // Count annotations
         let parameters_iter = parameters
-            .args
+            .posonlyargs
             .iter()
             .map(|x| &x.parameter)
-            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.args.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
             .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
@@ -5253,10 +5279,10 @@ impl<'warnings> Compiler<'warnings> {
 
         // Compile annotations inside the annotation scope
         let parameters_iter = parameters
-            .args
+            .posonlyargs
             .iter()
             .map(|x| &x.parameter)
-            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.args.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
             .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());

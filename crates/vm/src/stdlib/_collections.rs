@@ -11,8 +11,8 @@ mod _collections {
         VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyType,
-            PyTypeRef, locked_step,
+            PositionIterInternal, PyAnyDictRef, PyDict, PyGenericAlias, PyInt, PyList, PyStr,
+            PyTuple, PyType, PyTypeRef, locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -1061,18 +1061,10 @@ mod _collections {
         fn __or__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             let not_implemented = || Ok(vm.ctx.not_implemented.clone().into());
 
-            let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
-                if !rhs.fast_isinstance(vm.ctx.types.dict_type) {
-                    return not_implemented();
-                }
-
-                (zelf.default_factory.load_owned(), zelf.dict.copy())
+            let (zelf, other) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
+                (zelf, &*rhs)
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
-                let Some(dict) = lhs.downcast_ref::<PyDict>() else {
-                    return not_implemented();
-                };
-
-                (zelf.default_factory.load_owned(), dict.copy())
+                (zelf, lhs)
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",
@@ -1080,17 +1072,23 @@ mod _collections {
                     rhs.class().name()
                 )));
             };
-
-            dict.update(rhs.into(), KwArgs::default(), vm)?;
-
-            Ok(Self {
-                dict,
-                default_factory: match default_factory {
-                    Some(factory) => PyAtomicRef::from(Some(factory)),
-                    None => PyAtomicRef::new_empty(),
-                },
+            if PyAnyDictRef::from_object(other).is_none() {
+                return not_implemented();
             }
-            .to_pyobject(vm))
+
+            let factory = zelf
+                .default_factory
+                .load_owned()
+                .unwrap_or_else(|| vm.ctx.none());
+            let new = zelf
+                .class()
+                .as_object()
+                .call((factory, lhs.to_owned()), vm)?;
+            let dict = new
+                .downcast_ref::<PyDict>()
+                .ok_or_else(|| vm.new_system_error("bad argument to internal function"))?;
+            dict.merge_object(rhs, vm)?;
+            Ok(new)
         }
     }
 

@@ -496,6 +496,19 @@ impl Coro {
         self.frame_opt().is_some_and(|f| f.lasti() > 0)
     }
 
+    pub(crate) fn state_name(&self, names: [&'static str; 4]) -> &'static str {
+        let index = if self.running() {
+            1
+        } else if self.closed() {
+            3
+        } else if self.started() {
+            2
+        } else {
+            0
+        };
+        names[index]
+    }
+
     pub fn suspended(&self) -> bool {
         !self.closed.load()
             && !self.running.load()

@@ -57,6 +57,12 @@ fn new_simple_type(
 
     let tp_str = _type_.str(vm)?.to_string();
 
+    // Complex ctypes storage and FFI are not implemented. Preserve the
+    // optional-type AttributeError contract for the PEP 3118 codes.
+    if matches!(tp_str.as_str(), "Zd" | "Zf" | "Zg") {
+        return Err(vm.new_attribute_error("complex ctypes types are not supported"));
+    }
+
     if tp_str.len() != 1 {
         return Err(vm.new_value_error(format!(
             "class must define a '_type_' attribute which must be a string of length 1, str: {tp_str}"
@@ -555,6 +561,12 @@ impl Initializer for PyCSimpleType {
         let type_str = type_attr.str(vm)?.to_string();
 
         // Validate _type_ is a single character
+        // Complex ctypes storage and FFI are not implemented. Preserve the
+        // optional-type AttributeError contract for the PEP 3118 codes.
+        if matches!(type_str.as_str(), "Zd" | "Zf" | "Zg") {
+            return Err(vm.new_attribute_error("complex ctypes types are not supported"));
+        }
+
         if type_str.len() != 1 {
             return Err(vm.new_value_error(
                 "class must define a '_type_' attribute which must be a string of length 1",

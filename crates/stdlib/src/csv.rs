@@ -160,7 +160,7 @@ mod _csv {
     /// * If the 'delimiter' attribute is not a single-character string, a type error is returned.
     /// * If the 'obj' is not of string type and does not have a 'delimiter' attribute, a type error is returned.
     fn parse_delimiter_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
-        if let Ok(attr) = obj.get_attr("delimiter", vm) {
+        if let Some(attr) = vm.get_attribute_opt(obj, "delimiter")? {
             parse_delimiter_from_obj(vm, &attr)
         } else {
             match_class!(match obj.to_owned() {
@@ -294,10 +294,9 @@ mod _csv {
             let lineterminator = prase_lineterminator_from_obj(vm, &obj)?;
             let quoting = prase_quoting_from_obj(vm, &obj)?;
 
-            let strict = if let Ok(t) = obj.get_attr("strict", vm) {
-                t.try_to_bool(vm).unwrap_or(false)
-            } else {
-                false
+            let strict = match vm.get_attribute_opt(&obj, "strict")? {
+                Some(value) => value.try_to_bool(vm)?,
+                None => false,
             };
 
             Ok(Self {
@@ -532,8 +531,7 @@ mod _csv {
     ///
     /// * If the provided object is a PyStr, it returns a `DialectItem::Str` containing the string value.
     /// * If the provided object is PyNone, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
-    /// * If the provided object is a PyType, it attempts to create a PyDialect from the object and returns a `DialectItem::Obj` containing the PyDialect if successful. If unsuccessful, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
-    /// * If the provided object is none of the above types, it attempts to create a PyDialect from the object and returns a `DialectItem::Obj` containing the PyDialect if successful. If unsuccessful, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
+    /// * Errors raised while constructing or reading a dialect propagate as Python exceptions.
     fn prase_dialect_item_from_arg(
         vm: &VirtualMachine,
         obj: PyObjectRef,
@@ -550,19 +548,15 @@ mod _csv {
                 let temp = t
                     .as_object()
                     .call(vec![], vm)
-                    .map_err(|_e| ArgumentError::InvalidKeywordArgument("dialect".to_string()))?;
+                    .map_err(ArgumentError::Exception)?;
                 Ok(DialectItem::Obj(
-                    PyDialect::try_from_object(vm, temp).map_err(|_| {
-                        ArgumentError::InvalidKeywordArgument("dialect".to_string())
-                    })?,
+                    PyDialect::try_from_object(vm, temp).map_err(ArgumentError::Exception)?,
                 ))
             }
             obj => {
-                if let Ok(cur_dialect_item) = PyDialect::try_from_object(vm, obj) {
-                    Ok(DialectItem::Obj(cur_dialect_item))
-                } else {
-                    Err(ArgumentError::InvalidKeywordArgument("dialect".to_string()))
-                }
+                PyDialect::try_from_object(vm, obj)
+                    .map(DialectItem::Obj)
+                    .map_err(ArgumentError::Exception)
             }
         })
     }

@@ -44,7 +44,7 @@ use crate::{
     scope::Scope,
     signal::{self, SignalHandlers},
     stdlib,
-    types::{GetattroFunc, fn_addr},
+    types::{GetAttr, GetattroFunc, fn_addr},
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
@@ -824,6 +824,7 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
     /// The thread performing finalization, which need not be the process main thread.
@@ -1415,6 +1416,11 @@ impl VirtualMachine {
         drop(prewarmed_memory_errors);
 
         stdlib::builtins::init_module(self, &self.builtins);
+        // Startup all-mode can reach frozen Python before importlib is installed.
+        let lazy_callback = self.builtins.get_attr("__lazy_import__", self);
+        let lazy_callback =
+            self.expect_pyresult(lazy_callback, "failed to initialize lazy imports");
+        let _ = self.state.lazy_imports.default_callback.set(lazy_callback);
         let callable_cache_init = self.init_callable_cache();
         self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
@@ -1577,6 +1583,14 @@ impl VirtualMachine {
         }
 
         self.initialized = true;
+    }
+
+    /// Apply configured global lazy imports after startup imports, including site.
+    /// Hosts that perform their own main-module setup can call this at that boundary.
+    pub fn apply_startup_lazy_imports(&self) {
+        if self.state.config.settings.lazy_imports == 1 {
+            self.state.lazy_imports.all.store(true, Ordering::Release);
+        }
     }
 
     /// Set the custom signal channel for the interpreter
@@ -3513,6 +3527,10 @@ impl VirtualMachine {
         let getattro = obj.class().slots().getattro.load().unwrap();
         let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
             obj.generic_getattr_opt(attr_name, None, self)
+        } else if fn_addr(getattro) == fn_addr(PyModule::slot_getattro as GetattroFunc)
+            && let Some(module) = obj.downcast_ref::<PyModule>()
+        {
+            module.getattr_inner(attr_name, true, self).map(Some)
         } else {
             obj.get_attr_inner(attr_name, self).map(Some)
         };

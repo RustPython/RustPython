@@ -47,6 +47,7 @@ pub struct TypeZoo {
     pub iter_type: &'static Py<PyType>,
     pub reverse_iter_type: &'static Py<PyType>,
     pub complex_type: &'static Py<PyType>,
+    pub lazy_import_type: &'static Py<PyType>,
     pub list_type: &'static Py<PyType>,
     pub list_iterator_type: &'static Py<PyType>,
     pub list_reverseiterator_type: &'static Py<PyType>,
@@ -143,6 +144,7 @@ impl TypeZoo {
             frozendict_type: frozendict::PyFrozenDict::init_builtin_type(),
             frozenset_type: set::PyFrozenSet::init_builtin_type(),
             filter_type: filter::PyFilter::init_builtin_type(),
+            lazy_import_type: crate::lazy_import::PyLazyImport::init_builtin_type(),
             list_type: list::PyList::init_builtin_type(),
             map_type: map::PyMap::init_builtin_type(),
             memoryview_type: memory::PyMemoryView::init_builtin_type(),
@@ -238,6 +240,7 @@ impl TypeZoo {
         tuple::init(context);
         dict::init(context);
         frozendict::init(context);
+        crate::lazy_import::init_type(context);
         builtin_func::init(context);
         function::init(context);
         staticmethod::init(context);
