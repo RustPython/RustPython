@@ -2996,8 +2996,7 @@ impl<'warnings> Compiler<'warnings> {
             self.emit_load_const(ConstantData::Str {
                 value: value.into(),
             });
-            let doc = self.name("__doc__");
-            emit!(self, Instruction::StoreName { namei: doc });
+            self.store_name(&"__doc__".into())?;
             self.set_no_location();
             self.set_source_range(saved_range);
         }
@@ -20052,6 +20051,54 @@ class C:
             }
             _ => false,
         }));
+    }
+
+    fn find_module_doc_store(code: &CodeObject) -> Option<&Instruction> {
+        code.instructions.iter().find_map(|unit| match unit.op {
+            Instruction::StoreName { namei } | Instruction::StoreGlobal { namei } => {
+                let idx = namei.get(OpArg::new(u32::from(u8::from(unit.arg))));
+                (code.names[usize::try_from(idx).unwrap()].as_str() == "__doc__")
+                    .then_some(&unit.op)
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn module_docstring_store_uses_global_when_nested_scope_declares_global() {
+        let code = compile_exec(
+            "\
+\"module doc\"
+def f():
+    global __doc__
+",
+        );
+
+        let op = find_module_doc_store(&code).expect("missing module docstring store");
+        assert!(
+            matches!(op, Instruction::StoreGlobal { .. }),
+            "module docstring store should resolve through name resolution to StoreGlobal \
+             when a nested scope declares `global __doc__`, got instructions={:?}",
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn module_docstring_store_stays_name_without_nested_global() {
+        let code = compile_exec(
+            "\
+\"module doc\"
+x = 1
+",
+        );
+
+        let op = find_module_doc_store(&code).expect("missing module docstring store");
+        assert!(
+            matches!(op, Instruction::StoreName { .. }),
+            "module docstring store should remain StoreName without a nested \
+             `global __doc__` declaration, got instructions={:?}",
+            code.instructions
+        );
     }
 
     #[test]
