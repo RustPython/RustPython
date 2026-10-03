@@ -104,6 +104,7 @@ pub struct VirtualMachine {
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
+    pub(crate) lazy_imports_resolving: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
@@ -1270,6 +1271,7 @@ impl VirtualMachine {
             signal_handlers,
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state,
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -3288,6 +3290,7 @@ impl VirtualMachine {
         if self.is_none(&found) || import::is_module_initializing(&found, self)? {
             return Ok(None);
         }
+        crate::lazy_import::clear_submodule(module, true, self)?;
 
         let Some(dot) = name_str.find('.') else {
             return Ok(Some(found));

@@ -1475,6 +1475,7 @@ impl VirtualMachine {
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
             recursion_depth: Cell::new(0),

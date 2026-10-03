@@ -4981,7 +4981,7 @@ impl ExecutingFrame<'_> {
                 let name = self.localsplus_name(idx);
                 let value = self.mapping_get_optional(&class_dict, name, vm)?;
                 self.push_value(match value {
-                    Some(v) => v,
+                    Some(v) => crate::lazy_import::reify_value(v, name, &class_dict, vm)?,
                     None => self
                         .cell_ref(idx)
                         .get()
@@ -4996,11 +4996,8 @@ impl ExecutingFrame<'_> {
                 let value = self.mapping_get_optional(&dict, name, vm)?;
 
                 self.push_value(match value {
-                    Some(v) => v,
-                    None => crate::lazy_import::resolve_value(
-                        self.load_global_or_builtin_raw(name, vm)?,
-                        vm,
-                    )?,
+                    Some(v) => crate::lazy_import::reify_value(v, name, &dict, vm)?,
+                    None => self.load_global_or_builtin(name, vm)?,
                 });
                 Ok(None)
             }
@@ -5150,13 +5147,14 @@ impl ExecutingFrame<'_> {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping(vm).subscript(name, vm);
                 let value = match result {
-                    Ok(x) => x,
+                    Ok(x) => {
+                        crate::lazy_import::reify_value(x, name, self.locals.as_object(vm), vm)?
+                    }
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         self.load_name_global_or_builtin(name, vm)?
                     }
                     Err(e) => return Err(e),
                 };
-                let value = self.resolve_global_binding(name, value, vm)?;
                 self.push_value(value);
                 Ok(None)
             }
@@ -7951,7 +7949,7 @@ impl ExecutingFrame<'_> {
                         globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
                     let name = self.code.names[(oparg >> 1) as usize];
-                    let x = self.resolve_global_binding(name, x, vm)?;
+                    let x = crate::lazy_import::reify_value(x, name, self.globals.as_object(), vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -7982,7 +7980,7 @@ impl ExecutingFrame<'_> {
                         .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
                     let name = self.code.names[(oparg >> 1) as usize];
-                    let x = self.resolve_global_binding(name, x, vm)?;
+                    let x = crate::lazy_import::reify_value(x, name, self.builtins, vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -8446,31 +8444,6 @@ impl ExecutingFrame<'_> {
 
     #[inline]
     fn load_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        let value = self.load_global_or_builtin_raw(name, vm)?;
-        self.resolve_global_binding(name, value, vm)
-    }
-
-    fn resolve_global_binding(
-        &self,
-        name: &Py<PyStr>,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        if let Some(deferred) = value.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
-        {
-            let resolved = crate::lazy_import::resolve(deferred, vm)?;
-            if let Some(dict) = self.globals.as_mutable() {
-                dict.inner_setitem(name, resolved.clone(), vm)?;
-            } else {
-                self.globals.set_item(name, resolved.clone(), vm)?;
-            }
-            Ok(resolved)
-        } else {
-            Ok(value)
-        }
-    }
-
-    fn load_global_or_builtin_raw(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
@@ -8479,16 +8452,17 @@ impl ExecutingFrame<'_> {
                 .as_object()
                 .downcast_ref::<PyDict>()
                 .expect("exact dict globals");
-            let globals_exact = unsafe { PyExact::ref_unchecked(globals) };
-            globals_exact
-                .get_chain_exact(builtins_dict, name, vm)?
-                .ok_or_else(|| {
-                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
-                })
+            if let Some(value) = globals.get_item_opt(name, vm)? {
+                return crate::lazy_import::reify_value(value, name, globals.as_object(), vm);
+            }
+            let value = builtins_dict.get_item_opt(name, vm)?.ok_or_else(|| {
+                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+            })?;
+            crate::lazy_import::reify_value(value, name, builtins_dict.as_object(), vm)
         } else {
             // Slow path: builtins is not a dict, use generic __getitem__
             if let Some(value) = self.globals.get_item_opt(name, vm)? {
-                return Ok(value);
+                return crate::lazy_import::reify_value(value, name, self.globals.as_object(), vm);
             }
             self.load_builtin(name, vm)
         }
@@ -8498,19 +8472,20 @@ impl ExecutingFrame<'_> {
         // LOAD_NAME reads the stored global entries even for dict subclasses;
         // LOAD_GLOBAL instead honors their __getitem__ implementation.
         if let Some(value) = self.globals.inner_getitem_opt(name, vm)? {
-            return Ok(value);
+            return crate::lazy_import::reify_value(value, name, self.globals.as_object(), vm);
         }
         self.load_builtin(name, vm)
     }
 
     fn load_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        self.builtins.get_item(name, vm).map_err(|e| {
+        let value = self.builtins.get_item(name, vm).map_err(|e| {
             if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                 vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
             } else {
                 e
             }
-        })
+        })?;
+        crate::lazy_import::reify_value(value, name, self.builtins, vm)
     }
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]

@@ -382,35 +382,6 @@ pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyR
     result.try_to_bool(vm)
 }
 
-/// Read a completed module without loading an absent target. A failed concurrent
-/// import must not leave the caller holding a stale partially initialized module.
-pub(crate) fn get_imported_module(
-    name: &Py<crate::builtins::PyStr>,
-    vm: &VirtualMachine,
-) -> PyResult<Option<PyObjectRef>> {
-    let modules = vm.sys_module.get_attr("modules", vm)?;
-    let get = || match modules.get_item(name, vm) {
-        Ok(module) => Ok(Some(module)),
-        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
-        Err(exc) => Err(exc),
-    };
-    let Some(module) = get()? else {
-        return Ok(None);
-    };
-    if !vm.is_none(&module) {
-        if is_module_initializing(&module, vm)? {
-            vm.importlib
-                .get_attr("_lock_unlock_module", vm)?
-                .call((name.to_owned(),), vm)
-                .inspect_err(|exc| remove_importlib_frames(vm, exc))?;
-        }
-        if !get()?.is_some_and(|current| current.is(&module)) {
-            return Ok(None);
-        }
-    }
-    Ok(Some(module))
-}
-
 /// Resolve an import target without finding or executing its module.
 pub(crate) fn absolute_import_name(
     name: &Py<crate::builtins::PyStr>,
@@ -511,6 +482,7 @@ pub(crate) fn import_module_level(
     let module = match sys_modules.get_item(&*abs_name, vm) {
         Ok(m) if !vm.is_none(&m) => {
             import_ensure_initialized(&m, &abs_name, vm)?;
+            crate::lazy_import::clear_submodule(abs_name.as_pystr(), true, vm)?;
             m
         }
         _ => {

@@ -157,38 +157,50 @@ impl Py<PyModule> {
         suppress_cycle: bool,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
+        let mut attr = self.as_object().generic_getattr_opt(name, None, vm)?;
+        if attr.is_none() {
+            if let Some(value) =
+                crate::lazy_import::try_load_submodule(self, name, suppress_cycle, vm)?
+            {
+                return Ok(value);
+            }
+            // A concurrent import may have bound a child and removed its pending entry.
+            if self.class().is(vm.ctx.types.module_type)
+                || self
+                    .class()
+                    .get_attr(vm.ctx.intern_str(name.as_wtf8()))
+                    .is_none_or(|descriptor| descriptor.class().slots().descr_get.load().is_none())
+            {
+                attr = self.dict().get_item_opt(name, vm)?;
+            }
+        }
+        if let Some(attr) = attr {
             if let Some(deferred) =
                 attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
             {
-                if let Some(getattr) = self.dict().get_item_opt(identifier!(vm, __getattr__), vm)? {
+                if name.to_str() != Some("__getattr__")
+                    && let Some(getattr) = crate::lazy_import::resolved_dict_item(
+                        &self.dict(),
+                        identifier!(vm, __getattr__),
+                        vm,
+                    )?
+                {
                     match getattr.call((name.to_owned(),), vm) {
                         Ok(value) => return Ok(value),
                         Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
                         Err(exc) => return Err(exc),
                     }
                 }
-                let value = match crate::lazy_import::resolve(deferred, vm) {
-                    Ok(value) => value,
-                    Err(exc)
-                        if suppress_cycle
-                            && exc.fast_isinstance(vm.ctx.exceptions.import_cycle_error) =>
-                    {
-                        return Err(
-                            vm.new_attribute_error(format!("module has no attribute '{name}'"))
-                        );
-                    }
-                    Err(exc) => return Err(exc),
-                };
-                self.dict().set_item(name, value.clone(), vm)?;
-                return Ok(value);
+                if suppress_cycle && crate::lazy_import::is_resolving(deferred, vm) {
+                    return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
+                }
+                return crate::lazy_import::reify(deferred, name, self.dict().as_object(), vm);
             }
             return Ok(attr);
         }
-        if let Some(value) = crate::lazy_import::try_load_submodule(self, name, vm)? {
-            return Ok(value);
-        }
-        if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
+        if let Some(getattr) =
+            crate::lazy_import::resolved_dict_item(&self.dict(), identifier!(vm, __getattr__), vm)?
+        {
             return getattr.call((name.to_owned(),), vm);
         }
         let dict = self.dict();
@@ -336,7 +348,9 @@ impl PyModule {
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
         // PEP 562: honor a module-level __dir__ if one is defined
-        if let Some(dir_func) = dict.get_item_opt(identifier!(vm, __dir__), vm)? {
+        if let Some(dir_func) =
+            crate::lazy_import::resolved_dict_item(&dict, identifier!(vm, __dir__), vm)?
+        {
             return dir_func.call((), vm)?.try_to_value(vm);
         }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();

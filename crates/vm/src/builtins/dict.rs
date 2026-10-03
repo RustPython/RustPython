@@ -971,6 +971,18 @@ impl Py<PyDict> {
         }
     }
 
+    pub(crate) fn replace_if_identity(
+        &self,
+        name: &Py<PyStr>,
+        expected: &PyObject,
+        replacement: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let hash = PyDict::hash_or_unhashable(name, vm)?;
+        self.entries
+            .replace_if(vm, name, hash, replacement, |current| current.is(expected))
+    }
+
     /// Store using a cached entry index hint for the value-replace fast path.
     ///
     /// On a hint miss, returns a refreshed hint for the key (`None` when the
@@ -1436,6 +1448,8 @@ macro_rules! dict_view {
             /// As in `$iter_name`.
             #[pytraverse(skip)]
             changed: PyAtomic<bool>,
+            #[pytraverse(skip)]
+            remaining: PyAtomic<usize>,
             internal: PyMutex<PositionIterInternal<PyAnyDictRef>>,
         }
 
@@ -1451,6 +1465,7 @@ macro_rules! dict_view {
                 let size = dict.size();
                 let position = size.entries_size.saturating_sub(1);
                 $reverse_iter_name {
+                    remaining: Radium::new(size.used),
                     size,
                     changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
@@ -1492,8 +1507,13 @@ macro_rules! dict_view {
                 }
                 let internal = self.internal.lock();
                 match &internal.status {
-                    IterStatus::Active(dict) if dict.size() == self.size => {
-                        internal.rev_length_hint(|_| self.size.entries_size)
+                    IterStatus::Active(dict) => {
+                        let size = dict.size();
+                        if size.used == self.size.used && internal.position < size.entries_size {
+                            (internal.position + 1).min(self.remaining.load(Ordering::Relaxed))
+                        } else {
+                            0
+                        }
                     }
                     _ => 0,
                 }
@@ -1516,17 +1536,33 @@ macro_rules! dict_view {
                         // raising.
                         return (Err(mutated()), None);
                     }
-                    let entry = dict.as_dict().entries.prev_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    );
+                    let remaining = zelf.remaining.load(Ordering::Relaxed);
+                    let entry = loop {
+                        let size = dict.size();
+                        if size.used != zelf.size.used {
+                            break Err(dict_inner::DictChanged);
+                        }
+                        // Storage may change while preserving the number of keys.
+                        // Retry if it changes between the snapshot and the lookup.
+                        if let Ok(entry) = dict.as_dict().entries.prev_entry_checked(
+                            internal.position,
+                            &size,
+                            |key, value| (remaining > 0).then(|| ($project_fn)(key, value)),
+                        ) {
+                            break Ok(entry);
+                        }
+                    };
                     match entry {
                         Err(dict_inner::DictChanged) => {
                             zelf.changed.store(true, Ordering::Relaxed);
                             (Err(mutated()), None)
                         }
-                        Ok(Some((found_index, item))) => {
+                        Ok(Some((_, None))) => (
+                            Err(vm.new_runtime_error("dictionary keys changed during iteration")),
+                            internal.exhaust(),
+                        ),
+                        Ok(Some((found_index, Some(item)))) => {
+                            zelf.remaining.store(remaining - 1, Ordering::Relaxed);
                             let released = if found_index == 0 {
                                 internal.exhaust()
                             } else {
