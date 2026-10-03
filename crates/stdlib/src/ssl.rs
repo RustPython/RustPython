@@ -4245,7 +4245,12 @@ mod _ssl {
             .into_iter()
             .map(|scheme| {
                 // IANA TLS SignatureScheme names differ from several rustls names.
-                use rustls::SignatureScheme::*;
+                use rustls::SignatureScheme::{
+                    ECDSA_NISTP256_SHA256, ECDSA_NISTP384_SHA384, ECDSA_NISTP521_SHA512,
+                    ECDSA_SHA1_Legacy, ED448, ED25519, ML_DSA_44, ML_DSA_65, ML_DSA_87,
+                    RSA_PKCS1_SHA1, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512,
+                    RSA_PSS_SHA256, RSA_PSS_SHA384, RSA_PSS_SHA512,
+                };
                 let name = match scheme {
                     RSA_PKCS1_SHA1 => "rsa_pkcs1_sha1",
                     ECDSA_SHA1_Legacy => "ecdsa_sha1",

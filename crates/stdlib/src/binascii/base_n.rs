@@ -81,7 +81,7 @@ fn wrapped_size(size: usize, width: usize, newline: bool, too_large: &str) -> Re
     };
     size.checked_add(breaks)
         .and_then(|n| n.checked_add(usize::from(newline)))
-        .filter(|n| *n <= isize::MAX as usize)
+        .filter(|n| isize::try_from(*n).is_ok())
         .ok_or_else(|| codec(too_large))
 }
 
@@ -300,7 +300,7 @@ pub(super) fn encode85(
         .and_then(|n| n.checked_add(if adobe { 4 } else { 0 }))
         .ok_or_else(|| codec(too_large))?;
     let size = full_size
-        - if !pad && data.len() % 4 != 0 {
+        - if !pad && !data.len().is_multiple_of(4) {
             4 - data.len() % 4
         } else {
             0
