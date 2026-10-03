@@ -1462,7 +1462,7 @@ pub fn serialize_value<W: Write, D: Dumpable>(
 /// Split varnames/cellvars/freevars are reassembled into
 /// co_localsplusnames/co_localspluskinds.
 pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) {
-    serialize_code_with(buf, code, |buf, constant| {
+    serialize_code_with(buf, code, code.source_path.as_ref(), |buf, constant| {
         serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {});
         Ok::<(), core::convert::Infallible>(())
     })
@@ -1476,9 +1476,12 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
 /// representation carries but `BorrowedConstant` cannot describe — lists,
 /// dicts, sets — reach the stream, and so a constant shared with the enclosing
 /// object keeps its entry in that writer's reference table.
+/// `filename` is supplied separately because the runtime can update a code
+/// object's source path after compilation, for example when loading a moved pyc.
 pub fn serialize_code_with<W: Write, C: Constant, E>(
     buf: &mut W,
     code: &CodeObject<C>,
+    filename: &str,
     mut write_constant: impl FnMut(&mut W, &C) -> core::result::Result<(), E>,
 ) -> core::result::Result<(), E> {
     // 1–5: scalar fields
@@ -1527,7 +1530,7 @@ pub fn serialize_code_with<W: Write, C: Constant, E>(
     write_vec(buf, &code.localspluskinds);
 
     // 11: co_filename
-    write_marshal_str(buf, code.source_path.as_ref());
+    write_marshal_str(buf, filename);
     // 12: co_name
     write_marshal_str(buf, code.obj_name.as_ref());
     // 13: co_qualname

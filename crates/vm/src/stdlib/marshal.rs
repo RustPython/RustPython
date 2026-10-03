@@ -394,10 +394,15 @@ mod decl {
             // route `co_consts` back through the object writer: it reaches the
             // values `BorrowedConstant` cannot describe and shares the one
             // reference table the reader indexes against.
-            marshal::serialize_code_with(buf, &co.code, |buf, constant| {
-                let constant = PyObjectRef::from(constant.clone());
-                write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
-            })?;
+            marshal::serialize_code_with(
+                buf,
+                &co.code,
+                co.source_path().as_str(),
+                |buf, constant| {
+                    let constant = PyObjectRef::from(constant.clone());
+                    write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
+                },
+            )?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
