@@ -209,7 +209,8 @@ impl CompilationSource {
                     Ok(code) => code,
                     Err(_)
                         if stem.starts_with("badsyntax_")
-                            | parent.ends_with(".encoded_modules") =>
+                            | parent.ends_with(".encoded_modules")
+                            | (parent == "test.test_lazy_import.data.badsyntax") =>
                     {
                         // TODO: handle with macro arg rather than hard-coded path
                         continue;
