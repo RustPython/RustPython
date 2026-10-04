@@ -1560,10 +1560,6 @@ mod escape_warnings {
         ) -> Result<(), CompileWarningError> {
             // The compile that follows rejects this source; parsing it here
             // would build a tree that exhausts the stack when dropped.
-            let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
-            if compiler::pre_parse_source_error(&source_file).is_err() {
-                return Ok(());
-            }
             let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
             else {

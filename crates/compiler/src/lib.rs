@@ -63,7 +63,21 @@ impl CompileError {
         let raw_location = error.location;
         let diagnostic = match cpython_parse_diagnostic_override(&error, source_file, mode) {
             Some(diagnostic) => diagnostic,
-            None => default_parse_diagnostic(error, source_file),
+            None => {
+                let is_unclosed_bracket = matches!(
+                    error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::UnclosedBracket {
+                        incomplete: true,
+                        ..
+                    })
+                );
+                let is_unclosed_string =
+                    unclosed_string_is_continuable(&error, source_file.source_text(), mode);
+                let mut diagnostic = default_parse_diagnostic(error, source_file);
+                diagnostic.is_unclosed_bracket = is_unclosed_bracket;
+                diagnostic.is_unclosed_string = is_unclosed_string;
+                diagnostic
+            }
         };
 
         Self::Parse(ParseError {
@@ -233,11 +247,6 @@ impl CpythonDiagnostic {
         }
     }
 
-    const fn with_unclosed_string(mut self) -> Self {
-        self.is_unclosed_string = true;
-        self
-    }
-
     const fn with_unclosed_bracket(mut self) -> Self {
         self.is_unclosed_bracket = true;
         self
@@ -315,46 +324,39 @@ fn cpython_parse_diagnostic_override(
     if let Some(diagnostic) = non_printable_character_error(source_text) {
         consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
     }
-    let bracket = bracket_syntax_error(source_text);
-    if let Some(bracket) = bracket.as_ref() {
-        // Unclosed openers are reported at the opener and only become errors
-        // at EOF. A later token-time diagnostic (invalid number, prefix, …)
-        // must keep winning. Mismatched closers stay in the lexer-class
-        // positional ranking.
-        if !bracket.unclosed {
-            consider_ranked(
-                &mut earliest,
-                bracket.diagnostic.clone(),
-                false,
-                OverrideClass::Lexer,
-            );
-        }
-    }
-    let mut saw_decode = false;
     if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
-        saw_decode = true;
         consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
     if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
-        saw_decode = true;
         consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
     if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-        saw_decode = true;
         consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
     }
-    // A later ordinary unterminated quote is only a fallback. Format-spec
-    // newlines and empty fields are decode diagnostics and must keep winning.
+    // The parser reports the tokenizer error that stops parsing first; a scanned error wins over
+    // it only at or before its position.
+    let tokenizer_error = matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(lexical) if lexical.is_tokenizer_error()
+    );
+    // An unclosed bracket is found when the parser reaches the end of the source.
+    let tokenizer_error_detected = match &error.error {
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::UnclosedBracket { .. }) => {
+            TextSize::of(source_file.source_text())
+        }
+        _ => error.location.start(),
+    };
+    if tokenizer_error
+        && earliest
+            .as_ref()
+            .is_some_and(|current| current.diagnostic.range.start() > tokenizer_error_detected)
+    {
+        earliest = None;
+    }
     let line_continuation = matches!(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
     );
-    if !saw_decode
-        && !line_continuation
-        && let Some(diagnostic) = unterminated_string_error(source_text, mode)
-    {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
-    }
     // Indentation errors outrank a print/exec missing-parentheses rewrite.
     let indent_error = matches!(
         &error.error,
@@ -365,25 +367,13 @@ fn cpython_parse_diagnostic_override(
         ) | parser::ParseErrorType::UnexpectedIndentation
     ) || expected_indented_block_error(error, source_text).is_some();
     if !indent_error
+        && !tokenizer_error
         && earliest
             .as_ref()
             .is_none_or(|current| current.class != OverrideClass::Lexer)
         && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
     {
         consider_override(&mut earliest, diagnostic, OverrideClass::Print);
-    }
-    if !saw_decode
-        && earliest
-            .as_ref()
-            .is_none_or(|current| current.class == OverrideClass::Print)
-        && let Some(bracket) = bracket.filter(|bracket| bracket.unclosed)
-    {
-        consider_ranked(
-            &mut earliest,
-            bracket.diagnostic,
-            true,
-            OverrideClass::Lexer,
-        );
     }
     if let Some(override_diag) = earliest {
         return Some(
@@ -397,6 +387,29 @@ fn cpython_parse_diagnostic_override(
         // continuation that then hits EOF (`E_EOF`). single/eval see `\` at
         // EOF as `E_LINECONT` instead.
         if matches!(mode, Mode::Exec) && error.location.start().to_usize() == source_text.len() {
+            let source_with_newline = format!("{source_text}\n");
+            let parsed = parser::parse_unchecked(
+                &source_with_newline,
+                parser::ParseOptions::from(parser::Mode::Module),
+            );
+            if let Some(unclosed) = parsed.errors().first().filter(|first| {
+                matches!(
+                    first.error,
+                    parser::ParseErrorType::Lexical(
+                        parser::LexicalErrorType::UnclosedBracket { .. }
+                    )
+                )
+            }) {
+                let mut diagnostic = default_parse_diagnostic(unclosed.clone(), source_file);
+                diagnostic.is_unclosed_bracket = matches!(
+                    unclosed.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::UnclosedBracket {
+                        incomplete: true,
+                        ..
+                    })
+                );
+                return Some(diagnostic);
+            }
             let loc = source_line_end_location(source_file, error.location.start());
             return Some(NormalizedParseDiagnostic::new(
                 parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
@@ -407,7 +420,6 @@ fn cpython_parse_diagnostic_override(
         return None;
     }
 
-    source_error!(unterminated_string_error(source_text, mode));
     source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
@@ -415,6 +427,9 @@ fn cpython_parse_diagnostic_override(
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
     ) {
         return Some(eof_parse_diagnostic(error, source_file));
+    }
+    if tokenizer_error {
+        return None;
     }
 
     source_error!(invalid_type_param_error(source_text));
@@ -564,6 +579,39 @@ fn invalid_assignment_target_diagnostic(
     );
 
     NormalizedParseDiagnostic::new(parser::ParseErrorType::OtherError(msg), loc, end_loc)
+}
+
+/// Returns whether more input could still terminate the string that `error` reports as
+/// unterminated.
+///
+/// A string that reached the end of the source can continue, except a single-quoted f/t-string,
+/// a single-quoted string in exec input whose implicit final newline ends it, and a string after
+/// an assignment in eval input.
+fn unclosed_string_is_continuable(error: &parser::ParseError, source: &str, mode: Mode) -> bool {
+    use parser::{InterpolatedStringErrorType, LexicalErrorType};
+
+    let parser::ParseErrorType::Lexical(lexical) = &error.error else {
+        return false;
+    };
+    let start = error.location.start().to_usize();
+    let at_eof = match lexical {
+        LexicalErrorType::UnclosedStringError {
+            triple_quoted: true,
+            ..
+        }
+        | LexicalErrorType::FStringError(
+            InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+        )
+        | LexicalErrorType::TStringError(
+            InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+        ) => true,
+        LexicalErrorType::UnclosedStringError { .. } => {
+            let rest = &source[start..];
+            !rest.contains(['\n', '\r']) && (!matches!(mode, Mode::Exec) || rest.ends_with('\\'))
+        }
+        _ => false,
+    };
+    at_eof && !(matches!(mode, Mode::Eval) && eval_has_assignment_before(source.as_bytes(), start))
 }
 
 fn default_parse_diagnostic(
@@ -4279,114 +4327,6 @@ fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
     None
 }
 
-fn unterminated_string_error(source: &str, mode: Mode) -> Option<CpythonDiagnostic> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    let mut line = 1usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\n' => {
-                line += 1;
-                index += 1;
-            }
-            quote @ (b'\'' | b'"') => {
-                let start = index;
-                let start_line = line;
-                let quote_size = if bytes.get(index + 1) == Some(&quote)
-                    && bytes.get(index + 2) == Some(&quote)
-                {
-                    3
-                } else {
-                    1
-                };
-                index += quote_size;
-                let mut has_escaped_quote = false;
-                let mut ended_with_escape = false;
-                let mut closed = false;
-                while index < bytes.len() {
-                    let c = bytes[index];
-                    if c == b'\n' {
-                        if quote_size == 1 {
-                            // A single-quoted literal cannot span a line, so this is the same
-                            // "the literal never ended" case as running out of source; CPython
-                            // spells the two as one condition in lexer.c too.
-                            break;
-                        }
-                        line += 1;
-                        index += 1;
-                    } else if c == quote {
-                        if quote_size == 3 {
-                            if bytes.get(index + 1) == Some(&quote)
-                                && bytes.get(index + 2) == Some(&quote)
-                            {
-                                index += 3;
-                                closed = true;
-                                break;
-                            }
-                            index += 1;
-                        } else {
-                            index += 1;
-                            closed = true;
-                            break;
-                        }
-                    } else if c == b'\\' {
-                        if bytes.get(index + 1) == Some(&quote) {
-                            has_escaped_quote = true;
-                        }
-                        ended_with_escape = index + 1 >= bytes.len();
-                        index = (index + 2).min(bytes.len());
-                    } else {
-                        index += 1;
-                    }
-                }
-                if !closed {
-                    if let Some(error) =
-                        unclosed_replacement_field_error(bytes, start, start + quote_size, index)
-                    {
-                        return Some(error);
-                    }
-                    let detected_line = if quote_size == 3 { line } else { start_line };
-                    let interpolated = interpolated_string_prefix(bytes, start);
-                    let diagnostic = CpythonDiagnostic::new(
-                        unterminated_string_message(
-                            detected_line,
-                            quote_size == 3,
-                            has_escaped_quote,
-                            interpolated,
-                        ),
-                        start,
-                        start,
-                    );
-                    // E_EOLS is only for a plain single-quoted string at EOF.
-                    // Single-quoted f/t-strings never set it. exec input appends a
-                    // newline, so a single-quoted literal becomes the newline case
-                    // unless a final `\` consumes that newline.
-                    let exec_implicit_newline =
-                        matches!(mode, Mode::Exec) && quote_size == 1 && !ended_with_escape;
-                    let eval_assignment =
-                        matches!(mode, Mode::Eval) && eval_has_assignment_before(bytes, start);
-                    let continuable = index >= bytes.len()
-                        && !(interpolated.is_some() && quote_size == 1)
-                        && !exec_implicit_newline
-                        && !eval_assignment;
-                    return Some(if continuable {
-                        diagnostic.with_unclosed_string()
-                    } else {
-                        diagnostic
-                    });
-                }
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
 fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
     let mut index = 0;
     let mut level = 0usize;
@@ -5871,100 +5811,6 @@ fn adjacent_atom_end(bytes: &[u8], index: usize) -> Option<usize> {
     }
 }
 
-struct OpenDelimiter {
-    position: usize,
-    opener: u8,
-    in_format_spec: bool,
-}
-
-/// An f-string or t-string that runs off the end with a replacement field still open reports
-/// the brace rather than the missing quote, matching CPython — but only while the tokenizer is
-/// still reading the field's *expression*. Past the field's own `:` it is emitting FSTRING_MIDDLE
-/// again, so running out of input there is an unterminated literal like any other, and
-/// `f'{a:>5` gets the quote message where `f'{a` gets the brace.
-fn unclosed_replacement_field_error(
-    bytes: &[u8],
-    quote_start: usize,
-    content_start: usize,
-    content_end: usize,
-) -> Option<CpythonDiagnostic> {
-    interpolated_string_prefix(bytes, quote_start)?;
-
-    // Brackets and quotes are delimiters only once a field is open; in the literal's text they
-    // are ordinary characters. And past a field's own format spec the tokenizer emits literal
-    // text again, so a field still open at end of input is an unclosed brace only before that.
-    let mut open: Vec<OpenDelimiter> = Vec::new();
-    let mut index = content_start;
-    while index < content_end {
-        let inside_expression = matches!(
-            open.last(),
-            Some(OpenDelimiter {
-                opener: b'{',
-                in_format_spec: false,
-                ..
-            })
-        );
-        match bytes[index] {
-            // `{{` and `}}` escape only in literal text, which is where a brace at depth zero is.
-            b'{' if open.is_empty() && bytes.get(index + 1) == Some(&b'{') => index += 2,
-            b'}' if open.is_empty() && bytes.get(index + 1) == Some(&b'}') => index += 2,
-            b'{' => {
-                open.push(OpenDelimiter {
-                    position: index,
-                    opener: b'{',
-                    in_format_spec: false,
-                });
-                index += 1;
-            }
-            b'}' => {
-                open.pop();
-                index += 1;
-            }
-            byte @ (b'(' | b'[') if !open.is_empty() => {
-                open.push(OpenDelimiter {
-                    position: index,
-                    opener: byte,
-                    in_format_spec: false,
-                });
-                index += 1;
-            }
-            b')' | b']' if !open.is_empty() => {
-                open.pop();
-                index += 1;
-            }
-            // Only the field's own `:` opens a format spec — one in a slice, a display or a
-            // lambda belongs to whatever bracket encloses it.
-            b':' if inside_expression => {
-                open.last_mut().expect("a brace is open").in_format_spec = true;
-                index += 1;
-            }
-            b'\'' | b'"' if !open.is_empty() => {
-                index = skip_quoted_string(bytes, index).min(content_end);
-            }
-            b'#' if inside_expression => {
-                index = skip_replacement_field_comment(bytes, index, content_end);
-            }
-            _ => index += 1,
-        }
-    }
-
-    // CPython names the innermost unclosed delimiter, so a bracket opened inside the expression
-    // takes the message from the field that encloses it.
-    let &OpenDelimiter {
-        position,
-        opener,
-        in_format_spec,
-    } = open.last()?;
-    (!in_format_spec).then(|| {
-        CpythonDiagnostic::new(
-            format!("'{}' was never closed", opener as char),
-            position,
-            position + 1,
-        )
-        .with_unclosed_bracket()
-    })
-}
-
 fn unterminated_string_message(
     detected_line: usize,
     triple: bool,
@@ -5994,158 +5840,6 @@ fn expected_opening_bracket(closing: char) -> char {
         '}' => '{',
         _ => unreachable!(),
     }
-}
-
-/// A bracket diagnostic, and whether it is an opener that was never closed. The caller needs
-/// that apart from the message because ruff reports the unclosed case as an EOF error.
-#[derive(Clone)]
-struct BracketError {
-    diagnostic: CpythonDiagnostic,
-    unclosed: bool,
-}
-
-fn bracket_syntax_error(source: &str) -> Option<BracketError> {
-    let mut stack: Vec<(char, usize, usize)> = Vec::new();
-    let mut in_string = false;
-    let mut string_quote = '\0';
-    let mut triple_quote = false;
-    let mut escape_next = false;
-    let mut is_raw_string = false;
-    let mut line = 1usize;
-
-    let chars: Vec<(usize, char)> = source.char_indices().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        let (byte_offset, ch) = chars[index];
-
-        if ch == '\n' {
-            line += 1;
-        }
-
-        if escape_next {
-            escape_next = false;
-            index += 1;
-            continue;
-        }
-
-        if in_string {
-            if ch == '\\' && !is_raw_string {
-                escape_next = true;
-            } else if triple_quote {
-                if ch == string_quote
-                    && index + 2 < chars.len()
-                    && chars[index + 1].1 == string_quote
-                    && chars[index + 2].1 == string_quote
-                {
-                    in_string = false;
-                    index += 3;
-                    continue;
-                }
-            } else if ch == string_quote {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if ch == '#' {
-            while index < chars.len() && chars[index].1 != '\n' {
-                index += 1;
-            }
-            continue;
-        }
-
-        if ch == '\\' {
-            match chars.get(index + 1).map(|(_, next)| *next) {
-                Some('\n' | '\r') => {
-                    escape_next = true;
-                    index += 1;
-                    continue;
-                }
-                Some(_) => {
-                    index += 2;
-                    continue;
-                }
-                None => {
-                    index += 1;
-                    continue;
-                }
-            }
-        }
-
-        if ch == '\'' || ch == '"' {
-            is_raw_string = false;
-            for look_back in 1..=2.min(index) {
-                let prev = chars[index - look_back].1;
-                if matches!(prev, 'r' | 'R') {
-                    is_raw_string = true;
-                    break;
-                }
-                if !matches!(prev, 'b' | 'B' | 'f' | 'F' | 'u' | 'U') {
-                    break;
-                }
-            }
-            string_quote = ch;
-            if index + 2 < chars.len() && chars[index + 1].1 == ch && chars[index + 2].1 == ch {
-                triple_quote = true;
-                in_string = true;
-                index += 3;
-                continue;
-            }
-            triple_quote = false;
-            in_string = true;
-            index += 1;
-            continue;
-        }
-
-        match ch {
-            '(' | '[' | '{' => stack.push((ch, byte_offset, line)),
-            ')' | ']' | '}' => {
-                let expected = expected_opening_bracket(ch);
-                let Some(&(opening, _, opening_line)) = stack.last() else {
-                    return Some(BracketError {
-                        diagnostic: CpythonDiagnostic::new(
-                            format!("unmatched '{ch}'"),
-                            byte_offset,
-                            byte_offset,
-                        ),
-                        unclosed: false,
-                    });
-                };
-                if opening == expected {
-                    stack.pop();
-                } else {
-                    let suffix = if opening_line != line {
-                        format!(" on line {opening_line}")
-                    } else {
-                        String::new()
-                    };
-                    return Some(BracketError {
-                        diagnostic: CpythonDiagnostic::new(
-                            format!(
-                                "closing parenthesis '{ch}' does not match opening parenthesis '{opening}'{suffix}"
-                            ),
-                            byte_offset,
-                            byte_offset,
-                        ),
-                        unclosed: false,
-                    });
-                }
-            }
-            _ => {}
-        }
-
-        index += 1;
-    }
-
-    stack.last().map(|(opening, byte_offset, _)| BracketError {
-        diagnostic: CpythonDiagnostic::new(
-            format!("'{opening}' was never closed"),
-            *byte_offset,
-            *byte_offset,
-        ),
-        unclosed: true,
-    })
 }
 
 fn is_legacy_statement_expression_start(byte: u8) -> bool {
@@ -6602,43 +6296,6 @@ fn too_many_nested_interpolated_strings_in(
     None
 }
 
-fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> {
-    const MAXLEVEL: usize = 200;
-
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    let mut level = 0usize;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            b'(' | b'[' | b'{' => {
-                if level >= MAXLEVEL {
-                    return Some(CpythonDiagnostic::new(
-                        "too many nested parentheses".to_owned(),
-                        index,
-                        index + 1,
-                    ));
-                }
-                level += 1;
-                index += 1;
-            }
-            b')' | b']' | b'}' => {
-                level = level.saturating_sub(1);
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
 fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<CpythonDiagnostic> {
     let bytes = source.as_bytes();
     let mut index = 0;
@@ -6734,13 +6391,6 @@ pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<Compile
 ///
 /// Checking after the parse would build the tree first, and one nested that
 /// deep exhausts the native stack when it is dropped.
-pub fn pre_parse_source_error(source_file: &SourceFile) -> Result<(), CompileError> {
-    match too_many_nested_parentheses_error(source_file.source_text()) {
-        Some(error) => Err(CompileError::from_source_error(source_file, error)),
-        None => Ok(()),
-    }
-}
-
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
@@ -7210,7 +6860,6 @@ fn _compile_with_syntax_warning_handler<'a>(
         opts.future_features
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
-    pre_parse_source_error(&source_file)?;
     let parsed = parser::parse(barry_source.source(), parser_options);
     if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
         return Err(error);
@@ -7513,7 +7162,6 @@ pub fn _compile_symtable(
         prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
@@ -7541,7 +7189,6 @@ pub fn _compile_symtable(
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
-            pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
@@ -7769,7 +7416,10 @@ mod tests {
                 "f-string: valid expression required before '}'",
             ),
             ("{\\'a\\'}", "unexpected character after line continuation"),
-            ("\"\\\n\"(1 for c in I,\\\n\\", "'(' was never closed"),
+            (
+                "\"\\\n\"(1 for c in I,\\\n\\",
+                "unexpected character after line continuation character",
+            ),
             (
                 r"'\N'",
                 "(unicode error) 'unicodeescape' codec can't decode bytes in position 0-1: malformed \\N character escape",

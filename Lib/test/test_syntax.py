@@ -2233,7 +2233,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
-    >>> import ä £  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> import ä £
     Traceback (most recent call last):
     SyntaxError: invalid character '£' (U+00A3)
 

@@ -495,7 +495,11 @@ impl VirtualMachine {
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::Eof,
+                        ruff_python_parser::LexicalErrorType::Eof
+                        | ruff_python_parser::LexicalErrorType::UnclosedBracket {
+                            incomplete: true,
+                            ..
+                        },
                     ),
                 ..
             }) => incomplete_or_syntax(allow_incomplete),
@@ -637,7 +641,7 @@ impl VirtualMachine {
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
         // Tokenizer errors other than unexpected EOF end where the tokenizer stopped, which is
-        // reported as end offset 0 or -1.
+        // reported as end offset 0 or -1, or where they start.
         let tokenizer_end_offset = cfg_select! {
             feature = "parser" => {
                 match error {
@@ -645,7 +649,8 @@ impl VirtualMachine {
                         error: ParseErrorType::Lexical(
                             LexicalErrorType::TabError
                             | LexicalErrorType::TooDeepIndentation
-                            | LexicalErrorType::LineContinuationError,
+                            | LexicalErrorType::LineContinuationError
+                            | LexicalErrorType::UnclosedBracket { .. },
                         ),
                         ..
                     }) => Some(0),
@@ -654,6 +659,15 @@ impl VirtualMachine {
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),
+                    // Other tokenizer errors end where they start.
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(lexical),
+                        ..
+                    }) if lexical.is_tokenizer_error()
+                        && !matches!(lexical, LexicalErrorType::Eof) =>
+                    {
+                        Some(error.python_location().1 as isize)
+                    }
                     _ => None,
                 }
             }
