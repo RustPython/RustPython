@@ -659,12 +659,18 @@ impl VirtualMachine {
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),
-                    // Other tokenizer errors end where they start.
+                    // Other tokenizer errors end where they start, except those reported
+                    // over a range.
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                         error: ParseErrorType::Lexical(lexical),
                         ..
                     }) if lexical.is_tokenizer_error()
-                        && !matches!(lexical, LexicalErrorType::Eof) =>
+                        && !matches!(
+                            lexical,
+                            LexicalErrorType::Eof
+                                | LexicalErrorType::LeadingZerosInDecimalInteger
+                                | LexicalErrorType::IncompatibleStringPrefixes { .. }
+                        ) =>
                     {
                         Some(error.python_location().1 as isize)
                     }

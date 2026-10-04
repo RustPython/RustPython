@@ -253,49 +253,13 @@ impl CpythonDiagnostic {
     }
 }
 
-/// Lexer-class failures outrank print hints. Decode and f-string diagnostics
-/// compete with lexer failures by offset, and an unterminated quote is only
-/// a fallback when no decode/f-string diagnostic exists. Print is considered
-/// against the final winner: a later 0x still beats print, but an f-string
-/// that replaced that 0x must not hide an earlier print. A decode diagnostic
-/// also suppresses an EOF unclosed opener.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum OverrideClass {
-    Lexer,
-    Decode,
-    Print,
-}
-
-struct RankedOverride {
-    diagnostic: CpythonDiagnostic,
-    unclosed_bracket: bool,
-    class: OverrideClass,
-}
-
-fn consider_override(
-    best: &mut Option<RankedOverride>,
-    diagnostic: CpythonDiagnostic,
-    class: OverrideClass,
-) {
-    let unclosed_bracket = diagnostic.is_unclosed_bracket;
-    consider_ranked(best, diagnostic, unclosed_bracket, class);
-}
-
-fn consider_ranked(
-    best: &mut Option<RankedOverride>,
-    diagnostic: CpythonDiagnostic,
-    unclosed_bracket: bool,
-    class: OverrideClass,
-) {
+/// Keeps the earliest of the source diagnostics that replace the parser's error.
+fn consider_override(best: &mut Option<CpythonDiagnostic>, diagnostic: CpythonDiagnostic) {
     if best
         .as_ref()
-        .is_none_or(|current| diagnostic.range.start() < current.diagnostic.range.start())
+        .is_none_or(|current| diagnostic.range.start() < current.range.start())
     {
-        *best = Some(RankedOverride {
-            diagnostic,
-            unclosed_bracket,
-            class,
-        });
+        *best = Some(diagnostic);
     }
 }
 
@@ -314,24 +278,15 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    let mut earliest: Option<RankedOverride> = None;
-    if let Some(diagnostic) = invalid_number_literal_error(source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
-    }
-    if let Some(diagnostic) = incompatible_string_prefix_error(source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
-    }
-    if let Some(diagnostic) = non_printable_character_error(source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Lexer);
-    }
+    let mut earliest: Option<CpythonDiagnostic> = None;
     if let Some(diagnostic) = malformed_unicode_n_escape_error(source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+        consider_override(&mut earliest, diagnostic);
     }
     if let Some(diagnostic) = invalid_interpolated_string_error(source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+        consider_override(&mut earliest, diagnostic);
     }
     if let Some(diagnostic) = mixed_tstring_literal_error(error, source_text) {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Decode);
+        consider_override(&mut earliest, diagnostic);
     }
     // The parser reports the tokenizer error that stops parsing first; a scanned error wins over
     // it only at or before its position.
@@ -349,7 +304,7 @@ fn cpython_parse_diagnostic_override(
     if tokenizer_error
         && earliest
             .as_ref()
-            .is_some_and(|current| current.diagnostic.range.start() > tokenizer_error_detected)
+            .is_some_and(|current| current.range.start() > tokenizer_error_detected)
     {
         earliest = None;
     }
@@ -368,18 +323,12 @@ fn cpython_parse_diagnostic_override(
     ) || expected_indented_block_error(error, source_text).is_some();
     if !indent_error
         && !tokenizer_error
-        && earliest
-            .as_ref()
-            .is_none_or(|current| current.class != OverrideClass::Lexer)
         && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
     {
-        consider_override(&mut earliest, diagnostic, OverrideClass::Print);
+        consider_override(&mut earliest, diagnostic);
     }
-    if let Some(override_diag) = earliest {
-        return Some(
-            NormalizedParseDiagnostic::other(source_file, override_diag.diagnostic)
-                .with_unclosed_bracket(override_diag.unclosed_bracket),
-        );
+    if let Some(diagnostic) = earliest {
+        return Some(NormalizedParseDiagnostic::other(source_file, diagnostic));
     }
 
     if line_continuation {
@@ -683,298 +632,6 @@ fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
         .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
 }
 
-fn numeric_keyword_suffix(rest: &[u8]) -> bool {
-    rest.starts_with(b"and")
-        || rest.starts_with(b"else")
-        || rest.starts_with(b"for")
-        || rest.starts_with(b"if")
-        || rest.starts_with(b"in")
-        || rest.starts_with(b"is")
-        || rest.starts_with(b"or")
-        || rest.starts_with(b"not")
-}
-
-fn consume_decimal_digits(bytes: &[u8], mut index: usize) -> usize {
-    while index < bytes.len() {
-        match bytes[index] {
-            b'0'..=b'9' => index += 1,
-            b'_' if bytes
-                .get(index + 1)
-                .is_some_and(|byte| byte.is_ascii_digit()) =>
-            {
-                index += 2;
-            }
-            _ => break,
-        }
-    }
-    index
-}
-
-fn consume_radix_digits(bytes: &[u8], mut index: usize, is_digit: impl Fn(u8) -> bool) -> usize {
-    while index < bytes.len() {
-        if is_digit(bytes[index]) {
-            index += 1;
-        } else if bytes.get(index) == Some(&b'_')
-            && bytes.get(index + 1).is_some_and(|&byte| is_digit(byte))
-        {
-            index += 2;
-        } else {
-            break;
-        }
-    }
-    index
-}
-
-fn invalid_radix_literal_error(
-    bytes: &[u8],
-    start: usize,
-    kind: &'static str,
-    is_digit: impl Fn(u8) -> bool,
-) -> Option<(String, usize)> {
-    let mut index = start + 2;
-    let mut has_digit = false;
-    loop {
-        let Some(&byte) = bytes.get(index) else {
-            return if has_digit {
-                None
-            } else {
-                Some((format!("invalid {kind} literal"), start + 1))
-            };
-        };
-        if byte == b'_' {
-            let Some(&next) = bytes.get(index + 1) else {
-                return Some((format!("invalid {kind} literal"), index));
-            };
-            if is_digit(next) {
-                has_digit = true;
-                index += 2;
-                continue;
-            }
-            if next.is_ascii_digit() && matches!(kind, "binary" | "octal") {
-                return Some((
-                    format!("invalid digit '{}' in {kind} literal", next as char),
-                    index + 1,
-                ));
-            }
-            return Some((format!("invalid {kind} literal"), index));
-        }
-        if is_digit(byte) {
-            has_digit = true;
-            index += 1;
-            continue;
-        }
-        if byte.is_ascii_digit() && matches!(kind, "binary" | "octal") {
-            return Some((
-                format!("invalid digit '{}' in {kind} literal", byte as char),
-                index,
-            ));
-        }
-        if has_digit {
-            return None;
-        }
-        return Some((format!("invalid {kind} literal"), start + 1));
-    }
-}
-
-fn decimal_tail_error(bytes: &[u8], mut index: usize) -> Option<usize> {
-    loop {
-        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            index += 1;
-        }
-        if bytes.get(index) != Some(&b'_') {
-            return None;
-        }
-        let underscore = index;
-        index += 1;
-        if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some(underscore);
-        }
-    }
-}
-
-fn decimal_tail_end(bytes: &[u8], mut index: usize) -> usize {
-    loop {
-        while bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            index += 1;
-        }
-        if bytes.get(index) == Some(&b'_')
-            && bytes
-                .get(index + 1)
-                .is_some_and(|byte| byte.is_ascii_digit())
-        {
-            index += 2;
-        } else {
-            return index;
-        }
-    }
-}
-
-fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    if bytes.get(start) == Some(&b'.') {
-        return None;
-    }
-    let message = "invalid decimal literal".to_owned();
-    if let Some(offset) = decimal_tail_error(bytes, start) {
-        return Some((message, offset));
-    }
-
-    let mut index = decimal_tail_end(bytes, start);
-    if bytes.get(index) == Some(&b'.') {
-        if bytes.get(index + 1) == Some(&b'_') {
-            return Some((message, index));
-        }
-        if let Some(offset) = decimal_tail_error(bytes, index + 1) {
-            return Some((message, offset));
-        }
-        index = decimal_tail_end(bytes, index + 1);
-    }
-    if matches!(bytes.get(index), Some(b'e' | b'E')) {
-        let exponent = index;
-        index += 1;
-        let sign = if matches!(bytes.get(index), Some(b'+' | b'-')) {
-            let sign = index;
-            index += 1;
-            Some(sign)
-        } else {
-            None
-        };
-        if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            // Without a sign the exponent letter is put back, so the position
-            // is the digit before it rather than the letter.
-            return Some((message, sign.unwrap_or_else(|| exponent.saturating_sub(1))));
-        }
-        if let Some(offset) = decimal_tail_error(bytes, index) {
-            return Some((message, offset));
-        }
-    }
-    None
-}
-
-fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<CpythonDiagnostic> {
-    if bytes.get(start) != Some(&b'0') {
-        return None;
-    }
-    let mut index = start;
-    loop {
-        match bytes.get(index) {
-            Some(b'0') => index += 1,
-            Some(b'_')
-                if bytes
-                    .get(index + 1)
-                    .is_some_and(|byte| byte.is_ascii_digit()) =>
-            {
-                index += 1;
-            }
-            _ => break,
-        }
-    }
-    if bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-        let after_digits = decimal_tail_end(bytes, index);
-        if !matches!(
-            bytes.get(after_digits),
-            Some(b'.' | b'e' | b'E' | b'j' | b'J')
-        ) {
-            return Some(CpythonDiagnostic::new(
-                "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers"
-                    .to_owned(),
-                start,
-                index,
-            ));
-        }
-    }
-    None
-}
-
-fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<CpythonDiagnostic> {
-    if bytes.get(start) == Some(&b'0') {
-        let radix = match bytes.get(start + 1) {
-            Some(b'x' | b'X') => invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
-                byte.is_ascii_hexdigit()
-            }),
-            Some(b'o' | b'O') => invalid_radix_literal_error(bytes, start, "octal", |byte| {
-                matches!(byte, b'0'..=b'7')
-            }),
-            Some(b'b' | b'B') => invalid_radix_literal_error(bytes, start, "binary", |byte| {
-                matches!(byte, b'0' | b'1')
-            }),
-            _ => None,
-        };
-        if let Some(radix) = radix {
-            return Some(point_span(radix));
-        }
-        if let Some(err) = leading_zero_decimal_literal_error(bytes, start) {
-            return Some(err);
-        }
-    }
-    invalid_decimal_literal_error(bytes, start).map(point_span)
-}
-
-fn consume_exponent(bytes: &[u8], index: usize) -> usize {
-    if !matches!(bytes.get(index), Some(b'e' | b'E')) {
-        return index;
-    }
-    let mut cursor = index + 1;
-    if matches!(bytes.get(cursor), Some(b'+' | b'-')) {
-        cursor += 1;
-    }
-    if bytes.get(cursor).is_some_and(|byte| byte.is_ascii_digit()) {
-        consume_decimal_digits(bytes, cursor)
-    } else {
-        index
-    }
-}
-
-fn number_literal_end(bytes: &[u8], start: usize) -> Option<(&'static str, usize)> {
-    if bytes.get(start) == Some(&b'.') {
-        if !bytes
-            .get(start + 1)
-            .is_some_and(|byte| byte.is_ascii_digit())
-        {
-            return None;
-        }
-        let mut index = consume_decimal_digits(bytes, start + 1);
-        index = consume_exponent(bytes, index);
-        if matches!(bytes.get(index), Some(b'j' | b'J')) {
-            return Some(("imaginary", index + 1));
-        }
-        return Some(("decimal", index));
-    }
-
-    if !bytes.get(start).is_some_and(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-
-    if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                let end = consume_radix_digits(bytes, start + 2, |byte| byte.is_ascii_hexdigit());
-                return Some(("hexadecimal", end));
-            }
-            Some(b'o' | b'O') => {
-                let end =
-                    consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0'..=b'7'));
-                return Some(("octal", end));
-            }
-            Some(b'b' | b'B') => {
-                let end =
-                    consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0' | b'1'));
-                return Some(("binary", end));
-            }
-            _ => {}
-        }
-    }
-
-    let mut index = consume_decimal_digits(bytes, start);
-    if bytes.get(index) == Some(&b'.') {
-        index = consume_decimal_digits(bytes, index + 1);
-    }
-    index = consume_exponent(bytes, index);
-    if matches!(bytes.get(index), Some(b'j' | b'J')) {
-        return Some(("imaginary", index + 1));
-    }
-    Some(("decimal", index))
-}
-
 fn quoted_string_is_closed(bytes: &[u8], start: usize) -> bool {
     let quote = bytes[start];
     let triple = bytes.get(start + 1) == Some(&quote) && bytes.get(start + 2) == Some(&quote);
@@ -1010,69 +667,6 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
         }
     }
     index
-}
-
-// An error the tokenizer reports at a single position spans nothing.
-fn point_span((message, offset): (String, usize)) -> CpythonDiagnostic {
-    CpythonDiagnostic::new(message, offset, offset)
-}
-
-fn invalid_number_literal_error(source: &str) -> Option<CpythonDiagnostic> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index] >= 0x80 || is_ascii_identifier_char(bytes[index]))
-                {
-                    index += 1;
-                }
-            }
-            b'.' | b'0'..=b'9' => {
-                if let Some(err) = invalid_numeric_literal_error(bytes, index) {
-                    return Some(err);
-                }
-                let Some((kind, end)) = number_literal_end(bytes, index) else {
-                    index += 1;
-                    continue;
-                };
-                if end > index {
-                    if source[end..].starts_with('⁄') {
-                        return Some(CpythonDiagnostic::new(
-                            "invalid character '⁄' (U+2044)".to_owned(),
-                            end,
-                            end,
-                        ));
-                    }
-                    if bytes
-                        .get(end)
-                        .is_some_and(|byte| *byte < 128 && is_ascii_identifier_char(*byte))
-                        && !numeric_keyword_suffix(&bytes[end..])
-                    {
-                        let offset = end.saturating_sub(1);
-                        return Some(CpythonDiagnostic::new(
-                            format!("invalid {kind} literal"),
-                            offset,
-                            offset,
-                        ));
-                    }
-                }
-                index = end.max(index + 1);
-            }
-            _ => index += 1,
-        }
-    }
-    None
 }
 
 fn cpython_indented_block_clause(message: &str) -> Option<&'static str> {
@@ -4290,43 +3884,6 @@ fn mixed_except_handlers_error(source: &str) -> Option<CpythonDiagnostic> {
     None
 }
 
-fn non_printable_character_error(source: &str) -> Option<CpythonDiagnostic> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte.is_ascii_control() && !matches!(byte, b'\t' | b'\n' | b'\r' | b'\x0c') => {
-                return Some(CpythonDiagnostic::new(
-                    format!("invalid non-printable character U+{byte:04X}"),
-                    index,
-                    index + 1,
-                ));
-            }
-            byte if byte >= 0x80 => {
-                let ch = source[index..].chars().next()?;
-                if ch.is_control() {
-                    return Some(CpythonDiagnostic::new(
-                        format!("invalid non-printable character U+{:04X}", ch as u32),
-                        index,
-                        index + ch.len_utf8(),
-                    ));
-                }
-                index += ch.len_utf8();
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
 fn eval_has_assignment_before(bytes: &[u8], end: usize) -> bool {
     let mut index = 0;
     let mut level = 0usize;
@@ -6037,101 +5594,6 @@ fn invalid_parenthesized_import_star_error(source: &str) -> Option<CpythonDiagno
         }
     }
     None
-}
-
-fn prefix_letters_before_quote(bytes: &[u8], quote_index: usize) -> Option<(usize, Vec<u8>)> {
-    let mut letters = Vec::new();
-    let mut index = quote_index;
-    while index > 0 {
-        let byte = bytes[index - 1];
-        if !matches!(
-            byte,
-            b'r' | b'R' | b'b' | b'B' | b'u' | b'U' | b'f' | b'F' | b't' | b'T'
-        ) {
-            break;
-        }
-        letters.push(byte.to_ascii_lowercase());
-        index -= 1;
-    }
-    if letters.is_empty() {
-        return None;
-    }
-    if index > 0 && (bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphabetic()) {
-        return None;
-    }
-    letters.reverse();
-    Some((index, letters))
-}
-
-fn incompatible_string_prefix_error(source: &str) -> Option<CpythonDiagnostic> {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                if let Some((start, letters)) = prefix_letters_before_quote(bytes, index)
-                    && let Some(message) = incompatible_prefix_message(&letters)
-                {
-                    return Some(CpythonDiagnostic::new(message, start, start + 1));
-                }
-                index = skip_string_token(bytes, index);
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-fn incompatible_prefix_message(letters: &[u8]) -> Option<String> {
-    if letters.len() < 2 {
-        return None;
-    }
-    let mut seen_r = false;
-    let mut seen_b = false;
-    let mut seen_u = false;
-    let mut seen_f = false;
-    let mut seen_t = false;
-    for &letter in letters {
-        match letter {
-            b'r' if seen_r => return None,
-            b'b' if seen_b => return None,
-            b'u' if seen_u => return None,
-            b'f' if seen_f => return None,
-            b't' if seen_t => return None,
-            b'r' => seen_r = true,
-            b'b' => seen_b = true,
-            b'u' => seen_u = true,
-            b'f' => seen_f = true,
-            b't' => seen_t = true,
-            _ => {}
-        }
-    }
-    let pair = if seen_u && seen_b {
-        ("u", "b")
-    } else if seen_u && seen_r {
-        ("u", "r")
-    } else if seen_u && seen_f {
-        ("u", "f")
-    } else if seen_u && seen_t {
-        ("u", "t")
-    } else if seen_b && seen_f {
-        ("b", "f")
-    } else if seen_b && seen_t {
-        ("b", "t")
-    } else if seen_f && seen_t {
-        ("f", "t")
-    } else {
-        return None;
-    };
-    Some(format!(
-        "'{}' and '{}' prefixes are incompatible",
-        pair.0, pair.1
-    ))
 }
 
 fn malformed_unicode_n_escape_error(source: &str) -> Option<CpythonDiagnostic> {
