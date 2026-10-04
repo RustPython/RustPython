@@ -1906,7 +1906,23 @@ fn ffi_to_python(
     args: *const *const c_void,
     index: usize,
     vm: &VirtualMachine,
-) -> PyObjectRef {
+) -> PyResult {
+    if ty.fast_issubclass(PyCPointer::static_type()) {
+        // POINTER(T) uses a pointer argument in the CIF, even though its
+        // `_type_` is a type object rather than a simple type code.
+        let rustpython_host_env::ctypes::DecodedValue::Pointer(address) =
+            (unsafe { rustpython_host_env::ctypes::callback_arg_value_at(Some("P"), args, index) })
+        else {
+            return Err(vm.new_type_error("invalid pointer callback argument"));
+        };
+        let instance = ty.as_object().call((), vm)?;
+        let pointer = instance
+            .downcast_ref::<PyCPointer>()
+            .ok_or_else(|| vm.new_type_error("pointer constructor returned a non-pointer"))?;
+        pointer.set_ptr_value(address);
+        return Ok(instance);
+    }
+
     let type_code = ty.type_code(vm);
     let raw_value: PyObjectRef = match unsafe {
         rustpython_host_env::ctypes::callback_arg_value_at(type_code.as_deref(), args, index)
@@ -1922,11 +1938,12 @@ fn ffi_to_python(
     };
 
     if !is_simple_subclass(ty, vm) {
-        return raw_value;
+        return Ok(raw_value);
     }
-    ty.as_object()
+    Ok(ty
+        .as_object()
         .call((raw_value.clone(),), vm)
-        .unwrap_or(raw_value)
+        .unwrap_or(raw_value))
 }
 
 /// Convert a Python object to a C value and store it at the result pointer
@@ -2017,7 +2034,7 @@ unsafe extern "C" fn thunk_callback(
                         .iter()
                         .enumerate()
                         .map(|(i, ty)| ffi_to_python(ty, args, i, vm))
-                        .collect();
+                        .collect::<PyResult<Vec<_>>>()?;
 
                     userdata.callable.call(py_args, vm)
                 });
@@ -2083,9 +2100,13 @@ impl PyCThunk {
         let ffi_arg_types: Vec<FfiType> = arg_type_vec
             .iter()
             .map(|ty| {
-                ty.type_code(vm)
-                    .and_then(|code| ffi_type_from_code(&code))
-                    .unwrap_or_else(ffi_pointer_type)
+                if ty.fast_issubclass(PyCPointer::static_type()) {
+                    ffi_pointer_type()
+                } else {
+                    ty.type_code(vm)
+                        .and_then(|code| ffi_type_from_code(&code))
+                        .unwrap_or_else(ffi_pointer_type)
+                }
             })
             .collect();
 
