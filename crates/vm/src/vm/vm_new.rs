@@ -648,6 +648,11 @@ impl VirtualMachine {
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),
+                    // The span runs from the last character of the key to the end of the line.
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::ExpectedColonAfterDictionaryKey,
+                        ..
+                    }) => Some(0),
                     // Other tokenizer errors end where they start, except those reported
                     // over a range.
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {

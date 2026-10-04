@@ -423,7 +423,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> def foo(/,a,b=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
@@ -1185,7 +1185,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1195,12 +1195,12 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something, bluch)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something, bluch)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1464,7 +1464,7 @@ Ensure that early = are not matched by the parser as invalid comparisons
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> dict(x=34, (x for x in range 10), 1); x $ y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> dict(x=34, (x for x in range 10), 1); x $ y
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
@@ -2077,7 +2077,7 @@ SyntaxError: cannot use literal as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (b as c.d)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (b as c.d)
 Traceback (most recent call last):
 SyntaxError: cannot use attribute as import target
 
@@ -2085,18 +2085,18 @@ SyntaxError: cannot use attribute as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as f())
 Traceback (most recent call last):
 SyntaxError: cannot use function call as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as [],
 ... )
 Traceback (most recent call last):
 SyntaxError: cannot use list as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b,
 ...   c as ()
 ... )
@@ -2269,7 +2269,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use expression as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case (32 as x) | (42 as a()):
     ...     ...
     Traceback (most recent call last):
@@ -2375,7 +2375,7 @@ A[*(1:2)]
 
 A[*:] and A[:*]
 
-    >>> A[*:]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*:]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
@@ -2386,7 +2386,7 @@ A[*:] and A[:*]
 
 A[*]
 
-    >>> A[*]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
