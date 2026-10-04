@@ -2274,17 +2274,15 @@ impl VirtualMachine {
                 self.ctx.new_str(path).into(),
                 self,
             )?;
-            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
         }
 
         let result = run(&module_dict);
 
         self.flush_io();
 
-        // Cleanup __file__ and __cached__ after execution
+        // Cleanup __file__ after execution
         if set_file_name {
             let _ = module_dict.del_item(identifier!(self, __file__), self);
-            let _ = module_dict.del_item(identifier!(self, __cached__), self);
         }
 
         result

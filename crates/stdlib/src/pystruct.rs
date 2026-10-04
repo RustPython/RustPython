@@ -30,33 +30,18 @@ pub(crate) mod _struct {
 
     impl TryFromObject for IntoStructFormatBytes {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            // CPython turns str to bytes (via str.encode('ascii')) but we keep str.
-            // The error reporting for non-ASCII input still matches CPython:
-            // - str input with non-ASCII char: UnicodeEncodeError, the same exception
-            //   str.encode('ascii') would produce.
-            // - bytes input with non-ASCII byte: struct.error("bad char in struct format"),
-            //   matching CPython where bytes are passed through to the format parser.
+            // CPython decodes bytes with ASCII and surrogateescape, then rejects
+            // every non-ASCII format before parsing, for both str and bytes.
             let fmt = match_class!(match obj {
                 s @ PyStr => {
                     if !s.isascii() {
-                        let start = s
-                            .as_wtf8()
-                            .code_points()
-                            .position(|cp| !cp.to_char().is_some_and(|c| c.is_ascii()))
-                            .unwrap_or(0);
-                        return Err(vm.new_unicode_encode_error(
-                            vm.ctx.new_str("ascii"),
-                            s,
-                            start,
-                            start + 1,
-                            vm.ctx.new_str("ordinal not in range(128)"),
-                        ));
+                        return Err(vm.new_value_error("non-ASCII character in struct format"));
                     }
                     s
                 }
                 b @ PyBytes => {
                     let ascii_str = ascii::AsciiStr::from_ascii(&b)
-                        .map_err(|_| new_struct_error(vm, "bad char in struct format"))?;
+                        .map_err(|_| vm.new_value_error("non-ASCII character in struct format"))?;
                     vm.ctx.new_str(ascii_str)
                 }
                 other =>
@@ -315,7 +300,10 @@ pub(crate) mod _struct {
 
         #[pygetset]
         fn format(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            Ok(zelf.ready(vm)?.format.clone())
+            let format = zelf.inner.read().as_ref().map(|inner| inner.format.clone());
+            format.ok_or_else(|| {
+                vm.new_no_attribute_error(zelf.to_owned().into(), vm.ctx.new_str("format"))
+            })
         }
 
         // The size an uninitialized `Struct` reports, which no format has
