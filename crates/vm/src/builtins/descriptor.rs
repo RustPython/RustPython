@@ -8,6 +8,7 @@ use crate::{
     function::{
         Callee, FuncArgs, ItemDoc, PyMethodDef, PyMethodFlags, PySetterValue, PySsize, plain_doc,
     },
+    object::{Traverse, TraverseFn},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -34,15 +35,35 @@ pub struct PyDescriptorOwned {
     pub qualname: PyRwLock<Option<String>>,
 }
 
-#[pyclass(name = "method_descriptor", module = false)]
+impl PyDescriptor {
+    fn bind(
+        &self,
+        method: &'static PyMethodDef,
+        owner: Option<PyObjectRef>,
+        obj: PyObjectRef,
+        ctx: &Context,
+    ) -> PyRef<PyNativeMethod> {
+        let mut bound = method.to_bound_method(obj, self.typ);
+        bound.func._method_def_owner = owner;
+        bound.into_ref(ctx)
+    }
+}
+
+#[pyclass(name = "method_descriptor", module = false, traverse = "manual")]
 pub struct PyMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
-    pub method: &'static PyMethodDef,
+    pub(crate) method: &'static PyMethodDef,
     // vectorcall: vector_call_func,
     /// Prevent HeapMethodDef from being freed while this descriptor references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
+}
+
+unsafe impl Traverse for PyMethodDescriptor {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self._method_def_owner.traverse(tracer_fn);
+    }
 }
 
 impl PyMethodDescriptor {
@@ -125,7 +146,8 @@ impl Callable for PyMethodDescriptor {
 
 impl PyMethodDescriptor {
     pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+        self.common
+            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
     }
 }
 
@@ -173,13 +195,19 @@ impl Representable for PyMethodDescriptor {
 }
 
 // METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
-#[pyclass(name = "classmethod_descriptor", module = false)]
+#[pyclass(name = "classmethod_descriptor", module = false, traverse = "manual")]
 pub struct PyClassMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
-    pub method: &'static PyMethodDef,
+    pub(crate) method: &'static PyMethodDef,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
+}
+
+unsafe impl Traverse for PyClassMethodDescriptor {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        self._method_def_owner.traverse(tracer_fn);
+    }
 }
 
 impl PyClassMethodDescriptor {
@@ -196,7 +224,8 @@ impl PyClassMethodDescriptor {
     }
 
     pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+        self.common
+            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
     }
 }
 

@@ -659,19 +659,7 @@ impl Context {
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let def = PyMethodDef {
-            name,
-            func: Box::leak(Box::new(f.into_func())),
-            flags,
-            #[cfg(feature = "doc")]
-            doc_off: doc.offset,
-            #[cfg(feature = "doc")]
-            doc_len: doc.len,
-            #[cfg(feature = "doc")]
-            doc_body_pending: false,
-            doc: doc.text,
-        };
-        let payload = HeapMethodDef::new(def);
+        let payload = HeapMethodDef::with_owned_function(name, Box::new(f.into_func()), flags, doc);
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 

@@ -375,15 +375,51 @@ impl core::fmt::Debug for PyMethodDef {
 // This is not a part of CPython API.
 // But useful to support dynamically generated methods
 #[pyclass(name, module = false, ctx = "method_def")]
-#[derive(Debug)]
 pub struct HeapMethodDef {
     method: PyMethodDef,
+    _function_owner: Option<Box<dyn PyNativeFn>>,
+}
+
+impl core::fmt::Debug for HeapMethodDef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.method.fmt(f)
+    }
 }
 
 impl HeapMethodDef {
     #[must_use]
     pub const fn new(method: PyMethodDef) -> Self {
-        Self { method }
+        Self {
+            method,
+            _function_owner: None,
+        }
+    }
+
+    pub(crate) fn with_owned_function(
+        name: &'static str,
+        function: Box<dyn PyNativeFn>,
+        flags: PyMethodFlags,
+        doc: super::ItemDoc,
+    ) -> Self {
+        // SAFETY: the box has a stable address and is retained by this payload.
+        // The definition is private; all functions/descriptors referring to it
+        // retain this HeapMethodDef and expose no static reference to callers.
+        let func = unsafe { &*core::ptr::from_ref(&*function) };
+        Self {
+            method: PyMethodDef {
+                name,
+                func,
+                flags,
+                #[cfg(feature = "doc")]
+                doc_off: doc.offset,
+                #[cfg(feature = "doc")]
+                doc_len: doc.len,
+                #[cfg(feature = "doc")]
+                doc_body_pending: false,
+                doc: doc.text,
+            },
+            _function_owner: Some(function),
+        }
     }
 }
 
@@ -430,4 +466,54 @@ pub(crate) fn init(ctx: &'static Context) {
     // HeapMethodDef::extend_class(ctx, ctx.types.method_def);
 
     let _ = ctx.intern_str(HeapMethodDef::NAME);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AsObject, function::FuncArgs};
+
+    #[test]
+    fn generated_functions_own_and_release_their_native_captures() {
+        use alloc::sync::Arc;
+        let captured = Arc::new(17);
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let capture = captured.clone();
+            let definition = vm.ctx.new_method_def(
+                "captured",
+                move |_args: FuncArgs| *capture,
+                PyMethodFlags::empty(),
+                super::super::ItemDoc::NONE,
+            );
+            let function = definition.build_function(vm, None);
+            let descriptor = definition.build_method(vm.ctx.types.object_type, vm);
+            drop(definition);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            assert_eq!(
+                function
+                    .as_object()
+                    .call((), vm)
+                    .unwrap()
+                    .try_into_value::<i32>(vm)
+                    .unwrap(),
+                17
+            );
+            let method = descriptor.bind(vm.ctx.none(), &vm.ctx);
+            assert!(method.func._method_def_owner.is_some());
+            drop(function);
+            drop(descriptor);
+            assert_eq!(Arc::strong_count(&captured), 2);
+            assert_eq!(
+                method
+                    .as_object()
+                    .call((), vm)
+                    .unwrap()
+                    .try_into_value::<i32>(vm)
+                    .unwrap(),
+                17
+            );
+            drop(method);
+            assert_eq!(Arc::strong_count(&captured), 1);
+        });
+    }
 }
