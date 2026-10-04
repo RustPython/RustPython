@@ -703,21 +703,22 @@ and may be removed in a future version of Python.",
             }
 
             let ret_class = ret.class().to_owned();
+            let message = format!(
+                "{}.__index__() must return an int, not {}",
+                self.class().fully_qualified_name(vm)?,
+                ret_class.fully_qualified_name(vm)?
+            );
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
                 let msg = format!(
-                    "__index__ returned non-int (type {}).  \
+                    "{message}.  \
 The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python.",
-                    ret_class.slot_name()
+and may be removed in a future version of Python."
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
-                Err(vm.new_type_error(format!(
-                    "__index__ returned non-int (type {})",
-                    ret_class.slot_name()
-                )))
+                Err(vm.new_type_error(message))
             }
         })
     }

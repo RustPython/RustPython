@@ -7,8 +7,8 @@ use std::io;
 
 #[cfg(unix)]
 pub use libc::{
-    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, PROT_EXEC, PROT_READ,
-    PROT_WRITE,
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MS_ASYNC,
+    MS_INVALIDATE, MS_SYNC, PROT_EXEC, PROT_READ, PROT_WRITE,
 };
 
 #[cfg(unix)]
@@ -202,10 +202,43 @@ impl MappedFile {
         }
     }
 
-    pub fn flush_range(&self, offset: usize, size: usize) -> io::Result<()> {
+    pub fn flush_range(&self, offset: usize, size: usize, flags: i32) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            if offset > self.as_slice().len() || size > self.as_slice().len() - offset {
+                return Err(io::Error::from_raw_os_error(libc::EINVAL));
+            }
+            let ptr = unsafe { self.as_ptr().add(offset) };
+            let flags = if flags == 0 { MS_SYNC } else { flags };
+            if unsafe { libc::msync(ptr.cast_mut().cast(), size, flags) } == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = flags;
+            match self {
+                Self::Read(_) => Ok(()),
+                Self::Write(mmap) => mmap.flush_range(offset, size),
+            }
+        }
+    }
+
+    /// # Safety
+    /// The backing file must cover the mapping offset plus `new_size`, and no
+    /// exported pointers may remain live while the mapping is moved or shrunk.
+    #[cfg(target_os = "linux")]
+    pub unsafe fn remap(&mut self, new_size: usize) -> io::Result<()> {
+        // memmap2 permits a zero-length mapping, whereas mmap.resize(0) must
+        // preserve mremap's EINVAL result.
+        if new_size == 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+        let options = memmap2::RemapOptions::new().may_move(true);
         match self {
-            Self::Read(_) => Ok(()),
-            Self::Write(mmap) => mmap.flush_range(offset, size),
+            Self::Read(mmap) => unsafe { mmap.remap(new_size, options) },
+            Self::Write(mmap) => unsafe { mmap.remap(new_size, options) },
         }
     }
 
@@ -214,6 +247,23 @@ impl MappedFile {
         let ptr = unsafe { self.as_ptr().add(start) };
         posix::madvise(ptr as usize, length, advice)
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_mapping_name(address: usize, size: usize, name: &std::ffi::CStr) -> io::Result<()> {
+    if unsafe {
+        libc::prctl(
+            libc::PR_SET_VMA,
+            libc::PR_SET_VMA_ANON_NAME,
+            address,
+            size,
+            name.as_ptr(),
+        )
+    } == -1
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]

@@ -120,7 +120,14 @@ mod file_run {
                         let source = String::from_utf8(source_bytes)
                             .map_err(|err| self.new_os_error(err.to_string()))?;
                         let code_obj = self
-                            .compile(&source, compiler::Mode::Exec, path)
+                            .compile_with_opts_and_module(
+                                &source,
+                                compiler::Mode::Exec,
+                                path,
+                                self.compile_opts(),
+                                Some(identifier!(self, __main__).as_ref()),
+                                &[],
+                            )
                             .map_err(|err| err.into_pyexception(self, Some(&source)))?;
                         self.run_code_obj(code_obj, scope)?;
                     }

@@ -7,17 +7,17 @@ use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
-    VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr,
         int::check_int_to_str_digits, try_f64_to_bigint, tuple,
     },
     common::{
         cformat::{
-            CCharacterType, CConversionFlags, CFormatBytes, CFormatConversion, CFormatPart,
-            CFormatPrecision, CFormatQuantity, CFormatSpec, CFormatSpecKeyed, CFormatType,
-            CFormatWtf8, CNumberType,
+            CCharacterType, CConversionFlags, CFormatContext, CFormatConversion, CFormatErrorType,
+            CFormatPrecision, CFormatQuantity, CFormatSpec, CFormatType, CNumberType, FormatBuf,
+            FormatChar, consume_length, parse_flags, parse_format_type, parse_precision,
+            parse_quantity, parse_spec_mapping_key,
         },
         wtf8::{CodePoint, Wtf8, Wtf8Buf},
     },
@@ -33,28 +33,54 @@ enum FormatArg<'a> {
     Mapping(&'a PyObject),
 }
 
-fn format_decimal_error(
+impl FormatArg<'_> {
+    fn message(self, vm: &VirtualMachine, message: String) -> PyResult<String> {
+        let context = match self {
+            Self::Single => "format argument".to_owned(),
+            Self::Tuple(index) => format!("format argument {index}"),
+            Self::Mapping(key) => format!("format argument {}", key.repr(vm)?),
+        };
+        Ok(format!("{context}: {message}"))
+    }
+
+    fn type_error(self, vm: &VirtualMachine, message: String) -> PyBaseExceptionRef {
+        match self.message(vm, message) {
+            Ok(message) => vm.new_type_error(message),
+            Err(error) => error,
+        }
+    }
+
+    fn overflow_error(self, vm: &VirtualMachine, message: String) -> PyBaseExceptionRef {
+        match self.message(vm, message) {
+            Ok(message) => vm.new_overflow_error(message),
+            Err(error) => error,
+        }
+    }
+}
+
+fn format_number_error(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: &PyObject,
     arg: FormatArg<'_>,
 ) -> PyBaseExceptionRef {
-    let context = match arg {
-        FormatArg::Single => "format argument".to_owned(),
-        FormatArg::Tuple(index) => format!("format argument {index}"),
-        FormatArg::Mapping(key) => match key.repr(vm) {
-            Ok(key) => format!("format argument {key}"),
-            Err(error) => return error,
-        },
-    };
     let type_name = match obj.class().fully_qualified_name(vm) {
         Ok(name) => name,
         Err(error) => return error,
     };
-    vm.new_type_error(format!(
-        "{context}: %{} requires a real number, not {type_name}",
-        spec.format_type.to_char(),
-    ))
+    let required = match spec.format_type {
+        CFormatType::Number(CNumberType::Octal | CNumberType::HexLower | CNumberType::HexUpper) => {
+            "an integer"
+        }
+        _ => "a real number",
+    };
+    arg.type_error(
+        vm,
+        format!(
+            "%{} requires {required}, not {type_name}",
+            spec.format_type.to_char()
+        ),
+    )
 }
 
 fn format_decimal_object(
@@ -63,7 +89,7 @@ fn format_decimal_object(
     obj: &PyObject,
     arg: FormatArg<'_>,
 ) -> PyResult<String> {
-    let type_error = || format_decimal_error(vm, spec, obj, arg);
+    let type_error = || format_number_error(vm, spec, obj, arg);
     // Decimal conversions prefer __int__; __index__ is only a fallback when absent.
     let i = obj
         .number()
@@ -81,6 +107,74 @@ fn format_decimal_object(
     Ok(spec.format_number(i.as_bigint()))
 }
 
+fn format_index_object(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    obj: &PyObject,
+    arg: FormatArg<'_>,
+) -> PyResult<String> {
+    let type_error = || format_number_error(vm, spec, obj, arg);
+    let value = obj
+        .try_index_opt(vm)
+        .ok_or_else(type_error)?
+        .map_err(|error| {
+            if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                type_error()
+            } else {
+                error
+            }
+        })?;
+    Ok(spec.format_number(value.as_bigint()))
+}
+
+fn format_float_object(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    obj: &PyObject,
+    arg: FormatArg<'_>,
+) -> PyResult<String> {
+    let value = ArgIntoFloat::try_from_object(vm, obj.to_owned()).map_err(|error| {
+        if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+            format_number_error(vm, spec, obj, arg)
+        } else {
+            error
+        }
+    })?;
+    Ok(spec.format_float(value.into()))
+}
+
+fn format_character_error(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    arg: FormatArg<'_>,
+    context: CFormatContext,
+) -> PyBaseExceptionRef {
+    let what = match context {
+        CFormatContext::Str => obj
+            .downcast_ref::<PyStr>()
+            .map(|s| format!("a string of length {}", s.char_len())),
+        CFormatContext::Bytes => obj
+            .downcast_ref::<PyBytes>()
+            .map(|b| format!("a bytes object of length {}", b.as_bytes().len()))
+            .or_else(|| {
+                obj.downcast_ref::<PyByteArray>()
+                    .map(|b| format!("a bytearray object of length {}", b.borrow_buf().len()))
+            }),
+    };
+    let what = match what
+        .map(Ok)
+        .unwrap_or_else(|| obj.class().fully_qualified_name(vm))
+    {
+        Ok(what) => what,
+        Err(error) => return error,
+    };
+    let required = match context {
+        CFormatContext::Str => "an integer or a unicode character",
+        CFormatContext::Bytes => "an integer in range(256) or a single byte",
+    };
+    arg.type_error(vm, format!("%c requires {required}, not {what}"))
+}
+
 fn spec_format_bytes(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
@@ -88,11 +182,9 @@ fn spec_format_bytes(
     arg: FormatArg<'_>,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
-            "unsupported format character '{}' ({:#x}) at index {index}",
-            ch.to_char_lossy(),
-            ch.to_u32(),
-        ))),
+        CFormatType::Unsupported { .. } => {
+            unreachable!("unsupported format was rejected before conversion")
+        }
         // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
         // %a for strings (not %r)
         CFormatType::String(CFormatConversion::Repr | CFormatConversion::Ascii) => {
@@ -109,7 +201,17 @@ fn spec_format_bytes(
             }
             if let Some(method) = vm.get_special_method(&obj, identifier!(vm, __bytes__))? {
                 let bytes = method.invoke((), vm)?;
-                let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
+                let bytes = bytes.downcast_ref::<PyBytes>().ok_or_else(|| {
+                    match (
+                        obj.class().fully_qualified_name(vm),
+                        bytes.class().fully_qualified_name(vm),
+                    ) {
+                        (Ok(source), Ok(result)) => vm.new_type_error(format!(
+                            "{source}.__bytes__() must return a bytes, not {result}"
+                        )),
+                        (Err(error), _) | (_, Err(error)) => error,
+                    }
+                })?;
                 return Ok(spec.format_bytes(bytes.as_bytes()));
             }
             if obj.check_buffer() {
@@ -118,10 +220,10 @@ fn spec_format_bytes(
             }
             let msg = format!(
                 "%b requires a bytes-like object, or an object that \
-                    implements __bytes__, not '{}'",
-                obj.class().name()
+                    implements __bytes__, not {}",
+                obj.class().fully_qualified_name(vm)?
             );
-            Err(vm.new_type_error(msg))
+            Err(arg.type_error(vm, msg))
         }
         CFormatType::Number(number_type) => match number_type {
             CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
@@ -141,31 +243,12 @@ fn spec_format_bytes(
                 // `__index__`, not just PyInt. Mirrors PyNumber_Index dispatch.
                 if let Some(i) = obj.downcast_ref::<PyInt>() {
                     Ok(spec.format_number(i.as_bigint()).into_bytes())
-                } else if let Some(int_result) = obj.try_index_opt(vm) {
-                    let i = int_result?;
-                    Ok(spec.format_number(i.as_bigint()).into_bytes())
                 } else {
-                    Err(vm.new_type_error(format!(
-                        "%{} format: an integer is required, not {}",
-                        spec.format_type.to_char(),
-                        obj.class().name()
-                    )))
+                    format_index_object(vm, spec, &obj, arg).map(String::into_bytes)
                 }
             }
         },
-        CFormatType::Float(_) => {
-            let class = obj.class().to_owned();
-            let value = ArgIntoFloat::try_from_object(vm, obj).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.type_error) {
-                    // formatfloat in bytesobject.c generates its own specific exception
-                    // text in this case, mirror it here.
-                    vm.new_type_error(format!("float argument required, not {}", class.name()))
-                } else {
-                    e
-                }
-            })?;
-            Ok(spec.format_float(value.into()).into_bytes())
-        }
+        CFormatType::Float(_) => format_float_object(vm, spec, &obj, arg).map(String::into_bytes),
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: bytes `%c` accepts a single byte or any object
             // with `__index__` in range(256).
@@ -173,33 +256,25 @@ fn spec_format_bytes(
                 if b.as_bytes().len() == 1 {
                     return Ok(spec.format_char(b.as_bytes()[0]));
                 }
+                return Err(format_character_error(vm, &obj, arg, CFormatContext::Bytes));
             } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
                 let buf = ba.borrow_buf();
                 if buf.len() == 1 {
                     return Ok(spec.format_char(buf[0]));
                 }
+                drop(buf);
+                return Err(format_character_error(vm, &obj, arg, CFormatContext::Bytes));
             }
             let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
                 i.to_owned()
             } else if let Some(int_result) = obj.try_index_opt(vm) {
                 int_result?
             } else {
-                // A bytes-like argument that is not one byte long is named by
-                // its length rather than by its type.
-                let what = if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                    format!("a bytes object of length {}", b.as_bytes().len())
-                } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
-                    format!("a bytearray object of length {}", ba.borrow_buf().len())
-                } else {
-                    obj.class().name().to_string()
-                };
-                return Err(vm.new_type_error(format!(
-                    "%c requires an integer in range(256) or a single byte, not {what}"
-                )));
+                return Err(format_character_error(vm, &obj, arg, CFormatContext::Bytes));
             };
             let ch = int
                 .try_to_primitive::<u8>(vm)
-                .map_err(|_| vm.new_overflow_error("%c arg not in range(256)"))?;
+                .map_err(|_| arg.overflow_error(vm, "%c argument not in range(256)".to_owned()))?;
             Ok(spec.format_char(ch))
         }
     }
@@ -212,11 +287,9 @@ fn spec_format_string(
     arg: FormatArg<'_>,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
-            "unsupported format character '{}' ({:#x}) at index {index}",
-            ch.to_char_lossy(),
-            ch.to_u32(),
-        ))),
+        CFormatType::Unsupported { .. } => {
+            unreachable!("unsupported format was rejected before conversion")
+        }
         CFormatType::String(conversion) => {
             let result = match conversion {
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.as_wtf8().to_owned(),
@@ -247,104 +320,389 @@ fn spec_format_string(
                 // `__index__`, not just PyInt. Mirrors PyNumber_Index dispatch.
                 if let Some(i) = obj.downcast_ref::<PyInt>() {
                     Ok(spec.format_number(i.as_bigint()).into())
-                } else if let Some(int_result) = obj.try_index_opt(vm) {
-                    let i = int_result?;
-                    Ok(spec.format_number(i.as_bigint()).into())
                 } else {
-                    Err(vm.new_type_error(format!(
-                        "%{} format: an integer is required, not {}",
-                        spec.format_type.to_char(),
-                        obj.class().name()
-                    )))
+                    format_index_object(vm, spec, &obj, arg).map(Into::into)
                 }
             }
         },
-        CFormatType::Float(_) => {
-            let value = ArgIntoFloat::try_from_object(vm, obj)?;
-            Ok(spec.format_float(value.into()).into())
-        }
+        CFormatType::Float(_) => format_float_object(vm, spec, &obj, arg).map(Into::into),
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: `%c` accepts a single-char str or any object with
             // `__index__` (the latter via PyNumber_Index dispatch).
-            if let Some(s) = obj.downcast_ref::<PyStr>()
-                && let Ok(ch) = s.as_wtf8().code_points().exactly_one()
-            {
-                return Ok(spec.format_char(ch));
+            if let Some(s) = obj.downcast_ref::<PyStr>() {
+                if let Ok(ch) = s.as_wtf8().code_points().exactly_one() {
+                    return Ok(spec.format_char(ch));
+                }
+                return Err(format_character_error(vm, &obj, arg, CFormatContext::Str));
             }
             let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
                 i.to_owned()
             } else if let Some(int_result) = obj.try_index_opt(vm) {
-                int_result?
+                int_result.map_err(|error| {
+                    if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        format_character_error(vm, &obj, arg, CFormatContext::Str)
+                    } else {
+                        error
+                    }
+                })?
             } else {
-                // A string argument that is not one character long is named by
-                // its length rather than by its type.
-                let what = match obj.downcast_ref::<PyStr>() {
-                    Some(s) => format!("a string of length {}", s.char_len()),
-                    None => obj.class().name().to_string(),
-                };
-                return Err(vm.new_type_error(format!(
-                    "%c requires an int or a unicode character, not {what}"
-                )));
+                return Err(format_character_error(vm, &obj, arg, CFormatContext::Str));
             };
             let ch = int
                 .as_bigint()
                 .to_u32()
                 .and_then(CodePoint::from_u32)
-                .ok_or_else(|| vm.new_overflow_error("%c arg not in range(0x110000)"))?;
+                .ok_or_else(|| {
+                    arg.overflow_error(vm, "%c argument not in range(0x110000)".to_owned())
+                })?;
             Ok(spec.format_char(ch))
         }
     }
 }
 
-fn get_star_arg(vm: &VirtualMachine, element: Option<&PyObject>) -> PyResult<i32> {
-    match element {
-        Some(obj) => {
-            if let Some(i) = obj.downcast_ref::<PyInt>() {
-                i.try_to_primitive::<i32>(vm)
-            } else {
-                Err(vm.new_type_error("* wants int"))
-            }
+struct FormatValues<'a> {
+    object: &'a PyObject,
+    tuple: Option<&'a [PyObjectRef]>,
+    consumed: usize,
+}
+
+impl<'a> FormatValues<'a> {
+    fn new(object: &'a PyObject) -> Self {
+        Self {
+            object,
+            tuple: object
+                .downcast_ref::<tuple::PyTuple>()
+                .map(|tuple| tuple.as_slice()),
+            consumed: 0,
         }
-        None => Err(vm.new_type_error("not enough arguments for format string")),
+    }
+
+    fn count(&self) -> usize {
+        self.tuple.map_or(1, <[PyObjectRef]>::len)
+    }
+
+    fn next(
+        &mut self,
+        allow_single: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, FormatArg<'static>)> {
+        let value = if let Some(tuple) = self.tuple {
+            tuple.get(self.consumed).cloned()
+        } else if allow_single && self.consumed == 0 {
+            Some(self.object.to_owned())
+        } else {
+            None
+        };
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "not enough arguments for format string (got {})",
+                self.count()
+            ))
+        })?;
+        self.consumed += 1;
+        let arg = if self.tuple.is_some() {
+            FormatArg::Tuple(self.consumed)
+        } else {
+            FormatArg::Single
+        };
+        Ok((value, arg))
+    }
+
+    fn star(&mut self, precision: bool, vm: &VirtualMachine) -> PyResult<isize> {
+        let (value, arg) = self.next(false, vm)?;
+        let Some(value_int) = value.downcast_ref::<PyInt>() else {
+            return Err(arg.type_error(
+                vm,
+                format!(
+                    "* requires int, not {}",
+                    value.class().fully_qualified_name(vm)?
+                ),
+            ));
+        };
+        let converted = if precision {
+            value_int.as_bigint().to_i32().map(|value| value as isize)
+        } else {
+            value_int.as_bigint().to_isize()
+        };
+        converted.ok_or_else(|| {
+            arg.overflow_error(
+                vm,
+                format!(
+                    "too big for {}",
+                    if precision { "precision" } else { "width" }
+                ),
+            )
+        })
     }
 }
 
-fn try_update_quantity_from_tuple<'a, I: Iterator<Item = (usize, &'a PyObject)>>(
-    vm: &VirtualMachine,
-    elements: &mut I,
-    q: &mut Option<CFormatQuantity>,
-    f: &mut CConversionFlags,
-) -> PyResult<()> {
-    let Some(CFormatQuantity::FromValuesTuple) = q else {
-        return Ok(());
+fn parse_error(vm: &VirtualMachine, error: CFormatErrorType, start: usize) -> PyBaseExceptionRef {
+    let message = match error {
+        CFormatErrorType::UnmatchedKeyParentheses => {
+            format!("stray % or incomplete format key at position {start}")
+        }
+        CFormatErrorType::WidthTooBig => format!("width too big at position {start}"),
+        CFormatErrorType::PrecisionTooBig => format!("precision too big at position {start}"),
+        _ => format!("stray % at position {start}"),
     };
+    vm.new_value_error(message)
+}
 
-    let width = get_star_arg(vm, elements.next().map(|(_, value)| value))?;
-    if width < 0 {
-        f.insert(CConversionFlags::LEFT_ADJUST);
+fn unsupported_format_error(
+    vm: &VirtualMachine,
+    ch: CodePoint,
+    start: usize,
+    index: usize,
+    context: CFormatContext,
+) -> PyBaseExceptionRef {
+    let value = ch.to_u32();
+    let c = ch.to_char_lossy();
+    if c.is_ascii_alphabetic() {
+        return vm.new_value_error(format!("unsupported format %{c} at position {start}"));
     }
-    *q = Some(CFormatQuantity::Amount(width.unsigned_abs() as usize));
-    Ok(())
-}
-
-fn try_update_precision_from_tuple<'a, I: Iterator<Item = (usize, &'a PyObject)>>(
-    vm: &VirtualMachine,
-    elements: &mut I,
-    p: &mut Option<CFormatPrecision>,
-) -> PyResult<()> {
-    let Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) = p else {
-        return Ok(());
+    let character = if c == '\'' {
+        "\"'\"".to_owned()
+    } else if (32..127).contains(&value) {
+        format!("'{c}'")
+    } else if context == CFormatContext::Bytes {
+        format!("with code 0x{value:02x}")
+    } else if ch
+        .to_char()
+        .is_some_and(rustpython_unicode::classify::is_printable)
+    {
+        format!("'{c}' (U+{value:04X})")
+    } else {
+        format!("U+{value:04X}")
     };
-
-    let precision = get_star_arg(vm, elements.next().map(|(_, value)| value))?.max(0) as usize;
-    *p = Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(
-        precision,
-    )));
-    Ok(())
+    vm.new_value_error(format!(
+        "stray % at position {start} or unexpected format character {character} at position {index}"
+    ))
 }
 
-fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    vm.new_type_error("format requires a mapping")
+trait FormatOutput: FormatBuf {
+    fn reserve_output(&mut self, additional: usize, vm: &VirtualMachine) -> PyResult<()>;
+    fn push_output(&mut self, character: Self::Char, vm: &VirtualMachine) -> PyResult<()>;
+}
+
+impl FormatOutput for Vec<u8> {
+    fn reserve_output(&mut self, additional: usize, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_reserve_exact(additional)
+            .map_err(|_| vm.new_memory_error(""))
+    }
+
+    fn push_output(&mut self, character: u8, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_reserve(1).map_err(|_| vm.new_memory_error(""))?;
+        self.push(character);
+        Ok(())
+    }
+}
+
+impl FormatOutput for Wtf8Buf {
+    fn reserve_output(&mut self, additional: usize, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_reserve_exact(additional)
+            .map_err(|_| vm.new_memory_error(""))
+    }
+
+    fn push_output(&mut self, character: CodePoint, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_reserve(character.len_wtf8())
+            .map_err(|_| vm.new_memory_error(""))?;
+        self.push(character);
+        Ok(())
+    }
+}
+
+fn pad_output<S: FormatOutput>(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    mut value: S,
+) -> PyResult<S> {
+    let Some(CFormatQuantity::Amount(width)) = spec.min_field_width else {
+        return Ok(value);
+    };
+    let fill = width.saturating_sub(value.chars().count());
+    if fill == 0 {
+        return Ok(value);
+    }
+    if spec.flags.contains(CConversionFlags::LEFT_ADJUST) {
+        value.reserve_output(fill, vm)?;
+        value.extend(core::iter::repeat_n(S::Char::from(b' '), fill));
+        return Ok(value);
+    }
+    let zero_pad = spec.flags.contains(CConversionFlags::ZERO_PAD)
+        && matches!(
+            spec.format_type,
+            CFormatType::Number(_) | CFormatType::Float(_)
+        );
+    let prefix = if zero_pad {
+        let sign = usize::from(
+            value
+                .chars()
+                .next()
+                .is_some_and(|c| c.eq_char('-') || c.eq_char('+') || c.eq_char(' ')),
+        );
+        let alternate = spec.flags.contains(CConversionFlags::ALTERNATE_FORM)
+            && matches!(
+                spec.format_type,
+                CFormatType::Number(
+                    CNumberType::Octal | CNumberType::HexLower | CNumberType::HexUpper
+                )
+            );
+        sign + if alternate { 2 } else { 0 }
+    } else {
+        0
+    };
+    let size = value
+        .len()
+        .checked_add(fill)
+        .ok_or_else(|| vm.new_memory_error(""))?;
+    let mut output = S::default();
+    output.reserve_output(size, vm)?;
+    output.extend(value.chars().take(prefix));
+    output.extend(core::iter::repeat_n(
+        S::Char::from(if zero_pad { b'0' } else { b' ' }),
+        fill,
+    ));
+    output.extend(value.chars().skip(prefix));
+    Ok(output)
+}
+
+fn cformat<S: FormatOutput>(
+    vm: &VirtualMachine,
+    characters: impl Iterator<Item = S::Char>,
+    values_obj: &PyObject,
+    context: CFormatContext,
+    make_key: impl Fn(S) -> PyObjectRef,
+    format_value: impl Fn(&VirtualMachine, &CFormatSpec, PyObjectRef, FormatArg<'_>) -> PyResult<S>,
+) -> PyResult<S> {
+    let mut characters = characters.enumerate().peekable();
+    let mut values = FormatValues::new(values_obj);
+    let is_mapping = values_obj.class().slots().as_mapping.has_subscript()
+        && values.tuple.is_none()
+        && !values_obj.fast_isinstance(vm.ctx.types.str_type)
+        && (context == CFormatContext::Str
+            || (!values_obj.fast_isinstance(vm.ctx.types.bytes_type)
+                && !values_obj.fast_isinstance(vm.ctx.types.bytearray_type)));
+    let mut mapping_used = false;
+    let mut mapped_value = None;
+    let mut result = S::default();
+
+    while let Some((start, character)) = characters.next() {
+        if !character.eq_char('%') {
+            result.push_output(character, vm)?;
+            continue;
+        }
+        if characters
+            .next_if(|(_, character)| character.eq_char('%'))
+            .is_some()
+        {
+            result.push_output(S::Char::from(b'%'), vm)?;
+            continue;
+        }
+
+        // Fetch mappings and star arguments as their fields are parsed, so
+        // callbacks and earlier errors precede later malformed fields.
+        let keyed = characters
+            .peek()
+            .is_some_and(|(_, character)| character.eq_char('('));
+        if keyed && !is_mapping {
+            return Err(vm.new_type_error(format!(
+                "format requires a mapping, not {}",
+                values_obj.class().fully_qualified_name(vm)?
+            )));
+        }
+        if !keyed && mapping_used {
+            return Err(vm.new_value_error(format!(
+                "format requires a parenthesised mapping key at position {start}"
+            )));
+        }
+        let mapping_key = parse_spec_mapping_key::<S, _>(&mut characters)
+            .map_err(|(error, _)| parse_error(vm, error, start))?
+            .map(&make_key);
+        if let Some(key) = &mapping_key {
+            mapping_used = true;
+            // Release the previous mapped argument before invoking the next lookup.
+            drop(mapped_value.take());
+            mapped_value = Some(values_obj.get_item(key.as_object(), vm)?);
+        }
+
+        let mut flags = parse_flags(&mut characters);
+        let mut min_field_width = parse_quantity(
+            &mut characters,
+            isize::MAX as usize,
+            CFormatErrorType::WidthTooBig,
+        )
+        .map_err(|(error, _)| parse_error(vm, error, start))?;
+        let star_mapping_error = || {
+            vm.new_value_error(format!(
+                "* cannot be used with a parenthesised mapping key at position {start}"
+            ))
+        };
+        if min_field_width == Some(CFormatQuantity::FromValuesTuple) {
+            if mapping_used {
+                return Err(star_mapping_error());
+            }
+            let width = values.star(false, vm)?;
+            if width < 0 {
+                flags.insert(CConversionFlags::LEFT_ADJUST);
+            }
+            // Negating PY_SSIZE_T_MIN leaves a negative width in CPython,
+            // which imposes no padding requirement.
+            min_field_width = Some(CFormatQuantity::Amount(
+                width.checked_abs().unwrap_or(0) as usize
+            ));
+        }
+        let mut precision =
+            parse_precision(&mut characters).map_err(|(error, _)| parse_error(vm, error, start))?;
+        if precision == Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) {
+            if mapping_used {
+                return Err(star_mapping_error());
+            }
+            precision = Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(
+                values.star(true, vm)?.max(0) as usize,
+            )));
+        }
+        consume_length(&mut characters);
+        let format_type = parse_format_type(&mut characters, context)
+            .map_err(|(error, _)| parse_error(vm, error, start))?;
+        let spec = CFormatSpec {
+            flags,
+            min_field_width,
+            precision,
+            format_type,
+        };
+        let (value, arg) = if let Some(key) = &mapping_key {
+            (
+                mapped_value.as_ref().unwrap().clone(),
+                FormatArg::Mapping(key),
+            )
+        } else {
+            values.next(true, vm)?
+        };
+        if let CFormatType::Unsupported { ch, index } = format_type {
+            return Err(unsupported_format_error(vm, ch, start, index, context));
+        }
+        // Convert before reserving field padding: user callbacks must still
+        // run when an otherwise valid width cannot be allocated.
+        let mut unpadded_spec = spec;
+        unpadded_spec.min_field_width = None;
+        let value = format_value(vm, &unpadded_spec, value, arg)?;
+        let value = pad_output(vm, &spec, value)?;
+        result.reserve_output(value.len(), vm)?;
+        result = result.concat(value);
+    }
+
+    if !is_mapping && values.consumed < values.count() {
+        let kind = match context {
+            CFormatContext::Str => "string",
+            CFormatContext::Bytes => "bytes",
+        };
+        return Err(vm.new_type_error(format!(
+            "not all arguments converted during {kind} formatting (required {}, got {})",
+            values.consumed,
+            values.count()
+        )));
+    }
+    Ok(result)
 }
 
 pub(crate) fn cformat_bytes(
@@ -352,109 +710,14 @@ pub(crate) fn cformat_bytes(
     format_string: &[u8],
     values_obj: &PyObject,
 ) -> PyResult<Vec<u8>> {
-    let mut format = CFormatBytes::parse_from_bytes(format_string)
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
-    let (num_specifiers, mapping_required) = format
-        .check_specifiers()
-        .ok_or_else(|| specifier_error(vm))?;
-
-    let mut result = vec![];
-
-    let is_mapping = values_obj.class().has_attr(identifier!(vm, __getitem__))
-        && !values_obj.fast_isinstance(vm.ctx.types.tuple_type)
-        && !values_obj.fast_isinstance(vm.ctx.types.bytes_type)
-        && !values_obj.fast_isinstance(vm.ctx.types.bytearray_type);
-
-    if num_specifiers == 0 {
-        if !is_mapping
-            && values_obj
-                .downcast_ref::<tuple::PyTuple>()
-                .is_none_or(|e| !e.as_slice().is_empty())
-        {
-            return Err(vm.new_type_error("not all arguments converted during bytes formatting"));
-        }
-
-        // literal only
-        for (_, part) in format.iter_mut() {
-            if let CFormatPart::Literal(literal) = part {
-                result.append(literal)
-            } else {
-                unreachable!()
-            }
-        }
-
-        return Ok(result);
-    }
-
-    if mapping_required {
-        if !is_mapping {
-            return Err(vm.new_type_error("format requires a mapping"));
-        }
-
-        // dict
-        for (_, part) in format {
-            match part {
-                CFormatPart::Literal(literal) => result.extend(literal),
-                CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
-                    let key = vm.ctx.new_bytes(mapping_key.unwrap());
-                    let value = values_obj.get_item(key.as_object(), vm)?;
-                    let part_result =
-                        spec_format_bytes(vm, &spec, value, FormatArg::Mapping(key.as_object()))?;
-                    result.extend(part_result);
-                }
-            }
-        }
-
-        return Ok(result);
-    }
-
-    // tuple
-    let mut slice_iter;
-    let mut once_iter;
-    let value_iter: &mut dyn Iterator<Item = &PyObject> =
-        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-            slice_iter = tup.as_slice().iter().map(|v| &**v);
-            &mut slice_iter
-        } else {
-            once_iter = core::iter::once(values_obj);
-            &mut once_iter
-        };
-    let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
-    let mut value_iter = value_iter.enumerate();
-
-    for (_, part) in format {
-        match part {
-            CFormatPart::Literal(literal) => result.extend(literal),
-            CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
-                try_update_quantity_from_tuple(
-                    vm,
-                    &mut value_iter,
-                    &mut spec.min_field_width,
-                    &mut spec.flags,
-                )?;
-                try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
-
-                let Some((index, value)) = value_iter.next() else {
-                    return Err(vm.new_type_error("not enough arguments for format string"));
-                };
-
-                let arg = if is_tuple {
-                    FormatArg::Tuple(index + 1)
-                } else {
-                    FormatArg::Single
-                };
-                let part_result = spec_format_bytes(vm, &spec, value.to_owned(), arg)?;
-                result.extend(part_result);
-            }
-        }
-    }
-
-    // check that all arguments were converted
-    if !is_mapping && value_iter.next().is_some() {
-        Err(vm.new_type_error("not all arguments converted during bytes formatting"))
-    } else {
-        Ok(result)
-    }
+    cformat(
+        vm,
+        format_string.iter().copied(),
+        values_obj,
+        CFormatContext::Bytes,
+        |key| vm.ctx.new_bytes(key).into(),
+        spec_format_bytes,
+    )
 }
 
 pub(crate) fn cformat_string(
@@ -462,106 +725,12 @@ pub(crate) fn cformat_string(
     format_string: &Wtf8,
     values_obj: &PyObject,
 ) -> PyResult<Wtf8Buf> {
-    let format = CFormatWtf8::parse_from_wtf8(format_string)
-        .map_err(|err| vm.new_value_error(err.to_string()))?;
-    let (num_specifiers, mapping_required) = format
-        .check_specifiers()
-        .ok_or_else(|| specifier_error(vm))?;
-
-    let mut result = Wtf8Buf::new();
-
-    let is_mapping = values_obj.class().has_attr(identifier!(vm, __getitem__))
-        && !values_obj.fast_isinstance(vm.ctx.types.tuple_type)
-        && !values_obj.fast_isinstance(vm.ctx.types.str_type);
-
-    if num_specifiers == 0 {
-        if !is_mapping
-            && values_obj
-                .downcast_ref::<tuple::PyTuple>()
-                .is_none_or(|e| !e.as_slice().is_empty())
-        {
-            return Err(vm.new_type_error("not all arguments converted during string formatting"));
-        }
-
-        // literal only
-        for (_, part) in format.iter() {
-            if let CFormatPart::Literal(literal) = part {
-                result.push_wtf8(literal)
-            } else {
-                unreachable!()
-            }
-        }
-
-        return Ok(result);
-    }
-
-    if mapping_required {
-        if !is_mapping {
-            return Err(vm.new_type_error("format requires a mapping"));
-        }
-
-        // dict
-        for (_, part) in format {
-            match part {
-                CFormatPart::Literal(literal) => result.push_wtf8(&literal),
-                CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
-                    let key = vm.ctx.new_str(mapping_key.unwrap());
-                    let value = values_obj.get_item(key.as_object(), vm)?;
-                    let part_result =
-                        spec_format_string(vm, &spec, value, FormatArg::Mapping(key.as_object()))?;
-                    result.push_wtf8(&part_result);
-                }
-            }
-        }
-
-        return Ok(result);
-    }
-
-    // tuple
-    let mut slice_iter;
-    let mut once_iter;
-    let value_iter: &mut dyn Iterator<Item = &PyObject> =
-        if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
-            slice_iter = tup.as_slice().iter().map(|v| &**v);
-            &mut slice_iter
-        } else {
-            once_iter = core::iter::once(values_obj);
-            &mut once_iter
-        };
-    let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
-    let mut value_iter = value_iter.enumerate();
-
-    for (_, part) in format {
-        match part {
-            CFormatPart::Literal(literal) => result.push_wtf8(&literal),
-            CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
-                try_update_quantity_from_tuple(
-                    vm,
-                    &mut value_iter,
-                    &mut spec.min_field_width,
-                    &mut spec.flags,
-                )?;
-                try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
-
-                let Some((index, value)) = value_iter.next() else {
-                    return Err(vm.new_type_error("not enough arguments for format string"));
-                };
-
-                let arg = if is_tuple {
-                    FormatArg::Tuple(index + 1)
-                } else {
-                    FormatArg::Single
-                };
-                let part_result = spec_format_string(vm, &spec, value.to_owned(), arg)?;
-                result.push_wtf8(&part_result);
-            }
-        }
-    }
-
-    // check that all arguments were converted
-    if !is_mapping && value_iter.next().is_some() {
-        Err(vm.new_type_error("not all arguments converted during string formatting"))
-    } else {
-        Ok(result)
-    }
+    cformat(
+        vm,
+        format_string.code_points(),
+        values_obj,
+        CFormatContext::Str,
+        |key| vm.ctx.new_str(key).into(),
+        spec_format_string,
+    )
 }
