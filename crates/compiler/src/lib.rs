@@ -480,24 +480,6 @@ fn cpython_parse_diagnostic_override(
 
     if matches!(
         &error.error,
-        parser::ParseErrorType::Lexical(parser::LexicalErrorType::InvalidByteLiteral)
-    ) && let Some((start, end)) =
-        bytes_literal_span(source_text, error.location.start().to_usize())
-    {
-        let (loc, end_loc) = source_locations(
-            source_file,
-            TextSize::new(start as u32),
-            TextSize::new(end as u32),
-        );
-        return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
-            loc,
-            end_loc,
-        ));
-    }
-
-    if matches!(
-        &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
     ) {
         let end_loc = source_line_end_location(source_file, error.location.start());
@@ -979,32 +961,6 @@ fn quoted_string_is_closed(bytes: &[u8], start: usize) -> bool {
     } else {
         end > start + 1 && bytes[end - 1] == quote
     }
-}
-
-fn bytes_literal_span(source: &str, error_at: usize) -> Option<(usize, usize)> {
-    let bytes = source.as_bytes();
-    if error_at > bytes.len() || bytes.is_empty() {
-        return None;
-    }
-    let mut quote_idx = error_at.min(bytes.len().saturating_sub(1));
-    loop {
-        if matches!(bytes[quote_idx], b'\'' | b'"') {
-            break;
-        }
-        if quote_idx == 0 {
-            return None;
-        }
-        quote_idx -= 1;
-    }
-    let mut start = quote_idx;
-    while start > 0 && matches!(bytes[start - 1], b'b' | b'B' | b'r' | b'R') {
-        start -= 1;
-    }
-    if !matches!(bytes.get(start), Some(b'b' | b'B' | b'r' | b'R')) {
-        return None;
-    }
-    let end = skip_quoted_string(bytes, quote_idx);
-    Some((start, end))
 }
 
 fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {

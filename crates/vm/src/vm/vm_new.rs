@@ -7,7 +7,7 @@ use rustpython_compiler_core::SourceLocation;
 use core::ops::RangeInclusive;
 
 #[cfg(feature = "parser")]
-use rustpython_compiler::{CompileError, ParseError, is_blank_python_source};
+use rustpython_compiler::is_blank_python_source;
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -45,43 +45,6 @@ macro_rules! define_exception_fn {
             self.new_simple_exception(err, vec![self.ctx.new_str(msg.into()).into()])
         }
     };
-}
-
-#[derive(Clone, Debug)]
-struct SyntaxErrorInfo {
-    msg: String,
-    narrow_caret: bool,
-}
-
-impl SyntaxErrorInfo {
-    #[must_use]
-    const fn new(msg: String, narrow_caret: bool) -> Self {
-        Self { msg, narrow_caret }
-    }
-
-    #[cfg(feature = "parser")]
-    fn analyze_compile_error(&mut self, compile_error: &CompileError) {
-        let CompileError::Parse(ParseError {
-            error, location, ..
-        }) = compile_error
-        else {
-            return;
-        };
-
-        match error {
-            ParseErrorType::InvalidStarredExpressionUsage
-            | ParseErrorType::InvalidStarPatternUsage => self.narrow_caret = true,
-
-            ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
-                self.msg = format!(
-                    "unterminated string literal (detected at line {})",
-                    location.line
-                );
-            }
-
-            _ => {}
-        }
-    }
 }
 
 /// Collection of object creation helpers
@@ -685,26 +648,25 @@ impl VirtualMachine {
             source.and_then(|src| get_statement(src, error.location()))
         };
 
-        let msg = error.to_string();
-
-        cfg_select! {
-            feature = "parser" => {
-                let mut syntax_error_info = SyntaxErrorInfo::new(msg, false);
-                syntax_error_info.analyze_compile_error(error);
-            }
-            _ => {
-                let syntax_error_info = SyntaxErrorInfo::new(msg, false);
+        let msg = if syntax_error_type.is(self.ctx.exceptions.tab_error) {
+            String::from("inconsistent use of tabs and spaces in indentation")
+        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            String::from("incomplete input")
+        } else {
+            match error {
+                #[cfg(feature = "parser")]
+                crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                    error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
+                    location,
+                    ..
+                }) => format!(
+                    "unterminated string literal (detected at line {})",
+                    location.line
+                ),
+                _ => error.to_string(),
             }
         };
 
-        if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.msg =
-                String::from("inconsistent use of tabs and spaces in indentation");
-        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
-            syntax_error_info.msg = String::from("incomplete input");
-        }
-
-        let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
         let unterminated_triple_quoted_string = msg.starts_with("unterminated triple-quoted");
         let unexpected_eof_error = msg == "unexpected EOF while parsing";
         if unterminated_triple_quoted_string
@@ -768,9 +730,6 @@ impl VirtualMachine {
                 (end_lineno, 0)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
-            } else if narrow_caret {
-                let (l, o) = error.python_location();
-                (l, (o + 1) as isize)
             } else {
                 (end_lineno, end_offset as isize)
             };
