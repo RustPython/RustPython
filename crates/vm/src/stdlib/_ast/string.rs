@@ -320,6 +320,35 @@ fn ruff_format_spec_to_joined_str(
     }
 }
 
+fn dummy_string_literal() -> ast::StringLiteral {
+    ast::StringLiteral {
+        node_index: Default::default(),
+        range: Default::default(),
+        value: "".into(),
+        flags: ast::StringLiteralFlags::empty(),
+    }
+}
+
+fn dummy_fstring() -> ast::FString {
+    ast::FString {
+        node_index: Default::default(),
+        range: Default::default(),
+        elements: Default::default(),
+        flags: ast::FStringFlags::empty(),
+    }
+}
+
+fn take_fstring_part(part: ast::FStringPartMut<'_>) -> ast::FStringPart {
+    match part {
+        ast::FStringPartMut::Literal(literal) => {
+            ast::FStringPart::Literal(core::mem::replace(literal, dummy_string_literal()))
+        }
+        ast::FStringPartMut::FString(fstring) => {
+            ast::FStringPart::FString(core::mem::replace(fstring, dummy_fstring()))
+        }
+    }
+}
+
 fn ruff_fstring_element_to_ruff_fstring_part(
     element: ast::InterpolatedStringElement,
 ) -> ast::FStringPart {
@@ -362,16 +391,9 @@ fn format_spec_expr_to_ruff_format_spec(
         runtime_joined_str: _,
         runtime_values: _,
     } = fstring;
-    let default_part = ast::FStringPart::FString(ast::FString {
-        node_index: Default::default(),
-        range: Default::default(),
-        elements: Default::default(),
-        flags: ast::FStringFlags::empty(),
-    });
     let mut elements = Vec::new();
-    for i in 0..value.as_slice().len() {
-        let part = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_part.clone());
-        match part {
+    for part in value {
+        match take_fstring_part(part) {
             ast::FStringPart::Literal(ast::StringLiteral {
                 range,
                 value,
@@ -718,16 +740,9 @@ pub(super) fn fstring_to_object(
         .ast_to_object(vm, source_file);
     }
 
-    let default_part = ast::FStringPart::FString(ast::FString {
-        node_index: Default::default(),
-        range: Default::default(),
-        elements: Default::default(),
-        flags: ast::FStringFlags::empty(),
-    });
     let mut values = Vec::new();
-    for i in 0..value.as_slice().len() {
-        let part = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_part.clone());
-        match part {
+    for part in &mut value {
+        match take_fstring_part(part) {
             ast::FStringPart::Literal(literal) => {
                 values.push(JoinedStrPart::Constant(Constant::new_str(
                     rustpython_codegen::string_literal_part_value(source_file, &literal),

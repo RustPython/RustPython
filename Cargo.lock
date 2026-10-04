@@ -572,9 +572,9 @@ dependencies = [
 
 [[package]]
 name = "char_str"
-version = "0.0.2"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "576ba56f6ca18ebb069d0d07260407171712aff4dfe15ee3f8982dc16a455bcf"
+checksum = "c9cba78a5abb515610e10af297615434b019755b5d7be14e559ff5340dff50c4"
 dependencies = [
  "castaway",
  "get-size2",
@@ -1612,9 +1612,9 @@ dependencies = [
 
 [[package]]
 name = "get-size-derive2"
-version = "0.10.3"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c736d226c32e496b8377813b52269e11ad3a48d8373b68862d0364f04fd1229d"
+checksum = "7efe46d2adb529015748742f1a38594039ce357dbb21e6d178de342cfce468d4"
 dependencies = [
  "attribute-derive",
  "quote",
@@ -1623,9 +1623,9 @@ dependencies = [
 
 [[package]]
 name = "get-size2"
-version = "0.10.3"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b411f34418305908ab15a82ff78958c2a9aee9a272b2a2e663836b20a4e4b9d3"
+checksum = "d4d338de392104417fe6fdbe588c52383b9236956d8afe5654f0077176edc632"
 dependencies = [
  "compact_str",
  "get-size-derive2",
@@ -3935,9 +3935,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_ast"
-version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc19eeb4cfa2c35428143693eadf85ee78816f22a829298593581a56700c0a21"
+version = "0.16.10"
+source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3957,14 +3956,14 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_parser"
-version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "480eec9ac4dda77b6724f0c9a54a81d3c57868d6a707c3d7c5133fd83c933f66"
+version = "0.16.10"
+source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
  "drop_bomb",
  "get-size2",
+ "hashbrown 0.17.1",
  "memchr",
  "rustc-hash",
  "rustpython-ruff_python_ast",
@@ -3980,22 +3979,22 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_trivia"
-version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d69a5d9bb610a76bee05d23adce0de55f0fa06f251c0e1c7f7a0c625a366a58"
+version = "0.16.10"
+source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
 dependencies = [
  "itertools 0.15.0",
+ "memchr",
  "rustc-hash",
  "rustpython-ruff_source_file",
  "rustpython-ruff_text_size",
  "unicode-ident",
+ "unicode-normalization",
 ]
 
 [[package]]
 name = "rustpython-ruff_source_file"
-version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3aa9c91c8a4e86bf0fa8a67aec284fa6c0c533cdefb900b08584be15748c606"
+version = "0.16.10"
+source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -4003,9 +4002,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_text_size"
-version = "0.16.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fedbd1af4f91cd828185123d95119662db9c4a0b21c02b695783d74360d4f46"
+version = "0.16.10"
+source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
 dependencies = [
  "get-size2",
 ]

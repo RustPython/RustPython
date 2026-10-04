@@ -658,7 +658,7 @@ mod _tokenize {
     const fn token_kind_value(kind: TokenKind) -> u8 {
         match kind {
             TokenKind::EndOfFile => 0,
-            TokenKind::Name
+            TokenKind::Identifier
             | TokenKind::For
             | TokenKind::In
             | TokenKind::Pass

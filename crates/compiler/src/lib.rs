@@ -2808,9 +2808,9 @@ fn invalid_for_target(expression: &ast::Expr) -> Option<&ast::Expr> {
         ast::Expr::List(ast::ExprList { elts, .. })
         | ast::Expr::Tuple(ast::ExprTuple { elts, .. }) => elts.iter().find_map(invalid_for_target),
         ast::Expr::Starred(ast::ExprStarred { value, .. }) => invalid_for_target(value),
-        ast::Expr::Compare(ast::ExprCompare { left, ops, .. }) => {
-            if matches!(ops.first(), Some(ast::CmpOp::In)) {
-                invalid_for_target(left)
+        ast::Expr::Compare(compare) => {
+            if matches!(compare.ops.first(), Some(ast::CmpOp::In)) {
+                invalid_for_target(compare.first_operand())
             } else {
                 None
             }
@@ -7006,7 +7006,7 @@ pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Op
             match expr {
                 ast::Expr::FString(fstring) => {
                     for part in &fstring.value {
-                        if let ast::FStringPart::FString(part) = part {
+                        if let ast::FStringPartRef::FString(part) = part {
                             self.check_format_specs("f-string", &part.elements, 0);
                         }
                     }
