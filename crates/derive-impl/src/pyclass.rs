@@ -1290,6 +1290,7 @@ where
         }
 
         let raw = item_meta.raw()?;
+        let no_keywords = item_meta.inner()._bool("no_keywords")?;
         let has_receiver = func
             .sig()
             .inputs
@@ -1336,6 +1337,7 @@ where
             doc,
             doc_body_pending,
             raw,
+            no_keywords,
             coexist,
             attr_name: self.inner.attr_name,
         });
@@ -1530,6 +1532,7 @@ struct MethodNurseryItem {
     cfgs: Vec<Attribute>,
     ident: Ident,
     raw: bool,
+    no_keywords: bool,
     coexist: bool,
     doc: TokenStream,
     doc_body_pending: TokenStream,
@@ -1561,6 +1564,11 @@ impl ToTokens for MethodNursery {
             let cfgs = &item.cfgs;
             let doc = &item.doc;
             let doc_body_pending = &item.doc_body_pending;
+            let keyword_dispatch = if item.no_keywords {
+                quote!(rustpython_vm::function::KeywordDispatch::RejectNonempty)
+            } else {
+                quote!(rustpython_vm::function::KeywordDispatch::PassToBinder)
+            };
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1603,7 +1611,7 @@ impl ToTokens for MethodNursery {
                         Self::#ident,
                         #flags,
                         #doc,
-                    );
+                    ).with_keyword_dispatch(#keyword_dispatch);
                     ::rustpython_vm::__cfg_doc!({
                         def.doc_body_pending = #doc_body_pending;
                     } else {});
@@ -1731,7 +1739,7 @@ impl ToTokens for GetSetNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist", "no_keywords"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

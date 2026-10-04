@@ -245,10 +245,12 @@ macro_rules! named_function {
         let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
             ctx.new_method_def(
-                stringify!($func),
                 [<$module _ $func>],
-                ::rustpython_vm::function::PyMethodFlags::empty(),
-                ::rustpython_vm::function::ItemDoc::NONE,
+                ::rustpython_vm::function::MethodDefSpec::new(
+                    stringify!($func),
+                    ::rustpython_vm::function::PyMethodFlags::empty(),
+                    ::rustpython_vm::function::ItemDoc::NONE,
+                ),
             )
             .to_function()
             .with_module(ctx.intern_str(stringify!($module)).into())

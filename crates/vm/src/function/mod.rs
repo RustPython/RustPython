@@ -33,7 +33,7 @@ pub use fspath::FsPath;
 pub(crate) use getargs::ArgSpec;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
-pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
+pub use method::{HeapMethodDef, KeywordDispatch, MethodDefSpec, PyMethodDef, PyMethodFlags};
 pub use number::{
     ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgStrictInt, PySize, PySsize,
 };
