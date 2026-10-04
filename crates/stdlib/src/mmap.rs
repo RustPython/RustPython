@@ -931,7 +931,7 @@ mod mmap {
         #[pymethod]
         fn set_name(zelf: &Py<Self>, name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
             let name =
-                std::ffi::CString::new(name.as_str()).map_err(|err| err.to_pyexception(vm))?;
+                alloc::ffi::CString::new(name.as_str()).map_err(|err| err.to_pyexception(vm))?;
             #[cfg(target_os = "linux")]
             {
                 const PREFIX: &str = "cpython:mmap:";
@@ -947,7 +947,7 @@ mod mmap {
                 // only in development mode.
                 if vm.state.config.settings.dev_mode {
                     let annotation =
-                        std::ffi::CString::new([PREFIX.as_bytes(), name.as_bytes()].concat())
+                        alloc::ffi::CString::new([PREFIX.as_bytes(), name.as_bytes()].concat())
                             .expect("the name was checked for embedded NUL characters");
                     let mmap = zelf.mmap.lock();
                     let address = mmap

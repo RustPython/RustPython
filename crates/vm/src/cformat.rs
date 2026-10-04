@@ -161,10 +161,7 @@ fn format_character_error(
                     .map(|b| format!("a bytearray object of length {}", b.borrow_buf().len()))
             }),
     };
-    let what = match what
-        .map(Ok)
-        .unwrap_or_else(|| obj.class().fully_qualified_name(vm))
-    {
+    let what = match what.map_or_else(|| obj.class().fully_qualified_name(vm), Ok) {
         Ok(what) => what,
         Err(error) => return error,
     };

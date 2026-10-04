@@ -250,7 +250,7 @@ impl MappedFile {
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_mapping_name(address: usize, size: usize, name: &std::ffi::CStr) -> io::Result<()> {
+pub fn set_mapping_name(address: usize, size: usize, name: &core::ffi::CStr) -> io::Result<()> {
     if unsafe {
         libc::prctl(
             libc::PR_SET_VMA,
