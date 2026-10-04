@@ -420,7 +420,7 @@ impl PyList {
     flags(BASETYPE, SEQUENCE, _MATCH_SELF)
 )]
 impl Py<PyList> {
-    #[pymethod(no_keywords)]
+    #[pymethod]
     pub(crate) fn append(&self, object: PyObjectRef) {
         self.payload.append(object)
     }
@@ -497,7 +497,7 @@ impl Py<PyList> {
         elements.insert(index, object);
     }
 
-    #[pymethod(no_keywords)]
+    #[pymethod]
     fn clear(&self) {
         let removed = core::mem::take(self.borrow_vec_mut().deref_mut());
         removed.into_iter().rev().for_each(drop);

@@ -39,12 +39,12 @@ mod builtins {
     const CODEGEN_NOT_SUPPORTED: &str =
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._abs(&x)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn all(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if !item?.into_bool() {
@@ -54,7 +54,7 @@ mod builtins {
         Ok(true)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn any(iterable: ArgIterable<ArgIntoBool>, vm: &VirtualMachine) -> PyResult<bool> {
         for item in iterable.iter(vm)? {
             if item?.into_bool() {
@@ -64,12 +64,12 @@ mod builtins {
         Ok(false)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     pub fn ascii(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         obj.ascii(vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn bin(number: ArgIndex) -> String {
         let number = number.into_int_ref();
         let x = number.as_bigint();
@@ -80,12 +80,12 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn callable(obj: PyObjectRef) -> bool {
         obj.is_callable()
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn chr(i: ArgIndex, vm: &VirtualMachine) -> PyResult<CodePoint> {
         let i = i.into_int_ref();
         let value = i
@@ -375,7 +375,7 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn delattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
@@ -386,12 +386,12 @@ mod builtins {
         obj.del_attr(attr, vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyList> {
         vm.dir(obj.into_option())
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._divmod(&x, &y)
     }
@@ -673,12 +673,12 @@ mod builtins {
         prompt: OptionalArg<PyStrRef>,
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.format(&args.value, args.format_spec)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
         attr: PyObjectRef,
@@ -699,12 +699,12 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn globals(vm: &VirtualMachine) -> PyDictRef {
         vm.current_globals()
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn hasattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
@@ -715,7 +715,7 @@ mod builtins {
         obj.has_attr(attr, vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn hash(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyHash> {
         obj.hash(vm)
     }
@@ -739,19 +739,19 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn hex(number: ArgIndex) -> String {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         format!("{n:#x}")
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn id(obj: PyObjectRef) -> usize {
         obj.get_id()
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
         let prompt = args.prompt;
         use std::io::IsTerminal;
@@ -838,7 +838,7 @@ mod builtins {
         false
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn isinstance(
         obj: PyObjectRef,
         class_or_tuple: PyObjectRef,
@@ -847,7 +847,7 @@ mod builtins {
         obj.is_instance(&class_or_tuple, vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn issubclass(
         cls: PyObjectRef,
         class_or_tuple: PyObjectRef,
@@ -856,7 +856,7 @@ mod builtins {
         cls.is_subclass(&class_or_tuple, vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn iter(
         iter_target: PyObjectRef,
         sentinel: OptionalArg<PyObjectRef>,
@@ -873,12 +873,12 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn aiter(async_iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         async_iterable.get_aiter(vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn anext(
         aiter: PyObjectRef,
         default_value: OptionalArg<PyObjectRef>,
@@ -905,12 +905,12 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn len(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         obj.length(vm)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn locals(vm: &VirtualMachine) -> PyResult<ArgMapping> {
         vm.current_locals()
     }
@@ -985,7 +985,7 @@ mod builtins {
         min_or_max(args, vm, "min", PyComparisonOp::Lt)
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn next(
         iterator: PyObjectRef,
         default_value: OptionalArg<PyObjectRef>,
@@ -1007,7 +1007,7 @@ mod builtins {
             })
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
@@ -1020,7 +1020,7 @@ mod builtins {
         vm.ctx.new_str(s).into()
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     // builtin_ord
     fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
         let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
@@ -1124,7 +1124,7 @@ mod builtins {
         Ok(())
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         obj.repr(vm)
     }
@@ -1173,7 +1173,7 @@ mod builtins {
         }
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
         name: PyObjectRef,
@@ -1266,7 +1266,7 @@ mod builtins {
         )
     }
 
-    #[pyfunction(no_keywords)]
+    #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
             obj.get_attr(identifier!(vm, __dict__), vm)

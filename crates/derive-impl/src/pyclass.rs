@@ -2,7 +2,7 @@ use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, internal_doc_tokens,
-    pyclass_ident_and_attrs, pyexception_ident_and_attrs,
+    keyword_dispatch_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -1290,7 +1290,6 @@ where
         }
 
         let raw = item_meta.raw()?;
-        let no_keywords = item_meta.inner()._bool("no_keywords")?;
         let has_receiver = func
             .sig()
             .inputs
@@ -1308,6 +1307,12 @@ where
                 _ => None,
             }
         };
+        let keyword_dispatch = keyword_dispatch_tokens(
+            func.sig(),
+            implicit_self,
+            args.context.self_ty_subst.as_ref(),
+        );
+
         // Add #[allow(non_snake_case)] for setter methods like set___name__
         let method_name = ident.to_string();
         if method_name.starts_with("set_") && method_name.contains("__") {
@@ -1337,7 +1342,7 @@ where
             doc,
             doc_body_pending,
             raw,
-            no_keywords,
+            keyword_dispatch,
             coexist,
             attr_name: self.inner.attr_name,
         });
@@ -1532,7 +1537,7 @@ struct MethodNurseryItem {
     cfgs: Vec<Attribute>,
     ident: Ident,
     raw: bool,
-    no_keywords: bool,
+    keyword_dispatch: TokenStream,
     coexist: bool,
     doc: TokenStream,
     doc_body_pending: TokenStream,
@@ -1564,11 +1569,7 @@ impl ToTokens for MethodNursery {
             let cfgs = &item.cfgs;
             let doc = &item.doc;
             let doc_body_pending = &item.doc_body_pending;
-            let keyword_dispatch = if item.no_keywords {
-                quote!(rustpython_vm::function::KeywordDispatch::RejectNonempty)
-            } else {
-                quote!(rustpython_vm::function::KeywordDispatch::PassToBinder)
-            };
+            let keyword_dispatch = &item.keyword_dispatch;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1739,7 +1740,7 @@ impl ToTokens for GetSetNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist", "no_keywords"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "coexist"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

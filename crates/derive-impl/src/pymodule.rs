@@ -3,7 +3,7 @@ use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, ModuleItemMeta, SimpleItemMeta,
-    internal_doc_tokens, iter_use_idents, pyclass_ident_and_attrs,
+    internal_doc_tokens, iter_use_idents, keyword_dispatch_tokens, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -536,7 +536,7 @@ struct FunctionNurseryItem {
     ident: Ident,
     /// One internal doc per [`py_names`](Self::py_names) entry.
     docs: Vec<TokenStream>,
-    no_keywords: bool,
+    keyword_dispatch: TokenStream,
 }
 
 impl FunctionNursery {
@@ -566,11 +566,7 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let keyword_dispatch = if item.no_keywords {
-                quote!(rustpython_vm::function::KeywordDispatch::RejectNonempty)
-            } else {
-                quote!(rustpython_vm::function::KeywordDispatch::PassToBinder)
-            };
+            let keyword_dispatch = &item.keyword_dispatch;
             for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
                 inner_tokens.extend(quote![
                     #cfgs
@@ -677,7 +673,6 @@ impl ModuleItem for FunctionItem {
 
         let item_attr = args.attrs.remove(self.index());
         let item_meta = FunctionItemMeta::from_attr(ident.clone(), &item_attr)?;
-        let no_keywords = item_meta.inner()._bool("no_keywords")?;
 
         let py_name = item_meta.simple_name()?;
         let mut py_names = vec![py_name];
@@ -716,13 +711,14 @@ impl ModuleItem for FunctionItem {
                 internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
             })
             .collect();
+        let keyword_dispatch = keyword_dispatch_tokens(func.sig(), None, None);
 
         args.context.function_items.add_item(FunctionNurseryItem {
             ident: ident.to_owned(),
             py_names,
             cfgs: args.cfgs.to_vec(),
             docs,
-            no_keywords,
+            keyword_dispatch,
         });
         Ok(())
     }
@@ -1094,7 +1090,7 @@ impl ModuleItem for AttributeItem {
 struct FunctionItemMeta(ItemMetaInner);
 
 impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "no_keywords"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
