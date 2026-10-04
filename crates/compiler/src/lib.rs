@@ -358,8 +358,11 @@ fn cpython_parse_diagnostic_override(
     // Indentation errors outrank a print/exec missing-parentheses rewrite.
     let indent_error = matches!(
         &error.error,
-        parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-            | parser::ParseErrorType::UnexpectedIndentation
+        parser::ParseErrorType::Lexical(
+            parser::LexicalErrorType::IndentationError
+                | parser::LexicalErrorType::TabError
+                | parser::LexicalErrorType::TooDeepIndentation
+        ) | parser::ParseErrorType::UnexpectedIndentation
     ) || expected_indented_block_error(error, source_text).is_some();
     if !indent_error
         && earliest
@@ -389,17 +392,11 @@ fn cpython_parse_diagnostic_override(
         );
     }
 
-    if matches!(
-        &error.error,
-        parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
-    ) {
+    if line_continuation {
         // exec input gets an implicit trailing newline, so a final `\` is a
         // continuation that then hits EOF (`E_EOF`). single/eval see `\` at
         // EOF as `E_LINECONT` instead.
-        let terminal_backslash = source_text.len().checked_sub(1);
-        if matches!(mode, Mode::Exec)
-            && terminal_backslash == Some(error.location.start().to_usize())
-        {
+        if matches!(mode, Mode::Exec) && error.location.start().to_usize() == source_text.len() {
             let loc = source_line_end_location(source_file, error.location.start());
             return Some(NormalizedParseDiagnostic::new(
                 parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
@@ -407,14 +404,7 @@ fn cpython_parse_diagnostic_override(
                 loc,
             ));
         }
-        let loc = source_location(source_file, error.location.start() + TextSize::from(1));
-        return Some(NormalizedParseDiagnostic::new(
-            parser::ParseErrorType::OtherError(
-                "unexpected character after line continuation character".to_owned(),
-            ),
-            loc,
-            loc,
-        ));
+        return None;
     }
 
     source_error!(unterminated_string_error(source_text, mode));
@@ -476,18 +466,6 @@ fn cpython_parse_diagnostic_override(
         source_error!(invalid_if_expression_statement_error(source_text));
         source_error!(invalid_else_elif_error(source_text));
         source_error!(mixed_except_handlers_error(source_text));
-    }
-
-    if matches!(
-        &error.error,
-        parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-    ) {
-        let end_loc = source_line_end_location(source_file, error.location.start());
-        return Some(NormalizedParseDiagnostic::new(
-            error.error.clone(),
-            end_loc,
-            end_loc,
-        ));
     }
 
     if matches!(

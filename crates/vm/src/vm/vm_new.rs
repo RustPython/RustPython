@@ -445,38 +445,6 @@ impl VirtualMachine {
         .expect("UnicodeEncodeError constructor")
     }
 
-    #[cfg(feature = "parser")]
-    fn source_has_mixed_tabs_and_spaces(source: Option<&str>, error_line: usize) -> bool {
-        source.is_some_and(|source| {
-            let mut has_space_indent = false;
-            let mut has_tab_indent = false;
-            for (i, line) in source.lines().enumerate() {
-                if i + 1 > error_line {
-                    break;
-                }
-                let rest = line.trim_start_matches([' ', '\t']);
-                // Blank and comment-only lines do not participate in indent.
-                if rest.is_empty() || rest.starts_with('#') {
-                    continue;
-                }
-                let indent = &line.as_bytes()[..line.len() - rest.len()];
-                if indent.is_empty() {
-                    continue;
-                }
-                if indent.contains(&b' ') && indent.contains(&b'\t') {
-                    return true;
-                }
-                if indent.contains(&b' ') {
-                    has_space_indent = true;
-                }
-                if indent.contains(&b'\t') {
-                    has_tab_indent = true;
-                }
-            }
-            has_space_indent && has_tab_indent
-        })
-    }
-
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
@@ -511,20 +479,18 @@ impl VirtualMachine {
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::IndentationError,
-                    )
-                    | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                location,
+                error: ParseErrorType::Lexical(LexicalErrorType::TabError),
                 ..
-            }) => {
-                if Self::source_has_mixed_tabs_and_spaces(source, location.line.get()) {
-                    self.ctx.exceptions.tab_error
-                } else {
-                    self.ctx.exceptions.indentation_error
-                }
-            }
+            }) => self.ctx.exceptions.tab_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ParseErrorType::Lexical(
+                        LexicalErrorType::IndentationError | LexicalErrorType::TooDeepIndentation,
+                    )
+                    | ParseErrorType::UnexpectedIndentation,
+                ..
+            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -648,9 +614,7 @@ impl VirtualMachine {
             source.and_then(|src| get_statement(src, error.location()))
         };
 
-        let msg = if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            String::from("inconsistent use of tabs and spaces in indentation")
-        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+        let msg = if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
             String::from("incomplete input")
         } else {
             match error {
@@ -683,6 +647,29 @@ impl VirtualMachine {
             || msg.starts_with("except expressions without parentheses are")
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        // Tokenizer errors other than unexpected EOF end where the tokenizer stopped, which is
+        // reported as end offset 0 or -1.
+        let tokenizer_end_offset = cfg_select! {
+            feature = "parser" => {
+                match error {
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(
+                            LexicalErrorType::TabError
+                            | LexicalErrorType::TooDeepIndentation
+                            | LexicalErrorType::LineContinuationError,
+                        ),
+                        ..
+                    }) => Some(0),
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                            | ParseErrorType::UnexpectedIndentation,
+                        ..
+                    }) => Some(-1),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         let unclosed_bracket_error = cfg_select! {
             feature = "parser" => {
                 matches!(
@@ -724,6 +711,8 @@ impl VirtualMachine {
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
             let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
+            } else if let Some(end_offset) = tokenizer_end_offset {
+                (end_lineno, end_offset)
             } else if unclosed_bracket_error {
                 // The bracket that was never closed is marked where it opened,
                 // and the span stops there.

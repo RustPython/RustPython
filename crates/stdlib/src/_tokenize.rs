@@ -210,22 +210,22 @@ mod _tokenize {
             let kind = token.kind();
             let range = token.range();
 
-            // Check for lexical indentation errors.
-            // Skip when source has tabs — ruff and CPython handle tab
-            // indentation differently (CPython uses tabsize=8), so ruff may
-            // report false IndentationErrors for valid mixed-tab code.
-            if !source.contains('\t') {
-                for err in errors.iter() {
-                    if !matches!(
-                        err.error,
-                        ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-                    ) {
-                        continue;
-                    }
-                    if err.location.start() <= range.start() && range.start() < err.location.end() {
-                        return Err(raise_indentation_error(vm, err, source, line_index));
-                    }
-                }
+            // An indentation error replaces the token the lexer raised it for.
+            if kind == TokenKind::Unknown
+                && let Some(err) = errors.iter().find(|err| {
+                    line_index.line_index(err.location.start())
+                        == line_index.line_index(range.start())
+                        && matches!(
+                            err.error,
+                            ParseErrorType::Lexical(
+                                LexicalErrorType::IndentationError
+                                    | LexicalErrorType::TabError
+                                    | LexicalErrorType::TooDeepIndentation
+                            )
+                        )
+                })
+            {
+                return Err(raise_indentation_error(vm, err, source, line_index));
             }
 
             if kind == TokenKind::EndOfFile {
@@ -480,7 +480,7 @@ mod _tokenize {
         exc
     }
 
-    /// Raise an IndentationError from a parse error.
+    /// Raise an IndentationError or TabError from a parse error.
     fn raise_indentation_error(
         vm: &VirtualMachine,
         err: &ParseError,
@@ -491,10 +491,15 @@ mod _tokenize {
         let err_line_text = source.full_line_str(err.location.start());
         let err_text = err_line_text.trim_end_matches('\n').trim_end_matches('\r');
         let msg = format!("{}", err.error);
-        let exc = vm.new_exception_msg(
-            vm.ctx.exceptions.indentation_error.to_owned(),
-            msg.clone().into(),
-        );
+        let exc_type = if matches!(
+            err.error,
+            ParseErrorType::Lexical(LexicalErrorType::TabError)
+        ) {
+            vm.ctx.exceptions.tab_error
+        } else {
+            vm.ctx.exceptions.indentation_error
+        };
+        let exc = vm.new_exception_msg(exc_type.to_owned(), msg.clone().into());
         let obj = exc.as_object();
         let _ = obj.set_attr("lineno", vm.ctx.new_int(err_lc.line.get()), vm);
         let _ = obj.set_attr("offset", vm.ctx.new_int(err_text.len() as i64 + 1), vm);

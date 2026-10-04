@@ -217,7 +217,6 @@ class TestCheck(TestCase):
             with self.assertRaises(SystemExit):
                 self.verify_tabnanny_check(file_path, err=err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code file eligible for raising `tabnanny.NannyNag`.
     def test_when_nannynag_error_verbose(self):
         """A python source code file eligible for raising `tabnanny.NannyNag`.
 
@@ -231,7 +230,6 @@ class TestCheck(TestCase):
             tabnanny.verbose = 1
             self.verify_tabnanny_check(file_path, out=out)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; A python source code file eligible for raising `tabnanny.NannyNag`.
     def test_when_nannynag_error(self):
         """A python source code file eligible for raising `tabnanny.NannyNag`."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as file_path:
@@ -341,7 +339,6 @@ class TestCommandLine(TestCase):
             stdout = f"{file_path}\n"
             self.validate_cmd("-q", file_path, stdout=stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_verbose_mode(self):
         """Should display more error information if verbose mode is on."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as path:
@@ -350,7 +347,6 @@ class TestCommandLine(TestCase):
             ).strip()
             self.validate_cmd("-v", path, stdout=stdout, partial=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_double_verbose_mode(self):
         """Should display detailed error information if double verbose is on."""
         with TemporaryPyFile(SOURCE_CODES["nannynag_errored"]) as path:
