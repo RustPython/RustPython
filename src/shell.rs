@@ -60,28 +60,17 @@ fn shell_exec(
                     error: ParseErrorType::Lexical(
                         LexicalErrorType::Eof
                             | LexicalErrorType::FStringError(
-                                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                                InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                             )
+                            | LexicalErrorType::UnclosedStringError {
+                                triple_quoted: true,
+                                ..
+                            }
                     ),
                     ..
                 }))
             ) {
                 return ShellExecResult::ContinueLine;
-            }
-            if let VmCompileError::Compile(CompileError::Parse(ParseError {
-                error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
-                raw_location,
-                ..
-            })) = &err
-            {
-                let loc = raw_location.start().to_usize();
-                let mut iter = source.chars();
-                if let Some(quote) = iter.nth(loc)
-                    && iter.next() == Some(quote)
-                    && iter.next() == Some(quote)
-                {
-                    return ShellExecResult::ContinueLine;
-                }
             }
 
             // An unfinished suite is _IncompleteInputError, not IndentationError.

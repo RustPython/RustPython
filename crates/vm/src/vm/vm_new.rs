@@ -515,10 +515,10 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                         )
                         | ruff_python_parser::LexicalErrorType::TStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                         ),
                     ),
                 ..
@@ -527,7 +527,7 @@ impl VirtualMachine {
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
+                        ruff_python_parser::LexicalErrorType::UnclosedStringError { .. },
                     ),
                 ..
             }) => {
@@ -617,18 +617,7 @@ impl VirtualMachine {
         let msg = if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
             String::from("incomplete input")
         } else {
-            match error {
-                #[cfg(feature = "parser")]
-                crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                    error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
-                    location,
-                    ..
-                }) => format!(
-                    "unterminated string literal (detected at line {})",
-                    location.line
-                ),
-                _ => error.to_string(),
-            }
+            error.to_string()
         };
 
         let unterminated_triple_quoted_string = msg.starts_with("unterminated triple-quoted");
