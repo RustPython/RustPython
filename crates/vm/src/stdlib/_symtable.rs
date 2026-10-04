@@ -247,7 +247,12 @@ mod _symtable {
     impl Py<PySymbolTable> {
         #[pygetset]
         fn name(&self) -> String {
-            self.symtable.name.to_string()
+            match self.symtable.typ {
+                CompilerScope::Lambda | CompilerScope::Comprehension => {
+                    format!("<{}>", self.symtable.name)
+                }
+                _ => self.symtable.name.to_string(),
+            }
         }
 
         #[pygetset(name = "type")]

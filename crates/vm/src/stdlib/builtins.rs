@@ -671,8 +671,18 @@ mod builtins {
                 if let Some(code) = crate::frame::current_code() {
                     opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
-                vm.compile_with_opts(source, mode, "<string>", opts)
-                    .map_err(|err| err.into_pyexception(vm, Some(source)))?
+                let module = scope
+                    .globals
+                    .inner_getitem_opt(identifier!(vm, __name__), vm)?;
+                vm.compile_with_opts_and_module(
+                    source,
+                    mode,
+                    "<string>",
+                    opts,
+                    module.as_deref(),
+                    &[],
+                )
+                .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),

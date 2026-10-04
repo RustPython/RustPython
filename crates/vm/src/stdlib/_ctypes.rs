@@ -92,7 +92,7 @@ pub(crate) use _ctypes::module_def;
 #[pymodule]
 pub(crate) mod _ctypes {
     use super::{PyCArray, PyCData, PyCPointer, PyCSimple, PyCStructure, PyCUnion};
-    use crate::builtins::{PyType, PyTypeRef};
+    use crate::builtins::{PyStrRef, PyType, PyTypeRef};
     use crate::class::StaticType;
     #[cfg(windows)]
     use crate::convert::ToPyException;
@@ -104,12 +104,14 @@ pub(crate) mod _ctypes {
 
     // CArgObject - returned by byref() and paramfunc
     // tagPyCArgObject
-    #[pyclass(name = "CArgObject", module = "_ctypes", no_attr)]
+    #[pyclass(name = "CArgObject", module = "_ctypes", no_attr, traverse)]
     #[derive(Debug, PyPayload)]
     pub(crate) struct CArgObject {
         /// Type tag ('P', 'V', 'i', 'd', etc.)
+        #[pytraverse(skip)]
         pub tag: u8,
         /// The actual foreign-call value (mirrors union value)
+        #[pytraverse(skip)]
         pub value: super::CArgValue,
         /// Reference to original object (for memory safety)
         pub obj: PyObjectRef,
@@ -118,8 +120,10 @@ pub(crate) mod _ctypes {
         pub keep: Option<PyObjectRef>,
         /// Size for struct/union ('V' tag)
         #[allow(dead_code)]
+        #[pytraverse(skip)]
         pub size: usize,
         /// Offset for byref()
+        #[pytraverse(skip)]
         pub offset: isize,
     }
 
@@ -233,8 +237,22 @@ pub(crate) mod _ctypes {
         }
     }
 
-    #[pyattr(name = "__version__")]
-    const __VERSION__: &str = "1.1.0";
+    #[pyfunction]
+    fn __getattr__(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        if name.to_str() == Some("__version__") {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "'__version__' is deprecated and slated for removal in Python 3.20".to_owned(),
+                1,
+                vm,
+            )?;
+            return Ok(vm.ctx.new_str("1.1.0").into());
+        }
+        Err(vm.new_attribute_error(format!(
+            "module '_ctypes' has no attribute {}",
+            name.repr(vm)?
+        )))
+    }
 
     // TODO: get properly
     #[pyattr]

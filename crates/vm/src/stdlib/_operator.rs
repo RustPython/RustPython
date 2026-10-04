@@ -351,7 +351,7 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "attrgetter", module = "operator")]
+    #[pyclass(name = "attrgetter", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyAttrGetter {
         attrs: Vec<PyStrRef>,
@@ -470,7 +470,7 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "itemgetter", module = "operator")]
+    #[pyclass(name = "itemgetter", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItemGetter {
         items: Vec<PyObjectRef>,
@@ -556,7 +556,7 @@ mod _operator {
     }
 
     #[pyattr]
-    #[pyclass(name = "methodcaller", module = "operator")]
+    #[pyclass(name = "methodcaller", module = "operator", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyMethodCaller {
         name: PyUtf8StrRef,

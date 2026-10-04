@@ -585,7 +585,7 @@ This will become an error in Python 3.20",
      | Set(expr* elts)\n\
      | ListComp(expr elt, comprehension* generators)\n\
      | SetComp(expr elt, comprehension* generators)\n\
-     | DictComp(expr key, expr value, comprehension* generators)\n\
+     | DictComp(expr key, expr? value, comprehension* generators)\n\
      | GeneratorExp(expr elt, comprehension* generators)\n\
      | Await(expr value)\n\
      | Yield(expr? value)\n\

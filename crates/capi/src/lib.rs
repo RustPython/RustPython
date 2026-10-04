@@ -4,7 +4,7 @@ use crate::pyerrors::init_exception_statics;
 use crate::pylifecycle::{MAIN_INTERP, MAIN_INTERP_PTR};
 use core::sync::atomic::Ordering;
 pub use rustpython_vm::PyObject;
-use rustpython_vm::{Context, Interpreter};
+use rustpython_vm::{Context, Interpreter, PyResult, VirtualMachine};
 use std::sync::MutexGuard;
 
 extern crate alloc;
@@ -69,4 +69,32 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
         interp.as_ref().unwrap() as *const _ as *mut _,
         Ordering::Release,
     );
+}
+
+/// Run and finalize the main VM while leaving C API thread attachment available.
+pub fn run_main_interpreter(
+    mut interpreter: Interpreter,
+    f: impl FnOnce(&VirtualMachine) -> PyResult<()>,
+) -> u32 {
+    let main_thread = interpreter.take_main_thread();
+    init_main_interpreter(interpreter);
+
+    struct RegistrationGuard;
+    impl Drop for RegistrationGuard {
+        fn drop(&mut self) {
+            let mut registered = MAIN_INTERP
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            MAIN_INTERP_PTR.store(core::ptr::null_mut(), Ordering::Release);
+            let interpreter = registered.take();
+            drop(registered);
+            drop(interpreter);
+        }
+    }
+    let _registration = RegistrationGuard;
+
+    // The registered interpreter is an inactive worker-VM template. Running
+    // the original VM locally preserves main-thread state without keeping the
+    // global mutex locked across Python execution or finalization callbacks.
+    main_thread.run(f)
 }

@@ -184,7 +184,7 @@ impl Destructor for PyCoroutine {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
-        if zelf.inner.frame_opt().is_none_or(|f| f.lasti() == 0) {
+        if !zelf.inner.started() {
             crate::warn::warn_unawaited_coroutine(zelf.as_object(), &zelf.inner.qualname(), vm);
             zelf.inner.closed.store(true);
             return Ok(());

@@ -333,7 +333,9 @@ define_opcodes!(
         FormatWithSpec = 13,
         GetAiter = 14,
         GetAnext = 15,
-        GetIter = 16,
+        GetIter {
+            mode: Arg<u32>,
+        } = 16,
         Reserved = 17,
         GetLen = 18,
         GetYieldFromIter = 19,

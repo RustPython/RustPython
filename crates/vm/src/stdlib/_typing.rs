@@ -33,9 +33,11 @@ pub(crate) mod decl {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
-        builtins::{PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_},
+        builtins::{
+            PyFunction, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_,
+        },
         common::wtf8::Wtf8Buf,
-        function::FuncArgs,
+        function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods},
         types::{AsMapping, AsNumber, Callable, Constructor, Iterable, Representable},
     };
@@ -197,10 +199,12 @@ pub(crate) mod decl {
     pub(crate) struct TypeAliasType {
         #[pymember(name = "__name__")]
         name: PyStrRef,
+        #[pymember(name = "__qualname__")]
+        qualname: PyStrRef,
         type_params: PyTupleRef,
         compute_value: PyObjectRef,
         cached_value: crate::common::lock::PyMutex<Option<PyObjectRef>>,
-        module: Option<PyObjectRef>,
+        module: crate::common::lock::PyMutex<Option<PyObjectRef>>,
         is_lazy: bool,
     }
     impl TypeAliasType {
@@ -210,12 +214,19 @@ pub(crate) mod decl {
             type_params: PyTupleRef,
             compute_value: PyObjectRef,
         ) -> Self {
+            let qualname = compute_value
+                .downcast_ref::<PyFunction>()
+                .expect("type alias evaluator must be a function")
+                .code
+                .qualname
+                .to_owned();
             Self {
                 name,
+                qualname,
                 type_params,
                 compute_value,
                 cached_value: crate::common::lock::PyMutex::new(None),
-                module: None,
+                module: crate::common::lock::PyMutex::new(None),
                 is_lazy: true,
             }
         }
@@ -223,16 +234,18 @@ pub(crate) mod decl {
         /// Create with an eagerly evaluated value (used by constructor)
         fn new_eager(
             name: PyStrRef,
+            qualname: PyStrRef,
             type_params: PyTupleRef,
             value: PyObjectRef,
             module: Option<PyObjectRef>,
         ) -> Self {
             Self {
                 name,
+                qualname,
                 type_params,
                 compute_value: value.clone(),
                 cached_value: crate::common::lock::PyMutex::new(Some(value)),
-                module,
+                module: crate::common::lock::PyMutex::new(module),
                 is_lazy: false,
             }
         }
@@ -317,14 +330,23 @@ pub(crate) mod decl {
 
         #[pygetset]
         fn __module__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            if let Some(ref module) = self.module {
-                return module.clone();
+            let module = self.module.lock().clone();
+            if let Some(module) = module {
+                return module;
             }
             // Fall back to compute_value's __module__ (like PyFunction_GetModule)
-            if let Ok(module) = self.compute_value.get_attr("__module__", vm) {
+            if self.is_lazy
+                && let Ok(module) = self.compute_value.get_attr("__module__", vm)
+            {
                 return module;
             }
             vm.ctx.none()
+        }
+
+        #[pygetset(setter)]
+        fn set___module__(&self, value: PySetterValue) {
+            let previous = core::mem::replace(&mut *self.module.lock(), value.into_option());
+            drop(previous);
         }
 
         #[pymethod]
@@ -350,12 +372,14 @@ pub(crate) mod decl {
         type Args = FuncArgs;
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            // typealias(name, value, *, type_params=())
-            // name and value are positional-or-keyword; type_params is keyword-only.
+            // name and value are positional-or-keyword; type_params and qualname are keyword-only.
 
             // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
-                if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
+                if !matches!(
+                    key.as_str(),
+                    Ok("name" | "value" | "type_params" | "qualname")
+                ) {
                     return Err(
                         vm.new_unexpected_keyword_type_error(Some("typealias"), &key.to_string())
                     );
@@ -416,17 +440,25 @@ pub(crate) mod decl {
                 vm.ctx.empty_tuple.clone()
             };
 
+            let qualname = match args.kwargs.get("qualname") {
+                Some(qualname) if !vm.is_none(qualname) => qualname
+                    .clone()
+                    .downcast::<crate::builtins::PyStr>()
+                    .map_err(|_| vm.new_type_error("qualname must be a string"))?,
+                _ => name.clone(),
+            };
+
             // Get caller's module name from frame globals, like typevar.rs caller()
             let module =
                 crate::frame::current_globals().and_then(|g| g.get_item("__name__", vm).ok());
 
-            Ok(Self::new_eager(name, type_params, value, module))
+            Ok(Self::new_eager(name, qualname, type_params, value, module))
         }
     }
 
     impl Representable for TypeAliasType {
         fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            Ok(zelf.name.as_wtf8().to_owned())
+            Ok(zelf.qualname.as_wtf8().to_owned())
         }
     }
 

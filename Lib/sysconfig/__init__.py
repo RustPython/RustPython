@@ -220,6 +220,9 @@ if "_PYTHON_PROJECT_BASE" in os.environ:
     _PROJECT_BASE = _safe_realpath(os.environ["_PYTHON_PROJECT_BASE"])
 
 def is_python_build():
+    # RustPython reports source builds without CPython's Modules/Setup files.
+    if getattr(sys, '_is_python_build', False):
+        return True
     for fn in ("Setup", "Setup.local"):
         if os.path.isfile(os.path.join(_PROJECT_BASE, "Modules", fn)):
             return True

@@ -1,0 +1,62 @@
+--- a/crates/ruff_python_parser/src/error.rs
++++ b/crates/ruff_python_parser/src/error.rs
+@@ -950,0 +951,11 @@
++
++    /// Represents the use of a unary plus in a `match` literal pattern before Python 3.15.
++    ///
++    /// Before 3.15, unary minus was allowed but not plus:
++    ///
++    /// ```python
++    /// match foo:
++    ///     case -1: ...  # okay
++    ///     case +1: ...  # error before 3.15
++    /// ```
++    UnaryPlusMatchPattern,
+@@ -1047,0 +1059,3 @@
++            UnsupportedSyntaxErrorKind::UnaryPlusMatchPattern => {
++                "Unary '+' is not allowed in a literal pattern"
++            }
+@@ -1122,0 +1137,3 @@
++            UnsupportedSyntaxErrorKind::UnaryPlusMatchPattern => {
++                Change::Added(PythonVersion::PY315)
++            }
+--- a/crates/ruff_python_parser/src/parser/mod.rs
++++ b/crates/ruff_python_parser/src/parser/mod.rs
+@@ -1470,4 +1470 @@
+-            RecoveryContextKind::SequenceMatchPattern(_) => {
+-                // `+` doesn't start any pattern but is here for better error recovery.
+-                p.at(TokenKind::Plus) || p.at_pattern_start()
+-            }
++            RecoveryContextKind::SequenceMatchPattern(_) => p.at_pattern_start(),
+--- a/crates/ruff_python_parser/src/parser/pattern.rs
++++ b/crates/ruff_python_parser/src/parser/pattern.rs
+@@ -9 +8,0 @@
+-use crate::ParseErrorType;
+@@ -12,0 +12 @@
++use crate::{ParseErrorType, UnsupportedSyntaxErrorKind};
+@@ -25,0 +26 @@
++    TokenKind::Plus,  // Unary plus
+@@ -487 +487,0 @@
+-                // The `+` is only for better error recovery.
+@@ -497,0 +498,12 @@
++                        // test_ok unary_plus_py315
++                        // # parse_options: {"target-version": "3.15"}
++                        // match foo:
++                        //     case +1: ...
++                        //     # this is also now valid inside more complicated patterns
++                        //     case {+1: 2}: ...
++
++                        // test_err unary_plus_py314
++                        // # parse_options: {"target-version": "3.14"}
++                        // match foo:
++                        //     case +1: ...
++                        //     case {+1: 2}: ...
+@@ -499,5 +511,3 @@
+-                            self.add_error(
+-                                ParseErrorType::OtherError(
+-                                    "Unary '+' is not allowed as a literal pattern".to_string(),
+-                                ),
+-                                &unary_expr,
++                            self.add_unsupported_syntax_error(
++                                UnsupportedSyntaxErrorKind::UnaryPlusMatchPattern,
++                                unary_expr.range,

@@ -625,7 +625,6 @@ class ElementTreeTest(unittest.TestCase):
         elem[0] = ET.PI("key", "value")
         self.serialize_check(elem, 'text<?key value?><subtag>subtext</subtag>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_custom_builder(self):
         # Test parser w. custom builder.
 
@@ -1487,7 +1486,6 @@ class IterparseTest(unittest.TestCase):
             del cm
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_non_utf8(self):
         source = io.BytesIO(
             b"<?xml version='1.0' encoding='iso-8859-1'?>\n"
@@ -1702,11 +1700,9 @@ class XMLPullParserTest(unittest.TestCase):
         self.assert_event_tags(parser, [('end', 'root')])
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_1(self):
         self.test_simple_xml(chunk_size=1, flush=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_xml_chunk_5(self):
         self.test_simple_xml(chunk_size=5, flush=True)
 
@@ -1746,7 +1742,6 @@ class XMLPullParserTest(unittest.TestCase):
         self.assert_event_tags(parser, [('end', '{namespace}root')])
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ns_events(self):
         parser = ET.XMLPullParser(events=('start-ns', 'end-ns'))
         self._feed(parser, "<!-- comment -->\n")
@@ -1762,7 +1757,6 @@ class XMLPullParserTest(unittest.TestCase):
         self.assertEqual(list(parser.read_events()), [('end-ns', None)])
         self.assertIsNone(parser.close())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ns_events_start(self):
         parser = ET.XMLPullParser(events=('start-ns', 'start', 'end'))
         self._feed(parser, "<tag xmlns='abc' xmlns:p='xyz'>\n")
@@ -1786,7 +1780,6 @@ class XMLPullParserTest(unittest.TestCase):
             ('end', '{abc}tag'),
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_ns_events_start_end(self):
         parser = ET.XMLPullParser(events=('start-ns', 'start', 'end', 'end-ns'))
         self._feed(parser, "<tag xmlns='abc' xmlns:p='xyz'>\n")
@@ -2615,7 +2608,6 @@ class BugsTest(unittest.TestCase):
         text = b'x' + b'\xc3\xa0' * 1024
         self.check_expat224_utf8_bug(text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expat224_utf8_bug_file(self):
         with open(UTF8_BUG_XMLFILE, 'rb') as fp:
             raw = fp.read()
@@ -4719,7 +4711,6 @@ class C14NTest(unittest.TestCase):
     #
     # simple roundtrip tests (from c14n.py)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_roundtrip(self):
         # Basics
         self.assertEqual(c14n_roundtrip("<doc/>"), '<doc></doc>')
@@ -4760,7 +4751,6 @@ class C14NTest(unittest.TestCase):
         xml = '<X xmlns="http://nps/a"><Y xmlns:b="http://nsp/b" b:targets="abc,xyz"></Y></X>'
         self.assertEqual(c14n_roundtrip(xml), xml)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_c14n_exclusion(self):
         xml = textwrap.dedent("""\
         <root xmlns:x="http://example.com/x">

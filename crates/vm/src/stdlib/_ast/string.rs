@@ -964,38 +964,33 @@ fn push_ruff_tstring_element(
                 literal.range,
             )));
         }
-        ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
-            range,
-            expression,
-            debug_text,
-            mut conversion,
-            format_spec,
-            node_index: _,
-            runtime_str,
-            runtime_interpolation_format_spec,
-            runtime_formatted_value_format_spec: _,
-        }) => {
-            let expr_range =
-                extend_expr_range_with_wrapping_parens(source_file, range, expression.range())
-                    .unwrap_or_else(|| expression.range());
-            let expr_str = if let Some(debug_text) = &debug_text {
+        ast::InterpolatedStringElement::Interpolation(interpolation) => {
+            let expr_str =
+                rustpython_codegen::interpolation_expression_text(source_file, &interpolation)
+                    .unwrap_or_else(|| {
+                        source_file
+                            .source_text()
+                            .slice(interpolation.expression.range())
+                            .to_owned()
+                    });
+            let ast::InterpolatedElement {
+                range,
+                expression,
+                debug_text,
+                mut conversion,
+                format_spec,
+                runtime_str,
+                runtime_interpolation_format_spec,
+                ..
+            } = interpolation;
+            if let Some(debug_text) = &debug_text {
                 output.push(TemplateStrPart::Constant(interpolation_debug_constant(
                     source_file,
                     debug_text,
                     expression.range(),
                 )));
                 conversion = debug_conversion(conversion, format_spec.is_some());
-                let expr_source = source_file.source_text().slice(expr_range);
-                let mut expr_with_debug = String::with_capacity(
-                    debug_text.leading().len() + expr_source.len() + debug_text.trailing().len(),
-                );
-                expr_with_debug.push_str(debug_text.leading());
-                expr_with_debug.push_str(expr_source);
-                expr_with_debug.push_str(debug_text.trailing());
-                strip_interpolation_expr(&expr_with_debug)
-            } else {
-                tstring_interpolation_expr_str(source_file, range, expr_range)
-            };
+            }
             let runtime_interpolation = super::constant::runtime_interpolation_object(
                 vm,
                 runtime_str,
@@ -1017,85 +1012,6 @@ fn push_ruff_tstring_element(
             }));
         }
     }
-}
-
-fn tstring_interpolation_expr_str(
-    source_file: &SourceFile,
-    interpolation_range: TextRange,
-    expr_range: TextRange,
-) -> String {
-    let expr_range =
-        extend_expr_range_with_wrapping_parens(source_file, interpolation_range, expr_range)
-            .unwrap_or(expr_range);
-    let start = interpolation_range.start() + TextSize::from(1);
-    let start = if start > expr_range.end() {
-        expr_range.start()
-    } else {
-        start
-    };
-    let expr_source = source_file
-        .source_text()
-        .slice(TextRange::new(start, expr_range.end()));
-    strip_interpolation_expr(expr_source)
-}
-
-fn extend_expr_range_with_wrapping_parens(
-    source_file: &SourceFile,
-    interpolation_range: TextRange,
-    expr_range: TextRange,
-) -> Option<TextRange> {
-    let left_slice = source_file.source_text().slice(TextRange::new(
-        interpolation_range.start(),
-        expr_range.start(),
-    ));
-    let mut left_char: Option<(usize, char)> = None;
-    for (idx, ch) in left_slice
-        .char_indices()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-    {
-        if !ch.is_whitespace() {
-            left_char = Some((idx, ch));
-            break;
-        }
-    }
-    let (left_idx, left_ch) = left_char?;
-    if left_ch != '(' {
-        return None;
-    }
-
-    let right_slice = source_file
-        .source_text()
-        .slice(TextRange::new(expr_range.end(), interpolation_range.end()));
-    let mut right_char: Option<(usize, char)> = None;
-    for (idx, ch) in right_slice.char_indices() {
-        if !ch.is_whitespace() {
-            right_char = Some((idx, ch));
-            break;
-        }
-    }
-    let (right_idx, right_ch) = right_char?;
-    if right_ch != ')' {
-        return None;
-    }
-
-    let left_pos = interpolation_range.start() + TextSize::from(left_idx as u32);
-    let right_pos = expr_range.end() + TextSize::from(right_idx as u32);
-    Some(TextRange::new(left_pos, right_pos + TextSize::from(1)))
-}
-
-fn strip_interpolation_expr(expr_source: &str) -> String {
-    let mut end = expr_source.len();
-    for (idx, ch) in expr_source.char_indices().rev() {
-        if ch.is_whitespace() || ch == '=' {
-            end = idx;
-            continue;
-        }
-        end = idx + ch.len_utf8();
-        break;
-    }
-    expr_source[..end].to_owned()
 }
 
 #[derive(Debug)]

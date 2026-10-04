@@ -165,7 +165,6 @@ class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_authorizer_concurrent_mutation_in_call(self):
         self.cx.execute("create table if not exists test(a number)")

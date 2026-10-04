@@ -129,7 +129,9 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
+xml = { path = "vendor/xml" }
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
+rustpython-ruff_python_parser = { path = "vendor/rustpython-ruff_python_parser" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
@@ -158,7 +160,7 @@ members = [
     ".",
     "crates/*",
 ]
-exclude = ["pymath"]
+exclude = ["pymath", "vendor/rustpython-ruff_python_parser", "vendor/xml"]
 
 [workspace.package]
 version = "0.6.1"

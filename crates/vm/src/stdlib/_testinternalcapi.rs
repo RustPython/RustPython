@@ -31,19 +31,20 @@ mod _testinternalcapi {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
-            PyBytesRef, PyCode, PyDict, PyDictRef, PyStrRef, PyType, PyTypeRef,
-            descriptor::PyWrapper,
+            PyBytesRef, PyCapsule, PyCode, PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyUtf8Str, descriptor::PyWrapper,
         },
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::{OptionalArg, PyComparisonValue},
+        function::{ArgIntoBool, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
         types::{
             AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
             SelfIter,
         },
+        vm::crossinterp::{Fallback, SharedValue},
     };
     use std::collections::HashMap;
 
@@ -146,6 +147,107 @@ mod _testinternalcapi {
     #[pyfunction]
     fn code_returns_only_none(code: PyRef<PyCode>, _vm: &VirtualMachine) -> bool {
         crate::vm::crossinterp::code_returns_only_none(&code)
+    }
+
+    static CROSSINTERP_DATA_TAG: u8 = 0;
+
+    fn crossinterp_data_tag() -> *mut core::ffi::c_void {
+        core::ptr::from_ref(&CROSSINTERP_DATA_TAG).cast_mut().cast()
+    }
+
+    unsafe extern "C" fn release_crossinterp_data(obj: *mut PyObject) {
+        // SAFETY: this is installed only as a PyCapsule destructor; the object
+        // remains alive for the duration of the call.
+        let Some(capsule) = (unsafe { &*obj }).downcast_ref::<PyCapsule>() else {
+            return;
+        };
+        if capsule.context() != crossinterp_data_tag() {
+            return;
+        }
+        let data = capsule.pointer().cast::<SharedValue>();
+        capsule.set_pointer(core::ptr::null_mut());
+        if !data.is_null() {
+            // SAFETY: get_crossinterp_data transferred this Box to the capsule.
+            // Clearing the pointer above prevents a second release.
+            drop(unsafe { Box::from_raw(data) });
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct GetCrossinterpDataArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        mode: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn get_crossinterp_data(args: GetCrossinterpDataArgs, vm: &VirtualMachine) -> PyResult {
+        let mode_obj = args.mode.into_option().filter(|mode| !vm.is_none(mode));
+        let mode = match &mode_obj {
+            None => "xidata",
+            Some(mode) => {
+                if !mode.downcastable::<PyStr>() {
+                    return Err(
+                        vm.new_type_error(format!("expected mode str, got {}", mode.repr(vm)?))
+                    );
+                }
+                let mode = mode.try_downcast_ref::<PyUtf8Str>(vm)?.as_str();
+                // The reference hook compares a NUL-terminated UTF-8 string.
+                mode.split('\0').next().unwrap_or_default()
+            }
+        };
+        let data = match mode {
+            "" | "xidata" => SharedValue::from_object(&args.obj, Fallback::XidataOnly, vm),
+            "fallback" => SharedValue::from_object(&args.obj, Fallback::Full, vm),
+            "pickle" => SharedValue::from_pickle(&args.obj, vm),
+            "marshal" => SharedValue::from_marshal(&args.obj, vm),
+            "code" => {
+                let code = args.obj.downcast_ref::<PyCode>().ok_or_else(|| {
+                    crate::stdlib::_interpreters::not_shareable_error(
+                        vm,
+                        format!(
+                            "expected code, got {}",
+                            args.obj.repr(vm).unwrap_or_else(|_| {
+                                vm.ctx.new_str(args.obj.class().name().to_string())
+                            })
+                        ),
+                    )
+                })?;
+                SharedValue::from_code(code, vm)
+            }
+            "func" => SharedValue::from_function(&args.obj, vm),
+            "script" => SharedValue::from_script(&args.obj, false, vm),
+            "script-pure" => SharedValue::from_script(&args.obj, true, vm),
+            _ => {
+                return Err(vm.new_value_error(format!(
+                    "unsupported mode {}",
+                    mode_obj.as_ref().unwrap().repr(vm)?
+                )));
+            }
+        }?;
+        let data = Box::into_raw(Box::new(data)).cast();
+        let capsule = vm
+            .ctx
+            .new_capsule(data, None, Some(release_crossinterp_data));
+        capsule.set_context(crossinterp_data_tag());
+        Ok(capsule.into())
+    }
+
+    #[pyfunction]
+    fn restore_crossinterp_data(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let invalid =
+            || vm.new_value_error("PyCapsule_GetPointer called with invalid PyCapsule object");
+        let capsule = obj.downcast_ref::<PyCapsule>().ok_or_else(invalid)?;
+        if capsule.name().is_some()
+            || capsule.context() != crossinterp_data_tag()
+            || capsule.pointer().is_null()
+        {
+            return Err(invalid());
+        }
+        // SAFETY: only get_crossinterp_data creates capsules with this context.
+        // `obj` owns the capsule during the clone, so the payload cannot be freed.
+        let data = unsafe { &*capsule.pointer().cast::<SharedValue>() }.clone();
+        data.into_object(vm)
     }
 
     #[pyfunction]
@@ -266,27 +368,41 @@ mod _testinternalcapi {
         )
     }
 
+    #[derive(FromArgs)]
+    struct RunInSubinterpArgs {
+        #[pyarg(any)]
+        code: PyStrRef,
+        #[pyarg(any)]
+        config: PyObjectRef,
+        #[pyarg(named, default = false)]
+        xi: ArgIntoBool,
+    }
+
     #[pyfunction]
     fn run_in_subinterp_with_config(
-        code: PyStrRef,
-        config: PyObjectRef,
-        xi: OptionalArg<bool>,
+        args: RunInSubinterpArgs,
         vm: &VirtualMachine,
     ) -> PyResult<i32> {
-        if xi.unwrap_or(false) {
-            return Err(vm.new_runtime_error("cross-interpreter execution is not supported"));
-        }
-        let config = crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?;
-        let source = code
+        let config = crate::stdlib::_interpreters::config_from_pyobject(&args.config, vm)?;
+        let source = args
+            .code
             .to_str()
             .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
+        if source.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let whence = if args.xi.into_bool() {
+            crate::vm::InterpreterWhence::Xi
+        } else {
+            crate::vm::InterpreterWhence::Capi
+        };
         #[cfg(feature = "threading")]
         {
-            run_string_in_new_subinterp(source, config, vm)
+            run_string_in_new_subinterp(source, config, whence, vm)
         }
         #[cfg(not(feature = "threading"))]
         {
-            let _ = (source, config);
+            let _ = (source, config, whence);
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }
@@ -461,27 +577,148 @@ mod _testinternalcapi {
         Ok(settings)
     }
 
-    #[pyfunction]
-    fn create_interpreter(
+    #[derive(FromArgs)]
+    struct CreateInterpreterArgs {
+        #[pyarg(any, optional)]
         config: OptionalArg<PyObjectRef>,
-        _whence: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<i64> {
-        let cfg = match config.into_option() {
-            Some(obj) if !vm.is_none(&obj) => {
-                crate::stdlib::_interpreters::config_from_pyobject(&obj, vm)?
+        #[pyarg(named, default = 4)]
+        whence: i64,
+    }
+
+    #[pyfunction]
+    fn create_interpreter(args: CreateInterpreterArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        use crate::vm::{InterpreterConfig, InterpreterWhence};
+        let whence = match args.whence {
+            0 => InterpreterWhence::Unknown,
+            2 => InterpreterWhence::LegacyCapi,
+            3 => InterpreterWhence::Capi,
+            4 => InterpreterWhence::Xi,
+            value => return Err(vm.new_value_error(format!("unsupported whence {value}"))),
+        };
+        let config = args.config.into_option().filter(|obj| !vm.is_none(obj));
+        let cfg = if matches!(
+            whence,
+            InterpreterWhence::Unknown | InterpreterWhence::LegacyCapi
+        ) {
+            if config.is_some() {
+                return Err(vm.new_value_error("got unexpected config"));
             }
-            _ => crate::vm::InterpreterConfig::ISOLATED,
+            InterpreterConfig::LEGACY
+        } else if let Some(config) = config {
+            crate::stdlib::_interpreters::config_from_pyobject(&config, vm)?
+        } else {
+            InterpreterConfig::ISOLATED
         };
         #[cfg(feature = "threading")]
         {
-            let interp = crate::Interpreter::create_subinterpreter_from_vm(vm, cfg)
-                .map_err(|msg| crate::stdlib::_interpreters::interpreter_error(vm, msg))?;
+            let interp =
+                crate::Interpreter::create_subinterpreter_from_vm_with_whence(vm, cfg, whence)
+                    .map_err(|msg| crate::stdlib::_interpreters::interpreter_error(vm, msg))?;
             Ok(crate::vm::runtime::store_owned_interpreter(interp))
         }
         #[cfg(not(feature = "threading"))]
         {
-            let _ = cfg;
+            let _ = (cfg, whence);
+            Err(vm.new_runtime_error("isolated interpreters require threading"))
+        }
+    }
+
+    #[pyfunction]
+    fn next_interpreter_id() -> i64 {
+        crate::vm::runtime::next_interpreter_id()
+    }
+
+    #[derive(FromArgs)]
+    struct DestroyInterpreterArgs {
+        #[pyarg(any)]
+        id: PyObjectRef,
+        #[pyarg(any, default = false)]
+        basic: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn destroy_interpreter(args: DestroyInterpreterArgs, vm: &VirtualMachine) -> PyResult<()> {
+        use crate::stdlib::_interpreters::{interpreter_error, interpreter_not_found};
+        use crate::vm::{crossinterp, runtime};
+        let id = crate::stdlib::_interpreters::parse_id(&args.id, vm)?;
+        runtime::lookup_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+        if id == vm.state.interpreter_id {
+            return Err(interpreter_error(
+                vm,
+                "cannot destroy the current interpreter",
+            ));
+        }
+        if crossinterp::is_running(id) {
+            return Err(interpreter_error(vm, "interpreter running"));
+        }
+        #[cfg(feature = "threading")]
+        {
+            let interp =
+                runtime::take_owned_interpreter(id).ok_or_else(|| interpreter_not_found(vm, id))?;
+            if args.basic.into_bool() && interp.global_state.ready.load(Ordering::Acquire) {
+                // Exercise out-of-order VM-state destruction before ending the
+                // interpreter, as the basic C-API fixture does with thread states.
+                let first = interp.new_thread();
+                let second = interp.new_thread();
+                second.run(|_| drop(first));
+                drop(second);
+            }
+            let _ = interp.finalize(None);
+            Ok(())
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let _ = args.basic;
+            Err(vm.new_runtime_error("isolated interpreters require threading"))
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct ExecInterpreterArgs {
+        #[pyarg(any)]
+        id: PyObjectRef,
+        #[pyarg(any)]
+        code: PyStrRef,
+        #[pyarg(named, default = false)]
+        main: ArgIntoBool,
+    }
+
+    #[pyfunction]
+    fn exec_interpreter(args: ExecInterpreterArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let source = args
+            .code
+            .to_str()
+            .ok_or_else(|| vm.new_value_error("surrogates not allowed in interpreter source"))?;
+        if source.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let id = crate::stdlib::_interpreters::parse_id(&args.id, vm)?;
+        let state = crate::vm::runtime::lookup_interpreter(id)
+            .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+        if !state.ready.load(Ordering::Acquire) {
+            return Err(crate::stdlib::_interpreters::interpreter_error(
+                vm,
+                "interpreter not ready",
+            ));
+        }
+        #[cfg(feature = "threading")]
+        {
+            if args.main.into_bool() {
+                crate::vm::crossinterp::with_interpreter(id, vm, |target| {
+                    run_interpreter_source(source, target)
+                })
+            } else if id == vm.state.interpreter_id {
+                vm.new_thread()
+                    .run(|target| run_interpreter_source(source, target))
+            } else {
+                let thread = crate::vm::runtime::owned_new_thread(id)
+                    .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+                thread.run(|target| run_interpreter_source(source, target))
+            }
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            let _ = (source, args.main);
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
     }
@@ -1633,41 +1870,52 @@ fn sep_or_end(path: &[char], idx: usize, size: usize) -> bool {
 }
 
 #[cfg(feature = "threading")]
-fn run_string_in_new_subinterp(
+pub(crate) fn run_string_in_new_subinterp(
     source: &str,
     config: crate::vm::InterpreterConfig,
+    whence: crate::vm::InterpreterWhence,
     vm: &VirtualMachine,
 ) -> PyResult<i32> {
-    let interp = crate::Interpreter::create_subinterpreter_from_vm(vm, config).map_err(|msg| {
-        let cause = vm.new_runtime_error(msg.to_owned());
-        let exc =
-            crate::stdlib::_interpreters::interpreter_error(vm, "sub-interpreter creation failed");
-        exc.set_context(Some(cause));
-        exc
-    })?;
+    let interp = crate::Interpreter::create_subinterpreter_from_vm_with_whence(vm, config, whence)
+        .map_err(|msg| {
+            let cause = vm.new_runtime_error(msg.to_owned());
+            let exc = crate::stdlib::_interpreters::interpreter_error(
+                vm,
+                "sub-interpreter creation failed",
+            );
+            exc.set_context(Some(cause));
+            exc
+        })?;
     let id = crate::vm::runtime::store_owned_interpreter(interp);
-    let outcome = crate::vm::crossinterp::with_interpreter(id, vm, |target| {
-        match target.compile(source, crate::compiler::Mode::Exec, "<string>") {
-            Ok(code) => {
-                let ns = target.main_namespace()?;
-                let scope = crate::scope::Scope::with_builtins(None, ns, target);
-                match target.run_code_obj(code, scope) {
-                    Ok(_) => Ok(0),
-                    Err(exc) => {
-                        target.print_exception(&exc);
-                        Ok(-1)
-                    }
-                }
-            }
-            Err(err) => {
-                let exc = err.into_pyexception(target, Some(source));
-                target.print_exception(&exc);
-                Ok(-1)
-            }
-        }
-    });
+    let outcome = {
+        let thread = crate::vm::runtime::owned_new_thread(id)
+            .ok_or_else(|| crate::stdlib::_interpreters::interpreter_not_found(vm, id))?;
+        thread.run(|target| run_interpreter_source(source, target))
+    };
     let _ = crate::vm::runtime::destroy_owned_interpreter(id);
     outcome
+}
+
+#[cfg(feature = "threading")]
+fn run_interpreter_source(source: &str, target: &VirtualMachine) -> PyResult<i32> {
+    match target.compile(source, crate::compiler::Mode::Exec, "<string>") {
+        Ok(code) => {
+            let ns = target.main_namespace()?;
+            let scope = crate::scope::Scope::with_builtins(None, ns, target);
+            match target.run_code_obj(code, scope) {
+                Ok(_) => Ok(0),
+                Err(exc) => {
+                    target.print_exception(&exc);
+                    Ok(-1)
+                }
+            }
+        }
+        Err(err) => {
+            let exc = err.into_pyexception(target, Some(source));
+            target.print_exception(&exc);
+            Ok(-1)
+        }
+    }
 }
 
 #[cfg(feature = "codegen")]

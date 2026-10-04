@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "de398d0cb1ef35e69d91ebdb8c5ac4e900f61710"
+  },
+  "path_in_vcs": "crates/ruff_python_parser"
+}

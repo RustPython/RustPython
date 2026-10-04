@@ -7,6 +7,7 @@
 pub use decl::time;
 
 pub(crate) use decl::module_def;
+pub(crate) use decl::perf_counter_ns as profiler_time;
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
@@ -241,7 +242,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+    pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 

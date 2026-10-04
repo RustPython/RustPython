@@ -1455,7 +1455,7 @@ impl SymbolTableBuilder {
         if table.symbols.contains_key(parameter.name.as_str()) {
             return Err(self.error_ranged(
                 format!(
-                    "duplicate argument '{}' in function definition",
+                    "duplicate parameter '{}' in function definition",
                     parameter.name
                 ),
                 parameter.name.range,
@@ -2419,16 +2419,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let Some(key) = key.as_deref() else {
-                        return Err(self.error_ranged(
-                            "dict unpacking cannot be used in dict comprehension".to_owned(),
-                            *range,
-                        ));
+                    let (element, value) = match key.as_deref() {
+                        Some(key) => (key, Some(value.as_ref())),
+                        None => (value.as_ref(), None),
                     };
                     self.scan_comprehension(
                         &"<dictcomp>".into(),
-                        key,
-                        Some(value),
+                        element,
+                        value,
                         generators,
                         *range,
                         false,
@@ -3204,7 +3202,7 @@ impl SymbolTableBuilder {
 
             if matches!(role, SymbolUsage::Parameter) && flags.contains(SymbolFlags::DEF_PARAM) {
                 return Err(SymbolTableError {
-                    error: format!("duplicate argument '{original_name}' in function definition"),
+                    error: format!("duplicate parameter '{original_name}' in function definition"),
                     location,
                     end_location,
                 });
@@ -3489,7 +3487,7 @@ mod tests {
 
         assert_eq!(
             err.error,
-            "duplicate argument '_C__x' in function definition"
+            "duplicate parameter '_C__x' in function definition"
         );
     }
 

@@ -585,7 +585,12 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn remove(zelf: &Py<Self>, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_element(&subelement, vm)?;
+            if !subelement.downcastable::<Self>() {
+                return Err(vm.new_type_error(format!(
+                    "remove() argument must be xml.etree.ElementTree.Element, not {}",
+                    subelement.class().name()
+                )));
+            }
             // Identity first, then equality, the way `element_remove` does;
             // the equality test can run arbitrary code, so the lock is
             // dropped for it and the list re-read afterwards.
@@ -2336,6 +2341,16 @@ pub(crate) mod _elementtree {
             uri: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let prefix = if vm.is_none(&prefix) {
+                vm.ctx.new_str("").into()
+            } else {
+                prefix
+            };
+            let uri = if vm.is_none(&uri) {
+                vm.ctx.new_str("").into()
+            } else {
+                uri
+            };
             if let Some(builder) = zelf.native_target(vm) {
                 // The standard tree builder has no start_ns() of its own; it
                 // only forwards the event when one was asked for.
@@ -2359,6 +2374,11 @@ pub(crate) mod _elementtree {
             }
             let handler = zelf.state.read().handle_end_ns.clone();
             if let Some(handler) = handler {
+                let prefix = if vm.is_none(&prefix) {
+                    vm.ctx.new_str("").into()
+                } else {
+                    prefix
+                };
                 handler.call((prefix,), vm)?;
             }
             Ok(())

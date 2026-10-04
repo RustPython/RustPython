@@ -3,10 +3,12 @@ mod _abc;
 pub(crate) mod _ast;
 mod _codecs;
 mod _collections;
-pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDictItems;
+pub(crate) use _collections::ordered_dict::ordered_dict::{PyOrderedDict, PyOrderedDictItems};
 mod _functools;
 pub(crate) mod _imp;
 pub mod _io;
+mod _lsprof;
+mod _missing_stdlib_info;
 mod _operator;
 mod _sre;
 mod _stat;
@@ -15,6 +17,8 @@ mod _string;
 mod _symtable;
 mod _sysconfig;
 mod _sysconfigdata;
+#[cfg(all(feature = "capi", feature = "host_env"))]
+mod _testcapi;
 pub(crate) mod _testinternalcapi;
 mod _types;
 pub mod _typing;
@@ -83,6 +87,14 @@ mod winsound;
 
 use crate::{Context, builtins::PyModuleDef};
 
+// Register this only from an executable or embedding library that actually
+// links the C API. Cargo feature unification alone does not establish that.
+#[cfg(all(feature = "capi", feature = "host_env"))]
+#[must_use]
+pub fn capi_test_module_def(ctx: &Context) -> &'static PyModuleDef {
+    _testcapi::module_def(ctx)
+}
+
 /// Returns module definitions for multi-phase init modules.
 ///
 /// These modules use multi-phase initialization pattern:
@@ -113,12 +125,14 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         gc::module_def(ctx),
         _imp::module_def(ctx),
         _io::module_def(ctx),
+        _lsprof::module_def(ctx),
         itertools::module_def(ctx),
         marshal::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         msvcrt::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         nt::module_def(ctx),
+        _missing_stdlib_info::module_def(ctx),
         _operator::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
         posix::module_def(ctx),

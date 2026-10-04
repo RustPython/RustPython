@@ -637,7 +637,7 @@ impl Py<PyFunction> {
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
-                return Ok(self.make_generator_or_coro(frame, vm));
+                return self.initialize_generator_or_coro(frame, vm);
             }
             // Tracing active: use heap frame with full trace support.
             let result = vm.run_frame(frame.clone());
@@ -689,7 +689,11 @@ impl Py<PyFunction> {
     }
 
     /// Create generator, coroutine, or async generator from a FrameObject.
-    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn make_generator_or_coro(
+        &self,
+        frame: FrameObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         let code = frame.iframe().code();
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
@@ -718,6 +722,30 @@ impl Py<PyFunction> {
         }
         frame.set_generator(&obj);
         obj
+    }
+
+    fn initialize_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyResult {
+        let has_preamble = self
+            .code
+            .instructions
+            .iter()
+            .find(|unit| unit.op.deoptimize().as_opcode() == bytecode::Opcode::Resume)
+            .is_some_and(|unit| {
+                u32::from(u8::from(unit.arg)) == bytecode::oparg::ResumeContext::GEN_EXPR_START
+            });
+        if !has_preamble {
+            return Ok(self.make_generator_or_coro(frame, vm));
+        }
+        // Iterator acquisition is eager. This incomplete activation is hidden
+        // from frame inspection until RETURN_GENERATOR creates the generator.
+        let generator = match vm.run_genexpr_preamble(&frame) {
+            Ok(generator) => generator,
+            Err(error) => {
+                crate::frame::release_datastack_frame(&frame, vm);
+                return Err(error);
+            }
+        };
+        Ok(generator)
     }
 
     #[inline(always)]
@@ -844,7 +872,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    ) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -886,7 +914,7 @@ impl Py<PyFunction> {
             }
         }
 
-        self.make_generator_or_coro(frame, vm)
+        self.initialize_generator_or_coro(frame, vm)
     }
 
     pub(crate) fn invoke_prepared_exact_args(
@@ -946,7 +974,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(args.into_iter(), vm));
+            return self.make_generator_exact_args(args.into_iter(), vm);
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -968,7 +996,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(taken, vm));
+            return self.make_generator_exact_args(taken, vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -1094,14 +1122,15 @@ impl Py<PyFunction> {
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
             let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let ann_dict = match ann_dict.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
             *self.annotations.lock() = Some(ann_dict.clone());
@@ -1476,7 +1505,26 @@ impl Py<PyBoundMethod> {
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm)?;
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
         Ok((builtins_getattr, (func_self, func_name)))
     }
 
@@ -1781,7 +1829,7 @@ pub(crate) fn vectorcall_function(
         // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
         // of the call-site specialization that would otherwise catch it.
         args.truncate(nargs);
-        return Ok(zelf.make_generator_exact_args(args.into_iter(), vm));
+        return zelf.make_generator_exact_args(args.into_iter(), vm);
     }
 
     if !has_kwargs && base_simple && nargs == code.arg_count as usize {

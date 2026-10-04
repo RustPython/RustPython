@@ -774,13 +774,21 @@ fn descr_get_wrapper(
     cls: Option<&PyObject>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    // A descriptor whose `__get__` is the descriptor itself resolves it by
-    // fetching `__get__` again, and none of that pushes a Python frame.
+    // slot_tp_descr_get calls the raw type attribute with all three arguments.
+    // Binding it first would omit self for builtin functions and incorrectly
+    // invoke the descriptor protocol of static/class/custom __get__ objects.
+    // Keep both the callable and self owned across user code that deletes them.
     vm.with_recursion(" while calling a Python object", || {
-        vm.call_special_method(
-            zelf,
-            identifier!(vm, __get__),
-            (obj.map(PyObject::to_owned), cls.map(PyObject::to_owned)),
+        let Some(get) = zelf.class().get_attr(identifier!(vm, __get__)) else {
+            return Ok(zelf.to_owned());
+        };
+        get.call(
+            (
+                zelf.to_owned(),
+                obj.map(PyObject::to_owned),
+                cls.map(PyObject::to_owned),
+            ),
+            vm,
         )
     })
 }
@@ -1251,12 +1259,20 @@ impl PyType {
                         NumBinary
                     )
                 } else {
-                    update_sub_slot!(
-                        as_number,
-                        add,
-                        number_binary_op_wrapper!(__add__),
-                        NumBinary
-                    )
+                    // A native sequence __add__ belongs to sq_concat, not
+                    // nb_add. Keeping it out of the numeric slot lets the
+                    // right operand's __radd__ run before sequence fallback.
+                    let add: Option<crate::protocol::PyNumberBinaryFunc> = match self
+                        .lookup_slot_in_mro(name, ctx, |sf| match sf {
+                            SlotFunc::NumBinary(f) => Some(Some(*f)),
+                            SlotFunc::SeqConcat(_) => Some(None),
+                            _ => None,
+                        }) {
+                        SlotLookupResult::NativeSlot(func) => func,
+                        SlotLookupResult::PythonMethod => Some(number_binary_op_wrapper!(__add__)),
+                        SlotLookupResult::NotFound => None,
+                    };
+                    self.slots.as_number.add.store(add);
                 }
             }
             SlotAccessor::NbInplaceAdd => {
@@ -1864,7 +1880,7 @@ impl PyType {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ
-                    if is_subclass_of(for_class_mro, wrapper.typ) {
+                    if is_subclass_of(for_class_mro, &wrapper.typ) {
                         extract(&wrapper.wrapped)
                     } else {
                         None

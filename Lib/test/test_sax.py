@@ -715,7 +715,6 @@ class XmlgenTest:
         self.assertEqual(result.getvalue(),
             self.xml('<my:a xmlns:my="qux" b="c"/>'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_5027_1(self):
         # The xml prefix (as in xml:lang below) is reserved and bound by
         # definition to http://www.w3.org/XML/1998/namespace.  XMLGenerator had
@@ -999,7 +998,6 @@ class ExpatReaderTest(XmlTestBase):
             [("GIF", "-//CompuServe//NOTATION Graphics Interchange Format 89a//EN", None)])
         self.assertEqual(handler._entities, [("img", None, "expat.gif", "GIF")])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_enabled(self):
         # clear _opener global variable
         self.addCleanup(urllib.request.urlcleanup)
@@ -1111,7 +1109,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_empty_nsattrs(gather._attrs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_nsattrs_wattr(self):
         parser = create_parser(1)
         gather = self.AttrGatherer()

@@ -2,6 +2,7 @@
 # Most tests are executed with environment variables ignored
 # See test_cmd_line_script.py for testing of script execution
 
+import locale
 import os
 import re
 import subprocess
@@ -32,6 +33,17 @@ def _kill_python_and_exit_code(p):
     return data, returncode
 
 
+def presite_func():
+    print("presite func")
+
+class Namespace:
+    pass
+
+presite = Namespace()
+presite.attr = Namespace()
+presite.attr.func = presite_func
+
+
 class CmdLineTest(unittest.TestCase):
     def test_directories(self):
         assert_python_failure('.')
@@ -46,6 +58,7 @@ class CmdLineTest(unittest.TestCase):
         return out
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help(self):
         self.verify_valid_flag('-h')
         self.verify_valid_flag('-?')
@@ -57,6 +70,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertLess(len(lines), 50)
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_env(self):
         out = self.verify_valid_flag('--help-env')
         self.assertIn(b'PYTHONHOME', out)
@@ -70,6 +84,7 @@ class CmdLineTest(unittest.TestCase):
                              "env vars should be sorted alphabetically")
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_xoptions(self):
         out = self.verify_valid_flag('--help-xoptions')
         self.assertIn(b'-X dev', out)
@@ -78,6 +93,7 @@ class CmdLineTest(unittest.TestCase):
                          "options should be sorted alphabetically")
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_help_all(self):
         out = self.verify_valid_flag('--help-all')
         lines = out.splitlines()
@@ -88,6 +104,25 @@ class CmdLineTest(unittest.TestCase):
         # The first line contains the program name,
         # but the rest should be ASCII-only
         b''.join(lines[1:]).decode('ascii')
+
+    @support.cpython_only
+    @support.force_colorized
+    def test_help_colorized(self):
+        rc, out, err = assert_python_ok("--help", FORCE_COLOR="1")
+        # Check ANSI color codes are present
+        self.assertIn(b"\x1b[", out)
+        # Check that key text elements are still present
+        self.assertIn(b"usage:", out)
+        self.assertIn(b"-h", out)
+        self.assertIn(b"--help-all", out)
+        self.assertIn(b"cmd", out)
+        self.assertIn(b"Arguments:", out)
+
+    @support.cpython_only
+    @support.force_not_colorized
+    def test_help_not_colorized(self):
+        rc, out, err = assert_python_ok("--help")
+        self.assertNotIn(b"\x1b[", out)
 
     def test_optimize(self):
         self.verify_valid_flag('-O')
@@ -322,6 +357,10 @@ class CmdLineTest(unittest.TestCase):
             cmd = [sys.executable, '-X', 'utf8', '-c', code, arg]
             return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
 
+        def run_no_utf8_mode(arg):
+            cmd = [sys.executable, '-X', 'utf8=0', '-c', code, arg]
+            return subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+
         valid_utf8 = 'e:\xe9, euro:\u20ac, non-bmp:\U0010ffff'.encode('utf-8')
         # invalid UTF-8 byte sequences with a valid UTF-8 sequence
         # in the middle.
@@ -334,8 +373,27 @@ class CmdLineTest(unittest.TestCase):
         )
         test_args = [valid_utf8, invalid_utf8]
 
-        for run_cmd in (run_default, run_c_locale, run_utf8_mode):
-            with self.subTest(run_cmd=run_cmd):
+        for run_cmd, encoding in (
+            (run_default, sys.getfilesystemencoding()),
+            (run_c_locale, None),
+            (run_utf8_mode, None),
+            (run_no_utf8_mode, locale.getencoding())
+        ):
+            with self.subTest(run_cmd=run_cmd.__name__):
+                # Arbitrary bytes round-trip through surrogateescape only in
+                # UTF-8 and single-byte encodings, not in a multibyte encoding
+                # such as EUC-JP.
+                if encoding is not None:
+                    try:
+                        lossless = len(bytes(range(256)).decode(
+                            encoding, 'surrogateescape')) == 256
+                    except UnicodeError:
+                        lossless = False
+                else:
+                    lossless = True
+                if not lossless:
+                    self.skipTest(f'{encoding} cannot losslessly '
+                                  f'round-trip arbitrary bytes')
                 for arg in test_args:
                     proc = run_cmd(arg)
                     self.assertEqual(proc.stdout.rstrip(), ascii(arg))
@@ -509,6 +567,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(b'', out)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @force_not_colorized
     def test_stdout_flush_at_shutdown(self):
         # Issue #5319: if stdout.flush() fails at shutdown, an error should
         # be printed out.
@@ -1066,6 +1125,7 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(proc.stdout.strip(), b'0')
 
     @support.cpython_only
+    @support.force_not_colorized
     def test_parsing_error(self):
         args = [sys.executable, '-I', '--unknown-option']
         proc = subprocess.run(args,
@@ -1207,7 +1267,6 @@ class CmdLineTest(unittest.TestCase):
         res = assert_python_ok('-c', code, PYTHON_CPU_COUNT='default')
         self.assertEqual(self.res2int(res), (os.cpu_count(), os.process_cpu_count()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_import_time(self):
         # os is not imported at startup
         code = 'import os; import os'
@@ -1299,6 +1358,28 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(b"PYTHON_TLBC=N: N is missing or invalid", err)
         rc, out, err = assert_python_failure(PYTHON_TLBC="2")
         self.assertIn(b"PYTHON_TLBC=N: N is missing or invalid", err)
+
+    @unittest.skipUnless(support.Py_DEBUG,
+                         '-X presite requires a Python debug build')
+    def test_presite(self):
+        entrypoint = "test.test_cmd_line:presite_func"
+        proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
+        self.assertEqual(proc.out.rstrip(), b"presite func")
+
+        entrypoint = "test.test_cmd_line:presite.attr.func"
+        proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
+        self.assertEqual(proc.out.rstrip(), b"presite func")
+
+    def test_dump_path_config(self):
+        # gh-151253: At the first import (import encodings) during Python
+        # startup, if the import fails, dump the Python path configuration.
+        nonexistent = '/nonexistent-python-path'
+        # Use -X frozen_modules=off to disable frozen encodings module
+        # on release build.
+        cmd = ["-X", "frozen_modules=off", "-c", "pass"]
+        proc = assert_python_failure(*cmd, PYTHONHOME=nonexistent)
+        self.assertIn(b'Python path configuration:', proc.err)
+        self.assertIn(f"PYTHONHOME = '{nonexistent}'".encode(), proc.err)
 
 
 @unittest.skipIf(interpreter_requires_environment(),

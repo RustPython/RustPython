@@ -595,6 +595,17 @@ x = (
                              r"""b'' f''""",
                              ])
 
+    def test_concat_decode_failure_does_not_crash(self):
+        script = r'''
+import builtins
+builtins.__import__ = builtins  # Breaks warning machinery so _get_resized_exprs returns NULL
+try:
+    compile('"x"f"\]"b""', '<test>', 'exec')
+except Exception:
+    pass
+'''
+        assert_python_ok('-c', script)
+
     def test_literal(self):
         self.assertEqual(f'', '')
         self.assertEqual(f'a', 'a')
@@ -1284,7 +1295,7 @@ x = (
         self.assertEqual(f'{3:}', '3')
         self.assertEqual(f'{3!s:}', '3')
 
-    @unittest.expectedFailureIf(unittest.__spec__.origin == "frozen", "TODO: RUSTPYTHON; frozen module repr has no 'from' path")
+    @unittest.expectedFailureIf(unittest.__spec__.origin == 'frozen', "TODO: RUSTPYTHON; frozen module repr has no 'from' path")
     def test_global(self):
         self.assertEqual(f'g:{a_global}', 'g:global variable')
         self.assertEqual(f'g:{a_global!r}', "g:'global variable'")
@@ -1749,6 +1760,9 @@ x = (
         with self.assertRaisesRegex(SyntaxError,
                                     "f-string: expecting '=', or '!', or ':', or '}'"):
             compile("f'{a $ b}'", "?", "exec")
+        with self.assertRaisesRegex(SyntaxError,
+                                    "f-string: expecting '!', or ':', or '}'"):
+            compile("f'{a=b}'", "?", "exec")
 
     def test_with_two_commas_in_format_specifier(self):
         error_msg = re.escape("Cannot specify ',' with ','.")
@@ -1797,7 +1811,6 @@ sdfsdfs{1+
         except SyntaxError as e:
             self.assertEqual(e.text, 'z = f"""')
             self.assertEqual(e.lineno, 3)
-
     def test_syntax_error_after_debug(self):
         self.assertAllRaise(SyntaxError, "f-string: expecting a valid expression after '{'",
                             [

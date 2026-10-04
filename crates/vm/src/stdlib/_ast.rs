@@ -1851,17 +1851,14 @@ pub(crate) fn parse<E: From<CompileError>>(
         if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
             return Err(error.into());
         }
-        let range = text_range_to_source_range(&source_file, parse_error.location);
-        return Err(CompileError::from(ParseError {
-            error: parse_error.error,
-            raw_location: parse_error.location,
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
-            source_path: source_file.name().to_owned(),
-            is_unclosed_bracket: false,
-            is_unclosed_string: false,
-        })
-        .into());
+        let compile_mode = match mode {
+            parser::Mode::Expression => rustpython_compiler::Mode::Eval,
+            _ if interactive => rustpython_compiler::Mode::Single,
+            _ => rustpython_compiler::Mode::Exec,
+        };
+        return Err(
+            CompileError::from_ruff_parse_error(parse_error, &source_file, compile_mode).into(),
+        );
     }
     if let Some(error) =
         rustpython_compiler::lazy_future_import_error(parsed.syntax(), &source_file)

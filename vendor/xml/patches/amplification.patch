@@ -1,0 +1,1071 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -58,3 +58,6 @@
+ [lib]
+ name = "xml"
+ path = "src/lib.rs"
++
++# Keep the vendored dependency independently checkable.
++[workspace]
+diff --git a/src/reader/amplification.rs b/src/reader/amplification.rs
+new file mode 100644
+--- /dev/null
++++ b/src/reader/amplification.rs
+@@ -0,0 +1,106 @@
++//! Cumulative entity accounting, independent of the fixed depth and queue limits.
++
++/// Immutable limits for cumulative entity expansion. The factor uses the same
++/// single-precision ratio as Expat: `(direct + indirect) / direct`.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct AmplificationLimits {
++    maximum_factor_bits: u32,
++    activation_threshold: u64,
++}
++
++impl AmplificationLimits {
++    /// Rejects NaN and factors below one. Positive infinity is permitted.
++    #[must_use]
++    pub fn new(maximum_factor: f32, activation_threshold: u64) -> Option<Self> {
++        if maximum_factor.is_nan() || maximum_factor < 1.0 {
++            return None;
++        }
++        Some(Self {
++            maximum_factor_bits: maximum_factor.to_bits(),
++            activation_threshold,
++        })
++    }
++}
++
++#[derive(Clone)]
++pub(crate) struct Accounting {
++    limits: Option<AmplificationLimits>,
++    pub(crate) direct: u64,
++    indirect: u64,
++    overflow: bool,
++}
++
++impl Accounting {
++    pub(crate) fn new(limits: Option<AmplificationLimits>) -> Self {
++        Self {
++            limits,
++            direct: 0,
++            indirect: 0,
++            overflow: false,
++        }
++    }
++
++    pub(crate) fn add_direct(&mut self, bytes: usize) {
++        self.direct = self.direct.checked_add(bytes as u64).unwrap_or_else(|| {
++            self.overflow = true;
++            u64::MAX
++        });
++    }
++
++    pub(crate) fn add_indirect(&mut self, bytes: usize) {
++        self.indirect = self.indirect.checked_add(bytes as u64).unwrap_or_else(|| {
++            self.overflow = true;
++            u64::MAX
++        });
++    }
++
++    pub(crate) fn tolerated(&self) -> bool {
++        self.tolerated_at_direct(self.direct)
++    }
++
++    pub(crate) fn tolerated_at_direct(&self, direct: u64) -> bool {
++        let Some(limits) = self.limits else {
++            return true;
++        };
++        let Some(total) = direct.checked_add(self.indirect) else {
++            return false;
++        };
++        if self.overflow {
++            return false;
++        }
++        if total < limits.activation_threshold {
++            return true;
++        }
++        let factor = if direct != 0 {
++            total as f32 / direct as f32
++        } else {
++            // Expat uses the shortest possible external entity declaration.
++            (22.0 + self.indirect as f32) / 22.0
++        };
++        factor <= f32::from_bits(limits.maximum_factor_bits)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn threshold_factor_and_overflow() {
++        assert!(AmplificationLimits::new(f32::NAN, 0).is_none());
++        assert!(AmplificationLimits::new(0.99, 0).is_none());
++        let mut a = Accounting::new(AmplificationLimits::new(1.0, 10));
++        a.add_direct(5);
++        a.add_indirect(4);
++        assert!(a.tolerated());
++        a.add_indirect(1);
++        assert!(!a.tolerated());
++        a.limits = AmplificationLimits::new(f32::INFINITY, 0);
++        assert!(a.tolerated());
++        a.direct = u64::MAX;
++        assert!(!a.tolerated());
++        a.indirect = 0;
++        a.add_direct(1);
++        assert!(!a.tolerated());
++    }
++}
+diff --git a/src/reader/amplification_tests.rs b/src/reader/amplification_tests.rs
+new file mode 100644
+--- /dev/null
++++ b/src/reader/amplification_tests.rs
+@@ -0,0 +1,129 @@
++use super::{AmplificationLimits, ErrorKind, ParserConfig, XmlEvent};
++
++fn parse(source: &[u8], threshold: u64, factor: f32) -> (Option<ErrorKind>, String, Vec<String>) {
++    let mut config = ParserConfig::new().coalesce_characters(false);
++    config.amplification_limits = AmplificationLimits::new(factor, threshold);
++    let mut reader = config.create_reader(source);
++    let mut text = String::new();
++    let mut attributes = Vec::new();
++    loop {
++        match reader.next() {
++            Ok(XmlEvent::Characters(s) | XmlEvent::Whitespace(s)) => text.push_str(&s),
++            Ok(XmlEvent::StartElement {
++                attributes: attrs, ..
++            }) => {
++                attributes.extend(attrs.into_iter().map(|a| a.value));
++            }
++            Ok(XmlEvent::EndDocument) => return (None, text, attributes),
++            Ok(_) => {}
++            Err(error) => {
++                assert_eq!(reader.next().unwrap_err(), error);
++                return (Some(error.kind().clone()), text, attributes);
++            }
++        }
++    }
++}
++
++#[test]
++fn attribute_frontier_and_predefined_deferral() {
++    let input = br#"<!DOCTYPE r [<!ENTITY a "xyz">]><r a="&a;"/>"#;
++    assert_eq!(input.len(), 44);
++    let (error, _, attributes) = parse(input, 0, 1.07);
++    assert!(error.is_none());
++    assert_eq!(attributes, ["xyz"]);
++    assert!(matches!(
++        parse(input, 0, 1.0).0,
++        Some(ErrorKind::AmplificationLimit)
++    ));
++    assert!(parse(br#"<r a="&amp;"/>"#, 0, 1.0).0.is_none());
++    let (error, text, _) = parse(b"<r>&amp;\nxxxxxxxxxxxxxxxxxxxx</r>", 0, 1.1);
++    assert!(matches!(error, Some(ErrorKind::AmplificationLimit)));
++    assert_eq!(text, "&");
++}
++
++#[test]
++fn numeric_references_and_attribute_normalization() {
++    let (error, text, _) = parse(b"<r>&#65;</r>", 0, 1.0);
++    assert!(error.is_none());
++    assert_eq!(text, "A");
++    let (_, _, attrs) = parse(
++        br#"<!DOCTYPE r [<!ENTITY a "&#9;&#10;&#13;">]><r a="&a;"/>"#,
++        0,
++        100.0,
++    );
++    assert_eq!(attrs, ["   "]);
++    let (_, _, attrs) = parse(
++        br#"<!DOCTYPE r [<!ENTITY a "&#13;&#10;">]><r a="&a;"/>"#,
++        0,
++        100.0,
++    );
++    assert_eq!(attrs, ["  "]);
++    let (_, _, attrs) = parse(
++        b"<!DOCTYPE r [<!ENTITY a \"\r\n\">]><r a=\"&a;\"/>",
++        0,
++        100.0,
++    );
++    assert_eq!(attrs, [" "]);
++    for input in [
++        br#"<!DOCTYPE r [<!ENTITY a "<">]><r a="&a;"/>"#.as_slice(),
++        br#"<!DOCTYPE r [<!ENTITY a "&#38;">]><r a="&a;"/>"#.as_slice(),
++    ] {
++        assert!(matches!(
++            parse(input, 0, 100.0).0,
++            Some(ErrorKind::Syntax(_))
++        ));
++    }
++}
++
++#[test]
++fn cdata_start_checks_deferred_predefined_bytes() {
++    let input = b"<r>&amp;<![CDATA[xxxxxxxxxxxxxxxxxxxx]]></r>";
++    let (error, text, _) = parse(input, 0, 1.05);
++    assert!(matches!(error, Some(ErrorKind::AmplificationLimit)));
++    assert_eq!(text, "&");
++    let mut config = ParserConfig::new().cdata_to_characters(true);
++    config.amplification_limits = AmplificationLimits::new(1.05, 0);
++    let result = config
++        .create_reader(input.as_slice())
++        .into_iter()
++        .collect::<Result<Vec<_>, _>>();
++    assert!(matches!(
++        result.unwrap_err().kind(),
++        ErrorKind::AmplificationLimit
++    ));
++}
++
++#[test]
++fn encoded_input_uses_raw_bytes() {
++    let source = "<!DOCTYPE r [<!ENTITY a \"xyz\"><!ENTITY b \"&a;\">]><r>&b;</r>";
++    assert!(matches!(
++        parse(source.as_bytes(), 0, 1.1).0,
++        Some(ErrorKind::AmplificationLimit)
++    ));
++    let utf16: Vec<u8> = [0xff, 0xfe]
++        .into_iter()
++        .chain(source.encode_utf16().flat_map(u16::to_le_bytes))
++        .collect();
++    let (error, text, _) = parse(&utf16, 0, 1.1);
++    assert!(error.is_none());
++    assert_eq!(text, "xyz");
++}
++
++#[test]
++fn fixed_caps_remain_independent_and_measure_nesting() {
++    let sibling = "<!DOCTYPE r [<!ENTITY a \"x\">]><r>".to_owned() + &"&a;".repeat(20) + "</r>";
++    assert_eq!(parse(sibling.as_bytes(), 10000, 1.0).1, "x".repeat(20));
++    for depth in [4, 11, 20] {
++        let mut source = "<!DOCTYPE r [<!ENTITY a0 \"x\">".to_owned();
++        for n in 1..=depth {
++            source += &format!("<!ENTITY a{n} \"&a{};\">", n - 1);
++        }
++        source += &format!("]><r>&a{depth};</r>");
++        let (error, _, _) = parse(source.as_bytes(), 10000, f32::INFINITY);
++        if depth == 4 {
++            assert!(error.is_none());
++        } else {
++            assert!(matches!(error, Some(ErrorKind::Syntax(_))));
++        }
++    }
++}
+diff --git a/src/reader/config.rs b/src/reader/config.rs
+--- a/src/reader/config.rs
++++ b/src/reader/config.rs
+@@ -110,6 +110,9 @@
+ 
+     /// Entities can expand into other entities this many times (be careful about exponential cost!)
+     pub max_entity_expansion_depth: u8,
++
++    /// Optional cumulative entity byte limits, independent of the fixed caps.
++    pub amplification_limits: Option<super::AmplificationLimits>,
+ 
+     /// Maximum length of tag name or attribute name
+     pub max_name_length: usize,
+@@ -156,6 +159,7 @@
+             allow_multiple_root_elements: true,
+             max_entity_expansion_length: DEFAULT_MAX_ENTITY_EXPANSION_LENGTH,
+             max_entity_expansion_depth: DEFAULT_MAX_ENTITY_EXPANSION_DEPTH,
++            amplification_limits: None,
+             max_attributes: 1 << 16,
+             max_attribute_length: 1 << 30,
+             max_data_length: 1 << 30,
+diff --git a/src/reader/error.rs b/src/reader/error.rs
+--- a/src/reader/error.rs
++++ b/src/reader/error.rs
+@@ -21,6 +21,8 @@
+     Utf8(str::Utf8Error),
+     /// The document ended while they were elements/comments/etc. still open
+     UnexpectedEof,
++    /// Cumulative entity expansion exceeded its configured byte ratio.
++    AmplificationLimit,
+     /// [Writer error](crate::writer::Error) for convenience of using a single [`Error`] type
+     EmitterError(Box<EmitterError>),
+ }
+@@ -150,7 +152,7 @@
+ 
+ impl fmt::Display for Error {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        use self::ErrorKind::{EmitterError, Io, Syntax, UnexpectedEof, Utf8};
++        use self::ErrorKind::{AmplificationLimit, EmitterError, Io, Syntax, UnexpectedEof, Utf8};
+ 
+         write!(f, "{} ", self.pos)?;
+         match &self.kind {
+@@ -158,6 +160,7 @@
+             Utf8(reason) => reason.fmt(f),
+             Syntax(msg) => f.write_str(msg),
+             UnexpectedEof => f.write_str("Unexpected EOF"),
++            AmplificationLimit => f.write_str("limit on input amplification factor (from DTD and entities) breached"),
+             EmitterError(e) => e.fmt(f),
+         }
+     }
+@@ -283,9 +286,10 @@
+ impl Clone for ErrorKind {
+     #[cold]
+     fn clone(&self) -> Self {
+-        use self::ErrorKind::{EmitterError, Io, Syntax, UnexpectedEof, Utf8};
++        use self::ErrorKind::{AmplificationLimit, EmitterError, Io, Syntax, UnexpectedEof, Utf8};
+         match self {
+             UnexpectedEof => UnexpectedEof,
++            AmplificationLimit => AmplificationLimit,
+             Utf8(reason) => Utf8(*reason),
+             Io(io_error) => Io(io::Error::new(io_error.kind(), io_error.to_string())),
+             Syntax(msg) => Syntax(msg.clone()),
+@@ -300,6 +304,7 @@
+         use self::ErrorKind::{Io, Syntax, UnexpectedEof, Utf8};
+         match (self, other) {
+             (UnexpectedEof, UnexpectedEof) => true,
++            (Self::AmplificationLimit, Self::AmplificationLimit) => true,
+             (Utf8(left), Utf8(right)) => left == right,
+             (Io(left), Io(right)) =>
+                 left.kind() == right.kind() &&
+diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
+--- a/src/reader/lexer.rs
++++ b/src/reader/lexer.rs
+@@ -224,12 +224,16 @@
+     reader: CharReader,
+     pos: TextPosition,
+     head_pos: TextPosition,
+-    char_queue: VecDeque<char>,
++    char_queue: VecDeque<(Option<char>, bool, usize)>,
++    accounting: super::amplification::Accounting,
++    token_direct_start: u64,
++    unread_direct_bytes: u64,
++    current_is_direct: bool,
+     /// Default state to go back to after a tag end (may be `InsideDoctype`)
+     normal_state: State,
+     inside_token: bool,
+     eof_handled: bool,
+-    reparse_depth: u8,
++    reparse_depth: u16,
+     #[cfg(test)]
+     skip_errors: bool,
+ 
+@@ -250,6 +254,10 @@
+             reader: CharReader::new(Encoding::Unknown),
+             pos: TextPosition::new(),
+             head_pos: TextPosition::new(),
++            accounting: super::amplification::Accounting::new(config.amplification_limits),
++            token_direct_start: 0,
++            unread_direct_bytes: 0,
++            current_is_direct: true,
+             char_queue: VecDeque::with_capacity(4), // TODO: check size
+             st: State::Normal,
+             normal_state: State::Normal,
+@@ -262,6 +270,22 @@
+             max_entity_expansion_depth: config.max_entity_expansion_depth,
+             max_entity_expansion_length: config.max_entity_expansion_length,
+         }
++    }
++
++    pub(crate) fn account_indirect(&mut self, bytes: usize, enforce: bool) -> Result<()> {
++        self.accounting.add_indirect(bytes);
++        if enforce { self.check_amplification()?; }
++        Ok(())
++    }
++
++    pub(crate) fn check_amplification_before_token(&self) -> Result<()> {
++        if self.accounting.tolerated_at_direct(self.token_direct_start) { return Ok(()); }
++        Err(Error { pos: self.position(), kind: super::error::ErrorKind::AmplificationLimit })
++    }
++
++    pub(crate) fn check_amplification(&self) -> Result<()> {
++        if self.accounting.tolerated() { return Ok(()); }
++        Err(Error { pos: self.position(), kind: super::error::ErrorKind::AmplificationLimit })
+     }
+ 
+     pub(crate) fn encoding(&self) -> Encoding {
+@@ -298,12 +322,20 @@
+         }
+ 
+         if !self.inside_token {
++            self.token_direct_start = self.accounting.direct.saturating_sub(self.unread_direct_bytes);
+             self.pos = self.head_pos;
+             self.inside_token = true;
+         }
+ 
+         // Check if we have saved a char or two for ourselves
+-        while let Some(c) = self.char_queue.pop_front() {
++        while let Some((c, expanded, direct_bytes)) = self.char_queue.pop_front() {
++            let Some(c) = c else {
++                self.reparse_depth -= 1;
++                continue;
++            };
++            self.unread_direct_bytes -= direct_bytes as u64;
++            self.current_is_direct = direct_bytes != 0;
++            if expanded { self.account_indirect(c.len_utf8(), true)?; }
+             if let Some(t) = self.dispatch_char(c)? {
+                 self.inside_token = false;
+                 return Ok(t);
+@@ -311,7 +343,12 @@
+         }
+         // if char_queue is empty, all circular reparsing is done
+         self.reparse_depth = 0;
+-        while let Some(c) = self.reader.next_char_from(b)? {
++        loop {
++            let mut counted = CountingRead { source: b, bytes: 0 };
++            let next = self.reader.next_char_from(&mut counted);
++            self.accounting.add_direct(counted.bytes);
++            let Some(c) = next? else { break; };
++            self.current_is_direct = true;
+             if c == '\n' {
+                 self.head_pos.new_line();
+             } else {
+@@ -396,7 +433,15 @@
+ 
+     fn move_to_with_unread(&mut self, st: State, cs: &[char], token: Token) -> Token {
+         for c in cs.iter().rev().copied() {
+-            self.char_queue.push_front(c);
++            let bytes = if self.current_is_direct {
++                match self.reader.encoding {
++                    Encoding::Utf16Be | Encoding::Utf16Le | Encoding::Utf16 => c.len_utf16() * 2,
++                    Encoding::Latin1 | Encoding::Ascii => 1,
++                    _ => c.len_utf8(),
++                }
++            } else { 0 };
++            self.unread_direct_bytes += bytes as u64;
++            self.char_queue.push_front((Some(c), false, bytes));
+         }
+         self.move_to_with(st, token)
+     }
+@@ -407,14 +452,23 @@
+         }
+ 
+         self.reparse_depth += 1;
+-        if self.reparse_depth > self.max_entity_expansion_depth || self.char_queue.len() > self.max_entity_expansion_length {
++        if self.reparse_depth > u16::from(self.max_entity_expansion_depth) || self.char_queue.len() > self.max_entity_expansion_length {
+             return Err(self.error(SyntaxError::EntityTooBig));
+         }
+ 
++        // Check the pending queue before allocating it. This is a separate
++        // fixed cap, not a cumulative amplification failure.
++        let characters = markup.chars().count();
++        if characters > self.max_entity_expansion_length.saturating_sub(self.char_queue.len()) {
++            return Err(self.error(SyntaxError::EntityTooBig));
++        }
+         self.reset_eof_handled();
+-        self.char_queue.reserve(markup.len());
++        self.char_queue.reserve(characters + 1);
++        // A boundary records when an expansion actually finishes; queued
++        // sibling references do not increase the nesting depth.
++        self.char_queue.push_front((None, false, 0));
+         for c in markup.chars().rev() {
+-            self.char_queue.push_front(c);
++            self.char_queue.push_front((Some(c), true, 0));
+         }
+ 
+         Ok(())
+@@ -428,8 +482,8 @@
+         if self.skip_errors {
+             let mut chars = chunk.chars();
+             let first = chars.next().unwrap_or('\0');
+-            self.char_queue.extend(chars);
+-            self.char_queue.push_back(c);
++            self.char_queue.extend(chars.map(|c| (Some(c), false, 0)));
++            self.char_queue.push_back((Some(c), false, 0));
+             return Ok(Some(self.move_to_with(State::Normal, Token::Character(first))));
+         }
+         Err(self.error(SyntaxError::UnexpectedTokenBefore(chunk, c)))
+@@ -633,6 +687,16 @@
+     }
+ }
+ 
++// Count at the decoder boundary, not at a buffered source that can read ahead.
++struct CountingRead<'a, R> { source: &'a mut R, bytes: usize }
++impl<R: Read> Read for CountingRead<'_, R> {
++    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
++        let n = self.source.read(buffer)?;
++        self.bytes += n;
++        Ok(n)
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use crate::common::Position;
+@@ -1145,3 +1209,4 @@
+         assert_none!(for lex and buf);
+     }
+ }
++
+diff --git a/src/reader/parser/attribute_expansion.rs b/src/reader/parser/attribute_expansion.rs
+new file mode 100644
+--- /dev/null
++++ b/src/reader/parser/attribute_expansion.rs
+@@ -0,0 +1,158 @@
++use super::PullParser;
++use crate::common::Position;
++use crate::reader::error::SyntaxError;
++use crate::reader::{Error, Result};
++
++impl PullParser {
++    pub(super) fn expand_attribute(&mut self, raw: &str) -> Result<String> {
++        let mut value = String::new();
++        Self::expand_attribute_part(
++            raw,
++            0,
++            &self.entities,
++            &self.config,
++            self.data.version,
++            &mut self.lexer,
++            &mut value,
++        )?;
++        Ok(value)
++    }
++
++    fn expand_attribute_part(
++        raw: &str,
++        depth: usize,
++        entities: &std::collections::HashMap<String, String>,
++        config: &crate::reader::ParserConfig,
++        version: Option<crate::common::XmlVersion>,
++        lexer: &mut crate::reader::lexer::Lexer,
++        value: &mut String,
++    ) -> Result<()> {
++        let error = |e: SyntaxError| Error::syntax(e.to_cow(), lexer.position());
++        if depth > usize::from(config.max_entity_expansion_depth) {
++            return Err(error(SyntaxError::EntityTooBig));
++        }
++        let mut rest = raw;
++        while !rest.is_empty() {
++            let split = rest.split_once('&');
++            let (literal, tail) = split.unwrap_or((rest, ""));
++            if literal.contains('<') {
++                return Err(Error::syntax(
++                    SyntaxError::UnexpectedOpeningTag.to_cow(),
++                    lexer.position(),
++                ));
++            }
++            if value.len().saturating_add(literal.len()) > config.max_attribute_length {
++                return Err(Error::syntax(
++                    SyntaxError::ExceededConfiguredLimit.to_cow(),
++                    lexer.position(),
++                ));
++            }
++            // XML attribute whitespace normalization also applies to the
++            // replacement text of general entities, but not to numeric
++            // references written directly in the attribute.
++            let mut chars = literal.chars().peekable();
++            while let Some(c) = chars.next() {
++                value.push(if matches!(c, '\t' | '\n' | '\r') {
++                    ' '
++                } else {
++                    c
++                });
++                if depth == 0 && c == '\r' && chars.peek() == Some(&'\n') {
++                    chars.next();
++                }
++            }
++            if split.is_none() {
++                break;
++            }
++            let Some((name, after)) = tail.split_once(';') else {
++                return Err(Error::syntax(
++                    SyntaxError::EmptyEntity.to_cow(),
++                    lexer.position(),
++                ));
++            };
++            rest = after;
++            let predefined = match name {
++                "lt" => Some('<'),
++                "gt" => Some('>'),
++                "amp" => Some('&'),
++                "apos" => Some('\''),
++                "quot" => Some('"'),
++                _ => None,
++            };
++            if let Some(c) = predefined {
++                lexer.account_indirect(c.len_utf8(), false)?;
++                value.push(c);
++            } else if let Some(number) = name.strip_prefix('#') {
++                let n = if let Some(hex) = number.strip_prefix('x') {
++                    u32::from_str_radix(hex, 16)
++                } else {
++                    number.parse::<u32>()
++                };
++                let n = n.map_err(|_| {
++                    Error::syntax(
++                        SyntaxError::InvalidNumericEntity(number.into()).to_cow(),
++                        lexer.position(),
++                    )
++                })?;
++                let valid = char::from_u32(n).filter(|&c| {
++                    if version == Some(crate::common::XmlVersion::Version11) {
++                        crate::common::is_xml11_char(c)
++                    } else {
++                        crate::common::is_xml10_char(c)
++                    }
++                });
++                let c = if let Some(c) = valid {
++                    c
++                } else if config.replace_unknown_entity_references {
++                    '\u{fffd}'
++                } else {
++                    return Err(Error::syntax(
++                        SyntaxError::InvalidCharacterEntity(n).to_cow(),
++                        lexer.position(),
++                    ));
++                };
++                value.push(c);
++            } else if let Some(entity) = config.extra_entities.get(name) {
++                lexer.account_indirect(entity.len(), true)?;
++                if value.len().saturating_add(entity.len()) > config.max_attribute_length {
++                    return Err(Error::syntax(
++                        SyntaxError::ExceededConfiguredLimit.to_cow(),
++                        lexer.position(),
++                    ));
++                }
++                value.push_str(entity);
++            } else if let Some(entity) = entities.get(name) {
++                // Charge each replacement before recursively materializing it.
++                // The spelling of nested references is counted again when used.
++                lexer.account_indirect(entity.len(), true)?;
++                if entity.len() > config.max_entity_expansion_length {
++                    return Err(Error::syntax(
++                        SyntaxError::EntityTooBig.to_cow(),
++                        lexer.position(),
++                    ));
++                }
++                Self::expand_attribute_part(
++                    entity,
++                    depth + 1,
++                    entities,
++                    config,
++                    version,
++                    lexer,
++                    value,
++                )?;
++            } else {
++                return Err(Error::syntax(
++                    SyntaxError::UnexpectedEntity(name.into()).to_cow(),
++                    lexer.position(),
++                ));
++            }
++            if value.len() > config.max_attribute_length {
++                return Err(Error::syntax(
++                    SyntaxError::ExceededConfiguredLimit.to_cow(),
++                    lexer.position(),
++                ));
++            }
++        }
++        Ok(())
++    }
++}
+diff --git a/src/reader/parser/inside_comment.rs b/src/reader/parser/inside_comment.rs
+--- a/src/reader/parser/inside_comment.rs
++++ b/src/reader/parser/inside_comment.rs
+@@ -6,6 +6,9 @@
+ 
+ impl PullParser {
+     pub fn inside_comment(&mut self, t: Token) -> Option<Result> {
++        if t == Token::CommentEnd {
++            if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
++        }
+         match t {
+             Token::CommentEnd if self.config.ignore_comments => {
+                 self.into_state_continue(State::OutsideTag)
+diff --git a/src/reader/parser/inside_doctype.rs b/src/reader/parser/inside_doctype.rs
+--- a/src/reader/parser/inside_doctype.rs
++++ b/src/reader/parser/inside_doctype.rs
+@@ -16,6 +16,14 @@
+             }
+         }
+ 
++        if self.config.amplification_limits.is_some() {
++            // Normalize physical newlines before storing entity text. Numeric
++            // character references retain their CR/LF identity for later
++            // attribute normalization.
++            let skip_lf = self.entity_value_after_cr && substate == DoctypeSubstate::EntityValue && t == Token::Character('\n');
++            self.entity_value_after_cr = substate == DoctypeSubstate::EntityValue && t == Token::Character('\r');
++            if skip_lf { return None; }
++        }
+         match substate {
+             DoctypeSubstate::BeforeDoctypeName => match t {
+                 Token::Character(c) if is_whitespace_char(c) => None,
+@@ -312,7 +320,7 @@
+                     Some(self.error(SyntaxError::InvalidCharacterEntity(c as u32)))
+                 }
+                 Token::Character(c) => {
+-                    self.buf.push(c);
++                    self.buf.push(if self.config.amplification_limits.is_some() && c == '\r' { '\n' } else { c });
+                     None
+                 }
+                 _ => Some(self.error(SyntaxError::UnexpectedTokenInEntity(t))),
+@@ -370,6 +378,7 @@
+                     let name = self.data.take_ref_data();
+                     match self.entities.get(&name) {
+                         Some(ent) => {
++                            if let Err(e) = self.lexer.account_indirect(ent.len(), true) { return Some(Err(e)); }
+                             self.buf.push_str(ent);
+                             self.into_state_continue(State::InsideDoctype(
+                                 DoctypeSubstate::EntityValue,
+diff --git a/src/reader/parser/inside_opening_tag.rs b/src/reader/parser/inside_opening_tag.rs
+--- a/src/reader/parser/inside_opening_tag.rs
++++ b/src/reader/parser/inside_opening_tag.rs
+@@ -9,7 +9,6 @@
+ 
+ impl PullParser {
+     pub fn inside_opening_tag(&mut self, t: Token, s: OpeningTagSubstate) -> Option<Result> {
+-        let max_attrs = self.config.max_attributes;
+         match s {
+             OpeningTagSubstate::InsideName => self.read_qualified_name(t, QualifiedNameTarget::OpeningTag, |this, token, name| {
+                 match name.prefix_ref() {
+@@ -66,46 +65,15 @@
+             OpeningTagSubstate::InsideAttributeValue => self.read_attribute_value(t, |this, value| {
+                 let name = this.data.take_attr_name()?;  // will always succeed here
+                 let pos = this.data.take_attr_pos();
+-                match name.prefix_ref() {
+-                    // declaring a new prefix; it is sufficient to check prefix only
+-                    // because "xmlns" prefix is reserved
+-                    Some(namespace::NS_XMLNS_PREFIX) => {
+-                        let ln = &*name.local_name;
+-                        if ln == namespace::NS_XMLNS_PREFIX {
+-                            Some(this.error(SyntaxError::CannotRedefineXmlnsPrefix))
+-                        } else if ln == namespace::NS_XML_PREFIX && &*value != namespace::NS_XML_URI {
+-                            Some(this.error(SyntaxError::CannotRedefineXmlPrefix))
+-                        } else if value.is_empty() {
+-                            Some(this.error(SyntaxError::CannotUndefinePrefix(ln.into())))
+-                        } else {
+-                            this.nst.put(name.local_name.clone(), value);
+-                            this.into_state_continue(State::InsideOpeningTag(OpeningTagSubstate::AfterAttributeValue))
+-                        }
+-                    },
+-
+-                    // declaring default namespace
+-                    None if &*name.local_name == namespace::NS_XMLNS_PREFIX =>
+-                        match &*value {
+-                            namespace::NS_XMLNS_PREFIX | namespace::NS_XML_PREFIX | namespace::NS_XML_URI | namespace::NS_XMLNS_URI =>
+-                                Some(this.error(SyntaxError::InvalidDefaultNamespace(value.into()))),
+-                            _ => {
+-                                this.nst.put(namespace::NS_NO_PREFIX, value.clone());
+-                                this.into_state_continue(State::InsideOpeningTag(OpeningTagSubstate::AfterAttributeValue))
+-                            }
+-                        },
+-
+-                    // regular attribute
+-                    _ => {
+-                        if this.data.attributes.len() >= max_attrs {
+-                            return Some(this.error(SyntaxError::ExceededConfiguredLimit));
+-                        }
+-                        if let Some(pos) = pos {
+-                            this.data.attribute_positions.push(pos);
+-                        }
+-                        this.data.attributes.push(OwnedAttribute { name, value });
+-                        this.into_state_continue(State::InsideOpeningTag(OpeningTagSubstate::AfterAttributeValue))
+-                    },
++                if this.config.amplification_limits.is_some() {
++                    if this.pending_attributes.len() >= this.config.max_attributes {
++                        return Some(this.error(SyntaxError::ExceededConfiguredLimit));
++                    }
++                    this.pending_attributes.push((name, value, pos));
++                } else if let Err(e) = this.finish_attribute(name, value, pos) {
++                    return Some(Err(e));
+                 }
++                this.into_state_continue(State::InsideOpeningTag(OpeningTagSubstate::AfterAttributeValue))
+             }),
+ 
+             OpeningTagSubstate::AfterAttributeValue => match t {
+@@ -118,4 +86,39 @@
+             },
+         }
+     }
++
++    pub(super) fn finish_attribute(&mut self, name: crate::name::OwnedName, value: String,
++                                  pos: Option<crate::common::TextPosition>) -> crate::reader::Result<()> {
++        match name.prefix_ref() {
++            Some(namespace::NS_XMLNS_PREFIX) => {
++                let ln = &*name.local_name;
++                let error = if ln == namespace::NS_XMLNS_PREFIX {
++                    Some(SyntaxError::CannotRedefineXmlnsPrefix)
++                } else if ln == namespace::NS_XML_PREFIX && &*value != namespace::NS_XML_URI {
++                    Some(SyntaxError::CannotRedefineXmlPrefix)
++                } else if value.is_empty() {
++                    Some(SyntaxError::CannotUndefinePrefix(ln.into()))
++                } else { None };
++                if let Some(e) = error {
++                    return Err(crate::reader::Error::syntax(e.to_cow(), self.lexer.position()));
++                }
++                self.nst.put(name.local_name, value);
++            }
++            None if &*name.local_name == namespace::NS_XMLNS_PREFIX => {
++                match &*value {
++                    namespace::NS_XMLNS_PREFIX | namespace::NS_XML_PREFIX | namespace::NS_XML_URI | namespace::NS_XMLNS_URI =>
++                        return Err(crate::reader::Error::syntax(SyntaxError::InvalidDefaultNamespace(value.into()).to_cow(), self.lexer.position())),
++                    _ => { self.nst.put(namespace::NS_NO_PREFIX, value); }
++                }
++            }
++            _ => {
++                if self.data.attributes.len() >= self.config.max_attributes {
++                    return Err(crate::reader::Error::syntax(SyntaxError::ExceededConfiguredLimit.to_cow(), self.lexer.position()));
++                }
++                if let Some(pos) = pos { self.data.attribute_positions.push(pos); }
++                self.data.attributes.push(OwnedAttribute { name, value });
++            }
++        }
++        Ok(())
++    }
+ }
+diff --git a/src/reader/parser/inside_processing_instruction.rs b/src/reader/parser/inside_processing_instruction.rs
+--- a/src/reader/parser/inside_processing_instruction.rs
++++ b/src/reader/parser/inside_processing_instruction.rs
+@@ -8,6 +8,9 @@
+ 
+ impl PullParser {
+     pub fn inside_processing_instruction(&mut self, t: Token, s: ProcessingInstructionSubstate) -> Option<Result> {
++        if t == Token::ProcessingInstructionEnd {
++            if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
++        }
+         match s {
+             ProcessingInstructionSubstate::PIInsideName => match t {
+                 Token::Character(c) if self.buf.is_empty() && is_name_start_char(c) ||
+diff --git a/src/reader/parser/inside_reference.rs b/src/reader/parser/inside_reference.rs
+--- a/src/reader/parser/inside_reference.rs
++++ b/src/reader/parser/inside_reference.rs
+@@ -19,6 +19,16 @@
+                     return Some(self.error(SyntaxError::EmptyEntity));
+                 }
+ 
++                // Opening-tag attributes are expanded after the entire raw
++                // tag has been counted, including namespace declarations.
++                if self.config.amplification_limits.is_some()
++                    && matches!(self.state_after_reference, State::InsideOpeningTag(_)) {
++                    self.buf.push('&');
++                    self.buf.push_str(&name);
++                    self.buf.push(';');
++                    return self.into_state_continue(self.state_after_reference);
++                }
++                if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
+                 let c = match &*name {
+                     "lt"   => Some('<'),
+                     "gt"   => Some('>'),
+@@ -32,8 +42,14 @@
+                     _ => None,
+                 };
+                 if let Some(c) = c {
++                    // Numeric references are part of the input token; the five
++                    // named predefined replacements count as indirect bytes.
++                    if !name.starts_with('#') {
++                        if let Err(e) = self.lexer.account_indirect(c.len_utf8(), false) { return Some(Err(e)); }
++                    }
+                     self.buf.push(c);
+                 } else if let Some(v) = self.config.extra_entities.get(&name) {
++                    if let Err(e) = self.lexer.account_indirect(v.len(), true) { return Some(Err(e)); }
+                     self.buf.push_str(v);
+                 } else if let Some(v) = self.entities.get(&name) {
+                     if self.state_after_reference == State::OutsideTag {
+@@ -44,6 +60,7 @@
+                     } else {
+                         // however, inside attributes it's not allowed to affect attribute quoting,
+                         // so it can't be fed to the lexer
++                        if let Err(e) = self.lexer.account_indirect(v.len(), true) { return Some(Err(e)); }
+                         self.buf.push_str(v);
+                     }
+                 } else {
+@@ -52,6 +69,12 @@
+                 let prev_st = self.state_after_reference;
+                 if prev_st == State::OutsideTag && !is_whitespace_char(self.buf.chars().last().unwrap_or('\0')) {
+                     self.inside_whitespace = false;
++                }
++                if prev_st == State::OutsideTag && c.is_some()
++                    && self.config.amplification_limits.is_some() && !self.config.coalesce_characters {
++                    let value = self.take_buf();
++                    self.push_pos();
++                    return self.into_state_emit(prev_st, Ok(crate::reader::XmlEvent::Characters(value)));
+                 }
+                 self.into_state_continue(prev_st)
+             },
+diff --git a/src/reader/parser/outside_tag.rs b/src/reader/parser/outside_tag.rs
+--- a/src/reader/parser/outside_tag.rs
++++ b/src/reader/parser/outside_tag.rs
+@@ -12,6 +12,20 @@
+     pub fn outside_tag(&mut self, t: Token) -> Option<Result> {
+         match t {
+             Token::Character(c) => {
++                if self.config.amplification_limits.is_some() && matches!(c, '\n' | '\r') {
++                    if self.literal_text_pending {
++                        if let Err(e) = self.lexer.check_amplification_before_token() { return Some(Err(e)); }
++                    }
++                    if let Err(e) = self.lexer.check_amplification() {
++                        if !self.buf.is_empty() && !self.config.coalesce_characters {
++                            let text = self.take_buf();
++                            self.next_event = Some(Err(e));
++                            return Some(Ok(XmlEvent::Characters(text)));
++                        }
++                        return Some(Err(e));
++                    }
++                }
++                self.literal_text_pending = true;
+                 if is_whitespace_char(c) {
+                     // skip whitespace outside of the root element
+                     if (self.config.trim_whitespace && self.buf.is_empty()) ||
+@@ -45,6 +59,7 @@
+                     return Some(self.error(SyntaxError::UnexpectedTokenOutsideRoot(t)));
+                 }
+                 self.inside_whitespace = false;
++                self.literal_text_pending = true;
+ 
+                 if let Some(s) = t.as_static_str() {
+                     if self.buf.is_empty() {
+@@ -59,11 +74,20 @@
+             },
+ 
+             Token::ReferenceStart if self.depth() > 0 => {
++                if self.config.amplification_limits.is_some() && self.literal_text_pending {
++                    if let Err(e) = self.lexer.check_amplification_before_token() { return Some(Err(e)); }
++                }
++                self.literal_text_pending = false;
+                 self.state_after_reference = State::OutsideTag;
++                if self.config.amplification_limits.is_some() && !self.config.coalesce_characters && !self.buf.is_empty() {
++                    let text = self.take_buf();
++                    return self.into_state_emit(State::InsideReference, Ok(XmlEvent::Characters(text)));
++                }
+                 self.into_state_continue(State::InsideReference)
+             },
+ 
+             Token::ReferenceEnd if self.depth() > 0 => { // Semi-colon in a text outside an entity
++                self.literal_text_pending = true;
+                 self.inside_whitespace = false;
+                 if self.buf.len() > self.config.max_data_length {
+                     return Some(self.error(SyntaxError::ExceededConfiguredLimit));
+@@ -79,6 +103,7 @@
+             },
+ 
+             Token::CDataStart if self.depth() > 0 && self.config.coalesce_characters && self.config.cdata_to_characters => {
++                if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
+                 if self.buf.is_empty() {
+                     self.push_pos(); // CDataEnd will pop pos if the buffer remains empty
+                 }
+@@ -87,6 +112,10 @@
+             },
+ 
+             _ => {
++                if self.config.amplification_limits.is_some() && self.literal_text_pending {
++                    if let Err(e) = self.lexer.check_amplification_before_token() { return Some(Err(e)); }
++                }
++                self.literal_text_pending = false;
+                 // Encountered some markup event, flush the buffer as characters
+                 // or a whitespace
+                 let mut next_event = if self.buf_has_data() {
+@@ -148,6 +177,7 @@
+                     ),
+ 
+                     Token::CDataStart if self.depth() > 0 => {
++                        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
+                         self.into_state(State::InsideCData, next_event)
+                     },
+ 
+diff --git a/src/reader/parser.rs b/src/reader/parser.rs
+--- a/src/reader/parser.rs
++++ b/src/reader/parser.rs
+@@ -53,6 +53,7 @@
+ mod inside_opening_tag;
+ mod inside_processing_instruction;
+ mod inside_reference;
++mod attribute_expansion;
+ mod outside_tag;
+ 
+ static DEFAULT_VERSION: XmlVersion = XmlVersion::Version10;
+@@ -77,6 +78,7 @@
+ 
+     /// From DTD internal subset
+     entities: HashMap<String, String>,
++    pending_attributes: Vec<(OwnedName, String, Option<TextPosition>)>,
+ 
+     nst: NamespaceStack,
+ 
+@@ -88,6 +90,8 @@
+ 
+     encountered: Encountered,
+     inside_whitespace: bool,
++    literal_text_pending: bool,
++    entity_value_after_cr: bool,
+     seen_prefix_separator: bool,
+     pop_namespace: bool,
+ }
+@@ -128,6 +132,7 @@
+             buf: String::with_capacity(STRING_RESERVE_CAPACITY),
+             qualified_name_buf: String::with_capacity(STRING_RESERVE_CAPACITY),
+             entities: HashMap::new(),
++            pending_attributes: Vec::new(),
+             nst: NamespaceStack::default(),
+ 
+             data: MarkupData {
+@@ -154,6 +159,8 @@
+ 
+             encountered: Encountered::None,
+             inside_whitespace: true,
++            literal_text_pending: false,
++            entity_value_after_cr: false,
+             seen_prefix_separator: false,
+             pop_namespace: false,
+         }
+@@ -383,7 +390,7 @@
+         }
+ 
+         if let Some(ev) = self.next_event.take() {
+-            return ev;
++            return if ev.is_err() { self.set_final_result(ev) } else { ev };
+         }
+ 
+         if self.pop_namespace {
+@@ -429,6 +436,9 @@
+     /// Handle end of stream
+     #[cold]
+     fn handle_eof(&mut self) -> std::result::Result<XmlEvent, Error> {
++        if self.literal_text_pending {
++            if let Err(e) = self.lexer.check_amplification() { return self.set_final_result(Err(e)); }
++        }
+         let ev = if self.depth() == 0 {
+             if self.encountered == Encountered::Element && self.st == State::OutsideTag {  // all is ok
+                 Ok(XmlEvent::EndDocument)
+@@ -671,6 +681,17 @@
+     }
+ 
+     fn emit_start_element(&mut self, emit_end_element: bool) -> Option<Result> {
++        // Expat accounts for a complete start tag before expanding attributes.
++        // Keep references as source spellings until here, so neither expanded
++        // strings nor namespace values can be allocated before their check.
++        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
++        for (name, raw, pos) in std::mem::take(&mut self.pending_attributes) {
++            let value = match self.expand_attribute(&raw) {
++                Ok(value) => value,
++                Err(e) => return Some(Err(e)),
++            };
++            if let Err(e) = self.finish_attribute(name, value, pos) { return Some(Err(e)); }
++        }
+         let mut name = self.data.take_element_name()?;
+         let mut attributes = self.data.take_attributes();
+         let attribute_positions = self.data.take_attribute_positions();
+@@ -717,6 +738,7 @@
+     }
+ 
+     fn emit_end_element(&mut self) -> Option<Result> {
++        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
+         let mut name = self.data.take_element_name()?;
+ 
+         // check whether the name prefix is bound and fix its namespace
+diff --git a/src/reader.rs b/src/reader.rs
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -9,6 +9,7 @@
+ 
+ use crate::common::{Position, TextPosition};
+ 
++pub use amplification::AmplificationLimits;
+ pub use config::ParserConfig;
+ pub use error::{Error, ErrorKind, ImmutableEntitiesError};
+ pub use events::{DoctypeRef, XmlEvent};
+@@ -20,6 +21,9 @@
+ 
+ use self::parser::PullParser;
+ 
++mod amplification;
++#[cfg(test)]
++mod amplification_tests;
+ mod config;
+ mod error;
+ mod events;

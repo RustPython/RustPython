@@ -8,7 +8,7 @@ pub(crate) use _hashlib::module_def;
 #[pymodule]
 pub(crate) mod _hashlib {
     use crate::vm::{
-        Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
             PyValueError,
@@ -67,11 +67,26 @@ pub(crate) mod _hashlib {
         dict.into()
     }
 
+    #[derive(Debug)]
+    struct HashName(PyUtf8StrRef);
+
+    impl TryFromObject for HashName {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            if !obj.downcastable::<PyStr>() {
+                return Err(vm.new_type_error(format!(
+                    "new() argument 'name' must be str, not {}",
+                    obj.class().name()
+                )));
+            }
+            PyUtf8StrRef::try_from_object(vm, obj).map(Self)
+        }
+    }
+
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(any)]
-        name: PyUtf8StrRef,
+        name: HashName,
         // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
         data: OptionalArg<ArgBytesLike>,
@@ -220,7 +235,18 @@ pub(crate) mod _hashlib {
     ) -> PyResult<OptionalArg<ArgBytesLike>> {
         match (data.into_option(), string) {
             (Some(d), None) => Ok(OptionalArg::Present(d)),
-            (None, Some(s)) => Ok(OptionalArg::Present(s)),
+            (None, Some(s)) => {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "the 'string' keyword parameter is deprecated since Python 3.15 \
+                     and slated for removal in Python 3.19; use the 'data' keyword \
+                     parameter or pass the data to hash as a positional argument instead"
+                        .to_owned(),
+                    1,
+                    vm,
+                )?;
+                Ok(OptionalArg::Present(s))
+            }
             (None, None) => Ok(OptionalArg::Missing),
             (Some(_), Some(_)) => Err(vm.new_type_error(
                 "'data' and 'string' are mutually exclusive \
@@ -785,7 +811,7 @@ pub(crate) mod _hashlib {
     #[pyfunction(name = "new")]
     fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let data = resolve_data(args.data, args.string, vm)?;
-        match args.name.as_str().to_lowercase().as_str() {
+        match args.name.0.as_str().to_lowercase().as_str() {
             "md5" => Ok(new_fixed_hasher("md5", data).into_pyobject(vm)),
             "sha1" => Ok(new_fixed_hasher("sha1", data).into_pyobject(vm)),
             "sha224" => Ok(new_fixed_hasher("sha224", data).into_pyobject(vm)),

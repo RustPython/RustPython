@@ -24,7 +24,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Callee, Either, FuncArgs, KwArgs, PyMethodFlags},
+    function::{ArgMapping, Callee, Either, FuncArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
@@ -2520,6 +2520,7 @@ impl Py<FrameObject> {
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
             call_traced: false,
+            incomplete: false,
         };
         f(exec)
     }
@@ -2527,6 +2528,13 @@ impl Py<FrameObject> {
     // #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         self.with_exec(vm, |mut exec| exec.run(vm))
+    }
+
+    pub(crate) fn run_genexpr_preamble(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        self.with_exec(vm, |mut exec| {
+            exec.incomplete = true;
+            exec.run(vm)
+        })
     }
 
     /// Resume a suspended generator or coroutine body, pushing `value` as the
@@ -2606,6 +2614,7 @@ impl Py<FrameObject> {
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
             call_traced: false,
+            incomplete: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2761,6 +2770,7 @@ fn exec_iframe<'a>(
         monitoring_mask: 0,
         flatten,
         call_traced: false,
+        incomplete: false,
     }
 }
 
@@ -2955,6 +2965,8 @@ pub(crate) struct ExecutingFrame<'a> {
     flatten: Flatten,
     /// PY_START/PY_RESUME Call already fired for this activation.
     call_traced: bool,
+    /// A generator-expression preamble is not yet a publicly visible frame.
+    incomplete: bool,
 }
 
 /// How much of what a frame does the trampoline can take over.
@@ -3339,7 +3351,7 @@ impl ExecutingFrame<'_> {
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
     fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
-        if self.call_traced {
+        if self.incomplete || self.call_traced {
             return Ok(());
         }
         self.call_traced = true;
@@ -3580,7 +3592,8 @@ impl ExecutingFrame<'_> {
             // principle toggle it, because we refresh `tracing` below right
             // after that call returns (that cold path is only taken when
             // tracing was already on, so it costs nothing on the hot path).
-            let mut tracing = vm.use_tracing.get();
+            let traceable = !self.incomplete && idx >= self.code.first_traceable;
+            let mut tracing = traceable && vm.use_tracing.get();
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -3594,7 +3607,9 @@ impl ExecutingFrame<'_> {
                 && self.trace_lines_is_set()
                 && !matches!(
                     self.code.instructions.read_op(idx),
-                    Instruction::Resume { .. } | Instruction::InstrumentedResume
+                    Instruction::Resume { .. }
+                        | Instruction::ResumeCheck
+                        | Instruction::InstrumentedResume
                 )
             {
                 let line = self.code.addr2line(idx as i32 * 2);
@@ -3633,7 +3648,7 @@ impl ExecutingFrame<'_> {
                     // The trace callback may have toggled tracing (e.g. via
                     // sys.settrace(None)); refresh before the opcode-trace check
                     // below reuses this flag.
-                    tracing = vm.use_tracing.get();
+                    tracing = traceable && vm.use_tracing.get();
                     // Trace callback may have changed lasti via set_f_lineno.
                     // Re-read and restart the loop from the new position.
                     if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
@@ -3680,7 +3695,10 @@ impl ExecutingFrame<'_> {
                     && self.trace_opcodes_is_set()
                     && !matches!(
                         op.into(),
-                        Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
+                        Opcode::Resume
+                            | Opcode::ResumeCheck
+                            | Opcode::InstrumentedResume
+                            | Opcode::ExtendedArg
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
@@ -3705,6 +3723,9 @@ impl ExecutingFrame<'_> {
             if vm.eval_breaker_tripped()
                 && let Err(exception) = eval_breaker_work(vm)
             {
+                if self.incomplete {
+                    break Err(exception);
+                }
                 #[cold]
                 fn handle_signal_exception(
                     frame: &mut ExecutingFrame<'_>,
@@ -3777,6 +3798,11 @@ impl ExecutingFrame<'_> {
                 }
                 // Instruction raised an exception
                 Err(exception) => {
+                    if self.incomplete {
+                        // Like _PyFrame_IsIncomplete, hide eager iterator setup
+                        // from traceback and tracing; the caller adds its frame.
+                        break Err(exception);
+                    }
                     #[cold]
                     fn handle_exception(
                         frame: &mut ExecutingFrame<'_>,
@@ -4434,8 +4460,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, false, vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -4619,11 +4645,11 @@ impl ExecutingFrame<'_> {
                     let src_dict = source
                         .downcast_ref::<PyDict>()
                         .expect("exact dict must have a PyDict payload");
-                    // Snapshot under a single read lock so a mutation of `source`
-                    // triggered by `dict.set_item` (e.g. via a target subclass, or
-                    // aliasing) can't be observed mid-iteration.
-                    for (key, value) in src_dict.items_vec() {
-                        if dict.contains_key(&*key, vm) {
+                    // Preserve stored hashes: copying an exact dict must not call
+                    // a key's __hash__ before the callable receives its arguments.
+                    // Snapshot under one lock before any equality callbacks run.
+                    for (key, value, hash) in src_dict.entries.items_with_hashes() {
+                        if dict.contains_known_hash(&key, hash, vm)? {
                             let key_str = key.str(vm)?;
                             return Err(vm.new_type_error(format!(
                                 "{} got multiple values for keyword argument '{}'",
@@ -4631,7 +4657,7 @@ impl ExecutingFrame<'_> {
                                 key_str.as_wtf8()
                             )));
                         }
-                        dict.set_item(&*key, value, vm)?;
+                        dict.set_item_known_hash(&key, hash, value, vm)?;
                     }
                     return Ok(None);
                 } else {
@@ -4644,16 +4670,15 @@ impl ExecutingFrame<'_> {
                     .is_none()
                 {
                     return Err(vm.new_type_error(format!(
-                        "{} argument after ** must be a mapping, not {}",
-                        func_str,
-                        source.class().name()
+                        "Value after ** must be a mapping, not {}",
+                        source.class().fully_qualified_name(vm)?
                     )));
                 }
 
                 // Merge keys, checking for duplicates
                 let keys_iter = vm.call_method(&source, "keys", ())?;
                 for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
-                    if dict.contains_key(&*key, vm) {
+                    if dict.entries.contains(vm, &*key)? {
                         let key_str = key.str(vm)?;
                         return Err(vm.new_type_error(format!(
                             "{} got multiple values for keyword argument '{}'",
@@ -4814,23 +4839,32 @@ impl ExecutingFrame<'_> {
                 self.push_value(iter);
                 Ok(None)
             }
-            Instruction::GetIter => {
+            Instruction::GetIter { mode } if mode.get(arg) == 0 => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
                 self.push_value(iter_obj.into());
                 Ok(None)
             }
-            Instruction::GetYieldFromIter => {
-                // GET_YIELD_FROM_ITER: prepare iterator for yield from
+            Instruction::GetIter { .. } | Instruction::GetYieldFromIter => {
+                // GET_ITER modes 1–3 prepare an iterator for yield from.
                 // If iterable is a coroutine, ensure we're in a coroutine context
                 // If iterable is a generator, use it directly
                 // Otherwise, call iter() on it
                 let iterable = self.pop_value();
                 let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
                     // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self.code.flags.intersects(
-                        bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
-                    ) {
+                    let mode = if let Instruction::GetIter { mode } = instruction {
+                        mode.get(arg)
+                    } else {
+                        1
+                    };
+                    if mode == 3
+                        || (mode == 1
+                            && !self.code.flags.intersects(
+                                bytecode::CodeFlags::COROUTINE
+                                    | bytecode::CodeFlags::ITERABLE_COROUTINE,
+                            ))
+                    {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
@@ -5039,6 +5073,11 @@ impl ExecutingFrame<'_> {
                         .expect("builtin_any not initialized"),
                     CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
                     CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
+                    CommonConstant::None => vm.ctx.none(),
+                    CommonConstant::EmptyStr => vm.ctx.empty_str.to_owned().into(),
+                    CommonConstant::True => vm.ctx.new_bool(true).into(),
+                    CommonConstant::False => vm.ctx.new_bool(false).into(),
+                    CommonConstant::MinusOne => vm.ctx.cached_int(-1).to_owned().into(),
                 };
                 self.push_value(value);
                 Ok(None)
@@ -5471,12 +5510,20 @@ impl ExecutingFrame<'_> {
             // CACHE is used by adaptive interpreter for inline caching - NOP for us
             Instruction::Cache => Ok(None),
             Instruction::ReturnGenerator => {
-                // In RustPython, generators/coroutines are created in function.rs
-                // before the frame starts executing. The RETURN_GENERATOR instruction
-                // pushes None so that the following POP_TOP has something to consume.
-                // This matches CPython's semantics where the sent value (None for first call)
-                // is on the stack when the generator resumes.
+                // Leave the initial sent value for POP_TOP on the first resume.
                 self.push_value(vm.ctx.none());
+                if self.iframe().generator.load().is_none() {
+                    let function = self
+                        .func_obj
+                        .and_then(|function| function.downcast_ref::<PyFunction>())
+                        .ok_or_else(|| vm.new_system_error("generator frame has no function"))?;
+                    // A created frame identifies the pending POP_TOP. Native
+                    // lasti normally points one unit beyond the exposed opcode;
+                    // the first normal resume rewinds before dispatching it.
+                    self.update_lasti(|lasti| *lasti += 1);
+                    let generator = function.make_generator_or_coro(self.frame_object(vm), vm);
+                    return Ok(Some(ExecutionResult::Return(generator)));
+                }
                 Ok(None)
             }
             Instruction::PopExcept => {
@@ -8108,8 +8155,8 @@ impl ExecutingFrame<'_> {
                 self.execute_call_instrumented(args, vm)
             }
             Instruction::InstrumentedCallFunctionEx => {
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call_instrumented(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, true, vm)
             }
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
@@ -8718,9 +8765,13 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
+    fn collect_ex_args(
+        &mut self,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
         let kwargs_or_null = self.pop_value_opt();
-        let mut kwargs = KwArgs::default();
+        let mut kwnames = Vec::new();
+        let mut keyword_values = Vec::new();
         if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
@@ -8729,16 +8780,18 @@ impl ExecutingFrame<'_> {
             Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
-                let key_str = key
-                    .downcast_ref::<PyStr>()
+                key.downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                kwargs.insert(key_str.as_wtf8().to_owned(), value);
+                // Keep the original key for vectorcall. A str subclass may run
+                // Python code when the callee binds or merges its keywords.
+                kwnames.push(key);
+                keyword_values.push(value);
                 Ok(())
             })?
         };
 
         let args_obj = self.pop_value();
-        let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
+        let mut args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()
         } else {
             // Single *arg passed directly; convert to sequence at runtime.
@@ -8761,7 +8814,8 @@ impl ExecutingFrame<'_> {
                 }
             })?
         };
-        Ok(FuncArgs { args, kwargs })
+        args.extend(keyword_values);
+        Ok((args, kwnames))
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -8953,22 +9007,34 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
+    fn execute_call_ex(
+        &mut self,
+        mut args: Vec<PyObjectRef>,
+        kwnames: Vec<PyObjectRef>,
+        instrumented: bool,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         // Stack: [callable, self_or_null, ...]
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
 
-        let final_args = if let Some(self_val) = self_or_null {
-            let mut args = args;
-            args.prepend_arg(self_val);
-            args
+        if let Some(self_val) = self_or_null {
+            args.insert(0, self_val);
+        }
+        let nargs = args.len() - kwnames.len();
+        let arg0 = if instrumented {
+            args[..nargs].first().cloned()
         } else {
-            args
+            None
         };
-
-        let value = callable.call(final_args, vm)?;
-        self.push_value(value);
-        Ok(None)
+        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        if instrumented {
+            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+        } else {
+            let value = invoke()?;
+            self.push_value(value);
+            Ok(None)
+        }
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
@@ -8984,29 +9050,36 @@ impl ExecutingFrame<'_> {
             args
         };
 
+        let arg0 = final_args.args.first().cloned();
+        self.execute_call_instrumented_inner(&callable, arg0, || callable.call(final_args, vm), vm)
+    }
+
+    fn execute_call_instrumented_inner(
+        &mut self,
+        callable: &PyObject,
+        arg0: Option<PyObjectRef>,
+        invoke: impl FnOnce() -> PyResult,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
 
         // Fire CALL event
         let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
-            let arg0 = final_args
-                .args
-                .first()
-                .cloned()
-                .unwrap_or_else(|| monitoring::get_missing(vm));
+            let arg0 = arg0.unwrap_or_else(|| monitoring::get_missing(vm));
             let offset = (self.lasti() - 1) * 2;
-            monitoring::fire_call(vm, self.code, offset, &callable, arg0.clone())?;
+            monitoring::fire_call(vm, self.code, offset, callable, arg0.clone())?;
             Some(arg0)
         } else {
             None
         };
 
-        match callable.call(final_args, vm) {
+        match invoke() {
             Ok(value) => {
                 if let Some(arg0) = call_arg0
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_c_return(vm, self.code, offset, &callable, arg0)?;
+                    monitoring::fire_c_return(vm, self.code, offset, callable, arg0)?;
                 }
                 self.push_value(value);
                 Ok(None)
@@ -9016,7 +9089,7 @@ impl ExecutingFrame<'_> {
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    match monitoring::fire_c_raise(vm, self.code, offset, &callable, arg0) {
+                    match monitoring::fire_c_raise(vm, self.code, offset, callable, arg0) {
                         Ok(()) => exc,
                         Err(monitor_exc) => monitor_exc,
                     }

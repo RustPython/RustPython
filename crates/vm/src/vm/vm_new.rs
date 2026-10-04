@@ -508,8 +508,15 @@ impl VirtualMachine {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 is_unclosed_bracket: true,
+                raw_location,
                 ..
-            }) => incomplete_or_syntax(allow_incomplete),
+            }) => incomplete_or_syntax(
+                allow_incomplete
+                    // A bracket can remain open after an earlier invalid token.
+                    // More input cannot repair a token followed by existing source;
+                    // terminal tokens can still coincide with the lexer reaching EOF.
+                    && source.is_none_or(|source| raw_location.end().to_usize() >= source.len()),
+            ),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 is_unclosed_string: true,

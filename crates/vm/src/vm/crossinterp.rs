@@ -138,6 +138,8 @@ pub enum SharedValue {
     Buffer(Vec<u8>, BufferDescriptor),
     /// Marshalled code object.
     Code(Vec<u8>),
+    /// A value explicitly shared through marshal rather than XI registration.
+    Marshalled(Vec<u8>),
     /// Marshalled code of a stateless function; rebuilt against `__main__`.
     Function(Vec<u8>),
     /// `pickle.dumps` output, used by [`Fallback::Full`].
@@ -257,7 +259,7 @@ impl SharedValue {
     }
 
     /// `_PyFunction_GetXIData`: only stateless functions are shareable.
-    fn from_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn from_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
         let func = obj.downcast_ref::<PyFunction>().ok_or_else(|| {
             not_shareable_error(
                 vm,
@@ -287,6 +289,25 @@ impl SharedValue {
     /// `_PyCode_GetXIData`.
     pub fn from_code(code: &Py<PyCode>, vm: &VirtualMachine) -> PyResult<Self> {
         Ok(Self::Code(marshal_dumps(code.as_object(), vm)?))
+    }
+
+    /// `_PyPickle_GetXIData`, without trying other sharing mechanisms first.
+    pub fn from_pickle(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        pickle_dumps(obj, vm)
+            .map(Self::Pickled)
+            .map_err(|cause| not_shareable_error_from(vm, "object could not be pickled", cause))
+    }
+
+    /// `_PyMarshal_GetXIData`.
+    pub fn from_marshal(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        marshal_dumps(obj, vm).map(Self::Marshalled)
+    }
+
+    /// `_PyCode_GetScriptXIData` and `_PyCode_GetPureScriptXIData`.
+    pub fn from_script(obj: &PyObject, pure: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        let code = script_code_with_purity(obj, pure, vm)
+            .map_err(|cause| not_shareable_error_from(vm, "object not a valid script", cause))?;
+        Self::from_code(&code, vm)
     }
 
     pub fn from_buffer_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
@@ -332,7 +353,7 @@ impl SharedValue {
                     .into_pybuffer_with_descriptor(desc);
                 memoryview_from_buffer(buffer, vm)
             }
-            Self::Code(data) => marshal_loads(&data, vm),
+            Self::Code(data) | Self::Marshalled(data) => marshal_loads(&data, vm),
             Self::Function(data) => {
                 let code = marshal_loads(&data, vm)?
                     .downcast::<PyCode>()
@@ -348,17 +369,23 @@ impl SharedValue {
 }
 
 fn marshal_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-    let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
-    let bytes = dumps.call((obj.to_owned(),), vm)?;
-    let bytes = bytes
-        .downcast::<PyBytes>()
-        .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
-    Ok(bytes.as_bytes().to_vec())
+    let dump = || -> PyResult<Vec<u8>> {
+        let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
+        let bytes = dumps.call((obj.to_owned(),), vm)?;
+        let bytes = bytes
+            .downcast::<PyBytes>()
+            .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
+        Ok(bytes.as_bytes().to_vec())
+    };
+    dump().map_err(|cause| not_shareable_error_from(vm, "object could not be marshalled", cause))
 }
 
 fn marshal_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
-    let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
-    loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    let load = || -> PyResult {
+        let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+        loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    };
+    load().map_err(|cause| not_shareable_error_from(vm, "object could not be unmarshalled", cause))
 }
 
 /// `_memoryview_from_xid`.
@@ -828,53 +855,40 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
-    let units = &code.instructions;
-    let Some(last) = units.len().checked_sub(1) else {
-        return true;
-    };
-    // The last instruction either returns or raises. We can take advantage
-    // of that for a quick exit.
-    let final_op = units.read_op(last).deoptimize();
-
-    // Look up None in co_consts.
-    let Some(none_index) = code
-        .constants
-        .iter()
-        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None))
-    else {
-        // None wasn't there, which means there was no implicit return,
-        // "return", or "return None".
-
-        // That means there must be an explicit return (non-None), or it only
-        // raises.
-        if matches!(final_op, Instruction::ReturnValue) {
-            // It was an explicit return (non-None).
+    let mut previous_loads_none = false;
+    for (_, instruction, arg) in walk_instructions(code) {
+        if matches!(instruction, Instruction::ExtendedArg) {
+            continue;
+        }
+        if matches!(instruction, Instruction::ReturnValue) && !previous_loads_none {
             return false;
         }
-        // It must end with a raise then. We still have to walk the bytecode
-        // to see if there's any explicit return (non-None).
-        return !walk_instructions(code).any(|(_, op, _)| matches!(op, Instruction::ReturnValue));
-    };
-    // Walk the bytecode, looking for RETURN_VALUE.
-    for (at, op, _) in walk_instructions(code) {
-        if !matches!(op, Instruction::ReturnValue) {
-            continue;
-        }
-        // Ignore it if it returns None.
-        if let Some(prev) = at.checked_sub(1)
-            && matches!(units.read_op(prev).deoptimize(), Instruction::LoadConst { .. })
-            // We don't worry about EXTENDED_ARG for now.
-            && usize::from(u8::from(units.read_arg(prev))) == none_index
-        {
-            continue;
-        }
-        return false;
+        previous_loads_none = match instruction {
+            Instruction::LoadCommonConstant { idx } => {
+                idx.get(arg) == crate::bytecode::oparg::CommonConstant::None
+            }
+            Instruction::LoadConst { consti } => code
+                .constants
+                .get(consti.get(arg).as_usize())
+                .is_some_and(|constant| {
+                    matches!(constant.borrow_constant(), BorrowedConstant::None)
+                }),
+            _ => false,
+        };
     }
     true
 }
 
 /// Extract a script code object from source text / function / code object.
 pub fn script_code(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyCode>> {
+    script_code_with_purity(obj, false, vm)
+}
+
+fn script_code_with_purity(
+    obj: &PyObject,
+    pure: bool,
+    vm: &VirtualMachine,
+) -> PyResult<PyRef<PyCode>> {
     let code = if let Ok(code) = obj.to_owned().downcast::<PyCode>() {
         code
     } else if let Some(func) = obj.downcast_ref::<PyFunction>() {
@@ -893,6 +907,22 @@ pub fn script_code(obj: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyCode
             "can't compile a script to bytecode when the `codegen` feature of rustpython is disabled",
         ));
     };
+    if pure {
+        if let Some(func) = obj.downcast_ref::<PyFunction>() {
+            verify_stateless_function(func, vm)?;
+        } else {
+            let builtins =
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into());
+            let builtins = builtins.downcast_ref::<PyDict>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "unsupported builtins {}",
+                    render_repr(&builtins, vm)
+                ))
+            })?;
+            let globals = vm.ctx.new_dict();
+            verify_stateless(&code, Some((&globals, builtins)), vm)?;
+        }
+    }
     verify_script(&code, vm)?;
     Ok(code)
 }

@@ -19,6 +19,16 @@ mod _sysconfigdata {
         let paths = &vm.state.config.paths;
         build_time_vars.set_item("prefix", paths.prefix.clone().to_pyobject(vm), vm)?;
         build_time_vars.set_item("exec_prefix", paths.exec_prefix.clone().to_pyobject(vm), vm)?;
+        if let Some(source_dir) = crate::getpath::source_directory(paths) {
+            build_time_vars.set_item(
+                "srcdir",
+                source_dir.to_string_lossy().as_ref().to_pyobject(vm),
+                vm,
+            )?;
+        }
+        if let Some(stdlib_dir) = &paths.stdlib_dir {
+            build_time_vars.set_item("LIBDEST", stdlib_dir.to_pyobject(vm), vm)?;
+        }
         let bindir = format!("{}/bin", paths.exec_prefix);
         build_time_vars.set_item("BINDIR", bindir.to_pyobject(vm), vm)?;
 

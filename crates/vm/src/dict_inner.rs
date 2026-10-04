@@ -1182,6 +1182,14 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
+    pub(crate) fn items_with_hashes(&self) -> Vec<(PyObjectRef, T, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone(), v.hash)))
+            .collect()
+    }
+
     /// Fold stored hashes under the read lock; the callback must not run Python.
     pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
     where

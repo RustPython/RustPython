@@ -206,15 +206,16 @@ pub(super) mod _os {
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
-            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytes, PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs},
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, FuncArgs},
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
@@ -1854,9 +1855,21 @@ pub(super) mod _os {
         let (acc, modif) = match (args.times, args.ns) {
             (Some(t), None) => {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
-                    vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
+                    vm.new_type_error(
+                        "utime: 'times' must be either a tuple of two numbers or None",
+                    )
                 })?;
-                (a.try_into_value(vm)?, m.try_into_value(vm)?)
+                let to_duration = |obj: PyObjectRef| -> PyResult<Duration> {
+                    let number: PyObjectRef = if let Some(index) = obj.try_index_opt(vm) {
+                        index?.into()
+                    } else if obj.downcast_ref::<PyFloat>().is_some() {
+                        obj
+                    } else {
+                        obj.try_float(vm)?.into()
+                    };
+                    number.try_into_value(vm)
+                };
+                (to_duration(a)?, to_duration(m)?)
             }
             (None, Some(ns)) => {
                 let (a, m) = parse_tup(&ns)
@@ -2065,17 +2078,37 @@ pub(super) mod _os {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any)]
-        length: crt_fd::Offset,
+        length: PyObjectRef,
     }
 
     #[pyfunction]
     fn truncate(args: TruncateArgs, vm: &VirtualMachine) -> PyResult<()> {
         let TruncateArgs { path, length } = args;
-        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
-            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
-            Err(_) => {}
-        }
+        let index =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                None
+            } else {
+                path.try_index_opt(vm)
+            };
+        let path = if let Some(index) = index {
+            super::warn_if_bool_fd(&path, vm)?;
+            Either::A(index?.try_to_primitive::<crt_fd::Raw>(vm)?)
+        } else {
+            Either::B(
+                PathConverter::new()
+                    .function("truncate")
+                    .try_path_inner(path, true, vm)?,
+            )
+        };
+        let length = length.try_into_value::<crt_fd::Offset>(vm)?;
+        let path = match path {
+            Either::A(fd) => {
+                let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                    .map_err(|e| e.into_pyexception(vm))?;
+                return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
+            }
+            Either::B(path) => path,
+        };
 
         #[cold]
         fn error(
@@ -2086,7 +2119,6 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,

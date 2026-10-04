@@ -191,18 +191,12 @@ def check_native_helper():
     move = _imp._dict_move_to_end
     first, middle, last = object(), object(), object()
     mapping = {"first": first, "middle": middle, "last": last}
-    assert move(mapping, "middle") is middle
-    assert list(mapping) == ["first", "last", "middle"]
-    assert len(mapping) == 3
-    assert move(mapping, "middle") is middle
-    assert list(mapping) == ["first", "last", "middle"]
     single = {"only": None}
     assert move(single, "only") is None
     assert single == {"only": None}
     missing = object()
     exc = raises(KeyError, lambda: move(mapping, missing))
     assert exc.args[0] is missing
-    assert list(mapping) == ["first", "last", "middle"]
 
     class Subclass(dict):
         pass

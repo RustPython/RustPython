@@ -558,10 +558,6 @@ class UtilityTests(TestCase):
             for alt in hop, hop.title(), hop.upper(), hop.lower():
                 self.assertFalse(util.is_hop_by_hop(alt))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_filewrapper_getitem_deprecation(self):
-        return super().test_filewrapper_getitem_deprecation()
-
 class HeaderTests(TestCase):
 
     def testMappingInterface(self):

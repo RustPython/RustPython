@@ -281,23 +281,6 @@ fn opcode_event_is_active(
     event_for_opcode(op, oparg).is_some_and(|ev| events & ev.mask() != 0)
 }
 
-/// Walk real instructions, skipping specialization CACHE payloads.
-/// Cache slots may contain pointer bits that are not valid opcodes.
-fn for_each_instruction(
-    code: &Py<PyCode>,
-    mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
-) {
-    let len = code.code.instructions.len();
-    let mut i = 0;
-    while i < len {
-        let op = code.code.instructions.read_op(i);
-        let oparg = code.code.instructions.read_arg(i).as_u8();
-        let caches = op.deoptimize().cache_entries();
-        f(i, op, oparg);
-        i += 1 + caches;
-    }
-}
-
 /// Rewrite a code object's bytecode in-place with layered instrumentation.
 ///
 /// Three layers (outermost first):
@@ -402,21 +385,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     data.line_opcodes.resize(len, 0);
     data.per_instruction_opcodes.resize(len, 0);
 
-    // Find _co_firsttraceable: index of first RESUME instruction
-    let mut first_traceable = None;
-    for_each_instruction(code, |i, op, _| {
-        if first_traceable.is_none()
-            && matches!(
-                op,
-                Instruction::Resume { .. }
-                    | Instruction::ResumeCheck
-                    | Instruction::InstrumentedResume
-            )
-        {
-            first_traceable = Some(i);
-        }
-    });
-    let first_traceable = first_traceable.unwrap_or(0);
+    let first_traceable = code.first_traceable;
 
     // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
     // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
@@ -426,8 +395,10 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
             let op = code.code.instructions.read_op(i);
             let oparg = code.code.instructions.read_arg(i).as_u8();
             let caches = op.deoptimize().cache_entries();
-            if (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
-                || opcode_event_is_active(op, oparg, events))
+            if i >= first_traceable
+                && (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask())
+                    != 0
+                    || opcode_event_is_active(op, oparg, events))
                 && let Some(instrumented) = op.to_instrumented()
             {
                 unsafe {

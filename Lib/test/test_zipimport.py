@@ -853,7 +853,6 @@ class UncompressedZipImportTestCase(ImportHooksBaseTestCase):
         else:
             raise AssertionError("This ought to be impossible")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; empty caret lines from equal col/end_col
     def testTraceback(self):
         files = {TESTMOD + ".py": raise_src}
         self.doTest(None, files, TESTMOD, call=self.doTraceback)

@@ -125,7 +125,7 @@ mod file_run {
                                 compiler::Mode::Exec,
                                 path,
                                 self.compile_opts(),
-                                Some(identifier!(self, __main__).as_ref()),
+                                Some(identifier!(self, __main__).as_object()),
                                 &[],
                             )
                             .map_err(|err| err.into_pyexception(self, Some(&source)))?;

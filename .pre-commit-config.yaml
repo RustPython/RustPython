@@ -38,6 +38,8 @@ repos:
         entry: rustfmt
         language: system
         types: [rust]
+        # Keep the audited upstream source bytes and explicit backports intact.
+        exclude: '^vendor/(rustpython-ruff_python_parser|xml)/'
         priority: 0
 
       - id: generate-rs-opcode-metadata
@@ -67,6 +69,7 @@ repos:
     hooks:
       - id: cspell
         types: [rust]
+        exclude: '^vendor/(rustpython-ruff_python_parser|xml)/'
         additional_dependencies:
           - '@cspell/dict-en_us'
           - '@cspell/dict-cpp'

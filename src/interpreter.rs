@@ -57,16 +57,33 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
 fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
+    // Disabling frozen modules selects the same configured filesystem library
+    // as a dynamic build, including when Cargo's target lies outside the tree.
+    // setup_dynamic_stdlib preserves an explicit PYTHONHOME without fallback.
+    if !vm.state.config.settings.use_frozen_modules {
+        setup_dynamic_stdlib(vm);
+        return;
+    }
+
     let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state.config.paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
+    if state.config.settings.home.is_none() {
+        let stdlib = std::fs::canonicalize(rustpython_pylib::LIB_PATH)
+            .unwrap_or_else(|_| rustpython_pylib::LIB_PATH.into());
+        state.config.paths.stdlib_dir = Some(stdlib.to_string_lossy().into_owned());
+    }
 }
 
 /// Setup dynamic standard library loading from filesystem
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
+    // An explicit home selects its own standard library. Falling back to the
+    // build tree would hide a broken installation or version mismatch.
+    if state.config.settings.home.is_some() {
+        return;
+    }
     let paths: Vec<String> = collect_stdlib_paths()
         .into_iter()
         .map(|p| {
@@ -97,7 +114,7 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
 }
 
 /// Collect standard library paths from build-time configuration
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn collect_stdlib_paths() -> Vec<String> {
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {

@@ -419,6 +419,8 @@ pub struct PyCode {
     /// this code cannot leave the slot unbalanced, so `with_frame` skips the
     /// exc_info save/restore. Computed once by scanning the instruction stream.
     pub has_exc_handling: bool,
+    /// First RESUME that exposes this frame to tracing and monitoring.
+    pub(crate) first_traceable: usize,
 }
 
 impl Deref for PyCode {
@@ -547,6 +549,21 @@ impl PyCode {
                     | Instruction::InstrumentedEndAsyncFor
             )
         });
+        let mut first_traceable = 0;
+        let mut i = 0;
+        while let Some(unit) = code.instructions.get(i) {
+            if matches!(
+                unit.op,
+                Instruction::Resume { .. }
+                    | Instruction::ResumeCheck
+                    | Instruction::InstrumentedResume
+            ) && u32::from(u8::from(unit.arg)) != bytecode::oparg::ResumeContext::GEN_EXPR_START
+            {
+                first_traceable = i;
+                break;
+            }
+            i += 1 + unit.op.deoptimize().cache_entries();
+        }
         Self {
             code,
             localsplus_names,
@@ -556,6 +573,7 @@ impl PyCode {
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
+            first_traceable,
         }
     }
 
@@ -580,7 +598,18 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
+        PyRef::new_ref(
+            Self::new_for_vm(vm, code),
+            vm.ctx.types.code_type.to_owned(),
+            None,
+        )
+    }
+
+    fn new_for_vm(vm: &VirtualMachine, mut code: CodeObject) -> Self {
+        if !vm.state.config.settings.code_debug_ranges {
+            code.linetable = remove_column_info(&code.linetable);
+        }
+        Self::new(code)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -955,7 +984,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(Self::new(code))
+        Ok(Self::new_for_vm(vm, code))
     }
 }
 
@@ -1518,7 +1547,7 @@ impl Py<PyCode> {
             exceptiontable,
         };
 
-        Ok(PyCode::new(new_code))
+        Ok(PyCode::new_for_vm(vm, new_code))
     }
 
     #[pymethod]
@@ -1572,6 +1601,45 @@ impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyCode::new_ref_from_bytecode(vm, self).into()
     }
+}
+
+// Preserve entry lengths and line deltas while dropping columns, as code
+// construction does under -X no_debug_ranges in CPython. Copying the signed
+// varint avoids interpreting or narrowing an arbitrary supplied line delta.
+fn remove_column_info(linetable: &[u8]) -> Box<[u8]> {
+    let mut result = Vec::with_capacity(linetable.len());
+    let mut reader = LineTableReader::new(linetable);
+    while let Some(header) = reader.read_byte() {
+        let kind = (header >> 3) & 15;
+        if kind == PyCodeLocationInfoKind::None as u8 {
+            result.push(header);
+        } else {
+            result.push(0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3) | (header & 7));
+            match PyCodeLocationInfoKind::from_code(kind) {
+                Some(PyCodeLocationInfoKind::Long | PyCodeLocationInfoKind::NoColumns) => {
+                    if reader.peek_byte().is_none_or(|byte| byte & 0x80 != 0) {
+                        result.push(0);
+                    } else {
+                        while let Some(byte) = reader.read_byte() {
+                            result.push(byte);
+                            if byte & 0x40 == 0
+                                || reader.peek_byte().is_none_or(|next| next & 0x80 != 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Some(PyCodeLocationInfoKind::OneLine1) => result.push(2),
+                Some(PyCodeLocationInfoKind::OneLine2) => result.push(4),
+                _ => result.push(0),
+            }
+        }
+        while reader.peek_byte().is_some_and(|byte| byte & 0x80 == 0) {
+            reader.read_byte();
+        }
+    }
+    result.into_boxed_slice()
 }
 
 // Helper struct for reading linetable

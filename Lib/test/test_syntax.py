@@ -370,17 +370,47 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
-...     case {**rest, "key": value}:
-...        ...
-Traceback (most recent call last):
-SyntaxError: invalid syntax
-
 >>> match ...:
 ...     case {**_}:
 ...        ...
 Traceback (most recent call last):
 SyntaxError: invalid syntax
+
+# Check incorrect "case" placement with specialized error messages
+
+>>> case "pattern": ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case 1 | 2: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case klass(attr=1) | {}: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case [] if x > 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case match: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case case: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> if some:
+...     case 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
+
+>>> case some:
+...     case 1: ...
+Traceback (most recent call last):
+SyntaxError: case statement must be inside match statement
 
 # But prefixes of soft keywords should
 # still raise specialized errors
@@ -426,7 +456,7 @@ SyntaxError: invalid syntax
 >>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: at least one argument must precede /
+SyntaxError: at least one parameter must precede /
 
 >>> def foo(a,/,/,b,c):
 ...    pass
@@ -461,67 +491,67 @@ SyntaxError: / must be ahead of *
 >>> def foo(a,*b=3,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: var-positional argument cannot have default value
+SyntaxError: var-positional parameter cannot have default value
 
 >>> def foo(a,*b: int=,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: var-positional argument cannot have default value
+SyntaxError: var-positional parameter cannot have default value
 
 >>> def foo(a,**b=3):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: var-keyword argument cannot have default value
+SyntaxError: var-keyword parameter cannot have default value
 
 >>> def foo(a,**b: int=3):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: var-keyword argument cannot have default value
+SyntaxError: var-keyword parameter cannot have default value
 
 >>> def foo(a,*a, b, **c, d):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> def foo(a,*a, b, **c, d=4):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> def foo(a,*a, b, **c, *d):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> def foo(a,*a, b, **c, **d):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> def foo(a=1,/,**b,/,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> def foo(*b,*d):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> def foo(a,*b,c,*d,*e,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> def foo(a,b,/,c,*b,c,*d,*e,c):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> def foo(a,b,/,c,*b,c,*d,**e):
 ...    pass
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> def foo(a=1,/*,b,c):
 ...    pass
@@ -545,7 +575,7 @@ SyntaxError: expected default value expression
 
 >>> lambda /,a,b,c: None
 Traceback (most recent call last):
-SyntaxError: at least one argument must precede /
+SyntaxError: at least one parameter must precede /
 
 >>> lambda a,/,/,b,c: None
 Traceback (most recent call last):
@@ -577,47 +607,47 @@ SyntaxError: expected comma between / and *
 
 >>> lambda a,*b=3,c: None
 Traceback (most recent call last):
-SyntaxError: var-positional argument cannot have default value
+SyntaxError: var-positional parameter cannot have default value
 
 >>> lambda a,**b=3: None
 Traceback (most recent call last):
-SyntaxError: var-keyword argument cannot have default value
+SyntaxError: var-keyword parameter cannot have default value
 
 >>> lambda a, *a, b, **c, d: None
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> lambda a,*a, b, **c, d=4: None
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> lambda a,*a, b, **c, *d: None
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> lambda a,*a, b, **c, **d: None
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> lambda a=1,/,**b,/,c: None
 Traceback (most recent call last):
-SyntaxError: arguments cannot follow var-keyword argument
+SyntaxError: parameters cannot follow var-keyword parameter
 
 >>> lambda *b,*d: None
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> lambda a,*b,c,*d,*e,c: None
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> lambda a,b,/,c,*b,c,*d,*e,c: None
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> lambda a,b,/,c,*b,c,*d,**e: None
 Traceback (most recent call last):
-SyntaxError: * argument may appear only once
+SyntaxError: * may appear only once
 
 >>> lambda a=1,d=,c: None
 Traceback (most recent call last):
@@ -1311,7 +1341,7 @@ Missing parens after function definition
    Traceback (most recent call last):
    SyntaxError: expected '('
 
-Parenthesized arguments in function definitions
+Parenthesized parameters in function definitions
 
    >>> def f(x, (y, z), w):
    ...    pass
@@ -1440,20 +1470,20 @@ Better error message for using `except as` with not a name:
 
 Regression tests for gh-133999:
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except TypeError as name: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
-   >>> try: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> try: pass
    ... except* TypeError as name: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
-   >>> match 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> match 1:
    ...     case 1 | 2 as abc: raise from None
    Traceback (most recent call last):
-   SyntaxError: invalid syntax
+   SyntaxError: did you forget an expression between 'raise' and 'from'?
 
 Ensure that early = are not matched by the parser as invalid comparisons
    >>> f(2, 4, x=34); 1 $ 2
@@ -1701,6 +1731,28 @@ Make sure that the old "raise X, Y[, Z]" form is gone:
    Traceback (most recent call last):
      ...
    SyntaxError: invalid syntax
+
+Better errors for `raise` statement:
+
+    >>> raise ValueError from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression after 'from'?
+
+    >>> raise mod.ValueError() from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression after 'from'?
+
+    >>> raise from exc
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
+
+    >>> raise from None
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
+
+    >>> raise from
+    Traceback (most recent call last):
+    SyntaxError: did you forget an expression between 'raise' and 'from'?
 
 Check that an multiple exception types with missing parentheses
 raise a custom exception only when using 'as'
@@ -2009,6 +2061,30 @@ SyntaxError: trailing comma not allowed without surrounding parentheses
 Traceback (most recent call last):
 SyntaxError: trailing comma not allowed without surrounding parentheses
 
+>>> with item,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item as x,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1, item2,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1 as x, item2,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1 as x, item2 as y,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
+>>> with item1, item2 as y,: pass
+Traceback (most recent call last):
+SyntaxError: the last 'with' item has a trailing comma
+
 >>> import a from b
 Traceback (most recent call last):
 SyntaxError: Did you mean to use 'from ... import ...' instead?
@@ -2162,6 +2238,16 @@ SyntaxError: only single target (not tuple) can be annotated
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
 
+>>> 1: int
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+>>> -x: int = 1
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+>>> (x for x in y): int
+Traceback (most recent call last):
+SyntaxError: illegal target for annotation
+
 # 'not' after operators:
 
 >>> 3 + not 3
@@ -2221,7 +2307,7 @@ Corner-cases that used to fail to raise the correct error:
 
     >>> with (lambda *:0): pass
     Traceback (most recent call last):
-    SyntaxError: named arguments must follow bare *
+    SyntaxError: named parameters must follow bare *
 
 Corner-cases that used to crash:
 
@@ -2237,7 +2323,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: invalid character '£' (U+00A3)
 
-  Invalid pattern matching constructs:
+Invalid pattern matching constructs:
 
     >>> match ...:
     ...   case 42 as _:
@@ -2294,10 +2380,34 @@ Corner-cases that used to crash:
     SyntaxError: positional patterns follow keyword patterns
 
     >>> match ...:
+    ...   case Foo(y=1, x=2, y=3):
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: attribute name repeated in class pattern: y
+
+    >>> match ...:
     ...   case C(a=b, c, d=e, f, g=h, i, j=k, ...):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: positional patterns follow keyword patterns
+
+    >>> match ...:
+    ...   case {**double_star, "spam": "eggs"}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
+
+    >>> match ...:
+    ...   case {"foo": 1, **double_star, "spam": "eggs"}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
+
+    >>> match ...:
+    ...   case {"spam": "eggs", "b": {**d, "ham": "bacon"}}:
+    ...     ...
+    Traceback (most recent call last):
+    SyntaxError: double star pattern must be the last (right-most) subpattern in the mapping pattern
 
 Uses of the star operator which should fail:
 
@@ -2683,6 +2793,76 @@ Invalid expressions in type scopes:
     >>> f(x = 5, *:)
     Traceback (most recent call last):
     SyntaxError: Invalid star expression
+
+Asserts:
+
+    >>> assert (a := 1)  # ok
+    >>> assert 1, (a := 1)  # ok
+
+    >>> assert a := 1
+    Traceback (most recent call last):
+    SyntaxError: cannot use named expression without parentheses here
+
+    >>> assert 1, a := 1
+    Traceback (most recent call last):
+    SyntaxError: cannot use named expression without parentheses here
+
+    >>> assert 1 = 2 = 3
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1 = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert (1 = 2)
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 'a' = a
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert x[0] = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to subscript here. Maybe you meant '==' instead of '='?
+
+    >>> assert (yield a) = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
+
+    >>> assert a = 2
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert (a = 2)
+    Traceback (most recent call last):
+    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+
+    >>> assert a = b
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, 1 = b
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, (1 = b)
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, a = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to name here. Maybe you meant '==' instead of '='?
+
+    >>> assert 1, (a = 1)
+    Traceback (most recent call last):
+    SyntaxError: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+
+    >>> assert 1 = a, a = 1
+    Traceback (most recent call last):
+    SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
 """
 
 import re
@@ -2701,6 +2881,14 @@ class SyntaxWarningTest(unittest.TestCase):
         """
         with self.assertWarnsRegex(SyntaxWarning, errtext):
             compile(code, filename, mode)
+
+    def check_no_warning(self, code, filename="<testcase>", mode="exec"):
+        """Check that compiling code does not raise any warnings."""
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            compile(code, filename, mode)
+        self.assertEqual(caught, [])
 
     def test_return_in_finally(self):
         source = textwrap.dedent("""
@@ -2771,6 +2959,75 @@ class SyntaxWarningTest(unittest.TestCase):
                             {kw}
                 """)
             self.check_warning(source, f"'{kw}' in a 'finally' block")
+
+    def test_from_lazy_imports(self):
+        # gh-150459
+        self.check_warning(
+            "from . lazy import x",
+            "did you mean 'lazy from . import'?",
+        )
+        self.check_warning(
+            "from . lazy import x as y",
+            "did you mean 'lazy from . import'?",
+        )
+        self.check_warning(
+            "from . lazy import *",
+            "did you mean 'lazy from . import'?",
+        )
+        self.check_warning(
+            "from .. lazy import x",
+            "did you mean 'lazy from .. import'?",
+        )
+        self.check_warning(
+            "from ... lazy import x",
+            "did you mean 'lazy from ... import'?",
+        )
+        self.check_warning(
+            "from .... lazy import x",
+            "did you mean 'lazy from .... import'?",
+        )
+        self.check_warning(
+            "from . \\\n    lazy import x",
+            "did you mean 'lazy from . import'?",
+        )
+        self.check_warning(
+            "from .\\\nlazy import x",
+            "did you mean 'lazy from . import'?",
+        )
+        self.check_warning(
+            "from .\tlazy import x",
+            "did you mean 'lazy from . import'?",
+        )
+
+    def test_not_from_lazy_imports(self):
+        self.check_no_warning("from .lazy import x")
+        self.check_no_warning("from .lazy import *")
+        self.check_no_warning("from ..lazy import x")
+        self.check_no_warning("from ...lazy import x")
+        self.check_no_warning("from .lazy.sub import x")
+        self.check_no_warning("from ..lazy.sub import x")
+        self.check_no_warning("from ...lazy.sub import x")
+        self.check_no_warning("from . lazier import x")
+        self.check_no_warning("from . lazy_module import x")
+        self.check_no_warning("from . lazy.sub import x")
+        self.check_no_warning("from . sub.lazy import x")
+        self.check_no_warning("from lazy import x")
+        self.check_no_warning("from lazy.sub import x")
+        self.check_no_warning("lazy from . lazy import x")
+        self.check_no_warning("from . import lazy")
+
+    def test_from_lazy_imports_as_error(self):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            with self.assertRaisesRegex(
+                SyntaxError,
+                re.escape("did you mean 'lazy from . import'?"),
+            ) as cm:
+                compile("from . lazy import x", "<test>", "exec")
+        self.assertEqual(cm.exception.lineno, 1)
+        self.assertEqual(cm.exception.offset, 8)
+        self.assertEqual(cm.exception.end_offset, 12)
 
 
 class SyntaxErrorTestCase(unittest.TestCase):
@@ -2868,6 +3125,13 @@ class SyntaxErrorTestCase(unittest.TestCase):
                 global b  # SyntaxError
             """
         self._check_error(source, "parameter and nonlocal", lineno=3)
+
+    def test_raise_from_error_message(self):
+        source = """if 1:
+        raise AssertionError() from None
+        print(1,,2)
+        """
+        self._check_error(source, "invalid syntax", lineno=3)
 
     def test_yield_outside_function(self):
         self._check_error("if 0: yield",                "outside function")
@@ -3187,6 +3451,20 @@ case(34)
             "call(\na=1,\na=1\n)",
             "keyword argument repeated",
             lineno=3
+        )
+
+    def test_multiline_string_concat_missing_comma_points_to_last_string(self):
+        # gh-142236: For multi-line string concatenations with a missing comma,
+        # the error should point to the last string, not the first.
+        self._check_error(
+            "print(\n"
+            '    "line1"\n'
+            '    "line2"\n'
+            '    "line3"\n'
+            "    x=1\n"
+            ")",
+            "Perhaps you forgot a comma",
+            lineno=4,  # Points to "line3", the last string
         )
 
     @support.cpython_only

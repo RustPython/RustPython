@@ -532,8 +532,13 @@ pub(crate) mod _thread {
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let os_name = vm.fsencode(&name)?;
-            host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
+            let os_name = vm.state.codec_registry.encode_text(
+                name,
+                "utf-8",
+                Some(vm.ctx.new_utf8_str("replace")),
+                vm,
+            )?;
+            host_thread::set_current_thread_name_bytes(os_name.as_bytes());
         }
         Ok(())
     }

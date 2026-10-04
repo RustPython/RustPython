@@ -797,12 +797,10 @@ class AuthorizerRaiseExceptionTests(AuthorizerTests):
             raise ValueError
         return sqlite.SQLITE_OK
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_table_access(self):
         super().test_table_access()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_column_access(self):
         super().test_table_access()

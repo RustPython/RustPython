@@ -15,6 +15,10 @@ pub use super::posix_unix_like::*;
 
 pub use libc::{c_char, pid_t};
 
+/// `<sys/param.h>` on glibc defines NODEV as `(dev_t)-1`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub const NODEV: i32 = -1;
+
 /// `<sysexits.h>`. The `libc` crate does not bind these.
 pub const EX_OK: i32 = 0;
 pub const EX_USAGE: i32 = 64;
@@ -1087,13 +1091,22 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
-pub fn getlogin() -> Option<CString> {
+pub fn getlogin() -> std::io::Result<CString> {
+    let old_errno = crate::os::get_errno();
+    crate::os::clear_errno();
     let ptr = unsafe { libc::getlogin() };
-    if ptr.is_null() {
-        None
+    let result = if ptr.is_null() {
+        let errno = crate::os::get_errno();
+        Err(if errno == 0 {
+            std::io::Error::other("unable to determine login name")
+        } else {
+            std::io::Error::from_raw_os_error(errno)
+        })
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_owned())
-    }
+        Ok(unsafe { CStr::from_ptr(ptr) }.to_owned())
+    };
+    crate::os::set_errno(old_errno);
+    result
 }
 
 pub fn restore_signals() {

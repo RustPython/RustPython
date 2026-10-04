@@ -16,7 +16,7 @@ use rustpython_common::static_cell;
 /// 1. Has a function set in the type's slots
 /// 2. Doesn't already have an attribute in the type's dict
 #[cfg(feature = "doc")]
-pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[(&str, u32, u32)]) {
+pub fn add_operators(class: &Py<PyType>, ctx: &Context, attr_docs: &[(&str, u32, u32)]) {
     add_operators_inner(class, ctx, |name| match attr_doc(attr_docs, name) {
         Some((offset, len)) if len != 0 => (offset, len),
         _ => (0, 0),
@@ -24,7 +24,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[(&s
 }
 
 #[cfg(not(feature = "doc"))]
-pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[&str]) {
+pub fn add_operators(class: &Py<PyType>, ctx: &Context, attr_docs: &[&str]) {
     add_operators_inner(class, ctx, |name| {
         if attr_name_present(attr_docs, name) {
             // Present in the database: do not fall back to the slot text.
@@ -36,7 +36,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context, attr_docs: &[&st
 }
 
 fn add_operators_inner(
-    class: &'static Py<PyType>,
+    class: &Py<PyType>,
     ctx: &Context,
     mut plain_span: impl FnMut(&str) -> (u32, u32),
 ) {
@@ -77,7 +77,7 @@ fn add_operators_inner(
 
         // Create and add the wrapper
         let wrapper = PyWrapper {
-            typ: class,
+            typ: class.to_owned(),
             name: attr_name,
             wrapped: slot_func,
             doc: Some(def.doc),

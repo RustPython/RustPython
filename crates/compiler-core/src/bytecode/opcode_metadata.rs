@@ -327,6 +327,7 @@ impl super::Opcode {
                 | Self::ExtendedArg
                 | Self::ForIter
                 | Self::GetAwaitable
+                | Self::GetIter
                 | Self::ImportFrom
                 | Self::ImportName
                 | Self::IsOp

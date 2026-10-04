@@ -1,0 +1,22 @@
+---
+source: crates/ruff_python_parser/src/lexer.rs
+expression: "lex_invalid(source, Mode::Module)"
+---
+## Tokens
+```
+[
+    Unknown 0..85,
+    Newline 85..85,
+]
+```
+## Errors
+```
+[
+    LexicalError {
+        error: OtherError(
+            "Invalid decimal integer literal",
+        ),
+        location: 0..85,
+    },
+]
+```

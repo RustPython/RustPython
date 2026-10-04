@@ -162,6 +162,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
         finalizing: AtomicBool::new(false),
@@ -177,6 +178,7 @@ where
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
         type_mutex: PyMutex::default(),
+        common_type_descriptors: crate::builtins::type_::CommonTypeDescriptors::new(&ctx),
         #[cfg(feature = "threading")]
         main_thread_ident,
         #[cfg(feature = "threading")]
@@ -220,10 +222,12 @@ where
     // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
     // and `encodings`) before any `enter_vm` scope exists, so attach this
     // thread for the duration so type cache reads see it as ATTACHED.
-    let vm_guard = thread::VmBootstrapGuard::new(&vm);
-    vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
-    drop(vm_guard);
+    if whence != InterpreterWhence::Unknown {
+        let vm_guard = thread::VmBootstrapGuard::new(&vm);
+        vm.initialize();
+        vm.state.ready.store(true, Ordering::Release);
+        drop(vm_guard);
+    }
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -234,6 +238,7 @@ where
 fn create_subinterpreter_from_parent(
     parent: &VirtualMachine,
     config: runtime::InterpreterConfig,
+    whence: InterpreterWhence,
 ) -> Result<Interpreter, &'static str> {
     config.check()?;
     // Suspend the caller's current VM attachment (if any) for the duration
@@ -260,7 +265,7 @@ fn create_subinterpreter_from_parent(
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
             is_main: false,
-            whence: InterpreterWhence::Stdlib,
+            whence,
             parent_state: Some(&parent.state),
             interp_config: config,
         },
@@ -268,10 +273,12 @@ fn create_subinterpreter_from_parent(
     );
     let interp = Interpreter { global_state, vm };
     // Every interpreter has a `__main__` module once it is initialized.
-    interp.enter(|vm| {
-        let _ = vm.ensure_main_module();
-        vm.apply_startup_lazy_imports();
-    });
+    if whence != InterpreterWhence::Unknown {
+        interp.enter(|vm| {
+            let _ = vm.ensure_main_module();
+            vm.apply_startup_lazy_imports();
+        });
+    }
     Ok(interp)
 }
 
@@ -569,7 +576,15 @@ impl Interpreter {
         parent: &VirtualMachine,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(parent, config)
+        create_subinterpreter_from_parent(parent, config, InterpreterWhence::Stdlib)
+    }
+
+    pub(crate) fn create_subinterpreter_from_vm_with_whence(
+        parent: &VirtualMachine,
+        config: runtime::InterpreterConfig,
+        whence: InterpreterWhence,
+    ) -> Result<Self, &'static str> {
+        create_subinterpreter_from_parent(parent, config, whence)
     }
 
     /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
@@ -577,13 +592,31 @@ impl Interpreter {
         &self,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(&self.vm, config)
+        create_subinterpreter_from_parent(&self.vm, config, InterpreterWhence::Stdlib)
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
         self.vm.new_thread()
+    }
+
+    /// Move the main execution context into a separate owner, leaving this
+    /// handle available to create worker VMs for the same interpreter.
+    ///
+    /// The returned interpreter must run and finalize on the original thread.
+    /// This handle should only create worker VMs and must not be finalized.
+    /// Unlike `new_thread()`, this preserves the main VM's signal handlers and
+    /// all of its other thread-local state.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn take_main_thread(&mut self) -> Self {
+        let replacement = self.vm.new_thread().vm;
+        let vm = core::mem::replace(&mut self.vm, replacement);
+        Self {
+            global_state: self.global_state.clone(),
+            vm,
+        }
     }
 
     /// Run a function with the main virtual machine and return a PyResult of the result.
@@ -649,6 +682,11 @@ impl Interpreter {
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        // A PyInterpreterState_New-style state has never run Python and has
+        // no modules, streams or shutdown callbacks to finalize.
+        if !self.vm.initialized {
+            return 0;
+        }
         self.enter(|vm| {
             let mut flush_status = vm.flush_std();
 

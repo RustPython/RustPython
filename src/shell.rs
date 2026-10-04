@@ -54,6 +54,14 @@ fn shell_exec(
             }
         }
         Err(err) => {
+            // Diagnostic normalization can replace the lexer's EOF error.
+            // Keep unfinished expressions in line-continuation mode so they
+            // execute as soon as their closing delimiter arrives.
+            if let VmCompileError::Compile(CompileError::Parse(parse)) = &err
+                && (parse.is_unclosed_bracket || parse.is_unclosed_string)
+            {
+                return ShellExecResult::ContinueLine;
+            }
             if matches!(
                 &err,
                 VmCompileError::Compile(CompileError::Parse(ParseError {

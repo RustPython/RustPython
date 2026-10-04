@@ -1715,7 +1715,7 @@ pub(super) mod types {
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
-        types::{Constructor, Initializer},
+        types::{Constructor, Initializer, Representable},
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
@@ -2100,7 +2100,35 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(with(Constructor, Initializer))]
+    impl Representable for PyImportError {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let base: &Py<PyBaseException> = zelf
+                .as_object()
+                .downcast_ref()
+                .expect("ImportError is a BaseException");
+            let mut has_args = !base.args().is_empty();
+            if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
+                return PyBaseException::repr_str(base, vm);
+            }
+            let mut result = PyBaseException::repr_str(base, vm)?;
+            result.pop();
+            for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
+                if let Some(value) = field.load_owned() {
+                    if has_args {
+                        result.push_str(", ");
+                    }
+                    result.push_str(name);
+                    result.push('=');
+                    result.push_str(&value.repr(vm)?.to_string_lossy());
+                    has_args = true;
+                }
+            }
+            result.push(')');
+            Ok(result)
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer, Representable))]
     impl PyImportError {
         #[pyslot]
         fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {

@@ -8,7 +8,7 @@ expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('sp
   1           LOAD_CONST               0 (<code object test at 0xdeadbeef, file "<?>", line 1>)
               MAKE_FUNCTION
               STORE_NAME               0 (test)
-              LOAD_CONST               1 (None)
+              LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE
 
 Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
@@ -23,7 +23,7 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
                 LOAD_CONST               1 ('ham')
                 CALL                     1
                 BUILD_TUPLE              2
-                GET_ITER
+                GET_ITER                 0
         L2:     FOR_ITER                71 (to L11)
                 STORE_FAST               0 (stop_exc)
 
@@ -53,7 +53,7 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
                 LOAD_SPECIAL             2 (__aenter__)
                 CALL                     0
                 GET_AWAITABLE            1
-                LOAD_CONST               3 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
         L6:     SEND                     3 (to L9)
         L7:     YIELD_VALUE              1
         L8:     RESUME                   3
@@ -66,7 +66,7 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
 
    2   L11:     END_FOR
                 POP_ITER
-                LOAD_CONST               3 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
                 RETURN_VALUE
 
    5   L12:     CLEANUP_THROW
@@ -74,7 +74,7 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
        L14:     PUSH_EXC_INFO
                 WITH_EXCEPT_START
                 GET_AWAITABLE            2
-                LOAD_CONST               3 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
        L15:     SEND                     4 (to L19)
        L16:     YIELD_VALUE              1
        L17:     RESUME                   3
@@ -102,7 +102,7 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
                 LOAD_ATTR               13 (fail + NULL|self)
                 LOAD_FAST                0 (stop_exc)
                 FORMAT_SIMPLE
-                LOAD_CONST               4 (' was suppressed')
+                LOAD_CONST               3 (' was suppressed')
                 BUILD_STRING             2
                 CALL                     1
                 POP_TOP
@@ -122,12 +122,12 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
                 CALL                     2
                 POP_TOP
        L29:     POP_EXCEPT
-                LOAD_CONST               3 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
                 STORE_FAST               1 (ex)
                 DELETE_FAST              1 (ex)
                 JUMP_FORWARD             8 (to L33)
 
-  --   L30:     LOAD_CONST               3 (None)
+  --   L30:     LOAD_COMMON_CONSTANT     7 (None)
                 STORE_FAST               1 (ex)
                 DELETE_FAST              1 (ex)
                 RERAISE                  1
@@ -138,9 +138,9 @@ Disassembly of <code object test at 0xdeadbeef, file "<?>", line 1>:
                 POP_EXCEPT
                 RERAISE                  1
 
-   3   L33:     LOAD_CONST               3 (None)
-                LOAD_CONST               3 (None)
-                LOAD_CONST               3 (None)
+   3   L33:     LOAD_COMMON_CONSTANT     7 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
+                LOAD_COMMON_CONSTANT     7 (None)
                 CALL                     3
                 POP_TOP
                 JUMP_BACKWARD          188 (to L2)

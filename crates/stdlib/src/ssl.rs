@@ -79,14 +79,14 @@ mod _ssl {
 
     // Import error types used in this module (others are exposed via pymodule(with(...)))
     use super::error::{
-        PySSLError, PySSLWantReadError, PySSLWantWriteError, create_ssl_eof_error,
+        PySSLEOFError, PySSLError, PySSLWantReadError, PySSLWantWriteError, create_ssl_eof_error,
         create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
     };
     use alloc::sync::Arc;
     use core::{
         hash::{Hash, Hasher},
         hint::cold_path,
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
         time::Duration,
     };
     use rustpython_vm::exceptions;
@@ -327,6 +327,8 @@ mod _ssl {
         #[pytraverse(skip)]
         context_identity: Arc<()>,
         #[pytraverse(skip)]
+        policy_identity: PyRwLock<Arc<()>>,
+        #[pytraverse(skip)]
         protocol: i32,
         #[pytraverse(skip)]
         check_hostname: PyRwLock<bool>,
@@ -338,7 +340,7 @@ mod _ssl {
         verify_flags: PyRwLock<i32>,
         // Rustls configuration (built lazily)
         #[pytraverse(skip)]
-        server_config: PyRwLock<Option<chain::ServerConfig>>,
+        server_config: PyRwLock<Option<(Arc<()>, chain::ServerConfig)>>,
         // Certificate store
         #[pytraverse(skip)]
         root_certs: PyRwLock<RootCertStore>,
@@ -382,9 +384,11 @@ mod _ssl {
         keylog_filename: PyRwLock<Option<PyObjectRef>>,
         #[pytraverse(skip)]
         key_log: Arc<super::keylog::KeyLog>,
-        // ECDH curve name for key exchange
+        // Explicit key exchange groups, shared by set_groups and set_ecdh_curve.
         #[pytraverse(skip)]
-        ecdh_curve: PyRwLock<Option<String>>,
+        kx_groups: PyRwLock<Option<Vec<&'static dyn SupportedKxGroup>>>,
+        #[pytraverse(skip)]
+        server_sigalgs: PyRwLock<Option<Vec<rustls::SignatureScheme>>>,
         // Certificate statistics for cert_store_stats()
         #[pytraverse(skip)]
         ca_cert_count: PyRwLock<usize>, // Number of CA certificates
@@ -472,6 +476,14 @@ mod _ssl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
+        fn invalidate_policy(&self) {
+            // Old SSLSession configurations must never override later policy.
+            // Replace the identity after mutation so concurrent snapshots also
+            // become ineligible for resumption once that mutation completes.
+            *self.policy_identity.write() = Arc::new(());
+            *self.server_config.write() = None;
+        }
+
         fn warn_deprecated_tls_version(version: i32, vm: &VirtualMachine) -> PyResult<()> {
             let version_name = match version {
                 PROTO_SSLv3 => Some("SSLv3"),
@@ -507,7 +519,7 @@ mod _ssl {
             capath_state.directories.push(directory);
             capath_state.cache = None;
             drop(capath_state);
-            *self.server_config.write() = None;
+            self.invalidate_policy();
         }
 
         fn capath_certificates(&self) -> Arc<Vec<Vec<u8>>> {
@@ -573,6 +585,7 @@ mod _ssl {
                     *zelf.verify_mode.write() = CERT_REQUIRED;
                 }
             }
+            zelf.invalidate_policy();
         }
 
         #[pygetset]
@@ -583,6 +596,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set__host_flags(zelf: &Py<Self>, value: i32) {
             *zelf.host_flags.write() = value;
+            zelf.invalidate_policy();
         }
 
         #[pygetset]
@@ -602,6 +616,7 @@ mod _ssl {
                 ));
             }
             *zelf.verify_mode.write() = mode;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -618,6 +633,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_verify_flags(zelf: &Py<Self>, value: i32) {
             *zelf.verify_flags.write() = value;
+            zelf.invalidate_policy();
         }
 
         #[pygetset]
@@ -628,6 +644,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_post_handshake_auth(zelf: &Py<Self>, value: bool) {
             *zelf.post_handshake_auth.write() = value;
+            zelf.invalidate_policy();
         }
 
         #[pygetset]
@@ -646,6 +663,7 @@ mod _ssl {
                 );
             }
             *zelf.num_tickets.write() = value;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -684,6 +702,7 @@ mod _ssl {
             }
 
             *zelf.options.write() = value;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -717,6 +736,7 @@ mod _ssl {
                 _ => value,
             };
             *zelf.minimum_version.write() = normalized_value;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -750,6 +770,7 @@ mod _ssl {
                 _ => value,
             };
             *zelf.maximum_version.write() = normalized_value;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -790,7 +811,9 @@ mod _ssl {
 
             // If failed and callable exists, invoke it and retry
             // This implements lazy evaluation: callable only invoked if password is actually needed
-            if result.is_err()
+            if result
+                .as_ref()
+                .is_err_and(|error| !error.is::<rustpython_host_env::ssl::verify::CertFileError>())
                 && let Some(callable) = password_callable
             {
                 // Invoke callable - exceptions propagate naturally
@@ -828,6 +851,25 @@ mod _ssl {
 
             // Process result
             let (certs, key) = result.map_err(|e| {
+                let e = match e.downcast::<rustpython_host_env::ssl::verify::CertFileError>() {
+                    Ok(error) => {
+                        let filename = if error.key_file {
+                            args.keyfile.as_ref().unwrap_or(&args.certfile)
+                        } else {
+                            &args.certfile
+                        };
+                        let filename: PyObjectRef = match filename {
+                            Either::A(s) => s.clone().into(),
+                            Either::B(b) => vm.ctx.new_bytes(b.borrow_buf().to_vec()).into(),
+                        };
+                        let exc = error.error.into_pyexception(vm);
+                        exc.as_object()
+                            .set_attr("filename", filename, vm)
+                            .expect("OSError.filename is writable");
+                        return exc;
+                    }
+                    Err(error) => error,
+                };
                 // Try to downcast to io::Error to preserve errno information
                 if let Ok(io_err) = e.downcast::<std::io::Error>() {
                     match io_err.kind() {
@@ -934,6 +976,7 @@ mod _ssl {
 
             // Add new cert/key pair as tuple
             cert_keys.push((Arc::new(certified_key), key));
+            zelf.invalidate_policy();
 
             Ok(())
         }
@@ -983,6 +1026,8 @@ mod _ssl {
                 (None, false)
             };
 
+            // Loaders may partially update trust before returning an error.
+            let _policy_change = ContextPolicyChange(zelf);
             // If it's a CRL, just add it (separate lock, no conflict with root_store)
             if let Some(crl) = crl_opt {
                 zelf.crls.write().push(crl);
@@ -1019,7 +1064,7 @@ mod _ssl {
             if let Some(dir_path) = capath_dir {
                 zelf.add_verify_dir(dir_path);
             }
-            *zelf.server_config.write() = None;
+            zelf.invalidate_policy();
 
             Ok(())
         }
@@ -1144,6 +1189,7 @@ mod _ssl {
             _purpose: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let _policy_change = ContextPolicyChange(zelf);
             let mut store = zelf.root_certs.write();
 
             #[cfg(windows)]
@@ -1181,7 +1227,7 @@ mod _ssl {
             }
 
             drop(store);
-            *zelf.server_config.write() = None;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -1197,6 +1243,7 @@ mod _ssl {
                 alpn_list.push(bytes.borrow_buf().to_vec());
             }
             *zelf.alpn_protocols.write() = alpn_list;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -1209,6 +1256,7 @@ mod _ssl {
             let bytes = protos.borrow_buf();
             let alpn_list = parse_length_prefixed_alpn(&bytes, vm)?;
             *zelf.alpn_protocols.write() = alpn_list;
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -1236,18 +1284,125 @@ mod _ssl {
                         .upcast()
                     })?;
 
-            // TLS 1.3 has a separate OpenSSL setter. Discard whatever this
-            // cipher string happened to match there, then restore exactly the
-            // provider defaults in their preference order.
+            // TLS 1.3 has a separate setter. Preserve its current selection.
+            let current = zelf.selected_ciphers.read();
             selected_ciphers = cipher::restore_default_tls13(
                 selected_ciphers,
-                CryptoExt::get_ext().default_ciphers_or_provider(),
+                current
+                    .as_deref()
+                    .unwrap_or_else(|| CryptoExt::get_ext().default_ciphers_or_provider()),
             );
+            drop(current);
 
             *zelf.selected_ciphers.write() = Some(selected_ciphers);
             *zelf.suite_b_kx_groups.write() = suite_b_kx_groups;
-            *zelf.server_config.write() = None;
+            zelf.invalidate_policy();
 
+            Ok(())
+        }
+
+        #[pymethod]
+        fn set_ciphersuites(
+            zelf: &Py<Self>,
+            ciphersuites: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let list = ciphersuites.as_str();
+            if list.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            let mut selected = Vec::new();
+            for name in list.split(':') {
+                if let Some(suite) = CryptoExt::get_ext()
+                    .all_ciphers_or_default()
+                    .iter()
+                    .find(|suite| suite.tls13().is_some() && cipher::describe(suite).name == name)
+                    && !selected.contains(suite)
+                {
+                    selected.push(*suite);
+                }
+            }
+            if selected.is_empty() && !list.is_empty() {
+                return Err(vm
+                    .new_os_subtype_error(
+                        PySSLError::class(&vm.ctx).to_owned(),
+                        None,
+                        "No cipher suite can be selected.".to_owned(),
+                    )
+                    .upcast());
+            }
+            let mut current = zelf.selected_ciphers.write();
+            selected.extend(
+                current
+                    .as_deref()
+                    .unwrap_or_else(|| CryptoExt::get_ext().default_ciphers_or_provider())
+                    .iter()
+                    .filter(|suite| suite.tls13().is_none())
+                    .copied(),
+            );
+            *current = Some(selected);
+            zelf.invalidate_policy();
+            Ok(())
+        }
+
+        #[pymethod]
+        fn set_groups(
+            zelf: &Py<Self>,
+            grouplist: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let list = grouplist.as_str();
+            if list.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            let mut groups: Vec<&'static dyn SupportedKxGroup> = Vec::new();
+            if !list.is_empty() {
+                for name in list.split(':') {
+                    let (name, optional) =
+                        name.strip_prefix('?').map_or((name, false), |n| (n, true));
+                    match cipher::kx_group_by_openssl_name(name) {
+                        Some(group) if !groups.iter().any(|g| g.name() == group.name()) => {
+                            groups.push(group)
+                        }
+                        Some(_) => {}
+                        None if optional => {}
+                        None => {
+                            return Err(vm
+                                .new_os_subtype_error(
+                                    PySSLError::class(&vm.ctx).to_owned(),
+                                    None,
+                                    "unrecognized group".to_owned(),
+                                )
+                                .upcast());
+                        }
+                    }
+                }
+            }
+            *zelf.kx_groups.write() = Some(groups);
+            zelf.invalidate_policy();
+            Ok(())
+        }
+
+        #[pymethod]
+        fn set_server_sigalgs(
+            zelf: &Py<Self>,
+            sigalgslist: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let list = sigalgslist.as_str();
+            if list.contains('\0') {
+                return Err(vm.new_value_error("embedded null character"));
+            }
+            let schemes = rustpython_host_env::ssl::sigalg::parse_list(list).map_err(|error| {
+                vm.new_os_subtype_error(
+                    PySSLError::class(&vm.ctx).to_owned(),
+                    None,
+                    error.to_owned(),
+                )
+                .upcast()
+            })?;
+            *zelf.server_sigalgs.write() = Some(schemes);
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -1558,11 +1713,10 @@ mod _ssl {
                 return Err(vm.new_type_error("ECDH curve name must be str or bytes"));
             };
 
-            curve_name_to_kx_group(&curve_name).map_err(|error| vm.new_value_error(error))?;
-
-            // Store the curve name to be used during handshake
-            // This will limit the key exchange groups offered/accepted
-            *zelf.ecdh_curve.write() = Some(curve_name);
+            let groups =
+                curve_name_to_kx_group(&curve_name).map_err(|error| vm.new_value_error(error))?;
+            *zelf.kx_groups.write() = Some(groups);
+            zelf.invalidate_policy();
             Ok(())
         }
 
@@ -1620,6 +1774,7 @@ mod _ssl {
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
                 state: PyMutex::new(TlsState::new(args.server_side)),
+                got_eof_error: AtomicBool::new(false),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
                 session: PyRwLock::new(None),
@@ -1700,6 +1855,7 @@ mod _ssl {
                 server_hostname: PyRwLock::new(hostname),
                 connection: PyMutex::new(None),
                 state: PyMutex::new(TlsState::new(server_side)),
+                got_eof_error: AtomicBool::new(false),
                 session_was_reused: PyMutex::new(false),
                 owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
                 session: PyRwLock::new(None),
@@ -1985,6 +2141,7 @@ mod _ssl {
             let shared_session_cache = Arc::new(ParkingRwLock::new(HashMap::new()));
             Ok(Self {
                 context_identity: Arc::new(()),
+                policy_identity: PyRwLock::new(Arc::new(())),
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 host_flags: PyRwLock::new(0),
@@ -2006,7 +2163,8 @@ mod _ssl {
                 msg_callback: PyRwLock::new(None),
                 keylog_filename: PyRwLock::new(None),
                 key_log: Arc::new(super::keylog::KeyLog::default()),
-                ecdh_curve: PyRwLock::new(None),
+                kx_groups: PyRwLock::new(None),
+                server_sigalgs: PyRwLock::new(None),
                 ca_cert_count: PyRwLock::new(0),
                 x509_cert_count: PyRwLock::new(0),
                 // Use the shared cache created above
@@ -2086,6 +2244,23 @@ mod _ssl {
         }
     }
 
+    // Trust loaders can mutate before a later input fails, so invalidate on
+    // both successful and exceptional exits, after their write locks drop.
+    struct ContextPolicyChange<'a>(&'a PySSLContext);
+
+    impl Drop for ContextPolicyChange<'_> {
+        fn drop(&mut self) {
+            self.0.invalidate_policy();
+        }
+    }
+
+    #[derive(Debug)]
+    struct ClientConfigSnapshot {
+        config: Arc<rustls::ClientConfig>,
+        context_identity: Arc<()>,
+        policy_identity: Arc<()>,
+    }
+
     // SSLSocket - represents a TLS-wrapped socket
     #[pyattr]
     #[pyclass(name = "_SSLSocket", module = "_ssl", traverse)]
@@ -2109,6 +2284,8 @@ mod _ssl {
         connection: PyMutex<Option<TlsConnection>>,
         // Includes the saved exception while a rejected handshake sends its alert.
         state: PyMutex<TlsState>,
+        #[pytraverse(skip)]
+        got_eof_error: AtomicBool,
         // Session was reused (for session resumption tracking)
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
@@ -2119,7 +2296,7 @@ mod _ssl {
         // Client configuration used by this connection. Retained so the resulting
         // SSLSession can reuse the same verifier and client credentials.
         #[pytraverse(skip)]
-        client_config: PyRwLock<Option<Arc<rustls::ClientConfig>>>,
+        client_config: PyRwLock<Option<ClientConfigSnapshot>>,
         #[pytraverse(skip)]
         chain_builder: PyRwLock<Option<Arc<VerifiedChainBuilder>>>,
         #[pytraverse(skip)]
@@ -2146,6 +2323,19 @@ mod _ssl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLSocket {
+        // Call only for transport/protocol failures. User message callbacks
+        // may raise SSLEOFError without closing the connection.
+        fn remember_eof(
+            &self,
+            error: PyBaseExceptionRef,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            if error.fast_isinstance(PySSLEOFError::class(&vm.ctx)) {
+                self.got_eof_error.store(true, Ordering::Relaxed);
+            }
+            error
+        }
+
         // Check if this is BIO mode
         pub(crate) fn is_bio_mode(&self) -> bool {
             matches!(self.io, SocketOrBio::Bio { .. })
@@ -2277,13 +2467,7 @@ mod _ssl {
 
             // Try to get session data from context's session cache
             // IMPORTANT: Acquire and release locks quickly to avoid deadlock
-            let (context_identity, session_cache_arc) = {
-                let context = self.context.read();
-                (
-                    context.context_identity.clone(),
-                    context.client_session_cache.clone(),
-                )
-            };
+            let session_cache_arc = self.context.read().client_session_cache.clone();
 
             let cached_session_data = if let Some(ref name) = server_name {
                 let key = name.as_bytes().to_vec();
@@ -2329,7 +2513,7 @@ mod _ssl {
                 _ => return,
             };
 
-            let Some(client_config) = self.client_config.write().take() else {
+            let Some(config_snapshot) = self.client_config.write().take() else {
                 return;
             };
             let Some(session_store) = self.client_session_store.write().take() else {
@@ -2337,8 +2521,9 @@ mod _ssl {
             };
 
             let session = PySSLSession {
-                context_identity,
-                client_config,
+                context_identity: config_snapshot.context_identity,
+                policy_identity: config_snapshot.policy_identity,
+                client_config: config_snapshot.config,
                 chain_builder: self
                     .chain_builder
                     .read()
@@ -2596,7 +2781,7 @@ mod _ssl {
                             Ok(())
                         })();
                         *self.state.lock() = TlsState::WaitingForClientHello(acceptor);
-                        read?;
+                        read.map_err(|error| self.remember_eof(error, vm))?;
                     }
                     TlsState::SendingAlert { error } => {
                         let result = self.flush_pending_tls_output(vm, None);
@@ -2604,7 +2789,7 @@ mod _ssl {
                             error: error.clone(),
                         };
                         result?;
-                        return Err(error);
+                        return Err(self.remember_eof(error, vm));
                     }
                     state @ (TlsState::Handshaking
                     | TlsState::Connected
@@ -2786,41 +2971,36 @@ mod _ssl {
         }
 
         /// Helper: Prepare KX groups (ECDH curve) from context settings
-        fn prepare_kx_groups(
-            &self,
-            vm: &VirtualMachine,
-        ) -> PyResult<Option<Vec<&'static dyn SupportedKxGroup>>> {
+        fn prepare_kx_groups(&self) -> Option<Vec<&'static dyn SupportedKxGroup>> {
             let ctx = self.context.read();
-            let ecdh_curve = ctx.ecdh_curve.read().clone();
+            let kx_groups = ctx.kx_groups.read().clone();
             let suite_b_kx_groups = ctx.suite_b_kx_groups.read().clone();
             drop(ctx);
 
-            if let Some(ref curve_name) = ecdh_curve {
-                match curve_name_to_kx_group(curve_name) {
-                    Ok(groups) => Ok(Some(groups)),
-                    Err(e) => Err(vm.new_value_error(format!("Failed to set ECDH curve: {e}"))),
-                }
+            if kx_groups.is_some() {
+                kx_groups
             } else {
                 // A SUITEB* cipher string pins its own groups, and nothing
                 // else asked for a curve.
-                Ok(suite_b_kx_groups)
+                suite_b_kx_groups
             }
         }
 
         /// Helper: Prepare all common protocol settings (versions, KX groups, ciphers, ALPN)
-        fn prepare_protocol_settings(&self, vm: &VirtualMachine) -> PyResult<ProtocolSettings> {
+        fn prepare_protocol_settings(&self) -> ProtocolSettings {
             let ctx = self.context.read();
             let versions = self.prepare_tls_versions();
-            let kx_groups = self.prepare_kx_groups(vm)?;
+            let kx_groups = self.prepare_kx_groups();
             let cipher_suites = ctx.selected_ciphers.read().clone();
             let alpn_protocols = ctx.alpn_protocols.read().clone();
 
-            Ok(ProtocolSettings {
+            ProtocolSettings {
                 versions,
                 kx_groups,
                 cipher_suites,
+                server_sigalgs: ctx.server_sigalgs.read().clone(),
                 alpn_protocols,
-            })
+            }
         }
 
         /// Initialize server-side TLS connection with configuration
@@ -2840,6 +3020,7 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let ctx = self.context.read();
+            let policy_identity = ctx.policy_identity.read().clone();
             let cert_keys = ctx.cert_keys.read();
 
             if cert_keys.is_empty() {
@@ -2857,7 +3038,7 @@ mod _ssl {
             drop(cert_keys);
 
             // Prepare common protocol settings (TLS versions, ECDH curve, cipher suites, ALPN)
-            let protocol_settings = self.prepare_protocol_settings(vm)?;
+            let protocol_settings = self.prepare_protocol_settings();
             let min_ver = *ctx.minimum_version.read();
 
             // Check if client certificate verification is required
@@ -2890,8 +3071,9 @@ mod _ssl {
             // Certificate selection uses the actual ClientHello after SNI has
             // selected the context, including multi-certificate configurations.
             let cert_keys_only = cert_keys_clone.iter().map(|(ck, _)| ck.clone()).collect();
-            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> =
-                Some(Arc::new(MultiCertResolver::new(cert_keys_only)));
+            let cert_resolver: Option<Arc<dyn ResolvesServerCert>> = Some(Arc::new(
+                MultiCertResolver::new(cert_keys_only, protocol_settings.server_sigalgs.as_deref()),
+            ));
 
             // Extract cert_chain and private_key from first cert_key
             //
@@ -2937,7 +3119,11 @@ mod _ssl {
             let cache_server_config =
                 !use_deferred_validation && ctx.capath_state.read().directories.is_empty();
             let cached_config_arc = if cache_server_config {
-                ctx.server_config.read().clone()
+                ctx.server_config
+                    .read()
+                    .as_ref()
+                    .filter(|(policy, _)| Arc::ptr_eq(policy, &policy_identity))
+                    .map(|(_, config)| config.clone())
             } else {
                 None
             };
@@ -2946,12 +3132,14 @@ mod _ssl {
             let (mut config_arc, chain_builder) = if let Some(cached) = cached_config_arc {
                 cached
             } else {
-                let config =
-                    create_server_config(config_options).map_err(|e| vm.new_value_error(e))?;
+                let config = create_server_config(config_options).map_err(|e| {
+                    vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
+                        .upcast()
+                })?;
 
                 if cache_server_config {
                     let ctx = self.context.read();
-                    *ctx.server_config.write() = Some(config.clone());
+                    *ctx.server_config.write() = Some((policy_identity, config.clone()));
                 }
 
                 config
@@ -2982,6 +3170,9 @@ mod _ssl {
 
         #[pymethod]
         fn do_handshake(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            if zelf.got_eof_error.load(Ordering::Relaxed) {
+                return Err(create_ssl_eof_error(vm).upcast());
+            }
             // Check if handshake already done
             if zelf.handshake_completed() {
                 return Ok(());
@@ -3007,11 +3198,14 @@ mod _ssl {
                         return zelf.accept_client_hello(vm).map(|_| ());
                     }
                 } else {
-                    // Client-side connection
+                    // Client-side connection. Capture policy before reading any
+                    // settings; mutations during construction invalidate this snapshot.
                     let ctx = zelf.context.read();
+                    let policy_identity = ctx.policy_identity.read().clone();
+                    let has_capath = !ctx.capath_state.read().directories.is_empty();
 
                     // Prepare common protocol settings (TLS versions, ECDH curve, cipher suites, ALPN)
-                    let protocol_settings = zelf.prepare_protocol_settings(vm)?;
+                    let protocol_settings = zelf.prepare_protocol_settings();
 
                     // Clone values we need before building config
                     let verify_mode = *ctx.verify_mode.read();
@@ -3062,23 +3256,32 @@ mod _ssl {
                     };
 
                     let explicit_session = zelf.session.read().clone();
+                    let explicit_session = explicit_session
+                        .as_ref()
+                        .map(|session| {
+                            let session = session
+                                .downcast_ref::<PySSLSession>()
+                                .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
+                            if !Arc::ptr_eq(&session.context_identity, &context_identity) {
+                                return Err(
+                                    vm.new_value_error("Session refers to a different SSLContext.")
+                                );
+                            }
+                            Ok(session)
+                        })
+                        .transpose()?;
+                    let reusable_session = explicit_session.filter(|session| {
+                        !has_capath
+                            && Arc::ptr_eq(&session.policy_identity, &policy_identity)
+                            && session.server_name.as_ref() == Some(&server_name)
+                    });
                     let session_store = Arc::new(CapturingClientSessionStore::new(session_cache));
-                    let (mut config, chain_builder) = if let Some(session) = explicit_session {
-                        let session = session
-                            .downcast_ref::<PySSLSession>()
-                            .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
-                        if !Arc::ptr_eq(&session.context_identity, &context_identity) {
-                            return Err(
-                                vm.new_value_error("Session refers to a different SSLContext.")
-                            );
-                        }
-                        if session.server_name.as_ref() == Some(&server_name) {
-                            session.session_store.transfer_session(
-                                &session_store,
-                                &server_name,
-                                session.kind,
-                            );
-                        }
+                    let (mut config, chain_builder) = if let Some(session) = reusable_session {
+                        session.session_store.transfer_session(
+                            &session_store,
+                            &server_name,
+                            session.kind,
+                        );
                         let mut config = (*session.client_config).clone();
                         config.resumption =
                             rustls::client::Resumption::store(session_store.clone());
@@ -3101,12 +3304,19 @@ mod _ssl {
                             session_store: Some(session_store.clone()),
                             crls: crls_clone,
                         };
-                        create_client_config(config_options).map_err(|e| vm.new_value_error(e))?
+                        create_client_config(config_options).map_err(|e| {
+                            vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, e)
+                                .upcast()
+                        })?
                     };
                     Arc::make_mut(&mut config).key_log = zelf.key_log.clone();
 
                     *zelf.chain_builder.write() = Some(chain_builder);
-                    *zelf.client_config.write() = Some(config.clone());
+                    *zelf.client_config.write() = Some(ClientConfigSnapshot {
+                        config: config.clone(),
+                        context_identity,
+                        policy_identity,
+                    });
                     *zelf.client_session_store.write() = Some(session_store);
 
                     let mut conn = ClientConnection::new(config, server_name).map_err(|e| {
@@ -3133,7 +3343,7 @@ mod _ssl {
                 zelf.reject_connection(error.into_py_err(vm), bytes, vm);
                 return zelf.accept_client_hello(vm).map(|_| ());
             }
-            handshake_result.map_err(|e| e.into_py_err(vm))?;
+            handshake_result.map_err(|e| zelf.remember_eof(e.into_py_err(vm), vm))?;
             if let Some(exc) = zelf.take_msg_exc() {
                 return Err(exc);
             }
@@ -3171,6 +3381,10 @@ mod _ssl {
                 if len_val <= 0 || len > buf_len {
                     len = buf_len;
                 }
+            }
+
+            if zelf.got_eof_error.load(Ordering::Relaxed) {
+                return Err(create_ssl_eof_error(vm).upcast());
             }
 
             // return empty bytes immediately for len=0
@@ -3244,7 +3458,11 @@ mod _ssl {
                         let mut conn_guard = zelf.connection.lock();
                         let conn = match conn_guard.as_mut() {
                             Some(conn) => conn,
-                            None => return Err(create_ssl_eof_error(vm).upcast()),
+                            None => {
+                                return Err(
+                                    zelf.remember_eof(create_ssl_eof_error(vm).upcast(), vm)
+                                );
+                            }
                         };
                         conn.pending_plaintext()
                     };
@@ -3257,7 +3475,7 @@ mod _ssl {
                         }
                     }
                     // EOF occurred in violation of protocol (unexpected closure)
-                    Err(create_ssl_eof_error(vm).upcast())
+                    Err(zelf.remember_eof(create_ssl_eof_error(vm).upcast(), vm))
                 }
                 Err(error) if error.is_zero_return() => {
                     // If plaintext is still buffered, return it before clean EOF.
@@ -3303,12 +3521,12 @@ mod _ssl {
                     Err(timeout_error_msg(vm, msg).upcast())
                 }
                 Err(crate::ssl::compat::SslError::Py(e)) => {
-                    // Python exception - pass through
-                    Err(e)
+                    // Exception from a transport operation.
+                    Err(zelf.remember_eof(e, vm))
                 }
                 Err(e) => {
                     // Other SSL errors
-                    Err(e.into_py_err(vm))
+                    Err(zelf.remember_eof(e.into_py_err(vm), vm))
                 }
             }
         }
@@ -3327,6 +3545,9 @@ mod _ssl {
 
         #[pymethod]
         fn write(zelf: &Py<Self>, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            if zelf.got_eof_error.load(Ordering::Relaxed) {
+                return Err(create_ssl_eof_error(vm).upcast());
+            }
             let data_bytes = b.borrow_buf();
             let data_len = data_bytes.len();
 
@@ -3373,7 +3594,7 @@ mod _ssl {
                 Err(crate::ssl::compat::SslError::Timeout(msg)) => {
                     Err(timeout_error_msg(vm, msg).upcast())
                 }
-                Err(e) => Err(e.into_py_err(vm)),
+                Err(e) => Err(zelf.remember_eof(e.into_py_err(vm), vm)),
             }
         }
 
@@ -4069,6 +4290,7 @@ mod _ssl {
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         context_identity: Arc<()>,
+        policy_identity: Arc<()>,
         client_config: Arc<rustls::ClientConfig>,
         chain_builder: Arc<VerifiedChainBuilder>,
         session_store: Arc<CapturingClientSessionStore>,
@@ -4244,37 +4466,13 @@ mod _ssl {
             .supported_schemes()
             .into_iter()
             .map(|scheme| {
-                // IANA TLS SignatureScheme names differ from several rustls names.
-                use rustls::SignatureScheme::{
-                    ECDSA_NISTP256_SHA256, ECDSA_NISTP384_SHA384, ECDSA_NISTP521_SHA512,
-                    ECDSA_SHA1_Legacy, ED448, ED25519, ML_DSA_44, ML_DSA_65, ML_DSA_87,
-                    RSA_PKCS1_SHA1, RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512,
-                    RSA_PSS_SHA256, RSA_PSS_SHA384, RSA_PSS_SHA512,
-                };
-                let name = match scheme {
-                    RSA_PKCS1_SHA1 => "rsa_pkcs1_sha1",
-                    ECDSA_SHA1_Legacy => "ecdsa_sha1",
-                    RSA_PKCS1_SHA256 => "rsa_pkcs1_sha256",
-                    RSA_PKCS1_SHA384 => "rsa_pkcs1_sha384",
-                    RSA_PKCS1_SHA512 => "rsa_pkcs1_sha512",
-                    ECDSA_NISTP256_SHA256 => "ecdsa_secp256r1_sha256",
-                    ECDSA_NISTP384_SHA384 => "ecdsa_secp384r1_sha384",
-                    ECDSA_NISTP521_SHA512 => "ecdsa_secp521r1_sha512",
-                    RSA_PSS_SHA256 => "rsa_pss_rsae_sha256",
-                    RSA_PSS_SHA384 => "rsa_pss_rsae_sha384",
-                    RSA_PSS_SHA512 => "rsa_pss_rsae_sha512",
-                    ED25519 => "ed25519",
-                    ED448 => "ed448",
-                    ML_DSA_44 => "mldsa44",
-                    ML_DSA_65 => "mldsa65",
-                    ML_DSA_87 => "mldsa87",
-                    _ => {
-                        return Err(vm.new_not_implemented_error(format!(
+                let name =
+                    rustpython_host_env::ssl::sigalg::scheme_name(scheme).ok_or_else(|| {
+                        vm.new_not_implemented_error(format!(
                             "The TLS provider uses an unrecognized signature scheme {:#06x}",
                             u16::from(scheme)
-                        )));
-                    }
-                };
+                        ))
+                    })?;
                 Ok(vm.ctx.new_str(name).into())
             })
             .collect::<PyResult<Vec<_>>>()?;

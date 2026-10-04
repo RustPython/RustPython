@@ -852,9 +852,7 @@ pub(crate) fn try_load_submodule(
             {
                 return Ok(loaded);
             }
-            vm.importlib
-                .get_attr("_find_and_load_lazy_submodule", vm)?
-                .call((fullname.clone(), vm.import_func.clone()), vm)
+            crate::import::find_and_load(&fullname, "_find_and_load_lazy_submodule", vm)
         }
     })();
     let imported = match imported {

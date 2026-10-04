@@ -490,7 +490,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIsNone(elem.getAttributeNode("b"))
         dom.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testGetElementsByTagNameNS(self):
         d="""<foo xmlns:minidom='http://pyxml.sf.net/minidom'>
         <minidom:myelem/>
@@ -1516,7 +1515,6 @@ class MinidomTest(unittest.TestCase):
                 "test NodeList.item()")
         doc.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testEncodings(self):
         doc = parseString('<foo>&#x20ac;</foo>')
         self.assertEqual(doc.toxml(),

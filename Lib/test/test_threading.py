@@ -476,7 +476,11 @@ class ThreadTests(BaseTestCase):
         finally:
             threading._start_joinable_thread = _start_joinable_thread
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ctypes.pythonapi is not supported
+    @unittest.expectedFailureIf(
+        sys.implementation.name == "rustpython"
+        and "_testcapi" not in sys.builtin_module_names,
+        "TODO: RUSTPYTHON; requires the capi build feature",
+    )
     def test_finalize_running_thread(self):
         # Issue 1402: the PyGILState_Ensure / _Release functions may be called
         # very late on python exit: on deallocation of a running thread for
@@ -1723,7 +1727,6 @@ class SubinterpThreadingTests(BaseTestCase):
             os.set_blocking(r, False)
         return (r, w)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join(self):
         # Non-daemon threads should be joined at subinterpreter shutdown
         # (issue #18808)
@@ -1752,7 +1755,6 @@ class SubinterpThreadingTests(BaseTestCase):
         # The thread was joined properly.
         self.assertEqual(os.read(r, 1), b"x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join_2(self):
         # Same as above, but a delay gets introduced after the thread's
         # Python code returned but before the thread state is deleted.

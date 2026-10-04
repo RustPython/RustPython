@@ -62,7 +62,8 @@ pub struct Settings {
 
     // int tracemalloc;
     // int perf_profiling;
-    // int import_time;
+    /// -X importtime, PYTHONPROFILEIMPORTTIME: 2 also reports cached imports.
+    pub import_time: u8,
     /// -X no_debug_ranges: disable column info in bytecode
     pub code_debug_ranges: bool,
     // int show_ref_count;
@@ -136,7 +137,8 @@ pub struct Settings {
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
-    // int use_frozen_modules;
+    /// -X frozen_modules=on|off (bootstrap modules remain available).
+    pub use_frozen_modules: bool,
     /// -P
     pub safe_path: bool,
 
@@ -152,7 +154,8 @@ pub struct Settings {
     /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
-    // wchar_t *home;
+    /// PYTHONHOME: explicit prefix, optionally followed by the exec prefix.
+    pub home: Option<String>,
     // wchar_t *platlibdir;
     /// -d command line switch
     pub debug: u8,
@@ -200,6 +203,7 @@ impl Default for Settings {
             install_signal_handlers: true,
             user_site_directory: true,
             import_site: true,
+            use_frozen_modules: true,
             ignore_environment: false,
             verbose: 0,
             quiet: false,
@@ -215,9 +219,11 @@ impl Default for Settings {
             lazy_imports: -1,
             warnoptions: vec![],
             path_list: vec![],
+            home: None,
             argv: vec![],
             hash_seed: None,
             faulthandler: false,
+            import_time: 0,
             code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,

@@ -663,6 +663,26 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.stack.push(val);
                 Ok(())
             }
+            Instruction::LoadCommonConstant { idx } => {
+                let common = idx.get(arg);
+                let value = match common {
+                    bytecode::CommonConstant::None => {
+                        self.prepare_const::<C>(BorrowedConstant::None)?
+                    }
+                    bytecode::CommonConstant::True | bytecode::CommonConstant::False => self
+                        .prepare_const::<C>(BorrowedConstant::Boolean {
+                            value: common == bytecode::CommonConstant::True,
+                        })?,
+                    bytecode::CommonConstant::MinusOne => {
+                        self.prepare_const::<C>(BorrowedConstant::Integer {
+                            value: &(-1).into(),
+                        })?
+                    }
+                    _ => return Err(JitCompileError::NotSupported),
+                };
+                self.stack.push(value);
+                Ok(())
+            }
             Instruction::LoadSmallInt { i } => {
                 let small_int = i.get(arg) as i64;
                 let val = self.builder.ins().iconst(types::I64, small_int);
