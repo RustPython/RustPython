@@ -320,7 +320,8 @@ fn cpython_parse_diagnostic_override(
                 | parser::LexicalErrorType::TabError
                 | parser::LexicalErrorType::TooDeepIndentation
         ) | parser::ParseErrorType::UnexpectedIndentation
-    ) || expected_indented_block_error(error, source_text).is_some();
+            | parser::ParseErrorType::ExpectedIndentedBlock { .. }
+    );
     if !indent_error
         && !tokenizer_error
         && let Some(diagnostic) = invalid_legacy_statement_error(source_text)
@@ -369,15 +370,18 @@ fn cpython_parse_diagnostic_override(
         return None;
     }
 
-    source_error!(expected_indented_block_error(error, source_text));
-
     if matches!(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
     ) {
         return Some(eof_parse_diagnostic(error, source_file));
     }
-    if tokenizer_error {
+    if tokenizer_error
+        || matches!(
+            &error.error,
+            parser::ParseErrorType::ExpectedIndentedBlock { .. }
+        )
+    {
         return None;
     }
 
@@ -667,115 +671,6 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
         }
     }
     index
-}
-
-fn cpython_indented_block_clause(message: &str) -> Option<&'static str> {
-    let clause = message.strip_prefix("expected an indented block after ")?;
-    Some(match clause {
-        "`if` statement" => "'if' statement",
-        "`elif` clause" => "'elif' statement",
-        "`else` clause" => "'else' statement",
-        "`for` statement" => "'for' statement",
-        "`with` statement" => "'with' statement",
-        "`while` statement" => "'while' statement",
-        "`try` statement" => "'try' statement",
-        "`except` clause" => "'except' statement",
-        "`finally` clause" => "'finally' statement",
-        "`match` statement" => "'match' statement",
-        "`case` block" => "'case' statement",
-        "`class` definition" => "class definition",
-        "function definition" => "function definition",
-        _ => return None,
-    })
-}
-
-fn previous_non_empty_line_number(source: &str, offset: usize) -> Option<usize> {
-    let bytes = source.as_bytes();
-    let mut index = offset.min(bytes.len());
-    while index > 0 {
-        let line_end = index;
-        while index > 0 && bytes[index - 1] != b'\n' {
-            index -= 1;
-        }
-        let line_start = index;
-        let content_start = skip_horizontal_whitespace(bytes, line_start);
-        let mut content_end = line_end;
-        while content_end > content_start
-            && matches!(
-                bytes.get(content_end - 1),
-                Some(b' ' | b'\t' | b'\r' | b'\x0c')
-            )
-        {
-            content_end -= 1;
-        }
-        if content_start < content_end {
-            return Some(
-                source[..line_start]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
-                    + 1,
-            );
-        }
-        index = line_start.saturating_sub(1);
-    }
-    None
-}
-
-fn expected_indented_block_error(
-    error: &parser::ParseError,
-    source: &str,
-) -> Option<CpythonDiagnostic> {
-    let parser::ParseErrorType::OtherError(message) = &error.error else {
-        return None;
-    };
-    let mut clause = cpython_indented_block_clause(message)?;
-    let start = error.location.start().to_usize();
-    let end = error.location.end().to_usize();
-    let line = previous_non_empty_line_number(source, start)?;
-    if clause == "'except' statement"
-        && let Some(previous_line) = previous_non_empty_line(source, start)
-        && matches!(
-            previous_line.trim_start(),
-            line if line.starts_with("except*") || line.starts_with("except *")
-        )
-    {
-        clause = "'except*' statement";
-    }
-    Some(CpythonDiagnostic::new(
-        format!("expected an indented block after {clause} on line {line}"),
-        start,
-        end,
-    ))
-}
-
-fn previous_non_empty_line(source: &str, offset: usize) -> Option<&str> {
-    let bytes = source.as_bytes();
-    let mut index = offset.min(bytes.len());
-    while index > 0 {
-        let line_end = index;
-        while index > 0 && bytes[index - 1] != b'\n' {
-            index -= 1;
-        }
-        let line_start = index;
-        let mut content_start = line_start;
-        while content_start < line_end
-            && matches!(bytes[content_start], b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
-        {
-            content_start += 1;
-        }
-        let mut content_end = line_end;
-        while content_end > content_start
-            && matches!(bytes[content_end - 1], b' ' | b'\t' | b'\r' | b'\x0c')
-        {
-            content_end -= 1;
-        }
-        if content_start < content_end {
-            return source.get(line_start..line_end);
-        }
-        index = line_start.saturating_sub(1);
-    }
-    None
 }
 
 fn starts_identifier(bytes: &[u8], index: usize, word: &[u8]) -> bool {

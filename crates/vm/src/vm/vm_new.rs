@@ -543,41 +543,30 @@ impl VirtualMachine {
             }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::ExpectedIndentedBlock { .. },
+                raw_location,
+                ..
+            }) => {
+                // The block can still follow when the error is found at whitespace, that is, at
+                // the end of the input.
+                let at_end = source.is_some_and(|source| {
+                    source
+                        .get(raw_location.start().to_usize()..raw_location.end().to_usize())
+                        .is_some_and(|text| text.chars().all(|c| c.is_ascii_whitespace()))
+                });
+                if allow_incomplete && at_end {
+                    self.ctx.exceptions.incomplete_input_error
+                } else {
+                    self.ctx.exceptions.indentation_error
+                }
+            }
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("expected an indented block after") {
-                    if allow_incomplete {
-                        // Check that all chars in the error are whitespace, if so, the source is
-                        // incomplete. Otherwise, we've found code that might violates
-                        // indentation rules.
-                        let mut is_incomplete = true;
-                        if let Some(source) = source {
-                            let start = raw_location.start().to_usize();
-                            let end = raw_location.end().to_usize();
-                            let mut iter = source.chars();
-                            iter.nth(start);
-                            for _ in start..end {
-                                if let Some(c) = iter.next() {
-                                    if !c.is_ascii_whitespace() {
-                                        is_incomplete = false;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        if is_incomplete {
-                            self.ctx.exceptions.incomplete_input_error
-                        } else {
-                            self.ctx.exceptions.indentation_error // not syntax_error
-                        }
-                    } else {
-                        self.ctx.exceptions.indentation_error
-                    }
-                } else if allow_incomplete
+                if allow_incomplete
                     && (s == "incomplete input"
                         || (s == "unexpected EOF while parsing"
                             && source.is_some_and(|source| {
