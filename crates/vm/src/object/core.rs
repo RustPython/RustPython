@@ -3314,7 +3314,7 @@ mod tests {
                 5
             );
 
-            static METHOD: PyMethodDef = PyMethodDef::new_const(
+            const METHOD: PyMethodDef = PyMethodDef::new_const(
                 "identity",
                 |value: PyObjectRef| value,
                 PyMethodFlags::METHOD,
