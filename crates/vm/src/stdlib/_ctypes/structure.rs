@@ -1,11 +1,11 @@
 use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
-use crate::function::{FuncArgs, OptionalArg, PySetterValue};
+use crate::function::{ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::stdlib::_warnings;
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
 use num_traits::ToPrimitive;
@@ -18,7 +18,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
 
         for field in &fields {
             if let Some(tuple) = field.downcast_ref::<PyTuple>()
-                && let Some(field_type) = tuple.get(1)
+                && let Some(field_type) = tuple.as_slice().get(1)
             {
                 total_size += super::_ctypes::sizeof(field_type.clone(), vm)?;
             }
@@ -28,7 +28,7 @@ pub(super) fn calculate_struct_size(cls: &Py<PyType>, vm: &VirtualMachine) -> Py
     Ok(0)
 }
 
-/// PyCStructType - metaclass for Structure
+// PyCStructType - metaclass for Structure
 #[pyclass(name = "PyCStructType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]
@@ -66,9 +66,9 @@ impl Constructor for PyCStructType {
 impl Initializer for PyCStructType {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef by converting PyRef<Self> -> PyObjectRef -> PyRef<PyType>
-        let obj: PyObjectRef = zelf.into();
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -85,12 +85,12 @@ impl Initializer for PyCStructType {
 
         // Process _fields_ if defined directly on this class (not inherited)
         if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&new_type, fields_attr, vm)?;
+            Self::process_fields(&new_type, &fields_attr, vm)?;
         } else {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {
                 let bases = new_type.bases.read();
-                if let Some(base) = bases.first() {
+                if let Some(base) = bases.as_slice().first() {
                     (base.stg_info_opt().is_some(), Some(base.clone()))
                 } else {
                     (false, None)
@@ -168,11 +168,15 @@ impl PyCStructType {
     // CDataType methods - delegated to PyCData implementations
 
     #[pymethod]
-    fn from_address(zelf: PyObjectRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    fn from_address(
+        zelf: PyObjectRef,
+        address: ArgStrictInt<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_address(cls, address, vm)
+        Py::<PyCData>::from_address(cls, address, vm)
     }
 
     #[pymethod]
@@ -185,7 +189,7 @@ impl PyCStructType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_buffer(cls, source, offset, vm)
+        Py::<PyCData>::from_buffer(cls, source, offset, vm)
     }
 
     #[pymethod]
@@ -198,7 +202,7 @@ impl PyCStructType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::from_buffer_copy(cls, source, offset, vm)
+        Py::<PyCData>::from_buffer_copy(cls, source, offset, vm)
     }
 
     #[pymethod]
@@ -211,17 +215,17 @@ impl PyCStructType {
         let cls: PyTypeRef = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("expected a type"))?;
-        PyCData::in_dll(cls, dll, name, vm)
+        Py::<PyCData>::in_dll(cls, dll, name, vm)
     }
 
-    /// Called when a new Structure subclass is created
+    // Called when a new Structure subclass is created
     #[pyclassmethod]
     fn __init_subclass__(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
         cls.mark_bases_final();
 
         // Check if _fields_ is defined
         if let Some(fields_attr) = cls.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&cls, fields_attr, vm)?;
+            Self::process_fields(&cls, &fields_attr, vm)?;
         }
         Ok(())
     }
@@ -229,7 +233,7 @@ impl PyCStructType {
     /// Process _fields_ and create CField descriptors
     fn process_fields(
         cls: &Py<PyType>,
-        fields_attr: PyObjectRef,
+        fields_attr: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         // Check if this is a swapped byte order structure
@@ -239,7 +243,7 @@ impl PyCStructType {
         let fields: Vec<PyObjectRef> = if let Some(list) = fields_attr.downcast_ref::<PyList>() {
             list.borrow_vec().to_vec()
         } else if let Some(tuple) = fields_attr.downcast_ref::<PyTuple>() {
-            tuple.to_vec()
+            tuple.as_slice().to_vec()
         } else {
             return Err(vm.new_type_error("_fields_ must be a list or tuple"));
         };
@@ -269,17 +273,17 @@ impl PyCStructType {
         // Determine byte order for format string
         let big_endian = super::base::is_big_endian(is_swapped);
 
-        // Initialize offset, alignment, type flags, and ffi_field_types from base class
+        // Initialize offset, alignment, type flags, and field_layouts from base class
         let (
             mut offset,
             mut max_align,
             mut has_pointer,
             mut has_union,
             mut has_bitfield,
-            mut ffi_field_types,
+            mut field_layouts,
         ) = {
             let bases = cls.bases.read();
-            if let Some(base) = bases.first()
+            if let Some(base) = bases.as_slice().first()
                 && let Some(baseinfo) = base.stg_info_opt()
             {
                 (
@@ -288,7 +292,7 @@ impl PyCStructType {
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASPOINTER),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASUNION),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD),
-                    baseinfo.ffi_field_types.clone(),
+                    baseinfo.field_layouts.clone(),
                 )
             } else {
                 (0, forced_alignment, false, false, false, Vec::new())
@@ -309,13 +313,14 @@ impl PyCStructType {
                 .downcast_ref::<PyTuple>()
                 .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
-            if field_tuple.len() < 2 {
+            if field_tuple.as_slice().len() < 2 {
                 return Err(
                     vm.new_type_error("_fields_ tuple must have at least 2 elements (name, type)")
                 );
             }
 
             let name = field_tuple
+                .as_slice()
                 .first()
                 .expect("len checked")
                 .downcast_ref::<PyUtf8Str>()
@@ -323,7 +328,7 @@ impl PyCStructType {
                 .as_str()
                 .to_owned();
 
-            let field_type = field_tuple.get(1).expect("len checked").clone();
+            let field_type = field_tuple.as_slice().get(1).expect("len checked").clone();
 
             // For swapped byte order structures, validate field type supports byte swapping
             if is_swapped {
@@ -366,8 +371,8 @@ impl PyCStructType {
                 if field_stg.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD) {
                     has_bitfield = true;
                 }
-                // Collect FFI type for this field
-                ffi_field_types.push(field_stg.to_ffi_type());
+                // Collect the call layout for this field
+                field_layouts.push(super::base::type_layout(type_obj, &field_stg, vm));
             }
 
             // Mark field type as finalized (using type as field finalizes it)
@@ -417,13 +422,12 @@ impl PyCStructType {
 
             // Create CField descriptor with padding-adjusted offset
             let field_type_ref = field_type
-                .clone()
                 .downcast::<PyType>()
                 .map_err(|_| vm.new_type_error("_fields_ type must be a ctypes type"))?;
 
             // Check for bitfield size (optional 3rd element in tuple)
-            let (c_field, field_advances_offset) = if field_tuple.len() > 2 {
-                let bit_size_obj = field_tuple.get(2).expect("len checked");
+            let (c_field, field_advances_offset) = if field_tuple.as_slice().len() > 2 {
+                let bit_size_obj = field_tuple.as_slice().get(2).expect("len checked");
                 let bit_size = bit_size_obj
                     .try_int(vm)?
                     .as_bigint()
@@ -552,8 +556,8 @@ impl PyCStructType {
         stg_info.paramfunc = super::base::ParamFunc::Structure;
         // Set byte order: swap if _swappedbytes_ is defined
         stg_info.big_endian = super::base::is_big_endian(is_swapped);
-        // Store FFI field types for structure passing
-        stg_info.ffi_field_types = ffi_field_types;
+        // Store field call layouts for by-value structure passing
+        stg_info.field_layouts = field_layouts;
         super::base::set_or_init_stginfo(cls, stg_info);
 
         // Process _anonymous_ fields
@@ -622,11 +626,10 @@ impl SetAttr for PyCStructType {
                 return Err(vm.new_attribute_error("cannot delete _fields_"));
             };
             // Process fields (this will also set DICTFLAG_FINAL)
-            Self::process_fields(pytype, fields_value.clone(), vm)?;
+            Self::process_fields(pytype, &fields_value, vm)?;
             // Set the _fields_ attribute on the type
             pytype
                 .attributes
-                .write()
                 .insert(vm.ctx.intern_str("_fields_"), fields_value);
             return Ok(());
         }
@@ -636,7 +639,7 @@ impl SetAttr for PyCStructType {
 
         // Check for data descriptor first
         if let Some(attr) = pytype.get_class_attr(attr_name_interned) {
-            let descr_set = attr.class().slots.descr_set.load();
+            let descr_set = attr.class().slots().descr_set.load();
             if let Some(descriptor) = descr_set {
                 return descriptor(&attr, pytype.to_owned().into(), value, vm);
             }
@@ -644,9 +647,9 @@ impl SetAttr for PyCStructType {
 
         // Store in type's attributes dict
         if let PySetterValue::Assign(value) = value {
-            pytype.attributes.write().insert(attr_name_interned, value);
+            pytype.attributes.set(attr_name_interned, value);
         } else {
-            let prev = pytype.attributes.write().shift_remove(attr_name_interned);
+            let prev = pytype.attributes.remove(attr_name_interned);
             if prev.is_none() {
                 return Err(vm.new_attribute_error(format!(
                     "type object '{}' has no attribute '{}'",
@@ -659,7 +662,6 @@ impl SetAttr for PyCStructType {
     }
 }
 
-/// PyCStructure - base class for Structure instances
 #[pyclass(
     module = "_ctypes",
     name = "Structure",
@@ -712,7 +714,7 @@ impl PyCStructure {
         self_obj: &Py<Self>,
         type_obj: &Py<PyType>,
         args: &[PyObjectRef],
-        kwargs: &indexmap::IndexMap<String, PyObjectRef>,
+        kwargs: &crate::function::KwArgsMap<PyObjectRef>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -721,7 +723,7 @@ impl PyCStructure {
         // 1. First process base class fields recursively
         let base_clone = {
             let bases = type_obj.bases.read();
-            if let Some(base) = bases.first()
+            if let Some(base) = bases.as_slice().first()
                 && base.stg_info_opt().is_some()
             {
                 Some(base.clone())
@@ -743,10 +745,10 @@ impl PyCStructure {
                     break;
                 }
                 if let Some(tuple) = field.downcast_ref::<PyTuple>()
-                    && let Some(name) = tuple.first()
+                    && let Some(name) = tuple.as_slice().first()
                     && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
-                    let field_name = name_str.as_str().to_owned();
+                    let field_name = name_str.as_wtf8().to_owned();
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(
@@ -770,13 +772,13 @@ impl PyCStructure {
 impl Initializer for PyCStructure {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Struct_init: handle positional and keyword arguments
         let cls = zelf.class().to_owned();
 
         // 1. Process positional arguments recursively through inheritance chain
         if !args.args.is_empty() {
-            let consumed = Self::init_pos_args(&zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
+            let consumed = Self::init_pos_args(zelf, &cls, &args.args, &args.kwargs, 0, vm)?;
 
             if consumed < args.args.len() {
                 return Err(vm.new_type_error("too many initializers"));
@@ -784,9 +786,9 @@ impl Initializer for PyCStructure {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in &args.kwargs {
+        for (key, value) in args.kwargs {
             zelf.as_object()
-                .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
+                .set_attr(vm.ctx.intern_str(key), value, vm)?;
         }
 
         Ok(())
@@ -800,7 +802,7 @@ impl Initializer for PyCStructure {
     flags(BASETYPE, IMMUTABLETYPE),
     with(Constructor, Initializer, AsBuffer)
 )]
-impl PyCStructure {
+impl Py<PyCStructure> {
     #[pygetset]
     fn _b0_(&self) -> Option<PyObjectRef> {
         self.0.base.read().clone()
@@ -822,6 +824,7 @@ impl AsBuffer for PyCStructure {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
             BufferDescriptor {
+                offset: 0,
                 len: buffer_len,
                 readonly: false,
                 itemsize: buffer_len,

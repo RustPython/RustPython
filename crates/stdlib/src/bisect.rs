@@ -3,29 +3,26 @@ pub(crate) use _bisect::module_def;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        PyObjectRef, PyResult, VirtualMachine,
-        function::{ArgIndex, OptionalArg},
-        types::PyComparisonOp,
+        PyObjectRef, PyResult, VirtualMachine, function::ArgIndex, types::PyComparisonOp,
     };
 
     #[derive(FromArgs)]
     struct BisectArgs {
         a: PyObjectRef,
         x: PyObjectRef,
+        #[pyarg(any, default = 0)]
+        lo: ArgIndex,
+        // None means the sequence length.
         #[pyarg(any, optional)]
-        lo: OptionalArg<ArgIndex>,
-        #[pyarg(any, optional)]
-        hi: OptionalArg<ArgIndex>,
-        #[pyarg(named, default)]
+        hi: Option<ArgIndex>,
+        #[pyarg(named, optional)]
         key: Option<PyObjectRef>,
     }
 
     // Handles objects that implement __index__ and makes sure index fits in needed isize.
     #[inline]
-    fn handle_default(arg: OptionalArg<ArgIndex>, vm: &VirtualMachine) -> PyResult<Option<isize>> {
-        arg.into_option()
-            .map(|v| v.into_int_ref().try_to_primitive(vm))
-            .transpose()
+    fn handle_default(arg: ArgIndex, vm: &VirtualMachine) -> PyResult<isize> {
+        arg.into_int_ref().try_to_primitive(vm)
     }
 
     // Handles defaults for lo, hi.
@@ -37,18 +34,21 @@ mod _bisect {
     //    input sequence.
     #[inline]
     fn as_usize(
-        lo: OptionalArg<ArgIndex>,
-        hi: OptionalArg<ArgIndex>,
+        lo: ArgIndex,
+        hi: Option<ArgIndex>,
         seq_len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, usize)> {
         // We only deal with positives for lo, try_from can't fail.
-        // Default is always a Some so we can safely unwrap.
-        let lo = handle_default(lo, vm)?.map_or(Ok(0), |value| {
-            usize::try_from(value).map_err(|_| vm.new_value_error("lo must be non-negative"))
-        })?;
-        let hi =
-            handle_default(hi, vm)?.map_or(seq_len, |value| usize::try_from(value).unwrap_or(0));
+        let lo = usize::try_from(handle_default(lo, vm)?)
+            .map_err(|_| vm.new_value_error("lo must be non-negative"))?;
+        let hi = match hi {
+            Some(value) => {
+                let value: isize = value.into_int_ref().try_to_primitive(vm)?;
+                usize::try_from(value).unwrap_or(0)
+            }
+            None => seq_len,
+        };
         Ok((lo, hi))
     }
 
@@ -106,15 +106,15 @@ mod _bisect {
 
     #[pyfunction]
     fn insort_left(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let x = if let Some(ref key) = key {
-            key.call((x,), vm)?
-        } else {
-            x
+        // The search runs on the key, the insert has to put back the item itself.
+        let needle = match key {
+            Some(ref key) => key.call((x.clone(),), vm)?,
+            None => x.clone(),
         };
         let index = bisect_left(
             BisectArgs {
                 a: a.clone(),
-                x: x.clone(),
+                x: needle,
                 lo,
                 hi,
                 key,
@@ -126,15 +126,15 @@ mod _bisect {
 
     #[pyfunction]
     fn insort_right(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let x = if let Some(ref key) = key {
-            key.call((x,), vm)?
-        } else {
-            x
+        // The search runs on the key, the insert has to put back the item itself.
+        let needle = match key {
+            Some(ref key) => key.call((x.clone(),), vm)?,
+            None => x.clone(),
         };
         let index = bisect_right(
             BisectArgs {
                 a: a.clone(),
-                x: x.clone(),
+                x: needle,
                 lo,
                 hi,
                 key,

@@ -4,7 +4,7 @@ use crate::atomic_func;
 use crate::protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods};
 use crate::types::{AsBuffer, AsMapping, AsNumber, Constructor, Initializer};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
     class::StaticType,
     function::{FuncArgs, OptionalArg},
@@ -24,9 +24,9 @@ pub(super) struct PyCPointerType(PyType);
 impl Initializer for PyCPointerType {
     type Args = FuncArgs;
 
-    fn init(zelf: crate::PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &crate::Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Get the type as PyTypeRef
-        let obj: PyObjectRef = zelf.clone().into();
+        let obj: PyObjectRef = zelf.to_owned().into();
         let new_type: PyTypeRef = obj
             .downcast()
             .map_err(|_| vm.new_type_error("expected type"))?;
@@ -79,7 +79,7 @@ impl Initializer for PyCPointerType {
             && let Ok(target_type) = type_attr.downcast::<PyType>()
             && let Some(mut target_info) = target_type.get_type_data_mut::<StgInfo>()
         {
-            let zelf_obj: PyObjectRef = zelf.into();
+            let zelf_obj: PyObjectRef = zelf.to_owned().into();
             target_info.pointer_type = Some(zelf_obj);
         }
 
@@ -131,7 +131,13 @@ impl PyCPointerType {
             && value.is_instance(type_ref.as_object(), vm)?
         {
             // Return byref(value)
-            return super::_ctypes::byref(value, crate::function::OptionalArg::Missing, vm);
+            return super::_ctypes::byref(
+                super::_ctypes::ByRefArgs {
+                    obj: value,
+                    offset: 0,
+                },
+                vm,
+            );
         }
 
         // 4. Array/Pointer instances with compatible proto
@@ -243,8 +249,7 @@ impl AsNumber for PyCPointerType {
     }
 }
 
-/// PyCPointer - Pointer instance
-/// `contents` is a computed property, not a stored field.
+// `contents` is a computed property, not a stored field.
 #[pyclass(
     name = "_Pointer",
     base = PyCData,
@@ -281,12 +286,12 @@ impl Constructor for PyCPointer {
 impl Initializer for PyCPointer {
     type Args = (OptionalArg<PyObjectRef>,);
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let (value,) = args;
         if let OptionalArg::Present(val) = value
             && !vm.is_none(&val)
         {
-            Self::set_contents(&zelf, val, vm)?;
+            Self::set_contents(zelf, val, vm)?;
         }
         Ok(())
     }
@@ -314,7 +319,7 @@ impl PyCPointer {
         );
     }
 
-    /// contents getter - reads address from b_ptr and creates an instance of the pointed-to type
+    // contents getter - reads address from b_ptr and creates an instance of the pointed-to type
     #[pygetset]
     fn contents(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         // Pointer_get_contents
@@ -338,8 +343,8 @@ impl PyCPointer {
             .map(Into::into)
     }
 
-    /// contents setter - stores address in b_ptr and keeps reference
-    /// Pointer_set_contents
+    // contents setter - stores address in b_ptr and keeps reference
+    // Pointer_set_contents
     #[pygetset(setter)]
     fn set_contents(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Get stginfo and proto for type validation
@@ -373,7 +378,8 @@ impl PyCPointer {
         zelf.0.keep_ref(1, value.clone(), vm)?;
 
         // KeepRef: store GetKeepedObjects(dst) at index 0
-        if let Some(kept) = cdata.objects.read().clone() {
+        let objects = cdata.objects.read().clone();
+        if let Some(kept) = objects {
             zelf.0.keep_ref(0, kept, vm)?;
         }
 
@@ -381,7 +387,7 @@ impl PyCPointer {
     }
 
     // Pointer_subscript
-    fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: &Py<Self>, item: &PyObject, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
             let i = i.as_bigint().to_isize().ok_or_else(|| {
@@ -439,7 +445,7 @@ impl PyCPointer {
     }
 
     // Pointer_subscript slice handling (manual parsing, not PySlice_Unpack)
-    fn getitem_by_slice(zelf: &Py<Self>, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: &Py<Self>, slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult {
         // Since pointers have no length, we have to dissect the slice ourselves
 
         // step: defaults to 1, step == 0 is error
@@ -523,13 +529,12 @@ impl PyCPointer {
 
         // c_wchar → str
         if type_code.as_deref() == Some("u") {
-            if len == 0 {
-                return Ok(vm.ctx.new_str("").into());
+            if len > 0
+                && let Some(s) = unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) }
+            {
+                return Ok(vm.ctx.new_str(s).into());
             }
-            return Ok(vm
-                .ctx
-                .new_str(unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) })
-                .into());
+            return Ok(vm.ctx.new_str("").into());
         }
 
         // other types → list with Pointer_item for each
@@ -545,7 +550,7 @@ impl PyCPointer {
     // Pointer_ass_item
     fn __setitem__(
         zelf: &Py<Self>,
-        item: PyObjectRef,
+        item: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -668,7 +673,7 @@ impl PyCPointer {
                 let ptr_val = if vm.is_none(value) {
                     0usize
                 } else if let Ok(int_val) = value.try_index(vm) {
-                    int_val.as_bigint().to_usize().unwrap_or(0)
+                    super::simple::bigint_to_i128_wrapping(int_val.as_bigint()) as usize
                 } else {
                     return Err(vm.new_type_error("bytes/string or integer address expected"));
                 };
@@ -684,12 +689,13 @@ impl PyCPointer {
             // Use write_unaligned for safety on strict-alignment architectures
             if let Ok(int_val) = value.try_int(vm) {
                 let i = int_val.as_bigint();
+                let wrapped = super::simple::bigint_to_i128_wrapping(i);
                 let bytes;
                 let write_value = match size {
-                    1 => AddressWriteValue::U8(i.to_u8().expect("int too large")),
-                    2 => AddressWriteValue::I16(i.to_i16().expect("int too large")),
-                    4 => AddressWriteValue::I32(i.to_i32().expect("int too large")),
-                    8 => AddressWriteValue::I64(i.to_i64().expect("int too large")),
+                    1 => AddressWriteValue::U8(wrapped as u8),
+                    2 => AddressWriteValue::I16(wrapped as i16),
+                    4 => AddressWriteValue::I32(wrapped as i32),
+                    8 => AddressWriteValue::I64(wrapped as i64),
                     _ => {
                         bytes = i.to_signed_bytes_le();
                         AddressWriteValue::Bytes(&bytes)
@@ -711,7 +717,8 @@ impl PyCPointer {
             }
 
             // Try bytes
-            if let Ok(bytes) = value.try_bytes_like(vm, |b| b.to_vec()) {
+            if value.check_buffer() {
+                let bytes = value.try_bytes_like(vm, |b| b.to_vec())?;
                 rustpython_host_env::ctypes::write_value_to_address(
                     addr,
                     size,
@@ -747,12 +754,12 @@ impl AsMapping for PyCPointer {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyCPointer::mapping_downcast(mapping);
-                PyCPointer::__getitem__(zelf, needle.to_owned(), vm)
+                PyCPointer::__getitem__(zelf, needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyCPointer::mapping_downcast(mapping);
                 match value {
-                    Some(value) => PyCPointer::__setitem__(zelf, needle.to_owned(), value, vm),
+                    Some(value) => PyCPointer::__setitem__(zelf, needle, value, vm),
                     None => Err(vm.new_type_error("Pointer does not support item deletion")),
                 }
             }),
@@ -775,6 +782,7 @@ impl AsBuffer for PyCPointer {
         let itemsize = stg_info.size;
         // Pointer types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

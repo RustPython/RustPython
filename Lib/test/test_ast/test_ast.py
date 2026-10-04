@@ -24,7 +24,9 @@ except ImportError:
 
 from test import support
 from test.support import os_helper
-from test.support import skip_emscripten_stack_overflow, skip_wasi_stack_overflow, skip_if_unlimited_stack_size
+from test.support import (skip_emscripten_stack_overflow,
+                          skip_wasi_stack_overflow,
+                          skip_if_unlimited_stack_size, skip_if_huge_c_stack)
 from test.support.ast_helper import ASTTestMixin
 from test.support.import_helper import ensure_lazy_imports
 from test.test_ast.utils import to_tuple
@@ -150,7 +152,6 @@ class AST_Tests(unittest.TestCase):
             self.assertRaises(TypeError, ast.parse, ast.Constant(42),
                               optimize=optval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
     def test_optimization_levels__debug__(self):
         cases = [(-1, '__debug__'), (0, '__debug__'), (1, False), (2, False)]
         for (optval, expected) in cases:
@@ -586,7 +587,6 @@ class AST_Tests(unittest.TestCase):
             compile(m, "<test>", "exec")
         self.assertIn("but got expr()", str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: expected str for name
     def test_invalid_identifier(self):
         m = ast.Module([ast.Expr(ast.Name(42, ast.Load()))], [])
         ast.fix_missing_locations(m)
@@ -992,7 +992,8 @@ class AST_Tests(unittest.TestCase):
         enum._test_simple_enum(_Precedence, _ast_unparse._Precedence)
 
     @support.cpython_only
-    @skip_if_unlimited_stack_size
+    @support.run_with_limited_c_stack(
+        100_000 if sys.platform == "android" else 500_000)
     @skip_wasi_stack_overflow()
     @skip_emscripten_stack_overflow()
     def test_ast_recursion_limit(self):
@@ -1333,7 +1334,6 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(repl.x, 0)
         self.assertEqual(repl.y, y)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'x' is not 'x'
     def test_replace_ignore_known_custom_instance_fields(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1365,7 +1365,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(repl.ctx, context)
         self.assertRaises(AttributeError, getattr, repl, 'extra')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ missing\ 1\ keyword\ argument:\ 'id'\." does not match "replace() does not support Name objects"
     def test_replace_reject_missing_field(self):
         # case: warn if deleted field is not replaced
         node = ast.parse('x').body[0].value
@@ -1404,7 +1403,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node2.returns, None)
         self.assertEqual(node2.decorator_list, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'extra'\." does not match "replace() does not support Name objects"
     def test_replace_reject_known_custom_instance_fields_commits(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1420,7 +1418,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertIs(node.extra, extra)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'unknown'\." does not match "replace() does not support Name objects"
     def test_replace_reject_unknown_instance_fields(self):
         node = ast.parse('x').body[0].value
         context = node.ctx
@@ -1700,7 +1697,6 @@ Module(
             full="Module(body=[Import(names=[alias(name='_ast', asname='ast')]), ImportFrom(module='module', names=[alias(name='sub')], level=0)], type_ignores=[])",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^
     def test_copy_location(self):
         src = ast.parse('1 + 1', mode='eval')
         src.body.right = ast.copy_location(ast.Constant(2), src.body.right)
@@ -1737,7 +1733,6 @@ Module(
             "end_col_offset=0), lineno=1, col_offset=0, end_lineno=1, end_col_offset=0)])"
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                                              ^^^^^^^^^                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
     def test_increment_lineno(self):
         src = ast.parse('1 + 1', mode='eval')
         self.assertEqual(ast.increment_lineno(src, n=3), src)
@@ -1896,7 +1891,6 @@ Module(
         self.assertRaises(ValueError, ast.literal_eval, '+True')
         self.assertRaises(ValueError, ast.literal_eval, '2+3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_literal_eval_str_int_limit(self):
         with support.adjust_int_max_str_digits(4000):
             ast.literal_eval('3'*4000)  # no error
@@ -1959,7 +1953,6 @@ Module(
                 (\
             \ ''')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: required field "lineno" missing from alias
     def test_bad_integer(self):
         # issue13436: Bad error message with invalid numeric values
         body = [ast.ImportFrom(module='time',
@@ -1983,7 +1976,7 @@ Module(
         exec(code, ns)
         self.assertIn('sleep', ns)
 
-    @skip_if_unlimited_stack_size
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     def test_recursion_direct(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0, operand=ast.Constant(1))
@@ -1992,7 +1985,7 @@ Module(
             with support.infinite_recursion():
                 compile(ast.Expression(e), "<test>", "eval")
 
-    @skip_if_unlimited_stack_size
+    @skip_if_huge_c_stack()
     @skip_emscripten_stack_overflow()
     def test_recursion_indirect(self):
         e = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0, operand=ast.Constant(1))
@@ -2064,7 +2057,6 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None, None, [])
@@ -2276,7 +2268,6 @@ class ASTValidatorTests(unittest.TestCase):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),
@@ -3259,7 +3250,6 @@ class ASTConstructorTests(unittest.TestCase):
                                    r"MyAttrs.__init__ got an unexpected keyword argument 'c'."):
             obj = MyAttrs(c=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_fields_and_types_no_default(self):
         class FieldsAndTypesNoDefault(ast.AST):
             _fields = ('a',)
@@ -3273,7 +3263,6 @@ class ASTConstructorTests(unittest.TestCase):
         obj = FieldsAndTypesNoDefault(a=1)
         self.assertEqual(obj.a, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; DeprecationWarning not triggered
     def test_incomplete_field_types(self):
         class MoreFieldsThanTypes(ast.AST):
             _fields = ('a', 'b')
@@ -3293,7 +3282,6 @@ class ASTConstructorTests(unittest.TestCase):
         self.assertEqual(obj.a, 1)
         self.assertEqual(obj.b, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_malformed_fields_with_bytes(self):
         class BadFields(ast.AST):
             _fields = (b'\xff'*64,)
@@ -3713,7 +3701,6 @@ class ASTOptimizationTests(unittest.TestCase):
             f"{ast.dump(optimized_tree)}",
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: compile() unrecognized flags
     def test_folding_format(self):
         code = "'%s' % (a,)"
 

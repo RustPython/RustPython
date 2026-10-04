@@ -5,14 +5,14 @@ pub(crate) use _heapq::module_def;
 mod _heapq {
 
     use crate::vm::{
-        AsObject, PyObjectRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyList, PyListRef},
         types::PyComparisonOp,
     };
 
     /// [CPython's siftdown](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L25-L68)
     fn siftdown(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         startpos: usize,
         mut pos: usize,
         vm: &VirtualMachine,
@@ -55,7 +55,7 @@ mod _heapq {
     }
 
     /// [CPython's siftup](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L70-L118)
-    fn siftup(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn siftup(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
 
@@ -106,13 +106,13 @@ mod _heapq {
     /// - [CPython's _heapq_heappush_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L131-L150)
     /// - [CPython's _heapq_heappush_max_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L512-L532)
     fn heappush_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         item: PyObjectRef,
         siftdown_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, usize, &VirtualMachine) -> PyResult<()>,
     {
         {
             let mut vec = heap.borrow_vec_mut();
@@ -125,25 +125,18 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heappush(heap: PyObjectRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappush() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heappush_internal(&lst, item, siftdown, vm)
+    fn heappush(heap: PyListRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        heappush_internal(&heap, item, siftdown, vm)
     }
 
     /// [CPython's heappop_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L152-L183)
     fn heappop_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let Some(lastelt) = heap.borrow_vec_mut().pop() else {
             return Err(vm.new_index_error("index out of range"));
@@ -165,26 +158,19 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heappop(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappop() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heappop_internal(&lst, siftup, vm)
+    fn heappop(heap: PyListRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        heappop_internal(&heap, siftup, vm)
     }
 
     /// [CPython's heapreplace_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L202-L220)
     fn heapreplace_internal<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         item: PyObjectRef,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let returnitem = {
             let mut vec = heap.borrow_vec_mut();
@@ -203,35 +189,21 @@ mod _heapq {
 
     #[pyfunction]
     fn heapreplace(
-        heap: PyObjectRef,
+        heap: PyListRef,
         item: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapreplace() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapreplace_internal(&lst, item, siftup, vm)
+        heapreplace_internal(&heap, item, siftup, vm)
     }
 
     #[pyfunction]
     fn heappushpop(
-        heap: PyObjectRef,
+        heap: PyListRef,
         item: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappushpop() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
         let top = {
-            let vec = lst.borrow_vec();
+            let vec = heap.borrow_vec();
             match vec.first() {
                 Some(v) => v.clone(),
                 None => return Ok(item),
@@ -244,7 +216,7 @@ mod _heapq {
         }
 
         let returnitem = {
-            let mut vec = lst.borrow_vec_mut();
+            let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
                 None => return Err(vm.new_index_error("index out of range")),
@@ -254,7 +226,7 @@ mod _heapq {
             root
         };
 
-        siftup(&lst, 0, vm)?;
+        siftup(&heap, 0, vm)?;
         Ok(returnitem)
     }
 
@@ -272,12 +244,12 @@ mod _heapq {
 
     /// [CPython's cache_friendly_heapify](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L311-L362)
     fn cache_friendly_heapify<F>(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         siftup_func: F,
         vm: &VirtualMachine,
     ) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let m = heap.__len__() >> 1; // index of first childless node
         let leftmost = keep_top_bit(m + 1) - 1; // leftmost node in row of m 
@@ -315,9 +287,9 @@ mod _heapq {
     }
 
     /// [CPython's heapify_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L364-L388)
-    fn heapify_internal<F>(heap: &PyListRef, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
+    fn heapify_internal<F>(heap: &Py<PyList>, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
     where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+        F: Fn(&Py<PyList>, usize, &VirtualMachine) -> PyResult<()>,
     {
         let n = heap.__len__();
 
@@ -333,20 +305,13 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heapify(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapify() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapify_internal(&lst, siftup, vm)
+    fn heapify(heap: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        heapify_internal(&heap, siftup, vm)
     }
 
     /// [CPython's siftdown_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L407-L449)
     fn siftdown_max(
-        heap: &PyListRef,
+        heap: &Py<PyList>,
         startpos: usize,
         mut pos: usize,
         vm: &VirtualMachine,
@@ -389,7 +354,7 @@ mod _heapq {
     }
 
     /// [CPython's siftup_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L451-L499)
-    fn siftup_max(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn siftup_max(heap: &Py<PyList>, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
 
@@ -435,72 +400,37 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heappush_max(heap: PyObjectRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappush_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heappush_internal(&lst, item, siftdown_max, vm)
+    fn heappush_max(heap: PyListRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        heappush_internal(&heap, item, siftdown_max, vm)
     }
 
     #[pyfunction]
-    fn heappop_max(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappop_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heappop_internal(&lst, siftup_max, vm)
+    fn heappop_max(heap: PyListRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        heappop_internal(&heap, siftup_max, vm)
     }
 
     #[pyfunction]
     fn heapreplace_max(
-        heap: PyObjectRef,
+        heap: PyListRef,
         item: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapreplace_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapreplace_internal(&lst, item, siftup_max, vm)
+        heapreplace_internal(&heap, item, siftup_max, vm)
     }
 
     #[pyfunction]
-    fn heapify_max(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapify_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapify_internal(&lst, siftup_max, vm)
+    fn heapify_max(heap: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        heapify_internal(&heap, siftup_max, vm)
     }
 
     #[pyfunction]
     fn heappushpop_max(
-        heap: PyObjectRef,
+        heap: PyListRef,
         item: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappushpop_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
         let top = {
-            let vec = lst.borrow_vec();
+            let vec = heap.borrow_vec();
             match vec.first() {
                 Some(v) => v.clone(),
                 None => return Ok(item),
@@ -513,7 +443,7 @@ mod _heapq {
         }
 
         let returnitem = {
-            let mut vec = lst.borrow_vec_mut();
+            let mut vec = heap.borrow_vec_mut();
             let root = match vec.first() {
                 Some(v) => v.clone(),
                 None => return Err(vm.new_index_error("index out of range")),
@@ -523,7 +453,7 @@ mod _heapq {
             root
         };
 
-        siftup_max(&lst, 0, vm)?;
+        siftup_max(&heap, 0, vm)?;
         Ok(returnitem)
     }
 }

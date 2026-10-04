@@ -4,38 +4,60 @@
 
 pub(crate) use module::module_def;
 
-#[pymodule(name = "posix", with(super::os::_os))]
+#[pymodule(name = "posix", with(
+    super::os::_os,
+    #[cfg(any(unix, target_os = "wasi"))]
+    super::posix_unix_like::_posix_unix_like,
+))]
 pub(crate) mod module {
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyStrRef,
-        convert::IntoPyException,
         ospath::OsPath,
-        stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
+        stdlib::os::{_os, DirFd, SupportFunc, SymlinkArgs, TargetIsDirectory},
     };
-    use std::fs;
+
+    #[derive(FromArgs)]
+    struct AccessArgs<'a> {
+        #[pyarg(any)]
+        path: PyStrRef,
+        #[pyarg(any)]
+        mode: u8,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
+        #[pyarg(named, default)]
+        effective_ids: bool,
+        #[pyarg(named, default = true)]
+        follow_symlinks: bool,
+    }
 
     #[pyfunction]
-    pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        let _ = (
+            args.path,
+            args.mode,
+            args.effective_ids,
+            args.follow_symlinks,
+        );
         os_unimpl("os.access", vm)
     }
 
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(path: OsPath, dir_fd: DirFd<'_, 0>, vm: &VirtualMachine) -> PyResult<()> {
-        let [] = dir_fd.0;
-        fs::remove_file(&path).map_err(|err| err.into_pyexception(vm))
+    #[cfg(not(target_os = "wasi"))]
+    #[derive(FromArgs)]
+    struct RemoveArgs<'a> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
     }
 
-    #[derive(FromArgs)]
-    #[allow(unused)]
-    pub(super) struct SymlinkArgs<'a> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        _target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        _dir_fd: DirFd<'a, { _os::SYMLINK_DIR_FD as usize }>,
+    #[cfg(not(target_os = "wasi"))]
+    #[pyfunction]
+    #[pyfunction(name = "unlink")]
+    fn remove(args: RemoveArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let [] = args.dir_fd.0;
+        fs::remove_file(&args.path).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -43,24 +65,9 @@ pub(crate) mod module {
         os_unimpl("os.symlink", vm)
     }
 
-    #[cfg(target_os = "wasi")]
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> crate::builtins::PyDictRef {
-        use rustpython_host_env::os::ffi::OsStringExt;
-
-        let environ = vm.ctx.new_dict();
-        for (key, value) in crate::host_env::os::vars_os() {
-            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
-            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(&*key, value, vm).unwrap();
-        }
-
-        environ
-    }
-
     #[allow(dead_code)]
     fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
-        Err(vm.new_os_error(format!("{} is not supported on this platform", func)))
+        Err(vm.new_os_error(format!("{func} is not supported on this platform")))
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {

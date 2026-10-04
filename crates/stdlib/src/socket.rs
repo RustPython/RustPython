@@ -7,11 +7,14 @@ pub(super) use _socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
 
 #[pymodule]
 mod _socket {
-    use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
+    use crate::common::{
+        inet,
+        lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+    };
     #[cfg(all(unix, not(target_os = "redox")))]
     use crate::vm::convert::ToPyException;
     use crate::vm::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
             PyUtf8StrRef,
@@ -19,7 +22,7 @@ mod _socket {
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
-            OptionalArg, OptionalOption,
+            FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -29,6 +32,8 @@ mod _socket {
     use rustpython_host_env::socket as host_socket;
     #[cfg(windows)]
     use rustpython_host_env::windows as host_windows;
+    #[cfg(windows)]
+    use rustpython_host_env::windows::ToWideString;
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
@@ -39,14 +44,15 @@ mod _socket {
         Ok(())
     }
 
+    use core::sync::atomic::{AtomicI32, Ordering};
     use core::{
-        mem::MaybeUninit,
+        mem::ManuallyDrop,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
         time::Duration,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use host_socket::raw::Socket;
     use num_traits::ToPrimitive;
-    use socket2::Socket;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -58,29 +64,13 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
+        // Syscall/type names the shared body still reads as `c::`. Integer
+        // pyattrs come from `host_socket` directly.
         pub(super) use rustpython_host_env::socket::{
-            AF_APPLETALK, AF_DECnet, AF_INET, AF_INET6, AF_IPX, AF_LINK, AF_UNSPEC, AI_ADDRCONFIG,
-            AI_ALL, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE, AI_V4MAPPED,
-            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
-            EAI_SERVICE, EAI_SOCKTYPE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
-            IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP,
-            IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED,
-            IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP,
-            IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP,
-            IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE,
-            IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP,
-            IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP,
-            IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP,
-            IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS, IPV6_RTHDR, IPV6_TCLASS,
-            IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE, MSG_MCAST,
-            MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
-            NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF,
-            RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD,
-            SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
-            SO_BROADCAST, SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE,
-            SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW,
-            SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF,
-            WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
+            AF_BLUETOOTH, AF_HYPERV, AF_INET, AF_INET6, AF_UNSPEC, AI_NUMERICHOST, AI_PASSIVE,
+            INADDR_BROADCAST, SHUT_RD, SHUT_RDWR, SHUT_WR, SIO_KEEPALIVE_VALS,
+            SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SOCK_DGRAM, SOCK_STREAM, WSAEBADF, WSAENOTSOCK,
+            WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport,
         };
     }
     // constants
@@ -88,7 +78,7 @@ mod _socket {
     const HAS_IPV6: bool = true;
     #[pyattr]
     // put IPPROTO_MAX later
-    use c::{
+    use host_socket::{
         AF_INET, AF_INET6, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
         MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
@@ -99,7 +89,7 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
         IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
         IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING,
@@ -107,26 +97,34 @@ mod _socket {
 
     #[cfg(unix)]
     #[pyattr]
-    use c::{AF_UNIX, SO_REUSEPORT};
+    use host_socket::{AF_UNIX, SO_REUSEPORT};
 
     #[pyattr]
-    use c::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
+    use host_socket::{AI_ADDRCONFIG, AI_NUMERICHOST, AI_NUMERICSERV, AI_PASSIVE};
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use c::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
+    use host_socket::{SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET};
 
     #[cfg(target_os = "android")]
     #[pyattr]
-    use c::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+    use host_socket::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use c::SO_SETFIB;
+    use host_socket::SO_SETFIB;
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_socket::{
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL,
+        TCP_CONNECTION_INFO,
+    };
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use c::{
+    use host_socket::{
         CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939,
         CAN_RAW, CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS,
         CAN_RAW_LOOPBACK, CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP,
@@ -138,139 +136,50 @@ mod _socket {
         SOL_CAN_RAW,
     };
 
-    // CAN BCM opcodes
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_TX_SETUP: i32 = 1;
+    const J1939_EE_INFO_NONE: i32 = 0;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_TX_DELETE: i32 = 2;
+    const J1939_EE_INFO_TX_ABORT: i32 = 1;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_TX_READ: i32 = 3;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_SEND: i32 = 4;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_SETUP: i32 = 5;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_DELETE: i32 = 6;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_READ: i32 = 7;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_STATUS: i32 = 8;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_EXPIRED: i32 = 9;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_STATUS: i32 = 10;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_TIMEOUT: i32 = 11;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHANGED: i32 = 12;
+    const J1939_FILTER_MAX: i32 = 512;
 
-    // CAN BCM flags (linux/can/bcm.h)
     #[cfg(target_os = "linux")]
     #[pyattr]
-    const CAN_BCM_SETTIMER: i32 = 0x0001;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_STARTTIMER: i32 = 0x0002;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
-    #[cfg(target_os = "linux")]
-    #[pyattr]
-    const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+    use host_socket::{
+        CAN_BCM_CAN_FD_FRAME, CAN_BCM_RX_ANNOUNCE_RESUME, CAN_BCM_RX_CHANGED, CAN_BCM_RX_CHECK_DLC,
+        CAN_BCM_RX_DELETE, CAN_BCM_RX_FILTER_ID, CAN_BCM_RX_NO_AUTOTIMER, CAN_BCM_RX_READ,
+        CAN_BCM_RX_RTR_FRAME, CAN_BCM_RX_SETUP, CAN_BCM_RX_STATUS, CAN_BCM_RX_TIMEOUT,
+        CAN_BCM_SETTIMER, CAN_BCM_STARTTIMER, CAN_BCM_TX_ANNOUNCE, CAN_BCM_TX_COUNTEVT,
+        CAN_BCM_TX_CP_CAN_ID, CAN_BCM_TX_DELETE, CAN_BCM_TX_EXPIRED, CAN_BCM_TX_READ,
+        CAN_BCM_TX_RESET_MULTI_IDX, CAN_BCM_TX_SEND, CAN_BCM_TX_SETUP, CAN_BCM_TX_STATUS,
+    };
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     #[pyattr]
-    use c::SOL_RDS;
+    use host_socket::SOL_RDS;
 
     #[cfg(target_os = "netbsd")]
     #[pyattr]
-    use c::IPPROTO_VRRP;
+    use host_socket::IPPROTO_VRRP;
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use c::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
+    use host_socket::{AF_SYSTEM, PF_SYSTEM, SYSPROTO_CONTROL, TCP_KEEPALIVE};
 
-    // RFC3542 IPv6 socket options for macOS (netinet6/in6.h)
-    // Not available in libc, define manually
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    const IPV6_RECVHOPLIMIT: i32 = 37;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVRTHDR: i32 = 38;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVHOPOPTS: i32 = 39;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVDSTOPTS: i32 = 40;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_USE_MIN_MTU: i32 = 42;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RECVPATHMTU: i32 = 43;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_PATHMTU: i32 = 44;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_NEXTHOP: i32 = 48;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_HOPOPTS: i32 = 49;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_DSTOPTS: i32 = 50;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR: i32 = 51;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDRDSTOPTS: i32 = 57;
-    #[cfg(target_vendor = "apple")]
-    #[pyattr]
-    const IPV6_RTHDR_TYPE_0: i32 = 0;
+    use host_socket::{
+        IPV6_DSTOPTS, IPV6_HOPOPTS, IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS,
+        IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS, IPV6_RECVPATHMTU, IPV6_RECVRTHDR, IPV6_RTHDR,
+        IPV6_RTHDR_TYPE_0, IPV6_RTHDRDSTOPTS, IPV6_USE_MIN_MTU,
+    };
 
     #[cfg(windows)]
     #[pyattr]
-    use c::{
+    use host_socket::{
         IPPORT_RESERVED, IPPROTO_IPV4, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
         RCVALL_SOCKETLEVELONLY, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL,
         SO_EXCLUSIVEADDRUSE,
@@ -278,21 +187,21 @@ mod _socket {
 
     #[cfg(not(windows))]
     #[pyattr]
-    const IPPORT_RESERVED: i32 = 1024;
+    use host_socket::IPPORT_RESERVED;
 
     #[pyattr]
-    const IPPORT_USERRESERVED: i32 = 5000;
+    use host_socket::IPPORT_USERRESERVED;
 
     #[cfg(any(unix, target_os = "android"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_SYSTEM, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG, SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO,
         SO_SNDLOWAT, SO_SNDTIMEO,
     };
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
         ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
         IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
@@ -303,39 +212,35 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_vendor = "apple"))]
     #[pyattr]
-    use c::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+    use host_socket::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
 
     #[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
     #[pyattr]
-    use c::MSG_NOTIFICATION;
+    use host_socket::MSG_NOTIFICATION;
 
     #[cfg(any(target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::TCP_USER_TIMEOUT;
+    use host_socket::TCP_USER_TIMEOUT;
 
     #[cfg(any(unix, target_os = "android", windows))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         INADDR_BROADCAST, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
         IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
         IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     };
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(unix)]
     #[pyattr]
-    const INADDR_UNSPEC_GROUP: u32 = 0xe0000000;
+    use host_socket::{INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP};
 
-    #[cfg(any(unix, target_os = "android", windows))]
+    #[cfg(windows)]
     #[pyattr]
-    const INADDR_ALLHOSTS_GROUP: u32 = 0xe0000001;
-
-    #[cfg(any(unix, target_os = "android", windows))]
-    #[pyattr]
-    const INADDR_MAX_LOCAL_GROUP: u32 = 0xe00000ff;
+    use host_socket::{INADDR_ALLHOSTS_GROUP, INADDR_MAX_LOCAL_GROUP, INADDR_UNSPEC_GROUP};
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ALG, AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_CAN, AF_ECONET, AF_IRDA,
         AF_LLC, AF_NETBEUI, AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY,
         AF_TIPC, AF_VSOCK, AF_WANPIPE, AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE,
@@ -344,40 +249,12 @@ mod _socket {
         TCP_SYNCNT, TCP_WINDOW_CLAMP,
     };
 
-    // gated on presence of AF_VSOCK:
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_PORT_ANY: u32 = 0xffffffff; // 0xffffffff
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VMADDR_CID_HOST: u32 = 2;
-
-    // gated on presence of AF_VSOCK:
-    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
-    #[pyattr]
-    const VM_SOCKETS_INVALID_VERSION: u32 = 0xffffffff; // 0xffffffff
+    use host_socket::{
+        SO_VM_SOCKETS_BUFFER_MAX_SIZE, SO_VM_SOCKETS_BUFFER_MIN_SIZE, SO_VM_SOCKETS_BUFFER_SIZE,
+        VM_SOCKETS_INVALID_VERSION, VMADDR_CID_ANY, VMADDR_CID_HOST, VMADDR_PORT_ANY,
+    };
 
     // TODO: gated on https://github.com/rust-lang/libc/pull/1662
     // // gated on presence of AF_VSOCK:
@@ -389,15 +266,11 @@ mod _socket {
 
     #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
     #[pyattr]
-    const SOL_IP: i32 = 0;
-
-    #[cfg(not(any(target_os = "android", target_os = "fuchsia", target_os = "linux")))]
-    #[pyattr]
-    const SOL_UDP: i32 = 17;
+    use host_socket::{SOL_IP, SOL_UDP};
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
-    use c::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
+    use host_socket::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -405,11 +278,11 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+    use host_socket::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
 
     #[cfg(any(target_os = "netbsd", target_os = "openbsd", windows))]
     #[pyattr]
-    use c::{MSG_BCAST, MSG_MCAST};
+    use host_socket::{MSG_BCAST, MSG_MCAST};
 
     #[cfg(any(
         target_os = "android",
@@ -418,7 +291,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    use c::{IPPROTO_UDPLITE, TCP_CONGESTION};
+    use host_socket::{IPPROTO_UDPLITE, TCP_CONGESTION};
 
     #[cfg(any(
         target_os = "android",
@@ -427,16 +300,7 @@ mod _socket {
         target_os = "linux"
     ))]
     #[pyattr]
-    const UDPLITE_SEND_CSCOV: i32 = 10;
-
-    #[cfg(any(
-        target_os = "android",
-        target_os = "fuchsia",
-        target_os = "freebsd",
-        target_os = "linux"
-    ))]
-    #[pyattr]
-    const UDPLITE_RECV_CSCOV: i32 = 11;
+    use host_socket::{UDPLITE_RECV_CSCOV, UDPLITE_SEND_CSCOV};
 
     #[cfg(any(
         target_os = "android",
@@ -445,7 +309,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_KEY;
+    use host_socket::AF_KEY;
 
     #[cfg(any(
         target_os = "android",
@@ -454,7 +318,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_DOMAIN;
+    use host_socket::SO_DOMAIN;
 
     #[cfg(any(
         target_os = "android",
@@ -476,7 +340,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PRIORITY;
+    use host_socket::SO_PRIORITY;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -485,7 +349,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_MOBILE;
+    use host_socket::IPPROTO_MOBILE;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -494,7 +358,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::SCM_CREDS;
+    use host_socket::SCM_CREDS;
 
     #[cfg(any(
         target_os = "freebsd",
@@ -503,7 +367,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::TCP_FASTOPEN;
+    use host_socket::TCP_FASTOPEN;
 
     #[cfg(any(
         target_os = "android",
@@ -526,7 +390,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::SO_PROTOCOL;
+    use host_socket::SO_PROTOCOL;
 
     #[cfg(any(
         target_os = "android",
@@ -537,7 +401,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_DONTFRAG;
+    use host_socket::IPV6_DONTFRAG;
 
     #[cfg(any(
         target_os = "android",
@@ -547,7 +411,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SO_PASSCRED, SO_PEERCRED};
+    use host_socket::{SO_PASSCRED, SO_PEERCRED};
 
     #[cfg(any(
         target_os = "android",
@@ -557,7 +421,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::TCP_INFO;
+    use host_socket::TCP_INFO;
 
     #[cfg(any(
         target_os = "android",
@@ -567,7 +431,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::IP_RECVTOS;
+    use host_socket::IP_RECVTOS;
 
     #[cfg(any(
         target_os = "android",
@@ -577,7 +441,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::NI_MAXSERV;
+    use host_socket::NI_MAXSERV;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -587,7 +451,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{IPPROTO_EON, IPPROTO_IPCOMP};
+    use host_socket::{IPPROTO_EON, IPPROTO_IPCOMP};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -597,7 +461,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPPROTO_ND;
+    use host_socket::IPPROTO_ND;
 
     #[cfg(any(
         target_os = "android",
@@ -608,7 +472,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+    use host_socket::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
 
     #[cfg(any(
         target_os = "android",
@@ -618,7 +482,7 @@ mod _socket {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use c::IPPROTO_SCTP; // also in windows
+    use host_socket::IPPROTO_SCTP; // also in windows
 
     #[cfg(any(
         target_os = "android",
@@ -629,7 +493,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{AI_ALL, AI_V4MAPPED};
+    use host_socket::{AI_ALL, AI_V4MAPPED};
 
     #[cfg(any(
         target_os = "android",
@@ -640,7 +504,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::EAI_NODATA;
+    use host_socket::EAI_NODATA;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -651,7 +515,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
     };
 
@@ -665,7 +529,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+    use host_socket::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
 
     #[cfg(any(
         target_os = "android",
@@ -677,7 +541,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::TCP_KEEPIDLE;
+    use host_socket::TCP_KEEPIDLE;
 
     #[cfg(any(
         target_os = "android",
@@ -689,7 +553,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{TCP_KEEPCNT, TCP_KEEPINTVL};
+    use host_socket::{TCP_KEEPCNT, TCP_KEEPINTVL};
 
     #[cfg(any(
         target_os = "android",
@@ -702,7 +566,7 @@ mod _socket {
         target_os = "redox"
     ))]
     #[pyattr]
-    use c::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+    use host_socket::{SOCK_CLOEXEC, SOCK_NONBLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -715,7 +579,7 @@ mod _socket {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
         MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
     };
@@ -731,7 +595,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::IPV6_PKTINFO;
+    use host_socket::IPV6_PKTINFO;
 
     #[cfg(any(
         target_os = "android",
@@ -744,7 +608,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::AI_CANONNAME;
+    use host_socket::AI_CANONNAME;
 
     #[cfg(any(
         target_os = "android",
@@ -758,7 +622,7 @@ mod _socket {
         windows
     ))]
     #[pyattr]
-    use c::{
+    use host_socket::{
         EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
         EAI_SOCKTYPE, IP_HDRINCL, IP_TOS, IPV6_RECVTCLASS, IPV6_TCLASS, SOMAXCONN,
     };
@@ -775,7 +639,7 @@ mod _socket {
         windows
     )))]
     #[pyattr]
-    const SOMAXCONN: i32 = 5; // Common value
+    use host_socket::SOMAXCONN;
 
     // HERE IS WHERE THE BLUETOOTH CONSTANTS START
     // TODO: there should be a more intelligent way of detecting bluetooth on a platform.
@@ -788,7 +652,7 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    use c::AF_BLUETOOTH;
+    use host_socket::AF_BLUETOOTH;
 
     #[cfg(any(
         target_os = "android",
@@ -798,24 +662,303 @@ mod _socket {
         target_os = "openbsd"
     ))]
     #[pyattr]
-    const BDADDR_ANY: &str = "00:00:00:00:00:00";
+    use host_socket::{BDADDR_ANY, BDADDR_LOCAL};
+
     #[cfg(any(
         target_os = "android",
-        target_os = "freebsd",
         target_os = "fuchsia",
         target_os = "linux",
         target_os = "openbsd"
     ))]
     #[pyattr]
-    const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+    const BTPROTO_L2CAP: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_L2CAP: i32 = 135;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_HCI: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_HCI: i32 = 134;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_SCO: i32 = 2;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_SCO: i32 = 137;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const BTPROTO_RFCOMM: i32 = 3;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const BTPROTO_RFCOMM: i32 = 136;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_HCI: i32 = 0;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_HCI: i32 = 0x0802;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const HCI_DATA_DIR: i32 = 1;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const HCI_DATA_DIR: i32 = 2;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_L2CAP: i32 = 6;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_L2CAP: i32 = 0x1609;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_SCO: i32 = 17;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_SCO: i32 = 0x0209;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "linux",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    const SOL_RFCOMM: i32 = 18;
+    #[cfg(target_os = "freebsd")]
+    #[pyattr]
+    const SOL_RFCOMM: i32 = 0x0816;
+
+    // Linux <bluetooth/bluetooth.h> / <bluetooth/hci.h> / <bluetooth/l2cap.h>
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const SOL_BLUETOOTH: i32 = 274;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_DEV_NONE: i32 = 0xffff;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_RAW: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_USER: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_MONITOR: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_CONTROL: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_CHANNEL_LOGGING: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const HCI_TIME_STAMP: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_SDP: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_LOW: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_MEDIUM: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_HIGH: i32 = 3;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SECURITY_FIPS: i32 = 4;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE: i32 = 8;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_FLUSHABLE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER: i32 = 9;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_OFF: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_POWER_FORCE_ACTIVE_ON: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY: i32 = 10;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_ONLY: i32 = 0;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_BREDR_PREFERRED: i32 = 1;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_CHANNEL_POLICY_AMP_PREFERRED: i32 = 2;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE: i32 = 11;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_TRANSPARENT: i32 = 0x0003;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_VOICE_CVSD_16BIT: i32 = 0x0060;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_SNDMTU: i32 = 12;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_RCVMTU: i32 = 13;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY: i32 = 14;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_PHY_BR_1M_1SLOT: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE: i32 = 16;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const BT_MODE_BASIC: i32 = 0x00;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM: i32 = 0x03;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_MASTER: i32 = 0x0001;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_AUTH: i32 = 0x0002;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_ENCRYPT: i32 = 0x0004;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_TRUSTED: i32 = 0x0008;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_RELIABLE: i32 = 0x0010;
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    #[pyattr]
+    const L2CAP_LM_SECURE: i32 = 0x0020;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_BREDR: i32 = 0x00;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_PUBLIC: i32 = 0x01;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const BDADDR_LE_RANDOM: i32 = 0x02;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "linux"
+    ))]
+    #[pyattr]
+    const HCI_FILTER: i32 = 2;
     // HERE IS WHERE THE BLUETOOTH CONSTANTS END
 
     #[cfg(windows)]
     #[pyattr]
     use host_socket::{
-        IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
-        IPPROTO_SCTP, IPPROTO_ST,
+        AF_BLUETOOTH, AF_HYPERV, AF_IRDA, AF_SNA, BTHPROTO_RFCOMM,
+        BTHPROTO_RFCOMM as BTPROTO_RFCOMM, HV_PROTOCOL_RAW, HVSOCKET_ADDRESS_FLAG_PASSTHRU,
+        HVSOCKET_CONNECT_TIMEOUT, HVSOCKET_CONNECT_TIMEOUT_MAX, HVSOCKET_CONNECTED_SUSPEND,
+        IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+        IP_RECVERR, IP_RECVTOS, IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_CBT, IPPROTO_ICLFXBM,
+        IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP, IPPROTO_SCTP, IPPROTO_ST,
+        IPV6_RECVERR, MSG_ERRQUEUE, RCVALL_MAX, SIO_TCP_SET_ACK_FREQUENCY, SO_ACCEPTCONN,
+        SO_BTH_ENCRYPT, SO_BTH_MTU, SO_BTH_MTU_MAX, SO_BTH_MTU_MIN, SO_DEBUG, SO_DONTROUTE,
+        SO_ORIGINAL_DST, SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDLOWAT, SO_SNDTIMEO, SOL_RFCOMM,
+        TCP_FASTOPEN, TCP_KEEPCNT, TCP_KEEPIDLE, TCP_KEEPINTVL,
     };
+
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_ANY: &str = host_socket::BDADDR_ANY;
+    #[cfg(windows)]
+    #[pyattr]
+    const BDADDR_LOCAL: &str = host_socket::BDADDR_LOCAL;
+
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_ZERO: &str = host_socket::HV_GUID_ZERO;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_WILDCARD: &str = host_socket::HV_GUID_WILDCARD;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_BROADCAST: &str = host_socket::HV_GUID_BROADCAST;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_CHILDREN: &str = host_socket::HV_GUID_CHILDREN;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_LOOPBACK: &str = host_socket::HV_GUID_LOOPBACK;
+    #[cfg(windows)]
+    #[pyattr]
+    const HV_GUID_PARENT: &str = host_socket::HV_GUID_PARENT;
 
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
@@ -845,23 +988,23 @@ mod _socket {
     }
 
     #[pyfunction]
-    const fn htonl(x: u32) -> u32 {
-        u32::to_be(x)
+    const fn htonl(integer: u32) -> u32 {
+        u32::to_be(integer)
     }
 
     #[pyfunction]
-    const fn htons(x: u16) -> u16 {
-        u16::to_be(x)
+    const fn htons(integer: u16) -> u16 {
+        u16::to_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohl(x: u32) -> u32 {
-        u32::from_be(x)
+    const fn ntohl(integer: u32) -> u32 {
+        u32::from_be(integer)
     }
 
     #[pyfunction]
-    const fn ntohs(x: u16) -> u16 {
-        u16::from_be(x)
+    const fn ntohs(integer: u16) -> u16 {
+        u16::from_be(integer)
     }
 
     #[cfg(unix)]
@@ -883,11 +1026,11 @@ mod _socket {
     };
 }
 
-    fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
+    fn get_raw_sock(obj: &PyObject, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
-        type CastFrom = libc::c_long;
+        type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
-        type CastFrom = libc::c_longlong;
+        type CastFrom = core::ffi::c_longlong;
 
         // should really just be to_index() but test_socket tests the error messages explicitly
         if obj.fast_isinstance(vm.ctx.types.float_type) {
@@ -920,9 +1063,12 @@ mod _socket {
     #[pyclass(name = "socket")]
     #[derive(Debug, PyPayload)]
     pub struct PySocket {
-        kind: AtomicCell<i32>,
-        family: AtomicCell<i32>,
-        proto: AtomicCell<i32>,
+        #[pymember(name = "type")]
+        kind: AtomicI32,
+        #[pymember]
+        family: AtomicI32,
+        #[pymember]
+        proto: AtomicI32,
         pub(crate) timeout: AtomicCell<f64>,
         sock: PyRwLock<Option<Socket>>,
     }
@@ -932,9 +1078,9 @@ mod _socket {
     impl Default for PySocket {
         fn default() -> Self {
             Self {
-                kind: AtomicCell::default(),
-                family: AtomicCell::default(),
-                proto: AtomicCell::default(),
+                kind: AtomicI32::new(0),
+                family: AtomicI32::new(0),
+                proto: AtomicI32::new(0),
                 timeout: AtomicCell::new(-1.0),
                 sock: PyRwLock::new(None),
             }
@@ -948,17 +1094,17 @@ mod _socket {
 
     impl Read for &PySocket {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).read(buf)
+            (&mut &*self.sock_snapshot()?).read(buf)
         }
     }
 
     impl Write for &PySocket {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            (&mut &*self.sock()?).write(buf)
+            (&mut &*self.sock_snapshot()?).write(buf)
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
-            (&mut &*self.sock()?).flush()
+            (&mut &*self.sock_snapshot()?).flush()
         }
     }
 
@@ -973,6 +1119,21 @@ mod _socket {
                 .ok_or_else(|| io::Error::from_raw_os_error(CLOSED_ERR))
         }
 
+        /// Snapshot the inner socket without holding `self.sock` across a syscall.
+        ///
+        /// Blocking accept/recv/send must not keep the RwLock: `close()` needs
+        /// the write side, and a lock held by a thread that did not survive
+        /// `fork()` stays locked forever in the child.
+        pub(crate) fn sock_snapshot(&self) -> io::Result<ManuallyDrop<Socket>> {
+            let guard = self.sock()?;
+            let fd = sock_fileno(&guard);
+            drop(guard);
+            // SAFETY: PySocket remains the owner of `fd`. Drop is suppressed so
+            // this wrapper does not close it. A concurrent close() may
+            // invalidate `fd`; the syscall then fails with EBADF.
+            Ok(ManuallyDrop::new(unsafe { sock_from_raw_unchecked(fd) }))
+        }
+
         fn init_inner(
             &self,
             family: i32,
@@ -980,7 +1141,7 @@ mod _socket {
             proto: i32,
             sock: Socket,
         ) -> io::Result<()> {
-            self.family.store(family);
+            self.family.store(family, Ordering::Relaxed);
             // Mask out SOCK_NONBLOCK and SOCK_CLOEXEC flags from stored type
             // to ensure consistent cross-platform behavior
             #[cfg(any(
@@ -1007,8 +1168,8 @@ mod _socket {
                 target_os = "redox"
             )))]
             let masked_kind = socket_kind;
-            self.kind.store(masked_kind);
-            self.proto.store(proto);
+            self.kind.store(masked_kind, Ordering::Relaxed);
+            self.proto.store(proto, Ordering::Relaxed);
             let mut s = self.sock.write();
             let sock = s.insert(sock);
             // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
@@ -1067,25 +1228,30 @@ mod _socket {
             F: FnMut() -> io::Result<R>,
         {
             let timeout = self.get_timeout().ok();
-            self.sock_op_timeout_err(vm, wait_kind, timeout, f)
+            let mut deadline = None;
+            self.sock_op_timeout_err(vm, wait_kind, &mut deadline, timeout, f)
         }
 
         fn sock_op_timeout_err<F, R>(
             &self,
             vm: &VirtualMachine,
             wait_kind: SockWaitKind,
+            deadline: &mut Option<Deadline>,
             timeout: Option<Duration>,
             mut f: F,
         ) -> Result<R, IoOrPyException>
         where
             F: FnMut() -> io::Result<R>,
         {
-            let deadline = timeout.map(Deadline::new);
-
             loop {
-                if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
-                    let sock = self.sock()?;
-                    sock_wait_deadline(&sock, wait_kind, &deadline, vm)?;
+                if timeout.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
+                    let sock = self.sock_snapshot()?;
+                    // Start the clock after the snapshot so lock/scheduling
+                    // delay is not subtracted from a short timeout before poll.
+                    if deadline.is_none() {
+                        *deadline = timeout.map(Deadline::new);
+                    }
+                    sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
                 let err = loop {
@@ -1109,8 +1275,8 @@ mod _socket {
             addr: PyObjectRef,
             caller: &str,
             vm: &VirtualMachine,
-        ) -> Result<socket2::SockAddr, IoOrPyException> {
-            let family = self.family.load();
+        ) -> Result<host_socket::raw::SockAddr, IoOrPyException> {
+            let family = self.family.load(Ordering::Relaxed);
             match family {
                 #[cfg(unix)]
                 c::AF_UNIX => {
@@ -1122,7 +1288,7 @@ mod _socket {
                         ArgStrOrBytesLike::Buf(_) => ffi::OsStr::from_bytes(bytes).into(),
                         ArgStrOrBytesLike::Str(s) => vm.fsencode(s)?,
                     };
-                    socket2::SockAddr::unix(path)
+                    host_socket::raw::SockAddr::unix(path)
                         .map_err(|_| vm.new_os_error("AF_UNIX path too long").into())
                 }
                 c::AF_INET => {
@@ -1133,12 +1299,12 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm
                             .new_type_error("AF_INET address must be a pair (host, post)")
                             .into());
                     }
-                    let addr = Address::from_tuple(&tuple, vm)?;
+                    let addr = Address::from_tuple(tuple.as_slice(), vm)?;
                     let mut addr4 = get_addr(vm, addr.host, c::AF_INET)?;
                     match &mut addr4 {
                         SocketAddr::V4(addr4) => {
@@ -1156,13 +1322,13 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    match tuple.len() {
+                    match tuple.as_slice().len() {
                         2..=4 => {}
                         _ => return Err(vm.new_type_error(
                             "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])",
                         ).into()),
                     }
-                    let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&tuple, vm)?;
+                    let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(tuple.as_slice(), vm)?;
                     let mut addr6 = get_addr(vm, addr.host, c::AF_INET6)?;
                     match &mut addr6 {
                         SocketAddr::V6(addr6) => {
@@ -1174,6 +1340,109 @@ mod _socket {
                     }
                     Ok(addr6.into())
                 }
+                #[cfg(windows)]
+                family if family == c::AF_HYPERV => {
+                    if self.proto.load(Ordering::Relaxed) != host_socket::HV_PROTOCOL_RAW {
+                        return Err(vm
+                            .new_os_error(format!(
+                                "{caller}(): unsupported AF_HYPERV protocol: {}",
+                                self.proto.load(Ordering::Relaxed)
+                            ))
+                            .into());
+                    }
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{caller}(): AF_HYPERV address must be tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?;
+                    if tuple.as_slice().len() != 2 {
+                        return Err(vm
+                            .new_type_error(
+                                "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                            )
+                            .into());
+                    }
+                    let vm_id: PyStrRef = tuple.as_slice()[0].clone().downcast().map_err(|_| {
+                        vm.new_type_error(
+                            "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                        )
+                    })?;
+                    let service_id: PyStrRef =
+                        tuple.as_slice()[1].clone().downcast().map_err(|_| {
+                            vm.new_type_error(
+                                "AF_HYPERV address must be a str tuple (vm_id, service_id)",
+                            )
+                        })?;
+                    let vm_wide = vm_id.as_wtf8().to_wide_cstring().map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address vm_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let service_wide = service_id.as_wtf8().to_wide_cstring().map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address service_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let vm_guid = host_socket::uuid_from_string_w(&vm_wide).map_err(|_| {
+                        vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address vm_id is not a valid UUID string"
+                        ))
+                    })?;
+                    let service_guid =
+                        host_socket::uuid_from_string_w(&service_wide).map_err(|_| {
+                            vm.new_value_error(format!(
+                            "{caller}(): AF_HYPERV address service_id is not a valid UUID string"
+                        ))
+                        })?;
+                    let hv = host_socket::sockaddr_hv(vm_guid, service_guid);
+                    let mut storage: host_socket::raw::SockAddrStorage =
+                        unsafe { core::mem::zeroed() };
+                    unsafe {
+                        core::ptr::write(core::ptr::from_mut(&mut storage).cast(), hv);
+                    }
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&hv) as _)
+                    })
+                }
+                #[cfg(windows)]
+                family if family == c::AF_BLUETOOTH => {
+                    if self.proto.load(Ordering::Relaxed) != host_socket::BTHPROTO_RFCOMM {
+                        return Err(vm
+                            .new_os_error(format!("{caller}(): unknown Bluetooth protocol"))
+                            .into());
+                    }
+                    let tuple: PyTupleRef = addr
+                        .downcast()
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    if tuple.as_slice().len() != 2 {
+                        return Err(vm.new_os_error(format!("{caller}(): wrong format")).into());
+                    }
+                    let name: PyStrRef = tuple.as_slice()[0]
+                        .clone()
+                        .downcast()
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let channel = i64::try_from_object(vm, tuple.as_slice()[1].clone())
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let name = name
+                        .try_into_utf8(vm)
+                        .map_err(|_| vm.new_os_error(format!("{caller}(): wrong format")))?;
+                    let name = name.as_str();
+                    if name.contains('\0') {
+                        return Err(vm.new_os_error(format!("{caller}(): wrong format")).into());
+                    }
+                    let bd_addr = host_socket::parse_bdaddr(name)
+                        .ok_or_else(|| vm.new_os_error("bad bluetooth address"))?;
+                    let bth = host_socket::sockaddr_bth_rfcomm(bd_addr, channel as u32);
+                    let mut storage: host_socket::raw::SockAddrStorage =
+                        unsafe { core::mem::zeroed() };
+                    unsafe {
+                        core::ptr::write(core::ptr::from_mut(&mut storage).cast(), bth);
+                    }
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(storage, core::mem::size_of_val(&bth) as _)
+                    })
+                }
                 #[cfg(target_os = "linux")]
                 c::AF_CAN => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -1183,50 +1452,105 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.is_empty() || tuple.len() > 2 {
-                        return Err(vm
-                            .new_type_error(
-                                "AF_CAN address must be a tuple (interface,) or (interface, addr)",
-                            )
-                            .into());
-                    }
-                    let interface: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_CAN interface must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
+                    let proto = self.proto.load(Ordering::Relaxed);
+                    let interface: PyStrRef = tuple
+                        .as_slice()
+                        .first()
+                        .cloned()
+                        .ok_or_else(|| {
+                            vm.new_type_error("AF_CAN address must be a tuple (interface, )")
+                        })?
+                        .downcast()
+                        .map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_CAN interface must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
                     let interface = interface.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let ifname = interface.as_str();
 
-                    // Get interface index
                     let ifindex = if ifname.is_empty() {
-                        0 // Bind to all CAN interfaces
+                        0
+                    } else if ifname.len() >= 16 {
+                        return Err(vm.new_os_error("AF_CAN interface name too long").into());
                     } else {
-                        // Check interface name length (IFNAMSIZ is typically 16)
-                        if ifname.len() >= 16 {
-                            return Err(vm.new_os_error("interface name too long").into());
-                        }
                         let cstr = alloc::ffi::CString::new(ifname)
                             .map_err(|_| vm.new_os_error("invalid interface name"))?;
                         host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
                     };
 
-                    // Create sockaddr_can
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let can_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_can;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let can_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_can;
                     unsafe {
-                        (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
+                        (*can_addr).can_family = c::AF_CAN as c::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
-                    let storage: socket2::SockAddrStorage =
+
+                    match proto {
+                        c::CAN_RAW | c::CAN_BCM => {
+                            if tuple.as_slice().len() != 1 {
+                                return Err(vm
+                                    .new_type_error("AF_CAN address must be a tuple (interface, )")
+                                    .into());
+                            }
+                        }
+                        c::CAN_ISOTP => {
+                            if tuple.as_slice().len() != 3 {
+                                return Err(vm
+                                    .new_type_error(
+                                        "AF_CAN ISOTP address must be a tuple (interface, rx_id, tx_id)",
+                                    )
+                                    .into());
+                            }
+                            let rx_id = tuple.as_slice()[1]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
+                            let tx_id = tuple.as_slice()[2]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
+                            unsafe {
+                                (*can_addr).can_addr.tp.rx_id = rx_id;
+                                (*can_addr).can_addr.tp.tx_id = tx_id;
+                            }
+                        }
+                        c::CAN_J1939 => {
+                            if tuple.as_slice().len() != 4 {
+                                return Err(vm
+                                    .new_type_error(
+                                        "AF_CAN J1939 address must be a tuple (interface, name, pgn, addr)",
+                                    )
+                                    .into());
+                            }
+                            let name = tuple.as_slice()[1]
+                                .try_index(vm)?
+                                .try_to_primitive::<u64>(vm)?;
+                            let pgn = tuple.as_slice()[2]
+                                .try_index(vm)?
+                                .try_to_primitive::<u32>(vm)?;
+                            let jaddr = tuple.as_slice()[3]
+                                .try_index(vm)?
+                                .try_to_primitive::<u8>(vm)?;
+                            unsafe {
+                                (*can_addr).can_addr.j1939.name = name;
+                                (*can_addr).can_addr.j1939.pgn = pgn;
+                                (*can_addr).can_addr.j1939.addr = jaddr;
+                            }
+                        }
+                        _ => {
+                            return Err(vm
+                                .new_os_error(format!("{caller}(): unsupported CAN protocol"))
+                                .into());
+                        }
+                    }
+
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_can>() as c::socklen_t,
                         )
                     })
                 }
@@ -1239,25 +1563,27 @@ mod _socket {
                             obj.class().name()
                         ))
                     })?;
-                    if tuple.len() != 2 {
+                    if tuple.as_slice().len() != 2 {
                         return Err(vm
                             .new_type_error("AF_ALG address must be a tuple (type, name)")
                             .into());
                     }
-                    let alg_type: PyStrRef = tuple[0].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_ALG type must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
-                    let alg_name: PyStrRef = tuple[1].clone().downcast().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "{}(): AF_ALG name must be str, not {}",
-                            caller,
-                            obj.class().name()
-                        ))
-                    })?;
+                    let alg_type: PyStrRef =
+                        tuple.as_slice()[0].clone().downcast().map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_ALG type must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
+                    let alg_name: PyStrRef =
+                        tuple.as_slice()[1].clone().downcast().map_err(|obj| {
+                            vm.new_type_error(format!(
+                                "{}(): AF_ALG name must be str, not {}",
+                                caller,
+                                obj.class().name()
+                            ))
+                        })?;
 
                     let alg_type = alg_type.try_into_utf8(vm).map_err(IoOrPyException::from)?;
                     let alg_name = alg_name.try_into_utf8(vm).map_err(IoOrPyException::from)?;
@@ -1273,11 +1599,10 @@ mod _socket {
                     }
 
                     // Create sockaddr_alg
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let alg_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_alg;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let alg_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_alg;
                     unsafe {
-                        (*alg_addr).salg_family = libc::AF_ALG as libc::sa_family_t;
+                        (*alg_addr).salg_family = c::AF_ALG as c::sa_family_t;
                         // Copy type string
                         for (i, b) in type_str.bytes().enumerate() {
                             (*alg_addr).salg_type[i] = b;
@@ -1287,12 +1612,12 @@ mod _socket {
                             (*alg_addr).salg_name[i] = b;
                         }
                     }
-                    let storage: socket2::SockAddrStorage =
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_alg>() as c::socklen_t,
                         )
                     })
                 }
@@ -1308,7 +1633,7 @@ mod _socket {
         ) -> Result<(), IoOrPyException> {
             let sock_addr = self.extract_address(address, caller, vm)?;
 
-            let sock = self.sock()?;
+            let sock = self.sock_snapshot()?;
             let err = match vm.allow_threads(|| sock.connect(&sock_addr)) {
                 Ok(()) => return Ok(()),
                 Err(e) => e,
@@ -1328,7 +1653,7 @@ mod _socket {
 
             if wait_connect {
                 self.sock_op(vm, SockWaitKind::Connect, || {
-                    let sock = self.sock()?;
+                    let sock = self.sock_snapshot()?;
                     let err = sock.take_error()?;
                     match err {
                         Some(e) => Err(e),
@@ -1345,20 +1670,27 @@ mod _socket {
 
     #[derive(FromArgs)]
     pub struct SocketInitArgs {
+        #[pyarg(any, default = -1)]
+        family: i32,
+        #[pyarg(any, default = -1)]
+        r#type: i32,
+        #[pyarg(any, default = -1)]
+        proto: i32,
         #[pyarg(any, optional)]
-        family: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        r#type: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        proto: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        fileno: OptionalOption<PyObjectRef>,
+        fileno: Option<PyObjectRef>,
+    }
+
+    #[cfg(all(unix, not(target_os = "redox")))]
+    #[derive(FromArgs)]
+    struct SendmsgAddr {
+        #[pyarg(positional, optional)]
+        addr: Option<PyObjectRef>,
     }
 
     impl Initializer for PySocket {
         type Args = SocketInitArgs;
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
         }
     }
@@ -1368,10 +1700,10 @@ mod _socket {
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             Ok(format!(
                 "<socket object, fd={}, family={}, type={}, proto={}>",
-                zelf.fileno(),
-                zelf.family.load(),
-                zelf.kind.load(),
-                zelf.proto.load(),
+                Self::fileno(zelf),
+                zelf.family.load(Ordering::Relaxed),
+                zelf.kind.load(Ordering::Relaxed),
+                zelf.proto.load(Ordering::Relaxed),
             ))
         }
     }
@@ -1380,23 +1712,11 @@ mod _socket {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if socket is still open
             if zelf.sock.read().is_some() {
-                let laddr = if let Ok(sock) = zelf.sock()
-                    && let Ok(addr) = sock.local_addr()
-                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
-                {
-                    format!(", laddr={}", repr.as_wtf8())
-                } else {
-                    String::new()
-                };
-
-                let msg = format!(
-                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
-                    zelf.fileno(),
-                    zelf.family.load(),
-                    zelf.kind.load(),
-                    zelf.proto.load(),
-                    laddr
-                );
+                let repr = zelf
+                    .as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<socket>"));
+                let msg = format!("unclosed {}", repr.as_wtf8());
                 let _ = crate::vm::warn::warn(
                     vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),
@@ -1405,38 +1725,33 @@ mod _socket {
                     vm,
                 );
             }
-            let _ = zelf.close();
+            let _ = Self::close(zelf);
             Ok(())
         }
     }
 
     #[pyclass(
         with(Constructor, Initializer, Representable, Destructor),
-        flags(BASETYPE)
+        flags(BASETYPE, HEAPTYPE)
     )]
     impl PySocket {
         fn _init(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             args: <Self as Initializer>::Args,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let mut family = args.family.unwrap_or(-1);
-            let mut socket_kind = args.r#type.unwrap_or(-1);
-            let mut proto = args.proto.unwrap_or(-1);
+            let mut family = args.family;
+            let mut socket_kind = args.r#type;
+            let mut proto = args.proto;
 
-            if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-                audit.call(
-                    (vm.ctx.new_str("socket.__new__"), family, socket_kind, proto),
-                    vm,
-                )?;
-            }
+            vm.audit("socket.__new__", || (family, socket_kind, proto))?;
 
             let fileno = args.fileno;
             let sock;
 
             // On Windows, fileno can be bytes from socket.share() for fromshare()
             #[cfg(windows)]
-            if let Some(fileno_obj) = fileno.flatten() {
+            if let Some(fileno_obj) = fileno {
                 use crate::vm::builtins::PyBytes;
                 if let Ok(bytes) = fileno_obj.clone().downcast::<PyBytes>() {
                     let bytes_data = bytes.as_bytes();
@@ -1459,7 +1774,7 @@ mod _socket {
                 }
 
                 // Not bytes, treat as regular fileno
-                let fileno = get_raw_sock(fileno_obj, vm)?;
+                let fileno = get_raw_sock(&fileno_obj, vm)?;
                 sock = sock_from_raw(fileno, vm)?;
                 match sock.local_addr() {
                     Ok(addr) if family == -1 => family = addr.family() as i32,
@@ -1483,10 +1798,7 @@ mod _socket {
             }
 
             #[cfg(not(windows))]
-            let fileno = fileno
-                .flatten()
-                .map(|obj| get_raw_sock(obj, vm))
-                .transpose()?;
+            let fileno = fileno.map(|obj| get_raw_sock(&obj, vm)).transpose()?;
             #[cfg(not(windows))]
             if let Some(fileno) = fileno {
                 sock = sock_from_raw(fileno, vm)?;
@@ -1542,71 +1854,81 @@ mod _socket {
 
         #[pymethod]
         fn connect(
-            &self,
-            address: PyObjectRef,
+            zelf: &Py<Self>,
+            object: PyObjectRef,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            self.connect_inner(address, "connect", vm)
+            zelf.connect_inner(object, "connect", vm)
         }
 
         #[pymethod]
-        fn connect_ex(&self, address: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
-            match self.connect_inner(address, "connect_ex", vm) {
+        fn connect_ex(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+            match zelf.connect_inner(object, "connect_ex", vm) {
                 Ok(()) => Ok(0),
                 Err(err) => err.errno(),
             }
         }
 
         #[pymethod]
-        fn bind(&self, address: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let sock_addr = self.extract_address(address, "bind", vm)?;
+        fn bind(
+            zelf: &Py<Self>,
+            object: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> Result<(), IoOrPyException> {
+            let sock_addr = zelf.extract_address(object, "bind", vm)?;
 
-            if let Some(addr) = sock_addr.as_socket()
-                && let Ok(audit) = vm.sys_module.get_attr("audit", vm)
-            {
-                let (ip, port) = match addr {
-                    SocketAddr::V4(addr) => (addr.ip().to_string(), addr.port()),
-                    SocketAddr::V6(addr) => (addr.ip().to_string(), addr.port()),
-                };
-
-                audit.call((vm.ctx.new_str("socket.bind"), (ip, port)), vm)?;
+            if let Some(addr) = sock_addr.as_socket() {
+                vm.audit("socket.bind", || {
+                    let (ip, port) = match addr {
+                        SocketAddr::V4(addr) => (addr.ip().to_string(), addr.port()),
+                        SocketAddr::V6(addr) => (addr.ip().to_string(), addr.port()),
+                    };
+                    ((ip, port),)
+                })?;
             }
 
-            Ok(self.sock()?.bind(&sock_addr)?)
+            Ok(zelf.sock()?.bind(&sock_addr)?)
         }
 
         #[pymethod]
-        fn listen(&self, backlog: OptionalArg<i32>) -> io::Result<()> {
+        fn listen(zelf: &Py<Self>, backlog: OptionalArg<i32>) -> io::Result<()> {
             let backlog = backlog.unwrap_or(128);
             let backlog = if backlog < 0 { 0 } else { backlog };
-            self.sock()?.listen(backlog)
+            zelf.sock()?.listen(backlog)
         }
 
         #[pymethod]
         fn _accept(
-            &self,
+            zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> Result<(RawSocket, PyObjectRef), IoOrPyException> {
             // Use accept_raw() instead of accept() to avoid socket2's set_common_flags()
             // which tries to set SO_NOSIGPIPE and fails with EINVAL on Unix domain sockets on macOS
-            let (sock, addr) =
-                self.sock_op(vm, SockWaitKind::Read, || self.sock()?.accept_raw())?;
+            let (sock, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?.accept_raw()
+            })?;
             let fd = into_sock_fileno(sock);
-            Ok((fd, get_addr_tuple(&addr, vm)))
+            Ok((
+                fd,
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
         fn recv(
-            &self,
+            zelf: &Py<Self>,
             bufsize: usize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let mut buffer = Vec::with_capacity(bufsize);
-            let sock = self.sock()?;
-            let n = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.no_memory_error())?;
+            let n = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
+                    .recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
             Ok(buffer)
@@ -1614,16 +1936,13 @@ mod _socket {
 
         #[pymethod]
         fn recv_into(
-            &self,
+            zelf: &Py<Self>,
             buf: ArgMemoryBuffer,
             nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
@@ -1635,15 +1954,19 @@ mod _socket {
                 buf.len()
             };
 
-            let buf = &mut buf[..read_len];
-            self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(unsafe { slice_as_uninit(buf) }, flags)
-            })
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let n = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
+                    .recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+            })?;
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            Ok(n)
         }
 
         #[pymethod]
         fn recvfrom(
-            &self,
+            zelf: &Py<Self>,
             bufsize: isize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -1652,81 +1975,92 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
-            let mut buffer = Vec::with_capacity(bufsize);
-            let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                self.sock()?
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.no_memory_error())?;
+            let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
-            Ok((buffer, get_addr_tuple(&addr, vm)))
+            Ok((
+                buffer,
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
         fn recvfrom_into(
-            &self,
+            zelf: &Py<Self>,
             buf: ArgMemoryBuffer,
             nbytes: OptionalArg<isize>,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<(usize, PyObjectRef), IoOrPyException> {
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
-            let buf = match nbytes {
+            let read_len = match nbytes {
                 OptionalArg::Present(i) => {
                     let i = i.to_usize().ok_or_else(|| {
                         vm.new_value_error("negative buffersize in recvfrom_into")
                     })?;
-                    buf.get_mut(..i).ok_or_else(|| {
-                        vm.new_value_error("nbytes is greater than the length of the buffer")
-                    })?
+                    if i > buf.len() {
+                        return Err(vm
+                            .new_value_error("nbytes is greater than the length of the buffer")
+                            .into());
+                    }
+                    i
                 }
-                OptionalArg::Missing => buf,
+                OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
-            let sock = self.sock()?;
-            let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_from_with_flags(unsafe { slice_as_uninit(buf) }, flags)
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
+                zelf.sock_snapshot()?
+                    .recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
-            Ok((n, get_addr_tuple(&addr, vm)))
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            Ok((
+                n,
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
+            ))
         }
 
         #[pymethod]
         fn send(
-            &self,
+            zelf: &Py<Self>,
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
-            self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_with_flags(buf, flags)
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                zelf.sock_snapshot()?.send_with_flags(buf, flags)
             })
         }
 
         #[pymethod]
         fn sendall(
-            &self,
+            zelf: &Py<Self>,
             bytes: ArgBytesLike,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
             let flags = flags.unwrap_or(0);
 
-            let timeout = self.get_timeout().ok();
+            let timeout = zelf.get_timeout().ok();
+            let mut deadline = None;
 
-            let deadline = timeout.map(Deadline::new);
-
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
             while buf_offset < buf.len() {
-                let interval = deadline.as_ref().map(|d| d.time_until()).transpose()?;
-                self.sock_op_timeout_err(vm, SockWaitKind::Write, interval, || {
+                zelf.sock_op_timeout_err(vm, SockWaitKind::Write, &mut deadline, timeout, || {
                     let subbuf = &buf[buf_offset..];
-                    buf_offset += self.sock()?.send_with_flags(subbuf, flags)?;
+                    buf_offset += zelf.sock_snapshot()?.send_with_flags(subbuf, flags)?;
                     Ok(())
                 })?;
                 vm.check_signals()?;
@@ -1736,57 +2070,79 @@ mod _socket {
 
         #[pymethod]
         fn sendto(
-            &self,
-            bytes: ArgBytesLike,
-            arg2: PyObjectRef,
-            arg3: OptionalArg<PyObjectRef>,
+            zelf: &Py<Self>,
+            args: FuncArgs,
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
-            // signature is bytes[, flags], address
-            let (flags, address) = match arg3 {
-                OptionalArg::Present(arg3) => {
-                    // should just be i32::try_from_obj but tests check for error message
-                    let int = arg2
-                        .try_index_opt(vm)
-                        .unwrap_or_else(|| Err(vm.new_type_error("an integer is required")))?;
-                    let flags = int.try_to_primitive::<i32>(vm)?;
-                    (flags, arg3)
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("sendto() takes no keyword arguments")
+                    .into());
+            }
+            let n = args.args.len();
+            let (bytes, flags, address) = match n {
+                2 => (args.args[0].clone(), 0, args.args[1].clone()),
+                3 => {
+                    let flags = args.args[1].try_index(vm)?.try_to_primitive::<i32>(vm)?;
+                    (args.args[0].clone(), flags, args.args[2].clone())
                 }
-                OptionalArg::Missing => (0, arg2),
+                _ => {
+                    return Err(vm
+                        .new_type_error(format!("sendto() takes 2 or 3 arguments ({n} given)"))
+                        .into());
+                }
             };
-            let addr = self.extract_address(address, "sendto", vm)?;
-            let buf = bytes.borrow_buf();
+            let bytes = ArgBytesLike::try_from_object(vm, bytes)?;
+            let addr = zelf.extract_address(address, "sendto", vm)?;
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
-            self.sock_op(vm, SockWaitKind::Write, || {
-                self.sock()?.send_to_with_flags(buf, &addr, flags)
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                zelf.sock_snapshot()?.send_to_with_flags(buf, &addr, flags)
             })
         }
 
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn sendmsg(
-            &self,
-            buffers: Vec<ArgBytesLike>,
-            ancdata: OptionalArg,
+            zelf: &Py<Self>,
+            buffers: PyObjectRef,
+            ancdata: OptionalArg<PyObjectRef>,
             flags: OptionalArg<i32>,
-            addr: OptionalOption,
+            addr: SendmsgAddr,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let flags = flags.unwrap_or(0);
-            let mut msg = socket2::MsgHdr::new();
+            let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
-            if let Some(addr) = addr.flatten() {
-                sockaddr = self
+            if let Some(addr) = addr.addr {
+                sockaddr = zelf
                     .extract_address(addr, "sendmsg", vm)
                     .map_err(|e| e.into_pyexception(vm))?;
                 msg = msg.with_addr(&sockaddr);
             }
 
+            let collect_iterable =
+                |obj: &PyObject, msg: &'static str| -> PyResult<Vec<PyObjectRef>> {
+                    match vm.extract_elements_with(obj, Ok) {
+                        Ok(items) => Ok(items),
+                        Err(e) if e.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                            Err(vm.new_type_error(msg))
+                        }
+                        Err(e) => Err(e),
+                    }
+                };
+
+            let buffer_items =
+                collect_iterable(&buffers, "sendmsg() argument 1 must be an iterable")?;
+            let buffers = buffer_items
+                .into_iter()
+                .map(|obj| ArgBytesLike::try_from_object(vm, obj))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
-                .map(|buf| buf.borrow_buf())
-                .collect::<Vec<_>>();
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
@@ -1795,39 +2151,42 @@ mod _socket {
 
             let control_buf;
             if let OptionalArg::Present(ancdata) = ancdata {
-                let cmsgs = vm.extract_elements_with(
-                    &ancdata,
-                    |obj| -> PyResult<(i32, i32, ArgBytesLike)> {
-                        let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
+                let cmsg_fast =
+                    collect_iterable(&ancdata, "sendmsg() argument 2 must be an iterable")?;
+                let cmsgs = cmsg_fast
+                    .into_iter()
+                    .map(|item| -> PyResult<(i32, i32, ArgBytesLike)> {
+                        let seq: Vec<PyObjectRef> = item.try_into_value(vm)?;
                         let [lvl, typ, data]: [PyObjectRef; 3] = seq
                             .try_into()
-                            .map_err(|_| vm.new_type_error("expected a sequence of length 3"))?;
+                            .map_err(|_| vm.new_type_error("[sendmsg() ancillary data items]"))?;
                         Ok((
-                            lvl.try_into_value(vm)?,
-                            typ.try_into_value(vm)?,
-                            data.try_into_value(vm)?,
+                            lvl.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                            typ.try_index(vm)?.try_to_primitive::<i32>(vm)?,
+                            ArgBytesLike::try_from_object(vm, data)?,
                         ))
-                    },
-                )?;
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
                 if !control_buf.is_empty() {
                     msg = msg.with_control(&control_buf);
                 }
             }
 
-            self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                let sock = zelf.sock_snapshot()?;
                 sock.sendmsg(&msg, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
         }
 
-        /// sendmsg_afalg([msg], *, op[, iv[, assoclen[, flags]]]) -> int
-        ///
-        /// Set operation mode and target IV for an AF_ALG socket.
         #[cfg(target_os = "linux")]
         #[pymethod]
-        fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        fn sendmsg_afalg(
+            zelf: &Py<Self>,
+            args: SendmsgAfalgArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<usize> {
             use std::os::fd::BorrowedFd;
 
             let msg = args.msg;
@@ -1851,21 +2210,18 @@ mod _socket {
                 .collect::<Vec<_>>();
             let iv = iv.map(|iv| iv.borrow_buf().to_vec());
 
-            self.sock_op(vm, SockWaitKind::Write, || {
-                let sock = self.sock()?;
+            zelf.sock_op(vm, SockWaitKind::Write, || {
+                let sock = zelf.sock_snapshot()?;
                 let fd = unsafe { BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                 host_socket::sendmsg_afalg(fd, &buffers, op, iv.as_deref(), assoclen, flags)
             })
             .map_err(|e| e.into_pyexception(vm))
         }
 
-        /// recvmsg(bufsize[, ancbufsize[, flags]]) -> (data, ancdata, msg_flags, address)
-        ///
-        /// Receive normal data and ancillary data from the socket.
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn recvmsg(
-            &self,
+            zelf: &Py<Self>,
             bufsize: isize,
             ancbufsize: OptionalArg<isize>,
             flags: OptionalArg<i32>,
@@ -1883,9 +2239,9 @@ mod _socket {
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
 
-            let msg = self
+            let msg = zelf
                 .sock_op(vm, SockWaitKind::Read, || {
-                    let sock = self.sock()?;
+                    let sock = zelf.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                     host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
@@ -1896,10 +2252,10 @@ mod _socket {
 
             // Build address tuple
             let address = if let Some(address) = msg.address {
-                let storage: socket2::SockAddrStorage =
+                let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
-                let addr = unsafe { socket2::SockAddr::new(storage, address.len as _) };
-                get_addr_tuple(&addr, vm)
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm)
             } else {
                 vm.ctx.none()
             };
@@ -1956,8 +2312,8 @@ mod _socket {
         }
 
         #[pymethod]
-        fn close(&self) -> io::Result<()> {
-            let sock = self.sock.write().take();
+        fn close(zelf: &Py<Self>) -> io::Result<()> {
+            let sock = zelf.sock.write().take();
             if let Some(sock) = sock {
                 close_inner(into_sock_fileno(sock))?;
             }
@@ -1966,53 +2322,65 @@ mod _socket {
 
         #[pymethod]
         #[inline]
-        fn detach(&self) -> i64 {
-            let sock = self.sock.write().take();
+        fn detach(zelf: &Py<Self>) -> i64 {
+            let sock = zelf.sock.write().take();
             sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
         }
 
         #[pymethod]
-        fn fileno(&self) -> i64 {
-            self.sock
+        fn fileno(zelf: &Py<Self>) -> i64 {
+            zelf.sock
                 .read()
                 .as_ref()
                 .map_or(INVALID_SOCKET as i64, |s| sock_fileno(s) as i64)
         }
 
         #[pymethod]
-        fn getsockname(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
-            let addr = self.sock()?.local_addr()?;
+        fn getsockname(zelf: &Py<Self>, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+            let addr = zelf.sock()?.local_addr()?;
 
-            Ok(get_addr_tuple(&addr, vm))
+            Ok(get_addr_tuple(
+                &addr,
+                zelf.proto.load(Ordering::Relaxed),
+                vm,
+            ))
         }
 
         #[pymethod]
-        fn getpeername(&self, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
-            let addr = self.sock()?.peer_addr()?;
+        fn getpeername(zelf: &Py<Self>, vm: &VirtualMachine) -> std::io::Result<PyObjectRef> {
+            let addr = zelf.sock()?.peer_addr()?;
 
-            Ok(get_addr_tuple(&addr, vm))
+            Ok(get_addr_tuple(
+                &addr,
+                zelf.proto.load(Ordering::Relaxed),
+                vm,
+            ))
         }
 
         #[pymethod]
-        fn gettimeout(&self) -> Option<f64> {
-            let timeout = self.timeout.load();
+        fn gettimeout(zelf: &Py<Self>) -> Option<f64> {
+            let timeout = zelf.timeout.load();
             if timeout >= 0.0 { Some(timeout) } else { None }
         }
 
         #[pymethod]
-        fn setblocking(&self, block: bool) -> io::Result<()> {
-            self.timeout.store(if block { -1.0 } else { 0.0 });
-            self.sock()?.set_nonblocking(!block)
+        fn setblocking(zelf: &Py<Self>, object: bool) -> io::Result<()> {
+            zelf.timeout.store(if object { -1.0 } else { 0.0 });
+            zelf.sock()?.set_nonblocking(!object)
         }
 
         #[pymethod]
-        fn getblocking(&self) -> bool {
-            self.timeout.load() != 0.0
+        fn getblocking(zelf: &Py<Self>) -> bool {
+            zelf.timeout.load() != 0.0
         }
 
         #[pymethod]
-        fn settimeout(&self, timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-            let timeout = match timeout {
+        fn settimeout(
+            zelf: &Py<Self>,
+            object: Option<ArgIntoFloat>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let timeout = match object {
                 Some(t) => {
                     let f = t.into_float();
                     if f.is_nan() {
@@ -2025,10 +2393,10 @@ mod _socket {
                 }
                 None => None,
             };
-            self.timeout.store(timeout.unwrap_or(-1.0));
+            zelf.timeout.store(timeout.unwrap_or(-1.0));
             // even if timeout is > 0 the socket needs to be nonblocking in order for us to select() on
             // it
-            self.sock()
+            zelf.sock()
                 .map_err(|e| e.into_pyexception(vm))?
                 .set_nonblocking(timeout.is_some())
                 .map_err(|e| e.into_pyexception(vm))
@@ -2036,13 +2404,13 @@ mod _socket {
 
         #[pymethod]
         fn getsockopt(
-            &self,
+            zelf: &Py<Self>,
             level: i32,
             name: i32,
             buflen: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<PyObjectRef, IoOrPyException> {
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             let buflen = buflen.unwrap_or(0);
             if buflen == 0 {
@@ -2059,14 +2427,14 @@ mod _socket {
 
         #[pymethod]
         fn setsockopt(
-            &self,
+            zelf: &Py<Self>,
             level: i32,
             name: i32,
             value: Option<Either<ArgBytesLike, i32>>,
             optlen: OptionalArg<u32>,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             match (value, optlen) {
                 (Some(Either::A(b)), OptionalArg::Missing) => {
@@ -2088,8 +2456,12 @@ mod _socket {
         }
 
         #[pymethod]
-        fn shutdown(&self, how: i32, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-            let how = match how {
+        fn shutdown(
+            zelf: &Py<Self>,
+            object: i32,
+            vm: &VirtualMachine,
+        ) -> Result<(), IoOrPyException> {
+            let how = match object {
                 c::SHUT_RD => Shutdown::Read,
                 c::SHUT_WR => Shutdown::Write,
                 c::SHUT_RDWR => Shutdown::Both,
@@ -2099,13 +2471,13 @@ mod _socket {
                         .into());
                 }
             };
-            Ok(self.sock()?.shutdown(how)?)
+            Ok(zelf.sock()?.shutdown(how)?)
         }
 
         #[cfg(windows)]
         #[pymethod]
         fn ioctl(
-            &self,
+            zelf: &Py<Self>,
             cmd: PyObjectRef,
             option: PyObjectRef,
             vm: &VirtualMachine,
@@ -2113,7 +2485,7 @@ mod _socket {
             use crate::vm::builtins::PyInt;
             use crate::vm::convert::TryFromObject;
 
-            let sock = self.sock()?;
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
 
             // Convert cmd to u32, returning ValueError for invalid/negative values
@@ -2140,7 +2512,7 @@ mod _socket {
                     let tuple: PyTupleRef = option
                         .downcast()
                         .map_err(|_| vm.new_type_error("SIO_KEEPALIVE_VALS requires a tuple"))?;
-                    if tuple.len() != 3 {
+                    if tuple.as_slice().len() != 3 {
                         return Err(vm
                             .new_type_error(
                                 "SIO_KEEPALIVE_VALS requires (onoff, keepalivetime, keepaliveinterval)",
@@ -2149,9 +2521,15 @@ mod _socket {
                     }
 
                     let ka = host_socket::TcpKeepalive {
-                        onoff: TryFromObject::try_from_object(vm, tuple[0].clone())?,
-                        keepalivetime: TryFromObject::try_from_object(vm, tuple[1].clone())?,
-                        keepaliveinterval: TryFromObject::try_from_object(vm, tuple[2].clone())?,
+                        onoff: TryFromObject::try_from_object(vm, tuple.as_slice()[0].clone())?,
+                        keepalivetime: TryFromObject::try_from_object(
+                            vm,
+                            tuple.as_slice()[1].clone(),
+                        )?,
+                        keepaliveinterval: TryFromObject::try_from_object(
+                            vm,
+                            tuple.as_slice()[2].clone(),
+                        )?,
                     };
 
                     if cmd != c::SIO_KEEPALIVE_VALS {
@@ -2169,25 +2547,14 @@ mod _socket {
 
         #[cfg(windows)]
         #[pymethod]
-        fn share(&self, process_id: u32, _vm: &VirtualMachine) -> Result<Vec<u8>, IoOrPyException> {
-            let sock = self.sock()?;
+        fn share(
+            zelf: &Py<Self>,
+            process_id: u32,
+            _vm: &VirtualMachine,
+        ) -> Result<Vec<u8>, IoOrPyException> {
+            let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
             host_socket::share_socket(fd as _, process_id).map_err(Into::into)
-        }
-
-        #[pygetset(name = "type")]
-        fn kind(&self) -> i32 {
-            self.kind.load()
-        }
-
-        #[pygetset]
-        fn family(&self) -> i32 {
-            self.family.load()
-        }
-
-        #[pygetset]
-        fn proto(&self) -> i32 {
-            self.proto.load()
         }
     }
 
@@ -2206,10 +2573,10 @@ mod _socket {
     impl TryFromObject for Address {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let tuple = PyTupleRef::try_from_object(vm, obj)?;
-            if tuple.len() != 2 {
+            if tuple.as_slice().len() != 2 {
                 Err(vm.new_type_error("Address tuple should have only 2 values"))
             } else {
-                Self::from_tuple(&tuple, vm)
+                Self::from_tuple(tuple.as_slice(), vm)
             }
         }
     }
@@ -2232,7 +2599,7 @@ mod _socket {
             let addr = Self::from_tuple(tuple, vm)?;
             let flowinfo = tuple
                 .get(2)
-                .map(|obj| u32::try_from_borrowed_object(vm, obj))
+                .map(|obj| obj.clone().try_index(vm)?.try_to_primitive_in_range(vm))
                 .transpose()?
                 .unwrap_or(0);
             let scopeid = tuple
@@ -2260,7 +2627,11 @@ mod _socket {
         }
     }
 
-    fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_addr_tuple(
+        addr: &host_socket::raw::SockAddr,
+        #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] proto: i32,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
@@ -2280,20 +2651,45 @@ mod _socket {
         #[cfg(target_os = "linux")]
         {
             let family = addr.family();
-            if family == libc::AF_CAN as libc::sa_family_t {
-                // AF_CAN address: (interface_name,) or (interface_name, can_id)
-                let can_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_can) };
+            if family == c::AF_CAN as c::sa_family_t {
+                let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
                 let ifname = if ifindex == 0 {
                     String::new()
                 } else {
                     host_socket::if_indextoname_checked(ifindex as u32).unwrap_or_default()
                 };
-                return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
+                let ifname_obj: PyObjectRef = vm.ctx.new_str(ifname).into();
+                return match proto {
+                    c::CAN_ISOTP => vm
+                        .ctx
+                        .new_tuple(vec![
+                            ifname_obj,
+                            vm.ctx.new_int(unsafe { can_addr.can_addr.tp.rx_id }).into(),
+                            vm.ctx.new_int(unsafe { can_addr.can_addr.tp.tx_id }).into(),
+                        ])
+                        .into(),
+                    c::CAN_J1939 => vm
+                        .ctx
+                        .new_tuple(vec![
+                            ifname_obj,
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.name })
+                                .into(),
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.pgn })
+                                .into(),
+                            vm.ctx
+                                .new_int(unsafe { can_addr.can_addr.j1939.addr })
+                                .into(),
+                        ])
+                        .into(),
+                    _ => vm.ctx.new_tuple(vec![ifname_obj]).into(),
+                };
             }
-            if family == libc::AF_ALG as libc::sa_family_t {
+            if family == c::AF_ALG as c::sa_family_t {
                 // AF_ALG address: (type, name)
-                let alg_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_alg) };
+                let alg_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_alg) };
                 let type_bytes = &alg_addr.salg_type;
                 let name_bytes = &alg_addr.salg_name;
                 let type_nul = memchr::memchr(b'\0', type_bytes).unwrap_or(type_bytes.len());
@@ -2309,17 +2705,42 @@ mod _socket {
                     .into();
             }
         }
+        #[cfg(windows)]
+        {
+            let family = addr.family() as i32;
+            if family == c::AF_HYPERV {
+                let hv = unsafe { &*(addr.as_ptr() as *const host_socket::SockaddrHv) };
+                let vm_id = host_socket::uuid_to_string_w(&hv.vm_id).unwrap_or_default();
+                let service_id = host_socket::uuid_to_string_w(&hv.service_id).unwrap_or_default();
+                return vm
+                    .ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(vm_id).into(),
+                        vm.ctx.new_str(service_id).into(),
+                    ])
+                    .into();
+            }
+            if family == c::AF_BLUETOOTH {
+                let (bd_addr, port) = host_socket::unpack_sockaddr_bth(addr.as_ptr().cast());
+                let name = host_socket::format_bdaddr(bd_addr);
+                return vm
+                    .ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(name).into(),
+                        vm.ctx.new_int(port).into(),
+                    ])
+                    .into();
+            }
+        }
         // TODO: support more address families
         (String::new(), 0).to_pyobject(vm)
     }
 
     #[pyfunction]
     fn gethostname(vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("socket.gethostname"),), vm)?;
-        }
+        vm.audit("socket.gethostname", || ())?;
 
-        gethostname::gethostname()
+        rustpython_host_env::socket::hostname()
             .into_string()
             .map(|hostname| vm.ctx.new_str(hostname))
             .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
@@ -2327,28 +2748,26 @@ mod _socket {
 
     #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
-    fn sethostname(hostname: PyUtf8StrRef) -> std::io::Result<()> {
-        host_socket::sethostname(hostname.as_str())
+    fn sethostname(hostname: FsPath) -> std::io::Result<()> {
+        host_socket::sethostname(hostname.as_bytes())
     }
 
     #[pyfunction]
-    fn inet_aton(ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        ip_string
-            .as_str()
-            .parse::<Ipv4Addr>()
-            .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
-            .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton"))
+    fn inet_aton(ip_addr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        inet::aton(ip_addr.as_str().as_bytes())
+            .map(Vec::from)
+            .ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
 
     #[pyfunction]
     fn inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let packed_ip = packed_ip.borrow_buf();
-        let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
+        let packed_ip = <[u8; 4]>::try_from(&*packed_ip)
             .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa"))?;
-        Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
+        Ok(vm.ctx.new_str(inet::ntoa(packed_ip)))
     }
 
-    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
+    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
         x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
@@ -2394,8 +2813,21 @@ mod _socket {
         Ok(s.to_string_lossy().into_owned())
     }
 
-    unsafe fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
-        unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
+    /// Room to receive into that belongs to no Python object.
+    ///
+    /// A peer may never send, so the wait for it is unbounded. The export of
+    /// the caller's buffer is held for the whole call, which is what keeps it
+    /// from being resized, but the borrow that reaches its bytes is a lock
+    /// every other thread touching that object waits on, and a thread waiting
+    /// on a lock never reaches a safepoint — holding it across the wait stops
+    /// the world from being stopped at all. The bytes are copied over once
+    /// they have arrived.
+    fn alloc_recv_scratch(len: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut scratch = Vec::new();
+        scratch
+            .try_reserve_exact(len)
+            .map_err(|_| vm.no_memory_error())?;
+        Ok(scratch)
     }
 
     enum IoOrPyException {
@@ -2446,13 +2878,14 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
+    #[cfg(feature = "ssl")]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match sock_wait_deadline(sock, wait_kind, &timeout.map(Deadline::new), vm) {
+        match sock_wait_deadline(sock, wait_kind, timeout.map(Deadline::new).as_ref(), vm) {
             Ok(()) => Ok(false),
             Err(IoOrPyException::Timeout) => Ok(true),
             Err(e) => Err(e.into_pyexception(vm)),
@@ -2463,128 +2896,40 @@ mod _socket {
     fn sock_wait_deadline(
         sock: &Socket,
         wait_kind: SockWaitKind,
-        deadline: &Option<Deadline>,
+        deadline: Option<&Deadline>,
         vm: &VirtualMachine,
     ) -> Result<(), IoOrPyException> {
-        #[cfg(unix)]
-        {
-            use rustpython_host_env::select::{PollFd, poll_fds};
+        use rustpython_host_env::select::{WaitFd, WaitFdError, WaitKind, wait_fd};
 
-            let mut events = 0;
-            if matches!(wait_kind, SockWaitKind::Read) {
-                events |= libc::POLLIN | libc::POLLPRI;
-            }
-            if matches!(wait_kind, SockWaitKind::Write | SockWaitKind::Connect) {
-                events |= libc::POLLOUT;
-            }
-            let mut fds = [PollFd {
-                fd: sock_fileno(sock),
-                events,
-                revents: 0,
-            }; 1];
-
-            loop {
-                let (timeout, is_capped) = deadline
-                    .as_ref()
-                    .map(|d| {
-                        d.time_until().map(|t| {
-                            let timeout_ms = t.as_millis();
-                            let is_capped = timeout_ms > i32::MAX as u128;
-                            let timeout = if is_capped {
-                                i32::MAX
-                            } else {
-                                timeout_ms as i32
-                            };
-                            (timeout, is_capped)
-                        })
-                    })
-                    .transpose()?
-                    .unwrap_or((-1, false));
-
-                match vm.allow_threads(|| poll_fds(&mut fds, timeout)) {
-                    Ok(0) => {
-                        if is_capped {
-                            continue;
-                        }
-                        break Err(IoOrPyException::Timeout);
-                    }
-
-                    Ok(_) => {
-                        if fds[0].revents & libc::POLLNVAL != 0 {
-                            break Err(io::Error::from_raw_os_error(libc::EBADF).into());
-                        }
-                        break Ok(());
-                    }
-
-                    Err(e) => {
-                        if e.kind() == io::ErrorKind::Interrupted {
-                            vm.check_signals()?;
-                            continue;
-                        }
-                        break Err(e.into());
-                    }
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            use rustpython_host_env::select::{FdSet, select, timeval};
-
-            let fd = sock_fileno(sock) as usize;
-
-            let mut reads = FdSet::new();
-            let mut writes = FdSet::new();
-            let mut errs = FdSet::new();
-
-            if matches!(wait_kind, SockWaitKind::Read) {
-                reads.insert(fd);
-                errs.insert(fd);
-            }
-            if matches!(wait_kind, SockWaitKind::Write | SockWaitKind::Connect) {
-                writes.insert(fd);
-                errs.insert(fd);
-            }
-
-            let mut timeout = deadline
-                .as_ref()
-                .map(|d| {
-                    d.time_until().map(|dur| timeval {
-                        tv_sec: dur.as_secs() as _,
-                        tv_usec: dur.subsec_micros() as _,
-                    })
-                })
-                .transpose()?;
-
-            match vm.allow_threads(|| {
-                select(
-                    0, // nfds is ignored on windows
-                    &mut reads,
-                    &mut writes,
-                    &mut errs,
-                    timeout.as_mut(),
-                )
-            }) {
-                Ok(0) => Err(IoOrPyException::Timeout),
-                Ok(_) => Ok(()),
-                Err(e) => Err(e.into()),
+        let kind = match wait_kind {
+            SockWaitKind::Read => WaitKind::Read,
+            SockWaitKind::Write | SockWaitKind::Connect => WaitKind::Write,
+        };
+        let deadline = deadline.map(Deadline::instant);
+        loop {
+            match vm.allow_threads(|| wait_fd(sock_fileno(sock), kind, deadline)) {
+                Ok(WaitFd::Ready) => return Ok(()),
+                Ok(WaitFd::Timeout) => return Err(IoOrPyException::Timeout),
+                Err(WaitFdError::Interrupted) => vm.check_signals()?,
+                Err(WaitFdError::Io(err)) => return Err(err.into()),
             }
         }
     }
 
     #[derive(FromArgs)]
     struct GAIOptions {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         host: Option<ArgStrOrBytesLike>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         port: Option<Either<ArgStrOrBytesLike, i32>>,
 
-        #[pyarg(positional, default = c::AF_UNSPEC)]
+        #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, name = "type", default)]
         ty: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default)]
         proto: i32,
-        #[pyarg(positional, default = 0)]
+        #[pyarg(any, default)]
         flags: i32,
     }
 
@@ -2593,7 +2938,7 @@ mod _socket {
         opts: GAIOptions,
         vm: &VirtualMachine,
     ) -> Result<Vec<PyObjectRef>, IoOrPyException> {
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             socktype: opts.ty,
             protocol: opts.proto,
             address: opts.family,
@@ -2613,8 +2958,15 @@ mod _socket {
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes)
-                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8"))?;
+                let host_str = core::str::from_utf8(&bytes).map_err(|e| {
+                    vm.new_unicode_decode_error(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                        vm.ctx.new_str("host bytes is not utf8"),
+                    )
+                })?;
                 Some(host_str.to_owned())
             }
             None => None,
@@ -2628,14 +2980,35 @@ mod _socket {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
-                            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?
+                            .ok_or_else(|| {
+                                let start = s
+                                    .as_wtf8()
+                                    .code_points()
+                                    .position(|c| c.to_char().is_none())
+                                    .unwrap();
+                                vm.new_unicode_encode_error(
+                                    vm.ctx.new_str("utf-8"),
+                                    (*s).clone(),
+                                    start,
+                                    start + 1,
+                                    vm.ctx.new_str("surrogates not allowed"),
+                                )
+                            })?
                             .to_owned()
                     }
                     ArgStrOrBytesLike::Buf(b) => {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
-                            .map_err(|_| vm.new_unicode_decode_error("port is not utf8"))?
+                            .map_err(|e| {
+                                vm.new_unicode_decode_error(
+                                    vm.ctx.new_str("utf-8"),
+                                    vm.ctx.new_bytes(bytes.to_vec()),
+                                    e.valid_up_to(),
+                                    e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                                    vm.ctx.new_str("port is not utf8"),
+                                )
+                            })?
                             .to_owned()
                     }
                 };
@@ -2646,7 +3019,7 @@ mod _socket {
         };
         let port = port_encoded.as_deref();
 
-        let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
+        let addrs = host_socket::dns::getaddrinfo(host, port, Some(hints))
             .map_err(|err| convert_socket_error(vm, err, SocketError::GaiError))?;
 
         let list = addrs
@@ -2672,7 +3045,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2697,7 +3070,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2709,40 +3082,34 @@ mod _socket {
 
     #[pyfunction]
     fn inet_pton(af_inet: i32, ip_string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        static ERROR_MSG: &str = "illegal IP address string passed to inet_pton";
-        let ip_addr = match af_inet {
-            c::AF_INET => ip_string
-                .as_str()
-                .parse::<Ipv4Addr>()
-                .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
-                .octets()
-                .to_vec(),
-            c::AF_INET6 => ip_string
-                .as_str()
-                .parse::<Ipv6Addr>()
-                .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
-                .octets()
-                .to_vec(),
-            _ => return Err(vm.new_os_error("Address family not supported by protocol")),
+        let text = ip_string.as_str().as_bytes();
+        let packed = match af_inet {
+            c::AF_INET => inet::pton_v4(text).map(Vec::from),
+            c::AF_INET6 => inet::pton_v6(text).map(Vec::from),
+            // What the host would report for an address family it has no
+            // converter for.
+            _ => {
+                let unsupported = rustpython_host_env::errno::errors::EAFNOSUPPORT;
+                return Err(io::Error::from_raw_os_error(unsupported).into_pyexception(vm));
+            }
         };
-        Ok(ip_addr)
+        packed.ok_or_else(|| vm.new_os_error("illegal IP address string passed to inet_pton"))
     }
 
     #[pyfunction]
     fn inet_ntop(af_inet: i32, packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<String> {
         let packed_ip = packed_ip.borrow_buf();
+        let wrong_length = || vm.new_value_error("invalid length of packed IP address string");
         match af_inet {
             c::AF_INET => {
-                let packed_ip = <&[u8; 4]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string")
-                })?;
-                Ok(Ipv4Addr::from(*packed_ip).to_string())
+                let packed_ip = <[u8; 4]>::try_from(&*packed_ip).map_err(|_| wrong_length())?;
+                Ok(inet::ntoa(packed_ip))
             }
             c::AF_INET6 => {
-                let packed_ip = <&[u8; 16]>::try_from(&*packed_ip).map_err(|_| {
-                    vm.new_value_error("invalid length of packed IP address string")
-                })?;
-                Ok(get_ipv6_addr_str(Ipv6Addr::from(*packed_ip)))
+                if packed_ip.len() != 16 {
+                    return Err(wrong_length());
+                }
+                Ok(inet::ntop_v6(&packed_ip))
             }
             _ => Err(vm.new_value_error(format!("unknown address family {af_inet}"))),
         }
@@ -2765,14 +3132,14 @@ mod _socket {
         flags: i32,
         vm: &VirtualMachine,
     ) -> Result<(String, String), IoOrPyException> {
-        match address.len() {
+        match address.as_slice().len() {
             2..=4 => {}
             _ => {
                 return Err(vm.new_type_error("illegal sockaddr argument").into());
             }
         }
-        let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
-        let hints = dns_lookup::AddrInfoHints {
+        let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(address.as_slice(), vm)?;
+        let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
             socktype: c::SOCK_DGRAM,
             flags: c::AI_NUMERICHOST,
@@ -2780,7 +3147,7 @@ mod _socket {
         };
         let service = addr.port.to_string();
         let host_str = addr.host.as_str();
-        let mut res = dns_lookup::getaddrinfo(Some(host_str), Some(&service), Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(host_str), Some(&service), Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
             .filter_map(Result::ok);
         let mut ainfo = res.next().unwrap();
@@ -2791,7 +3158,7 @@ mod _socket {
         }
         match &mut ainfo.sockaddr {
             SocketAddr::V4(_) => {
-                if address.len() != 2 {
+                if address.as_slice().len() != 2 {
                     return Err(vm.new_os_error("IPv4 sockaddr must be 2 tuple").into());
                 }
             }
@@ -2800,7 +3167,7 @@ mod _socket {
                 addr.set_scope_id(scopeid);
             }
         }
-        dns_lookup::getnameinfo(&ainfo.sockaddr, flags)
+        host_socket::dns::getnameinfo(&ainfo.sockaddr, flags)
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))
     }
 
@@ -2811,8 +3178,8 @@ mod _socket {
         socket_kind: OptionalArg<i32>,
         proto: OptionalArg<i32>,
     ) -> Result<(PySocket, PySocket), IoOrPyException> {
-        let family = family.unwrap_or(libc::AF_UNIX);
-        let socket_kind = socket_kind.unwrap_or(libc::SOCK_STREAM);
+        let family = family.unwrap_or(c::AF_UNIX);
+        let socket_kind = socket_kind.unwrap_or(c::SOCK_STREAM);
         let proto = proto.unwrap_or(0);
         let (a, b) = Socket::pair(family.into(), socket_kind.into(), Some(proto.into()))?;
         let py_a = PySocket::default();
@@ -2829,17 +3196,17 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+    fn if_nametoindex(oname: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         #[cfg(windows)]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             host_socket::if_nametoindex_checked(&name).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
-            let name = name.to_cstring(vm)?;
+            let name = oname.to_cstring(vm)?;
             // in case 'if_nametoindex' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENODEV);
+            rustpython_host_env::os::set_errno(c::ENODEV);
             let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
             if ret == 0 {
                 Err(vm.new_last_errno_error())
@@ -2851,17 +3218,17 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_indextoname(index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
+    fn if_indextoname(if_index: IfIndex, vm: &VirtualMachine) -> PyResult<String> {
         #[cfg(windows)]
         {
-            host_socket::if_indextoname_checked(index).map_err(|_| vm.new_last_errno_error())
+            host_socket::if_indextoname_checked(if_index).map_err(|_| vm.new_last_errno_error())
         }
         #[cfg(not(windows))]
         {
             let mut buf = [0; c::IF_NAMESIZE + 1];
             // in case 'if_indextoname' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENXIO);
-            let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
+            rustpython_host_env::os::set_errno(c::ENXIO);
+            let ret = unsafe { c::if_indextoname(if_index, buf.as_mut_ptr()) };
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
             } else {
@@ -2899,7 +3266,7 @@ mod _socket {
             let list = host_socket::if_nameindex()
                 .map_err(|err| err.into_pyexception(vm))?
                 .into_iter()
-                .map(|tup| tup.to_pyobject(vm))
+                .map(|(index, name)| (index, vm.ctx.new_str(name)).to_pyobject(vm))
                 .collect();
             Ok(list)
         }
@@ -2912,13 +3279,13 @@ mod _socket {
     ) -> Result<SocketAddr, IoOrPyException> {
         let name = pyname.as_str();
         if name.is_empty() {
-            let hints = dns_lookup::AddrInfoHints {
+            let hints = host_socket::dns::AddrInfoHints {
                 address: af,
                 socktype: c::SOCK_DGRAM,
                 flags: c::AI_PASSIVE,
                 protocol: 0,
             };
-            let mut res = dns_lookup::getaddrinfo(None, Some("0"), Some(hints))
+            let mut res = host_socket::dns::getaddrinfo(None, Some("0"), Some(hints))
                 .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
             let ainfo = res.next().unwrap()?;
             if res.next().is_some() {
@@ -2951,7 +3318,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
         }
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             address: af,
             ..Default::default()
         };
@@ -2961,7 +3328,7 @@ mod _socket {
             .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
         let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-        let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
     }
@@ -3027,10 +3394,10 @@ mod _socket {
 
     fn convert_socket_error(
         vm: &VirtualMachine,
-        err: dns_lookup::LookupError,
+        err: host_socket::dns::LookupError,
         err_kind: SocketError,
     ) -> IoOrPyException {
-        if let dns_lookup::LookupErrorKind::System = err.kind() {
+        if let host_socket::dns::LookupErrorKind::System = err.kind() {
             return io::Error::from(err).into();
         }
         let strerr = {
@@ -3061,16 +3428,7 @@ mod _socket {
         vm.new_os_subtype_error(timeout(vm), None, msg)
     }
 
-    fn get_ipv6_addr_str(ipv6: Ipv6Addr) -> String {
-        match ipv6.to_ipv4() {
-            // instead of "::0.0.ddd.ddd" it's "::xxxx"
-            Some(v4) if !ipv6.is_unspecified() && matches!(v4.octets(), [0, 0, _, _]) => {
-                format!("::{:x}", u32::from(v4))
-            }
-            _ => ipv6.to_string(),
-        }
-    }
-
+    #[derive(Copy, Clone)]
     pub(crate) struct Deadline {
         deadline: Instant,
     }
@@ -3081,11 +3439,8 @@ mod _socket {
                 deadline: Instant::now() + timeout,
             }
         }
-        fn time_until(&self) -> Result<Duration, IoOrPyException> {
+        fn instant(&self) -> Instant {
             self.deadline
-                .checked_duration_since(Instant::now())
-                // past the deadline already
-                .ok_or(IoOrPyException::Timeout)
         }
     }
 
@@ -3098,8 +3453,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn setdefaulttimeout(timeout: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
-        let val = match timeout {
+    fn setdefaulttimeout(object: Option<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<()> {
+        let val = match object {
             Some(t) => {
                 let f = t.into_float();
                 if f.is_nan() {
@@ -3117,8 +3472,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn dup(x: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
-        let sock = get_raw_sock(x, vm)?;
+    fn dup(object: PyObjectRef, vm: &VirtualMachine) -> Result<RawSocket, IoOrPyException> {
+        let sock = get_raw_sock(&object, vm)?;
         let sock = core::mem::ManuallyDrop::new(sock_from_raw(sock, vm)?);
         let newsock = sock.try_clone()?;
         let fd = into_sock_fileno(newsock);
@@ -3128,8 +3483,8 @@ mod _socket {
     }
 
     #[pyfunction]
-    fn close(x: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
-        Ok(close_inner(get_raw_sock(x, vm)?)?)
+    fn close(object: PyObjectRef, vm: &VirtualMachine) -> Result<(), IoOrPyException> {
+        Ok(close_inner(get_raw_sock(&object, vm)?)?)
     }
 
     fn close_inner(x: RawSocket) -> io::Result<()> {
@@ -3143,14 +3498,16 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_LEN")]
-    fn cmsg_len(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_len(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_len(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range"))
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_SPACE")]
-    fn cmsg_space(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_space(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
     }

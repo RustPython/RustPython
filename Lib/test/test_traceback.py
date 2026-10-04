@@ -406,7 +406,6 @@ class TracebackCases(unittest.TestCase):
                     self.assertEqual(len(err), 1)
                 self.assertEqual(err[-1], 'SyntaxError: error\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: index out of range
     @requires_subprocess()
     @force_not_colorized
     def test_encoded_file(self):
@@ -3141,7 +3140,6 @@ class LimitTests(unittest.TestCase):
     def last_returns_frame5(self):
         return self.last_returns_frame4()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 not greater than 5
     def test_extract_stack(self):
         frame = self.last_returns_frame5()
         def extract(**kwargs):

@@ -4471,7 +4471,6 @@ class TestBufferProtocol(unittest.TestCase):
 
 
 class TestPythonBufferProtocol(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic(self):
         class MyBuffer:
             def __buffer__(self, flags):
@@ -4500,7 +4499,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
 
         self.assertRaises(TypeError, memoryview, WrongArity())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_release_buffer(self):
         class WhatToRelease:
             def __init__(self):
@@ -4523,7 +4521,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
             self.assertEqual(mv.tobytes(), b"hello")
         self.assertFalse(wr.held)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_same_buffer_returned(self):
         class WhatToRelease:
             def __init__(self):
@@ -4549,7 +4546,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
             self.assertEqual(mv.tobytes(), b"hello")
         self.assertFalse(wr.held)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_buffer_flags(self):
         class PossiblyMutable:
             def __init__(self, data, mutable) -> None:
@@ -4589,7 +4585,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
                 mv[0] = ord(b'x')
             self.assertEqual(mv.tobytes(), b"hello")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_call_builtins(self):
         ba = bytearray(b"hello")
         mv = ba.__buffer__(0)
@@ -4651,7 +4646,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
         mv = memoryview(a)
         self.assertEqual(mv.tobytes(), b"hello")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_inheritance_releasebuffer(self):
         rb_call_count = 0
         class B(bytearray):
@@ -4668,7 +4662,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
             self.assertEqual(rb_call_count, 0)
         self.assertEqual(rb_call_count, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_inherit_but_return_something_else(self):
         class A(bytearray):
             def __buffer__(self, flags):
@@ -4708,7 +4701,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
         with memoryview(c) as mv:
             self.assertEqual(mv.tobytes(), b"hello")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_release_saves_reference(self):
         smuggled_buffer = None
 
@@ -4736,7 +4728,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
         with self.assertRaises(ValueError):
             smuggled_buffer.tobytes()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_release_saves_reference_no_subclassing(self):
         ba = bytearray(b"hello")
 
@@ -4757,7 +4748,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
         c.buffer.release()
         ba.clear()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiple_inheritance_buffer_last(self):
         class A:
             def __buffer__(self, flags):
@@ -4817,7 +4807,6 @@ class TestPythonBufferProtocol(unittest.TestCase):
         c.clear()
         self.assertIs(c.buffer, None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_release_buffer_with_exception_set(self):
         class A:
             def __buffer__(self, flags):

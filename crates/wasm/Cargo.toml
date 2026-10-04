@@ -12,16 +12,18 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["freeze-stdlib"]
-freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
+default = ["freeze-stdlib", "doc"]
+doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc"]
+freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib", "rustpython-stdlib/ssl"]
 no-start-func = []
 
 [dependencies]
 rustpython-common = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
-rustpython-stdlib = { workspace = true, default-features = false, optional = true }
+rustpython-stdlib = { workspace = true, default-features = false, optional = true, features = ["doc"] }
+ruff_text_size = { workspace = true }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde", "wasmbind"] }
+rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde", "wasmbind", "doc"] }
 
 serde = { workspace = true }
 wasm-bindgen = { workspace = true }
@@ -41,6 +43,14 @@ web-sys = { workspace = true, features = [
     "Response"
 ] }
 
+[target.'cfg(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none")))'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12", "custom-provider"] }
+rustls-pki-types = { version = "1", default-features = false, features = ["alloc", "std", "web"] }
+rustls-rustcrypto = "0.0.2-alpha"
+rustpython-host_env = { workspace = true, features = ["rustls"] }
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false#["-O1"]
 
@@ -48,4 +58,4 @@ wasm-opt = false#["-O1"]
 workspace = true
 
 [package.metadata.cargo-shear]
-ignored = ["serde", "rustpython-common"]
+ignored = ["serde", "getrandom", "rustls-pki-types"]

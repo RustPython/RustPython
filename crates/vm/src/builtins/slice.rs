@@ -7,9 +7,8 @@ use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
 use super::{PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     common::hash::{PyHash, PyUHash},
-    convert::ToPyObject,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -20,8 +19,11 @@ use num_traits::{One, Signed, Zero};
 #[pyclass(module = false, name = "slice", unhashable = true, traverse = "manual")]
 #[derive(Debug)]
 pub struct PySlice {
+    #[pymember]
     pub start: Option<PyObjectRef>,
+    #[pymember]
     pub stop: PyObjectRef,
+    #[pymember]
     pub step: Option<PyObjectRef>,
 }
 
@@ -89,13 +91,7 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyclass(with(Comparable, Representable, Hashable))]
 impl PySlice {
-    #[pygetset]
-    fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.start.clone().to_pyobject(vm)
-    }
-
     pub(crate) fn start_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
         match &self.start {
             Some(v) => v,
@@ -103,52 +99,11 @@ impl PySlice {
         }
     }
 
-    #[pygetset]
-    pub(crate) fn stop(&self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.stop.clone()
-    }
-
-    #[pygetset]
-    fn step(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.step.clone().to_pyobject(vm)
-    }
-
     pub(crate) fn step_ref<'a>(&'a self, vm: &'a VirtualMachine) -> &'a PyObject {
         match &self.step {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
-    }
-
-    pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
-        SaturatedSlice::with_slice(self, vm)
-    }
-
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let slice: Self = match args.args.len() {
-            0 => {
-                return Err(vm.new_type_error("slice() must have at least one arguments."));
-            }
-            1 => {
-                let stop = args.bind(vm)?;
-                Self {
-                    start: None,
-                    stop,
-                    step: None,
-                }
-            }
-            _ => {
-                let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                Self {
-                    start: Some(start),
-                    stop,
-                    step: step.into_option(),
-                }
-            }
-        };
-        slice.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     pub(crate) fn inner_indices(
@@ -162,7 +117,7 @@ impl PySlice {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step = self.step(vm).try_index(vm)?;
+            let this_step = self.step_ref(vm).try_index(vm)?;
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
@@ -196,7 +151,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start = self.start(vm).try_index(vm)?;
+            let this_start = self.start_ref(vm).try_index(vm)?;
             start = this_start.as_bigint().clone();
 
             if start < Zero::zero() {
@@ -216,7 +171,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop = self.stop(vm).try_index(vm)?;
+            let this_stop = self.stop.try_index(vm)?;
             stop = this_stop.as_bigint().clone();
 
             if stop < Zero::zero() {
@@ -233,9 +188,49 @@ impl PySlice {
         Ok((start, stop, step))
     }
 
+    // TODO: Uncomment when Python adds __class_getitem__ to slice
+    // #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
+}
+
+#[pyclass(with(Comparable, Representable, Hashable))]
+impl Py<PySlice> {
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let slice: PySlice = match args.args.len() {
+            0 => {
+                return Err(vm.new_arity_type_error(PySlice::NAME, 1..=3, 0));
+            }
+            1 => {
+                let stop = args.bind_for(vm, PySlice::NAME)?;
+                PySlice {
+                    start: None,
+                    stop,
+                    step: None,
+                }
+            }
+            _ => {
+                let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
+                    args.bind_for(vm, PySlice::NAME)?;
+                PySlice {
+                    start: Some(start),
+                    stop,
+                    step: step.into_option(),
+                }
+            }
+        };
+        slice.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
     #[pymethod]
-    fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let length = length.into_int_ref();
+    fn indices(&self, object: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let length = object.into_int_ref();
         let length = length.as_bigint();
         if length.is_negative() {
             return Err(vm.new_value_error("length should not be negative."));
@@ -247,7 +242,7 @@ impl PySlice {
     #[allow(clippy::type_complexity)]
     #[pymethod]
     fn __reduce__(
-        zelf: PyRef<Self>,
+        zelf: PyRef<PySlice>,
     ) -> (
         PyTypeRef,
         (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
@@ -257,11 +252,11 @@ impl PySlice {
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         )
     }
+}
 
-    // TODO: Uncomment when Python adds __class_getitem__ to slice
-    // #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
+impl Py<PySlice> {
+    pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
+        SaturatedSlice::with_slice(self, vm)
     }
 }
 
@@ -369,7 +364,7 @@ impl Representable for PySlice {
     }
 }
 
-#[pyclass(module = false, name = "EllipsisType")]
+#[pyclass(module = false, name = "ellipsis")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
@@ -384,7 +379,7 @@ impl Constructor for PyEllipsis {
     type Args = ();
 
     fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let _: () = args.bind(vm)?;
+        let _: () = args.bind_for(vm, Self::NAME)?;
         Ok(vm.ctx.ellipsis.clone().into())
     }
 
@@ -394,7 +389,7 @@ impl Constructor for PyEllipsis {
 }
 
 #[pyclass(with(Constructor, Representable), flags(IMMUTABLETYPE))]
-impl PyEllipsis {
+impl Py<PyEllipsis> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyStrRef {
         vm.ctx.names.Ellipsis.to_owned()

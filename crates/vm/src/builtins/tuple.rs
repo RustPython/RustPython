@@ -1,21 +1,16 @@
-// cspell:ignore pyhash
-
 use super::{
-    PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+    PositionIterInternal, PyGenericAlias, PyInt, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+    locked_next,
 };
 use crate::common::lock::LazyLock;
-use crate::common::{
-    hash::{PyHash, PyUHash},
-    lock::PyMutex,
-    wtf8::wtf8_concat,
-};
+use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     convert::{ToPyObject, TransmuteFromObject},
-    function::{ArgSize, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySsize},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -29,12 +24,60 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {
-    elements: Box<[R]>,
+    elements: TupleElements<R>,
+}
+
+/// Tuple storage is immutable after publication, but marshal must publish a
+/// tuple in its reference table before recursively reading its children.
+/// This mirrors CPython's `PyTuple_New` followed by `PyTuple_SET_ITEM`.
+struct TupleElements<R>(UnsafeCell<Box<[R]>>);
+
+unsafe impl<R: Send> Send for TupleElements<R> {}
+unsafe impl<R: Sync> Sync for TupleElements<R> {}
+
+impl<R> TupleElements<R> {
+    const fn new(elements: Box<[R]>) -> Self {
+        Self(UnsafeCell::new(elements))
+    }
+
+    fn as_slice(&self) -> &[R] {
+        // SAFETY: initialization writes happen only while the tuple is owned by
+        // the synchronous marshal decoder; afterwards the storage is immutable.
+        unsafe { &*self.0.get() }
+    }
+
+    fn get_mut(&mut self) -> &mut Box<[R]> {
+        self.0.get_mut()
+    }
+
+    /// # Safety
+    /// The tuple must still be in its private initialization phase, and each
+    /// placeholder index must be replaced at most once before it is observable.
+    unsafe fn set_initializing(&self, index: usize, value: R) {
+        unsafe { (*self.0.get())[index] = value };
+    }
+}
+
+impl<R> core::ops::Deref for TupleElements<R> {
+    type Target = [R];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<'a, R> IntoIterator for &'a TupleElements<R> {
+    type Item = &'a R;
+    type IntoIter = core::slice::Iter<'a, R>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl<R> fmt::Debug for PyTuple<R> {
@@ -48,55 +91,28 @@ impl<R> fmt::Debug for PyTuple<R> {
 // Note: Only impl for PyTuple<PyObjectRef> (the default)
 unsafe impl Traverse for PyTuple {
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        self.elements.traverse(traverse_fn);
+        self.elements.as_slice().traverse(traverse_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        let elements = core::mem::take(&mut self.elements);
-        out.extend(elements.into_vec());
-    }
-}
-
-// spell-checker:ignore MAXSAVESIZE
-/// Per-size freelist storage for tuples, matching tuples[PyTuple_MAXSAVESIZE].
-/// Each bucket caches tuples of a specific element count (index = len - 1).
-struct TupleFreeList {
-    buckets: [Vec<NonNull<PyObject>>; Self::MAX_SAVE_SIZE],
-}
-
-impl TupleFreeList {
-    /// Largest tuple size to cache on the freelist (sizes 1..=20).
-    const MAX_SAVE_SIZE: usize = 20;
-    const fn new() -> Self {
-        Self {
-            buckets: [const { Vec::new() }; Self::MAX_SAVE_SIZE],
-        }
-    }
-}
-
-impl Default for TupleFreeList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for TupleFreeList {
-    fn drop(&mut self) {
-        // Same safety pattern as FreeList<T>::drop — free raw allocation
-        // without running payload destructors to avoid TLS-after-destruction panics.
-        let layout = crate::object::pyinner_layout::<PyTuple>();
-        for bucket in &mut self.buckets {
-            for ptr in bucket.drain(..) {
-                unsafe {
-                    alloc::alloc::dealloc(ptr.as_ptr() as *mut u8, layout);
-                }
-            }
+        let elements = core::mem::take(self.elements.get_mut());
+        if out.is_empty() {
+            // Reuse the allocation so deallocation does not need more memory.
+            *out = elements.into_vec();
+        } else {
+            out.extend(elements.into_vec());
         }
     }
 }
 
 thread_local! {
-    static TUPLE_FREELIST: Cell<TupleFreeList> = const { Cell::new(TupleFreeList::new()) };
+    // A single freelist for all tuple sizes: `Py<PyTuple>` is a
+    // fixed-size allocation (elements are a separate boxed slice that is
+    // dropped and replaced on reuse), so husks are interchangeable.
+    // freelist_push must not read the payload — it runs after tp_clear,
+    // which has already emptied `elements`.
+    static TUPLE_FREELIST: Cell<crate::object::FreeList<PyTuple>> =
+        const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyTuple {
@@ -110,16 +126,11 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<Self>) }.elements.len();
-        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
-            return false;
-        }
         TUPLE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
-                let bucket = &mut list.buckets[len - 1];
-                let stored = if bucket.len() < Self::MAX_FREELIST {
-                    bucket.push(unsafe { NonNull::new_unchecked(obj) });
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
                     true
                 } else {
                     false
@@ -131,15 +142,11 @@ impl PyPayload for PyTuple {
     }
 
     #[inline]
-    unsafe fn freelist_pop(payload: &Self) -> Option<NonNull<PyObject>> {
-        let len = payload.elements.len();
-        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
-            return None;
-        }
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         TUPLE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
-                let result = list.buckets[len - 1].pop();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
                 fl.set(list);
                 result
             })
@@ -165,7 +172,7 @@ impl IntoPyTuple for Vec<PyObjectRef> {
 }
 
 pub trait FromPyTuple<'a>: Sized {
-    fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self>;
+    fn from_pytuple(tuple: &'a Py<PyTuple>, vm: &VirtualMachine) -> PyResult<Self>;
 }
 
 macro_rules! impl_from_into_pytuple {
@@ -181,7 +188,7 @@ macro_rules! impl_from_into_pytuple {
         // TODO: figure out a way to let PyObjectRef implement TryFromBorrowedObject, and
         //       have this be a TryFromBorrowedObject bound
         impl<'a, $($T: TryFromObject),*> FromPyTuple<'a> for ($($T,)*) {
-            fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self> {
+            fn from_pytuple(tuple: &'a Py<PyTuple>, vm: &VirtualMachine) -> PyResult<Self> {
                 #[allow(non_snake_case)]
                 let &[$(ref $T),+] = tuple.as_slice().try_into().map_err(|_| {
                     vm.new_type_error(format!("expected tuple with {} elements", impl_from_into_pytuple!(@count $($T)+)))
@@ -216,10 +223,31 @@ impl_from_into_pytuple!(A, B, C, D, E, F, G);
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl Constructor for PyTuple {
-    type Args = Vec<PyObjectRef>;
+    type Args = crate::function::PositionalIterable;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+        let tuple_type = vm.ctx.types.tuple_type;
+        let uses_tuple_init = {
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let tuple_init = tuple_type.slots.init.load().map(crate::types::fn_addr);
+            cls_init == tuple_init
+        };
+        let parsed: Self::Args = if cls.is(tuple_type) || uses_tuple_init {
+            args.bind_for(vm, Self::NAME)?
+        } else {
+            match args.args.as_slice() {
+                [] => Self::Args {
+                    iterable: OptionalArg::Missing,
+                },
+                [iterable] => Self::Args {
+                    iterable: OptionalArg::Present(iterable.clone()),
+                },
+                slice => {
+                    return Err(vm.new_arity_type_error(Self::NAME, 0..=1, slice.len()));
+                }
+            }
+        };
+        let iterable = parsed.iterable;
 
         // Optimizations for exact tuple type
         if cls.is(vm.ctx.types.tuple_type) {
@@ -247,14 +275,25 @@ impl Constructor for PyTuple {
             return Ok(vm.ctx.empty_tuple.clone().into());
         }
 
-        let payload = Self::py_new(&cls, elements, vm)?;
+        let payload = Self::from_elements(elements);
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, elements: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(Self {
-            elements: elements.into_boxed_slice(),
-        })
+    fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let elements = if let OptionalArg::Present(iterable) = args.iterable {
+            iterable.try_to_value(vm)?
+        } else {
+            Vec::new()
+        };
+        Ok(Self::from_elements(elements))
+    }
+}
+
+impl PyTuple {
+    fn from_elements(elements: Vec<PyObjectRef>) -> Self {
+        Self {
+            elements: TupleElements::new(elements.into_boxed_slice()),
+        }
     }
 }
 
@@ -277,7 +316,7 @@ impl<'a, R> core::iter::IntoIterator for &'a PyTuple<R> {
     type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.as_slice().iter()
     }
 }
 
@@ -286,31 +325,14 @@ impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
     type IntoIter = core::slice::Iter<'a, R>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
+        self.as_slice().iter()
     }
 }
 
 impl<R> PyTuple<R> {
     #[must_use]
-    pub const fn as_slice(&self) -> &[R] {
+    pub fn as_slice(&self) -> &[R] {
         &self.elements
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.elements.len()
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.elements.is_empty()
-    }
-
-    #[inline]
-    pub fn iter(&self) -> core::slice::Iter<'_, R> {
-        self.elements.iter()
     }
 }
 
@@ -321,7 +343,13 @@ impl PyTuple<PyObjectRef> {
             ctx.empty_tuple.clone()
         } else {
             let elements = elements.into_boxed_slice();
-            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.to_owned(), None)
+            PyRef::new_ref(
+                Self {
+                    elements: TupleElements::new(elements),
+                },
+                ctx.types.tuple_type.to_owned(),
+                None,
+            )
         }
     }
 
@@ -330,11 +358,20 @@ impl PyTuple<PyObjectRef> {
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
     #[must_use]
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
-        Self { elements }
+        Self {
+            elements: TupleElements::new(elements),
+        }
+    }
+
+    /// # Safety
+    /// This tuple must be a marshal placeholder which has not escaped the
+    /// decoder, and `index` must not have been replaced previously.
+    pub(crate) unsafe fn set_marshal_item(&self, index: usize, value: PyObjectRef) {
+        unsafe { self.elements.set_initializing(index, value) };
     }
 
     fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Ok(if zelf.elements.is_empty() || value == 0 {
+        Ok(if zelf.as_slice().is_empty() || value == 0 {
             vm.ctx.empty_tuple.clone()
         } else if value == 1 && zelf.class().is(vm.ctx.types.tuple_type) {
             // Special case: when some `tuple` is multiplied by `1`,
@@ -343,18 +380,47 @@ impl PyTuple<PyObjectRef> {
             // This only works for `tuple` itself, not its subclasses.
             zelf
         } else {
-            let v = zelf.elements.mul(vm, value)?;
+            let v = zelf.as_slice().mul(vm, value)?;
             let elements = v.into_boxed_slice();
-            Self { elements }.into_ref(&vm.ctx)
+            Self {
+                elements: TupleElements::new(elements),
+            }
+            .into_ref(&vm.ctx)
         })
     }
+}
 
+impl<R> Py<PyTuple<R>> {
+    #[inline]
+    pub fn as_slice(&self) -> &[R] {
+        self.payload.as_slice()
+    }
+}
+
+impl Py<PyTuple> {
     pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
         T::from_pytuple(self, vm)
     }
 }
 
 impl<T> PyTuple<PyRef<T>> {
+    pub(crate) fn new_ref_typed_with_type(
+        elements: Vec<PyRef<T>>,
+        tuple_type: PyTypeRef,
+    ) -> PyRef<Self> {
+        // SAFETY: PyRef<T> has the same layout as PyObjectRef.
+        unsafe {
+            let elements: Vec<PyObjectRef> =
+                core::mem::transmute::<Vec<PyRef<T>>, Vec<PyObjectRef>>(elements);
+            let tuple = PyRef::new_ref(
+                PyTuple::new_unchecked(elements.into_boxed_slice()),
+                tuple_type,
+                None,
+            );
+            core::mem::transmute::<PyRef<PyTuple>, PyRef<Self>>(tuple)
+        }
+    }
+
     pub fn new_ref_typed(elements: Vec<PyRef<T>>, ctx: &Context) -> PyRef<Self> {
         // SAFETY: PyRef<T> has the same layout as PyObjectRef
         unsafe {
@@ -366,11 +432,6 @@ impl<T> PyTuple<PyRef<T>> {
     }
 }
 
-#[pyclass(
-    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
-    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
-)]
 impl PyTuple {
     fn __add__(
         zelf: PyRef<Self>,
@@ -378,41 +439,34 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyArithmeticValue<PyRef<Self>> {
         let added = other.downcast::<Self>().map(|other| {
-            if other.elements.is_empty() && zelf.class().is(vm.ctx.types.tuple_type) {
+            if other.as_slice().is_empty() && zelf.class().is(vm.ctx.types.tuple_type) {
                 zelf
-            } else if zelf.elements.is_empty() && other.class().is(vm.ctx.types.tuple_type) {
+            } else if zelf.as_slice().is_empty() && other.class().is(vm.ctx.types.tuple_type) {
                 other
             } else {
                 let elements = zelf
+                    .as_slice()
                     .iter()
                     .chain(other.as_slice())
                     .cloned()
                     .collect::<Box<[_]>>();
-                Self { elements }.into_ref(&vm.ctx)
+                Self {
+                    elements: TupleElements::new(elements),
+                }
+                .into_ref(&vm.ctx)
             }
         });
         PyArithmeticValue::from_option(added.ok())
     }
 
-    #[pymethod]
-    fn count(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut count: usize = 0;
-        for element in self {
-            if vm.identical_or_equal(element, &needle)? {
-                count += 1;
-            }
-        }
-        Ok(count)
-    }
-
     #[inline]
     #[must_use]
-    pub const fn __len__(&self) -> usize {
-        self.elements.len()
+    pub fn __len__(&self) -> usize {
+        self.as_slice().len()
     }
 
-    fn __mul__(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.into(), vm)
+    fn __mul__(zelf: PyRef<Self>, value: PySsize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value, vm)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -431,24 +485,8 @@ impl PyTuple {
         }
     }
 
-    fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self._getitem(&needle, vm)
-    }
-
-    #[pymethod]
-    fn index(
-        &self,
-        needle: PyObjectRef,
-        range: OptionalRangeArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let (start, stop) = range.saturate(self.len(), vm)?;
-        for (index, element) in self.elements.iter().enumerate().take(stop).skip(start) {
-            if vm.identical_or_equal(element, &needle)? {
-                return Ok(index);
-            }
-        }
-        Err(vm.new_value_error("tuple.index(x): x not in tuple"))
+    fn __getitem__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        self._getitem(needle, vm)
     }
 
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -460,36 +498,76 @@ impl PyTuple {
         Ok(false)
     }
 
-    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(&needle, vm)
+    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(needle, vm)
+    }
+}
+
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
+    with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
+)]
+impl Py<PyTuple> {
+    #[pymethod]
+    fn count(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut count: usize = 0;
+        for element in self {
+            if vm.identical_or_equal(element, &value)? {
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 
     #[pymethod]
-    fn __getnewargs__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTupleRef,) {
+    fn index(
+        &self,
+        value: PyObjectRef,
+        range: OptionalRangeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let (start, stop) = range.saturate(self.as_slice().len(), vm)?;
+        for (index, element) in self.as_slice().iter().enumerate().take(stop).skip(start) {
+            if vm.identical_or_equal(element, &value)? {
+                return Ok(index);
+            }
+        }
+        Err(vm.new_value_error("tuple.index(x): x not in tuple"))
+    }
+
+    #[pymethod]
+    fn __getnewargs__(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> (PyTupleRef,) {
         // the arguments to pass to tuple() is just one tuple - so we'll be doing tuple(tup), which
         // should just return tup, or tuple_subclass(tup), which'll copy/validate (e.g. for a
         // structseq)
         let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
-            Self::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
+            PyTuple::new_ref(zelf.as_slice().to_vec(), &vm.ctx)
         };
         (tup_arg,)
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
 impl AsMapping for PyTuple {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyTuple::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(
-                |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
-            ),
+            length: atomic_func!(|mapping, _vm| {
+                Ok(PyTuple::mapping_downcast(mapping).as_slice().len())
+            }),
+            subscript: atomic_func!(|mapping, needle, vm| PyTuple::mapping_downcast(mapping)
+                .payload
+                ._getitem(needle, vm)),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
@@ -499,7 +577,7 @@ impl AsMapping for PyTuple {
 impl AsSequence for PyTuple {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).__len__())),
+            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).as_slice().len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 match PyTuple::__add__(zelf.to_owned(), other.to_owned(), vm) {
@@ -516,11 +594,11 @@ impl AsSequence for PyTuple {
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                zelf.elements.getitem_by_index(vm, i)
+                zelf.as_slice().getitem_by_index(vm, i)
             }),
             contains: atomic_func!(|seq, needle, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                zelf._contains(needle, vm)
+                zelf.payload._contains(needle, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -533,7 +611,7 @@ impl AsNumber for PyTuple {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             boolean: Some(|number, _vm| {
                 let zelf = number.obj.downcast_ref::<PyTuple>().unwrap();
-                Ok(!zelf.elements.is_empty())
+                Ok(!zelf.as_slice().is_empty())
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -559,8 +637,10 @@ impl Comparable for PyTuple {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
-        zelf.iter()
-            .richcompare(other.iter(), op, vm)
+        zelf.as_slice()
+            .iter()
+            .map(|o| &**o)
+            .richcompare(other.as_slice().iter().map(|o| &**o), op, vm)
             .map(PyComparisonValue::Implemented)
     }
 }
@@ -577,13 +657,20 @@ impl Iterable for PyTuple {
 impl Representable for PyTuple {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let s = if zelf.is_empty() {
+        let s = if zelf.as_slice().is_empty() {
             vm.ctx.intern_str("()").to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let s = if zelf.len() == 1 {
-                wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
+            let s = if zelf.as_slice().len() == 1 {
+                wtf8_concat!("(", zelf.as_slice()[0].repr(vm)?.as_wtf8(), ",)")
             } else {
-                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
+                collection_repr(
+                    None,
+                    "(",
+                    ")",
+                    "()",
+                    zelf.as_slice().iter().map(|o| &**o),
+                    vm,
+                )?
             };
             vm.ctx.new_str(s)
         } else {
@@ -647,55 +734,53 @@ impl PyPayload for PyTupleIterator {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
-impl PyTupleIterator {
+impl Py<PyTupleIterator> {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|obj| obj.len())
+        self.internal.lock().length_hint(|obj| obj.as_slice().len())
     }
 
     #[pymethod]
-    fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setstate__(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.internal
             .lock()
-            .set_state(state, |obj, pos| pos.min(obj.len()), vm)
+            .set_state(&object, |obj, pos| pos.min(obj.as_slice().len()), vm)
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_iter(vm);
-        self.internal.lock().reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_iter(vm)?;
+        Ok(self.internal.lock().reduce(
             func,
             |x| x.clone().into(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
-        )
+        ))
     }
 }
 
 impl PyTupleIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|tuple, pos| {
-                Ok(PyIterReturn::from_result(
-                    tuple.get(pos).cloned().ok_or(None),
-                ))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |tuple, pos| {
+            Ok(PyIterReturn::from_result(
+                tuple.as_slice().get(pos).cloned().ok_or(None),
+            ))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|tuple, pos| {
+        locked_next(&zelf.internal, |tuple, pos| {
             Ok(PyIterReturn::from_result(
-                tuple.get(pos).cloned().ok_or(None),
+                tuple.as_slice().get(pos).cloned().ok_or(None),
             ))
         })
     }
@@ -727,46 +812,21 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    const PRIME1: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 11400714785074694791,
-        target_pointer_width = "32" => 2654435761,
-        _ => unreachable!(),
-    };
+    hash::hash_tuple(elements.iter().map(|val| element_hash(val, vm)))
+}
 
-    const PRIME2: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 14029467366897019727,
-        target_pointer_width = "32" => 2246822519,
-        _ => unreachable!(),
-    };
-
-    const PRIME5: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 2870177450012600261,
-        target_pointer_width = "32" => 374761393,
-        _ => unreachable!(),
-    };
-
-    const ROTATE: u32 = cfg_select! {
-        target_pointer_width = "64" => 31,
-        target_pointer_width = "32" => 13,
-        _ => unreachable!(),
-    };
-
-    let mut acc = PRIME5;
-    let len = elements.len() as PyUHash;
-
-    for val in elements {
-        let lane = val.hash(vm)? as PyUHash;
-        acc = acc.wrapping_add(lane.wrapping_mul(PRIME2));
-        acc = acc.rotate_left(ROTATE);
-        acc = acc.wrapping_mul(PRIME1);
+/// Hash a single tuple element, skipping the generic recursion guard for
+/// exact `int`s. `int.__hash__` is a leaf computation - it can't recurse or
+/// call back into arbitrary Python code - so `PyObject::hash`'s native-stack
+/// depth check is pure overhead here. This matters because tuples used as
+/// dict keys (e.g. state tuples in `pyperformance`'s `mdp` benchmark) are
+/// often deeply nested namedtuples whose leaves are plain ints.
+#[inline]
+fn element_hash(val: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+    if val.class().is(vm.ctx.types.int_type)
+        && let Some(i) = val.downcast_ref::<PyInt>()
+    {
+        return Ok(hash::hash_bigint(i.as_bigint()));
     }
-
-    acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
-
-    let acc_pyhash = acc as PyHash;
-    if acc_pyhash == -1 {
-        return Ok(1546275796);
-    }
-
-    Ok(acc_pyhash)
+    val.hash(vm)
 }

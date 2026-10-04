@@ -13,6 +13,21 @@ mod fcntl {
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::_io,
     };
+    use rustpython_host_env::io::is_interrupted_error;
+
+    fn retry_on_eintr<T, E: ToPyException>(
+        vm: &VirtualMachine,
+        mut call: impl FnMut() -> Result<T, E>,
+        interrupted: impl Fn(&E) -> bool,
+    ) -> PyResult<T> {
+        loop {
+            match vm.allow_threads(&mut call) {
+                Ok(val) => return Ok(val),
+                Err(err) if interrupted(&err) => vm.check_signals()?,
+                Err(err) => return Err(err.to_pyexception(vm)),
+            }
+        }
+    }
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
     //       LOCK_MAND, LOCK_READ, LOCK_WRITE, LOCK_RW, F_GETSIG, F_SETSIG, F_GETLK64, F_SETLK64,
@@ -25,48 +40,64 @@ mod fcntl {
     //       I_LINK, I_UNLINK, I_PLINK, I_PUNLINK
 
     #[pyattr]
-    use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
+    use host_fcntl::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
 
     #[cfg(not(target_os = "wasi"))]
     #[pyattr]
-    use libc::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
+    use host_fcntl::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
 
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyattr]
-    use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
+    use host_fcntl::{
+        F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN,
+    };
 
     #[cfg(target_vendor = "apple")]
     #[pyattr]
-    use libc::{F_FULLFSYNC, F_NOCACHE};
+    use host_fcntl::{F_FULLFSYNC, F_NOCACHE};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
+    use host_fcntl::{F_DUP2FD, F_DUP2FD_CLOEXEC};
 
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "linux", target_vendor = "apple"))]
     #[pyattr]
-    use libc::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+    use host_fcntl::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+
+    #[cfg(not(target_os = "wasi"))]
+    #[pyattr]
+    use host_fcntl::FASYNC;
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_fcntl::{F_GETLEASE, F_GETNOSIGPIPE, F_RDAHEAD, F_SETLEASE, F_SETNOSIGPIPE};
 
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use host_fcntl::{
         F_ADD_SEALS, F_GET_SEALS, F_GETLEASE, F_GETPIPE_SZ, F_NOTIFY, F_SEAL_GROW, F_SEAL_SEAL,
         F_SEAL_SHRINK, F_SEAL_WRITE, F_SETLEASE, F_SETPIPE_SZ,
     };
 
     #[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
     #[pyattr]
-    use libc::F_GETPATH;
+    use host_fcntl::F_GETPATH;
+
+    #[derive(FromArgs)]
+    struct FcntlArg {
+        #[pyarg(positional, default = 0)]
+        arg: Either<ArgStrOrBytesLike, PyIntRef>,
+    }
 
     #[pyfunction]
     fn fcntl(
         _io::Fildes(fd): _io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+        FcntlArg { arg }: FcntlArg,
         vm: &VirtualMachine,
     ) -> PyResult {
         let int = match arg {
-            OptionalArg::Present(Either::A(arg)) => {
+            Either::A(arg) => {
                 let mut buf = [0u8; 1024];
                 let arg_len;
                 {
@@ -76,28 +107,40 @@ mod fcntl {
                         .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
                         .copy_from_slice(&s)
                 }
-                host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len])
-                    .map_err(|_| vm.new_last_errno_error())?;
+                retry_on_eintr(
+                    vm,
+                    || host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len]),
+                    is_interrupted_error,
+                )?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
-            OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
-            OptionalArg::Missing => 0,
+            Either::B(i) => i.as_u32_mask(),
         };
-        let ret =
-            host_fcntl::fcntl_int(fd, cmd, int as i32).map_err(|_| vm.new_last_errno_error())?;
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::fcntl_int(fd, cmd, int as i32),
+            is_interrupted_error,
+        )?;
         Ok(vm.new_pyobj(ret))
+    }
+
+    #[derive(FromArgs)]
+    struct IoctlArgs {
+        #[pyarg(positional, default = 0)]
+        arg: Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>,
+        #[pyarg(positional, default = true)]
+        mutate_flag: bool,
     }
 
     #[pyfunction]
     fn ioctl(
         _io::Fildes(fd): _io::Fildes,
         request: i64,
-        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
-        mutate_flag: OptionalArg<bool>,
+        IoctlArgs { arg, mutate_flag }: IoctlArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let mutate_flag = OptionalArg::Present(mutate_flag);
         let request = host_fcntl::normalize_ioctl_request(request);
-        let arg = arg.unwrap_or_else(|| Either::B(0));
         match arg {
             Either::A(buf_kind) => {
                 const BUF_SIZE: usize = 1024;
@@ -112,26 +155,42 @@ mod fcntl {
                 let buf_len = match buf_kind {
                     Either::A(rw_arg) => {
                         let mutate_flag = mutate_flag.unwrap_or(true);
-                        let mut arg_buf = rw_arg.borrow_buf_mut();
                         if mutate_flag {
-                            let ret = unsafe {
-                                host_fcntl::ioctl_ptr(fd, request, arg_buf.as_mut_ptr().cast())
-                            }
-                            .map_err(|_| vm.new_last_errno_error())?;
+                            // A terminal or a socket answers an ioctl when it is
+                            // ready to, so the call runs detached, and the target's
+                            // bytes go in and come back through a buffer of our own
+                            // rather than stay locked meanwhile -- `fcntl_ioctl_impl`
+                            // copies through one the same way.
+                            let mut scratch = vm.new_zeroed_bytes(rw_arg.len())?;
+                            scratch.copy_from_slice(&rw_arg.borrow_buf_mut());
+                            let ret = retry_on_eintr(
+                                vm,
+                                || unsafe {
+                                    host_fcntl::ioctl_ptr(fd, request, scratch.as_mut_ptr().cast())
+                                },
+                                is_interrupted_error,
+                            )?;
+                            rw_arg.borrow_buf_mut().copy_from_slice(&scratch);
                             return Ok(vm.ctx.new_int(ret).into());
                         }
                         // treat like an immutable buffer
-                        fill_buf(&arg_buf)?
+                        fill_buf(&rw_arg.borrow_buf_mut())?
                     }
                     Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
                 };
-                unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) }
-                    .map_err(|_| vm.new_last_errno_error())?;
+                retry_on_eintr(
+                    vm,
+                    || unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) },
+                    is_interrupted_error,
+                )?;
                 Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
             }
             Either::B(i) => {
-                let ret =
-                    host_fcntl::ioctl_int(fd, request, i).map_err(|_| vm.new_last_errno_error())?;
+                let ret = retry_on_eintr(
+                    vm,
+                    || host_fcntl::ioctl_int(fd, request, i),
+                    is_interrupted_error,
+                )?;
                 Ok(vm.ctx.new_int(ret).into())
             }
         }
@@ -141,8 +200,24 @@ mod fcntl {
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
-        let ret = host_fcntl::flock(fd, operation).map_err(|_| vm.new_last_errno_error())?;
+        // LOCK_EX without LOCK_NB waits for whoever holds the lock, which may
+        // be for good.
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::flock(fd, operation),
+            is_interrupted_error,
+        )?;
         Ok(vm.ctx.new_int(ret).into())
+    }
+
+    #[derive(FromArgs)]
+    struct LockfArgs {
+        #[pyarg(positional, default = 0)]
+        len: PyIntRef,
+        #[pyarg(positional, default = 0)]
+        start: PyIntRef,
+        #[pyarg(positional, default)]
+        whence: i32,
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants
@@ -151,25 +226,20 @@ mod fcntl {
     fn lockf(
         _io::Fildes(fd): _io::Fildes,
         cmd: i32,
-        len: OptionalArg<PyIntRef>,
-        start: OptionalArg<PyIntRef>,
-        whence: OptionalArg<i32>,
+        LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let start = match start {
-            OptionalArg::Present(s) => s.try_to_primitive(vm)?,
-            OptionalArg::Missing => 0,
-        };
-        let len = match len {
-            OptionalArg::Present(l_) => l_.try_to_primitive(vm)?,
-            OptionalArg::Missing => 0,
-        };
-        let whence = match whence {
-            OptionalArg::Present(w) => w,
-            OptionalArg::Missing => 0,
-        };
-        let ret =
-            host_fcntl::lockf(fd, cmd, len, start, whence).map_err(|err| err.to_pyexception(vm))?;
+        let start = start.try_to_primitive(vm)?;
+        let len = len.try_to_primitive(vm)?;
+        // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
+        let ret = retry_on_eintr(
+            vm,
+            || host_fcntl::lockf(fd, cmd, len, start, whence),
+            |err| match err {
+                host_fcntl::LockfError::Io(e) => is_interrupted_error(e),
+                _ => false,
+            },
+        )?;
         Ok(vm.ctx.new_int(ret).into())
     }
 }

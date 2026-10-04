@@ -300,6 +300,77 @@ with assert_raises(TypeError):
 assert b"abc".join((b"123", b"xyz")) == b"123abcxyz"
 
 
+class JoinBytes(bytes):
+    def __buffer__(self, flags):
+        return memoryview(b"override")
+
+
+class JoinBuffer:
+    def __init__(self, action=None):
+        self.action = action
+
+    def __buffer__(self, flags):
+        if self.action is None:
+            join_chunk[0] = ord("b")
+        else:
+            self.action()
+        return memoryview(b"x")
+
+    def __release_buffer__(self, view):
+        join_events.append("release")
+
+
+for join_type in (bytes, bytearray):
+    join_separator = join_type(b",")
+
+    def join_mutable_chunks():
+        chunk = bytearray(b"a")
+        yield chunk
+        chunk[:] = b"bc"
+        yield chunk
+
+    assert join_separator.join(join_mutable_chunks()) == b"bc,bc"
+
+    def join_broken_iterable():
+        yield 42
+        yield b"a"
+        raise RuntimeError("producer failed")
+
+    with assert_raises(RuntimeError):
+        join_separator.join(join_broken_iterable())
+
+    for sequence_type in (list, tuple):
+
+        class JoinSequence(sequence_type):
+            def __iter__(self):
+                return iter([b"a", b"b"])
+
+        assert join_separator.join(JoinSequence([42])) == b"a,b"
+
+    result = join_separator.join([JoinBytes(b"original")])
+    assert result == b"override" and type(result) is join_type
+
+    join_chunk = bytearray(b"a")
+    join_events = []
+    assert join_separator.join([join_chunk, JoinBuffer()]) == b"b,x"
+    assert join_events == ["release"]
+    with assert_raises(TypeError):
+        join_separator.join([join_chunk, JoinBuffer(lambda: join_chunk.extend(b"c"))])
+    join_chunk.extend(b"c")
+    join_items = []
+    join_exporter = JoinBuffer(join_items.clear)
+    join_items[:] = [join_exporter, b"y"]
+    with assert_raises(RuntimeError):
+        join_separator.join(join_items)
+    join_events.clear()
+    with assert_raises(TypeError):
+        join_separator.join([JoinBuffer(), 42])
+    assert join_events == ["release"]
+
+join_single = b"single item"
+assert b",".join([join_single]) is join_single
+
+
 # endswith startswith
 assert b"abcde".endswith(b"de")
 assert b"abcde".endswith(b"")
@@ -644,6 +715,14 @@ assert b"-\xff".decode(sys.getfilesystemencoding(), "surrogateescape") == "-\udc
 # mod
 assert b"rust%bpython%b" % (b" ", b"!") == b"rust python!"
 assert b"x=%i y=%f" % (1, 2.5) == b"x=1 y=2.500000"
+for precision in (-1, -3, -(2**31)):
+    assert b"%.*b" % (precision, b"hello") == b""
+assert b"%.*s" % (-3, bytearray(b"hello")) == b""
+assert b"%.*a" % (-3, "hello") == b""
+assert b"%*.*d" % (-6, -3, 12) == b"12    "
+assert b"%.*f" % (-3, 1.25) == b"1"
+assert_raises(OverflowError, b"%.*b".__mod__, (-(2**31) - 1, b"abc"))
+assert_raises(TypeError, b"%.*b".__mod__, (1.0, b"abc"))
 
 
 # __bytes__
@@ -708,3 +787,127 @@ b = B1.fromhex("a0a1a2")
 assert b.foo == "bar"
 
 skip_if_unsupported(3, 11, test__bytes__)
+
+assert " \f\n\r\t\v".encode("utf-8").isspace()
+assert " \f\n\r\t\v".encode("latin-1").isspace()
+
+# bytes.istitle tests
+s = b"Aa6A"
+assert s.istitle(), f"{s}"
+s = b"Aa6aA"
+assert not s.istitle(), f"{s}"
+s = b"Python Is Fun"
+assert s.istitle(), f"{s}"
+s = b"Python is fun"
+assert not s.istitle(), f"{s}"
+s = b"PYTHON IS FUN"
+assert not s.istitle(), f"{s}"
+s = b"Python 3.9 Is Awesome!"
+assert s.istitle(), f"{s}"
+s = b""
+assert not s.istitle(), f"{s}"
+s = b"Hello Is Amazing"
+assert s.istitle(), f"{s}"
+s = b"Not--a Titlecase String"
+assert not s.istitle(), f"{s}"
+s = b"123A"
+assert s.istitle(), f"{s}"
+s = b"123a"
+assert not s.istitle(), f"{s}"
+s = b"123A\ta"
+assert not s.istitle(), f"{s}"
+SUBSTR = b"123456"
+s = b"".join([b"A", b"a" * 64, SUBSTR])
+assert s.istitle(), f"{s}"
+s += b"A"
+assert s.istitle(), f"{s}"
+s += b"aA"
+assert not s.istitle(), f"{s}"
+assert "123A".istitle(), f"{s}"
+assert not "123a".istitle(), f"{s}"
+assert not "123A\ta".istitle(), f"{s}"
+
+
+def test_huge_size():
+    # sizes that cannot be allocated are MemoryError, not an aborted process
+    for factory in (bytes, bytearray):
+        assert_raises(MemoryError, lambda factory=factory: factory(2**62))
+        for meth in ("center", "ljust", "rjust", "zfill"):
+            assert_raises(
+                MemoryError,
+                lambda factory=factory, meth=meth: getattr(factory(b"a"), meth)(
+                    1 << 62
+                ),
+            )
+        assert_raises(
+            OverflowError, lambda factory=factory: factory(b"\ta").expandtabs(2**31)
+        )
+
+
+test_huge_size()
+
+
+# bytes() asks the object it was handed how long it is, so what answering
+# raises is the answer; the bytearray constructor asks nothing.
+class BadLen:
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __len__(self):
+        raise RuntimeError("hello")
+
+
+with assert_raises(RuntimeError):
+    bytes(BadLen())
+with assert_raises(RuntimeError):
+    int.from_bytes(BadLen(), "big")
+assert bytearray(BadLen()) == bytearray(b"\x01\x02\x03")
+with assert_raises(RuntimeError):
+    bytearray(b"ab").extend(BadLen())
+holder = bytearray(b"xyz")
+holder[:] = BadLen()
+assert holder == bytearray(b"\x01\x02\x03")
+
+
+# What could not be turned into bytes is answered for by whatever was asked,
+# rather than by the iteration protocol.
+def cannot(fn, message):
+    try:
+        fn()
+    except TypeError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected TypeError: {message}")
+
+
+cannot(lambda: bytes(object()), "cannot convert 'object' object to bytes")
+cannot(lambda: bytes(1.5), "cannot convert 'float' object to bytes")
+cannot(lambda: bytearray(object()), "cannot convert 'object' object to bytearray")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), object()),
+    "cannot convert 'object' object to bytearray",
+)
+cannot(lambda: bytearray().extend(object()), "can't extend bytearray with object")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), "ab"),
+    "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+)
+
+
+def out_of_range(fn, message):
+    try:
+        fn()
+    except ValueError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected ValueError: {message}")
+
+
+# `bytes` is the one entry point that does not name a single byte, and both the
+# sized and unsized iterator paths report it that way.
+out_of_range(lambda: bytes([256]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes(iter([256])), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytes([-1]), "bytes must be in range(0, 256)")
+out_of_range(lambda: bytearray([256]), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray(iter([256])), "byte must be in range(0, 256)")
+out_of_range(lambda: bytearray().extend([256]), "byte must be in range(0, 256)")

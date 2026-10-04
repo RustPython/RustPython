@@ -2,7 +2,11 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, Ident, Result, Signature, UseTree, spanned::Spanned};
+use syn::visit::Visit;
+use syn::visit_mut::VisitMut;
+use syn::{
+    Attribute, FnArg, Ident, Result, Signature, Type, UseTree, ext::IdentExt, spanned::Spanned,
+};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -63,7 +67,7 @@ impl ItemNursery {
                 if !inserted {
                     return Err(syn::Error::new(
                         item.attr_name.span(),
-                        format!("Duplicated #[py*] attribute found for {:?}", &item.py_names),
+                        format!("Duplicated #[py*] attribute found for {:?}", item.py_names),
                     ));
                 }
             }
@@ -362,6 +366,7 @@ impl ItemMeta for ClassItemMeta {
         "impl",
         "traverse",
         "clear", // tp_clear
+        "payload",
     ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -401,6 +406,10 @@ impl ClassItemMeta {
 
     pub(crate) fn ctx_name(&self) -> Result<Option<String>> {
         self.inner()._optional_str("ctx")
+    }
+
+    pub(crate) fn manual_payload(&self) -> Result<bool> {
+        Ok(self.inner()._optional_str("payload")?.as_deref() == Some("manual"))
     }
 
     pub(crate) fn base(&self) -> Result<Option<syn::Path>> {
@@ -465,8 +474,16 @@ impl ClassItemMeta {
 pub(crate) struct ExceptionItemMeta(ClassItemMeta);
 
 impl ItemMeta for ExceptionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] =
-        &["module", "name", "base", "unhashable", "ctx", "impl"];
+    const ALLOWED_NAMES: &'static [&'static str] = &[
+        "module",
+        "name",
+        "base",
+        "unhashable",
+        "ctx",
+        "impl",
+        "traverse",
+        "payload",
+    ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(ClassItemMeta(inner))
@@ -516,6 +533,15 @@ impl ExceptionItemMeta {
 
     pub(crate) fn has_impl(&self) -> Result<bool> {
         self.inner()._bool("impl")
+    }
+
+    /// `module = "..."` when present. Omitted means a builtin exception.
+    pub(crate) fn optional_module(&self) -> Result<Option<String>> {
+        if self.inner().meta_map.contains_key("module") {
+            self.module()
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -609,11 +635,10 @@ impl AttributeExt for Attribute {
 }
 
 pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
-    use syn::Item::*;
     Ok(match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
-        Use(item_use) => (
+        syn::Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Use(item_use) => (
             iter_use_idents(item_use, |ident, _is_unique| Ok(ident))?
                 .into_iter()
                 .exactly_one()
@@ -635,10 +660,9 @@ pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Att
 }
 
 pub(crate) fn pyexception_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
-    use syn::Item::*;
     Ok(match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
         other => {
             bail_span!(other, "#[pyexception] can only be on a struct or enum",)
         }
@@ -725,14 +749,191 @@ where
     Ok(())
 }
 
-// Best effort attempt to generate a template from which a
-// __text_signature__ can be created.
-pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
-    let signature = func_sig(sig);
-    if signature.starts_with("$self") {
-        format!("{name}({signature})")
-    } else {
-        format!("{}({}, {})", name, "$module", signature)
+enum SigPiece {
+    Marker(String),
+    Arg {
+        name: String,
+        ty: Type,
+    },
+    /// Parameters of the argument a method binds as its receiver.
+    Implicit(Type),
+}
+
+fn is_vm_or_callee(ty: &Type) -> bool {
+    let ty = quote!(#ty).to_string().replace(' ', "");
+    (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee")
+}
+
+fn arg_name(pat: &syn::Pat) -> String {
+    match pat {
+        syn::Pat::Ident(pat) => {
+            let ident = pat.ident.unraw().to_string();
+            ident.strip_prefix('_').unwrap_or(&ident).to_owned()
+        }
+        // `Fildes(fd): Fildes` contributes `fd`. One binding only: a wider
+        // pattern has no single parameter name. The name is unused when the
+        // type supplies parameters.
+        syn::Pat::TupleStruct(pat) if pat.elems.len() == 1 => arg_name(&pat.elems[0]),
+        syn::Pat::Reference(pat) => arg_name(&pat.pat),
+        syn::Pat::Paren(pat) => arg_name(&pat.pat),
+        _ => String::new(),
+    }
+}
+
+fn mentions_self(ty: &Type) -> bool {
+    struct Finder(bool);
+    impl Visit<'_> for Finder {
+        fn visit_ident(&mut self, ident: &Ident) {
+            if ident == "Self" {
+                self.0 = true;
+            }
+        }
+    }
+    let mut finder = Finder(false);
+    finder.visit_type(ty);
+    finder.0
+}
+
+fn subst_self(ty: &Type, self_ty: Option<&Type>) -> Type {
+    struct Subst<'a>(&'a Type);
+    impl VisitMut for Subst<'_> {
+        fn visit_type_mut(&mut self, ty: &mut Type) {
+            if let Type::Path(path) = ty
+                && path.qself.is_none()
+                && path.path.is_ident("Self")
+            {
+                *ty = self.0.clone();
+                return;
+            }
+            syn::visit_mut::visit_type_mut(self, ty);
+        }
+    }
+    let Some(self_ty) = self_ty else {
+        return ty.clone();
+    };
+    let mut ty = ty.clone();
+    Subst(self_ty).visit_type_mut(&mut ty);
+    ty
+}
+
+fn sig_pieces(
+    sig: &Signature,
+    implicit_self: Option<&str>,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> Vec<SigPiece> {
+    let mut pieces = Vec::new();
+    if let Some(marker) = leading_marker {
+        pieces.push(SigPiece::Marker(marker.to_owned()));
+    }
+    let mut implicit_self = implicit_self.map(str::to_owned);
+    for arg in &sig.inputs {
+        match arg {
+            FnArg::Receiver(_) => pieces.push(SigPiece::Marker("$self".to_owned())),
+            FnArg::Typed(typed) => {
+                if is_vm_or_callee(&typed.ty) {
+                    continue;
+                }
+                let name = arg_name(&typed.pat);
+                let ty = subst_self(&typed.ty, self_ty);
+                // References carry a lifetime, so `FromArgs` cannot be named
+                // from a const item. They are leaf positional parameters.
+                let leaf = mentions_self(&ty) || matches!(ty, Type::Reference(_));
+                if let Some(marker) = implicit_self.take() {
+                    // A nested const cannot name `Self`. The receiver is the
+                    // marker; only a type that supplies parameters is kept.
+                    pieces.push(SigPiece::Marker(marker));
+                    if !leaf {
+                        pieces.push(SigPiece::Implicit(ty));
+                    }
+                } else if leaf {
+                    pieces.push(SigPiece::Marker(name));
+                } else {
+                    pieces.push(SigPiece::Arg { name, ty });
+                }
+            }
+        }
+    }
+    pieces
+}
+
+fn sig_arg_tokens(piece: &SigPiece) -> TokenStream {
+    match piece {
+        SigPiece::Marker(name) => quote!(::rustpython_vm::function::SigArg::marker(#name)),
+        SigPiece::Arg { name, ty } => {
+            quote!(::rustpython_vm::function::SigArg::from_arg::<#ty>(#name))
+        }
+        SigPiece::Implicit(ty) => quote!(::rustpython_vm::function::SigArg::implicit::<#ty>()),
+    }
+}
+
+fn args_const(pieces: &[SigPiece]) -> TokenStream {
+    let args = pieces.iter().map(sig_arg_tokens);
+    quote! {
+        const ARGS: &[::rustpython_vm::function::SigArg] = &[#(#args),*];
+    }
+}
+
+/// Expression of type `ItemDoc`.
+/// `doc` is a const `ItemDoc` already chosen by the caller (a Rust doc comment
+/// wins over the stored docstring). A database id keeps only the signature
+/// prefix as static text. A Rust docstring is composed into one literal.
+pub(crate) fn internal_doc_tokens(
+    sig: &Signature,
+    py_name: &str,
+    implicit_self: Option<&str>,
+    doc: TokenStream,
+    self_ty: Option<&Type>,
+    leading_marker: Option<&str>,
+) -> TokenStream {
+    let args_const = args_const(&sig_pieces(sig, implicit_self, self_ty, leading_marker));
+    quote! {
+        {
+            #args_const
+            const BASE: ::rustpython_vm::function::ItemDoc = #doc;
+            if !::rustpython_vm::function::has_signature(ARGS) {
+                if BASE.len == 0 {
+                    match BASE.text {
+                        Some(text) if !text.is_empty() => {
+                            ::rustpython_vm::function::ItemDoc::static_text(text)
+                        }
+                        _ => ::rustpython_vm::function::ItemDoc::NONE,
+                    }
+                } else {
+                    BASE
+                }
+            } else if BASE.len != 0 {
+                const N: usize = ::rustpython_vm::function::signature_prefix_len(#py_name, ARGS);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::signature_prefix_bytes::<N>(#py_name, ARGS);
+                const PREFIX: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                ::rustpython_vm::__cfg_doc!({
+                    ::rustpython_vm::function::ItemDoc {
+                        text: Some(PREFIX),
+                        offset: BASE.offset,
+                        len: BASE.len,
+                    }
+                } else {
+                    ::rustpython_vm::function::ItemDoc::static_text(PREFIX)
+                })
+            } else {
+                const BODY: &str = match BASE.text {
+                    Some(text) => text,
+                    None => "",
+                };
+                const N: usize = ::rustpython_vm::function::internal_doc_len(#py_name, ARGS, BODY);
+                const B: [u8; N] =
+                    ::rustpython_vm::function::internal_doc_bytes::<N>(#py_name, ARGS, BODY);
+                const FULL: &str = match ::core::str::from_utf8(&B) {
+                    Ok(s) => s,
+                    Err(_) => panic!(),
+                };
+                ::rustpython_vm::function::ItemDoc::static_text(FULL)
+            }
+        }
     }
 }
 
@@ -741,13 +942,14 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
     // METH_* calling convention flags used by CALL specialization.
     let mut typed_args = Vec::new();
     for arg in &sig.inputs {
-        let syn::FnArg::Typed(typed) = arg else {
+        let FnArg::Typed(typed) = arg else {
             continue;
         };
         let ty_tokens = &typed.ty;
         let ty = quote!(#ty_tokens).to_string().replace(' ', "");
-        // `vm: &VirtualMachine` is not a Python-level argument.
-        if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
+        // The interpreter supplies `vm` and `callee`; a Python call never
+        // passes them.
+        if (ty.starts_with('&') && ty.ends_with("VirtualMachine")) || ty.ends_with("Callee") {
             continue;
         }
         typed_args.push(ty);
@@ -805,42 +1007,4 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
             _ => quote! { rustpython_vm::function::PyMethodFlags::FASTCALL },
         }
     }
-}
-
-fn func_sig(sig: &Signature) -> String {
-    sig.inputs
-        .iter()
-        .filter_map(|arg| {
-            use syn::FnArg::*;
-            let arg = match arg {
-                Typed(typed) => typed,
-                Receiver(_) => return Some("$self".to_owned()),
-            };
-            let ty = arg.ty.as_ref();
-            let ty = quote!(#ty).to_string();
-            if ty == "FuncArgs" {
-                return Some("*args, **kwargs".to_owned());
-            }
-            if ty.starts_with('&') && ty.ends_with("VirtualMachine") {
-                return None;
-            }
-            let ident = match arg.pat.as_ref() {
-                syn::Pat::Ident(p) => p.ident.to_string(),
-                // FIXME: other => unreachable!("function arg pattern must be ident but found `{}`", quote!(fn #ident(.. #other ..))),
-                other => quote!(#other).to_string(),
-            };
-            if ident == "zelf" {
-                return Some("$self".to_owned());
-            }
-            if ident == "vm" {
-                unreachable!("type &VirtualMachine(`{ty}`) must be filtered already");
-            }
-            Some(ident)
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
-    format!("{sig}\n--\n\n{doc}")
 }

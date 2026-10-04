@@ -19,13 +19,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env
-  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc
+  CARGO_ARGS_MOST_FEATS: --features capi,encodings,jit,sqlite,threading
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
-  # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
-  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
+  WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-venvlauncher
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
   CARGO_INCREMENTAL: 0
@@ -34,6 +34,7 @@ env:
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
   CI: true
+  FORCE_COLOR: 1
 
 jobs:
   determine_changes:
@@ -42,8 +43,13 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      # WASM demo / notebook / example_projects, independent of rust_code.
+      wasm_code: ${{ steps.check_wasm_code.outputs.changed }}
+      # Cross-target cargo check is skipped unless the diff can change
+      # platform-specific compilation. Force with the run:cross-check label.
+      cross_target: ${{ steps.check_cross_target.outputs.changed }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -66,6 +72,11 @@ jobs:
             ':.cargo/config.toml' \
             ':crates/**' \
             ':src/**' \
+            ':build.rs' \
+            ':tests/**' \
+            ':examples/**' \
+            ':benches/**' \
+            ':example_projects/**' \
             ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -75,11 +86,132 @@ jobs:
         env:
           MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
 
+      - name: Check if WASM package or demo sources changed
+        id: check_wasm_code
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':wasm/**' \
+            ':crates/wasm/**' \
+            ':example_projects/wasm32_without_js/**' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if cross-target compilation can change
+        id: check_cross_target
+        run: |
+          if [ "${FORCE_CROSS_TARGET}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':rust-toolchain.toml' \
+            ':.cargo/**' \
+            ':.github/workflows/ci.yaml' \
+            ':crates/host_env/**' \
+            ':crates/stdlib/src/openssl/**' \
+            ':crates/stdlib/src/ssl/**' \
+            ':**/_signal.rs' \
+            ':**/_testconsole.rs' \
+            ':**/_thread.rs' \
+            ':**/_winapi.rs' \
+            ':**/_wmi.rs' \
+            ':**/cert_store.rs' \
+            ':**/crt_fd*.rs' \
+            ':**/errno.rs' \
+            ':**/faulthandler.rs' \
+            ':**/fcntl.rs' \
+            ':**/fileutils.rs' \
+            ':**/grp.rs' \
+            ':**/locale.rs' \
+            ':**/mmap.rs' \
+            ':**/msvcrt.rs' \
+            ':**/multiprocessing.rs' \
+            ':**/native_certs.rs' \
+            ':**/nt.rs' \
+            ':**/openssl.rs' \
+            ':**/os.rs' \
+            ':**/overlapped.rs' \
+            ':**/posix*.rs' \
+            ':**/pwd.rs' \
+            ':**/resource.rs' \
+            ':**/scproxy.rs' \
+            ':**/select.rs' \
+            ':**/shm.rs' \
+            ':**/signal.rs' \
+            ':**/socket.rs' \
+            ':**/ssl.rs' \
+            ':**/syslog.rs' \
+            ':**/thread.rs' \
+            ':**/time.rs' \
+            ':**/termios.rs' \
+            ':**/testconsole.rs' \
+            ':**/tkinter.rs' \
+            ':**/uuid.rs' \
+            ':**/winapi.rs' \
+            ':**/windows.rs' \
+            ':**/winreg.rs' \
+            ':**/winsound.rs' \
+            ':**/wmi.rs'
+          then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Added or bumped packages bring new code to every target. Removed
+          # packages only matter while cfg-gated code still references them.
+          lock_diff=$(git diff -U0 "${MERGE_BASE}...HEAD" -- Cargo.lock)
+          if grep -Eq '^\+[^+]' <<< "${lock_diff}"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          while IFS= read -r crate; do
+            crate=${crate//-/_}
+            if git grep -qE "(^|[^A-Za-z0-9_])${crate}::|(use|crate) ${crate}([^A-Za-z0-9_]|$)" -- '*.rs'; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(sed -n 's/^-name = "\(.*\)"$/\1/p' <<< "${lock_diff}")
+
+          # Platform cfg, or FFI crates that only exist on some targets.
+          platform_re='target_os|target_arch|target_family|target_env|target_vendor|target_pointer_width|target_endian|cfg\(windows\)|cfg\(unix\)|cfg\(wasi|not\(windows|not\(unix|\[target\.|\blibc::|\bnix::|windows_sys|winapi::|rustix::|std::os::'
+
+          if ! git diff -G "${platform_re}" --quiet "${MERGE_BASE}...HEAD"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          while IFS= read -r file; do
+            [ -f "${file}" ] || continue
+            if grep -Eq "${platform_re}" "${file}"; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(git diff --name-only "${MERGE_BASE}...HEAD" -- '*.rs')
+
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+          FORCE_CROSS_TARGET: ${{ contains(github.event.pull_request.labels.*.name, 'run:cross-check') }}
+
   rust_tests:
+    # Required check: keep the job so a Lib-only PR still gets a green
+    # "Run rust tests (*)" status. Skip the build when rust sources did not change.
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
     env:
       RUST_BACKTRACE: full
-    name: Run rust tests
+      RUN_RUST_TESTS: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run rust tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -87,20 +219,37 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Skip rust tests when sources did not change
+        if: env.RUN_RUST_TESTS != 'true'
+        run: echo "No rust source changes; required check is green without rebuilding."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_RUST_TESTS == 'true'
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.RUN_RUST_TESTS == 'true'
+
+      - name: Use a short Cargo home on Windows
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        if: env.RUN_RUST_TESTS == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |
@@ -110,38 +259,62 @@ jobs:
         continue-on-error: true
 
       - name: Install macOS dependencies
+        if: env.RUN_RUST_TESTS == 'true'
         uses: ./.github/actions/install-macos-deps
 
-      - name: run rust tests
-        run: cargo test --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+      - name: Build rust tests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --no-run --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
         env:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
-      - name: run c-api tests
+      - name: run rust tests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }} --lib --bins --tests
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Run rust doctests
+        if: env.RUN_RUST_TESTS == 'true'
+        run: cargo test --doc --locked --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
+
+      - name: Build c-api tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
         working-directory: crates/capi
-        run: cargo test
-        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        run: cargo test --no-run --locked
+
+      - name: run c-api tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        working-directory: crates/capi
+        run: cargo test --locked --lib --bins --tests
+
+      - name: Run c-api doctests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
+        working-directory: crates/capi
+        run: cargo test --doc --locked
 
       - name: check compilation without host_env (sandbox mode)
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          cargo check -p rustpython-vm --no-default-features --features compiler
-          cargo check -p rustpython-stdlib --no-default-features --features compiler
-          cargo build --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
-        if: runner.os == 'Linux'
+          cargo check --locked -p rustpython-vm --no-default-features --features compiler
+          cargo check --locked -p rustpython-stdlib --no-default-features --features compiler
+          cargo build --locked --no-default-features --features stdlib,importlib,stdio,encodings,freeze-stdlib
 
       - name: sandbox smoke test
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
           target/debug/rustpython extra_tests/snippets/sandbox_smoke.py
           target/debug/rustpython extra_tests/snippets/stdlib_re.py
-        if: runner.os == 'Linux'
 
       - name: Test openssl build
-        run: cargo build --no-default-features --features ssl-openssl
-        if: runner.os == 'Linux'
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: cargo build --locked --no-default-features --features ssl-openssl
 
       - name: Test vendored OpenSSL build
-        run: cargo build --no-default-features --features ssl-openssl-vendor
-        if: runner.os == 'Linux'
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: cargo build --locked --no-default-features --features ssl-openssl-vendor
 
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
@@ -151,27 +324,40 @@ jobs:
       #   run: cargo build --features tkinter
       #   if: runner.os == 'Linux'
 
-      - name: Test example projects
+      - name: Build example projects
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          cargo run --manifest-path example_projects/barebone/Cargo.toml
-          cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
-        if: runner.os == 'Linux'
+          cargo build --manifest-path example_projects/barebone/Cargo.toml
+          cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+
+      - name: Run example projects
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: |
+          example_projects/barebone/target/debug/example-barebone
+          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+
+      - name: Build rustpython for update_lib tests
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: cargo build --locked
 
       - name: run update_lib tests
-        run: cargo run -- -m unittest discover -s scripts/update_lib/tests -v
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
+        run: target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
         env:
           PYTHONPATH: scripts
-        if: runner.os == 'Linux'
 
   cargo_check:
-    name: cargo check
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: cargo check (${{ matrix.os }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
     if: |
       (
         !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
-        needs.determine_changes.outputs.rust_code == 'true'
+        needs.determine_changes.outputs.cross_target == 'true'
       ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
@@ -197,13 +383,17 @@ jobs:
           target: aarch64-unknown-linux-gnu
           dependencies:
             gcc-aarch64-linux-gnu: true
+        - os: ubuntu-latest
+          target: x86_64-pc-windows-gnu
+          dependencies:
+            gcc-mingw-w64-x86-64: true
         - os: macos-latest
           target: aarch64-apple-ios
         - os: macos-latest
           target: x86_64-apple-darwin
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -215,9 +405,10 @@ jobs:
           gcc-multilib: ${{ matrix.dependencies.gcc-multilib || false }}
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
+          gcc-mingw-w64-x86-64: ${{ matrix.dependencies.gcc-mingw-w64-x86-64 || false }}
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -268,25 +459,20 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation with threading
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
 
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
-        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-      # Tests that can be flaky when running with multiple processes `-j 2`. We will use `-j 1` for these.
-      FLAKY_MP_TESTS: >-
-        test_class
-        test_concurrent_futures
-        test_eintr
-        test_multiprocessing_fork
-        test_multiprocessing_forkserver
-        test_multiprocessing_spawn
-    name: Run snippets and cpython tests
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run snippets and cpython tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -294,39 +480,53 @@ jobs:
         - os: macos-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests:
-            - test_set
+            - '--timeout 600'
+            - '--dont-add-python-opts'
+          env_polluting_tests: []
           skips: []
           timeout: 50
         - os: ubuntu-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests:
-            - test_set
+            - '--timeout 600'
+            - '--dont-add-python-opts'
+          env_polluting_tests: []
           skips: []
           timeout: 60
         - os: windows-2025
-          extra_test_args: [] # TODO: Enable '-u all'
-          env_polluting_tests:
-            - test_set
+          extra_test_args:
+            - '-u all'
+            - '--timeout 600'
+            - '--dont-add-python-opts'
+          env_polluting_tests: []
           skips: []
           timeout: 50
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |
@@ -335,15 +535,16 @@ jobs:
         # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
         continue-on-error: true
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
         with:
           openssl: true
 
+      # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
-        run: cargo build --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
@@ -358,33 +559,14 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -m test -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
-        timeout-minutes: ${{ matrix.timeout }}
-        env:
-          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
-
-      - name: Run flaky MP CPython tests
-        run: |
-          for attempt in $(seq 1 5); do
-            echo "::group::Attempt ${attempt}"
-
-            set +e
-            target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v ${{ env.FLAKY_MP_TESTS }}
-            status=$?
-            set -e
-
-            echo "::endgroup::"
-
-            if [ $status -eq 0 ]; then
-              exit 0
-            fi
-          done
-
-          exit 1
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+          CORES: ${{ steps.cores.outputs.cores }}
+          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
+          SKIPS: ${{ join(matrix.skips, ' ') }}
 
       - name: run cpython tests to check if env polluters have stopped polluting
         shell: bash
@@ -394,7 +576,7 @@ jobs:
           for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
+              target/release/rustpython -u -m test --slow-ci -u all -j 1 --timeout 600 --dont-add-python-opts "${thing}"
               exit_code=$?
               set -e
               if [ "${exit_code}" -eq 3 ]; then
@@ -429,6 +611,17 @@ jobs:
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
 
+      - if: runner.os == 'Windows'
+        name: Check pip HTTPS with the Windows trust store
+        run: >-
+          target/release/rustpython -m pip download
+          --disable-pip-version-check
+          --no-cache-dir
+          --no-deps
+          --only-binary=:all:
+          --dest "$env:RUNNER_TEMP\rustpython-pip-smoke"
+          six
+
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
@@ -437,10 +630,13 @@ jobs:
 
       - name: Check whats_left is not broken
         shell: bash
-        run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
+        run: python -I scripts/whats_left.py --rustpython target/release/rustpython
 
   clippy:
-    name: clippy
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: clippy (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
@@ -453,11 +649,9 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - macos-latest
           - ubuntu-latest
-          - windows-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+    steps: &clippy_steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -465,14 +659,24 @@ jobs:
         with:
           components: clippy
 
+      - name: Use a short Cargo home on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
             target/
           key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
           restore-keys: |
@@ -482,7 +686,27 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+
+  # macOS/Windows clippy uses the same OS-surface filter as cargo check.
+  # Force with the run:cross-check label. Check names stay clippy (<os>).
+  clippy_cross:
+    name: clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs:
+      - determine_changes
+    permissions:
+      contents: read
+    if: |
+      github.ref == 'refs/heads/main' ||
+      needs.determine_changes.outputs.cross_target == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+    steps: *clippy_steps
 
   cargo_shear:
     name: cargo shear
@@ -495,18 +719,19 @@ jobs:
       needs.determine_changes.outputs.rust_code == 'true' ||
       github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
+      - uses: taiki-e/install-action@94c31af3204a9f15ab40b35ad084410b905bbc73 # v2.87.17
+        with:
+          tool: cargo-shear
+          fallback: none
 
       - name: cargo shear
-        run: |
-          cargo binstall --no-confirm cargo-shear
-          cargo shear
+        run: cargo shear --locked
 
   lint:
     name: Lint
@@ -518,31 +743,31 @@ jobs:
       pull-requests: write
       security-events: write # for zizmor
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        uses: reviewdog/action-actionlint@320fcdd9c860767cf17fab3b20e22e739d5d02b8 # v1.76.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
 
       - name: restore prek cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
+        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
         with:
           cache: false
           show-verbose-logs: false
@@ -558,7 +783,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Clone CPython
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
@@ -572,7 +797,7 @@ jobs:
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
@@ -583,20 +808,27 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0
+        uses: reviewdog/action-suggester@c387862ad6765a9729f2b40ee4d8b5769f2145c7 # v1.26.1
         with:
           level: warning
           fail_level: error
 
   miri:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+      (
+        needs.determine_changes.outputs.rust_code == 'true' ||
+        github.ref == 'refs/heads/main'
+      )
     name: Run tests under miri
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       NIGHTLY_CHANNEL: nightly
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -606,7 +838,7 @@ jobs:
           components: miri
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -618,20 +850,36 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
 
+      - name: Build tests under miri
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --no-run --locked -p rustpython-vm -- miri_test
+        env:
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
+
       - name: Run tests under miri
-        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
+        run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test --locked -p rustpython-vm -- miri_test
         env:
           # miri-ignore-leaks because the type-object circular reference means that there will always be
           # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          # miri-permissive-provenance because function pointer identity checks (slot comparisons)
+          # cast fn pointers to usize, which strips provenance — this is the standard pattern for
+          # fn pointer comparison in Rust and not a soundness issue
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
 
   wasm:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
+    if: |
+      !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+      (
+        needs.determine_changes.outputs.rust_code == 'true' ||
+        needs.determine_changes.outputs.wasm_code == 'true' ||
+        github.ref == 'refs/heads/main'
+      )
     name: Check the WASM package and demo
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -640,7 +888,7 @@ jobs:
           components: clippy
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -655,7 +903,7 @@ jobs:
             ${{ runner.os }}-
 
       - name: cargo clippy
-        run: cargo clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+        run: cargo --locked clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -665,12 +913,12 @@ jobs:
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           package-manager-cache: false
 
@@ -680,7 +928,7 @@ jobs:
         run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
 
       - name: Restore npm cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         # don't restore on main or release
         if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
         with:
@@ -703,15 +951,20 @@ jobs:
         with:
           wabt-version: "1.0.36"
 
-      - name: check wasm32-unknown without js
+      - name: Build wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js/rustpython-without-js
+        run: cargo build
+
+      - name: Build wasm-runtime
+        run: cargo build --release --manifest-path example_projects/wasm32_without_js/wasm-runtime/Cargo.toml
+
+      - name: Check wasm32-unknown without js
+        working-directory: example_projects/wasm32_without_js
         run: |
-          cd example_projects/wasm32_without_js/rustpython-without-js
-          cargo build
-          cd ..
           if wasm-objdump -xj Import rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm; then
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
-          cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+          wasm-runtime/target/release/wasm-runtime rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
 
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
@@ -735,27 +988,59 @@ jobs:
       - name: Save npm cache
         # Save only on main or release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
 
   wasm-wasi:
+    # Required check: keep the job so a Lib-only PR still gets a green
+    # "Run snippets and cpython tests on wasm-wasi" status.
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
     name: Run snippets and cpython tests on wasm-wasi
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+      # Passing snippets under wasm32-wasip1.
+      WASM_WASI_SNIPPETS: >-
+        stdlib_random
+        stdlib_time
+      # Passing Lib/test files under wasm32-wasip1
+      WASM_WASI_TEST_FILES: >-
+        test_int
+        test_dict
+        test_exceptions
+        test_copy
+        test_isinstance
+        test_dynamic
+        test_dictviews
+        test_glob
+        test_class
+        test_genericpath
+        test_grammar
+        test_fstring
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Skip wasm-wasi when rust sources did not change
+        if: env.RUN_WASM_WASI != 'true'
+        run: echo "No rust source changes; required check is green without rebuilding."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_WASM_WASI == 'true'
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
+        if: env.RUN_WASM_WASI == 'true'
         with:
           target: wasm32-wasip1
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        if: env.RUN_WASM_WASI == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -771,19 +1056,34 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: Setup Wasmer
+        if: env.RUN_WASM_WASI == 'true'
         uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
 
       - name: Install clang
+        if: env.RUN_WASM_WASI == 'true'
         uses: ./.github/actions/install-linux-deps
         with:
           clang: true
 
       - name: build rustpython
-        run: cargo build --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
+        if: env.RUN_WASM_WASI == 'true'
+        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc --verbose
       - name: run snippets
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        if: env.RUN_WASM_WASI == 'true'
+        run: |
+          for name in $WASM_WASI_SNIPPETS; do
+            echo "::group::extra_tests/snippets/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/${name}.py"
+            echo "::endgroup::"
+          done
       - name: run cpython unittest
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        if: env.RUN_WASM_WASI == 'true'
+        run: |
+          for name in $WASM_WASI_TEST_FILES; do
+            echo "::group::Lib/test/${name}.py"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/${name}.py"
+            echo "::endgroup::"
+          done
 
   cargo_doc:
     needs:
@@ -798,14 +1098,14 @@ jobs:
     name: cargo doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -820,4 +1120,3 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --locked
-

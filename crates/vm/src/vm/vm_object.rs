@@ -37,7 +37,7 @@ impl VirtualMachine {
                 }
             },
             _ => {
-                self.print_exception(exc);
+                self.print_exception(&exc);
                 self.flush_std();
                 panic!("{msg}")
             }
@@ -47,8 +47,7 @@ impl VirtualMachine {
     /// Returns true if the file object's `closed` attribute is truthy.
     fn file_is_closed(&self, file: &PyObject) -> bool {
         file.get_attr("closed", self)
-            .ok()
-            .is_some_and(|v| v.try_to_bool(self).unwrap_or(false))
+            .is_ok_and(|v| v.try_to_bool(self).unwrap_or_default())
     }
 
     pub(crate) fn flush_std(&self) -> i32 {
@@ -107,20 +106,19 @@ impl VirtualMachine {
     pub fn call_get_descriptor_specific(
         &self,
         descr: &PyObject,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
+        obj: Option<&PyObject>,
+        cls: Option<&PyObject>,
     ) -> Option<PyResult> {
-        let descr_get = descr.class().slots.descr_get.load()?;
-        Some(descr_get(descr.to_owned(), obj, cls, self))
+        let descr_get = descr.class().slots().descr_get.load()?;
+        Some(descr_get(descr, obj, cls, self))
     }
 
-    pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {
-        let cls = obj.class().to_owned().into();
-        self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
+    pub fn call_get_descriptor(&self, descr: &PyObject, obj: &PyObject) -> Option<PyResult> {
+        self.call_get_descriptor_specific(descr, Some(obj), Some(obj.class().as_object()))
     }
 
     pub fn call_if_get_descriptor(&self, attr: &PyObject, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr, obj)
+        self.call_get_descriptor(attr, &obj)
             .unwrap_or_else(|| Ok(attr.to_owned()))
     }
 
@@ -177,7 +175,8 @@ impl VirtualMachine {
         method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
-        self.get_special_method(obj, method)?
+        // lookup_method: AttributeError from a data descriptor is kept.
+        PyMethod::get_special_ex::<false>(obj, method, self, true)?
             .ok_or_else(|| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }

@@ -1,7 +1,7 @@
 //! Python code execution functions.
 
 use crate::{
-    AsObject, PyRef, PyResult, VirtualMachine,
+    Py, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyCode,
     compiler::{self},
     scope::Scope,
@@ -13,16 +13,16 @@ impl VirtualMachine {
     /// Execute a string of Python code in a new scope with builtins.
     pub fn run_simple_string(&self, source: &str) -> PyResult {
         let scope = self.new_scope_with_builtins();
-        self.run_string(scope, source, "<string>".to_owned())
+        self.run_string(scope, source, "<string>")
     }
 
     /// PyRun_String
     ///
     /// Execute a string of Python code with explicit scope and source path.
-    pub fn run_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+    pub fn run_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path)
-            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
+            .map_err(|err| err.into_pyexception(self, Some(source)))?;
         // linecache._register_code(code, source, filename)
         let _ = self.register_code_in_linecache(&code_obj, source);
         self.run_code_obj(code_obj, scope)
@@ -30,24 +30,27 @@ impl VirtualMachine {
 
     /// Register a code object's source in linecache._interactive_cache
     /// so that traceback can display source lines and caret indicators.
-    fn register_code_in_linecache(&self, code: &PyRef<PyCode>, source: &str) -> PyResult<()> {
+    pub fn register_code_in_linecache(&self, code: &Py<PyCode>, source: &str) -> PyResult<()> {
         let linecache = self.import("linecache", 0)?;
         let register = linecache.get_attr("_register_code", self)?;
         let source_str = self.ctx.new_str(source);
         let filename = self.ctx.new_str(code.source_path().as_str());
-        register.call((code.as_object().to_owned(), source_str, filename), self)?;
+        register.call(
+            (PyObjectRef::from(code.to_owned()), source_str, filename),
+            self,
+        )?;
         Ok(())
     }
 
     #[deprecated(note = "use run_string instead")]
-    pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+    pub fn run_code_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
         self.run_string(scope, source, source_path)
     }
 
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
-            .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
-            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
+            .compile(source, compiler::Mode::BlockExpr, "<embedded>")
+            .map_err(|err| err.into_pyexception(self, Some(source)))?;
         self.run_code_obj(code_obj, scope)
     }
 }
@@ -55,8 +58,8 @@ impl VirtualMachine {
 #[cfg(feature = "host_env")]
 mod file_run {
     use crate::{
-        Py, PyResult, VirtualMachine,
-        builtins::{PyCode, PyDict},
+        AsObject, Py, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyCode, PyDict},
         compiler::{self},
         scope::Scope,
     };
@@ -105,11 +108,20 @@ mod file_run {
                 if path != "<stdin>" {
                     set_main_loader(module_dict, path, "SourceFileLoader", self)?;
                 }
-                match crate::host_env::fs::read_to_string(path) {
-                    Ok(source) => {
+                match crate::host_env::fs::read(path) {
+                    Ok(source_bytes) => {
+                        if let Some(null_at) = source_bytes.iter().position(|&b| b == 0) {
+                            return Err(null_byte_syntax_error(self, path, &source_bytes, null_at));
+                        }
+                        #[cfg(feature = "parser")]
+                        // Match compile() by honoring BOMs and encoding cookies in files.
+                        let source = self.decode_source_bytes(&source_bytes, path, false)?;
+                        #[cfg(not(feature = "parser"))]
+                        let source = String::from_utf8(source_bytes)
+                            .map_err(|err| self.new_os_error(err.to_string()))?;
                         let code_obj = self
-                            .compile(&source, compiler::Mode::Exec, path.to_owned())
-                            .map_err(|err| self.new_syntax_error(&err, Some(&source)))?;
+                            .compile(&source, compiler::Mode::Exec, path)
+                            .map_err(|err| err.into_pyexception(self, Some(&source)))?;
                         self.run_code_obj(code_obj, scope)?;
                     }
                     Err(err) => {
@@ -124,6 +136,31 @@ mod file_run {
         pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
             self.run_any_file(scope, path)
         }
+    }
+
+    fn null_byte_syntax_error(
+        vm: &VirtualMachine,
+        path: &str,
+        source_bytes: &[u8],
+        null_at: usize,
+    ) -> PyBaseExceptionRef {
+        let before = &source_bytes[..null_at];
+        let lineno = before.iter().filter(|&&b| b == b'\n').count() + 1;
+        let line_start = before
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        let line = String::from_utf8_lossy(&source_bytes[line_start..null_at]);
+        let syntax_error = vm.new_exception_msg(
+            vm.ctx.exceptions.syntax_error.to_owned(),
+            "source code cannot contain null bytes".into(),
+        );
+        let obj = syntax_error.as_object();
+        obj.set_attr("filename", vm.ctx.new_str(path), vm).unwrap();
+        obj.set_attr("lineno", vm.ctx.new_int(lineno), vm).unwrap();
+        obj.set_attr("text", vm.ctx.new_str(format!("{line}\n")), vm)
+            .unwrap();
+        syntax_error
     }
 
     fn set_main_loader(
@@ -163,8 +200,12 @@ mod file_run {
         let mut file = crate::host_env::fs::open(path)?;
         let mut buf = [0u8; 2];
 
-        use std::io::Read;
-        if file.read(&mut buf)? != 2 {
+        use std::io::{Read, Seek, SeekFrom};
+        let n = file.read(&mut buf)?;
+        // /dev/fd/N shares the file offset across every open of that path.
+        // Restore it so a later read of the same script still starts at 0.
+        let _ = file.seek(SeekFrom::Start(0));
+        if n != 2 {
             return Ok(false);
         }
 

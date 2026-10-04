@@ -1,19 +1,16 @@
-use core::fmt;
-
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::{
-    PyObjectRef, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
-    exceptions::cstring_error,
 };
 
-pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
+pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObject>>(
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<rustpython_common::hash::PyHash> {
-    vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
+    crate::vm::hash_secret().hash_iter(iter, |obj| obj.hash(vm))
 }
 
 impl ToPyObject for core::convert::Infallible {
@@ -26,13 +23,6 @@ pub trait ToCString: AsRef<Wtf8> {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
         alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
     }
-    fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.as_ref().as_bytes().contains(&b'\0') {
-            Err(cstring_error(vm))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl ToCString for &str {}
@@ -43,11 +33,12 @@ pub(crate) fn collection_repr<'a, I>(
     class_name: Option<&str>,
     prefix: &str,
     suffix: &str,
+    empty: &str,
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<Wtf8Buf>
 where
-    I: core::iter::Iterator<Item = &'a PyObjectRef>,
+    I: core::iter::Iterator<Item = &'a PyObject>,
 {
     let mut repr = Wtf8Buf::new();
     if let Some(name) = class_name {
@@ -57,10 +48,9 @@ where
     repr.push_str(prefix);
     {
         let mut parts_iter = iter.map(|o| o.repr(vm));
-        let first = parts_iter
-            .next()
-            .transpose()?
-            .expect("this is not called for empty collection");
+        let Some(first) = parts_iter.next().transpose()? else {
+            return Ok(Wtf8Buf::from(empty));
+        };
         repr.push_wtf8(first.as_wtf8());
         for part in parts_iter {
             repr.push_str(", ");
@@ -73,17 +63,4 @@ where
     }
 
     Ok(repr)
-}
-
-/// Wrapper around a bytes vector that implements [`fmt::Write`].
-///
-/// # Safety
-/// Don't assume the contents of the internal vector are valid UTF-8/WTF-8.
-pub(crate) struct VecFmtWriter(pub Vec<u8>);
-
-impl fmt::Write for VecFmtWriter {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.0.extend(s.bytes());
-        Ok(())
-    }
 }

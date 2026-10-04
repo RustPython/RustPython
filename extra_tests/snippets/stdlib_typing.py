@@ -1,6 +1,9 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+import _typing
+from testutils import assert_raises
+
 T = TypeVar("T")
 
 
@@ -35,3 +38,28 @@ class ClassWithUnionParams:
 
     def method(self, value: Union[int, float]) -> Union[str, bytes]:
         return str(value)
+
+
+# _idfunc takes exactly one argument, checked before the argument is read.
+
+assert _typing._idfunc(1) == 1
+with assert_raises(TypeError):
+    _typing._idfunc()
+
+
+# ParamSpecArgs shows a non-ParamSpec origin by its repr, which is where the
+# recursion guard lives; nesting them deeply must not walk the native stack.
+
+from typing import ParamSpec, ParamSpecArgs
+
+spec = ParamSpec("spec")
+assert repr(spec.args) == "spec.args"
+assert repr(spec.kwargs) == "spec.kwargs"
+
+nested = object()
+for _ in range(2000):
+    nested = ParamSpecArgs(nested)
+try:
+    repr(nested)
+except RecursionError:
+    pass

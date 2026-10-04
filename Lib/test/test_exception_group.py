@@ -1,4 +1,4 @@
-import collections.abc
+import collections
 import types
 import unittest
 from test.support import skip_emscripten_stack_overflow, skip_wasi_stack_overflow, exceeds_recursion_limit
@@ -20,7 +20,6 @@ class TestExceptionGroupTypeHierarchy(unittest.TestCase):
 
 
 class BadConstructorArgs(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_EG_construction__too_many_args(self):
         MSG = r'BaseExceptionGroup.__new__\(\) takes exactly 2 arguments'
         with self.assertRaisesRegex(TypeError, MSG):
@@ -193,6 +192,77 @@ class StrAndReprTests(unittest.TestCase):
                       "ValueError(1), "
                       "MyEG('flat', [ValueError(1), TypeError(2)]), "
                       "TypeError(2)])"))
+
+    def test_exceptions_mutation(self):
+        class MyEG(ExceptionGroup):
+            pass
+
+        excs = [ValueError(1), TypeError(2)]
+        eg = MyEG('test', excs)
+
+        self.assertEqual(repr(eg), "MyEG('test', [ValueError(1), TypeError(2)])")
+        excs.clear()
+
+        # Ensure that clearing the exceptions sequence doesn't change the repr.
+        self.assertEqual(repr(eg), "MyEG('test', [ValueError(1), TypeError(2)])")
+
+        # Ensure that the args are still as passed.
+        self.assertEqual(eg.args, ('test', []))
+
+        excs = (ValueError(1), KeyboardInterrupt(2))
+        eg = BaseExceptionGroup('test', excs)
+
+        # Ensure that immutable sequences still work fine.
+        self.assertEqual(
+            repr(eg),
+            "BaseExceptionGroup('test', (ValueError(1), KeyboardInterrupt(2)))"
+        )
+
+        # Test non-standard custom sequences.
+        excs = collections.deque([ValueError(1), TypeError(2)])
+        eg = ExceptionGroup('test', excs)
+
+        self.assertEqual(
+            repr(eg),
+            "ExceptionGroup('test', deque([ValueError(1), TypeError(2)]))"
+        )
+        excs.clear()
+
+        # Ensure that clearing the exceptions sequence doesn't change the repr.
+        self.assertEqual(
+            repr(eg),
+            "ExceptionGroup('test', deque([ValueError(1), TypeError(2)]))"
+        )
+
+    def test_repr_raises(self):
+        class MySeq(collections.abc.Sequence):
+            def __init__(self, raises):
+                self.raises = raises
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, index):
+                if index == 0:
+                    return ValueError(1)
+                raise IndexError
+
+            def __repr__(self):
+                if self.raises:
+                    raise self.raises
+                return None
+
+        seq = MySeq(None)
+        with self.assertRaisesRegex(
+            TypeError,
+            r"__repr__ returned non-string \(type NoneType\)"
+        ):
+            ExceptionGroup("test", seq)
+
+        seq = MySeq(ValueError)
+        with self.assertRaises(ValueError):
+            BaseExceptionGroup("test", seq)
+
 
 
 def create_simple_eg():
@@ -465,7 +535,6 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
             e = ExceptionGroup('eg', [e])
         return e
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_split(self):
@@ -473,7 +542,6 @@ class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
         with self.assertRaises(RecursionError):
             e.split(TypeError)
 
-    @unittest.skip("TODO: RUSTPYTHON; Segfault")
     @skip_emscripten_stack_overflow()
     @skip_wasi_stack_overflow()
     def test_deep_subgroup(self):

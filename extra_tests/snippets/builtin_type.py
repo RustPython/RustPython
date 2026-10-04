@@ -1,4 +1,5 @@
 import types
+import warnings
 
 from testutils import assert_raises
 
@@ -687,3 +688,58 @@ def foo():
 
 code = compile(stmts, "<test>", "exec")
 assert code.co_names == ("blah", "foo")
+
+
+# A slot descriptor carries the layout it was defined for. Reached from another
+# class, it has to report that rather than read the slot at its own offset,
+# whether the access is fresh or has been seen often enough to be specialized.
+
+
+class WideSlots:
+    __slots__ = ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+
+
+class NarrowSlots:
+    __slots__ = ("only",)
+
+
+class NoSlots:
+    __slots__ = ()
+
+
+NarrowSlots.borrowed = WideSlots.__dict__["s7"]
+NoSlots.borrowed = WideSlots.__dict__["s7"]
+
+for owner in (NarrowSlots(), NoSlots()):
+    for _ in range(1000):
+        with assert_raises(TypeError):
+            owner.borrowed
+        with assert_raises(TypeError):
+            owner.borrowed = 1
+        with assert_raises(TypeError):
+            del owner.borrowed
+
+
+# A str subclass names an attribute the same way a str does, and interning the
+# key is what makes it reachable at all.
+class StrKey(str):
+    pass
+
+
+subclass_key = type("SubclassKey", (), {StrKey("attr"): 7})
+assert subclass_key.attr == 7
+
+# A key that is not a string at all cannot become an attribute. CPython keeps it
+# in the class dict and warns once; the class is built either way.
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    non_string_key = type("NonStringKey", (), {"kept": 1, 2: 3, 4: 5})
+
+assert non_string_key.kept == 1
+assert [w.category for w in caught] == [RuntimeWarning], [w.category for w in caught]
+assert "NonStringKey" in str(caught[0].message), str(caught[0].message)
+
+with warnings.catch_warnings():
+    warnings.simplefilter("error")
+    with assert_raises(RuntimeWarning):
+        type("NonStringKeyRaises", (), {6: 7})

@@ -6,7 +6,7 @@
 
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // This has to be a macro because it uses the py_compile macro,
 // which compiles python source to optimized bytecode at compile time, so that
@@ -16,7 +16,7 @@ macro_rules! add_python_function {
         // compile the code to bytecode
         let code = vm::py_compile!(source = $src);
         // convert the rustpython_compiler_core::CodeObject to a PyRef<PyCode>
-        let code = $vm.ctx.new_code(code);
+        let code = $vm.new_code(code);
 
         // run the python code in the scope to store the function
         $vm.run_code_obj(code, $scope.clone())
@@ -65,8 +65,8 @@ def fib(n):
         // this line also automatically prints the output
         // (note that this is only the case when compiler::Mode::Single is passed to vm.compile)
         match vm
-            .compile(&input, vm::compiler::Mode::Single, "<embedded>".to_owned())
-            .map_err(|err| vm.new_syntax_error(&err, Some(&input)))
+            .compile(&input, vm::compiler::Mode::Single, "<embedded>")
+            .map_err(|err| err.into_pyexception(vm, Some(&input)))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))
         {
             Ok(output) => {
@@ -76,7 +76,7 @@ def fib(n):
                 }
             }
             Err(exc) => {
-                vm.print_exception(exc);
+                vm.print_exception(&exc);
             }
         }
     }

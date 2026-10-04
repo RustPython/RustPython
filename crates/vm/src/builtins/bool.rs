@@ -2,7 +2,7 @@ use super::{PyInt, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
 use crate::common::format::FormatSpec;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-    class::PyClassImpl,
+    class::{PyClassDef, PyClassImpl},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
@@ -32,16 +32,27 @@ impl<'a> TryFromBorrowedObject<'a> for bool {
     }
 }
 
-impl PyObjectRef {
+impl PyObject {
     /// Convert Python bool into Rust bool.
-    pub fn try_to_bool(self, vm: &VirtualMachine) -> PyResult<bool> {
+    ///
+    /// Takes `&self` rather than an owned reference so that the eval loop can
+    /// call it straight through a borrowed stack entry, without the reference
+    /// count round trip that owning the operand would cost.
+    #[inline(always)]
+    pub fn try_to_bool(&self, vm: &VirtualMachine) -> PyResult<bool> {
         if self.is(&vm.ctx.true_value) {
             return Ok(true);
         } else if self.is(&vm.ctx.false_value) {
             return Ok(false);
         }
 
-        let slots = &self.class().slots;
+        self.try_to_bool_slow(vm)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn try_to_bool_slow(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        let slots = self.class().slots();
 
         // 1. Try nb_bool slot first
         if let Some(nb_bool) = slots.as_number.boolean.load() {
@@ -76,11 +87,19 @@ impl Debug for PyBool {
     }
 }
 
+#[derive(FromArgs)]
+pub struct BoolArgs {
+    // Missing skips conversion and is False.
+    #[pyarg(positional, default, py_default = "False")]
+    object: OptionalArg<PyObjectRef>,
+}
+
 impl Constructor for PyBool {
-    type Args = OptionalArg<PyObjectRef>;
+    type Args = BoolArgs;
 
     fn slot_new(zelf: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let x: Self::Args = args.bind(vm)?;
+        let x: Self::Args = args.bind_for(vm, Self::NAME)?;
+        let x = x.object;
         if !zelf.fast_isinstance(vm.ctx.types.type_type) {
             return Err(vm.new_type_error(format!(
                 "requires a 'type' object but received a '{}'",
@@ -97,22 +116,26 @@ impl Constructor for PyBool {
 }
 
 #[pyclass(with(Constructor, AsNumber, Representable), flags(_MATCH_SELF))]
-impl PyBool {
+impl Py<PyBool> {
     #[pymethod]
-    fn __format__(obj: PyObjectRef, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let new_bool = obj.try_to_bool(vm)?;
-        FormatSpec::parse(spec.as_str())
+    fn __format__(
+        zelf: PyObjectRef,
+        format_spec: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        let new_bool = zelf.try_to_bool(vm)?;
+        FormatSpec::parse(format_spec.as_str())
             .and_then(|format_spec| format_spec.format_bool(new_bool))
             .map_err(|err| err.into_pyexception(vm))
     }
 }
 
 impl PyBool {
-    pub(crate) fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __or__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -122,11 +145,11 @@ impl PyBool {
         }
     }
 
-    pub(crate) fn __and__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __and__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -136,11 +159,11 @@ impl PyBool {
         }
     }
 
-    pub(crate) fn __xor__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn __xor__(lhs: &PyObject, rhs: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if lhs.fast_isinstance(vm.ctx.types.bool_type)
             && rhs.fast_isinstance(vm.ctx.types.bool_type)
         {
-            let lhs = get_value(&lhs);
+            let lhs = get_value(lhs);
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
         } else if let Some(lhs) = lhs.downcast_ref::<PyInt>() {
@@ -154,10 +177,10 @@ impl PyBool {
 impl AsNumber for PyBool {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            and: Some(|a, b, vm| PyBool::__and__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            xor: Some(|a, b, vm| PyBool::__xor__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            or: Some(|a, b, vm| PyBool::__or__(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
-            ..PyInt::AS_NUMBER
+            and: Some(|a, b, vm| PyBool::__and__(a, b.to_owned(), vm).to_pyresult(vm)),
+            xor: Some(|a, b, vm| PyBool::__xor__(a, b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyBool::__or__(a, b.to_owned(), vm).to_pyresult(vm)),
+            ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
     }

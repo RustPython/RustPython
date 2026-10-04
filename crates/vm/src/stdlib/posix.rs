@@ -6,6 +6,7 @@ pub use rustpython_host_env::posix::set_inheritable;
 
 #[pymodule(name = "posix", with(
     super::os::_os,
+    super::posix_unix_like::_posix_unix_like,
     #[cfg(any(
         target_os = "linux",
         target_os = "netbsd",
@@ -16,15 +17,14 @@ pub use rustpython_host_env::posix::set_inheritable;
 ))]
 pub mod module {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyBytesRef, PyDictRef, PyInt, PyListRef, PyTuple, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgMapping, Either, KwArgs, OptionalArg},
+        function::{ArgBytesLike, ArgMapping, Either, OptionalArg, PySsize},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
-            warn_if_bool_fd,
+            _os, DirFd, FollowSymlinks, SupportFunc, SymlinkArgs, fs_metadata, warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -37,57 +37,69 @@ pub mod module {
     use alloc::ffi::CString;
     use core::ffi::CStr;
     use rustpython_host_env::os::ffi::OsStringExt;
+    use rustpython_host_env::posix as host_posix;
     use std::{
         fs, io,
-        os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd},
     };
     use strum::IntoEnumIterator;
     use strum_macros::{EnumIter, EnumString};
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::PIDFD_NONBLOCK;
+    use rustpython_host_env::posix::PIDFD_NONBLOCK;
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    use libc::{
-        COPYFILE_DATA as _COPYFILE_DATA, O_EVTONLY, O_NOFOLLOW_ANY, PRIO_DARWIN_BG,
-        PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD,
+    use rustpython_host_env::posix::{
+        COPYFILE_DATA as _COPYFILE_DATA, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI, PRIO_DARWIN_PROCESS,
+        PRIO_DARWIN_THREAD,
     };
+
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use rustpython_host_env::os::{O_EVTONLY, O_NOFOLLOW_ANY};
 
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+    use rustpython_host_env::posix::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS,
         CLONE_NEWPID, CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD,
-        CLONE_VM, MFD_HUGE_SHIFT, O_NOATIME, O_TMPFILE, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE,
-        SCHED_IDLE, SCHED_NORMAL, SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE,
-        SPLICE_F_NONBLOCK,
+        CLONE_VM, MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+        SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
     };
+
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_NOATIME, O_TMPFILE};
 
     #[cfg(any(target_os = "macos", target_os = "redox"))]
     #[pyattr]
-    use libc::O_SYMLINK;
+    use rustpython_host_env::os::O_SYMLINK;
 
     #[cfg(any(target_os = "android", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{O_NOFOLLOW, PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+    use rustpython_host_env::posix::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+    #[cfg(any(target_os = "android", target_os = "redox", unix))]
+    #[pyattr]
+    use rustpython_host_env::os::O_NOFOLLOW;
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
     #[pyattr]
-    use libc::{XATTR_CREATE, XATTR_REPLACE};
+    use rustpython_host_env::posix::{XATTR_CREATE, XATTR_REPLACE};
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "netbsd"))]
     #[pyattr]
-    use libc::O_RSYNC;
+    use rustpython_host_env::os::O_RSYNC;
 
     #[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
         POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
         POSIX_FADV_WILLNEED,
@@ -95,11 +107,11 @@ pub mod module {
 
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
     #[pyattr]
-    use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+    use rustpython_host_env::posix::{RTLD_LAZY, RTLD_NOW, WNOHANG};
 
     #[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
     #[pyattr]
-    use libc::RTLD_GLOBAL;
+    use rustpython_host_env::posix::RTLD_GLOBAL;
 
     #[cfg(any(
         target_os = "android",
@@ -108,7 +120,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::O_PATH;
+    use rustpython_host_env::os::O_PATH;
 
     #[cfg(any(
         target_os = "android",
@@ -117,7 +129,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::posix::{
         EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
         TFD_TIMER_CANCEL_ON_SET,
     };
@@ -129,7 +141,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{GRND_NONBLOCK, GRND_RANDOM};
+    use rustpython_host_env::posix::{GRND_NONBLOCK, GRND_RANDOM};
 
     #[cfg(any(
         target_os = "android",
@@ -139,7 +151,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{F_OK, R_OK, W_OK, X_OK};
+    use rustpython_host_env::os::{F_OK, R_OK, W_OK, X_OK};
 
     #[cfg(any(
         target_os = "android",
@@ -149,7 +161,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_NONBLOCK;
+    use rustpython_host_env::os::O_NONBLOCK;
 
     #[cfg(any(
         target_os = "android",
@@ -159,7 +171,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DSYNC;
+    use rustpython_host_env::os::O_DSYNC;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -169,7 +181,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::SCHED_OTHER;
+    use rustpython_host_env::posix::SCHED_OTHER;
 
     #[cfg(any(
         target_os = "android",
@@ -179,7 +191,7 @@ pub mod module {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+    use rustpython_host_env::posix::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
 
     #[cfg(any(
         target_os = "android",
@@ -189,7 +201,7 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::O_DIRECT;
+    use rustpython_host_env::os::O_DIRECT;
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -199,7 +211,7 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{O_EXLOCK, O_FSYNC, O_SHLOCK};
+    use rustpython_host_env::os::{O_EXLOCK, O_FSYNC, O_SHLOCK};
 
     #[cfg(any(
         target_os = "android",
@@ -210,7 +222,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::RTLD_LOCAL;
+    use rustpython_host_env::posix::RTLD_LOCAL;
 
     #[cfg(any(
         target_os = "android",
@@ -221,7 +233,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::WUNTRACED;
+    use rustpython_host_env::posix::WUNTRACED;
 
     #[cfg(any(
         target_os = "android",
@@ -232,10 +244,21 @@ pub mod module {
         target_os = "netbsd"
     ))]
     #[pyattr]
-    use libc::{
-        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, O_SYNC, P_ALL,
-        P_PGID, P_PID, SCHED_FIFO, SCHED_RR,
+    use rustpython_host_env::posix::{
+        CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+        P_PID, SCHED_FIFO, SCHED_RR,
     };
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_SYNC;
 
     #[cfg(any(
         target_os = "android",
@@ -247,7 +270,7 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::O_DIRECTORY;
+    use rustpython_host_env::os::O_DIRECTORY;
 
     #[cfg(any(
         target_os = "android",
@@ -259,10 +282,30 @@ pub mod module {
         target_os = "redox"
     ))]
     #[pyattr]
-    use libc::{
-        F_LOCK, F_TEST, F_TLOCK, F_ULOCK, O_ASYNC, O_NDELAY, O_NOCTTY, RTLD_NOLOAD, WEXITED,
-        WNOWAIT, WSTOPPED,
-    };
+    use rustpython_host_env::fcntl::{F_LOCK, F_TEST, F_TLOCK, F_ULOCK};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::posix::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox"
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::{O_ASYNC, O_NDELAY, O_NOCTTY};
 
     #[cfg(any(
         target_os = "android",
@@ -275,55 +318,27 @@ pub mod module {
         unix
     ))]
     #[pyattr]
-    use libc::{O_CLOEXEC, WCONTINUED};
+    use rustpython_host_env::posix::WCONTINUED;
+
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "redox",
+        unix
+    ))]
+    #[pyattr]
+    use rustpython_host_env::os::O_CLOEXEC;
 
     #[pyattr]
-    const EX_OK: i8 = exitcode::OK as i8;
-
-    #[pyattr]
-    const EX_USAGE: i8 = exitcode::USAGE as i8;
-
-    #[pyattr]
-    const EX_DATAERR: i8 = exitcode::DATAERR as i8;
-
-    #[pyattr]
-    const EX_NOINPUT: i8 = exitcode::NOINPUT as i8;
-
-    #[pyattr]
-    const EX_NOUSER: i8 = exitcode::NOUSER as i8;
-
-    #[pyattr]
-    const EX_NOHOST: i8 = exitcode::NOHOST as i8;
-
-    #[pyattr]
-    const EX_UNAVAILABLE: i8 = exitcode::UNAVAILABLE as i8;
-
-    #[pyattr]
-    const EX_SOFTWARE: i8 = exitcode::SOFTWARE as i8;
-
-    #[pyattr]
-    const EX_OSERR: i8 = exitcode::OSERR as i8;
-
-    #[pyattr]
-    const EX_OSFILE: i8 = exitcode::OSFILE as i8;
-
-    #[pyattr]
-    const EX_CANTCREAT: i8 = exitcode::CANTCREAT as i8;
-
-    #[pyattr]
-    const EX_IOERR: i8 = exitcode::IOERR as i8;
-
-    #[pyattr]
-    const EX_TEMPFAIL: i8 = exitcode::TEMPFAIL as i8;
-
-    #[pyattr]
-    const EX_PROTOCOL: i8 = exitcode::PROTOCOL as i8;
-
-    #[pyattr]
-    const EX_NOPERM: i8 = exitcode::NOPERM as i8;
-
-    #[pyattr]
-    const EX_CONFIG: i8 = exitcode::CONFIG as i8;
+    use rustpython_host_env::posix::{
+        EX_CANTCREAT, EX_CONFIG, EX_DATAERR, EX_IOERR, EX_NOHOST, EX_NOINPUT, EX_NOPERM, EX_NOUSER,
+        EX_OK, EX_OSERR, EX_OSFILE, EX_PROTOCOL, EX_SOFTWARE, EX_TEMPFAIL, EX_UNAVAILABLE,
+        EX_USAGE,
+    };
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
@@ -378,22 +393,35 @@ pub mod module {
             .collect())
     }
 
-    #[pyfunction]
-    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        rustpython_host_env::posix::check_access(path.as_ref(), mode)
-            .map_err(|err| err.to_pyexception(vm))
+    #[derive(FromArgs)]
+    pub(super) struct AccessArgs<'a> {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        mode: u8,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 0>,
+        #[pyarg(named, default)]
+        effective_ids: bool,
+        #[pyarg(flatten)]
+        follow_symlinks: FollowSymlinks,
     }
 
-    #[pyattr]
-    fn environ(vm: &VirtualMachine) -> PyDictRef {
-        let environ = vm.ctx.new_dict();
-        for (key, value) in crate::host_env::os::vars_os() {
-            let key: PyObjectRef = vm.ctx.new_bytes(key.into_vec()).into();
-            let value: PyObjectRef = vm.ctx.new_bytes(value.into_vec()).into();
-            environ.set_item(&*key, value, vm).unwrap();
+    #[pyfunction]
+    pub(super) fn access(args: AccessArgs<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        let [] = args.dir_fd.0;
+        if args.effective_ids {
+            return Err(
+                vm.new_not_implemented_error("access: effective_ids unavailable on this platform")
+            );
         }
-
-        environ
+        if !args.follow_symlinks.0 {
+            return Err(vm.new_not_implemented_error(
+                "access: follow_symlinks unavailable on this platform",
+            ));
+        }
+        rustpython_host_env::posix::check_access(args.path.as_ref(), args.mode)
+            .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -405,16 +433,6 @@ pub mod module {
             environ.set_item(&*key, value, vm).unwrap();
         }
         environ
-    }
-
-    #[derive(FromArgs)]
-    pub(super) struct SymlinkArgs<'fd> {
-        src: OsPath,
-        dst: OsPath,
-        #[pyarg(flatten)]
-        _target_is_directory: TargetIsDirectory,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { _os::SYMLINK_DIR_FD as usize }>,
     }
 
     #[pyfunction]
@@ -433,46 +451,42 @@ pub mod module {
         }
     }
 
-    #[pyfunction]
-    #[pyfunction(name = "unlink")]
-    fn remove(
-        path: OsPath,
-        dir_fd: DirFd<'_, { _os::UNLINK_DIR_FD as usize }>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            let c_path = path.clone().into_cstring(vm)?;
-            return rustpython_host_env::posix::unlinkat(fd, &c_path)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        crate::host_env::fs::remove_file(&path)
-            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+    #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchdirArgs {
+        #[pyarg(any)]
+        fd: PyObjectRef,
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchdir(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchdir(fd: FchdirArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = fd.fd;
         warn_if_bool_fd(&fd, vm)?;
         let fd = i32::try_from_object(vm, fd)?;
         rustpython_host_env::posix::fchdir(fd).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct ChrootArgs {
+        #[pyarg(any)]
+        path: OsPath,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
+    fn chroot(path: ChrootArgs, vm: &VirtualMachine) -> PyResult<()> {
         use crate::exceptions::OSErrorBuilder;
 
+        let path = path.path;
         rustpython_host_env::posix::chroot(std::path::Path::new(&path.path))
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     // As of now, redox does not seems to support chown command (cf. https://gitlab.redox-os.org/redox-os/coreutils , last checked on 05/07/2020)
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn chown(
+    fn chown_inner(
         path: OsPathOrFd<'_>,
         uid: isize,
         gid: isize,
@@ -510,9 +524,49 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct ChownArgs<'a> {
+        #[pyarg(any)]
+        path: OsPathOrFd<'a>,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'a, 1>,
+        #[pyarg(flatten)]
+        follow_symlinks: FollowSymlinks,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: OsPath, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
-        chown(
+    fn chown(args: ChownArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        chown_inner(
+            args.path,
+            args.uid,
+            args.gid,
+            args.dir_fd,
+            args.follow_symlinks,
+            vm,
+        )
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct LchownArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn lchown(args: LchownArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LchownArgs { path, uid, gid } = args;
+        chown_inner(
             OsPathOrFd::Path(path),
             uid,
             gid,
@@ -523,9 +577,21 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchownArgs<'a> {
+        #[pyarg(any)]
+        fd: BorrowedFd<'a>,
+        #[pyarg(any)]
+        uid: isize,
+        #[pyarg(any)]
+        gid: isize,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: BorrowedFd<'_>, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
-        chown(
+    fn fchown(args: FchownArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let FchownArgs { fd, uid, gid } = args;
+        chown_inner(
             OsPathOrFd::Fd(fd.into()),
             uid,
             gid,
@@ -540,9 +606,9 @@ pub mod module {
         #[pyarg(named, optional)]
         before: OptionalArg<PyObjectRef>,
         #[pyarg(named, optional)]
-        after_in_parent: OptionalArg<PyObjectRef>,
-        #[pyarg(named, optional)]
         after_in_child: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
     }
 
     impl RegisterAtForkArgs {
@@ -579,11 +645,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn register_at_fork(
-        args: RegisterAtForkArgs,
-        _ignored: KwArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
 
         if let Some(before) = before {
@@ -623,13 +685,20 @@ pub mod module {
         run_at_forkers(before_forkers, true, vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::_imp::acquire_imp_lock_for_fork();
+        crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.stop_the_world(vm);
+        vm.state.stop_the_world.stop_the_world(&vm.state);
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
+        // The interpreter registry is reachable from every thread, so repair it
+        // before anything enumerates interpreters.
+        #[cfg(all(unix, feature = "threading"))]
+        unsafe {
+            crate::vm::runtime::reinit_after_fork()
+        };
+
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.reset_after_fork();
 
@@ -638,6 +707,12 @@ pub mod module {
         // if we try to acquire them. This must happen before anything else.
         #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
+
+        // The collector stops every interpreter, so interpreters other than the
+        // forking one must be repaired too; otherwise the child's first
+        // collection waits for threads that did not survive the fork.
+        #[cfg(all(unix, feature = "threading"))]
+        reinit_other_interpreters_after_fork(vm);
 
         // Reinit per-object IO buffer locks on std streams.
         // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
@@ -651,17 +726,38 @@ pub mod module {
         crate::signal::clear_after_fork();
         crate::stdlib::_signal::_signal::clear_wakeup_fd_after_fork();
 
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly",
+        ))]
+        rustpython_host_env::select::kqueue::mark_closed_after_fork();
+
         // Reset weakref stripe locks that may have been held during fork.
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
+
+        // Repair any type-cache entries left mid-update at fork time.
+        unsafe { crate::builtins::type_::type_cache_after_fork() };
+
+        // Reset QSBR: dead parent threads' slots would stall reclamation
+        // forever, and retired memory can be freed immediately in the
+        // single-threaded child.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::object::qsbr::QSBR.reset_after_fork()
+        };
 
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
         crate::stdlib::_thread::after_fork_child(vm);
 
-        // CPython parity: reinit import lock ownership metadata in child
-        // and release the lock acquired by PyOS_BeforeFork().
+        // Reinit import lock ownership metadata in child and release the lock
+        // acquired before fork.
         #[cfg(feature = "threading")]
         unsafe {
             crate::stdlib::_imp::after_fork_child_imp_lock_release()
@@ -670,7 +766,7 @@ pub mod module {
         // Initialize signal handlers for the child's main thread.
         // When forked from a worker thread, the OnceCell is empty.
         vm.signal_handlers
-            .get_or_init(crate::signal::new_signal_handlers);
+            .get_or_init(crate::signal::SignalHandlers::default);
 
         // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
@@ -694,6 +790,7 @@ pub mod module {
             reinit_mutex_after_fork(&vm.state.atexit_funcs);
             reinit_mutex_after_fork(&vm.state.global_trace_func);
             reinit_mutex_after_fork(&vm.state.global_profile_func);
+            reinit_mutex_after_fork(&vm.state.type_mutex);
             reinit_mutex_after_fork(&vm.state.monitoring);
 
             // PyGlobalState parking_lot::Mutex locks
@@ -707,17 +804,67 @@ pub mod module {
             // Codec registry RwLock
             vm.state.codec_registry.reinit_after_fork();
 
-            // GC state (multiple Mutex + RwLock)
+            // GC state (multiple Mutex + RwLock), shared lists and this
+            // interpreter's own policy state.
             crate::gc_state::gc_state().reinit_after_fork();
+            vm.state.gc.reinit_after_fork();
 
             // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
             crate::stdlib::_imp::reinit_imp_lock_after_fork();
         }
     }
 
+    /// Repair every live interpreter other than the forking one after `fork()`.
+    ///
+    /// Only the forking thread survives, so each other interpreter is left with
+    /// slots for threads that no longer exist (still ATTACHED if they were
+    /// running bytecode) and possibly locks or stop-the-world flags held by
+    /// them. Since a collection stops all interpreters, that state would hang
+    /// the child's first collection.
+    ///
+    /// # Safety
+    /// Must only be called after `fork()` in the child, when no other threads exist.
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine) {
+        use rustpython_common::lock::reinit_mutex_after_fork;
+
+        for state in crate::vm::runtime::live_interpreter_states() {
+            if state.interpreter_id == vm.state.interpreter_id {
+                continue;
+            }
+
+            unsafe {
+                reinit_mutex_after_fork(&state.before_forkers);
+                reinit_mutex_after_fork(&state.after_forkers_child);
+                reinit_mutex_after_fork(&state.after_forkers_parent);
+                reinit_mutex_after_fork(&state.atexit_funcs);
+                reinit_mutex_after_fork(&state.global_trace_func);
+                reinit_mutex_after_fork(&state.global_profile_func);
+                reinit_mutex_after_fork(&state.type_mutex);
+                reinit_mutex_after_fork(&state.monitoring);
+                reinit_mutex_after_fork(&state.thread_frames);
+                reinit_mutex_after_fork(&state.thread_handles);
+                reinit_mutex_after_fork(&state.shutdown_handles);
+
+                state.codec_registry.reinit_after_fork();
+                state.gc.reinit_after_fork();
+            }
+
+            state.stop_the_world.reset_after_fork();
+
+            // Every thread registered here belongs to the parent, including any
+            // slot the forking thread itself registered before the fork.
+            state.thread_frames.lock().clear();
+            state.thread_handles.lock().clear();
+            state.shutdown_handles.lock().clear();
+        }
+
+        crate::vm::thread::purge_other_interpreter_slots_after_fork(vm.state.interpreter_id);
+    }
+
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.start_the_world(vm);
+        vm.state.stop_the_world.start_the_world(&vm.state);
 
         #[cfg(feature = "threading")]
         crate::stdlib::_imp::release_imp_lock_after_fork_parent();
@@ -791,12 +938,13 @@ pub mod module {
                 "can't fork at interpreter shutdown".into(),
             ));
         }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
 
-        // RustPython does not yet have C-level audit hooks; call sys.audit()
-        // to preserve Python-visible behavior and failure semantics.
-        vm.sys_module
-            .get_attr("audit", vm)?
-            .call(("os.fork",), vm)?;
+        vm.audit("os.fork", || ())?;
 
         py_os_before_fork(vm);
         let pid = rustpython_host_env::posix::fork();
@@ -807,15 +955,60 @@ pub mod module {
                 Ok(0)
             }
             Ok(pid) => {
-                // Match CPython timing: capture this before parent after-fork hooks
-                // in case those hooks start threads.
+                // Capture this before parent after-fork hooks in case those
+                // hooks start threads.
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
-                // Match CPython timing: warn only after parent callback path resumes world.
+                // Warn only after parent callback path resumes the world.
                 warn_if_multi_threaded("fork", num_os_threads, vm);
                 Ok(pid)
             }
-            Err(err) => Err(err.into_pyexception(vm)),
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn forkpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
+        if vm
+            .state
+            .finalizing
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            return Err(vm.new_exception_msg(
+                vm.ctx.exceptions.python_finalization_error.to_owned(),
+                "can't fork at interpreter shutdown".into(),
+            ));
+        }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
+
+        vm.audit("os.forkpty", || ())?;
+
+        py_os_before_fork(vm);
+        let result = rustpython_host_env::posix::forkpty();
+
+        match result {
+            Ok((0, master)) => {
+                py_os_after_fork_child(vm);
+                Ok((0, master))
+            }
+            Ok((pid, master)) => {
+                let num_os_threads = get_number_of_os_threads();
+                py_os_after_fork_parent(vm);
+                warn_if_multi_threaded("forkpty", num_os_threads, vm);
+                Ok((pid, master))
+            }
+            Err(err) => {
+                py_os_after_fork_parent(vm);
+                Err(err.into_pyexception(vm))
+            }
         }
     }
 
@@ -827,9 +1020,9 @@ pub mod module {
     struct MknodArgs<'fd> {
         #[pyarg(any)]
         path: OsPath,
-        #[pyarg(any)]
+        #[pyarg(any, default = 0o600)]
         mode: libc::mode_t,
-        #[pyarg(any)]
+        #[pyarg(any, default = 0)]
         device: libc::dev_t,
         #[pyarg(flatten)]
         dir_fd: DirFd<'fd, { MKNOD_DIR_FD as usize }>,
@@ -874,16 +1067,23 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct SchedPolicyArgs {
+        #[pyarg(any)]
+        policy: i32,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn sched_get_priority_max(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        rustpython_host_env::posix::sched_get_priority_max(policy)
+    fn sched_get_priority_max(policy: SchedPolicyArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        rustpython_host_env::posix::sched_get_priority_max(policy.policy)
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn sched_get_priority_min(policy: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        rustpython_host_env::posix::sched_get_priority_min(policy)
+    fn sched_get_priority_min(policy: SchedPolicyArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        rustpython_host_env::posix::sched_get_priority_min(policy.policy)
             .map_err(|err| err.into_pyexception(vm))
     }
 
@@ -914,6 +1114,55 @@ pub mod module {
     }
 
     #[pyfunction]
+    fn pread(
+        fd: i32,
+        length: PySsize,
+        offset: libc::off_t,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
+        let (fd, n, offset) = (fd, length, offset);
+        if n < 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL).into_pyexception(vm));
+        }
+        let mut buffer = vm.new_zeroed_bytes(n as usize)?;
+        loop {
+            match vm.allow_threads(|| rustpython_host_env::posix::pread(fd, &mut buffer, offset)) {
+                Ok(n) => {
+                    buffer.truncate(n);
+                    return Ok(vm.ctx.new_bytes(buffer));
+                }
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn pwrite(
+        fd: i32,
+        buffer: ArgBytesLike,
+        offset: libc::off_t,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        // Avoid holding a buffer lock across blocking I/O,
+        // which can prevent other threads from reaching GC safepoints.
+        let data = buffer.borrow_buf_unlocked(vm)?;
+        loop {
+            match vm.allow_threads(|| rustpython_host_env::posix::pwrite(fd, &data, offset)) {
+                Ok(n) => return Ok(n),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
+    #[pyfunction]
     fn pipe(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         rustpython_host_env::posix::pipe().map_err(|err| err.into_pyexception(vm))
     }
@@ -941,6 +1190,32 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
+        #[cfg(all(
+            unix,
+            not(target_os = "redox"),
+            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
+        ))]
+        if !follow_symlinks.0 {
+            let err_path = path.clone();
+            let c_path = path.into_cstring(vm)?;
+            return rustpython_host_env::posix::fchmodat(
+                libc::AT_FDCWD,
+                &c_path,
+                mode as libc::mode_t,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+            .map_err(|err| {
+                let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
+                    || err.raw_os_error() == Some(libc::ENOTSUP);
+                if enotsup {
+                    vm.new_not_implemented_error(
+                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                    )
+                } else {
+                    OSErrorBuilder::with_filename(&err, err_path, vm)
+                }
+            });
+        }
         let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
@@ -970,7 +1245,7 @@ pub mod module {
             OsPathOrFd::Path(path) => {
                 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
                 if !follow_symlinks.0 && dir_fd == Default::default() {
-                    return lchmod(path, mode, vm);
+                    return lchmod(LchmodArgs { path, mode }, vm);
                 }
                 _chmod(path, dir_fd, mode, follow_symlinks, vm)
             }
@@ -991,14 +1266,33 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
+    struct FchmodArgs<'a> {
+        #[pyarg(any)]
+        fd: BorrowedFd<'a>,
+        #[pyarg(any)]
+        mode: u32,
+    }
+
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchmod(fd: BorrowedFd<'_>, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        _fchmod(fd, mode, vm)
+    fn fchmod(args: FchmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        _fchmod(args.fd, args.mode, vm)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
+    #[derive(FromArgs)]
+    struct LchmodArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any)]
+        mode: u32,
     }
 
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
     #[pyfunction]
-    fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchmod(args: LchmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let LchmodArgs { path, mode } = args;
         let c_path = path.clone().into_cstring(vm)?;
         rustpython_host_env::posix::lchmod(&c_path, mode as libc::mode_t)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
@@ -1010,6 +1304,11 @@ pub mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1027,13 +1326,24 @@ pub mod module {
         rustpython_host_env::posix::execv(&path, &argv).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn execve(
+    #[derive(FromArgs)]
+    struct ExecveArgs {
+        #[pyarg(any)]
         path: OsPath,
+        #[pyarg(any)]
         argv: Either<PyListRef, PyTupleRef>,
+        #[pyarg(any)]
         env: ArgMapping,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    }
+
+    #[pyfunction]
+    fn execve(args: ExecveArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let ExecveArgs { path, argv, env } = args;
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1095,8 +1405,15 @@ pub mod module {
         vm.ctx.new_int(egid).into()
     }
 
+    #[derive(FromArgs)]
+    struct GetPgidArgs {
+        #[pyarg(any)]
+        pid: u32,
+    }
+
     #[pyfunction]
-    fn getpgid(pid: u32, vm: &VirtualMachine) -> PyResult {
+    fn getpgid(pid: GetPgidArgs, vm: &VirtualMachine) -> PyResult {
+        let pid = pid.pid;
         let pgid = rustpython_host_env::posix::getpgid(pid).map_err(|e| e.into_pyexception(vm))?;
         Ok(vm.new_pyobj(pgid))
     }
@@ -1138,8 +1455,8 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn setpgid(pid: u32, pgid: u32, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::posix::setpgid(pid, pgid).map_err(|err| err.into_pyexception(vm))
+    fn setpgid(pid: u32, pgrp: u32, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::setpgid(pid, pgrp).map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1170,7 +1487,7 @@ pub mod module {
         rustpython_host_env::posix::tcsetpgrp(fd, pgid).map_err(|err| err.into_pyexception(vm))
     }
 
-    fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+    fn try_from_id(vm: &VirtualMachine, obj: &PyObject, typ_name: &str) -> PyResult<u32> {
         use core::cmp::Ordering;
         let i = obj
             .try_to_ref::<PyInt>(vm)
@@ -1204,13 +1521,13 @@ pub mod module {
 
     impl TryFromObject for RawUid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "uid").map(Self)
+            try_from_id(vm, &obj, "uid").map(Self)
         }
     }
 
     impl TryFromObject for RawGid {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            try_from_id(vm, obj, "gid").map(Self)
+            try_from_id(vm, &obj, "gid").map(Self)
         }
     }
 
@@ -1245,6 +1562,13 @@ pub mod module {
             .map_err(|err| err.into_pyexception(vm))
     }
 
+    #[cfg(not(target_os = "wasi"))]
+    #[pyfunction]
+    fn login_tty(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::login_tty(fd.as_raw_fd())
+            .map_err(|err| err.into_pyexception(vm))
+    }
+
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn openpty(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
@@ -1265,8 +1589,20 @@ pub mod module {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
-        let info = rustpython_host_env::posix::uname_info()
-            .map_err(|err| vm.new_unicode_decode_error(err.to_string()))?;
+        let info = rustpython_host_env::posix::uname_info().map_err(|err| {
+            let start = err.error.valid_up_to();
+            let end = err
+                .error
+                .error_len()
+                .map_or(err.bytes.len(), |len| start + len);
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(err.bytes),
+                start,
+                end,
+                vm.ctx.new_str(err.error.to_string()),
+            )
+        })?;
         Ok(_os::UnameResultData {
             sysname: info.sysname,
             nodename: info.nodename,
@@ -1313,22 +1649,21 @@ pub mod module {
     // cfg from nix
     #[cfg(any(target_os = "freebsd", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
-    fn initgroups(user_name: PyUtf8StrRef, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
-        let user = user_name.to_cstring(vm)?;
+    fn initgroups(username: PyUtf8StrRef, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
+        let user = username.to_cstring(vm)?;
         rustpython_host_env::posix::initgroups(&user, gid.0).map_err(|err| err.into_pyexception(vm))
     }
 
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(
-        group_ids: crate::function::ArgIterable<RawGid>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let gids = group_ids
-            .iter(vm)?
-            .map(|gid| gid.map(|gid| gid.0))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn setgroups(groups: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        groups
+            .try_sequence(vm)
+            .map_err(|_| vm.new_type_error("setgroups argument must be a sequence"))?;
+        let gids = vm.extract_elements_with(&groups, |gid| {
+            RawGid::try_from_object(vm, gid).map(|gid| gid.0)
+        })?;
         rustpython_host_env::posix::setgroups_raw(&gids).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1388,23 +1723,23 @@ pub mod module {
         #[pyarg(positional)]
         path: OsPath,
         #[pyarg(positional)]
-        args: crate::function::ArgIterable<OsPath>,
+        argv: PyObjectRef,
         #[pyarg(positional)]
         env: Option<crate::function::ArgMapping>,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
-        #[pyarg(named, default)]
-        setsigdef: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
+        #[pyarg(named, optional)]
         setpgroup: Option<libc::pid_t>,
         #[pyarg(named, default)]
         resetids: bool,
         #[pyarg(named, default)]
         setsid: bool,
-        #[pyarg(named, default)]
+        #[pyarg(named, default, py_default = "()")]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
-        #[pyarg(named, default)]
-        scheduler: Option<PyTupleRef>,
+        #[pyarg(named, default, py_default = "()")]
+        setsigdef: Option<crate::function::ArgIterable<i32>>,
+        #[pyarg(named, optional)]
+        scheduler: Option<PyObjectRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1414,6 +1749,58 @@ pub mod module {
         Open,
         Close,
         Dup2,
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<rustpython_host_env::posix::PosixSpawnScheduler>> {
+        let Some(obj) = scheduler else {
+            return Ok(None);
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(None);
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.as_slice().len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        let policy = if tuple.as_slice()[0].is(&vm.ctx.none()) {
+            None
+        } else {
+            Some(i32::try_from_object(vm, tuple.as_slice()[0].clone())?)
+        };
+        let param = super::posix_sched::convert_sched_param(&tuple.as_slice()[1], vm)?;
+        Ok(Some(rustpython_host_env::posix::PosixSpawnScheduler {
+            policy,
+            param,
+        }))
+    }
+
+    #[cfg(any(target_os = "macos", target_env = "musl"))]
+    fn parse_posix_spawn_scheduler(
+        scheduler: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let Some(obj) = scheduler else {
+            return Ok(());
+        };
+        if obj.is(&vm.ctx.none()) {
+            return Ok(());
+        }
+        let Some(tuple) = obj.downcast_ref::<PyTuple>() else {
+            return Err(vm.new_type_error("scheduler must be a tuple or None"));
+        };
+        if tuple.as_slice().len() != 2 {
+            return Err(vm.new_type_error("A scheduler tuple must have two elements"));
+        }
+        Err(vm.new_not_implemented_error("The scheduler option is not supported in this system."))
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1427,11 +1814,24 @@ pub mod module {
                 .into_cstring(vm)
                 .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
 
+            let function_name = if spawnp {
+                "posix_spawnp"
+            } else {
+                "posix_spawn"
+            };
+            if !self.argv.fast_isinstance(vm.ctx.types.list_type)
+                && !self.argv.fast_isinstance(vm.ctx.types.tuple_type)
+            {
+                return Err(
+                    vm.new_type_error(format!("{function_name}: argv must be a tuple or list"))
+                );
+            }
+
             let mut file_actions = Vec::new();
             if let Some(it) = self.file_actions {
                 for action in it.iter(vm)? {
                     let action = action?;
-                    let (id, args) = action.split_first().ok_or_else(|| {
+                    let (id, args) = action.as_slice().split_first().ok_or_else(|| {
                         vm.new_type_error("Each file_actions element must be a non-empty tuple")
                     })?;
                     let id = i32::try_from_borrowed_object(vm, id)?;
@@ -1466,28 +1866,29 @@ pub mod module {
                 }
             }
 
-            let setsigdef = self
-                .setsigdef
-                .map(|sigs| {
-                    let sigs = sigs.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-                    for &sig in &sigs {
-                        if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
-                            return Err(
-                                vm.new_value_error(format!("signal number {sig} out of range"))
-                            );
-                        }
+            let collect_signals = |sigs: crate::function::ArgIterable<i32>| {
+                let mut collected = Vec::new();
+                for sig in sigs.iter(vm)? {
+                    let sig = sig?;
+                    if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
+                        return Err(vm.new_value_error(format!("signal number {sig} out of range")));
                     }
-                    Ok(sigs)
-                })
-                .transpose()?;
+                    if !collected.contains(&sig) {
+                        collected.push(sig);
+                    }
+                }
+                Ok(collected)
+            };
 
-            if let Some(_scheduler) = self.scheduler {
-                // TODO: Implement scheduler parameter handling
-                // This requires platform-specific sched_param struct handling
-                return Err(
-                    vm.new_not_implemented_error("scheduler parameter is not yet implemented")
-                );
-            }
+            let setsigdef = self.setsigdef.map(collect_signals).transpose()?;
+
+            #[cfg(all(
+                any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                not(target_env = "musl")
+            ))]
+            let scheduler = parse_posix_spawn_scheduler(self.scheduler, vm)?;
+            #[cfg(any(target_os = "macos", target_env = "musl"))]
+            parse_posix_spawn_scheduler(self.scheduler, vm)?;
 
             if self.setsid && !rustpython_host_env::posix::supports_posix_spawn_setsid() {
                 return Err(vm.new_not_implemented_error(
@@ -1495,29 +1896,12 @@ pub mod module {
                 ));
             }
 
-            let setsigmask = self
-                .setsigmask
-                .map(|sigs| {
-                    let sigs = sigs.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-                    for &sig in &sigs {
-                        if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
-                            return Err(
-                                vm.new_value_error(format!("signal number {sig} out of range"))
-                            );
-                        }
-                    }
-                    Ok(sigs)
-                })
-                .transpose()?;
+            let setsigmask = self.setsigmask.map(collect_signals).transpose()?;
 
-            let args: Vec<CString> = self
-                .args
-                .iter(vm)?
-                .map(|res| {
-                    CString::new(res?.into_bytes())
-                        .map_err(|_| vm.new_value_error("path should not have nul bytes"))
-                })
-                .collect::<Result<_, _>>()?;
+            let args = vm.extract_elements_with(&self.argv, |arg| {
+                CString::new(OsPath::try_from_object(vm, arg)?.into_bytes())
+                    .map_err(|_| vm.new_value_error("path should not have nul bytes"))
+            })?;
             let env = if let Some(env_dict) = self.env {
                 envp_from_dict(env_dict, vm)?
             } else {
@@ -1546,6 +1930,11 @@ pub mod module {
                 setsid: self.setsid,
                 setsigmask: setsigmask.as_deref(),
                 spawnp,
+                #[cfg(all(
+                    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+                    not(target_env = "musl")
+                ))]
+                scheduler,
             })
             .map_err(|err| OSErrorBuilder::with_filename(&err, self.path, vm))
         }
@@ -1563,44 +1952,50 @@ pub mod module {
         args.spawn(true, vm)
     }
 
+    #[derive(FromArgs)]
+    struct StatusArg {
+        #[pyarg(any)]
+        status: i32,
+    }
+
     #[pyfunction(name = "WCOREDUMP")]
     fn wcoredump(status: i32) -> bool {
         rustpython_host_env::posix::wcoredump(status)
     }
 
     #[pyfunction(name = "WIFCONTINUED")]
-    fn wifcontinued(status: i32) -> bool {
-        rustpython_host_env::posix::wifcontinued(status)
+    fn wifcontinued(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifcontinued(status.status)
     }
 
     #[pyfunction(name = "WIFSTOPPED")]
-    fn wifstopped(status: i32) -> bool {
-        rustpython_host_env::posix::wifstopped(status)
+    fn wifstopped(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifstopped(status.status)
     }
 
     #[pyfunction(name = "WIFSIGNALED")]
-    fn wifsignaled(status: i32) -> bool {
-        rustpython_host_env::posix::wifsignaled(status)
+    fn wifsignaled(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifsignaled(status.status)
     }
 
     #[pyfunction(name = "WIFEXITED")]
-    fn wifexited(status: i32) -> bool {
-        rustpython_host_env::posix::wifexited(status)
+    fn wifexited(status: StatusArg) -> bool {
+        rustpython_host_env::posix::wifexited(status.status)
     }
 
     #[pyfunction(name = "WEXITSTATUS")]
-    fn wexitstatus(status: i32) -> i32 {
-        rustpython_host_env::posix::wexitstatus(status)
+    fn wexitstatus(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wexitstatus(status.status)
     }
 
     #[pyfunction(name = "WSTOPSIG")]
-    fn wstopsig(status: i32) -> i32 {
-        rustpython_host_env::posix::wstopsig(status)
+    fn wstopsig(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wstopsig(status.status)
     }
 
     #[pyfunction(name = "WTERMSIG")]
-    fn wtermsig(status: i32) -> i32 {
-        rustpython_host_env::posix::wtermsig(status)
+    fn wtermsig(status: StatusArg) -> i32 {
+        rustpython_host_env::posix::wtermsig(status.status)
     }
 
     #[cfg(target_os = "linux")]
@@ -1615,11 +2010,15 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn waitpid(pid: libc::pid_t, opt: i32, vm: &VirtualMachine) -> PyResult<(libc::pid_t, i32)> {
+    fn waitpid(
+        pid: libc::pid_t,
+        options: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<(libc::pid_t, i32)> {
         let mut status = 0;
         loop {
             let res =
-                vm.allow_threads(|| rustpython_host_env::posix::waitpid(pid, &mut status, opt));
+                vm.allow_threads(|| rustpython_host_env::posix::waitpid(pid, &mut status, options));
             match res {
                 Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
                     vm.check_signals()?;
@@ -1636,9 +2035,91 @@ pub mod module {
         waitpid(-1, 0, vm)
     }
 
+    fn rusage_to_py(
+        ru: rustpython_host_env::resource::RUsage,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let resource = vm.import("resource", 0)?;
+        let struct_rusage = resource.get_attr("struct_rusage", vm)?;
+        let tv = |t: rustpython_host_env::resource::timeval| {
+            t.tv_sec as f64 + (t.tv_usec as f64 / 1_000_000.0)
+        };
+        let fields = vm.ctx.new_tuple(vec![
+            vm.ctx.new_float(tv(ru.ru_utime)).into(),
+            vm.ctx.new_float(tv(ru.ru_stime)).into(),
+            vm.ctx.new_int(ru.ru_maxrss).into(),
+            vm.ctx.new_int(ru.ru_ixrss).into(),
+            vm.ctx.new_int(ru.ru_idrss).into(),
+            vm.ctx.new_int(ru.ru_isrss).into(),
+            vm.ctx.new_int(ru.ru_minflt).into(),
+            vm.ctx.new_int(ru.ru_majflt).into(),
+            vm.ctx.new_int(ru.ru_nswap).into(),
+            vm.ctx.new_int(ru.ru_inblock).into(),
+            vm.ctx.new_int(ru.ru_oublock).into(),
+            vm.ctx.new_int(ru.ru_msgsnd).into(),
+            vm.ctx.new_int(ru.ru_msgrcv).into(),
+            vm.ctx.new_int(ru.ru_nsignals).into(),
+            vm.ctx.new_int(ru.ru_nvcsw).into(),
+            vm.ctx.new_int(ru.ru_nivcsw).into(),
+        ]);
+        struct_rusage.call((fields,), vm)
+    }
+
+    fn wait_with_rusage<F>(vm: &VirtualMachine, wait: F) -> PyResult<PyTupleRef>
+    where
+        F: Fn() -> std::io::Result<(libc::pid_t, i32, rustpython_host_env::resource::RUsage)>,
+    {
+        loop {
+            match vm.allow_threads(&wait) {
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                    vm.check_signals()?;
+                    continue;
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+                Ok((pid, status, ru)) => {
+                    let rusage = rusage_to_py(ru, vm)?;
+                    return Ok(vm.new_tuple((pid, status, rusage)));
+                }
+            }
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct Wait3Args {
+        #[pyarg(any)]
+        options: i32,
+    }
+
     #[pyfunction]
-    fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        rustpython_host_env::posix::kill(pid, sig as i32).map_err(|err| err.into_pyexception(vm))
+    fn wait3(options: Wait3Args, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let options = options.options;
+        wait_with_rusage(vm, || rustpython_host_env::posix::wait3(options))
+    }
+
+    #[derive(FromArgs)]
+    struct Wait4Args {
+        #[pyarg(any)]
+        pid: libc::pid_t,
+        #[pyarg(any)]
+        options: i32,
+    }
+
+    #[pyfunction]
+    fn wait4(args: Wait4Args, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        wait_with_rusage(vm, || {
+            rustpython_host_env::posix::wait4(args.pid, args.options)
+        })
+    }
+
+    #[pyfunction]
+    fn kill(pid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::kill(pid, signal as i32).map_err(|err| err.into_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn killpg(pgid: i32, signal: isize, vm: &VirtualMachine) -> PyResult<()> {
+        rustpython_host_env::posix::killpg(pgid, signal as i32)
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pyfunction]
@@ -1667,9 +2148,9 @@ pub mod module {
 
     #[derive(FromArgs)]
     struct Dup2Args<'fd> {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd: BorrowedFd<'fd>,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         fd2: OwnedFd,
         #[pyarg(any, default = true)]
         inheritable: bool,
@@ -1719,10 +2200,16 @@ pub mod module {
         let Some(login) = rustpython_host_env::posix::getlogin() else {
             return Err(vm.new_os_error("unable to determine login name"));
         };
-        login
-            .to_str()
-            .map(|s| s.to_owned())
-            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {e}")))
+        login.to_str().map(|s| s.to_owned()).map_err(|e| {
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(login.as_bytes().to_vec()),
+                e.valid_up_to(),
+                e.error_len()
+                    .map_or(login.as_bytes().len(), |n| e.valid_up_to() + n),
+                vm.ctx.new_str("unable to decode login name"),
+            )
+        })
     }
 
     // cfg from nix
@@ -1745,25 +2232,42 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn getpriority(
+    #[derive(FromArgs)]
+    struct GetPriorityArgs {
+        #[pyarg(any)]
         which: rustpython_host_env::posix::PriorityWhichType,
+        #[pyarg(any)]
         who: rustpython_host_env::posix::PriorityWhoType,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn getpriority(args: GetPriorityArgs, vm: &VirtualMachine) -> PyResult {
+        let GetPriorityArgs { which, who } = args;
         rustpython_host_env::posix::getpriority(which, who)
             .map(|retval| vm.ctx.new_int(retval).into())
             .map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn setpriority(
+    #[derive(FromArgs)]
+    struct SetPriorityArgs {
+        #[pyarg(any)]
         which: rustpython_host_env::posix::PriorityWhichType,
+        #[pyarg(any)]
         who: rustpython_host_env::posix::PriorityWhoType,
+        #[pyarg(any)]
         priority: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn setpriority(args: SetPriorityArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let SetPriorityArgs {
+            which,
+            who,
+            priority,
+        } = args;
         rustpython_host_env::posix::setpriority(which, who, priority)
             .map_err(|err| err.into_pyexception(vm))
     }
@@ -1803,26 +2307,26 @@ pub mod module {
         ))]
         /// Minimum number of bits needed to represent, as a signed integer value,
         /// the maximum size of a regular file allowed in the specified directory.
-        PC_FILESIZEBITS = libc::_PC_FILESIZEBITS,
+        PC_FILESIZEBITS = host_posix::_PC_FILESIZEBITS,
         /// Maximum number of links to a single file.
-        PC_LINK_MAX = libc::_PC_LINK_MAX,
+        PC_LINK_MAX = host_posix::_PC_LINK_MAX,
         /// Maximum number of bytes in a terminal canonical input line.
-        PC_MAX_CANON = libc::_PC_MAX_CANON,
+        PC_MAX_CANON = host_posix::_PC_MAX_CANON,
         /// Minimum number of bytes for which space is available in a terminal input
         /// queue; therefore, the maximum number of bytes a conforming application
         /// may require to be typed as input before reading them.
-        PC_MAX_INPUT = libc::_PC_MAX_INPUT,
+        PC_MAX_INPUT = host_posix::_PC_MAX_INPUT,
         /// Maximum number of bytes in a filename (not including the terminating
         /// null of a filename string).
-        PC_NAME_MAX = libc::_PC_NAME_MAX,
+        PC_NAME_MAX = host_posix::_PC_NAME_MAX,
         /// Maximum number of bytes the implementation will store as a pathname in a
         /// user-supplied buffer of unspecified size, including the terminating null
         /// character. Minimum number the implementation will accept as the maximum
         /// number of bytes in a pathname.
-        PC_PATH_MAX = libc::_PC_PATH_MAX,
+        PC_PATH_MAX = host_posix::_PC_PATH_MAX,
         /// Maximum number of bytes that is guaranteed to be atomic when writing to
         /// a pipe.
-        PC_PIPE_BUF = libc::_PC_PIPE_BUF,
+        PC_PIPE_BUF = host_posix::_PC_PIPE_BUF,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1834,7 +2338,7 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Symbolic links can be created.
-        PC_2_SYMLINKS = libc::_PC_2_SYMLINKS,
+        PC_2_SYMLINKS = host_posix::_PC_2_SYMLINKS,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1845,7 +2349,7 @@ pub mod module {
         ))]
         /// Minimum number of bytes of storage actually allocated for any portion of
         /// a file.
-        PC_ALLOC_SIZE_MIN = libc::_PC_ALLOC_SIZE_MIN,
+        PC_ALLOC_SIZE_MIN = host_posix::_PC_ALLOC_SIZE_MIN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1855,7 +2359,7 @@ pub mod module {
         ))]
         /// Recommended increment for file transfer sizes between the
         /// `POSIX_REC_MIN_XFER_SIZE` and `POSIX_REC_MAX_XFER_SIZE` values.
-        PC_REC_INCR_XFER_SIZE = libc::_PC_REC_INCR_XFER_SIZE,
+        PC_REC_INCR_XFER_SIZE = host_posix::_PC_REC_INCR_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1865,7 +2369,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Maximum recommended file transfer size.
-        PC_REC_MAX_XFER_SIZE = libc::_PC_REC_MAX_XFER_SIZE,
+        PC_REC_MAX_XFER_SIZE = host_posix::_PC_REC_MAX_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1875,7 +2379,7 @@ pub mod module {
             target_os = "redox"
         ))]
         /// Minimum recommended file transfer size.
-        PC_REC_MIN_XFER_SIZE = libc::_PC_REC_MIN_XFER_SIZE,
+        PC_REC_MIN_XFER_SIZE = host_posix::_PC_REC_MIN_XFER_SIZE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1885,7 +2389,7 @@ pub mod module {
             target_os = "redox"
         ))]
         ///  Recommended file transfer buffer alignment.
-        PC_REC_XFER_ALIGN = libc::_PC_REC_XFER_ALIGN,
+        PC_REC_XFER_ALIGN = host_posix::_PC_REC_XFER_ALIGN,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1898,17 +2402,17 @@ pub mod module {
             target_os = "solaris"
         ))]
         /// Maximum number of bytes in a symbolic link.
-        PC_SYMLINK_MAX = libc::_PC_SYMLINK_MAX,
+        PC_SYMLINK_MAX = host_posix::_PC_SYMLINK_MAX,
         /// The use of `chown` and `fchown` is restricted to a process with
         /// appropriate privileges, and to changing the group ID of a file only to
         /// the effective group ID of the process or to one of its supplementary
         /// group IDs.
-        PC_CHOWN_RESTRICTED = libc::_PC_CHOWN_RESTRICTED,
+        PC_CHOWN_RESTRICTED = host_posix::_PC_CHOWN_RESTRICTED,
         /// Pathname components longer than {NAME_MAX} generate an error.
-        PC_NO_TRUNC = libc::_PC_NO_TRUNC,
+        PC_NO_TRUNC = host_posix::_PC_NO_TRUNC,
         /// This symbol shall be defined to be the value of a character that shall
         /// disable terminal special character handling.
-        PC_VDISABLE = libc::_PC_VDISABLE,
+        PC_VDISABLE = host_posix::_PC_VDISABLE,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1921,7 +2425,7 @@ pub mod module {
         ))]
         /// Asynchronous input or output operations may be performed for the
         /// associated file.
-        PC_ASYNC_IO = libc::_PC_ASYNC_IO,
+        PC_ASYNC_IO = host_posix::_PC_ASYNC_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1934,7 +2438,7 @@ pub mod module {
         ))]
         /// Prioritized input or output operations may be performed for the
         /// associated file.
-        PC_PRIO_IO = libc::_PC_PRIO_IO,
+        PC_PRIO_IO = host_posix::_PC_PRIO_IO,
         #[cfg(any(
             target_os = "android",
             target_os = "dragonfly",
@@ -1948,17 +2452,28 @@ pub mod module {
         ))]
         /// Synchronized input or output operations may be performed for the
         /// associated file.
-        PC_SYNC_IO = libc::_PC_SYNC_IO,
+        PC_SYNC_IO = host_posix::_PC_SYNC_IO,
         #[cfg(any(target_os = "dragonfly", target_os = "openbsd"))]
         /// The resolution in nanoseconds for all file timestamps.
-        PC_TIMESTAMP_RESOLUTION = libc::_PC_TIMESTAMP_RESOLUTION,
+        PC_TIMESTAMP_RESOLUTION = host_posix::_PC_TIMESTAMP_RESOLUTION,
+    }
+
+    #[cfg(unix)]
+    #[derive(FromArgs)]
+    struct PathconfArgs {
+        #[pyarg(any)]
+        path: OsPathOrFd<'static>,
+        #[pyarg(any)]
+        name: PathconfName,
     }
 
     #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: OsPathOrFd<'_>,
-        PathconfName(name): PathconfName,
+        PathconfArgs {
+            path,
+            name: PathconfName(name),
+        }: PathconfArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         match &path {
@@ -1978,7 +2493,12 @@ pub mod module {
         name: PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        pathconf(OsPathOrFd::Fd(fd.into()), name, vm)
+        let path = OsPathOrFd::Fd(fd.into());
+        let OsPathOrFd::Fd(fd) = &path else {
+            unreachable!()
+        };
+        rustpython_host_env::posix::fpathconf(fd.as_raw(), name.0)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyattr]
@@ -2001,124 +2521,124 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_2_CHAR_TERM = libc::_SC_2_CHAR_TERM,
-        SC_2_C_BIND = libc::_SC_2_C_BIND,
-        SC_2_C_DEV = libc::_SC_2_C_DEV,
-        SC_2_FORT_DEV = libc::_SC_2_FORT_DEV,
-        SC_2_FORT_RUN = libc::_SC_2_FORT_RUN,
-        SC_2_LOCALEDEF = libc::_SC_2_LOCALEDEF,
-        SC_2_SW_DEV = libc::_SC_2_SW_DEV,
-        SC_2_UPE = libc::_SC_2_UPE,
-        SC_2_VERSION = libc::_SC_2_VERSION,
-        SC_AIO_LISTIO_MAX = libc::_SC_AIO_LISTIO_MAX,
-        SC_AIO_MAX = libc::_SC_AIO_MAX,
-        SC_AIO_PRIO_DELTA_MAX = libc::_SC_AIO_PRIO_DELTA_MAX,
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_ASYNCHRONOUS_IO = libc::_SC_ASYNCHRONOUS_IO,
-        SC_ATEXIT_MAX = libc::_SC_ATEXIT_MAX,
-        SC_BC_BASE_MAX = libc::_SC_BC_BASE_MAX,
-        SC_BC_DIM_MAX = libc::_SC_BC_DIM_MAX,
-        SC_BC_SCALE_MAX = libc::_SC_BC_SCALE_MAX,
-        SC_BC_STRING_MAX = libc::_SC_BC_STRING_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_COLL_WEIGHTS_MAX = libc::_SC_COLL_WEIGHTS_MAX,
-        SC_DELAYTIMER_MAX = libc::_SC_DELAYTIMER_MAX,
-        SC_EXPR_NEST_MAX = libc::_SC_EXPR_NEST_MAX,
-        SC_FSYNC = libc::_SC_FSYNC,
-        SC_GETGR_R_SIZE_MAX = libc::_SC_GETGR_R_SIZE_MAX,
-        SC_GETPW_R_SIZE_MAX = libc::_SC_GETPW_R_SIZE_MAX,
-        SC_IOV_MAX = libc::_SC_IOV_MAX,
-        SC_JOB_CONTROL = libc::_SC_JOB_CONTROL,
-        SC_LINE_MAX = libc::_SC_LINE_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_MAPPED_FILES = libc::_SC_MAPPED_FILES,
-        SC_MEMLOCK = libc::_SC_MEMLOCK,
-        SC_MEMLOCK_RANGE = libc::_SC_MEMLOCK_RANGE,
-        SC_MEMORY_PROTECTION = libc::_SC_MEMORY_PROTECTION,
-        SC_MESSAGE_PASSING = libc::_SC_MESSAGE_PASSING,
-        SC_MQ_OPEN_MAX = libc::_SC_MQ_OPEN_MAX,
-        SC_MQ_PRIO_MAX = libc::_SC_MQ_PRIO_MAX,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_NPROCESSORS_CONF = libc::_SC_NPROCESSORS_CONF,
-        SC_NPROCESSORS_ONLN = libc::_SC_NPROCESSORS_ONLN,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
+        SC_2_CHAR_TERM = host_posix::_SC_2_CHAR_TERM,
+        SC_2_C_BIND = host_posix::_SC_2_C_BIND,
+        SC_2_C_DEV = host_posix::_SC_2_C_DEV,
+        SC_2_FORT_DEV = host_posix::_SC_2_FORT_DEV,
+        SC_2_FORT_RUN = host_posix::_SC_2_FORT_RUN,
+        SC_2_LOCALEDEF = host_posix::_SC_2_LOCALEDEF,
+        SC_2_SW_DEV = host_posix::_SC_2_SW_DEV,
+        SC_2_UPE = host_posix::_SC_2_UPE,
+        SC_2_VERSION = host_posix::_SC_2_VERSION,
+        SC_AIO_LISTIO_MAX = host_posix::_SC_AIO_LISTIO_MAX,
+        SC_AIO_MAX = host_posix::_SC_AIO_MAX,
+        SC_AIO_PRIO_DELTA_MAX = host_posix::_SC_AIO_PRIO_DELTA_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_ASYNCHRONOUS_IO = host_posix::_SC_ASYNCHRONOUS_IO,
+        SC_ATEXIT_MAX = host_posix::_SC_ATEXIT_MAX,
+        SC_BC_BASE_MAX = host_posix::_SC_BC_BASE_MAX,
+        SC_BC_DIM_MAX = host_posix::_SC_BC_DIM_MAX,
+        SC_BC_SCALE_MAX = host_posix::_SC_BC_SCALE_MAX,
+        SC_BC_STRING_MAX = host_posix::_SC_BC_STRING_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_COLL_WEIGHTS_MAX = host_posix::_SC_COLL_WEIGHTS_MAX,
+        SC_DELAYTIMER_MAX = host_posix::_SC_DELAYTIMER_MAX,
+        SC_EXPR_NEST_MAX = host_posix::_SC_EXPR_NEST_MAX,
+        SC_FSYNC = host_posix::_SC_FSYNC,
+        SC_GETGR_R_SIZE_MAX = host_posix::_SC_GETGR_R_SIZE_MAX,
+        SC_GETPW_R_SIZE_MAX = host_posix::_SC_GETPW_R_SIZE_MAX,
+        SC_IOV_MAX = host_posix::_SC_IOV_MAX,
+        SC_JOB_CONTROL = host_posix::_SC_JOB_CONTROL,
+        SC_LINE_MAX = host_posix::_SC_LINE_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_MAPPED_FILES = host_posix::_SC_MAPPED_FILES,
+        SC_MEMLOCK = host_posix::_SC_MEMLOCK,
+        SC_MEMLOCK_RANGE = host_posix::_SC_MEMLOCK_RANGE,
+        SC_MEMORY_PROTECTION = host_posix::_SC_MEMORY_PROTECTION,
+        SC_MESSAGE_PASSING = host_posix::_SC_MESSAGE_PASSING,
+        SC_MQ_OPEN_MAX = host_posix::_SC_MQ_OPEN_MAX,
+        SC_MQ_PRIO_MAX = host_posix::_SC_MQ_PRIO_MAX,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_NPROCESSORS_CONF = host_posix::_SC_NPROCESSORS_CONF,
+        SC_NPROCESSORS_ONLN = host_posix::_SC_NPROCESSORS_ONLN,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_PASS_MAX = libc::_SC_PASS_MAX,
-        SC_PHYS_PAGES = libc::_SC_PHYS_PAGES,
-        SC_PRIORITIZED_IO = libc::_SC_PRIORITIZED_IO,
-        SC_PRIORITY_SCHEDULING = libc::_SC_PRIORITY_SCHEDULING,
-        SC_REALTIME_SIGNALS = libc::_SC_REALTIME_SIGNALS,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_RTSIG_MAX = libc::_SC_RTSIG_MAX,
-        SC_SAVED_IDS = libc::_SC_SAVED_IDS,
-        SC_SEMAPHORES = libc::_SC_SEMAPHORES,
-        SC_SEM_NSEMS_MAX = libc::_SC_SEM_NSEMS_MAX,
-        SC_SEM_VALUE_MAX = libc::_SC_SEM_VALUE_MAX,
-        SC_SHARED_MEMORY_OBJECTS = libc::_SC_SHARED_MEMORY_OBJECTS,
-        SC_SIGQUEUE_MAX = libc::_SC_SIGQUEUE_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_SYNCHRONIZED_IO = libc::_SC_SYNCHRONIZED_IO,
-        SC_THREADS = libc::_SC_THREADS,
-        SC_THREAD_ATTR_STACKADDR = libc::_SC_THREAD_ATTR_STACKADDR,
-        SC_THREAD_ATTR_STACKSIZE = libc::_SC_THREAD_ATTR_STACKSIZE,
-        SC_THREAD_DESTRUCTOR_ITERATIONS = libc::_SC_THREAD_DESTRUCTOR_ITERATIONS,
-        SC_THREAD_KEYS_MAX = libc::_SC_THREAD_KEYS_MAX,
-        SC_THREAD_PRIORITY_SCHEDULING = libc::_SC_THREAD_PRIORITY_SCHEDULING,
-        SC_THREAD_PRIO_INHERIT = libc::_SC_THREAD_PRIO_INHERIT,
-        SC_THREAD_PRIO_PROTECT = libc::_SC_THREAD_PRIO_PROTECT,
-        SC_THREAD_PROCESS_SHARED = libc::_SC_THREAD_PROCESS_SHARED,
-        SC_THREAD_SAFE_FUNCTIONS = libc::_SC_THREAD_SAFE_FUNCTIONS,
-        SC_THREAD_STACK_MIN = libc::_SC_THREAD_STACK_MIN,
-        SC_THREAD_THREADS_MAX = libc::_SC_THREAD_THREADS_MAX,
-        SC_TIMERS = libc::_SC_TIMERS,
-        SC_TIMER_MAX = libc::_SC_TIMER_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_XOPEN_CRYPT = libc::_SC_XOPEN_CRYPT,
-        SC_XOPEN_ENH_I18N = libc::_SC_XOPEN_ENH_I18N,
-        SC_XOPEN_LEGACY = libc::_SC_XOPEN_LEGACY,
-        SC_XOPEN_REALTIME = libc::_SC_XOPEN_REALTIME,
-        SC_XOPEN_REALTIME_THREADS = libc::_SC_XOPEN_REALTIME_THREADS,
-        SC_XOPEN_SHM = libc::_SC_XOPEN_SHM,
-        SC_XOPEN_UNIX = libc::_SC_XOPEN_UNIX,
-        SC_XOPEN_VERSION = libc::_SC_XOPEN_VERSION,
-        SC_XOPEN_XCU_VERSION = libc::_SC_XOPEN_XCU_VERSION,
+        SC_PASS_MAX = host_posix::_SC_PASS_MAX,
+        SC_PHYS_PAGES = host_posix::_SC_PHYS_PAGES,
+        SC_PRIORITIZED_IO = host_posix::_SC_PRIORITIZED_IO,
+        SC_PRIORITY_SCHEDULING = host_posix::_SC_PRIORITY_SCHEDULING,
+        SC_REALTIME_SIGNALS = host_posix::_SC_REALTIME_SIGNALS,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_RTSIG_MAX = host_posix::_SC_RTSIG_MAX,
+        SC_SAVED_IDS = host_posix::_SC_SAVED_IDS,
+        SC_SEMAPHORES = host_posix::_SC_SEMAPHORES,
+        SC_SEM_NSEMS_MAX = host_posix::_SC_SEM_NSEMS_MAX,
+        SC_SEM_VALUE_MAX = host_posix::_SC_SEM_VALUE_MAX,
+        SC_SHARED_MEMORY_OBJECTS = host_posix::_SC_SHARED_MEMORY_OBJECTS,
+        SC_SIGQUEUE_MAX = host_posix::_SC_SIGQUEUE_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_SYNCHRONIZED_IO = host_posix::_SC_SYNCHRONIZED_IO,
+        SC_THREADS = host_posix::_SC_THREADS,
+        SC_THREAD_ATTR_STACKADDR = host_posix::_SC_THREAD_ATTR_STACKADDR,
+        SC_THREAD_ATTR_STACKSIZE = host_posix::_SC_THREAD_ATTR_STACKSIZE,
+        SC_THREAD_DESTRUCTOR_ITERATIONS = host_posix::_SC_THREAD_DESTRUCTOR_ITERATIONS,
+        SC_THREAD_KEYS_MAX = host_posix::_SC_THREAD_KEYS_MAX,
+        SC_THREAD_PRIORITY_SCHEDULING = host_posix::_SC_THREAD_PRIORITY_SCHEDULING,
+        SC_THREAD_PRIO_INHERIT = host_posix::_SC_THREAD_PRIO_INHERIT,
+        SC_THREAD_PRIO_PROTECT = host_posix::_SC_THREAD_PRIO_PROTECT,
+        SC_THREAD_PROCESS_SHARED = host_posix::_SC_THREAD_PROCESS_SHARED,
+        SC_THREAD_SAFE_FUNCTIONS = host_posix::_SC_THREAD_SAFE_FUNCTIONS,
+        SC_THREAD_STACK_MIN = host_posix::_SC_THREAD_STACK_MIN,
+        SC_THREAD_THREADS_MAX = host_posix::_SC_THREAD_THREADS_MAX,
+        SC_TIMERS = host_posix::_SC_TIMERS,
+        SC_TIMER_MAX = host_posix::_SC_TIMER_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_XOPEN_CRYPT = host_posix::_SC_XOPEN_CRYPT,
+        SC_XOPEN_ENH_I18N = host_posix::_SC_XOPEN_ENH_I18N,
+        SC_XOPEN_LEGACY = host_posix::_SC_XOPEN_LEGACY,
+        SC_XOPEN_REALTIME = host_posix::_SC_XOPEN_REALTIME,
+        SC_XOPEN_REALTIME_THREADS = host_posix::_SC_XOPEN_REALTIME_THREADS,
+        SC_XOPEN_SHM = host_posix::_SC_XOPEN_SHM,
+        SC_XOPEN_UNIX = host_posix::_SC_XOPEN_UNIX,
+        SC_XOPEN_VERSION = host_posix::_SC_XOPEN_VERSION,
+        SC_XOPEN_XCU_VERSION = host_posix::_SC_XOPEN_XCU_VERSION,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFF32 = libc::_SC_XBS5_ILP32_OFF32,
+        SC_XBS5_ILP32_OFF32 = host_posix::_SC_XBS5_ILP32_OFF32,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_ILP32_OFFBIG = libc::_SC_XBS5_ILP32_OFFBIG,
+        SC_XBS5_ILP32_OFFBIG = host_posix::_SC_XBS5_ILP32_OFFBIG,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LP64_OFF64 = libc::_SC_XBS5_LP64_OFF64,
+        SC_XBS5_LP64_OFF64 = host_posix::_SC_XBS5_LP64_OFF64,
         #[cfg(any(
             target_os = "linux",
             target_vendor = "apple",
             target_os = "netbsd",
             target_os = "fuchsia"
         ))]
-        SC_XBS5_LPBIG_OFFBIG = libc::_SC_XBS5_LPBIG_OFFBIG,
+        SC_XBS5_LPBIG_OFFBIG = host_posix::_SC_XBS5_LPBIG_OFFBIG,
     }
 
     #[cfg(target_os = "redox")]
@@ -2126,20 +2646,20 @@ pub mod module {
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum SysconfVar {
-        SC_ARG_MAX = libc::_SC_ARG_MAX,
-        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
-        SC_CLK_TCK = libc::_SC_CLK_TCK,
-        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
-        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
-        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
-        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
-        SC_VERSION = libc::_SC_VERSION,
-        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
-        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
-        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
-        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
-        SC_SYMLOOP_MAX = libc::_SC_SYMLOOP_MAX,
-        SC_HOST_NAME_MAX = libc::_SC_HOST_NAME_MAX,
+        SC_ARG_MAX = host_posix::_SC_ARG_MAX,
+        SC_CHILD_MAX = host_posix::_SC_CHILD_MAX,
+        SC_CLK_TCK = host_posix::_SC_CLK_TCK,
+        SC_NGROUPS_MAX = host_posix::_SC_NGROUPS_MAX,
+        SC_OPEN_MAX = host_posix::_SC_OPEN_MAX,
+        SC_STREAM_MAX = host_posix::_SC_STREAM_MAX,
+        SC_TZNAME_MAX = host_posix::_SC_TZNAME_MAX,
+        SC_VERSION = host_posix::_SC_VERSION,
+        SC_PAGE_SIZE = host_posix::_SC_PAGE_SIZE,
+        SC_RE_DUP_MAX = host_posix::_SC_RE_DUP_MAX,
+        SC_LOGIN_NAME_MAX = host_posix::_SC_LOGIN_NAME_MAX,
+        SC_TTY_NAME_MAX = host_posix::_SC_TTY_NAME_MAX,
+        SC_SYMLOOP_MAX = host_posix::_SC_SYMLOOP_MAX,
+        SC_HOST_NAME_MAX = host_posix::_SC_HOST_NAME_MAX,
     }
 
     impl SysconfVar {
@@ -2200,16 +2720,18 @@ pub mod module {
         offset: rustpython_host_env::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty header list.
+        #[pyarg(any, optional, py_default = "()")]
         headers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
-        #[pyarg(any, optional)]
+        // Missing means an empty trailer list.
+        #[pyarg(any, optional, py_default = "()")]
         trailers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
         #[allow(dead_code)]
         #[pyarg(any, default)]
         // TODO: not implemented
-        flags: OptionalArg<i32>,
+        flags: i32,
     }
 
     #[cfg(target_os = "linux")]
@@ -2326,11 +2848,12 @@ pub mod module {
     target_os = "freebsd",
     target_os = "android"
 ))]
-#[pymodule(sub)]
+#[pymodule(sub, name = "posix")]
 mod posix_sched {
     use crate::{
-        AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTupleRef,
+        class::PyClassDef,
         convert::{IntoPyException, ToPyObject},
         function::FuncArgs,
         types::PyStructSequence,
@@ -2360,7 +2883,7 @@ mod posix_sched {
             vm: &VirtualMachine,
         ) -> PyResult {
             use crate::PyPayload;
-            let SchedParamArgs { sched_priority } = args.bind(vm)?;
+            let SchedParamArgs { sched_priority } = args.bind_for(vm, Self::NAME)?;
             let items = vec![sched_priority];
             crate::builtins::PyTuple::new_unchecked(items.into_boxed_slice())
                 .into_ref_with_type(vm, cls)
@@ -2378,10 +2901,10 @@ mod posix_sched {
                     |zelf: crate::PyRef<crate::builtins::PyTuple>,
                      vm: &VirtualMachine|
                      -> PyTupleRef {
-                        vm.new_tuple((zelf.class().to_owned(), (zelf[0].clone(),)))
+                        vm.new_tuple((zelf.class().to_owned(), (zelf.as_slice()[0].clone(),)))
                     },
                     crate::function::PyMethodFlags::METHOD,
-                    None,
+                    crate::function::ItemDoc::NONE,
                 );
             class.set_attr(
                 ctx.intern_str("__reduce__"),
@@ -2391,7 +2914,10 @@ mod posix_sched {
     }
 
     #[cfg(not(target_env = "musl"))]
-    fn convert_sched_param(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<libc::sched_param> {
+    pub(super) fn convert_sched_param(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<libc::sched_param> {
         use crate::{
             builtins::{PyInt, PyTuple},
             class::StaticType,
@@ -2400,7 +2926,7 @@ mod posix_sched {
             return Err(vm.new_type_error("must have a sched_param object"));
         }
         let tuple = obj.downcast_ref::<PyTuple>().unwrap();
-        let priority = tuple[0].clone();
+        let priority = tuple.as_slice()[0].clone();
         let priority_type = priority.class().name().to_string();
         let value = priority.downcast::<PyInt>().map_err(|_| {
             vm.new_type_error(format!("an integer is required (got type {priority_type})"))

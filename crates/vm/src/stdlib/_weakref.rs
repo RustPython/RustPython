@@ -18,9 +18,9 @@ mod _weakref {
         vm.ctx.types.weakref_type.to_owned()
     }
 
-    #[pyattr]
-    fn proxy(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+    #[pyfunction]
+    fn proxy(args: crate::builtins::WeakProxyNewArgs, vm: &VirtualMachine) -> PyResult {
+        crate::builtins::PyWeakProxy::from_new_args(args, vm).map(Into::into)
     }
 
     #[pyattr(name = "ReferenceType")]
@@ -35,27 +35,24 @@ mod _weakref {
 
     #[pyattr(name = "CallableProxyType")]
     fn callable_proxy_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.types.weakproxy_type.to_owned()
+        vm.ctx.types.weakcallableproxy_type.to_owned()
     }
 
     #[pyfunction]
-    fn getweakrefcount(obj: PyObjectRef) -> usize {
-        obj.weak_count().unwrap_or(0)
+    fn getweakrefcount(object: PyObjectRef) -> usize {
+        object.weak_count().unwrap_or(0)
     }
 
     #[pyfunction]
-    fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
-        obj.get_weak_references()
+    fn getweakrefs(object: PyObjectRef) -> Vec<PyObjectRef> {
+        object
+            .get_weak_references()
             .map_or_else(Vec::new, |v| v.into_iter().map(Into::into).collect())
     }
 
     #[pyfunction]
-    fn _remove_dead_weakref(
-        dict: PyDictRef,
-        key: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        dict._as_dict_inner()
+    fn _remove_dead_weakref(dct: PyDictRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        dct._as_dict_inner()
             .delete_if(vm, &*key, |wr| {
                 let wr = wr
                     .downcast_ref::<PyWeak>()

@@ -1,8 +1,10 @@
-use lexopt::Arg::*;
+use core::cmp;
+use core::num::NonZeroI32;
+use core::str::FromStr;
+use lexopt::Arg::{Long, Short, Value};
 use lexopt::ValueExt;
 use rustpython_vm::{Settings, vm::CheckHashPycsMode};
-use std::str::FromStr;
-use std::{cmp, env};
+use std::env;
 
 pub enum RunMode {
     Script(String),
@@ -112,7 +114,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
     let mut args = CliArgs::default();
     let mut parser = lexopt::Parser::from_env();
     fn argv(argv0: String, mut parser: lexopt::Parser) -> Result<Vec<String>, lexopt::Error> {
-        std::iter::once(Ok(argv0))
+        core::iter::once(Ok(argv0))
             .chain(parser.raw_args()?.map(|arg| arg.string()))
             .collect()
     }
@@ -122,7 +124,11 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
                 let cmd = parser.value()?.string()?;
-                return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
+                return Ok((
+                    args,
+                    RunMode::Command(dedent(&cmd)),
+                    argv("-c".to_owned(), parser)?,
+                ));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
@@ -131,7 +137,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('I') => args.isolate = true,
             Short('m') => {
                 let module = parser.value()?.string()?;
-                let argv = argv("PLACEHOLDER".to_owned(), parser)?;
+                let argv = argv("-m".to_owned(), parser)?;
                 return Ok((args, RunMode::Module(module), argv));
             }
             Short('O') => args.optimize += 1,
@@ -258,6 +264,21 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
+    if let Some(val) = get_env("PYTHON_CPU_COUNT") {
+        settings.cpu_count = match parse_cpu_count(val.to_str()) {
+            Ok(cpu_count) => cpu_count,
+            Err(()) => {
+                error!(
+                    "Fatal Python error: config_init_cpu_count: \
+                     -X cpu_count=n option: n is missing or an invalid number, \
+                     n must be greater than 0\n\
+                     Python runtime state: preinitialized"
+                );
+                std::process::exit(1);
+            }
+        };
+    }
+
     settings.check_hash_pycs_mode = args.check_hash_based_pycs;
 
     if let Some(val) = get_env("PYTHONUTF8")
@@ -304,9 +325,23 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
+            "cpu_count" => {
+                settings.cpu_count = match parse_cpu_count(value) {
+                    Ok(cpu_count) => cpu_count,
+                    Err(()) => {
+                        error!(
+                            "Fatal Python error: config_init_cpu_count: \
+                             -X cpu_count=n option: n is missing or an invalid \
+                             number, n must be greater than 0\n\
+                             Python runtime state: preinitialized"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+            }
             "int_max_str_digits" => {
-                settings.int_max_str_digits = match value.unwrap().parse() {
-                    Ok(digits) if digits == 0 || digits >= 640 => digits,
+                settings.int_max_str_digits = match value.and_then(|value| value.parse().ok()) {
+                    Some(digits) if digits == 0 || digits >= 640 => digits,
                     _ => {
                         error!(
                             "Fatal Python error: config_init_int_max_str_digits: \
@@ -436,7 +471,23 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     Ok((settings, mode))
 }
 
-/// Helper function to retrieve a sequence of paths from an environment variable.
+/// `-X cpu_count` / `PYTHON_CPU_COUNT`: a count above zero, or `"default"`.
+/// `Ok(None)` leaves the count to the host. Zero, negatives, and values above
+/// `i32::MAX` are rejected.
+/// = config_init_cpu_count
+fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
+    match value {
+        None => Err(()),
+        Some("default") => Ok(None),
+        Some(number) => number
+            .parse()
+            .ok()
+            .filter(|count: &NonZeroI32| count.get() > 0)
+            .map(Some)
+            .ok_or(()),
+    }
+}
+
 fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
     env::var_os(env_variable_name)
         .filter(|v| !v.is_empty())
@@ -464,4 +515,71 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
             .to_owned()
             .into()
     })
+}
+
+/// Remove common whitespace prefix from all lines in a string.
+///
+/// This is like textwrap.dedent, and is used to process -c's code
+/// argument.  It's different from ruff's dedent, which does not
+/// distinguish between tab and space characters when dedenting.
+fn dedent(input: &str) -> String {
+    let mut prefix: Option<String> = None;
+    let isspace = |c| c == ' ' || c == '\t';
+
+    // All-whitespace lines become empty.
+    let deblanked: Vec<&str> = input
+        .lines()
+        .map(|line| if line.chars().all(isspace) { "" } else { line })
+        .collect();
+
+    // Find maximum common whitespace prefix, if any.
+    for line in &deblanked {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(ref mut pstr) = prefix {
+            for (i, (c, pc)) in line.chars().zip(pstr.chars()).enumerate() {
+                // It's okay if `line` is shorter than `pstr`.  At
+                // least one char in `line` must be non-whitespace,
+                // and if `line` is shorter than `pstr`, this
+                // non-whitespace char will be compared to a
+                // whitespace char, and loop will terminate.
+                if c != pc {
+                    pstr.truncate(i);
+                    break;
+                }
+            }
+        } else {
+            let mut pstr = String::new();
+            for c in line.chars() {
+                if isspace(c) {
+                    pstr.push(c);
+                } else {
+                    break;
+                }
+            }
+            prefix = Some(pstr);
+            continue;
+        }
+    }
+
+    if let Some(pstr) = prefix {
+        // Strip common prefix.
+        deblanked
+            .iter()
+            .map(|line| {
+                if line.is_empty() {
+                    String::from("")
+                } else {
+                    // All non-empty lines start with pstr, must be at
+                    // least pstr.len() long.
+                    String::from(line.get(pstr.len()..).unwrap())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        // No prefix found: all lines blank.
+        deblanked.join("\n")
+    }
 }

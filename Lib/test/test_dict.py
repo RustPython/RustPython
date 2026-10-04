@@ -275,7 +275,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(ValueError, {}.update, [(1, 2, 3)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_update_type_error(self):
         with self.assertRaises(TypeError) as cm:
             {}.update([object() for _ in range(3)])
@@ -679,7 +678,7 @@ class DictTest(unittest.TestCase):
         d = {1: BadRepr()}
         self.assertRaises(Exc, repr, d)
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
+    @support.run_with_limited_c_stack()
     @support.skip_wasi_stack_overflow()
     @support.skip_emscripten_stack_overflow()
     def test_repr_deep(self):
@@ -1259,7 +1258,6 @@ class DictTest(unittest.TestCase):
         d = {X(): 0, 1: 1}
         self.assertRaises(RuntimeError, d.update, other)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, dict)
         support.check_free_after_iterating(self, lambda d: iter(d.keys()), dict)
@@ -1406,6 +1404,28 @@ class DictTest(unittest.TestCase):
         self.assertEqual(list(reversed(A(1, 2).__dict__)), ['y', 'x'])
         self.assertEqual(list(reversed(A(1, 0).__dict__)), ['x'])
         self.assertEqual(list(reversed(A(0, 1).__dict__)), ['y'])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: dictionary changed size during iteration
+    def test_reversed_dict_after_clear_and_restore(self):
+        d = {}
+        for i in range(1000):
+            d[f"k{i}"] = i
+
+        for i in range(1, 1000):
+            del d[f"k{i}"]
+
+        iterators = (
+            reversed(d),
+            reversed(d.keys()),
+            reversed(d.values()),
+            reversed(d.items()),
+        )
+
+        d.clear()
+        d["k0"] = 0
+
+        for it in iterators:
+            self.assertEqual(list(it), [])
 
     def test_dict_copy_order(self):
         # bpo-34320

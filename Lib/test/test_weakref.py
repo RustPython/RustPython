@@ -289,7 +289,6 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefcount(o), 1,
                      "wrong weak ref count for object after deleting proxy")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_reuse(self):
         o = C()
         proxy1 = weakref.proxy(o)
@@ -380,11 +379,9 @@ class ReferencesTestCase(TestBase):
     # was not honored, and was broken in different ways for
     # PyWeakref_NewRef() and PyWeakref_NewProxy().  (Two tests.)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_shared_ref_without_callback(self):
         self.check_shared_without_callback(weakref.ref)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_shared_proxy_without_callback(self):
         self.check_shared_without_callback(weakref.proxy)
 
@@ -406,7 +403,6 @@ class ReferencesTestCase(TestBase):
         p2 = makeref(o)
         self.assertIs(p1, p2, "callbacks were None, NULL in the C API")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_callable_proxy(self):
         o = Callable()
         ref1 = weakref.proxy(o)
@@ -1025,7 +1021,7 @@ class ReferencesTestCase(TestBase):
         del x
         support.gc_collect()
 
-    @support.cpython_only
+    @support.nomemtest
     def test_no_memory_when_clearing(self):
         # gh-118331: Make sure we do not raise an exception from the destructor
         # when clearing weakrefs if allocating the intermediate tuple fails.

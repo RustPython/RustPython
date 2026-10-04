@@ -1890,11 +1890,8 @@ class OtherTests(unittest.TestCase):
 
             with zipfile.ZipFile(TESTFN, "r") as zf:
                 zip_info = zf.getinfo("test_source_date_epoch.txt")
-                get_time = time.localtime(int(os.environ['SOURCE_DATE_EPOCH']))[:6]
-                # Compare each element of the date_time tuple
-                # Allow for a 1-second difference
-                for z_time, g_time in zip(zip_info.date_time, get_time):
-                    self.assertAlmostEqual(z_time, g_time, delta=1)
+                expected_utc = (2025, 1, 1, 7, 19, 58)
+                self.assertEqual(zip_info.date_time, expected_utc)
 
     def test_write_without_source_date_epoch(self):
         with os_helper.EnvironmentVarGuard() as env:
@@ -1905,9 +1902,13 @@ class OtherTests(unittest.TestCase):
 
             with zipfile.ZipFile(TESTFN, "r") as zf:
                 zip_info = zf.getinfo("test_no_source_date_epoch.txt")
-                current_time = time.localtime()[:6]
-                for z_time, c_time in zip(zip_info.date_time, current_time):
-                    self.assertAlmostEqual(z_time, c_time, delta=2)
+                self.assertTimestampAlmostEqual(time.localtime(), zip_info.date_time, tolerance=2)
+
+    def assertTimestampAlmostEqual(self, time1, time2, tolerance):
+        import datetime
+        dt1 = datetime.datetime(*time1[:6])
+        dt2 = datetime.datetime(*time2[:6])
+        self.assertLessEqual((dt1 - dt2).total_seconds(), tolerance)
 
     def test_close(self):
         """Check that the zipfile is closed after the 'with' block."""
@@ -3550,7 +3551,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
     def test_read_zip64_with_exe_prepended(self):
         self._test_zip_works(self.exe_zip64)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -3559,7 +3559,6 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(sys.executable, 'sys.executable required.')
     @unittest.skipUnless(os.access('/bin/bash', os.X_OK),
                          'Test relies on #!/bin/bash working.')
@@ -3568,7 +3567,7 @@ class TestExecutablePrependedZip(unittest.TestCase):
         output = subprocess.check_output([self.exe_zip64, sys.executable])
         self.assertIn(b'number in executable: 5', output)
 
-@unittest.skip("TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis")
+
 class EncodedMetadataTests(unittest.TestCase):
     file_names = ['\u4e00', '\u4e8c', '\u4e09']  # Han 'one', 'two', 'three'
     file_content = [
@@ -3576,8 +3575,7 @@ class EncodedMetadataTests(unittest.TestCase):
         # This is modern Japanese. (UTF-8)
         "\u3053\u308c\u306f\u73fe\u4ee3\u7684\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('utf-8'),
         # This is obsolete Japanese. (Shift JIS)
-        # TODO: RUSTPYTHON; LookupError: unknown encoding: shift_jis
-        # "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
+        "\u3053\u308c\u306f\u53e4\u3044\u65e5\u672c\u8a9e\u3067\u3059\u3002\n".encode('shift_jis'),
     ]
 
     def setUp(self):
@@ -3646,29 +3644,23 @@ class EncodedMetadataTests(unittest.TestCase):
 
     def test_read_after_append(self):
         newname = '\u56db'  # Han 'four'
-        expected_names = [name.encode('shift_jis').decode('cp437')
-                          for name in self.file_names[:2]] + self.file_names[2:]
-        expected_names.append(newname)
-        expected_content = (*self.file_content, b"newcontent")
+        newname2 = 'fünf'  # representable in cp437, but still stored as UTF-8
+        expected_names = [*self.file_names, newname, newname2]
+        mojibake_expected_names = [name.encode('shift_jis').decode('cp437')
+                                   if i < 2 else name
+                                   for i, name in enumerate(expected_names)]
+        expected_content = (*self.file_content, b"newcontent", b"newcontent2")
 
         with zipfile.ZipFile(TESTFN, "a") as zipfp:
             zipfp.writestr(newname, "newcontent")
-            self.assertEqual(sorted(zipfp.namelist()), sorted(expected_names))
+            zipfp.writestr(newname2, "newcontent2")
+            self.assertEqual(sorted(zipfp.namelist()), sorted(mojibake_expected_names))
 
         with zipfile.ZipFile(TESTFN, "r") as zipfp:
-            self._test_read(zipfp, expected_names, expected_content)
+            self._test_read(zipfp, mojibake_expected_names, expected_content)
 
         with zipfile.ZipFile(TESTFN, "r", metadata_encoding='shift_jis') as zipfp:
-            self.assertEqual(sorted(zipfp.namelist()), sorted(expected_names))
-            for i, (name, content) in enumerate(zip(expected_names, expected_content)):
-                info = zipfp.getinfo(name)
-                self.assertEqual(info.filename, name)
-                self.assertEqual(info.file_size, len(content))
-                if i < 2:
-                    with self.assertRaises(zipfile.BadZipFile):
-                        zipfp.read(name)
-                else:
-                    self.assertEqual(zipfp.read(name), content)
+            self._test_read(zipfp, expected_names, expected_content)
 
     def test_write_with_metadata_encoding(self):
         ZF = zipfile.ZipFile
@@ -3676,6 +3668,20 @@ class EncodedMetadataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,
                                         "^metadata_encoding is only"):
                 ZF("nonesuch.zip", mode, metadata_encoding="shift_jis")
+
+    def test_add_comment(self):
+        with zipfile.ZipFile(TESTFN, "r") as zipfp:
+            mojibake_expected_names = zipfp.namelist()
+
+        with zipfile.ZipFile(TESTFN, "a") as zipfp:
+            zipfp.comment = b'comment'
+            self.assertEqual(zipfp.namelist(), mojibake_expected_names)
+
+        with zipfile.ZipFile(TESTFN, "r") as zipfp:
+            self._test_read(zipfp, mojibake_expected_names, self.file_content)
+
+        with zipfile.ZipFile(TESTFN, "r", metadata_encoding='shift_jis') as zipfp:
+            self._test_read(zipfp, self.file_names, self.file_content)
 
     def test_cli_with_metadata_encoding(self):
         errmsg = "Non-conforming encodings not supported with -c."

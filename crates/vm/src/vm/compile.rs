@@ -2,19 +2,493 @@
 //!
 //! For code execution functions, see python_run.rs
 
+use core::fmt;
+
 use crate::{
-    PyRef, VirtualMachine,
-    builtins::PyCode,
+    AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyCode},
     compiler::{self, CompileError, CompileOpts},
+    vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
 
+#[derive(Debug)]
+pub enum VmCompileError {
+    Compile(CompileError),
+    Warning(CompileWarningError),
+}
+
+#[derive(Debug)]
+pub struct CompileWarningError {
+    exception: PyBaseExceptionRef,
+    filename: String,
+    lineno: usize,
+    offset: usize,
+    replacement: Option<SyntaxErrorReplacement>,
+}
+
+#[derive(Debug)]
+struct SyntaxErrorReplacement {
+    message: String,
+    end_offset: usize,
+}
+
+impl From<CompileError> for VmCompileError {
+    fn from(err: CompileError) -> Self {
+        Self::Compile(err)
+    }
+}
+
+impl fmt::Display for VmCompileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compile(err) => err.fmt(f),
+            Self::Warning(_) => f.write_str("compiler warning raised as an exception"),
+        }
+    }
+}
+
+impl VmCompileError {
+    pub fn into_pyexception(self, vm: &VirtualMachine, source: Option<&str>) -> PyBaseExceptionRef {
+        self.into_pyexception_maybe_incomplete(vm, source, false)
+    }
+
+    pub fn into_pyexception_maybe_incomplete(
+        self,
+        vm: &VirtualMachine,
+        source: Option<&str>,
+        allow_incomplete: bool,
+    ) -> PyBaseExceptionRef {
+        match self {
+            Self::Compile(err) => {
+                vm.new_syntax_error_maybe_incomplete(&err, source, allow_incomplete)
+            }
+            Self::Warning(err) => err.into_pyexception(vm, source),
+        }
+    }
+}
+
+impl CompileWarningError {
+    fn into_pyexception(self, vm: &VirtualMachine, source: Option<&str>) -> PyBaseExceptionRef {
+        if !self
+            .exception
+            .fast_isinstance(vm.ctx.exceptions.syntax_warning)
+        {
+            return self.exception;
+        }
+        let (message, end_offset) = if let Some(replacement) = self.replacement {
+            (replacement.message, Some(replacement.end_offset))
+        } else {
+            let Ok(message) = self.exception.as_object().str(vm) else {
+                return self.exception;
+            };
+            (message.to_string_lossy().into_owned(), None)
+        };
+        let syntax_error =
+            vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), message.into());
+        syntax_error
+            .as_object()
+            .set_attr("lineno", vm.ctx.new_int(self.lineno), vm)
+            .unwrap();
+        syntax_error
+            .as_object()
+            .set_attr("offset", vm.ctx.new_int(self.offset), vm)
+            .unwrap();
+        if let Some(end_offset) = end_offset {
+            syntax_error
+                .as_object()
+                .set_attr("end_lineno", vm.ctx.new_int(self.lineno), vm)
+                .unwrap();
+            syntax_error
+                .as_object()
+                .set_attr("end_offset", vm.ctx.new_int(end_offset), vm)
+                .unwrap();
+        }
+        syntax_error
+            .as_object()
+            .set_attr("filename", vm.ctx.new_str(self.filename), vm)
+            .unwrap();
+        let text = source
+            .and_then(|source| source.split('\n').nth(self.lineno.saturating_sub(1)))
+            .map_or_else(
+                || vm.ctx.none(),
+                |line| {
+                    vm.ctx
+                        .new_str(format!("{}\n", line.trim_end_matches('\r')))
+                        .into()
+                },
+            );
+        syntax_error.as_object().set_attr("text", text, vm).unwrap();
+        syntax_error
+    }
+}
+
 impl VirtualMachine {
+    #[cfg(feature = "parser")]
+    fn detect_source_encoding(source: &[u8]) -> Option<String> {
+        fn find_encoding_in_line(line: &[u8]) -> Option<String> {
+            let hash_pos = line.iter().position(|&b| b == b'#')?;
+            if !line[..hash_pos]
+                .iter()
+                .all(|&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+            {
+                return None;
+            }
+            let after_hash = &line[hash_pos..];
+            let coding_pos = after_hash.windows(6).position(|w| w == b"coding")?;
+            let after_coding = &after_hash[coding_pos + 6..];
+            let rest = if after_coding.first() == Some(&b':') || after_coding.first() == Some(&b'=')
+            {
+                &after_coding[1..]
+            } else {
+                return None;
+            };
+            let name: String = rest
+                .iter()
+                .copied()
+                .skip_while(|&b| b == b' ' || b == b'\t')
+                .take_while(|&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+                .map(|b| b as char)
+                .collect();
+            (!name.is_empty()).then(|| VirtualMachine::normalize_source_encoding(&name))
+        }
+
+        let mut lines = source.splitn(3, |&b| b == b'\n');
+        if let Some(first) = lines.next() {
+            let first = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
+            if let Some(enc) = find_encoding_in_line(first) {
+                return Some(enc);
+            }
+            let trimmed = first
+                .iter()
+                .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+                .copied()
+                .collect::<Vec<_>>();
+            if !trimmed.is_empty() && trimmed[0] != b'#' {
+                return None;
+            }
+        }
+        lines.next().and_then(find_encoding_in_line)
+    }
+
+    #[cfg(feature = "parser")]
+    fn normalize_source_encoding(name: &str) -> String {
+        let mut normalized = String::with_capacity(name.len().min(12));
+        for ch in name.chars().take(12) {
+            if ch == '_' {
+                normalized.push('-');
+            } else {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+
+        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
+            "utf-8".to_owned()
+        } else if normalized == "latin-1"
+            || normalized == "iso-8859-1"
+            || normalized == "iso-latin-1"
+            || normalized.starts_with("latin-1-")
+            || normalized.starts_with("iso-8859-1-")
+            || normalized.starts_with("iso-latin-1-")
+        {
+            "iso-8859-1".to_owned()
+        } else {
+            name.to_owned()
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    fn is_utf8_encoding(name: &str) -> bool {
+        name == "utf-8"
+    }
+
+    /// Load the source line for a compiler SyntaxError. Tokenizer errors keep
+    /// the in-memory line; compiler errors read the file named by the
+    /// exception, and get None when that file cannot be opened.
+    #[cfg(any(feature = "parser", feature = "compiler"))]
+    pub(crate) fn program_text(&self, filename: &str, lineno: usize) -> Option<String> {
+        if lineno == 0 {
+            return None;
+        }
+        #[cfg(feature = "host_env")]
+        {
+            let buf = crate::host_env::fs::read(filename).ok()?;
+            let decoded = {
+                #[cfg(feature = "parser")]
+                {
+                    let encoding = Self::detect_source_encoding(&buf);
+                    if encoding.as_deref().is_none_or(Self::is_utf8_encoding) {
+                        String::from_utf8_lossy(&buf).into_owned()
+                    } else if encoding.as_deref() == Some("iso-8859-1") {
+                        buf.iter().copied().map(char::from).collect()
+                    } else {
+                        let name = encoding.as_deref()?;
+                        let bytes = self.ctx.new_bytes(buf);
+                        self.state
+                            .codec_registry
+                            .decode_text(bytes.into(), name, None, self)
+                            .ok()?
+                            .to_string_lossy()
+                            .into_owned()
+                    }
+                }
+                #[cfg(not(feature = "parser"))]
+                {
+                    String::from_utf8_lossy(&buf).into_owned()
+                }
+            };
+            let mut remaining = decoded.as_str();
+            if remaining.starts_with('\u{feff}') {
+                remaining = &remaining['\u{feff}'.len_utf8()..];
+            }
+            remaining
+                .split_inclusive('\n')
+                .nth(lineno.checked_sub(1)?)
+                .map(str::to_owned)
+        }
+        #[cfg(not(feature = "host_env"))]
+        {
+            let _ = filename;
+            None
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    fn new_non_utf8_syntax_error(
+        &self,
+        filename: &str,
+        src: &[u8],
+        error_at: usize,
+    ) -> PyBaseExceptionRef {
+        let bad_byte = src[error_at];
+        let line_start = src[..error_at]
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map_or(0, |i| i + 1);
+        let lineno = src[..error_at].iter().filter(|&&b| b == b'\n').count() + 1;
+        let offset =
+            core::str::from_utf8(&src[line_start..error_at]).map_or(1, |s| s.chars().count() + 1);
+        let line_end = src[line_start..]
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(src.len(), |i| line_start + i);
+        let text = String::from_utf8_lossy(&src[line_start..line_end]).into_owned();
+        let in_file = if filename.starts_with('<') {
+            String::new()
+        } else {
+            format!(" in file {filename}")
+        };
+        let msg = format!(
+            "Non-UTF-8 code starting with '\\x{bad_byte:02x}'{in_file} \
+             on line {lineno}, but no encoding declared; \
+             see https://peps.python.org/pep-0263/ for details"
+        );
+        let location = self.ctx.new_tuple(vec![
+            self.ctx.new_str(filename).into(),
+            self.ctx.new_int(lineno).into(),
+            self.ctx.new_int(offset).into(),
+            self.ctx.new_str(text).into(),
+            self.ctx.new_int(lineno).into(),
+            self.ctx.new_int(offset).into(),
+        ]);
+        self.invoke_exception(
+            self.ctx.exceptions.syntax_error,
+            vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+        )
+        .unwrap_or_else(|_| {
+            self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+        })
+    }
+
+    #[cfg(feature = "parser")]
+    pub(crate) fn decode_source_bytes(
+        &self,
+        source: &[u8],
+        filename: &str,
+        ignore_cookie: bool,
+    ) -> PyResult<String> {
+        // `ignore_cookie` marks source that was handed over as text. A byte
+        // order mark belongs to the byte encoding, so text keeps whatever it
+        // was written with and the parser rejects a stray U+FEFF.
+        let has_bom = !ignore_cookie && source.starts_with(b"\xef\xbb\xbf");
+        let encoding = if ignore_cookie {
+            None
+        } else {
+            Self::detect_source_encoding(source)
+        };
+        let is_utf8 = encoding.as_deref().is_none_or(Self::is_utf8_encoding);
+        if has_bom && !is_utf8 {
+            let enc = encoding.as_deref().unwrap_or("utf-8");
+            let after_bom = &source[3..];
+            let line_end = after_bom
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(after_bom.len());
+            let text = String::from_utf8_lossy(&after_bom[..line_end]).into_owned();
+            let end_offset = text.chars().count() as i32;
+            let msg = format!("encoding problem: {enc} with BOM");
+            let location = self.ctx.new_tuple(vec![
+                self.ctx.new_str(filename).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(0).into(),
+                self.ctx.new_str(text).into(),
+                self.ctx.new_int(1).into(),
+                self.ctx.new_int(end_offset).into(),
+            ]);
+            return Err(self
+                .invoke_exception(
+                    self.ctx.exceptions.syntax_error,
+                    vec![self.ctx.new_str(msg.as_str()).into(), location.into()],
+                )
+                .unwrap_or_else(|_| {
+                    self.new_exception_msg(self.ctx.exceptions.syntax_error.to_owned(), msg.into())
+                }));
+        }
+
+        if is_utf8 {
+            let src = if has_bom { &source[3..] } else { source };
+            match core::str::from_utf8(src) {
+                Ok(s) => Ok(s.to_owned()),
+                Err(e) => Err(self.new_non_utf8_syntax_error(filename, src, e.valid_up_to())),
+            }
+        } else {
+            let encoding = encoding.as_deref().unwrap();
+            let bytes = self.ctx.new_bytes(source.to_vec());
+            let decoded = self
+                .state
+                .codec_registry
+                .decode_text(bytes.into(), encoding, None, self)
+                .map_err(|exc| {
+                    if exc.fast_isinstance(self.ctx.exceptions.lookup_error) {
+                        self.new_exception_msg(
+                            self.ctx.exceptions.syntax_error.to_owned(),
+                            format!("unknown encoding for '{filename}': {encoding}").into(),
+                        )
+                    } else {
+                        exc
+                    }
+                })?;
+            Ok(decoded.to_string_lossy().into_owned())
+        }
+    }
+
+    #[cfg(feature = "parser")]
+    pub fn compile_string_object_with_flags(
+        &self,
+        source: &[u8],
+        filename: &str,
+        start: i32,
+        flags: i32,
+        feature_version: i32,
+        optimize: i32,
+    ) -> PyResult<PyObjectRef> {
+        use crate::convert::ToPyException;
+        use crate::stdlib::_ast;
+
+        let cf = CompilerFlags::from_bits_retain(flags);
+        let Some(start) = CompileStart::from_i32(start) else {
+            return Err(self.new_system_error("Invalid start argument passed to Py_CompileString"));
+        };
+        let source =
+            self.decode_source_bytes(source, filename, cf.contains(CompilerFlags::IGNORE_COOKIE))?;
+        let source = source.as_str();
+        let optimize = match optimize {
+            -1 => self.state.config.settings.optimize.min(2),
+            0..=2 => optimize as u8,
+            _ => return Err(self.new_value_error("compile(): invalid optimize value")),
+        };
+        let allow_incomplete = cf.contains(CompilerFlags::ALLOW_INCOMPLETE_INPUT);
+        let type_comments = cf.contains(CompilerFlags::TYPE_COMMENTS);
+        let dont_imply_dedent = cf.contains(CompilerFlags::DONT_IMPLY_DEDENT);
+        let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
+        let optimized_ast = cf.contains(CompilerFlags::OPTIMIZED_AST);
+        let future_features = compile_future_features_from_flags(flags);
+        let target_version = if is_ast_only {
+            Some(ruff_python_ast::PythonVersion {
+                major: 3,
+                minor: u8::try_from(feature_version).unwrap_or(crate::version::MINOR as u8),
+            })
+        } else {
+            None
+        };
+
+        if is_ast_only {
+            if start == CompileStart::FuncType {
+                return _ast::parse_func_type(self, source, filename, optimize, target_version)
+                    .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self));
+            }
+            let (parser_mode, interactive) = match start {
+                CompileStart::Single => (ruff_python_parser::Mode::Module, true),
+                CompileStart::File => (ruff_python_parser::Mode::Module, false),
+                CompileStart::Eval => (ruff_python_parser::Mode::Expression, false),
+                CompileStart::FuncType => unreachable!(),
+            };
+            let parsed = _ast::parse(
+                self,
+                source,
+                filename,
+                parser_mode,
+                optimize,
+                target_version,
+                type_comments,
+                optimized_ast,
+                interactive,
+                future_features,
+                dont_imply_dedent,
+            )
+            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
+            if start == CompileStart::Single {
+                return _ast::wrap_interactive(self, &parsed);
+            }
+            return Ok(parsed);
+        }
+
+        if type_comments {
+            let parser_mode = match start {
+                CompileStart::Single | CompileStart::File => ruff_python_parser::Mode::Module,
+                CompileStart::Eval => ruff_python_parser::Mode::Expression,
+                CompileStart::FuncType => ruff_python_parser::Mode::Module,
+            };
+            _ast::parse(
+                self,
+                source,
+                filename,
+                parser_mode,
+                optimize,
+                None,
+                type_comments,
+                false,
+                start == CompileStart::Single,
+                future_features,
+                dont_imply_dedent,
+            )
+            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self))?;
+        }
+
+        let mode = match start {
+            CompileStart::Single => compiler::Mode::Single,
+            CompileStart::File => compiler::Mode::Exec,
+            CompileStart::Eval => compiler::Mode::Eval,
+            CompileStart::FuncType => compiler::Mode::BlockExpr,
+        };
+        let mut opts = self.compile_opts();
+        opts.optimize = optimize;
+        opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
+        opts.future_features = future_features;
+        opts.dont_imply_dedent = dont_imply_dedent;
+        let code = self
+            .compile_with_opts(source, mode, filename, opts)
+            .map_err(|err| {
+                err.into_pyexception_maybe_incomplete(self, Some(source), allow_incomplete)
+            })?;
+        Ok(code.into())
+    }
+
     pub fn compile(
         &self,
         source: &str,
         mode: compiler::Mode,
-        source_path: String,
-    ) -> Result<PyRef<PyCode>, CompileError> {
+        source_path: impl Into<String>,
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
         self.compile_with_opts(source, mode, source_path, self.compile_opts())
     }
 
@@ -22,16 +496,56 @@ impl VirtualMachine {
         &self,
         source: &str,
         mode: compiler::Mode,
-        source_path: String,
+        source_path: impl Into<String>,
         opts: CompileOpts,
-    ) -> Result<PyRef<PyCode>, CompileError> {
-        let code = compiler::compile(source, mode, &source_path, opts)
-            .map(|code| PyCode::new_ref_from_bytecode(self, code));
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
+        let source_path = source_path.into();
         #[cfg(feature = "parser")]
-        if code.is_ok() {
-            self.emit_string_escape_warnings(source, &source_path);
+        {
+            self.emit_tokenizer_syntax_warnings(source, &source_path)
+                .map_err(VmCompileError::Warning)?;
+            self.emit_string_escape_warnings(source, &source_path)
+                .map_err(VmCompileError::Warning)?;
         }
-        code
+        #[cfg(feature = "parser")]
+        let code = {
+            // A warning the filter escalates to an exception is stashed here so
+            // its precise category survives; codegen only sees an abort marker.
+            let escalated: core::cell::Cell<Option<CompileWarningError>> =
+                core::cell::Cell::new(None);
+            let mut syntax_warning_handler = |location, message| {
+                escape_warnings::warn_syntax_at_location(&source_path, location, message, self)
+                    .map_err(|warning| {
+                        escalated.set(Some(warning));
+                        // Recovered below via `escalated`, so this is never surfaced.
+                        compiler::codegen::error::CodegenError {
+                            location: Some(location),
+                            end_location: None,
+                            error: compiler::codegen::error::CodegenErrorType::SyntaxError(
+                                String::new(),
+                            ),
+                            source_path: source_path.clone(),
+                        }
+                    })
+            };
+            let result = compiler::compile_with_syntax_warning_handler(
+                source,
+                mode,
+                &source_path,
+                opts,
+                &mut syntax_warning_handler,
+            );
+            match escalated.take() {
+                Some(warning) => return Err(VmCompileError::Warning(warning)),
+                None => result,
+            }
+        };
+        #[cfg(not(feature = "parser"))]
+        let code = compiler::compile(source, mode, &source_path, opts);
+        let code = code
+            .map(|code| PyCode::new_ref_from_bytecode(self, code))
+            .map_err(VmCompileError::Compile)?;
+        Ok(code)
     }
 }
 
@@ -57,6 +571,31 @@ mod escape_warnings {
             + 1
     }
 
+    fn line_offset_at(source: &str, offset: usize) -> (usize, usize) {
+        let offset = offset.min(source.len());
+        let prefix = &source[..offset];
+        let lineno = prefix.bytes().filter(|&b| b == b'\n').count() + 1;
+        let line_start = prefix.rfind('\n').map_or(0, |index| index + 1);
+        let column = source[line_start..offset].chars().count() + 1;
+        (lineno, column)
+    }
+
+    fn compile_warning_error(
+        exception: PyBaseExceptionRef,
+        source: &str,
+        filename: &str,
+        offset: usize,
+    ) -> CompileWarningError {
+        let (lineno, offset) = line_offset_at(source, offset);
+        CompileWarningError {
+            exception,
+            filename: filename.to_owned(),
+            lineno,
+            offset,
+            replacement: None,
+        }
+    }
+
     /// Get content bounds (start, end byte offsets) of a quoted string literal,
     /// excluding prefix characters and quote delimiters.
     fn content_bounds(source: &str, range: TextRange) -> Option<(usize, usize)> {
@@ -79,9 +618,58 @@ mod escape_warnings {
         if cs <= ce { Some((cs, ce)) } else { None }
     }
 
+    enum InvalidEscape {
+        Char { ch: char, offset: usize },
+        Octal { digits: [u8; 3], offset: usize },
+    }
+
+    impl InvalidEscape {
+        fn offset(&self) -> usize {
+            match self {
+                Self::Char { offset, .. } | Self::Octal { offset, .. } => *offset,
+            }
+        }
+
+        fn octal_text(digits: [u8; 3]) -> [char; 3] {
+            [digits[0] as char, digits[1] as char, digits[2] as char]
+        }
+
+        fn warning_message(&self) -> String {
+            match self {
+                Self::Char { ch, .. } => format!(
+                    "\"\\{ch}\" is an invalid escape sequence. \
+                     Such sequences will not work in the future. \
+                     Did you mean \"\\\\{ch}\"? A raw string is also an option."
+                ),
+                Self::Octal { digits, .. } => {
+                    let [a, b, c] = Self::octal_text(*digits);
+                    format!(
+                        "\"\\{a}{b}{c}\" is an invalid octal escape sequence. \
+                         Such sequences will not work in the future. \
+                         Did you mean \"\\\\{a}{b}{c}\"? A raw string is also an option."
+                    )
+                }
+            }
+        }
+
+        fn syntax_error_message(&self) -> String {
+            match self {
+                Self::Char { ch, .. } => format!(
+                    "\"\\{ch}\" is an invalid escape sequence. \
+                     Did you mean \"\\\\{ch}\"? A raw string is also an option."
+                ),
+                Self::Octal { digits, .. } => {
+                    let [a, b, c] = Self::octal_text(*digits);
+                    format!(
+                        "\"\\{a}{b}{c}\" is an invalid octal escape sequence. \
+                         Did you mean \"\\\\{a}{b}{c}\"? A raw string is also an option."
+                    )
+                }
+            }
+        }
+    }
+
     /// Scan `source[start..end]` for the first invalid escape sequence.
-    /// Returns `Some((invalid_char, byte_offset_in_source))` for the first
-    /// invalid escape found, or `None` if all escapes are valid.
     ///
     /// When `is_bytes` is true, `\u`, `\U`, and `\N` are treated as invalid
     /// (bytes literals only support byte-oriented escapes).
@@ -94,7 +682,7 @@ mod escape_warnings {
         start: usize,
         end: usize,
         is_bytes: bool,
-    ) -> Option<(char, usize)> {
+    ) -> Option<InvalidEscape> {
         let raw = &source[start..end];
         let mut chars = raw.char_indices().peekable();
         while let Some((i, ch)) = chars.next() {
@@ -104,6 +692,7 @@ mod escape_warnings {
             let Some((_, next)) = chars.next() else {
                 break;
             };
+            let offset = start + i;
             let valid = match next {
                 '\\' | '\'' | '"' | 'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' => true,
                 '\n' => true,
@@ -114,11 +703,23 @@ mod escape_warnings {
                     true
                 }
                 '0'..='7' => {
+                    let mut digits = [next as u8, 0, 0];
+                    let mut len = 1;
                     for _ in 0..2 {
                         if matches!(chars.peek(), Some(&(_, '0'..='7'))) {
-                            chars.next();
+                            let (_, digit) = chars.next().unwrap();
+                            digits[len] = digit as u8;
+                            len += 1;
                         } else {
                             break;
+                        }
+                    }
+                    if len == 3 {
+                        let value = ((digits[0] - b'0') as u16) * 64
+                            + ((digits[1] - b'0') as u16) * 8
+                            + (digits[2] - b'0') as u16;
+                        if value > 0o377 {
+                            return Some(InvalidEscape::Octal { digits, offset });
                         }
                     }
                     true
@@ -163,7 +764,7 @@ mod escape_warnings {
                 _ => false,
             };
             if !valid {
-                return Some((next, start + i));
+                return Some(InvalidEscape::Char { ch: next, offset });
             }
         }
         None
@@ -174,19 +775,48 @@ mod escape_warnings {
     /// `warn_invalid_escape_sequence()` in `Parser/string_parser.c`
     fn warn_invalid_escape_sequence(
         source: &str,
-        ch: char,
-        offset: usize,
+        escape: InvalidEscape,
         filename: &str,
         vm: &VirtualMachine,
-    ) {
-        let lineno = line_number_at(source, offset);
-        let message = vm.ctx.new_str(format!(
-            "\"\\{ch}\" is an invalid escape sequence. \
-             Such sequences will not work in the future. \
-             Did you mean \"\\\\{ch}\"? A raw string is also an option."
-        ));
+    ) -> Result<(), CompileWarningError> {
+        let (lineno, column) = line_offset_at(source, escape.offset());
+        let warning = escape.warning_message();
+        let syntax_error = escape.syntax_error_message();
         let fname = vm.ctx.new_str(filename);
-        let _ = warn::warn_explicit(
+        warn::warn_explicit(
+            Some(vm.ctx.exceptions.syntax_warning.to_owned()),
+            vm.ctx.new_str(warning).into(),
+            fname,
+            lineno,
+            None,
+            vm.ctx.none(),
+            None,
+            None,
+            vm,
+        )
+        .map_err(|exception| CompileWarningError {
+            exception,
+            filename: filename.to_owned(),
+            lineno,
+            offset: column,
+            replacement: Some(SyntaxErrorReplacement {
+                message: syntax_error,
+                end_offset: column + 2,
+            }),
+        })
+    }
+
+    fn warn_syntax_at_offset(
+        source: &str,
+        filename: &str,
+        offset: usize,
+        message: String,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let lineno = line_number_at(source, offset);
+        let fname = vm.ctx.new_str(filename);
+        let message = vm.ctx.new_str(message);
+        warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
             message.into(),
             fname,
@@ -196,23 +826,585 @@ mod escape_warnings {
             None,
             None,
             vm,
-        );
+        )
+        .map_err(|err| compile_warning_error(err, source, filename, offset))
+    }
+
+    pub(super) fn warn_syntax_at_location(
+        filename: &str,
+        location: compiler::core::SourceLocation,
+        message: String,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let fname = vm.ctx.new_str(filename);
+        let message = vm.ctx.new_str(message);
+        warn::warn_explicit(
+            Some(vm.ctx.exceptions.syntax_warning.to_owned()),
+            message.into(),
+            fname,
+            location.line.get(),
+            None,
+            vm.ctx.none(),
+            None,
+            None,
+            vm,
+        )
+        .map_err(|exception| CompileWarningError {
+            exception,
+            filename: filename.to_owned(),
+            lineno: location.line.get(),
+            offset: location.character_offset.get(),
+            replacement: None,
+        })
+    }
+
+    fn is_ascii_identifier_char(byte: u8) -> bool {
+        byte == b'_' || byte.is_ascii_alphanumeric()
+    }
+
+    fn numeric_keyword_suffix(rest: &[u8]) -> bool {
+        rest.starts_with(b"and")
+            || rest.starts_with(b"else")
+            || rest.starts_with(b"for")
+            || rest.starts_with(b"if")
+            || rest.starts_with(b"in")
+            || rest.starts_with(b"is")
+            || rest.starts_with(b"or")
+            || rest.starts_with(b"not")
+    }
+
+    fn consume_decimal_digits(bytes: &[u8], mut index: usize) -> usize {
+        while index < bytes.len() {
+            match bytes[index] {
+                b'0'..=b'9' => index += 1,
+                b'_' if bytes
+                    .get(index + 1)
+                    .is_some_and(|byte| byte.is_ascii_digit()) =>
+                {
+                    index += 2;
+                }
+                _ => break,
+            }
+        }
+        index
+    }
+
+    fn consume_radix_digits(
+        bytes: &[u8],
+        mut index: usize,
+        is_digit: impl Fn(u8) -> bool,
+    ) -> usize {
+        while index < bytes.len() {
+            if is_digit(bytes[index]) {
+                index += 1;
+            } else if bytes.get(index) == Some(&b'_')
+                && bytes.get(index + 1).is_some_and(|&byte| is_digit(byte))
+            {
+                index += 2;
+            } else {
+                break;
+            }
+        }
+        index
+    }
+
+    fn number_literal_end(bytes: &[u8], start: usize) -> Option<(&'static str, usize)> {
+        if bytes.get(start) == Some(&b'.') {
+            if !bytes
+                .get(start + 1)
+                .is_some_and(|byte| byte.is_ascii_digit())
+            {
+                return None;
+            }
+            let mut index = consume_decimal_digits(bytes, start + 1);
+            index = consume_exponent(bytes, index);
+            if matches!(bytes.get(index), Some(b'j' | b'J')) {
+                return Some(("imaginary", index + 1));
+            }
+            return Some(("decimal", index));
+        }
+
+        if !bytes.get(start).is_some_and(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+
+        if bytes.get(start) == Some(&b'0') {
+            match bytes.get(start + 1) {
+                Some(b'x' | b'X') => {
+                    let end =
+                        consume_radix_digits(bytes, start + 2, |byte| byte.is_ascii_hexdigit());
+                    return Some(("hexadecimal", end));
+                }
+                Some(b'o' | b'O') => {
+                    let end =
+                        consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0'..=b'7'));
+                    return Some(("octal", end));
+                }
+                Some(b'b' | b'B') => {
+                    let end =
+                        consume_radix_digits(bytes, start + 2, |byte| matches!(byte, b'0' | b'1'));
+                    return Some(("binary", end));
+                }
+                _ => {}
+            }
+        }
+
+        let mut index = consume_decimal_digits(bytes, start);
+        if bytes.get(index) == Some(&b'.') {
+            index = consume_decimal_digits(bytes, index + 1);
+        }
+        index = consume_exponent(bytes, index);
+        if matches!(bytes.get(index), Some(b'j' | b'J')) {
+            return Some(("imaginary", index + 1));
+        }
+        Some(("decimal", index))
+    }
+
+    fn consume_exponent(bytes: &[u8], index: usize) -> usize {
+        if !matches!(bytes.get(index), Some(b'e' | b'E')) {
+            return index;
+        }
+        let mut cursor = index + 1;
+        if matches!(bytes.get(cursor), Some(b'+' | b'-')) {
+            cursor += 1;
+        }
+        if bytes.get(cursor).is_some_and(|byte| byte.is_ascii_digit()) {
+            consume_decimal_digits(bytes, cursor)
+        } else {
+            index
+        }
+    }
+
+    fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
+        let quote = bytes[index];
+        let triple = bytes.get(index + 1) == Some(&quote) && bytes.get(index + 2) == Some(&quote);
+        let quote_len = if triple { 3 } else { 1 };
+        index += quote_len;
+        while index < bytes.len() {
+            if bytes[index] == b'\\' {
+                index = (index + 2).min(bytes.len());
+            } else if triple
+                && bytes.get(index) == Some(&quote)
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return index + 3;
+            } else if !triple && bytes[index] == quote {
+                return index + 1;
+            } else {
+                index += 1;
+            }
+        }
+        index
+    }
+
+    #[derive(Clone, Copy)]
+    enum StringPrefix {
+        None,
+        Invalid,
+        Valid {
+            is_raw: bool,
+            is_bytes: bool,
+            is_interpolated: bool,
+        },
+    }
+
+    fn is_string_prefix_letter(byte: u8) -> bool {
+        matches!(
+            byte,
+            b'r' | b'R' | b'b' | b'B' | b'u' | b'U' | b'f' | b'F' | b't' | b'T'
+        )
+    }
+
+    fn prefix_continues_identifier(byte: u8) -> bool {
+        byte == b'_' || byte.is_ascii_alphabetic() || byte >= 0x80
+    }
+
+    fn two_char_prefix(first: u8, second: u8) -> Option<(bool, bool, bool)> {
+        match [first.to_ascii_lowercase(), second.to_ascii_lowercase()] {
+            [b'r', b'f' | b't'] | [b'f' | b't', b'r'] => Some((true, false, true)),
+            [b'r', b'b'] | [b'b', b'r'] => Some((true, true, false)),
+            _ => None,
+        }
+    }
+
+    /// Prefix letters immediately before a quote, only when they form their own token.
+    fn string_prefix(bytes: &[u8], quote_index: usize) -> StringPrefix {
+        let mut taken = [0u8; 2];
+        let mut count = 0;
+        let mut index = quote_index;
+        while index > 0 && count < 2 {
+            let byte = bytes[index - 1];
+            if !is_string_prefix_letter(byte) {
+                break;
+            }
+            taken[count] = byte;
+            count += 1;
+            index -= 1;
+        }
+        if count == 0 {
+            return StringPrefix::None;
+        }
+        if index > 0 && prefix_continues_identifier(bytes[index - 1]) {
+            return StringPrefix::None;
+        }
+        if count == 2 {
+            return match two_char_prefix(taken[1], taken[0]) {
+                Some((is_raw, is_bytes, is_interpolated)) => StringPrefix::Valid {
+                    is_raw,
+                    is_bytes,
+                    is_interpolated,
+                },
+                None => StringPrefix::Invalid,
+            };
+        }
+        let (is_raw, is_bytes, is_interpolated) = match taken[0] {
+            b'r' | b'R' => (true, false, false),
+            b'b' | b'B' => (false, true, false),
+            b'f' | b'F' | b't' | b'T' => (false, false, true),
+            _ => (false, false, false),
+        };
+        StringPrefix::Valid {
+            is_raw,
+            is_bytes,
+            is_interpolated,
+        }
+    }
+
+    fn text_range_from_bounds(start: usize, end: usize) -> TextRange {
+        TextRange::new(
+            ruff_text_size::TextSize::try_from(start).unwrap_or_default(),
+            ruff_text_size::TextSize::try_from(end).unwrap_or_default(),
+        )
+    }
+
+    fn warn_quoted_literal(
+        source: &str,
+        quote_index: usize,
+        end: usize,
+        is_bytes: bool,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        if let Some((start, content_end)) =
+            content_bounds(source, text_range_from_bounds(quote_index, end))
+            && let Some(escape) = first_invalid_escape(source, start, content_end, is_bytes)
+        {
+            warn_invalid_escape_sequence(source, escape, filename, vm)?;
+        }
+        Ok(())
+    }
+
+    fn warn_fstring_literal_part(
+        source: &str,
+        start: usize,
+        end: usize,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        if start >= end || end > source.len() {
+            return Ok(());
+        }
+        if let Some(escape) = first_invalid_escape(source, start, end, false) {
+            return warn_invalid_escape_sequence(source, escape, filename, vm);
+        }
+        let trailing_bs = source.as_bytes()[start..end]
+            .iter()
+            .rev()
+            .take_while(|&&byte| byte == b'\\')
+            .count();
+        if trailing_bs % 2 == 1
+            && let Some(&after) = source.as_bytes().get(end)
+            && (after == b'{' || after == b'}')
+        {
+            warn_invalid_escape_sequence(
+                source,
+                InvalidEscape::Char {
+                    ch: after as char,
+                    offset: end - 1,
+                },
+                filename,
+                vm,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn find_interpolation_end(bytes: &[u8], open: usize, limit: usize) -> usize {
+        let mut index = open + 1;
+        let mut depth: u32 = 1;
+        let mut paren: u32 = 0;
+        let mut bracket: u32 = 0;
+        while index < limit {
+            match bytes[index] {
+                b'#' if paren == 0 && bracket == 0 && depth == 1 => {
+                    while index < limit && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'\'' | b'"' => {
+                    index = skip_quoted_string(bytes, index).max(index + 1);
+                }
+                b'(' => {
+                    paren += 1;
+                    index += 1;
+                }
+                b')' => {
+                    paren = paren.saturating_sub(1);
+                    index += 1;
+                }
+                b'[' => {
+                    bracket += 1;
+                    index += 1;
+                }
+                b']' => {
+                    bracket = bracket.saturating_sub(1);
+                    index += 1;
+                }
+                b'{' => {
+                    depth += 1;
+                    index += 1;
+                }
+                b'}' => {
+                    depth -= 1;
+                    index += 1;
+                    if depth == 0 {
+                        return index;
+                    }
+                }
+                b'\\' => index = (index + 2).min(limit),
+                _ => index += 1,
+            }
+        }
+        limit
+    }
+
+    fn scan_interpolated_content(
+        source: &str,
+        start: usize,
+        end: usize,
+        is_raw: bool,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let bytes = source.as_bytes();
+        let mut index = start;
+        let mut literal_start = start;
+        while index < end {
+            match bytes[index] {
+                b'{' if bytes.get(index + 1) == Some(&b'{') => {
+                    index += 2;
+                }
+                b'{' => {
+                    if !is_raw {
+                        warn_fstring_literal_part(source, literal_start, index, filename, vm)?;
+                    }
+                    let close = find_interpolation_end(bytes, index, end);
+                    let body_end = if close > index + 1 { close - 1 } else { close };
+                    emit_string_escape_warnings_in_range(
+                        source,
+                        index + 1,
+                        body_end,
+                        Some(is_raw),
+                        filename,
+                        vm,
+                    )?;
+                    index = close.max(index + 1);
+                    literal_start = index;
+                }
+                b'}' if bytes.get(index + 1) == Some(&b'}') => {
+                    index += 2;
+                }
+                b'\\' => index = (index + 2).min(end),
+                _ => index += 1,
+            }
+        }
+        if !is_raw {
+            warn_fstring_literal_part(source, literal_start, end, filename, vm)?;
+        }
+        Ok(())
+    }
+
+    /// Scan quoted literals without a successful parse, matching the tokenizer
+    /// path that warns before the parser rejects the rest of the source.
+    fn emit_string_escape_warnings_unparsed(
+        source: &str,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        emit_string_escape_warnings_in_range(source, 0, source.len(), None, filename, vm)
+    }
+
+    fn emit_string_escape_warnings_in_range(
+        source: &str,
+        start: usize,
+        end: usize,
+        format_spec_raw: Option<bool>,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let bytes = source.as_bytes();
+        let end = end.min(bytes.len());
+        let mut index = start;
+        let mut paren: u32 = 0;
+        let mut bracket: u32 = 0;
+        let mut brace: u32 = 0;
+        while index < end {
+            match bytes[index] {
+                b'#' => {
+                    while index < end && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'\'' | b'"' => {
+                    let prefix = string_prefix(bytes, index);
+                    let quote_end = skip_quoted_string(bytes, index).min(bytes.len());
+                    match prefix {
+                        StringPrefix::Valid {
+                            is_raw,
+                            is_bytes,
+                            is_interpolated,
+                        } => {
+                            if is_interpolated {
+                                if let Some((content_start, content_end)) =
+                                    content_bounds(source, text_range_from_bounds(index, quote_end))
+                                {
+                                    scan_interpolated_content(
+                                        source,
+                                        content_start,
+                                        content_end.min(end),
+                                        is_raw,
+                                        filename,
+                                        vm,
+                                    )?;
+                                }
+                            } else if !is_raw {
+                                warn_quoted_literal(
+                                    source, index, quote_end, is_bytes, filename, vm,
+                                )?;
+                            }
+                        }
+                        StringPrefix::None => {
+                            warn_quoted_literal(source, index, quote_end, false, filename, vm)?;
+                        }
+                        StringPrefix::Invalid => {}
+                    }
+                    index = quote_end.max(index + 1);
+                }
+                b':' if let Some(is_raw) = format_spec_raw
+                    && paren == 0
+                    && bracket == 0
+                    && brace == 0 =>
+                {
+                    scan_interpolated_content(source, index + 1, end, is_raw, filename, vm)?;
+                    return Ok(());
+                }
+                b'(' if format_spec_raw.is_some() => {
+                    paren += 1;
+                    index += 1;
+                }
+                b')' if format_spec_raw.is_some() => {
+                    paren = paren.saturating_sub(1);
+                    index += 1;
+                }
+                b'[' if format_spec_raw.is_some() => {
+                    bracket += 1;
+                    index += 1;
+                }
+                b']' if format_spec_raw.is_some() => {
+                    bracket = bracket.saturating_sub(1);
+                    index += 1;
+                }
+                b'{' if format_spec_raw.is_some() => {
+                    brace += 1;
+                    index += 1;
+                }
+                b'}' if format_spec_raw.is_some() => {
+                    brace = brace.saturating_sub(1);
+                    index += 1;
+                }
+                _ => index += 1,
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_numeric_literal_warnings(
+        source: &str,
+        filename: &str,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            match bytes[index] {
+                b'#' => {
+                    while index < bytes.len() && bytes[index] != b'\n' {
+                        index += 1;
+                    }
+                }
+                b'\'' | b'"' => {
+                    index = skip_quoted_string(bytes, index);
+                }
+                byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
+                    index += 1;
+                    while index < bytes.len()
+                        && (bytes[index] >= 0x80 || is_ascii_identifier_char(bytes[index]))
+                    {
+                        index += 1;
+                    }
+                }
+                b'.' | b'0'..=b'9' => {
+                    let Some((kind, end)) = number_literal_end(bytes, index) else {
+                        index += 1;
+                        continue;
+                    };
+                    if end > index && numeric_keyword_suffix(&bytes[end..]) {
+                        warn_syntax_at_offset(
+                            source,
+                            filename,
+                            index,
+                            format!("invalid {kind} literal"),
+                            vm,
+                        )?;
+                    }
+                    index = end.max(index + 1);
+                }
+                _ => index += 1,
+            }
+        }
+        Ok(())
     }
 
     struct EscapeWarningVisitor<'a> {
         source: &'a str,
         filename: &'a str,
         vm: &'a VirtualMachine,
+        error: Option<CompileWarningError>,
+        /// This pass runs before the compile that rejects an over-nested
+        /// tree, so it has to stop itself.
+        depth: usize,
+        depth_limit: usize,
     }
 
     impl<'a> EscapeWarningVisitor<'a> {
+        fn record_warning(&mut self, result: Result<(), CompileWarningError>) {
+            if self.error.is_none()
+                && let Err(err) = result
+            {
+                self.error = Some(err);
+            }
+        }
+
         /// Check a quoted string/bytes literal for invalid escapes.
         /// The range must include the prefix and quote delimiters.
-        fn check_quoted_literal(&self, range: TextRange, is_bytes: bool) {
+        fn check_quoted_literal(&mut self, range: TextRange, is_bytes: bool) {
             if let Some((start, end)) = content_bounds(self.source, range)
-                && let Some((ch, offset)) = first_invalid_escape(self.source, start, end, is_bytes)
+                && let Some(escape) = first_invalid_escape(self.source, start, end, is_bytes)
             {
-                warn_invalid_escape_sequence(self.source, ch, offset, self.filename, self.vm);
+                let result =
+                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
+                self.record_warning(result);
             }
         }
 
@@ -222,14 +1414,16 @@ mod escape_warnings {
         /// Also handles `\{` / `\}` at the literal–interpolation boundary,
         /// equivalent to `_PyTokenizer_warn_invalid_escape_sequence` handling
         /// `FSTRING_MIDDLE` / `FSTRING_END` tokens.
-        fn check_fstring_literal(&self, range: TextRange) {
+        fn check_fstring_literal(&mut self, range: TextRange) {
             let start = range.start().to_usize();
             let end = range.end().to_usize();
             if start >= end || end > self.source.len() {
                 return;
             }
-            if let Some((ch, offset)) = first_invalid_escape(self.source, start, end, false) {
-                warn_invalid_escape_sequence(self.source, ch, offset, self.filename, self.vm);
+            if let Some(escape) = first_invalid_escape(self.source, start, end, false) {
+                let result =
+                    warn_invalid_escape_sequence(self.source, escape, self.filename, self.vm);
+                self.record_warning(result);
                 return;
             }
             // In CPython, _PyTokenizer_warn_invalid_escape_sequence handles
@@ -247,13 +1441,16 @@ mod escape_warnings {
                 && let Some(&after) = self.source.as_bytes().get(end)
                 && (after == b'{' || after == b'}')
             {
-                warn_invalid_escape_sequence(
+                let result = warn_invalid_escape_sequence(
                     self.source,
-                    after as char,
-                    end - 1,
+                    InvalidEscape::Char {
+                        ch: after as char,
+                        offset: end - 1,
+                    },
                     self.filename,
                     self.vm,
                 );
+                self.record_warning(result);
             }
         }
 
@@ -261,6 +1458,9 @@ mod escape_warnings {
         /// interpolation expressions and format specs.
         fn visit_fstring_elements(&mut self, elements: &'a ast::InterpolatedStringElements) {
             for element in elements {
+                if self.error.is_some() {
+                    return;
+                }
                 match element {
                     ast::InterpolatedStringElement::Literal(lit) => {
                         self.check_fstring_literal(lit.range);
@@ -278,6 +1478,9 @@ mod escape_warnings {
 
     impl<'a> Visitor<'a> for EscapeWarningVisitor<'a> {
         fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_some() {
+                return;
+            }
             match expr {
                 // Regular string literals — decode_unicode_with_escapes path
                 ast::Expr::StringLiteral(string) => {
@@ -326,27 +1529,56 @@ mod escape_warnings {
                         }
                     }
                 }
-                _ => ast::visitor::walk_expr(self, expr),
+                _ => {
+                    if self.depth < self.depth_limit {
+                        self.depth += 1;
+                        ast::visitor::walk_expr(self, expr);
+                        self.depth -= 1;
+                    }
+                }
             }
         }
     }
 
     impl VirtualMachine {
+        /// Emit tokenizer-level SyntaxWarnings raised before
+        /// code generation.
+        pub(super) fn emit_tokenizer_syntax_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+        ) -> Result<(), CompileWarningError> {
+            emit_numeric_literal_warnings(source, filename, self)
+        }
+
         /// Walk all string literals in `source` and emit `SyntaxWarning` for
         /// each that contains an invalid escape sequence.
-        pub(super) fn emit_string_escape_warnings(&self, source: &str, filename: &str) {
+        pub(super) fn emit_string_escape_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+        ) -> Result<(), CompileWarningError> {
+            // The compile that follows rejects this source; parsing it here
+            // would build a tree that exhausts the stack when dropped.
+            let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
+            if compiler::pre_parse_source_error(&source_file).is_err() {
+                return Ok(());
+            }
             let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
             else {
-                return;
+                return emit_string_escape_warnings_unparsed(source, filename, self);
             };
             let ast = parsed.into_syntax();
             let mut visitor = EscapeWarningVisitor {
                 source,
                 filename,
                 vm: self,
+                error: None,
+                depth: 0,
+                depth_limit: compiler::CompileOpts::default().recursion_limit,
             };
-            match ast {
+            match &ast {
                 ast::Mod::Module(module) => {
                     for stmt in &module.body {
                         visitor.visit_stmt(stmt);
@@ -356,6 +1588,360 @@ mod escape_warnings {
                     visitor.visit_expr(&expr.body);
                 }
             }
+            visitor.error.map_or(Ok(()), Err)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::{Interpreter, builtins::PyTuple};
+
+        fn install_syntax_warning_error_filter(vm: &VirtualMachine) {
+            let error_filter = PyTuple::new_ref(
+                vec![
+                    vm.ctx.new_str("error").into(),
+                    vm.ctx.none(),
+                    vm.ctx.exceptions.syntax_warning.as_object().to_owned(),
+                    vm.ctx.none(),
+                    vm.ctx.new_int(0).into(),
+                ],
+                &vm.ctx,
+            );
+            vm.state
+                .warnings
+                .filters
+                .borrow_vec_mut()
+                .insert(0, error_filter.into());
+            vm.state.warnings.filters_mutated();
+        }
+
+        fn first_compiler_warning(source: &str) -> String {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                install_syntax_warning_error_filter(vm);
+                let err = vm
+                    .compile(source, compiler::Mode::Exec, "<test>")
+                    .expect_err("expected compiler SyntaxWarning");
+                let exception = err.into_pyexception(vm, Some(source));
+                exception
+                    .as_object()
+                    .str(vm)
+                    .expect("warning message should stringify")
+                    .as_wtf8()
+                    .to_string()
+            })
+        }
+
+        fn compile_error_message(source: &str) -> String {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                install_syntax_warning_error_filter(vm);
+                let err = match vm.compile(source, compiler::Mode::Exec, "<test>") {
+                    Ok(_) => panic!("expected compile error"),
+                    Err(err) => err,
+                };
+                err.into_pyexception(vm, Some(source))
+                    .as_object()
+                    .str(vm)
+                    .expect("compile error should stringify")
+                    .as_wtf8()
+                    .to_string()
+            })
+        }
+
+        #[test]
+        fn ast_only_compile_honors_barry_as_flufl() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let flags = CompilerFlags::ONLY_AST.bits();
+                vm.compile_string_object_with_flags(
+                    b"from __future__ import barry_as_FLUFL\n2 <> 3\n",
+                    "<test>",
+                    CompileStart::File.as_i32(),
+                    flags,
+                    -1,
+                    -1,
+                )
+                .expect("PyCF_ONLY_AST should accept <> in Barry mode");
+
+                let err = vm
+                    .compile_string_object_with_flags(
+                        b"from __future__ import barry_as_FLUFL\n2 != 3\n",
+                        "<test>",
+                        CompileStart::File.as_i32(),
+                        flags,
+                        -1,
+                        -1,
+                    )
+                    .expect_err("PyCF_ONLY_AST should reject != in Barry mode");
+                assert!(
+                    err.as_object()
+                        .str(vm)
+                        .unwrap()
+                        .as_wtf8()
+                        .to_string()
+                        .contains("with Barry as BDFL")
+                );
+            });
+        }
+
+        #[test]
+        fn type_comment_preparse_honors_inherited_barry_as_flufl() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                let flags = CompilerFlags::TYPE_COMMENTS.bits()
+                    | crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL.bits() as i32;
+                vm.compile_string_object_with_flags(
+                    b"2 <> 3\n",
+                    "<test>",
+                    CompileStart::File.as_i32(),
+                    flags,
+                    -1,
+                    -1,
+                )
+                .expect("type-comment preparse should accept <> in inherited Barry mode");
+            });
+        }
+
+        #[test]
+        fn codegen_caller_warning_precedes_later_return_error() {
+            let message = compile_error_message("(1)()\nreturn\n");
+            assert!(
+                message.contains("'int' object is not callable"),
+                "expected caller SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn symboltable_error_still_precedes_codegen_caller_warning() {
+            let message = compile_error_message("(1)()\ndef f():\n    from x import *\n");
+            assert!(
+                message.contains("import * only allowed at module level"),
+                "expected symboltable error first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn codegen_compare_warning_precedes_later_return_error() {
+            let message = compile_error_message("1 is 1\nreturn\n");
+            assert!(
+                message.contains("\"is\" with 'int' literal"),
+                "expected compare SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn codegen_assert_warning_precedes_later_return_error() {
+            let message = compile_error_message("assert (1,)\nreturn\n");
+            assert!(
+                message.contains("assertion is always true"),
+                "expected assert SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn codegen_subscript_warning_precedes_later_return_error() {
+            let message = compile_error_message("(1)[None]\nreturn\n");
+            assert!(
+                message.contains("'int' object is not subscriptable"),
+                "expected subscript SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn codegen_index_warning_precedes_later_return_error() {
+            let message = compile_error_message("'x'[None]\nreturn\n");
+            assert!(
+                message.contains("str indices must be integers or slices, not NoneType"),
+                "expected index SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn string_escape_warning_precedes_later_return_error() {
+            let message = compile_error_message("\"\\z\"\nreturn\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "expected invalid escape SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn string_escape_warning_precedes_later_symboltable_error() {
+            let message = compile_error_message("\"\\z\"\ndef f():\n    from x import *\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "expected invalid escape SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn string_escape_warning_precedes_later_parse_error() {
+            let message = compile_error_message("'\\e' $\n");
+            assert!(
+                message.contains("\"\\e\" is an invalid escape sequence"),
+                "expected invalid escape before parse error, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn invalid_octal_escape_warning_escalates() {
+            let message = compile_error_message("'''\n\\407'''\n");
+            assert!(
+                message.contains("\"\\407\" is an invalid octal escape sequence"),
+                "expected invalid octal escape, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_identifier_suffix_is_not_a_raw_prefix() {
+            let message = compile_error_message("bar'\\z' $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "trailing r in an identifier must not suppress the warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_raw_prefix_after_dot_stays_raw() {
+            let message = compile_error_message("obj.r'\\z'\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "r after '.' is a raw prefix, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_incompatible_prefix_skips_escape_scan() {
+            let message = compile_error_message("ur'\\z'\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "incompatible prefixes should not emit an escape warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_raw_interpolation_does_not_warn() {
+            let message = compile_error_message("f\"{r'\\z'}\" $\n");
+            assert!(
+                !message.contains("invalid escape"),
+                "raw interpolation must not be scanned as f-string text, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_fstring_literal_parts_still_warn() {
+            let message = compile_error_message("f\"pre\\z{r'\\e'}post\\q\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "f-string literal parts should still warn, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_nested_fstring_in_interpolation_warns() {
+            let message = compile_error_message("f\"{f'\\z'}\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "non-raw nested f-string should warn, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn unparsed_format_spec_escape_warns() {
+            let message = compile_error_message("f\"{x:\\z}\" $\n");
+            assert!(
+                message.contains("\"\\z\" is an invalid escape sequence"),
+                "format spec is f-string text, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn ast_preprocess_finally_warning_precedes_later_return_error() {
+            let message = compile_error_message("try:\n    pass\nfinally:\n    return\nreturn\n");
+            assert!(
+                message.contains("'return' in a 'finally' block"),
+                "expected finally SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn ast_preprocess_finally_warning_precedes_symboltable_error() {
+            let message = compile_error_message(
+                "def f():\n    from x import *\ntry:\n    pass\nfinally:\n    return\n",
+            );
+            assert!(
+                message.contains("'return' in a 'finally' block"),
+                "expected finally SyntaxWarning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn compiler_warning_visits_function_decorators_before_defaults_and_body() {
+            let message = first_compiler_warning(
+                r#"
+@(b"decorator")()
+def f(x=(1)()):
+    assert (1,)
+"#,
+            );
+            assert!(
+                message.contains("'bytes' object is not callable"),
+                "expected decorator warning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn compiler_warning_visits_function_defaults_before_annotations() {
+            let message = first_compiler_warning(
+                r#"
+def f(x: (1)() = ("default")()):
+    pass
+"#,
+            );
+            assert!(
+                message.contains("'str' object is not callable"),
+                "expected default warning before annotation warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn compiler_warning_visits_class_decorators_before_body_and_bases() {
+            let message = first_compiler_warning(
+                r#"
+@(b"decorator")()
+class C((1)()):
+    assert (1,)
+"#,
+            );
+            assert!(
+                message.contains("'bytes' object is not callable"),
+                "expected class decorator warning first, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn compiler_warning_visits_class_body_before_bases() {
+            let message = first_compiler_warning(
+                r#"
+class C((1)()):
+    assert (1,)
+"#,
+            );
+            assert!(
+                message.contains("assertion is always true"),
+                "expected class body warning before base warning, got {message:?}"
+            );
+        }
+
+        #[test]
+        fn compiler_warning_visits_type_alias_type_params_before_value() {
+            let message = first_compiler_warning(
+                r#"
+type Alias[T: (1)()] = ("value")()
+"#,
+            );
+            assert!(
+                message.contains("'int' object is not callable"),
+                "expected type parameter warning before alias value warning, got {message:?}"
+            );
         }
     }
 }

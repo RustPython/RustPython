@@ -5,11 +5,11 @@ use crate::builtins::{
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
-use crate::function::{ArgBytesLike, OptionalArg, PySetterValue};
+use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -18,8 +18,8 @@ use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use rustpython_common::wtf8::Wtf8;
 use rustpython_host_env::ctypes::{
-    CTypeParamKind, FfiArg, FfiType, FfiValue, char_array_assignment_bytes, char_array_field_value,
-    ffi_arg_from_value, ffi_type_for_layout, wchar_array_field_value, write_cow_bytes_at_offset,
+    CTypeLayout, char_array_assignment_bytes, char_array_field_value, clone_wchar_null_terminated,
+    wchar_array_field_value, write_cow_bytes_at_offset,
 };
 
 // StgInfo - Storage information for ctypes types
@@ -99,8 +99,9 @@ pub struct StgInfo {
     // Byte order (for _swappedbytes_)
     pub big_endian: bool, // true if big endian, false if little endian
 
-    // FFI field types for structure/union passing (inherited from base class)
-    pub ffi_field_types: Vec<FfiType>,
+    // Call layouts of the struct/union fields, in declaration order (inherited
+    // from base class). Drives by-value aggregate passing.
+    pub field_layouts: Vec<CTypeLayout>,
 
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
@@ -127,7 +128,7 @@ impl core::fmt::Debug for StgInfo {
             .field("shape", &self.shape)
             .field("paramfunc", &self.paramfunc)
             .field("big_endian", &self.big_endian)
-            .field("ffi_field_types", &self.ffi_field_types.len())
+            .field("field_layouts", &self.field_layouts.len())
             .finish()
     }
 }
@@ -147,7 +148,7 @@ impl Default for StgInfo {
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
     }
@@ -168,7 +169,7 @@ impl StgInfo {
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
     }
@@ -220,28 +221,9 @@ impl StgInfo {
             shape,
             paramfunc: ParamFunc::Array,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
-    }
-
-    /// Get libffi type for this StgInfo
-    /// Note: For very large types, returns pointer type to avoid overflow
-    pub fn to_ffi_type(&self) -> FfiType {
-        let kind = match self.paramfunc {
-            ParamFunc::Structure => CTypeParamKind::Structure,
-            ParamFunc::Union => CTypeParamKind::Union,
-            ParamFunc::Array => CTypeParamKind::Array,
-            ParamFunc::Pointer => CTypeParamKind::Pointer,
-            _ => CTypeParamKind::Simple,
-        };
-        ffi_type_for_layout(
-            kind,
-            &self.ffi_field_types,
-            self.size,
-            self.length,
-            self.format.as_deref(),
-        )
     }
 
     /// Check if this type is finalized (cannot set _fields_ again)
@@ -252,6 +234,44 @@ impl StgInfo {
     /// Get proto type reference (for Pointer/Array types)
     pub fn proto(&self) -> &Py<PyType> {
         self.proto.as_deref().expect("type has proto")
+    }
+}
+
+/// Build the host_env call layout for a ctypes type from its already-borrowed
+/// `StgInfo`. Aggregate layouts come straight from the type's `field_layouts`
+/// (built incrementally from the base class, so struct inheritance is
+/// reflected); array elements recurse into the element type; simple types read
+/// their `_type_` code. The caller passes the borrowed `stg` so this never
+/// re-locks `ty`'s own type data.
+pub(super) fn type_layout(ty: &Py<PyType>, stg: &StgInfo, vm: &VirtualMachine) -> CTypeLayout {
+    match stg.paramfunc {
+        ParamFunc::Structure => CTypeLayout::Struct {
+            fields: stg.field_layouts.clone(),
+            size: stg.size,
+        },
+        ParamFunc::Union => CTypeLayout::Union {
+            fields: stg.field_layouts.clone(),
+            size: stg.size,
+        },
+        ParamFunc::Array => {
+            let element = stg
+                .element_type
+                .as_ref()
+                .and_then(|et| et.stg_info_opt().map(|et_stg| type_layout(et, &et_stg, vm)))
+                .unwrap_or(CTypeLayout::Opaque {
+                    size: stg.element_size,
+                });
+            CTypeLayout::Array {
+                element: Box::new(element),
+                length: stg.length,
+                size: stg.size,
+            }
+        }
+        ParamFunc::Pointer => CTypeLayout::Pointer,
+        ParamFunc::Simple | ParamFunc::None => ty
+            .type_code(vm)
+            .and_then(|code| code.chars().next())
+            .map_or(CTypeLayout::Opaque { size: stg.size }, CTypeLayout::Simple),
     }
 }
 
@@ -361,12 +381,13 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 /// Ensure PyBytes data is null-terminated. Returns (kept_alive_obj, pointer).
+///
 /// The caller must keep the returned object alive to keep the pointer valid.
 pub(super) fn ensure_z_null_terminated(
-    bytes: &PyBytes,
+    bytes: &Py<PyBytes>,
     vm: &VirtualMachine,
 ) -> (PyObjectRef, usize) {
-    let buffer = rustpython_host_env::ctypes::null_terminated_bytes(bytes.as_bytes());
+    let buffer = rustpython_host_env::ctypes::clone_as_null_terminated(bytes.as_bytes());
     let ptr = buffer.as_ptr() as usize;
     let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
     (kept_alive, ptr)
@@ -374,13 +395,13 @@ pub(super) fn ensure_z_null_terminated(
 
 /// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
 pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef, usize) {
-    let bytes = rustpython_host_env::ctypes::wchar_null_terminated_bytes(s);
+    let bytes = clone_wchar_null_terminated(s);
     let ptr = bytes.as_ptr() as usize;
     let holder: PyObjectRef = vm.ctx.new_bytes(bytes).into();
     (holder, ptr)
 }
 
-/// PyCData - base type for all ctypes data types
+// PyCData - base type for all ctypes data types
 #[pyclass(name = "_CData", module = "_ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCData {
@@ -604,7 +625,9 @@ impl PyCData {
 
         // Get buffer pointer - the memory is owned by source
         let ptr = {
-            let bytes = buffer.obj_bytes();
+            // Contiguity is checked above, so this is the view's own bytes rather
+            // than the whole exporter's.
+            let bytes = unsafe { buffer.contiguous_unchecked() };
             bytes.as_ptr().wrapping_add(offset)
         };
 
@@ -709,7 +732,8 @@ impl PyCData {
         let key = self.unique_key(index);
 
         // If we have a base object, find root and store there
-        if let Some(base_obj) = self.base.read().clone() {
+        let base = self.base.read().clone();
+        if let Some(base_obj) = base {
             // Find root by walking up the base chain
             let root_obj = Self::find_root_object(&base_obj);
             Self::store_in_object(&root_obj, &key, keep, vm)?;
@@ -761,7 +785,8 @@ impl PyCData {
     /// Uses unique_key (hierarchical) so nested fields don't collide.
     pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
         let key = self.unique_key(index);
-        if let Some(base_obj) = self.base.read().clone() {
+        let base = self.base.read().clone();
+        if let Some(base_obj) = base {
             let root = Self::find_root_object(&base_obj);
             if let Some(cdata) = root.downcast_ref::<Self>() {
                 cdata.kept_refs.write().insert(key, obj);
@@ -915,7 +940,7 @@ impl PyCData {
         {
             let items: Option<Vec<PyObjectRef>> =
                 if let Some(tuple) = value.downcast_ref::<PyTuple>() {
-                    Some(tuple.to_vec())
+                    Some(tuple.as_slice().to_vec())
                 } else {
                     value
                         .downcast_ref::<crate::builtins::PyList>()
@@ -928,6 +953,7 @@ impl PyCData {
                     let exc_name = e.class().name().to_string();
                     let exc_args = e.args();
                     let exc_msg = exc_args
+                        .as_slice()
                         .first()
                         .and_then(|a| a.downcast_ref::<PyStr>().map(|s| s.to_string()))
                         .unwrap_or_default();
@@ -1094,7 +1120,7 @@ impl PyCData {
 }
 
 #[pyclass(flags(BASETYPE))]
-impl PyCData {
+impl Py<PyCData> {
     #[pygetset]
     fn _objects(&self) -> Option<PyObjectRef> {
         self.objects.read().clone()
@@ -1105,15 +1131,16 @@ impl PyCData {
         self.base.read().clone()
     }
 
+    #[pymethod]
+    fn __ctypes_from_outparam__(zelf: PyRef<PyCData>, _vm: &VirtualMachine) -> PyObjectRef {
+        zelf.into()
+    }
+
     #[pygetset]
     fn _b_needsfree_(&self) -> i32 {
         // Borrowed (from_address) or has base object → 0 (don't free)
         // Owned and no base → 1 (need to free)
-        if self.is_borrowed() || self.base.read().is_some() {
-            0
-        } else {
-            1
-        }
+        i32::from(!(self.is_borrowed() || self.base.read().is_some()))
     }
 
     // CDataType_methods - shared across all ctypes types
@@ -1125,7 +1152,7 @@ impl PyCData {
         offset: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let cdata = Self::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
+        let cdata = PyCData::from_buffer_impl(&cls, source, offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1137,12 +1164,17 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult {
         let cdata =
-            Self::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
+            PyCData::from_buffer_copy_impl(&cls, &source.borrow_buf(), offset.unwrap_or(0), vm)?;
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pyclassmethod]
-    pub(super) fn from_address(cls: PyTypeRef, address: isize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn from_address(
+        cls: PyTypeRef,
+        address: ArgStrictInt<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let address = address.value;
         let size = {
             let stg_info = cls.stg_info(vm)?;
             stg_info.size
@@ -1153,7 +1185,7 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(address as *const u8, size) };
+        let cdata = unsafe { PyCData::at_address(address as *const u8, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 
@@ -1211,15 +1243,14 @@ impl PyCData {
         }
 
         // PyCData_AtAddress
-        let cdata = unsafe { Self::at_address(ptr, size) };
+        let cdata = unsafe { PyCData::at_address(ptr, size) };
         cdata.into_ref_with_type(vm, cls).map(Into::into)
     }
 }
 
 // PyCField - Field descriptor for Structure/Union types
 
-/// CField descriptor for Structure/Union field access
-#[pyclass(name = "CField", module = "_ctypes")]
+#[pyclass(name = "CField", module = "ctypes")]
 #[derive(Debug, PyPayload)]
 pub struct PyCField {
     /// Field name
@@ -1315,7 +1346,7 @@ impl Constructor for PyCField {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         // PyCField_new_impl: requires _internal_use=True
         let internal_use = if let Some(v) = args.kwargs.get("_internal_use") {
-            v.clone().try_to_bool(vm)?
+            v.try_to_bool(vm)?
         } else {
             false
         };
@@ -1431,18 +1462,19 @@ impl Representable for PyCField {
 /// PyCField_get
 impl GetDescriptor for PyCField {
     fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        _cls: Option<PyObjectRef>,
+        zelf: &PyObject,
+        obj: Option<&PyObject>,
+        _cls: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let zelf = zelf
+            .to_owned()
             .downcast::<Self>()
             .map_err(|_| vm.new_type_error("expected CField"))?;
 
         // If obj is None, return the descriptor itself (class attribute access)
         let obj = match obj {
-            Some(obj) if !vm.is_none(&obj) => obj,
+            Some(obj) if !vm.is_none(obj) => obj.to_owned(),
             _ => return Ok(zelf.into()),
         };
 
@@ -1666,10 +1698,9 @@ impl PyCField {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
 impl PyCField {
     /// Get PyCData from object (works for both Structure and Union)
-    fn get_cdata_from_obj<'a>(obj: &'a PyObjectRef, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
+    fn get_cdata_from_obj<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a PyCData> {
         if let Some(s) = obj.downcast_ref::<super::structure::PyCStructure>() {
             Ok(&s.0)
         } else if let Some(u) = obj.downcast_ref::<super::union::PyCUnion>() {
@@ -1681,8 +1712,11 @@ impl PyCField {
             )))
         }
     }
+}
 
-    /// PyCField_set
+#[pyclass(flags(IMMUTABLETYPE), with(Representable, GetDescriptor, Constructor))]
+impl Py<PyCField> {
+    // PyCField_set
     #[pyslot]
     fn descr_set(
         zelf: &PyObject,
@@ -1691,14 +1725,14 @@ impl PyCField {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let zelf = zelf
-            .downcast_ref::<Self>()
+            .downcast_ref::<PyCField>()
             .ok_or_else(|| vm.new_type_error("expected CField"))?;
 
         let offset = zelf.offset as usize;
         let size = zelf.get_byte_size();
 
         // Get PyCData from obj (works for both Structure and Union)
-        let cdata = Self::get_cdata_from_obj(&obj, vm)?;
+        let cdata = PyCField::get_cdata_from_obj(&obj, vm)?;
 
         match value {
             PySetterValue::Assign(value) => {
@@ -1830,12 +1864,12 @@ fn simple_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject>
 
     // Read value from buffer: memcpy(&parg->value, self->b_ptr, self->b_size)
     let buffer = simple.0.buffer.read();
-    let ffi_value = buffer_to_ffi_value(&type_code, &buffer);
 
     Ok(CArgObject {
         tag,
-        value: ffi_value,
+        value: CArgValue::typed(tag as char, &buffer),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1855,8 +1889,9 @@ fn array_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> 
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1875,8 +1910,9 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1884,64 +1920,92 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 
 /// StructUnionType_paramfunc (for both Structure and Union)
 fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachine) -> CArgObject {
-    // Get buffer pointer
-    // For large structs (> sizeof(void*)), we'd need to allocate and copy.
-    // For now, just point to buffer directly and keep obj reference for memory safety.
-    let buffer = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
-        cdata.buffer.read()
+    // Snapshot the instance bytes and pass the aggregate by value. The layout
+    // is built here from the already-borrowed `stg_info` to avoid re-locking.
+    let (bytes, size) = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
+        let buffer = cdata.buffer.read();
+        (buffer.to_vec(), buffer.len())
     } else {
-        return CArgObject {
-            tag: b'V',
-            value: FfiArgValue::pointer(0),
-            obj: obj.to_owned(),
-            size: stg_info.size,
-            offset: 0,
-        };
+        (Vec::new(), stg_info.size)
     };
 
-    let ptr_val = buffer.as_ptr() as usize;
-    let size = buffer.len();
+    let layout = if matches!(stg_info.paramfunc, ParamFunc::Union) {
+        CTypeLayout::Union {
+            fields: stg_info.field_layouts.clone(),
+            size: stg_info.size,
+        }
+    } else {
+        CTypeLayout::Struct {
+            fields: stg_info.field_layouts.clone(),
+            size: stg_info.size,
+        }
+    };
 
     CArgObject {
         tag: b'V',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::aggregate(layout, bytes),
         obj: obj.to_owned(),
+        keep: None,
         size,
         offset: 0,
     }
 }
 
-// FfiArgValue - Owned FFI argument value
+// CArgValue - Owned foreign-call argument value
 
-/// Owned FFI argument value. Keeps the value alive for the duration of the FFI call.
+/// A foreign-call argument in a form the unified `call` entry point accepts: a
+/// simple-typed scalar (its ctypes code plus a native-endian bytes snapshot),
+/// an untyped int, or an address. Any object whose memory an address
+/// refers to is kept alive by the enclosing `Argument`/`CArgObject`, not here.
 #[derive(Debug, Clone)]
-pub enum FfiArgValue {
-    Scalar(FfiValue),
-    /// Pointer with owned data. The PyObjectRef keeps the pointed data alive.
-    OwnedPointer(usize, #[allow(dead_code)] PyObjectRef),
+pub enum CArgValue {
+    /// A value typed by its ctypes simple-type code, snapshotted as its bytes.
+    Typed { code: char, bytes: Vec<u8> },
+    /// Untyped Python int (ConvParam default: C int).
+    Int(i32),
+    /// Address-valued argument (pointer decay, byref, buffer copies, NULL = 0).
+    Pointer(usize),
+    /// By-value aggregate: its call layout plus a snapshot of its bytes.
+    Aggregate { layout: CTypeLayout, bytes: Vec<u8> },
 }
 
-impl FfiArgValue {
+impl CArgValue {
     pub fn pointer(value: usize) -> Self {
-        Self::Scalar(FfiValue::Pointer(value))
+        Self::Pointer(value)
     }
 
-    /// Create an Arg reference to this owned value
-    pub fn as_arg(&self) -> FfiArg<'_> {
-        match self {
-            Self::Scalar(value) => ffi_arg_from_value(value),
-            Self::OwnedPointer(v, _) => rustpython_host_env::ctypes::ffi_arg(
-                rustpython_host_env::ctypes::FfiArgRef::Pointer(v),
-            ),
+    /// Snapshot a simple-typed value from its code and buffer bytes.
+    pub(super) fn typed(code: char, buffer: &[u8]) -> Self {
+        Self::Typed {
+            code,
+            bytes: buffer.to_vec(),
         }
     }
-}
 
-/// Convert buffer bytes to FfiArgValue based on type code
-pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue {
-    FfiArgValue::Scalar(rustpython_host_env::ctypes::ffi_value_from_type_code(
-        type_code, buffer,
-    ))
+    /// Snapshot an aggregate value from its call layout and buffer bytes.
+    pub(super) fn aggregate(layout: CTypeLayout, bytes: Vec<u8>) -> Self {
+        Self::Aggregate { layout, bytes }
+    }
+
+    /// Lower to a [`CallArg`], borrowing `code_buf` for the code's `&str`.
+    pub(super) fn as_call_arg<'a>(
+        &'a self,
+        code_buf: &'a mut [u8; 4],
+    ) -> rustpython_host_env::ctypes::CallArg<'a> {
+        use rustpython_host_env::ctypes::CallArg;
+        match self {
+            Self::Typed { code, bytes } => CallArg::Typed {
+                code: code.encode_utf8(code_buf),
+                buffer: bytes,
+            },
+            Self::Int(value) => CallArg::Int(*value),
+            Self::Pointer(value) => CallArg::Pointer(*value),
+            Self::Aggregate { layout, bytes } => CallArg::Aggregate {
+                layout,
+                buffer: bytes,
+            },
+        }
+    }
 }
 
 /// Convert bytes to appropriate Python object based on ctypes type
@@ -2139,7 +2203,7 @@ fn make_fields(
     let fieldlist: Vec<PyObjectRef> = if let Some(list) = fields.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = fields.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_fields_ must be a sequence"));
     };
@@ -2149,11 +2213,12 @@ fn make_fields(
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("_fields_ must contain tuples"))?;
 
-        if field_tuple.len() < 2 {
+        if field_tuple.as_slice().len() < 2 {
             continue;
         }
 
         let fname = field_tuple
+            .as_slice()
             .first()
             .expect("len checked")
             .downcast_ref::<PyUtf8Str>()
@@ -2198,7 +2263,7 @@ pub(super) fn make_anon_fields(cls: &Py<PyType>, vm: &VirtualMachine) -> PyResul
     let anon_names: Vec<PyObjectRef> = if let Some(list) = anon.downcast_ref::<PyList>() {
         list.borrow_vec().to_vec()
     } else if let Some(tuple) = anon.downcast_ref::<PyTuple>() {
-        tuple.to_vec()
+        tuple.as_slice().to_vec()
     } else {
         return Err(vm.new_type_error("_anonymous_ must be a sequence"));
     };

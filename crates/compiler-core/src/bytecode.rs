@@ -11,12 +11,13 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, Index, IndexMut},
+    ops::{Deref, DerefMut, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
+use num_traits::Zero;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
@@ -293,21 +294,19 @@ impl Constant for ConstantData {
     type Name = String;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
-        use BorrowedConstant::*;
-
         match self {
-            Self::Integer { value } => Integer { value },
-            Self::Float { value } => Float { value: *value },
-            Self::Complex { value } => Complex { value: *value },
-            Self::Boolean { value } => Boolean { value: *value },
-            Self::Str { value } => Str { value },
-            Self::Bytes { value } => Bytes { value },
-            Self::Code { code } => Code { code },
-            Self::Tuple { elements } => Tuple { elements },
-            Self::Slice { elements } => Slice { elements },
-            Self::Frozenset { elements } => Frozenset { elements },
-            Self::None => None,
-            Self::Ellipsis => Ellipsis,
+            Self::Integer { value } => BorrowedConstant::Integer { value },
+            Self::Float { value } => BorrowedConstant::Float { value: *value },
+            Self::Complex { value } => BorrowedConstant::Complex { value: *value },
+            Self::Boolean { value } => BorrowedConstant::Boolean { value: *value },
+            Self::Str { value } => BorrowedConstant::Str { value },
+            Self::Bytes { value } => BorrowedConstant::Bytes { value },
+            Self::Code { code } => BorrowedConstant::Code { code },
+            Self::Tuple { elements } => BorrowedConstant::Tuple { elements },
+            Self::Slice { elements } => BorrowedConstant::Slice { elements },
+            Self::Frozenset { elements } => BorrowedConstant::Frozenset { elements },
+            Self::None => BorrowedConstant::None,
+            Self::Ellipsis => BorrowedConstant::Ellipsis,
         }
     }
 }
@@ -384,11 +383,23 @@ impl<C: Constant> Deref for Constants<C> {
     }
 }
 
+impl<C: Constant> DerefMut for Constants<C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
         &self.0[consti.as_usize()]
+    }
+}
+
+impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
+    fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
+        &mut self.0[consti.as_usize()]
     }
 }
 
@@ -414,15 +425,40 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
     }
 }
 
-/// Per-slot kind flags for localsplus (co_localspluskinds).
-pub const CO_FAST_ARG_POS: u8 = 0x02;
-pub const CO_FAST_ARG_KW: u8 = 0x04;
-pub const CO_FAST_ARG_VAR: u8 = 0x08;
-pub const CO_FAST_ARG: u8 = CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR;
-pub const CO_FAST_HIDDEN: u8 = 0x10;
-pub const CO_FAST_LOCAL: u8 = 0x20;
-pub const CO_FAST_CELL: u8 = 0x40;
-pub const CO_FAST_FREE: u8 = 0x80;
+bitflagset::bitflag! {
+    /// Per-slot kind flags for localsplus (`co_localspluskinds`).
+    /// Values are bit *positions* (`Local` is bit 5 → mask `0x20`).
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    #[repr(u8)]
+    pub enum CoFastFlag {
+        ArgPos = 1,
+        ArgKw = 2,
+        ArgVar = 3,
+        Hidden = 4,
+        Local = 5,
+        Cell = 6,
+        Free = 7,
+    }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct CoFastFlags(u8): CoFastFlag
+}
+
+impl CoFastFlags {
+    pub const ARG: Self =
+        Self::from_slice(&[CoFastFlag::ArgPos, CoFastFlag::ArgKw, CoFastFlag::ArgVar]);
+}
+
+pub const CO_FAST_ARG_POS: u8 = CoFastFlags::from_element(CoFastFlag::ArgPos).bits();
+pub const CO_FAST_ARG_KW: u8 = CoFastFlags::from_element(CoFastFlag::ArgKw).bits();
+pub const CO_FAST_ARG_VAR: u8 = CoFastFlags::from_element(CoFastFlag::ArgVar).bits();
+pub const CO_FAST_ARG: u8 = CoFastFlags::ARG.bits();
+pub const CO_FAST_HIDDEN: u8 = CoFastFlags::from_element(CoFastFlag::Hidden).bits();
+pub const CO_FAST_LOCAL: u8 = CoFastFlags::from_element(CoFastFlag::Local).bits();
+pub const CO_FAST_CELL: u8 = CoFastFlags::from_element(CoFastFlag::Cell).bits();
+pub const CO_FAST_FREE: u8 = CoFastFlags::from_element(CoFastFlag::Free).bits();
 
 /// Primary container of a single code object. Each python function has
 /// a code object. Also a module has a code object.
@@ -469,6 +505,13 @@ bitflags! {
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
         const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_DIVISION = 0x20000;
+        const FUTURE_ABSOLUTE_IMPORT = 0x40000;
+        const FUTURE_WITH_STATEMENT = 0x80000;
+        const FUTURE_PRINT_FUNCTION = 0x100000;
+        const FUTURE_UNICODE_LITERALS = 0x200000;
+        const FUTURE_BARRY_AS_BDFL = 0x400000;
+        const FUTURE_GENERATOR_STOP = 0x800000;
         const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
@@ -477,7 +520,28 @@ bitflags! {
     }
 }
 
-#[repr(C)]
+const _: () = {
+    assert!(core::mem::size_of::<CodeFlags>() == core::mem::size_of::<i32>());
+    assert!(core::mem::align_of::<CodeFlags>() == core::mem::align_of::<i32>());
+};
+
+impl CodeFlags {
+    /// The `__future__` flags that `compile()` accepts and that a compiled code
+    /// object inherits from its caller. Mirrors `PyCF_MASK`.
+    pub const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
+}
+
+/// `align(2)` so that the whole unit can be read with one aligned
+/// `AtomicU16` access (see `CodeUnits::read_unit`) without relying on the
+/// allocator to happen to align the instruction array.
+#[repr(C, align(2))]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
     pub op: Instruction,
@@ -485,6 +549,7 @@ pub struct CodeUnit {
 }
 
 const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+const _: () = assert!(mem::align_of::<CodeUnit>() == 2);
 
 /// Adaptive specialization: number of executions before attempting specialization.
 ///
@@ -551,6 +616,14 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
+impl TryFrom<[u8; 2]> for CodeUnit {
+    type Error = MarshalError;
+
+    fn try_from(value: [u8; 2]) -> Result<Self, Self::Error> {
+        Ok(Self::new(value[0].try_into()?, value[1].into()))
+    }
+}
+
 pub struct CodeUnits {
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
@@ -604,12 +677,13 @@ impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !value.len().is_multiple_of(2) {
+        let (chunks, []) = value.as_chunks::<2>() else {
             return Err(Self::Error::InvalidBytecode);
-        }
+        };
 
-        let units = value
-            .chunks_exact(2)
+        let units = chunks
+            .iter()
+            .copied()
             .map(CodeUnit::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(units.into())
@@ -714,6 +788,55 @@ impl CodeUnits {
         unsafe { mem::transmute::<u8, Instruction>(byte) }
     }
 
+    /// Base pointer of the instruction array.
+    ///
+    /// The array is allocated once when the code object is built and is never
+    /// reallocated -- specialization only rewrites units in place -- so the
+    /// pointer stays valid for as long as this `CodeUnits` does and the eval
+    /// loop may hoist it out of the dispatch loop.
+    #[inline(always)]
+    #[must_use]
+    pub fn units_ptr(&self) -> *const CodeUnit {
+        unsafe { &*self.units.get() }.as_ptr()
+    }
+
+    /// `read_unit` from a base pointer previously obtained with `units_ptr`.
+    ///
+    /// # Safety
+    /// `base` must come from `units_ptr` on a live `CodeUnits`, and `index`
+    /// must be within that array (the dispatch loop only ever reads indices
+    /// the code object itself produced).
+    #[inline(always)]
+    #[must_use]
+    pub unsafe fn read_unit_from(base: *const CodeUnit, index: usize) -> CodeUnit {
+        let ptr = base.wrapping_add(index) as *const AtomicU16;
+        let [op, arg] = unsafe { &*ptr }.load(Ordering::Acquire).to_ne_bytes();
+        // SAFETY: only valid Instruction values are ever stored into the
+        // instruction array (see `read_op`).
+        CodeUnit {
+            op: unsafe { mem::transmute::<u8, Instruction>(op) },
+            arg: OpArgByte::from(arg),
+        }
+    }
+
+    /// Atomically read the opcode and its arg byte at `index` as a single
+    /// Acquire-ordered 16-bit load.
+    ///
+    /// Equivalent to `read_op` followed by `read_arg`, but the one access
+    /// keeps the eval loop from re-loading the instruction array pointer
+    /// across the acquire barrier, and it is what the dispatch loop uses.
+    /// Acquire pairs with `replace_op` (Release) exactly as `read_op` does.
+    ///
+    /// `to_ne_bytes` yields the bytes in memory order, so `[0]` is the `op`
+    /// field and `[1]` the `arg` field of the `repr(C)` unit on either
+    /// endianness.
+    #[inline(always)]
+    #[must_use]
+    pub fn read_unit(&self, index: usize) -> CodeUnit {
+        // SAFETY: `index` is in bounds for every caller of this method.
+        unsafe { Self::read_unit_from(self.units_ptr(), index) }
+    }
+
     /// Atomically read the arg byte at `index` with Relaxed ordering.
     pub fn read_arg(&self, index: usize) -> OpArgByte {
         let units = unsafe { &*self.units.get() };
@@ -770,12 +893,15 @@ impl CodeUnits {
     /// Store a pointer-sized value atomically in the pointer cache at `index`.
     ///
     /// Uses a single `AtomicUsize` store to prevent torn writes when
-    /// multiple threads specialize the same instruction concurrently.
+    /// multiple threads specialize the same instruction concurrently. The
+    /// tear-free width also makes this the right slot for non-pointer guard
+    /// values (e.g. dict keys-version stamps) that must never be observed
+    /// half-written.
     ///
     /// # Safety
     /// - `index` must be in bounds.
-    /// - `value` must be `0` or a valid `*const PyObject` encoded as `usize`.
-    /// - Callers must follow the cache invalidation/upgrade protocol:
+    /// - When the slot holds a `*const PyObject` encoded as `usize` (or `0`),
+    ///   callers must follow the cache invalidation/upgrade protocol:
     ///   invalidate the version guard before writing and publish the new
     ///   version after writing.
     pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {
@@ -911,25 +1037,50 @@ pub enum ConstantData {
     Ellipsis,
 }
 
+impl ConstantData {
+    /// Whether or not python would return True/False for the given constant data.
+    ///
+    /// ```py
+    /// bool(0) # False
+    /// bool(1) # True
+    /// bool([]) # False
+    /// bool(...) # True
+    /// ```
+    #[must_use]
+    pub fn truthiness(&self) -> bool {
+        match self {
+            Self::Tuple { elements } | Self::Frozenset { elements } => !elements.is_empty(),
+            Self::Integer { value } => !value.is_zero(),
+            Self::Float { value } => *value != 0.0,
+            Self::Complex { value } => value.re != 0.0 || value.im != 0.0,
+            Self::Boolean { value } => *value,
+            Self::Str { value } => !value.is_empty(),
+            Self::Bytes { value } => !value.is_empty(),
+            Self::Code { .. } | Self::Slice { .. } | Self::Ellipsis => true,
+            Self::None => false,
+        }
+    }
+}
+
 impl PartialEq for ConstantData {
     fn eq(&self, other: &Self) -> bool {
-        use ConstantData::*;
-
         match (self, other) {
-            (Integer { value: a }, Integer { value: b }) => a == b,
-            (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
-            (Complex { value: a }, Complex { value: b }) => {
+            (Self::Integer { value: a }, Self::Integer { value: b }) => a == b,
+            (Self::Float { value: a }, Self::Float { value: b }) => a.to_bits() == b.to_bits(),
+            (Self::Complex { value: a }, Self::Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
             }
-            (Boolean { value: a }, Boolean { value: b }) => a == b,
-            (Str { value: a }, Str { value: b }) => a == b,
-            (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
-            (Tuple { elements: a }, Tuple { elements: b }) => a == b,
-            (Slice { elements: a }, Slice { elements: b }) => a == b,
-            (Frozenset { elements: a }, Frozenset { elements: b }) => a == b,
-            (None, None) => true,
-            (Ellipsis, Ellipsis) => true,
+            (Self::Boolean { value: a }, Self::Boolean { value: b }) => a == b,
+            (Self::Str { value: a }, Self::Str { value: b }) => a == b,
+            (Self::Bytes { value: a }, Self::Bytes { value: b }) => a == b,
+            (Self::Code { code: a }, Self::Code { code: b }) => {
+                core::ptr::eq(a.as_ref(), b.as_ref())
+            }
+            (Self::Tuple { elements: a }, Self::Tuple { elements: b }) => a == b,
+            (Self::Slice { elements: a }, Self::Slice { elements: b }) => a == b,
+            (Self::Frozenset { elements: a }, Self::Frozenset { elements: b }) => a == b,
+            (Self::None, Self::None) => true,
+            (Self::Ellipsis, Self::Ellipsis) => true,
             _ => false,
         }
     }
@@ -939,25 +1090,24 @@ impl Eq for ConstantData {}
 
 impl hash::Hash for ConstantData {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        use ConstantData::*;
-
         mem::discriminant(self).hash(state);
+
         match self {
-            Integer { value } => value.hash(state),
-            Float { value } => value.to_bits().hash(state),
-            Complex { value } => {
+            Self::Integer { value } => value.hash(state),
+            Self::Float { value } => value.to_bits().hash(state),
+            Self::Complex { value } => {
                 value.re.to_bits().hash(state);
                 value.im.to_bits().hash(state);
             }
-            Boolean { value } => value.hash(state),
-            Str { value } => value.hash(state),
-            Bytes { value } => value.hash(state),
-            Code { code } => core::ptr::hash(code.as_ref(), state),
-            Tuple { elements } => elements.hash(state),
-            Slice { elements } => elements.hash(state),
-            Frozenset { elements } => elements.hash(state),
-            None => {}
-            Ellipsis => {}
+            Self::Boolean { value } => value.hash(state),
+            Self::Str { value } => value.hash(state),
+            Self::Bytes { value } => value.hash(state),
+            Self::Code { code } => core::ptr::hash(code.as_ref(), state),
+            Self::Tuple { elements } => elements.hash(state),
+            Self::Slice { elements } => elements.hash(state),
+            Self::Frozenset { elements } => elements.hash(state),
+            Self::None => {}
+            Self::Ellipsis => {}
         }
     }
 }
@@ -1040,41 +1190,39 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 
     #[must_use]
     pub fn to_owned(self) -> ConstantData {
-        use ConstantData::*;
-
         match self {
-            BorrowedConstant::Integer { value } => Integer {
+            BorrowedConstant::Integer { value } => ConstantData::Integer {
                 value: value.clone(),
             },
-            BorrowedConstant::Float { value } => Float { value },
-            BorrowedConstant::Complex { value } => Complex { value },
-            BorrowedConstant::Boolean { value } => Boolean { value },
-            BorrowedConstant::Str { value } => Str {
+            BorrowedConstant::Float { value } => ConstantData::Float { value },
+            BorrowedConstant::Complex { value } => ConstantData::Complex { value },
+            BorrowedConstant::Boolean { value } => ConstantData::Boolean { value },
+            BorrowedConstant::Str { value } => ConstantData::Str {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Bytes { value } => Bytes {
+            BorrowedConstant::Bytes { value } => ConstantData::Bytes {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Code { code } => Code {
+            BorrowedConstant::Code { code } => ConstantData::Code {
                 code: Box::new(code.map_clone_bag(&BasicBag)),
             },
-            BorrowedConstant::Tuple { elements } => Tuple {
+            BorrowedConstant::Tuple { elements } => ConstantData::Tuple {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::Slice { elements } => Slice {
+            BorrowedConstant::Slice { elements } => ConstantData::Slice {
                 elements: Box::new(elements.each_ref().map(|c| c.borrow_constant().to_owned())),
             },
-            BorrowedConstant::Frozenset { elements } => Frozenset {
+            BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::None => None,
-            BorrowedConstant::Ellipsis => Ellipsis,
+            BorrowedConstant::None => ConstantData::None,
+            BorrowedConstant::Ellipsis => ConstantData::Ellipsis,
         }
     }
 }

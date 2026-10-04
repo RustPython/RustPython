@@ -10,12 +10,9 @@ use crate::{
         PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
         PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
         builtin_func::PyNativeFunction,
-        descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
+        descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
-        function::{
-            PyBoundMethod, PyCell, PyCellRef, PyFunction, datastack_frame_size_bytes_for_code,
-            vectorcall_function,
-        },
+        function::{PyBoundMethod, PyCell, PyCellRef, PyFunction, vectorcall_function},
         list::PyListIterator,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
@@ -26,34 +23,181 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Either, FuncArgs, PyMethodFlags},
+    function::{ArgMapping, Callee, Either, FuncArgs, KwArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
-    protocol::{PyIter, PyIterReturn, PyMapping},
+    protocol::{PyIter, PyIterReturn},
     scope::Scope,
     sliceable::SliceableSequenceOp,
-    stdlib::{_typing, builtins, sys::monitoring},
+    stdlib::{
+        _typing, builtins,
+        sys::monitoring::{self, MonitoringEvent},
+    },
     types::{PyComparisonOp, PyTypeFlags},
     vm::{Context, PyMethod},
 };
 use alloc::fmt;
 use bstr::ByteSlice;
 use core::cell::UnsafeCell;
+use core::ptr::NonNull;
 use core::sync::atomic;
-use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
-use indexmap::IndexMap;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     lock::{OnceCell, PyMutex},
     wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
 };
-use rustpython_compiler_core::SourceLocation;
+use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
-pub type FrameRef = PyRef<Frame>;
+pub type FrameObjectRef = PyRef<FrameObject>;
+
+// -- Frame chain utilities --
+// The frame chain is a singly-linked list of `*const InterpreterFrame` stored
+// as `usize` values in `InterpreterFrame.previous` and the TLS
+// `CURRENT_FRAME`. Null (0) marks the end.
+// Each InterpreterFrame has a `materialized` pointer that is non-null when
+// a FrameObject wraps it (always the case today; stack-allocated frames will
+// leave it null until observed).
+
+/// Recover an owned reference to the FrameObject that wraps the given
+/// InterpreterFrame, or `None` if null or not materialized.
+///
+/// # Safety
+/// A non-null `iframe` must reference a live InterpreterFrame on the current
+/// thread's execution chain.
+unsafe fn owned_chain_frame(iframe: *const InterpreterFrame) -> Option<FrameObjectRef> {
+    if iframe.is_null() {
+        return None;
+    }
+    let iframe_ref = unsafe { &*iframe };
+    let fo = iframe_ref.frame_obj()?;
+    Some(fo.to_owned())
+}
+
+/// The current thread's topmost frame object, if any.
+#[must_use]
+pub fn current_thread_frame() -> Option<FrameObjectRef> {
+    let ptr = crate::vm::thread::get_current_frame();
+    unsafe { owned_chain_frame(ptr) }
+}
+
+/// Get the current thread's topmost InterpreterFrame pointer.
+#[must_use]
+pub fn current_thread_iframe() -> *const InterpreterFrame {
+    crate::vm::thread::get_current_frame()
+}
+
+/// The current thread's topmost frame object, materializing if necessary.
+/// Unlike `current_thread_frame()`, this always returns `Some` if there is
+/// an active frame, even if it's stack-allocated and hasn't been observed yet.
+/// Uses `vm.current_frame` Cell for fast lookup (no TLS).
+#[must_use]
+pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObjectRef> {
+    let ptr = crate::vm::thread::get_current_frame();
+    if ptr.is_null() {
+        return None;
+    }
+    let iframe = unsafe { &*ptr };
+    Some(iframe.materialize(vm).to_owned())
+}
+
+/// Read the globals dict from the topmost frame on this thread's chain.
+/// Returns `None` if the chain is empty.
+#[must_use]
+pub fn current_globals() -> Option<PyDictRef> {
+    let ptr = crate::vm::thread::get_current_frame();
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { (*ptr).globals().to_owned() })
+}
+
+/// Read the code object from the topmost frame on this thread's chain.
+/// Returns `None` if the chain is empty.
+#[must_use]
+pub fn current_code() -> Option<PyRef<PyCode>> {
+    let ptr = crate::vm::thread::get_current_frame();
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { (*ptr).code().to_owned() })
+}
+
+/// Read the builtins object from the topmost frame on this thread's chain.
+#[must_use]
+pub fn current_builtins() -> Option<PyObjectRef> {
+    let ptr = crate::vm::thread::get_current_frame();
+    if ptr.is_null() {
+        return None;
+    }
+    Some(unsafe { (*ptr).builtins().to_owned() })
+}
+
+/// The frame `offset` positions below the current thread's top frame (offset 0
+/// is the top), or `None` if the stack is not that deep.
+/// Materializes the FrameObject on demand for stack-allocated frames.
+#[must_use]
+pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObjectRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    let mut remaining = offset;
+    while !cur.is_null() {
+        if remaining == 0 {
+            let iframe = unsafe { &*cur };
+            return Some(iframe.materialize(vm).to_owned());
+        }
+        remaining -= 1;
+        cur = unsafe { (*cur).previous.load(Relaxed) as *const InterpreterFrame };
+    }
+    None
+}
+
+/// If a FrameObject wrapping `target` InterpreterFrame is on the current
+/// thread's chain, return an owned reference to it; otherwise `None`.
+#[must_use]
+pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Option<FrameObjectRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    while !cur.is_null() {
+        if core::ptr::eq(cur, target) {
+            return unsafe { owned_chain_frame(cur) };
+        }
+        cur = unsafe { (*cur).previous.load(Relaxed) as *const InterpreterFrame };
+    }
+    None
+}
+
+/// If `target` FrameObject is on the current thread's chain, return an
+/// owned reference to it; otherwise `None`. Presence on the chain proves liveness.
+#[must_use]
+pub fn find_owned_chain_frame(target: *const FrameObject) -> Option<FrameObjectRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    while !cur.is_null() {
+        let iframe_ref = unsafe { &*cur };
+        if let Some(fo) = iframe_ref.frame_obj() {
+            let fo_payload: *const FrameObject = &**fo;
+            if core::ptr::eq(fo_payload, target) {
+                return Some(fo.to_owned());
+            }
+        }
+        cur = iframe_ref.previous.load(Relaxed) as *const InterpreterFrame;
+    }
+    None
+}
+
+/// Invoke `f` for each frame on the current thread's chain, from the
+/// topmost frame down to the bottom.
+pub fn for_each_current_frame(mut f: impl FnMut(&Py<FrameObject>)) {
+    let mut cur = crate::vm::thread::get_current_frame();
+    while !cur.is_null() {
+        let iframe_ref = unsafe { &*cur };
+        if let Some(fo) = iframe_ref.frame_obj() {
+            f(fo);
+        }
+        cur = iframe_ref.previous.load(Relaxed) as *const InterpreterFrame;
+    }
+}
 
 /// The reason why we might be unwinding a block.
 /// This could be return of function, exception being
@@ -65,7 +209,11 @@ enum UnwindReason {
 
     /// We hit an exception, so unwind any try-except and finally blocks. The exception should be
     /// on top of the vm exception stack.
-    Raising { exception: PyBaseExceptionRef },
+    Raising {
+        exception: PyBaseExceptionRef,
+        /// Instruction that raised; used for exception-table lookup.
+        offset: u32,
+    },
 }
 
 /// Tracks who owns a frame.
@@ -95,7 +243,7 @@ impl FrameOwner {
 /// Lock-free mutable storage for frame-internal data.
 ///
 /// # Safety
-/// Frame execution is single-threaded: only one thread at a time executes
+/// FrameObject execution is single-threaded: only one thread at a time executes
 /// a given frame (enforced by the owner field and generator running flag).
 /// External readers (e.g. `f_locals`) are on the same thread as execution
 /// (trace callback) or the frame is not executing.
@@ -112,13 +260,33 @@ impl<T> FrameUnsafeCell<T> {
     unsafe fn get(&self) -> *mut T {
         self.0.get()
     }
+
+    /// Safe exclusive access through `&mut self`.
+    #[inline(always)]
+    fn get_mut(&mut self) -> &mut T {
+        self.0.get_mut()
+    }
 }
 
-// SAFETY: Frame execution is single-threaded. See FrameUnsafeCell doc.
+// SAFETY: FrameObject execution is single-threaded. See FrameUnsafeCell doc.
 #[cfg(feature = "threading")]
 unsafe impl<T: Send> Send for FrameUnsafeCell<T> {}
 #[cfg(feature = "threading")]
 unsafe impl<T: Send> Sync for FrameUnsafeCell<T> {}
+
+/// Compile-time switch for borrowed `LOAD_FAST_BORROW` pushes.
+///
+/// With this off, `LOAD_FAST_BORROW` behaves exactly like `LOAD_FAST`: it
+/// clones the fastlocals slot, so every load pays an atomic increment and the
+/// consuming instruction an atomic decrement. With it on, the entry the load
+/// pushes is a tagged borrow that owns no count, and both of those disappear
+/// for every consumer that only ever reads through the entry.
+///
+/// The safety argument lives on `PyStackRef` in `object/core.rs`; the codegen
+/// analysis that establishes it is `optimize_load_fast` in
+/// `crates/codegen/src/ir.rs`. Debug builds audit it in
+/// `LocalsPlus::debug_audit_local_release`.
+pub(crate) const BORROW_LOCAL_LOADS: bool = true;
 
 /// Unified storage for local variables and evaluation stack.
 ///
@@ -148,7 +316,7 @@ enum LocalsPlusData {
 }
 
 // SAFETY: DataStack variant points to thread-local DataStack memory.
-// Frame execution is single-threaded (enforced by owner field).
+// FrameObject execution is single-threaded (enforced by owner field).
 #[cfg(feature = "threading")]
 unsafe impl Send for LocalsPlusData {}
 #[cfg(feature = "threading")]
@@ -176,9 +344,14 @@ impl LocalsPlus {
     /// Create a new LocalsPlus backed by the thread data stack.
     /// All slots are zero-initialized.
     ///
-    /// The caller must call `materialize_localsplus()` when the frame finishes
-    /// to migrate data to the heap, then `datastack_pop()` to free the memory.
-    fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
+    /// When the frame finishes, the caller must migrate data to the heap with
+    /// `materialize_localsplus()` (or drop it in place with
+    /// `release_localsplus()`), then `datastack_pop()` to free the memory.
+    pub(crate) fn new_on_datastack(
+        nlocalsplus: usize,
+        stacksize: usize,
+        vm: &VirtualMachine,
+    ) -> Self {
         let capacity = nlocalsplus
             .checked_add(stacksize)
             .expect("LocalsPlus capacity overflow");
@@ -209,6 +382,46 @@ impl LocalsPlus {
             Some(base)
         } else {
             None
+        }
+    }
+
+    /// Drop all contained values and detach the data stack backing without
+    /// copying to the heap, leaving an empty heap-backed husk.
+    /// Returns the data stack base pointer for `DataStack::pop()`.
+    /// Returns `None` if already heap-backed.
+    ///
+    /// Only valid when the values can never be observed again (the enclosing
+    /// frame is uniquely referenced): the locals are gone afterwards.
+    pub(crate) fn release_datastack(&mut self) -> Option<*mut u8> {
+        let LocalsPlusData::DataStack { ptr, .. } = &self.data else {
+            return None;
+        };
+        let base = *ptr as *mut u8;
+        // Drop values while the backing store is still valid. Value drops may
+        // run `__del__`, which can push nested data stack frames above `base`;
+        // those are popped before the caller pops `base` (LIFO preserved).
+        self.drop_values();
+        self.data = LocalsPlusData::Heap(Box::default());
+        // Keep the accessors consistent with the empty backing store.
+        // stack_top is already 0 after drop_values().
+        self.nlocalsplus = 0;
+        Some(base)
+    }
+
+    /// Update fastlocals in `self` from `src`. For each slot, drops the old
+    /// value and clones the new one. `self` must be heap-backed.
+    ///
+    /// # Safety
+    /// Both `self` and `src` must have valid backing storage, and the caller
+    /// must ensure no concurrent mutable access.
+    pub(crate) unsafe fn sync_fastlocals_from(&mut self, src: &Self) {
+        let n = core::cmp::min(self.nlocalsplus as usize, src.nlocalsplus as usize);
+        let dst = self.fastlocals_mut();
+        let source = src.fastlocals();
+        for i in 0..n {
+            let old = dst[i].take();
+            dst[i].clone_from(&source[i]);
+            drop(old);
         }
     }
 
@@ -252,6 +465,12 @@ impl LocalsPlus {
         }
     }
 
+    /// Whether the backing storage still lives on the thread data stack (a
+    /// running call frame that has not been materialized onto the heap).
+    fn is_datastack_backed(&self) -> bool {
+        matches!(self.data, LocalsPlusData::DataStack { .. })
+    }
+
     /// Stack capacity (max stack depth).
     #[inline(always)]
     fn stack_capacity(&self) -> usize {
@@ -262,7 +481,7 @@ impl LocalsPlus {
 
     /// Immutable access to fastlocals as `Option<PyObjectRef>` slice.
     #[inline(always)]
-    fn fastlocals(&self) -> &[Option<PyObjectRef>] {
+    pub(crate) fn fastlocals(&self) -> &[Option<PyObjectRef>] {
         let data = self.data_as_slice();
         let ptr = data.as_ptr() as *const Option<PyObjectRef>;
         unsafe { core::slice::from_raw_parts(ptr, self.nlocalsplus as usize) }
@@ -270,7 +489,7 @@ impl LocalsPlus {
 
     /// Mutable access to fastlocals as `Option<PyObjectRef>` slice.
     #[inline(always)]
-    fn fastlocals_mut(&mut self) -> &mut [Option<PyObjectRef>] {
+    pub(crate) fn fastlocals_mut(&mut self) -> &mut [Option<PyObjectRef>] {
         let nlocalsplus = self.nlocalsplus as usize;
         let data = self.data_as_mut_slice();
         let ptr = data.as_mut_ptr() as *mut Option<PyObjectRef>;
@@ -319,6 +538,13 @@ impl LocalsPlus {
         Ok(())
     }
 
+    /// Push a PyObjectRef onto the evaluation stack.
+    /// Panics on overflow.
+    pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
+        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+            .expect("stack overflow in push_stack");
+    }
+
     /// Pop a value from the evaluation stack.
     #[inline(always)]
     fn stack_pop(&mut self) -> Option<PyStackRef> {
@@ -328,6 +554,56 @@ impl LocalsPlus {
         let data = self.data_as_mut_slice();
         let raw = core::mem::replace(&mut data[idx], 0);
         unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) }
+    }
+
+    /// Debug-mode audit of the borrow invariant: nothing may drop the last
+    /// strong count of an object that a borrowed stack entry still points at.
+    ///
+    /// Called from the eval loop wherever a fastlocals slot is about to
+    /// release what it holds (`STORE_FAST`, `DELETE_FAST` and the fused
+    /// forms). Codegen's `optimize_load_fast` is what guarantees this cannot
+    /// happen; the check is here to catch a gap in that analysis, or an
+    /// instruction whose modelled stack effect does not match the one the
+    /// interpreter actually has, before it turns into a use-after-free.
+    #[inline(always)]
+    fn debug_audit_local_release(&self, idx: usize) {
+        #[cfg(debug_assertions)]
+        {
+            let Some(old) = self.fastlocals()[idx].as_ref() else {
+                return;
+            };
+            // Another owner keeps it alive; releasing this slot frees nothing.
+            if old.strong_count() != 1 {
+                return;
+            }
+            let old_ptr = old.as_object() as *const PyObject;
+            for i in 0..self.stack_top as usize {
+                if let Some(stack_ref) = self.stack_index(i)
+                    && stack_ref.is_borrowed()
+                    && core::ptr::eq(stack_ref.as_object() as *const PyObject, old_ptr)
+                {
+                    panic!(
+                        "borrow invariant violated: fastlocals[{idx}] is dropping the last \
+                         reference to an object that stack slot {i} still borrows"
+                    );
+                }
+            }
+        }
+        #[cfg(not(debug_assertions))]
+        let _ = idx;
+    }
+
+    /// Give every borrowed stack ref its own reference.
+    ///
+    /// A borrowed ref is only sound while whatever it points at is guaranteed
+    /// to outlive it, which stops holding where the frame itself outlives the
+    /// running block — at a yield, where the stack is saved with the frame.
+    fn promote_stack(&mut self) {
+        for idx in 0..self.stack_top as usize {
+            if let Some(stack_ref) = self.stack_index_mut(idx) {
+                stack_ref.promote();
+            }
+        }
     }
 
     /// Immutable view of the active stack as `Option<PyStackRef>` slice.
@@ -341,11 +617,11 @@ impl LocalsPlus {
 
     /// Get a reference to a stack slot by index from the bottom.
     #[inline(always)]
-    fn stack_index(&self, idx: usize) -> &Option<PyStackRef> {
+    fn stack_index(&self, idx: usize) -> Option<&PyStackRef> {
         debug_assert!(idx < self.stack_top as usize);
         let data = self.data_as_slice();
         let raw_idx = self.nlocalsplus as usize + idx;
-        unsafe { &*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>) }
+        unsafe { (*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>)).as_ref() }
     }
 
     /// Get a mutable reference to a stack slot by index from the bottom.
@@ -359,7 +635,7 @@ impl LocalsPlus {
 
     /// Get the last stack element (top of stack).
     #[inline(always)]
-    fn stack_last(&self) -> Option<&Option<PyStackRef>> {
+    fn stack_last(&self) -> Option<Option<&PyStackRef>> {
         if self.stack_top == 0 {
             None
         } else {
@@ -399,6 +675,28 @@ impl LocalsPlus {
         while self.stack_top > 0 {
             let _ = self.stack_pop();
         }
+    }
+
+    /// Move active stack references out as owned references without running
+    /// finalizers while this locals-plus storage is mutably borrowed.
+    fn take_stack_object_refs(&mut self) -> Vec<PyObjectRef> {
+        let mut refs = Vec::with_capacity(self.stack_top as usize);
+        while self.stack_top > 0 {
+            if let Some(value) = self.stack_pop() {
+                refs.push(value.to_pyobj());
+            }
+        }
+        refs
+    }
+
+    /// Extract every owned Python reference for GC's deferred-drop phase.
+    fn clear_into(&mut self, out: &mut Vec<PyObjectRef>) {
+        while self.stack_top > 0 {
+            if let Some(value) = self.stack_pop() {
+                out.push(value.to_pyobj());
+            }
+        }
+        out.extend(self.fastlocals_mut().iter_mut().filter_map(Option::take));
     }
 
     /// Drain stack elements from `from` to the end, returning an iterator
@@ -495,7 +793,7 @@ pub struct FrameLocals {
 
 impl FrameLocals {
     /// Create with an already-initialized locals mapping (non-NEWLOCALS frames).
-    fn with_locals(locals: ArgMapping) -> Self {
+    pub(crate) fn with_locals(locals: ArgMapping) -> Self {
         let cell = OnceCell::new();
         let _ = cell.set(locals);
         Self { inner: cell }
@@ -503,7 +801,7 @@ impl FrameLocals {
 
     /// Create an empty lazy locals (for NEWLOCALS frames).
     /// The dict will be created on first access.
-    fn lazy() -> Self {
+    pub(crate) fn lazy() -> Self {
         Self {
             inner: OnceCell::new(),
         }
@@ -539,6 +837,10 @@ impl FrameLocals {
     pub fn as_object(&self, vm: &VirtualMachine) -> &PyObject {
         self.get_or_create(vm).obj()
     }
+
+    fn take(&mut self) -> Option<ArgMapping> {
+        self.inner.take()
+    }
 }
 
 impl fmt::Debug for FrameLocals {
@@ -567,131 +869,129 @@ unsafe impl Traverse for FrameLocals {
     }
 }
 
+/// Cold fields of InterpreterFrame that are only accessed during tracing,
+/// debugging, frame inspection, or GC. Lazily allocated on first access
+/// to keep the hot InterpreterFrame small.
+pub(crate) struct FrameColdData {
+    pub trace: PyMutex<Option<PyObjectRef>>,
+    pub trace_opcodes: PyMutex<bool>,
+    pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
+    pub f_extra_locals: PyMutex<Option<PyDictRef>>,
+    /// Backing storage for the borrowed reference returned by the legacy
+    /// `PyEval_GetLocals()` C API. It is populated only by that adapter.
+    pub f_locals_cache: PyMutex<Option<PyDictRef>>,
+    pub f_overwritten_fast_locals: PyMutex<Vec<PyObjectRef>>,
+    pub retained_back: PyMutex<Option<FrameObjectRef>>,
+    pub pending_stack_pops: PyAtomic<u32>,
+    pub pending_unwind_from_stack: PyAtomic<i64>,
+    /// Thread that is still running the frame this one was materialized from,
+    /// or 0 once that frame has returned (and for every frame object that was
+    /// not materialized from a running frame). Only a thread id, never a
+    /// pointer: reading it can never chase freed memory, so it stays usable
+    /// as the gate for frames that belong to another thread.
+    pub attached_tid: atomic::AtomicU64,
+}
+
+impl Default for FrameColdData {
+    fn default() -> Self {
+        Self {
+            trace: PyMutex::new(None),
+            trace_opcodes: PyMutex::new(false),
+            temporary_refs: PyMutex::new(Vec::new()),
+            f_extra_locals: PyMutex::new(None),
+            f_locals_cache: PyMutex::new(None),
+            f_overwritten_fast_locals: PyMutex::new(Vec::new()),
+            retained_back: PyMutex::new(None),
+            pending_stack_pops: Default::default(),
+            pending_unwind_from_stack: Default::default(),
+            attached_tid: atomic::AtomicU64::new(0),
+        }
+    }
+}
+
 /// Lightweight execution frame. Not a PyObject.
 /// Analogous to CPython's `_PyInterpreterFrame`.
 ///
-/// Currently always embedded inside a `Frame` PyObject via `FrameUnsafeCell`.
-/// In future PRs this will be usable independently for normal function calls
-/// (allocated on the Rust stack + DataStack), eliminating PyObject overhead.
+/// The four identity fields (`code`, `globals`, `builtins`, `func_obj`)
+/// are borrowed raw pointers. Construction is `unsafe` and is what
+/// establishes that they stay valid for the frame's life (or until
+/// `init_iframe_ptrs` overwrites them). A live `InterpreterFrame` may
+/// then be executed through safe APIs such as `run_iframe`.
+#[repr(C)]
 pub struct InterpreterFrame {
-    pub code: PyRef<PyCode>,
-    pub func_obj: Option<PyObjectRef>,
+    // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
+    pub(crate) code: *const Py<PyCode>,
+    pub(crate) func_obj: *const PyObject, // nullable
+    pub(crate) globals: *const Py<PyDict>,
+    pub(crate) builtins: *const PyObject,
 
     /// Unified storage for local variables and evaluation stack.
     pub(crate) localsplus: LocalsPlus,
     pub locals: FrameLocals,
-    pub globals: PyDictRef,
-    pub builtins: PyObjectRef,
 
     /// index of last instruction ran
     pub lasti: PyAtomic<u32>,
-    /// tracer function for this frame (usually is None)
-    pub trace: PyMutex<PyObjectRef>,
 
     /// Previous line number for LINE event suppression.
-    pub(crate) prev_line: u32,
+    pub(crate) prev_line: core::cell::Cell<u32>,
 
-    // member
-    pub trace_lines: PyMutex<bool>,
-    pub trace_opcodes: PyMutex<bool>,
-    pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
     /// Back-reference to owning generator/coroutine/async generator.
-    /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
+    /// Borrowed reference (not ref-counted) to avoid Generator↔FrameObject cycle.
     /// Cleared by the generator's Drop impl.
     pub generator: PyAtomicBorrow,
-    /// Previous frame in the call chain for signal-safe traceback walking.
-    /// Mirrors `_PyInterpreterFrame.previous`.
-    pub(crate) previous: AtomicPtr<Frame>,
+    /// Linked-list pointer to the previous frame in the call chain.
+    /// Stores a `*const FrameObject` as `usize`.
+    pub(crate) previous: PyAtomic<usize>,
     /// Who owns this frame. Mirrors `_PyInterpreterFrame.owner`.
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
-    /// Set when f_locals is accessed. Cleared after locals_to_fast() sync.
-    pub(crate) locals_dirty: atomic::AtomicBool,
-    /// Persistent overlay for `frame.f_locals` when hidden locals need a
-    /// snapshot separate from the backing locals mapping.
-    pub(crate) f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
-    /// Number of stack entries to pop after set_f_lineno returns to the
-    /// execution loop.  set_f_lineno cannot pop directly because the
-    /// execution loop holds the state mutex.
-    pub(crate) pending_stack_pops: PyAtomic<u32>,
-    /// The encoded stack state that set_f_lineno wants to unwind *from*.
-    /// Used together with `pending_stack_pops` to identify Except entries
-    /// that need special exception-state handling.
-    pub(crate) pending_unwind_from_stack: PyAtomic<i64>,
+    /// Base pointer of the datastack allocation when this frame and its
+    /// localsplus are bump-allocated together. Null for heap-backed frames.
+    pub(crate) datastack_base: *mut u8,
+    /// Pointer to the owning `Py<FrameObject>`, or null for stack-allocated
+    /// frames that have not been materialized yet.
+    /// Stored as `usize` for `PyAtomic` compatibility.
+    pub(crate) materialized: PyAtomic<usize>,
+
+    /// Lazily-allocated cold data (tracing, debugging, frame inspection).
+    /// Not allocated until first access via `cold()`.
+    pub(crate) cold: OnceCell<Box<FrameColdData>>,
 }
 
-/// Python-visible frame object. Currently always wraps an `InterpreterFrame`.
-/// Analogous to CPython's `PyFrameObject`.
-#[pyclass(module = false, name = "frame", traverse = "manual")]
-pub struct Frame {
-    pub(crate) iframe: FrameUnsafeCell<InterpreterFrame>,
-}
+// Raw pointers make InterpreterFrame !Send+!Sync by default.
+// SAFETY: The pointers reference heap-resident PyObjects whose lifetimes
+// are managed by the owning FrameObject (or PyFunction). Frame execution
+// is single-threaded (enforced by the owner field).
+#[cfg(feature = "threading")]
+unsafe impl Send for InterpreterFrame {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for InterpreterFrame {}
 
-impl core::ops::Deref for Frame {
-    type Target = InterpreterFrame;
-    /// Transparent access to InterpreterFrame fields.
+impl InterpreterFrame {
+    /// Construct a new InterpreterFrame with raw pointers set from the given references.
     ///
-    /// # Safety argument
-    /// Immutable fields (code, globals, builtins, func_obj, locals) are safe
-    /// to access at any time. Atomic/mutex fields (lasti, trace, owner, etc.)
-    /// provide their own synchronization. Mutable fields (localsplus, prev_line)
-    /// are only mutated during single-threaded execution via `with_exec`.
+    /// For FrameObject-owned frames, `init_iframe_ptrs` patches the pointers
+    /// after heap allocation; the pointers passed here are then overwritten.
+    ///
+    /// # Safety
+    /// `code`, `globals`, `builtins`, and `func_obj` (if any) must remain
+    /// valid for the lifetime of this frame, or until `init_iframe_ptrs`
+    /// overwrites the stored pointers.
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    fn deref(&self) -> &InterpreterFrame {
-        unsafe { &*self.iframe.get() }
-    }
-}
-
-impl PyPayload for Frame {
-    #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_type
-    }
-}
-
-unsafe impl Traverse for Frame {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // SAFETY: GC traversal does not run concurrently with frame execution.
-        let iframe = unsafe { &*self.iframe.get() };
-        iframe.code.traverse(tracer_fn);
-        iframe.func_obj.traverse(tracer_fn);
-        iframe.localsplus.traverse(tracer_fn);
-        iframe.locals.traverse(tracer_fn);
-        iframe.globals.traverse(tracer_fn);
-        iframe.builtins.traverse(tracer_fn);
-        iframe.trace.traverse(tracer_fn);
-        iframe.temporary_refs.traverse(tracer_fn);
-        iframe.f_locals_hidden_overlay.traverse(tracer_fn);
-    }
-}
-
-// Running a frame can result in one of the below:
-pub enum ExecutionResult {
-    Return(PyObjectRef),
-    Yield(PyObjectRef),
-}
-
-/// A valid execution result, or an exception
-type FrameResult = PyResult<Option<ExecutionResult>>;
-
-impl Frame {
-    pub(crate) fn new(
-        code: PyRef<PyCode>,
-        scope: Scope,
-        builtins: PyObjectRef,
+    pub(crate) unsafe fn new(
+        code: &Py<PyCode>,
+        globals: &Py<PyDict>,
+        builtins: &PyObject,
+        func_obj: Option<&PyObject>,
+        localsplus: LocalsPlus,
+        locals: FrameLocals,
         closure: &[PyCellRef],
-        func_obj: Option<PyObjectRef>,
-        use_datastack: bool,
-        vm: &VirtualMachine,
+        owner: FrameOwner,
     ) -> Self {
+        let mut localsplus = localsplus;
         let nlocalsplus = code.localspluskinds.len();
-        let max_stackdepth = code.max_stackdepth as usize;
-        let mut localsplus = if use_datastack {
-            LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
-        } else {
-            LocalsPlus::new(nlocalsplus, max_stackdepth)
-        };
 
         // Pre-copy closure cells into free var slots so that locals() works
         // even before COPY_FREE_VARS runs (e.g. coroutine before first send).
@@ -720,36 +1020,865 @@ impl Frame {
             0
         };
 
-        let iframe = InterpreterFrame {
-            localsplus,
-            locals: match scope.locals {
-                Some(locals) => FrameLocals::with_locals(locals),
-                None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
-                None => {
-                    FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone()))
-                }
+        Self {
+            code: code as *const Py<PyCode>,
+            func_obj: match func_obj {
+                Some(obj) => obj as *const PyObject,
+                None => core::ptr::null(),
             },
-            globals: scope.globals,
-            builtins,
-            code,
-            func_obj,
+            globals: globals as *const Py<PyDict>,
+            builtins: builtins as *const PyObject,
+            localsplus,
+            locals,
             lasti: Radium::new(0),
-            prev_line,
-            trace: PyMutex::new(vm.ctx.none()),
-            trace_lines: PyMutex::new(true),
-            trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
+            prev_line: core::cell::Cell::new(prev_line),
             generator: PyAtomicBorrow::new(),
-            previous: AtomicPtr::new(core::ptr::null_mut()),
+            previous: Radium::new(0),
+            owner: atomic::AtomicI8::new(owner as i8),
+            datastack_base: core::ptr::null_mut(),
+            materialized: Radium::new(0),
+            cold: OnceCell::new(),
+        }
+    }
+
+    /// Allocate an InterpreterFrame and its LocalsPlus data together on the
+    /// thread data stack in a single bump allocation.
+    ///
+    /// Layout: `[InterpreterFrame | localsplus usize×capacity]`
+    ///
+    /// Returns a mutable reference whose lifetime is bounded by the data
+    /// stack's LIFO discipline. The caller must call
+    /// `release_datastack_frame()` when done, then
+    /// `vm.datastack_pop_frame(base, size)`. The reference must not be used after
+    /// `release_datastack_frame` returns.
+    ///
+    /// # Safety
+    /// `code`, `globals`, `builtins`, and `func_obj` (if any) must remain
+    /// valid until `release_datastack_frame` returns.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub(crate) unsafe fn new_on_datastack<'a>(
+        code: &Py<PyCode>,
+        globals: &Py<PyDict>,
+        builtins: &PyObject,
+        func_obj: Option<&PyObject>,
+        locals: FrameLocals,
+        closure: &[PyCellRef],
+        vm: &VirtualMachine,
+    ) -> &'a mut Self {
+        let nlocalsplus = code.localspluskinds.len();
+        let stacksize = code.max_stackdepth as usize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+
+        let total_bytes = datastack_iframe_total_bytes(nlocalsplus, stacksize);
+        let (base, reused_cleared_frame) = vm.datastack_push_frame(total_bytes);
+
+        // InterpreterFrame lives at the start of the allocation.
+        let iframe_ptr = base as *mut Self;
+        // LocalsPlus data follows the InterpreterFrame, aligned to usize.
+        let localsplus_data_ptr =
+            unsafe { base.add(datastack_iframe_localsplus_offset()) } as *mut usize;
+
+        if !reused_cleared_frame {
+            // Fresh or differently shaped storage may contain old frame data.
+            unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+        }
+
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::DataStack {
+                ptr: localsplus_data_ptr,
+                capacity,
+            },
+            nlocalsplus: nlocalsplus_u32,
+            stack_top: 0,
+        };
+
+        let mut iframe = unsafe {
+            // SAFETY: the caller of `new_on_datastack` guarantees these
+            // objects outlive the datastack frame.
+            Self::new(
+                code,
+                globals,
+                builtins,
+                func_obj,
+                localsplus,
+                locals,
+                closure,
+                FrameOwner::Thread,
+            )
+        };
+        iframe.datastack_base = base;
+
+        // Write the fully initialized InterpreterFrame into the datastack.
+        unsafe {
+            core::ptr::write(iframe_ptr, iframe);
+            &mut *iframe_ptr
+        }
+    }
+
+    /// Release this datastack-allocated frame's resources and return the
+    /// base pointer for `vm.datastack_pop()`.
+    ///
+    /// Drops all localsplus values, runs destructors for all frame fields
+    /// (trace, temporary_refs, retained_back, etc.), and detaches the
+    /// backing store.
+    /// Returns `None` if this frame is not datastack-allocated.
+    ///
+    /// After this call, the InterpreterFrame at `self` is logically dead —
+    /// the caller must not use `self` again except to pass the returned
+    /// base to `vm.datastack_pop()`.
+    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<(*mut u8, usize)> {
+        let base = self.datastack_base;
+        if base.is_null() {
+            return None;
+        }
+        let total_bytes = datastack_iframe_total_bytes(
+            self.localsplus.nlocalsplus as usize,
+            self.localsplus.stack_capacity(),
+        );
+        self.datastack_base = core::ptr::null_mut();
+        // Drop all localsplus values while the backing store is still valid.
+        self.localsplus.drop_values();
+        // Detach from the data stack so further accesses see an empty frame.
+        self.localsplus.data = LocalsPlusData::Heap(Box::default());
+        self.localsplus.nlocalsplus = 0;
+        // Drop remaining frame fields (trace, temporary_refs, retained_back,
+        // etc.) by running destructors in place. The localsplus is already
+        // empty/heap-backed, so this only drops non-localsplus fields.
+        // SAFETY: `self` points to valid, initialized memory on the data
+        // stack. After this call the memory is logically dead.
+        unsafe { core::ptr::drop_in_place(self) };
+        Some((base, total_bytes))
+    }
+
+    /// Get the last instruction index.
+    #[inline(always)]
+    pub fn get_lasti(&self) -> u32 {
+        self.lasti.load(Relaxed)
+    }
+
+    /// Get the previous InterpreterFrame in the chain, or null.
+    #[inline(always)]
+    pub fn previous(&self) -> *const Self {
+        self.previous.load(Relaxed) as *const Self
+    }
+
+    /// Get the owning FrameObject, if this frame has been materialized.
+    #[inline(always)]
+    pub(crate) fn frame_obj(&self) -> Option<&Py<FrameObject>> {
+        let ptr = self.materialized.load(Relaxed);
+        if ptr == 0 {
+            None
+        } else {
+            Some(unsafe { &*(ptr as *const Py<FrameObject>) })
+        }
+    }
+
+    /// Materialize a FrameObject for this InterpreterFrame on demand.
+    /// If already materialized, returns the existing one.
+    /// The created FrameObject shares the raw pointers with this frame.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn materialize(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+        if let Some(fo) = self.frame_obj() {
+            return fo;
+        }
+        self.materialize_slow(vm)
+    }
+
+    /// Take a standalone copy of this frame, values included, for a thread
+    /// that does not own it.
+    ///
+    /// Nothing links the copy back to this frame: the owning thread will not
+    /// find it at `exit_iframe` and so never writes into it once the world
+    /// restarts. That is the whole point — a linked copy is a buffer the owner
+    /// rewrites slot by slot while the reader clones out of it.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// its fast locals are not moving while they are read.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_detached(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        // Deliberately not `materialize_chain`: that hands back an existing
+        // linked copy when the owning thread has already made one.
+        let fo = self.materialize_slow_chain(vm);
+        unsafe {
+            fo.iframe_mut()
+                .localsplus
+                .sync_fastlocals_from(&self.localsplus)
+        };
+        fo
+    }
+
+    /// Copy this frame and everything it was called from for a thread that
+    /// does not own them, linking `f_back` along the way, and return the copy
+    /// of this frame. The links are `retained_back`, so the chain keeps
+    /// resolving once the world restarts and the real frames return.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// the chain is not being popped while it is walked.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_detached_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        let top = unsafe { self.materialize_detached(vm) };
+        let mut child = top.clone();
+        let mut cur = self.previous();
+        while !cur.is_null() {
+            let caller = unsafe { &*cur };
+            let caller_fo = unsafe { caller.materialize_detached(vm) };
+            {
+                let mut guard = child.iframe().cold().retained_back.lock();
+                if guard.is_none() {
+                    *guard = Some(caller_fo.clone());
+                }
+            }
+            child = caller_fo;
+            cur = caller.previous();
+        }
+        top
+    }
+
+    /// Create a lightweight FrameObject with empty localsplus, suitable for
+    /// f_back chain building (retained_back). Unlike `materialize`, this does
+    /// NOT store into `temporary_refs` or set the `materialized` pointer, so
+    /// the returned FrameObject is only kept alive by the caller's `PyRef`.
+    /// This prevents non-GC-tracked `temporary_refs` on a stack-allocated
+    /// iframe from defeating cycle collection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        if let Some(fo) = self.frame_obj() {
+            return fo.to_owned();
+        }
+        self.materialize_slow_chain(vm)
+    }
+
+    #[cold]
+    fn materialize_slow(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+        // Create a full FrameObject with its own InterpreterFrame copy.
+        // The FrameObject owns references to the same objects (code, globals, etc).
+        let code: PyRef<PyCode> = self.code().to_owned();
+        let globals: PyDictRef = self.globals().to_owned();
+        let builtins: PyObjectRef = self.builtins().to_owned();
+        let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
+
+        // Empty localsplus, sized for the code object. While the source frame
+        // runs, every reader resolves it through `find_live_source_iframe`, and
+        // `exit_iframe` fills these slots from the live frame as it returns.
+        // Copying the values here instead would give each of them a second
+        // reference lasting as long as this FrameObject — a frame reached by
+        // one traceback entry would keep all of its locals alive.
+        let nlocalsplus = code.localspluskinds.len() as u32;
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
+            nlocalsplus,
+            stack_top: 0,
+        };
+
+        // Copy the locals mapping if it exists.
+        let locals = match self.locals.get() {
+            Some(mapping) => FrameLocals::with_locals(mapping.clone()),
+            None => FrameLocals::lazy(),
+        };
+
+        // Build a fresh InterpreterFrame inside the FrameObject.
+        // Its raw pointers will be patched by init_iframe_ptrs.
+        let inner_iframe = Self {
+            code: core::ptr::null(),
+            func_obj: core::ptr::null(),
+            globals: core::ptr::null(),
+            builtins: core::ptr::null(),
+            localsplus,
+            locals,
+            lasti: Radium::new(self.lasti.load(Relaxed)),
+            prev_line: core::cell::Cell::new(self.prev_line.get()),
+            generator: PyAtomicBorrow::new(),
+            // Do NOT copy previous — it may point to stack-allocated frames
+            // that become dangling after their call returns. The f_back chain
+            // is resolved through the TLS CURRENT_FRAME chain instead.
+            previous: Radium::new(0),
+            // Always FrameObject-owned. If we copied Thread from the source
+            // iframe, frame.clear() would reject the frame with "cannot clear
+            // an executing frame"; `attached_tid` carries the "still running"
+            // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            locals_dirty: atomic::AtomicBool::new(false),
-            f_locals_hidden_overlay: PyMutex::new(None),
-            pending_stack_pops: Default::default(),
-            pending_unwind_from_stack: Default::default(),
+            datastack_base: core::ptr::null_mut(),
+            materialized: Radium::new(0),
+            cold: OnceCell::from(Box::new(FrameColdData {
+                attached_tid: atomic::AtomicU64::new(current_thread_ident()),
+                ..FrameColdData::default()
+            })),
+        };
+
+        let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
+            owned_code: Some(code),
+            owned_globals: Some(globals),
+            owned_builtins: Some(builtins),
+            owned_func_obj: func_obj,
+            iframe: FrameUnsafeCell::new(Some(inner_iframe)),
+        };
+        let frame_ref = frame_obj.into_ref(&vm.ctx);
+        FrameObject::init_iframe_ptrs(&frame_ref);
+        // Set the inner iframe's materialized pointer to self
+        unsafe {
+            frame_ref
+                .iframe_mut()
+                .materialized
+                .store(&*frame_ref as *const Py<FrameObject> as usize, Relaxed);
+        }
+
+        // Store the materialized pointer on this stack frame.
+        let fo_ptr = &*frame_ref as *const Py<FrameObject> as usize;
+        self.materialized.store(fo_ptr, Relaxed);
+
+        // Keep the FrameObject alive by storing it in temporary_refs.
+        // GC tracking is deferred to `exit_iframe`, where the frame is no
+        // longer executing and temporary_refs is cleared — at that
+        // point the FrameObject is self-sustaining and GC can safely
+        // traverse and collect it.
+        self.cold()
+            .temporary_refs
+            .lock()
+            .push(frame_ref.clone().into());
+
+        // SAFETY: the pointer we stored above remains valid because
+        // temporary_refs holds a strong reference.
+        unsafe { &*(fo_ptr as *const Py<FrameObject>) }
+    }
+
+    /// Like `materialize_slow` but with empty localsplus to avoid extra
+    /// refcounts on local variables. Only suitable for f_back chain building.
+    /// Returns an owned `PyRef` without storing into `temporary_refs` or
+    /// setting the `materialized` pointer, so GC can still detect cycles.
+    #[cold]
+    fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        let code: PyRef<PyCode> = self.code().to_owned();
+        let globals: PyDictRef = self.globals().to_owned();
+        let builtins: PyObjectRef = self.builtins().to_owned();
+        let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
+
+        // Empty localsplus — reads go through find_live_source_iframe.
+        let nlocalsplus = code.localspluskinds.len() as u32;
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
+            nlocalsplus,
+            stack_top: 0,
+        };
+
+        let locals = match self.locals.get() {
+            Some(mapping) => FrameLocals::with_locals(mapping.clone()),
+            None => FrameLocals::lazy(),
+        };
+
+        let inner_iframe = Self {
+            code: core::ptr::null(),
+            func_obj: core::ptr::null(),
+            globals: core::ptr::null(),
+            builtins: core::ptr::null(),
+            localsplus,
+            locals,
+            lasti: Radium::new(self.lasti.load(Relaxed)),
+            prev_line: core::cell::Cell::new(self.prev_line.get()),
+            generator: PyAtomicBorrow::new(),
+            previous: Radium::new(0),
+            owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            datastack_base: core::ptr::null_mut(),
+            materialized: Radium::new(0),
+            cold: OnceCell::new(),
+        };
+
+        let frame_obj = FrameObject {
+            f_trace_lines: core::sync::atomic::AtomicBool::new(self.trace_lines_flag()),
+            owned_code: Some(code),
+            owned_globals: Some(globals),
+            owned_builtins: Some(builtins),
+            owned_func_obj: func_obj,
+            iframe: FrameUnsafeCell::new(Some(inner_iframe)),
+        };
+        let frame_ref = frame_obj.into_ref(&vm.ctx);
+        FrameObject::init_iframe_ptrs(&frame_ref);
+
+        frame_ref
+    }
+
+    /// Borrowed code object.
+    #[inline(always)]
+    pub fn code(&self) -> &Py<PyCode> {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        unsafe { &*self.code }
+    }
+
+    /// Borrowed globals dict.
+    #[inline(always)]
+    pub fn globals(&self) -> &Py<PyDict> {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        unsafe { &*self.globals }
+    }
+
+    /// Borrowed builtins object.
+    #[inline(always)]
+    pub fn builtins(&self) -> &PyObject {
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        unsafe { &*self.builtins }
+    }
+
+    /// Borrowed function object, or None if not set.
+    #[inline(always)]
+    pub fn func_obj(&self) -> Option<&PyObject> {
+        if self.func_obj.is_null() {
+            None
+        } else {
+            // SAFETY: established by `new` / `init_iframe_ptrs`.
+            Some(unsafe { &*self.func_obj })
+        }
+    }
+
+    /// Synchronize `prev_line` to the line of the instruction currently
+    /// in flight (derived from `lasti`, same as `FrameObject::lineno`).
+    ///
+    /// `prev_line` is normally only updated on the cold 'line'-trace-event
+    /// path (see the dispatch loop in `ExecutingFrame::run`), so it can go
+    /// stale while a frame runs untraced. Call this whenever a trace
+    /// function is newly installed on an already-executing frame — e.g.
+    /// `frame.f_trace = ...` from inside a running frame, or a per-frame
+    /// trace being installed at a 'call' event — so the very next
+    /// instruction doesn't fire a spurious 'line' event for a line that
+    /// was already current before tracing started.
+    pub(crate) fn sync_prev_line_from_lasti(&self) {
+        let lasti = self.lasti.load(Relaxed);
+        if lasti == 0 {
+            // Execution hasn't started yet (or is at the def line for a
+            // fresh generator/coroutine, already reflected in prev_line).
+            return;
+        }
+        let idx = lasti as usize - 1;
+        // `lasti` points past the in-flight instruction even while RESUME
+        // (the very first instruction of a fresh frame) is executing -- a
+        // 'call'/PY_START trace-install can observe `lasti == 1` before the
+        // frame has produced any user-visible line at all. Don't treat that
+        // as "already executing a real line": doing so would set
+        // `prev_line` to RESUME's own line (typically the same as the
+        // frame's first statement), suppressing the legitimate first 'line'
+        // event once the dispatch loop reaches it.
+        if matches!(
+            self.code().instructions.read_op(idx),
+            Instruction::Resume { .. } | Instruction::InstrumentedResume
+        ) {
+            return;
+        }
+        if let Some((loc, _)) = self.code().locations.get(idx) {
+            self.prev_line.set(loc.line.get() as u32);
+        }
+    }
+
+    /// Access the lazily-allocated cold data, allocating on first use.
+    #[inline]
+    pub(crate) fn cold(&self) -> &FrameColdData {
+        self.cold.get_or_init(|| Box::new(FrameColdData::default()))
+    }
+
+    /// Access cold data without allocating. Returns `None` if cold data
+    /// has not been allocated yet.
+    #[inline]
+    pub(crate) fn cold_opt(&self) -> Option<&FrameColdData> {
+        self.cold.get().map(|b| &**b)
+    }
+
+    /// `f_trace_lines` of the materialized frame object. True when the frame
+    /// has not been materialized.
+    pub(crate) fn trace_lines_flag(&self) -> bool {
+        let mat = self.materialized.load(atomic::Ordering::Relaxed);
+        if mat != 0 {
+            // SAFETY: `materialized` holds a `Py<FrameObject>` that stays
+            // allocated while the pointer is published.
+            return unsafe { &*(mat as *const Py<FrameObject>) }
+                .f_trace_lines
+                .load(core::sync::atomic::Ordering::Relaxed);
+        }
+        true
+    }
+
+    /// Thread still running the frame this one was materialized from, or 0.
+    #[inline]
+    pub(crate) fn attached_tid(&self) -> u64 {
+        self.cold_opt()
+            .map_or(0, |c| c.attached_tid.load(atomic::Ordering::Acquire))
+    }
+
+    /// Mark the frame this one was materialized from as returned, so its
+    /// values may be read from here.
+    #[inline]
+    pub(crate) fn detach(&self) {
+        if let Some(cold) = self.cold_opt() {
+            cold.attached_tid.store(0, atomic::Ordering::Release);
+        }
+    }
+}
+
+// Python-visible frame object (`PyFrameObject`). Currently always wraps an `InterpreterFrame`.
+#[pyclass(module = false, name = "frame", traverse = "manual")]
+pub struct FrameObject {
+    // The executing iframe reads this when it points at the frame object.
+    #[pymember(name = "f_trace_lines", writable)]
+    pub(crate) f_trace_lines: core::sync::atomic::AtomicBool,
+    // Owned references — keep the pointed-to objects alive for InterpreterFrame's
+    // raw pointers. Wrapped in Option so Traverse::clear can release them,
+    // allowing GC cycle collection to reclaim referenced objects.
+    pub(crate) owned_code: Option<PyRef<PyCode>>,
+    pub(crate) owned_globals: Option<PyDictRef>,
+    pub(crate) owned_builtins: Option<PyObjectRef>,
+    pub(crate) owned_func_obj: Option<PyObjectRef>,
+
+    /// Always `Some` while the frame is reachable from Python. Emptied only
+    /// by `Traverse::clear` during deallocation, leaving a trivially-droppable
+    /// husk that the freelist can cache.
+    pub(crate) iframe: FrameUnsafeCell<Option<InterpreterFrame>>,
+}
+
+impl FrameObject {
+    /// Shared access to the embedded interpreter frame.
+    ///
+    /// # Safety
+    /// Caller must ensure no concurrent mutable access (see `FrameUnsafeCell`)
+    /// and that the frame has not been cleared (i.e. it is still reachable
+    /// from Python; `Traverse::clear` only runs during deallocation).
+    #[inline(always)]
+    pub(crate) unsafe fn iframe_ref(&self) -> &InterpreterFrame {
+        let opt = unsafe { &*self.iframe.get() };
+        #[cfg(debug_assertions)]
+        if opt.is_none() {
+            cleared_frame_access();
+        }
+        // SAFETY: iframe is always Some while the frame is reachable (see above).
+        unsafe { opt.as_ref().unwrap_unchecked() }
+    }
+
+    /// Exclusive access to the embedded interpreter frame.
+    ///
+    /// # Safety
+    /// Caller must ensure exclusive access (see `FrameUnsafeCell`) and that
+    /// the frame has not been cleared.
+    #[inline(always)]
+    #[allow(clippy::mut_from_ref)]
+    pub(crate) unsafe fn iframe_mut(&self) -> &mut InterpreterFrame {
+        let opt = unsafe { &mut *self.iframe.get() };
+        #[cfg(debug_assertions)]
+        if opt.is_none() {
+            cleared_frame_access();
+        }
+        // SAFETY: iframe is always Some while the frame is reachable (see above).
+        unsafe { opt.as_mut().unwrap_unchecked() }
+    }
+
+    /// Shared access to the embedded interpreter frame. Safe to call on any
+    /// reachable FrameObject: immutable fields and atomic/mutex fields are
+    /// always safe to access.
+    #[inline(always)]
+    pub fn iframe(&self) -> &InterpreterFrame {
+        // SAFETY: FrameObject is always reachable from Python when this is
+        // called. Immutable fields and atomic/mutex fields provide their own
+        // synchronization. Mutable fields (localsplus, prev_line) are only
+        // mutated during single-threaded execution via with_exec.
+        unsafe { self.iframe_ref() }
+    }
+}
+
+/// Out-of-line panic for the debug-only cleared-frame check, keeping the
+/// inlined accessors' stack frames minimal.
+#[cfg(debug_assertions)]
+#[cold]
+#[inline(never)]
+fn cleared_frame_access() -> ! {
+    panic!("frame accessed after clear");
+}
+
+// NOTE: Deref<Target = InterpreterFrame> removed to decouple FrameObject
+// from InterpreterFrame field layout. Access through iframe_ref()/iframe_mut().
+
+thread_local! {
+    /// Free list of dead frame objects for reuse. Entries are cleared husks
+    /// (`iframe == None`) whose child references were already released.
+    /// Py<FrameObject> is fixed-size (localsplus storage is out-of-line),
+    /// so a single bucket suffices.
+    static FRAME_FREELIST: core::cell::Cell<crate::object::FreeList<FrameObject>> =
+        const { core::cell::Cell::new(crate::object::FreeList::new()) };
+}
+
+impl PyPayload for FrameObject {
+    const MAX_FREELIST: usize = 200;
+    const HAS_FREELIST: bool = true;
+    // Ordinary call frames are created untracked and only enter the GC when
+    // they escape (see `release_datastack_frame`); generator/coroutine frames
+    // are tracked explicitly at creation in `invoke_with_locals`.
+    const NEW_REF_UNTRACKED: bool = true;
+
+    #[inline]
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frame_type
+    }
+
+    #[inline]
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        FRAME_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
+                    true
+                } else {
+                    false
+                };
+                fl.set(list);
+                stored
+            })
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
+        FRAME_FREELIST
+            .try_with(|fl| {
+                let mut list = fl.take();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
+                fl.set(list);
+                result
+            })
+            .ok()
+            .flatten()
+    }
+}
+
+unsafe impl Traverse for FrameObject {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        // Visit the owned reference anchors on FrameObject.
+        // After clear(), these are None.
+        self.owned_code.traverse(tracer_fn);
+        self.owned_func_obj.traverse(tracer_fn);
+        self.owned_globals.traverse(tracer_fn);
+        self.owned_builtins.traverse(tracer_fn);
+
+        // Visit interior references in the InterpreterFrame.
+        let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
+            return;
+        };
+        iframe.localsplus.traverse(tracer_fn);
+        iframe.locals.traverse(tracer_fn);
+        if let Some(cold) = iframe.cold_opt() {
+            cold.trace.traverse(tracer_fn);
+            cold.temporary_refs.traverse(tracer_fn);
+            cold.f_extra_locals.traverse(tracer_fn);
+            cold.f_locals_cache.traverse(tracer_fn);
+            cold.f_overwritten_fast_locals.traverse(tracer_fn);
+            cold.retained_back.traverse(tracer_fn);
+        }
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        // Extract every child before dropping the frame husk. GC drops `out`
+        // after this exclusive payload borrow ends, so re-entrant finalizers
+        // cannot alias frame storage or run under one of its locks.
+        // Drain the frame where it lies and empty the slot afterwards.
+        // `Option::take` would move the whole `InterpreterFrame` -- a couple
+        // of hundred bytes -- onto the stack only to drop it there.
+        let slot = self.iframe.get_mut();
+        if let Some(iframe) = slot.as_mut() {
+            iframe.localsplus.clear_into(out);
+            if let Some(locals) = iframe.locals.take() {
+                out.push(locals.into());
+            }
+            if let Some(cold) = iframe.cold.take() {
+                let cold = *cold;
+                if let Some(trace) = cold.trace.into_inner() {
+                    out.push(trace);
+                }
+                out.extend(cold.temporary_refs.into_inner());
+                if let Some(extra) = cold.f_extra_locals.into_inner() {
+                    out.push(extra.into());
+                }
+                if let Some(cache) = cold.f_locals_cache.into_inner() {
+                    out.push(cache.into());
+                }
+                out.extend(cold.f_overwritten_fast_locals.into_inner());
+                if let Some(back) = cold.retained_back.into_inner() {
+                    out.push(back.into());
+                }
+            }
+        }
+        *slot = None;
+        if let Some(code) = self.owned_code.take() {
+            out.push(code.into());
+        }
+        if let Some(globals) = self.owned_globals.take() {
+            out.push(globals.into());
+        }
+        if let Some(builtins) = self.owned_builtins.take() {
+            out.push(builtins);
+        }
+        if let Some(func) = self.owned_func_obj.take() {
+            out.push(func);
+        }
+    }
+}
+
+// Running a frame can result in one of the below:
+pub enum ExecutionResult {
+    Return(PyObjectRef),
+    Yield(PyObjectRef),
+    /// The bytecode loop wants to tail-call into a new frame that has
+    /// already been prepared on the datastack. The trampoline reads the
+    /// pending frame pointer from `vm.pending_tailcall_frame`.
+    TailCall,
+    /// The bytecode loop wants a generator or coroutine resumed in this same
+    /// eval loop rather than through a nested `Coro::send`. The trampoline
+    /// reads which one, the value to send it, and the continuation below
+    /// from `vm.pending_gen_resume`.
+    GenResume,
+}
+
+/// What the frame that issued a [`ExecutionResult::GenResume`] does with the
+/// resumed generator's outcome.
+///
+/// The trampoline only ever parks a frame at a `SEND` in the canonical
+/// `yield from` / `await` shape, where the instruction right after the `SEND`
+/// is the `YIELD_VALUE` that re-yields whatever the sub-generator produced:
+///
+/// ```text
+///   send_idx: SEND exit
+///             CACHE              <- the parked frame's lasti is here + 1
+///             YIELD_VALUE 1
+/// resumed_at: RESUME
+///             JUMP_BACKWARD_NO_INTERRUPT -> send_idx
+///       exit: END_SEND
+/// ```
+///
+/// A value the sub-generator yields is re-yielded by the trampoline itself —
+/// park `lasti` at `resumed_at`, hand the value to the next frame out — so a
+/// level of delegation runs none of its own instructions. Once the
+/// sub-generator is done instead, its `StopIteration` value is pushed and the
+/// frame carries on at `exit`, which is what `SEND` itself would have done.
+///
+/// Any other `SEND`, and every `FOR_ITER`, keeps the recursive path: the
+/// frame would have to be re-entered on every value, and re-entering the eval
+/// loop costs more than the nested `Coro::send` it would save.
+#[derive(Clone, Copy)]
+pub(crate) struct GenCont {
+    pub(crate) exit: u32,
+    /// Where the skipped `YIELD_VALUE` leaves `lasti`. Zero where a
+    /// suspended frame has no continuation at all, i.e. it is waiting on an
+    /// ordinary call rather than on a generator — no frame parked at a `SEND`
+    /// can have `lasti` 0, so the two never collide.
+    pub(crate) resumed_at: u32,
+}
+
+impl GenCont {
+    /// The placeholder a frame waiting on an ordinary call carries.
+    pub(crate) const NONE: Self = Self {
+        exit: 0,
+        resumed_at: 0,
+    };
+
+    /// Whether this is a real `yield from` continuation.
+    #[inline]
+    pub(crate) const fn is_some(self) -> bool {
+        self.resumed_at != 0
+    }
+}
+
+/// A valid execution result, or an exception
+type FrameResult = PyResult<Option<ExecutionResult>>;
+
+impl FrameObject {
+    pub(crate) fn new(
+        code: PyRef<PyCode>,
+        scope: Scope,
+        builtins: PyObjectRef,
+        closure: &[PyCellRef],
+        func_obj: Option<PyObjectRef>,
+        use_datastack: bool,
+        vm: &VirtualMachine,
+    ) -> Self {
+        let nlocalsplus = code.localspluskinds.len();
+        let max_stackdepth = code.max_stackdepth as usize;
+        let localsplus = if use_datastack {
+            LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm)
+        } else {
+            LocalsPlus::new(nlocalsplus, max_stackdepth)
+        };
+
+        let locals = match scope.locals {
+            Some(locals) => FrameLocals::with_locals(locals),
+            None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
+            None => FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone())),
+        };
+
+        // Pointers are initially set from owned fields' references but will be
+        // dangling after the FrameObject moves into heap allocation — they get
+        // patched by `init_iframe_ptrs` after `into_ref`.
+        let iframe = unsafe {
+            // SAFETY: `init_iframe_ptrs` overwrites these pointers after
+            // `into_ref`, before the frame is executed.
+            InterpreterFrame::new(
+                &code,
+                &scope.globals,
+                &builtins,
+                func_obj.as_deref(),
+                localsplus,
+                locals,
+                closure,
+                FrameOwner::FrameObject,
+            )
         };
         Self {
-            iframe: FrameUnsafeCell::new(iframe),
+            f_trace_lines: core::sync::atomic::AtomicBool::new(true),
+            owned_code: Some(code),
+            owned_globals: Some(scope.globals),
+            owned_builtins: Some(builtins),
+            owned_func_obj: func_obj,
+            iframe: FrameUnsafeCell::new(Some(iframe)),
         }
+    }
+
+    /// Patch the InterpreterFrame's raw pointers to point at this
+    /// FrameObject's owned fields. Must be called once after the
+    /// FrameObject is allocated on the heap (i.e. after `into_ref`).
+    fn init_iframe_ptrs(self_: &Py<Self>) {
+        let iframe = unsafe { self_.iframe_mut() };
+        iframe.code = &**self_.owned_code.as_ref().unwrap() as *const Py<PyCode>;
+        iframe.globals = &**self_.owned_globals.as_ref().unwrap() as *const Py<PyDict>;
+        iframe.builtins = &**self_.owned_builtins.as_ref().unwrap() as *const PyObject;
+        iframe.func_obj = match &self_.owned_func_obj {
+            Some(obj) => &**obj as *const PyObject,
+            None => core::ptr::null(),
+        };
+        // Link the InterpreterFrame back to its owning FrameObject.
+        iframe
+            .materialized
+            .store(self_ as *const Py<Self> as usize, Relaxed);
+    }
+
+    /// Create a new FrameObject, allocate it on the heap, and patch
+    /// the InterpreterFrame's raw pointers. Returns an owned reference.
+    pub(crate) fn new_ref(
+        code: PyRef<PyCode>,
+        scope: Scope,
+        builtins: PyObjectRef,
+        closure: &[PyCellRef],
+        func_obj: Option<PyObjectRef>,
+        use_datastack: bool,
+        vm: &VirtualMachine,
+    ) -> FrameObjectRef {
+        let frame = Self::new(code, scope, builtins, closure, func_obj, use_datastack, vm)
+            .into_ref(&vm.ctx);
+        Self::init_iframe_ptrs(&frame);
+        frame
     }
 
     /// Access fastlocals immutably.
@@ -759,7 +1888,7 @@ impl Frame {
     /// or called from the same thread during trace callback).
     #[inline(always)]
     pub unsafe fn fastlocals(&self) -> &[Option<PyObjectRef>] {
-        unsafe { (*self.iframe.get()).localsplus.fastlocals() }
+        unsafe { self.iframe_ref().localsplus.fastlocals() }
     }
 
     /// Access fastlocals mutably.
@@ -769,7 +1898,7 @@ impl Frame {
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn fastlocals_mut(&self) -> &mut [Option<PyObjectRef>] {
-        unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() }
+        unsafe { self.iframe_mut().localsplus.fastlocals_mut() }
     }
 
     /// Migrate data-stack-backed storage to the heap, preserving all values,
@@ -780,7 +1909,29 @@ impl Frame {
     /// Caller must ensure the frame is not executing and the returned
     /// pointer is passed to `VirtualMachine::datastack_pop()`.
     pub(crate) unsafe fn materialize_localsplus(&self) -> Option<*mut u8> {
-        unsafe { (*self.iframe.get()).localsplus.materialize_to_heap() }
+        unsafe { self.iframe_mut().localsplus.materialize_to_heap() }
+    }
+
+    /// Drop all localsplus values in place and detach the data stack backing
+    /// without the heap copy. Returns the data stack base pointer for
+    /// `VirtualMachine::datastack_pop()`, or `None` if heap-backed.
+    ///
+    /// # Safety
+    /// Caller must ensure the frame is not executing, that no other reference
+    /// to the frame exists or can be created (localsplus is unobservable
+    /// afterwards), and that the returned pointer is passed to
+    /// `VirtualMachine::datastack_pop()`.
+    pub(crate) unsafe fn release_localsplus(&self) -> Option<*mut u8> {
+        unsafe { self.iframe_mut().localsplus.release_datastack() }
+    }
+
+    /// Whether this frame's localsplus is still data-stack-backed. A frame
+    /// must have heap-backed localsplus before it is GC-tracked so that a
+    /// concurrent collector never reads data-stack-resident, still-mutating
+    /// storage. Used only in debug assertions at the track sites.
+    pub(crate) fn localsplus_is_datastack_backed(&self) -> bool {
+        // SAFETY: called at a track site where the frame is not executing.
+        unsafe { self.iframe_ref().localsplus.is_datastack_backed() }
     }
 
     /// Clear evaluation stack and state-owned cell/free references.
@@ -788,328 +1939,623 @@ impl Frame {
     pub(crate) fn clear_stack_and_cells(&self) {
         // SAFETY: Called when frame is not executing (generator closed).
         // Cell refs in fastlocals[nlocals..] are cleared by clear_locals_and_stack().
-        unsafe {
-            (*self.iframe.get()).localsplus.stack_clear();
+        let localsplus = unsafe { &mut self.iframe_mut().localsplus };
+        // A frame that ran to its `return` left nothing on the stack, which is
+        // how every generator that simply finished arrives here.
+        if localsplus.stack_is_empty() {
+            return;
         }
+        let refs = localsplus.take_stack_object_refs();
+        drop(refs);
     }
 
     /// Clear locals and stack after generator/coroutine close.
     /// Releases references held by the frame, matching _PyFrame_ClearLocals.
     pub(crate) fn clear_locals_and_stack(&self) {
         self.clear_stack_and_cells();
-        // SAFETY: Frame is not executing (generator closed).
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() };
-        for slot in fastlocals.iter_mut() {
-            *slot = None;
-        }
-        self.f_locals_hidden_overlay.lock().take();
-    }
-
-    /// Get cell contents by localsplus index.
-    pub(crate) fn get_cell_contents(&self, localsplus_idx: usize) -> Option<PyObjectRef> {
-        // SAFETY: Frame not executing; no concurrent mutation.
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-        fastlocals
-            .get(localsplus_idx)
-            .and_then(|slot| slot.as_ref())
-            .and_then(|obj| obj.downcast_ref::<PyCell>())
-            .and_then(|cell| cell.get())
+        // Move references out before dropping them. Their finalizers may
+        // re-enter this frame, so no locals borrow or cold-data lock may be
+        // held while they run.
+        let fastlocals = {
+            // SAFETY: FrameObject is not executing (generator closed).
+            let slots = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
+            slots
+                .iter_mut()
+                .filter_map(Option::take)
+                .collect::<Vec<_>>()
+        };
+        // Cold data is allocated lazily, by tracing and frame introspection
+        // only. A frame that never grew it holds none of the references read
+        // below, so ask for it without allocating: forcing the allocation here
+        // would hand every finishing generator a `FrameColdData` to malloc and
+        // free just to find all three fields empty.
+        let (extra_locals, locals_cache, overwritten) = match self.iframe().cold_opt() {
+            Some(cold) => {
+                let extra_locals = {
+                    let mut guard = cold.f_extra_locals.lock();
+                    guard.take()
+                };
+                let locals_cache = {
+                    let mut guard = cold.f_locals_cache.lock();
+                    guard.take()
+                };
+                let overwritten = {
+                    let mut guard = cold.f_overwritten_fast_locals.lock();
+                    core::mem::take(&mut *guard)
+                };
+                (extra_locals, locals_cache, overwritten)
+            }
+            None => (None, None, Vec::new()),
+        };
+        drop((fastlocals, extra_locals, locals_cache, overwritten));
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
     /// The caller must ensure the generator outlives the frame.
     pub fn set_generator(&self, generator: &PyObject) {
-        self.generator.store(generator);
-        self.owner
+        self.iframe().generator.store(generator);
+        self.iframe()
+            .owner
             .store(FrameOwner::Generator as i8, atomic::Ordering::Release);
     }
 
     /// Clear the generator back-reference. Called when the generator is finalized.
     pub fn clear_generator(&self) {
-        self.generator.clear();
-        self.owner
+        // The generator's drop may run after this frame was already cleared
+        // by cycle collection (both were garbage and the frame was cleared
+        // first); nothing to unlink then.
+        // SAFETY: shared access; the finalizing generator owns the frame,
+        // which is not executing.
+        let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
+            return;
+        };
+        iframe.generator.clear();
+        iframe
+            .owner
             .store(FrameOwner::FrameObject as i8, atomic::Ordering::Release);
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.code.locations[self.lasti() as usize - 1].0
+        let lasti = self.lasti() as usize;
+        if lasti == 0 {
+            return SourceLocation {
+                line: self
+                    .iframe()
+                    .code()
+                    .first_line_number
+                    .unwrap_or(OneIndexed::MIN),
+                character_offset: OneIndexed::from_zero_indexed(0),
+            };
+        }
+        self.iframe().code().locations[lasti - 1].0
     }
 
-    /// Get the previous frame pointer for signal-safe traceback walking.
+    /// Get the previous InterpreterFrame in the chain.
+    /// Returns null if the frame has been cleared (GC deallocation).
+    pub fn previous_iframe(&self) -> *const InterpreterFrame {
+        // Use raw access instead of iframe() to avoid panicking on cleared frames.
+        let iframe_opt = unsafe { &*self.iframe.get() };
+        match iframe_opt.as_ref() {
+            Some(iframe) => {
+                iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame
+            }
+            None => core::ptr::null(),
+        }
+    }
+
+    /// Get the previous FrameObject in the chain, if any.
+    /// Walks through the chain to find the next materialized frame.
     pub fn previous_frame(&self) -> *const Self {
-        self.previous.load(atomic::Ordering::Relaxed)
+        let mut cur = self.previous_iframe();
+        while !cur.is_null() {
+            let iframe = unsafe { &*cur };
+            if let Some(fo) = iframe.frame_obj() {
+                return &**fo as *const Self;
+            }
+            cur = iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame;
+        }
+        core::ptr::null()
     }
 
     pub fn lasti(&self) -> u32 {
-        self.lasti.load(Relaxed)
+        self.iframe().lasti.load(Relaxed)
     }
 
     pub fn set_lasti(&self, val: u32) {
-        self.lasti.store(val, Relaxed);
+        self.iframe().lasti.store(val, Relaxed);
     }
 
-    pub(crate) fn pending_stack_pops(&self) -> u32 {
-        self.pending_stack_pops.load(Relaxed)
+    /// Fast-local slots of the live source frame when this frame object's
+    /// frame is still running on this thread, and this frame object's own
+    /// slots otherwise. A running frame's slots live on the data stack; the
+    /// frame object's are empty until `exit_iframe` fills them.
+    ///
+    /// # Safety
+    /// Caller must ensure no concurrent mutable access: either the frame is
+    /// not executing (callers pass through `check_locals_access`), or this is
+    /// a trace callback on the thread that is executing it.
+    unsafe fn live_fastlocals(&self) -> &[Option<PyObjectRef>] {
+        let live = self.find_live_source_iframe();
+        if live.is_null() {
+            unsafe { self.iframe_ref().localsplus.fastlocals() }
+        } else {
+            unsafe { (*live).localsplus.fastlocals() }
+        }
     }
 
-    pub(crate) fn set_pending_stack_pops(&self, val: u32) {
-        self.pending_stack_pops.store(val, Relaxed);
+    /// True when this frame currently has bound PEP 709 hidden comprehension
+    /// locals. Matches CPython `_PyFrame_HasHiddenLocals`.
+    pub(crate) fn has_active_hidden_locals(&self) -> bool {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
+        let code = self.iframe().code();
+        // SAFETY: callers first pass through `check_locals_access`, or this is
+        // `locals()` on the thread running this frame.
+        let fastlocals = unsafe { self.live_fastlocals() };
+        code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
+            if kind & CO_FAST_HIDDEN == 0 {
+                return false;
+            }
+            match fastlocals[i].as_ref() {
+                None => false,
+                Some(obj) => {
+                    if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+                        obj.downcast_ref::<PyCell>()
+                            .is_none_or(|cell| cell.get().is_some())
+                    } else {
+                        true
+                    }
+                }
+            }
+        })
     }
 
-    pub(crate) fn pending_unwind_from_stack(&self) -> i64 {
-        self.pending_unwind_from_stack.load(Relaxed)
+    #[inline]
+    pub(crate) fn has_hidden_local_slots(&self) -> bool {
+        use rustpython_compiler_core::bytecode::CO_FAST_HIDDEN;
+        self.iframe()
+            .code()
+            .localspluskinds
+            .iter()
+            .any(|kind| kind & CO_FAST_HIDDEN != 0)
     }
 
-    pub(crate) fn set_pending_unwind_from_stack(&self, val: i64) {
-        self.pending_unwind_from_stack.store(val, Relaxed);
+    /// Decide whether Python-visible locals use a write-through proxy rather
+    /// than the frame's namespace mapping.
+    pub(crate) fn uses_locals_proxy(&self, vm: &VirtualMachine) -> PyResult<bool> {
+        let is_optimized = self
+            .iframe()
+            .code()
+            .flags
+            .contains(bytecode::CodeFlags::OPTIMIZED);
+        if !is_optimized && !self.has_hidden_local_slots() {
+            return Ok(false);
+        }
+        self.check_locals_access(vm)?;
+        Ok(is_optimized || self.has_active_hidden_locals())
     }
 
-    /// Sync locals dict back to fastlocals. Called before generator/coroutine resume
-    /// to apply any modifications made via f_locals.
-    pub fn locals_to_fast(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if !self.locals_dirty.load(atomic::Ordering::Acquire) {
+    /// Reject locals access for a frame that is executing on another thread.
+    ///
+    /// A thread-owned frame mutates `localsplus` without synchronization, so
+    /// reading fastlocals from a different thread would be a data race (the
+    /// executing thread overwrites slots and drops the old values while the
+    /// reader clones them). Access from the executing thread itself (locals()
+    /// builtin, trace callbacks) is fine: the frame sits on the current
+    /// thread's frame chain and is at a bytecode boundary.
+    pub(crate) fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // A frame object materialized from a running data stack frame is
+        // FrameObject-owned, so the owner test below cannot speak for it: the
+        // thread running that frame fills these slots when it returns.
+        let attached = self.iframe().attached_tid();
+        if attached != 0 && attached != current_thread_ident() {
+            return Err(vm.new_runtime_error(
+                "cannot access frame locals while the frame is executing in another thread",
+            ));
+        }
+        let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
+        if owner != FrameOwner::Thread {
             return Ok(());
         }
-        let code = &**self.code;
-        let overlay_locals = self
-            .has_active_hidden_locals()
-            .then(|| self.f_locals_hidden_overlay.lock().clone())
-            .flatten()
-            .map(ArgMapping::from_dict_exact);
-        let locals_map = overlay_locals
-            .as_ref()
-            .map_or_else(|| self.locals.mapping(vm), ArgMapping::mapping);
-        // SAFETY: Called before generator resume; no concurrent access.
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals_mut() };
-        for (i, &varname) in code.varnames.iter().enumerate() {
-            if i >= fastlocals.len() {
-                break;
+        let self_iframe = self.iframe() as *const InterpreterFrame;
+        // Get the Py<FrameObject> address from &FrameObject (payload).
+        // materialized stores a *const Py<FrameObject>.
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as usize;
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            if core::ptr::eq(cur, self_iframe) {
+                return Ok(());
             }
-            match locals_map.subscript(varname, vm) {
-                Ok(value) => fastlocals[i] = Some(value),
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                Err(e) => return Err(e),
+            // Also match if this FrameObject is the materialized version
+            // of a stack-allocated frame in the chain.
+            let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+            if materialized == self_py_ptr {
+                return Ok(());
             }
+            cur = unsafe { (*cur).previous.load(Relaxed) as *const InterpreterFrame };
         }
-        self.locals_dirty.store(false, atomic::Ordering::Release);
-        Ok(())
-    }
-
-    fn has_active_hidden_locals(&self) -> bool {
-        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
-        let code = &**self.code;
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-        let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
-        !is_optimized
-            && code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
-                if kind & CO_FAST_HIDDEN == 0 {
-                    return false;
-                }
-                match fastlocals[i].as_ref() {
-                    None => false,
-                    Some(obj) => {
-                        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
-                            obj.downcast_ref::<PyCell>()
-                                .is_none_or(|cell| cell.get().is_some())
-                        } else {
-                            true
-                        }
-                    }
-                }
-            })
-    }
-
-    fn sync_visible_locals_to_mapping(
-        &self,
-        locals_map: PyMapping<'_>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        use rustpython_compiler_core::bytecode::{
-            CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL,
-        };
-        // SAFETY: Either the frame is not executing (caller checked owner),
-        // or we're in a trace callback on the same thread that's executing.
-        let code = &**self.code;
-        let fastlocals = unsafe { (*self.iframe.get()).localsplus.fastlocals() };
-
-        // Iterate through all localsplus slots using localspluskinds
-        let nlocalsplus = code.localspluskinds.len();
-        let nfrees = code.freevars.len();
-        let free_start = nlocalsplus - nfrees;
-        let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
-
-        // Track which non-merged cellvar index we're at
-        let mut nonmerged_cell_idx = 0;
-
-        for (i, &kind) in code.localspluskinds.iter().enumerate() {
-            if kind & CO_FAST_HIDDEN != 0 {
-                // Hidden variables are only skipped when their slot is empty.
-                // After a comprehension restores values, they should appear in locals().
-                let slot_empty = match fastlocals[i].as_ref() {
-                    None => true,
-                    Some(obj) => {
-                        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
-                            // If it's a PyCell, check if the cell is empty.
-                            // If it's a raw value (merged cell during inlined comp), not empty.
-                            obj.downcast_ref::<PyCell>()
-                                .is_some_and(|cell| cell.get().is_none())
-                        } else {
-                            false
-                        }
-                    }
-                };
-                if slot_empty {
-                    continue;
-                }
-            }
-
-            // Free variables only included for optimized (function-like) scopes.
-            // Class/module scopes should not expose free vars in locals().
-            if kind == CO_FAST_FREE && !is_optimized {
-                continue;
-            }
-
-            // Get the name for this slot
-            let name = if kind & CO_FAST_LOCAL != 0 {
-                code.varnames[i]
-            } else if kind & CO_FAST_FREE != 0 {
-                code.freevars[i - free_start]
-            } else if kind & CO_FAST_CELL != 0 {
-                // Non-merged cell: find the name by skipping merged cellvars
-                let mut found_name = None;
-                let mut skip = nonmerged_cell_idx;
-                for cv in &code.cellvars {
-                    let is_merged = code.varnames.contains(cv);
-                    if !is_merged {
-                        if skip == 0 {
-                            found_name = Some(*cv);
-                            break;
-                        }
-                        skip -= 1;
-                    }
-                }
-                nonmerged_cell_idx += 1;
-                match found_name {
-                    Some(n) => n,
-                    None => continue,
-                }
-            } else {
-                continue;
-            };
-
-            // Get the value
-            let value = if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
-                // Cell or free var: extract value from PyCell.
-                // During inlined comprehensions, a merged cell slot may hold a raw
-                // value (not a PyCell) after LOAD_FAST_AND_CLEAR + STORE_FAST.
-                fastlocals[i].as_ref().and_then(|obj| {
-                    if let Some(cell) = obj.downcast_ref::<PyCell>() {
-                        cell.get()
-                    } else {
-                        Some(obj.clone())
-                    }
-                })
-            } else {
-                // Regular local
-                fastlocals[i].clone()
-            };
-
-            let result = locals_map.ass_subscript(name, value, vm);
-            match result {
-                Ok(()) => {}
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(())
-    }
-
-    pub fn f_locals_mapping(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        if !self.has_active_hidden_locals() {
-            self.f_locals_hidden_overlay.lock().take();
-            return self.locals(vm);
-        }
-
-        let needs_refresh = !self.locals_dirty.load(atomic::Ordering::Acquire);
-        let overlay_dict = {
-            let mut overlay = self.f_locals_hidden_overlay.lock();
-            match overlay.as_ref() {
-                Some(dict) => dict.clone(),
-                None => {
-                    let dict = vm.ctx.new_dict();
-                    *overlay = Some(dict.clone());
-                    dict
-                }
-            }
-        };
-        if needs_refresh {
-            PyDict::clear(&overlay_dict);
-            let overlay = ArgMapping::from_dict_exact(overlay_dict.clone());
-            self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
-        }
-        Ok(ArgMapping::from_dict_exact(overlay_dict))
+        Err(vm.new_runtime_error(
+            "cannot access frame locals while the frame is executing in another thread",
+        ))
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        if self.has_active_hidden_locals() {
-            // Match CPython's locals() behavior for frames with PEP 709 hidden
-            // locals: return a fresh snapshot instead of the backing mapping.
-            let overlay = ArgMapping::from_dict_exact(vm.ctx.new_dict());
-            self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
-            Ok(overlay)
+        if self.uses_locals_proxy(vm)? {
+            Ok(ArgMapping::from_dict_exact(
+                self.framelocalsproxy_snapshot(vm)?,
+            ))
         } else {
-            self.sync_visible_locals_to_mapping(self.locals.mapping(vm), vm)?;
-            Ok(self.locals.clone_mapping(vm))
+            Ok(self.iframe().locals.clone_mapping(vm))
         }
+    }
+
+    /// Return the lazily allocated dict used by APIs that must keep a
+    /// frame-owned locals snapshot. Ordinary VM execution never accesses it.
+    pub fn locals_snapshot_cache(&self, vm: &VirtualMachine) -> PyDictRef {
+        let mut cache = self.iframe().cold().f_locals_cache.lock();
+        cache.get_or_insert_with(|| vm.ctx.new_dict()).clone()
+    }
+
+    /// Read a fast-local slot's visible value, dereferencing cells. `None` if
+    /// the slot is empty or its cell holds no value.
+    fn framelocalsproxy_getval(&self, i: usize) -> Option<PyObjectRef> {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
+        // SAFETY: callers first pass through `check_locals_access`, so the
+        // frame is not executing on another thread.
+        let fastlocals = unsafe { self.live_fastlocals() };
+        let obj = fastlocals.get(i)?.as_ref()?;
+        let kind = self
+            .iframe()
+            .code()
+            .localspluskinds
+            .get(i)
+            .copied()
+            .unwrap_or(0);
+        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+            if let Some(cell) = obj.downcast_ref::<PyCell>() {
+                cell.get()
+            } else {
+                Some(obj.clone())
+            }
+        } else {
+            Some(obj.clone())
+        }
+    }
+
+    /// Write `value` into fast-local slot `i`, routing through the cell when
+    /// the slot holds one so closures keep sharing the same cell.
+    fn framelocalsproxy_setval(&self, i: usize, value: PyObjectRef) {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
+        let kind = self
+            .iframe()
+            .code()
+            .localspluskinds
+            .get(i)
+            .copied()
+            .unwrap_or(0);
+        let live = self.find_live_source_iframe();
+        let old_value = if !live.is_null() {
+            // SAFETY: callers first pass through `check_locals_access`.
+            unsafe { (*live).localsplus.fastlocals()[i].clone() }
+        } else {
+            // SAFETY: callers first pass through `check_locals_access`.
+            unsafe { self.iframe_ref().localsplus.fastlocals()[i].clone() }
+        };
+
+        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0
+            && let Some(cell) = old_value
+                .as_ref()
+                .and_then(|obj| obj.clone().downcast::<PyCell>().ok())
+        {
+            cell.set(Some(value));
+            return;
+        }
+
+        if old_value.as_ref().is_some_and(|old| old.is(&value)) {
+            return;
+        }
+
+        // Keep the overwritten value alive with the frame. Its finalizer may
+        // re-enter this frame, so it must not run while `fastlocals` is
+        // mutably borrowed. CPython uses f_overwritten_fast_locals likewise.
+        let old_value = if !live.is_null() {
+            // SAFETY: callers first pass through `check_locals_access`.
+            unsafe { &mut *live.cast_mut() }.localsplus.fastlocals_mut()[i].replace(value)
+        } else {
+            // SAFETY: callers first pass through `check_locals_access`.
+            unsafe { self.iframe_mut().localsplus.fastlocals_mut()[i].replace(value) }
+        };
+        if let Some(old_value) = old_value {
+            self.iframe()
+                .cold()
+                .f_overwritten_fast_locals
+                .lock()
+                .push(old_value);
+        }
+    }
+
+    /// Resolve `key` to a fast-local slot index, or `None` if it names no fast
+    /// local. `read` selects read semantics (only bound slots match) versus
+    /// write semantics (hidden slots are skipped, unbound slots still match).
+    /// Raises `TypeError` for an unhashable key.
+    fn framelocalsproxy_getkeyindex(
+        &self,
+        key: &PyObject,
+        read: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        use rustpython_compiler_core::bytecode::CO_FAST_HIDDEN;
+        // Hash first both for hashability and to match dict-key equivalence.
+        let key_hash = key.hash(vm)?;
+        for (i, &kind) in self.iframe().code().localspluskinds.iter().enumerate() {
+            let name = localsplus_name(self.iframe().code(), i);
+            if name.as_object().hash(vm)? != key_hash {
+                continue;
+            }
+            if !name
+                .as_object()
+                .rich_compare_bool(key, PyComparisonOp::Eq, vm)?
+            {
+                continue;
+            }
+            if read {
+                if self.framelocalsproxy_getval(i).is_some() {
+                    return Ok(Some(i));
+                }
+            } else if kind & CO_FAST_HIDDEN == 0 {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Return the proxy's items in CPython iteration order. Fast locals come
+    /// first, followed by extra locals. The two groups may contain equal keys.
+    pub(crate) fn framelocalsproxy_items(
+        &self,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
+        self.check_locals_access(vm)?;
+        let code = self.iframe().code();
+        let mut items = Vec::with_capacity(code.localspluskinds.len());
+        for i in 0..code.localspluskinds.len() {
+            if let Some(value) = self.framelocalsproxy_getval(i) {
+                let name = localsplus_name(code, i).to_owned().into();
+                items.push((name, value));
+            }
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra {
+            items.extend(&extra);
+        }
+        Ok(items)
+    }
+
+    /// Build a dict as `dict(FrameLocalsProxy)` does in CPython. Insert fast
+    /// locals first, then only extra keys that are still missing, so a
+    /// colliding fast local keeps precedence.
+    pub(crate) fn framelocalsproxy_snapshot(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        self.check_locals_access(vm)?;
+        let dict = vm.ctx.new_dict();
+        let code = self.iframe().code();
+        for i in 0..code.localspluskinds.len() {
+            if let Some(value) = self.framelocalsproxy_getval(i) {
+                let key: PyObjectRef = localsplus_name(code, i).to_owned().into();
+                dict.set_item(&*key, value, vm)?;
+            }
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra {
+            dict.merge_object_if_missing(extra.into(), vm)?;
+        }
+        Ok(dict)
+    }
+
+    /// `proxy[key]`: read a fast local live, else fall back to extra locals.
+    pub(crate) fn framelocalsproxy_getitem(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.check_locals_access(vm)?;
+        if let Some(i) = self.framelocalsproxy_getkeyindex(&key, true, vm)?
+            && let Some(value) = self.framelocalsproxy_getval(i)
+        {
+            return Ok(value);
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && let Some(value) = extra.get_item_opt(&*key, vm)?
+        {
+            return Ok(value);
+        }
+        Err(vm.new_key_error(key))
+    }
+
+    /// `key in proxy`.
+    pub(crate) fn framelocalsproxy_contains(
+        &self,
+        key: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.check_locals_access(vm)?;
+        if self.framelocalsproxy_getkeyindex(key, true, vm)?.is_some() {
+            return Ok(true);
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra {
+            return Ok(extra.get_item_opt(key, vm)?.is_some());
+        }
+        Ok(false)
+    }
+
+    /// `proxy[key] = value`: fast-key writes the slot in place, other keys go
+    /// to the extra-locals side dict.
+    pub(crate) fn framelocalsproxy_setitem(
+        &self,
+        key: &PyObject,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.check_locals_access(vm)?;
+        if let Some(i) = self.framelocalsproxy_getkeyindex(key, false, vm)? {
+            self.framelocalsproxy_setval(i, value);
+            return Ok(());
+        }
+        let extra = self.extra_locals_get_or_create(vm);
+        extra.set_item(key, value, vm)
+    }
+
+    /// `del proxy[key]`: deleting a fast local raises ValueError; extra keys are
+    /// removed (KeyError if absent).
+    pub(crate) fn framelocalsproxy_delitem(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.check_locals_access(vm)?;
+        if self
+            .framelocalsproxy_getkeyindex(&key, false, vm)?
+            .is_some()
+        {
+            return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && extra.get_item_opt(&*key, vm)?.is_some()
+        {
+            return extra.del_item(&*key, vm);
+        }
+        Err(vm.new_key_error(key))
+    }
+
+    /// `proxy.pop(key[, default])`.
+    pub(crate) fn framelocalsproxy_pop(
+        &self,
+        key: PyObjectRef,
+        default: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.check_locals_access(vm)?;
+        if self
+            .framelocalsproxy_getkeyindex(&key, false, vm)?
+            .is_some()
+        {
+            return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
+        }
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && let Some(value) = extra.pop_item(&*key, vm)?
+        {
+            return Ok(value);
+        }
+        default.ok_or_else(|| vm.new_key_error(key))
+    }
+
+    /// `proxy.setdefault(key, default)`.
+    pub(crate) fn framelocalsproxy_setdefault(
+        &self,
+        key: &PyObject,
+        default: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match self.framelocalsproxy_getitem(key.to_owned(), vm) {
+            Ok(value) => Ok(value),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                self.framelocalsproxy_setitem(key, default.clone(), vm)?;
+                Ok(default)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn extra_locals_get_or_create(&self, vm: &VirtualMachine) -> PyDictRef {
+        let mut extra = self.iframe().cold().f_extra_locals.lock();
+        extra.get_or_insert_with(|| vm.ctx.new_dict()).clone()
     }
 }
 
-impl Py<Frame> {
+impl Py<FrameObject> {
     #[inline(always)]
     fn with_exec<R>(&self, vm: &VirtualMachine, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
-        // SAFETY: Frame execution is single-threaded. Only one thread at a time
+        // SAFETY: FrameObject execution is single-threaded. Only one thread at a time
         // executes a given frame (enforced by the owner field and generator
         // running flag). Same safety argument as FastLocals (UnsafeCell).
-        let iframe = unsafe { &mut *self.iframe.get() };
+        let iframe = unsafe { self.iframe_mut() };
+        // Raw pointer deref, not `iframe.code()`, so the later `&mut`
+        // localsplus/prev_line borrows are not aliasing a live `&self`.
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        let (code, globals, builtins, func_obj) = unsafe {
+            (
+                &*iframe.code,
+                &*iframe.globals,
+                &*iframe.builtins,
+                if iframe.func_obj.is_null() {
+                    None
+                } else {
+                    Some(&*iframe.func_obj)
+                },
+            )
+        };
+        let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+            builtins
+                .downcast_ref_if_exact::<PyDict>(vm)
+                // SAFETY: downcast_ref_if_exact already verified exact type
+                .map(|d| unsafe { PyExact::ref_unchecked(d) })
+        } else {
+            None
+        };
+        let iframe_ptr = iframe as *const InterpreterFrame;
         let exec = ExecutingFrame {
-            code: &iframe.code,
+            code,
             localsplus: &mut iframe.localsplus,
             locals: &iframe.locals,
-            globals: &iframe.globals,
-            builtins: &iframe.builtins,
-            builtins_dict: if iframe.globals.class().is(vm.ctx.types.dict_type) {
-                iframe
-                    .builtins
-                    .downcast_ref_if_exact::<PyDict>(vm)
-                    // SAFETY: downcast_ref_if_exact already verified exact type
-                    .map(|d| unsafe { PyExact::ref_unchecked(d) })
-            } else {
-                None
-            },
+            globals,
+            builtins,
+            builtins_dict,
             lasti: &iframe.lasti,
-            object: self,
-            prev_line: &mut iframe.prev_line,
+            iframe: iframe_ptr,
+            func_obj,
+            prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            flatten: Flatten::Nothing,
+            call_traced: false,
         };
         f(exec)
     }
 
-    // #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    // #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         self.with_exec(vm, |mut exec| exec.run(vm))
     }
 
+    /// Resume a suspended generator or coroutine body, pushing `value` as the
+    /// result of the `yield` it stopped at.
+    ///
+    /// The body runs under the same trampoline that flattens ordinary
+    /// Python-to-Python calls, so the plain calls it makes cost no Rust stack.
+    /// The caller (`resume_gen_frame`) owns the frame's chain bookkeeping.
     pub(crate) fn resume(
         &self,
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<ExecutionResult> {
-        self.with_exec(vm, |mut exec| {
-            if let Some(value) = value {
-                exec.push_value(value)
+        // SAFETY: same as `with_exec` — only one thread at a time executes a
+        // given frame, enforced by the owner field and the running claim.
+        let iframe = unsafe { self.iframe_mut() };
+        if let Some(value) = value {
+            // Parked at a `yield from` of its own: hand the value to the
+            // delegate and let the trampoline re-yield for this frame, so a
+            // chain costs no instruction at any level, this one included.
+            if let Some((delegate, cont)) = yield_from_delegate(iframe, vm)
+                && crate::coroutine::as_builtin_coro(&delegate).is_some_and(is_delegating)
+                && gen_collapse_allowed(vm)
+            {
+                park_at_send(iframe, cont);
+                return vm.run_gen_frame_delegating(iframe, delegate, value, cont);
             }
-            exec.run(vm)
-        })
+            iframe.localsplus.push_stack(value);
+        }
+        vm.run_gen_frame(iframe)
     }
 
     pub(crate) fn gen_throw(
@@ -1125,23 +2571,40 @@ impl Py<Frame> {
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
         // If the frame is currently executing (owned by thread), it has no
         // yield-from target to report.
-        let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
         if owner == FrameOwner::Thread {
             return None;
         }
-        // SAFETY: Frame is not executing, so UnsafeCell access is safe.
-        let iframe = unsafe { &mut *self.iframe.get() };
+        // SAFETY: FrameObject is not executing, so UnsafeCell access is safe.
+        let iframe = unsafe { self.iframe_mut() };
+        // SAFETY: established by `new` / `init_iframe_ptrs`.
+        let (code, globals, builtins, func_obj) = unsafe {
+            (
+                &*iframe.code,
+                &*iframe.globals,
+                &*iframe.builtins,
+                if iframe.func_obj.is_null() {
+                    None
+                } else {
+                    Some(&*iframe.func_obj)
+                },
+            )
+        };
+        let iframe_ptr = iframe as *const InterpreterFrame;
         let exec = ExecutingFrame {
-            code: &iframe.code,
+            code,
             localsplus: &mut iframe.localsplus,
             locals: &iframe.locals,
-            globals: &iframe.globals,
-            builtins: &iframe.builtins,
+            globals,
+            builtins,
             builtins_dict: None,
             lasti: &iframe.lasti,
-            object: self,
-            prev_line: &mut iframe.prev_line,
+            iframe: iframe_ptr,
+            func_obj,
+            prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            flatten: Flatten::Nothing,
+            call_traced: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -1153,7 +2616,7 @@ impl Py<Frame> {
         filename.find(b"importlib").is_some() && filename.find(b"_bootstrap").is_some()
     }
 
-    pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
+    pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameObjectRef> {
         let mut frame = self.f_back(vm);
         while let Some(ref f) = frame {
             if !f.is_internal_frame() {
@@ -1165,32 +2628,356 @@ impl Py<Frame> {
     }
 }
 
+/// Identity of the calling thread, or 0 where there is only one thread to be.
+/// 0 doubles as "no thread", which is what `attached_tid` wants for a build
+/// that cannot have a frame running anywhere else.
+#[inline]
+fn current_thread_ident() -> u64 {
+    #[cfg(feature = "threading")]
+    {
+        crate::stdlib::_thread::get_ident()
+    }
+    #[cfg(not(feature = "threading"))]
+    {
+        0
+    }
+}
+
+/// Byte offset from the start of a datastack allocation to the LocalsPlus data,
+/// accounting for alignment padding after the InterpreterFrame header.
+#[inline]
+fn datastack_iframe_localsplus_offset() -> usize {
+    let iframe_size = core::mem::size_of::<InterpreterFrame>();
+    (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1)
+}
+
+/// Total bytes needed to co-allocate an InterpreterFrame and its LocalsPlus
+/// data on the thread data stack.
+pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize) -> usize {
+    let iframe_padded = datastack_iframe_localsplus_offset();
+    let capacity = nlocalsplus
+        .checked_add(stacksize)
+        .expect("LocalsPlus capacity overflow");
+    let data_bytes = capacity
+        .checked_mul(core::mem::size_of::<usize>())
+        .expect("LocalsPlus byte size overflow");
+    iframe_padded
+        .checked_add(data_bytes)
+        .expect("datastack iframe total size overflow")
+}
+
+/// Handle an exception propagating into a suspended caller frame in the
+/// trampoline. Adds a traceback entry at the caller's call site, then
+/// tries the caller's exception table via `unwind_blocks`.
+///
+/// Returns:
+/// - `Ok(None)` — handler found, the caller's `run_iframe` can be re-entered
+/// - `Ok(Some(result))` — handler returned a result (break from the run loop)
+/// - `Err(exc)` — no handler, exception propagates to the next caller
+pub(crate) fn trampoline_handle_exception(
+    iframe: &mut InterpreterFrame,
+    exception: &Py<PyBaseException>,
+    vm: &VirtualMachine,
+) -> FrameResult {
+    let mut exec = exec_iframe(iframe, Flatten::Nothing, vm);
+
+    // lasti points past the call opcode and its inline caches. Do not
+    // decode those cache units: their bytes are not valid opcodes.
+    let idx = (exec.lasti() as usize).saturating_sub(1);
+
+    // Add traceback entry at the call site.
+    if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
+        let next = exception.traceback();
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as i32 * 2, loc.line);
+        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
+    }
+
+    exec.fire_exception_trace(exception, vm)?;
+    let exception = {
+        let mon_events = vm.state.monitoring_events.load();
+        if mon_events & MonitoringEvent::Raise.mask() != 0 {
+            let offset = idx as u32 * 2;
+            let exc_obj: PyObjectRef = exception.to_owned().into();
+            match monitoring::fire_raise(vm, exec.code, offset, &exc_obj) {
+                Ok(()) => exception.to_owned(),
+                Err(monitor_exc) => monitor_exc,
+            }
+        } else {
+            exception.to_owned()
+        }
+    };
+
+    exec.unwind_blocks(
+        vm,
+        UnwindReason::Raising {
+            exception,
+            offset: idx as u32,
+        },
+    )
+}
+
+/// Borrow an `InterpreterFrame` as an `ExecutingFrame`.
+#[inline(always)]
+fn exec_iframe<'a>(
+    iframe: &'a mut InterpreterFrame,
+    flatten: Flatten,
+    vm: &VirtualMachine,
+) -> ExecutingFrame<'a> {
+    // Raw pointer deref, not `iframe.code()`, so the later `&mut`
+    // localsplus/prev_line borrows are not aliasing a live `&self`.
+    // SAFETY: established by `new` / `init_iframe_ptrs`.
+    let (code, globals, builtins, func_obj) = unsafe {
+        (
+            &*iframe.code,
+            &*iframe.globals,
+            &*iframe.builtins,
+            if iframe.func_obj.is_null() {
+                None
+            } else {
+                Some(&*iframe.func_obj)
+            },
+        )
+    };
+    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        builtins
+            .downcast_ref_if_exact::<PyDict>(vm)
+            .map(|d| unsafe { PyExact::ref_unchecked(d) })
+    } else {
+        None
+    };
+    let iframe_ptr = iframe as *const InterpreterFrame;
+    ExecutingFrame {
+        code,
+        localsplus: &mut iframe.localsplus,
+        locals: &iframe.locals,
+        globals,
+        builtins,
+        builtins_dict,
+        lasti: &iframe.lasti,
+        iframe: iframe_ptr,
+        func_obj,
+        prev_line: &iframe.prev_line,
+        monitoring_mask: 0,
+        flatten,
+        call_traced: false,
+    }
+}
+
+/// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
+#[inline(always)]
+pub(crate) fn run_iframe(
+    iframe: &mut InterpreterFrame,
+    flatten: Flatten,
+    vm: &VirtualMachine,
+) -> PyResult<ExecutionResult> {
+    exec_iframe(iframe, flatten, vm).run(vm)
+}
+
+/// Whether the trampoline may skip a delegating frame's own instructions.
+///
+/// It may not while anything is watching them run: `sys.settrace` fires line
+/// and opcode events per instruction, and `sys.monitoring` both fires events
+/// and rewrites the very opcodes the `yield from` shape is recognized by.
+#[inline]
+pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
+    !vm.use_tracing.get() && vm.state.monitoring_events.load() == 0
+}
+
+/// The sub-generator a frame suspended in a `yield from` / `await` is
+/// delegating to, if the trampoline can resume it in this frame's place.
+///
+/// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
+/// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
+/// stack — and requires the `SEND` to have already specialized to `SendGen`,
+/// so that a `Send` still collecting specialization feedback keeps running
+/// normally. The frame is left untouched; `park_at_send` commits to it.
+pub(crate) fn yield_from_delegate(
+    iframe: &InterpreterFrame,
+    vm: &VirtualMachine,
+) -> Option<(PyObjectRef, GenCont)> {
+    let code = iframe.code();
+    let send_caches = Instruction::from(Opcode::Send).cache_entries();
+    let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    // The SEND, its cache and the YIELD_VALUE sit below `resumed_at`.
+    let send_idx = resumed_at.checked_sub(2 + send_caches)?;
+    if !matches!(
+        code.instructions.get(resumed_at)?.op,
+        Instruction::Resume { .. }
+    ) {
+        return None;
+    }
+    let yield_unit = code.instructions.get(resumed_at - 1)?;
+    if !matches!(yield_unit.op, Instruction::YieldValue { .. }) || u8::from(yield_unit.arg) < 1 {
+        return None;
+    }
+    let send_unit = code.instructions.get(send_idx)?;
+    if !matches!(send_unit.op, Instruction::SendGen) {
+        return None;
+    }
+    // An EXTENDED_ARG prefix would make the raw oparg below the wrong exit.
+    if send_idx > 0
+        && matches!(
+            code.instructions.get(send_idx - 1)?.op,
+            Instruction::ExtendedArg
+        )
+    {
+        return None;
+    }
+    let delegate = match iframe.localsplus.stack_last() {
+        Some(Some(top)) => top.as_object(),
+        _ => return None,
+    };
+    // The same guards `SendGen` applies before resuming a generator itself.
+    if delegate.downcast_ref_if_exact::<PyGenerator>(vm).is_none()
+        && delegate.downcast_ref_if_exact::<PyCoroutine>(vm).is_none()
+    {
+        return None;
+    }
+    let coro = crate::coroutine::as_builtin_coro(delegate)?;
+    if coro.running() || coro.closed() {
+        return None;
+    }
+    // `SEND`'s jump is relative to the code unit after the instruction and
+    // its caches, exactly as the handler computes it from its own `lasti`.
+    let exit = (send_idx + 1 + send_caches) as u32 + u32::from(u8::from(send_unit.arg));
+    Some((
+        delegate.to_owned(),
+        GenCont {
+            exit,
+            resumed_at: resumed_at as u32,
+        },
+    ))
+}
+
+/// Park a frame the trampoline is about to run a delegate for, exactly where
+/// the frame's own `SEND` would have left it — one code unit before the
+/// `RESUME` the skipped `YIELD_VALUE` leads to, which is that `YIELD_VALUE`
+/// itself, so simply running the frame from there stays correct.
+#[inline]
+pub(crate) fn park_at_send(iframe: &mut InterpreterFrame, cont: GenCont) {
+    iframe.lasti.store(cont.resumed_at - 1, Relaxed);
+}
+
+/// Whether a generator or coroutine is itself suspended at a `yield from`, so
+/// that the chain below it goes at least one level deeper.
+///
+/// This is what makes handing a chain to the trampoline worth its setup: one
+/// lone level is cheaper to send into from the eval loop the caller is
+/// already in — an `await` of a future's `__await__`, which yields once and
+/// then returns, is the shape that would otherwise pay and never collect.
+pub(crate) fn is_delegating(coro: &Coro) -> bool {
+    let iframe = coro.frame_ref().iframe();
+    let code = iframe.code();
+    let resumed_at = iframe.lasti.load(Relaxed) as usize;
+    if resumed_at == 0 {
+        return false;
+    }
+    matches!(
+        code.instructions.get(resumed_at).map(|u| u.op),
+        Some(Instruction::Resume { .. })
+    ) && code
+        .instructions
+        .get(resumed_at - 1)
+        .is_some_and(|u| matches!(u.op, Instruction::YieldValue { .. }) && u8::from(u.arg) >= 1)
+}
+
+/// Finish a `yield from` level the trampoline ran in place of the frame:
+/// leave `lasti` where the skipped `YIELD_VALUE` would have left it.
+#[inline]
+pub(crate) fn park_after_yield_from(iframe: &mut InterpreterFrame, resumed_at: u32) {
+    // The `YIELD_VALUE` this stands in for never ran, so nothing has promoted
+    // the parked stack yet. Do it here for the same reason that handler does.
+    iframe.localsplus.promote_stack();
+    debug_assert!(
+        iframe
+            .localsplus
+            .stack_as_slice()
+            .iter()
+            .flatten()
+            .all(|sr| !sr.is_borrowed()),
+        "borrowed refs on stack at yield point"
+    );
+    iframe.lasti.store(resumed_at, Relaxed);
+}
+
+/// Apply the continuation of a flattened `SEND` whose generator finished:
+/// the tail of the `SendGen` handler, which the trampoline runs on the parked
+/// frame's behalf once the generator's frame is unlinked.
+pub(crate) fn trampoline_gen_stop(
+    iframe: &mut InterpreterFrame,
+    value: Option<PyObjectRef>,
+    cont: GenCont,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    if vm.use_tracing.get() {
+        // Tracing can be switched on while the sub-generator runs, so the
+        // `StopIteration` event the recursive path fires is checked for here
+        // rather than where the frame was parked.
+        let exec = exec_iframe(iframe, Flatten::Nothing, vm);
+        if exec.trace_is_set(vm) {
+            let stop_exc = vm.new_stop_iteration(value.clone());
+            exec.fire_exception_trace(&stop_exc, vm)?;
+        }
+    }
+    iframe.localsplus.push_stack(vm.unwrap_or_none(value));
+    iframe.lasti.store(cont.exit, Relaxed);
+    Ok(())
+}
+
 /// An executing frame; borrows mutable frame-internal data for the duration
 /// of bytecode execution.
-struct ExecutingFrame<'a> {
-    code: &'a PyRef<PyCode>,
+pub(crate) struct ExecutingFrame<'a> {
+    code: &'a Py<PyCode>,
     localsplus: &'a mut LocalsPlus,
     locals: &'a FrameLocals,
-    globals: &'a PyDictRef,
-    builtins: &'a PyObjectRef,
+    globals: &'a Py<PyDict>,
+    builtins: &'a PyObject,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
     /// Only set when both globals and builtins are exact dict types (not
     /// subclasses), so that `__missing__` / `__getitem__` overrides are
     /// not bypassed.
     builtins_dict: Option<&'a PyExact<PyDict>>,
-    object: &'a Py<Frame>,
+    /// Raw pointer to the underlying InterpreterFrame. Used to access the
+    /// materialized FrameObject (via `frame_obj()`) and frame-level fields
+    /// like trace, pending_stack_pops, etc. Stored as a raw pointer because
+    /// mutable borrows to `localsplus` and `prev_line` are also held.
+    /// All accesses through this pointer use atomic/mutex operations.
+    iframe: *const InterpreterFrame,
+    /// Borrowed function object that created this frame (if any).
+    func_obj: Option<&'a PyObject>,
     lasti: &'a PyAtomic<u32>,
-    prev_line: &'a mut u32,
+    prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
+    /// What this frame may hand back to the trampoline, if it is running
+    /// under one at all.
+    flatten: Flatten,
+    /// PY_START/PY_RESUME Call already fired for this activation.
+    call_traced: bool,
+}
+
+/// How much of what a frame does the trampoline can take over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Flatten {
+    /// Nothing: the frame is not running under the trampoline
+    /// (FrameObject-based execution), so it must not return `TailCall` or
+    /// `GenResume`.
+    Nothing,
+    /// A generator or coroutine body: it may park a generator, but makes its
+    /// plain calls itself. Tail-calling them would mean re-entering the
+    /// trampoline on every resume, which for a body that yields often costs
+    /// more than the nested call it saves.
+    GenResume,
+    /// An ordinary frame under the trampoline: both.
+    CallAndGenResume,
 }
 
 #[inline]
-fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+fn specialization_compact_int_value(i: &Py<PyInt>) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
-    let v = i.try_to_primitive::<i64>(vm).ok()?;
+    let v = i.try_to_i64_fast()?;
     if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
         Some(v as isize)
     } else {
@@ -1201,7 +2988,7 @@ fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<is
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| specialization_compact_int_value(i, vm))
+        .and_then(specialization_compact_int_value)
 }
 
 #[inline]
@@ -1210,7 +2997,7 @@ fn exact_float_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<f64> {
 }
 
 #[inline]
-fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> Option<usize> {
+fn specialization_nonnegative_compact_index(i: &Py<PyInt>, vm: &VirtualMachine) -> Option<usize> {
     // _PyLong_IsNonNegativeCompact(): a single base-2^30 digit.
     const CPYTHON_COMPACT_LONG_MAX: u64 = (1u64 << 30) - 1;
     let v = i.try_to_primitive::<u64>(vm).ok()?;
@@ -1221,12 +3008,93 @@ fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> O
     }
 }
 
-fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
+/// Get the variable name for a localsplus index of `code`.
+fn localsplus_name(code: &Py<PyCode>, idx: usize) -> &'static PyStrInterned {
+    code.localsplus_name(idx)
+}
+
+/// Free a finished call frame's data stack storage.
+///
+/// When the caller holds the only reference to the frame, the locals and
+/// stack values are dropped in place and the storage is released without a
+/// heap copy. Otherwise (the frame escaped through a traceback,
+/// `sys._getframe`, a trace callback, ...) the values are copied to the heap
+/// first so they stay readable through the escaped reference.
+pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachine) {
+    let frame_obj = frame.as_object();
+    // Uniqueness argument: at this point the frame is already out of
+    // the thread-frames registry and the current-frame chain
+    // (both unlinked inside `with_frame` before it returned), and the
+    // frame type has no weakref support. A datastack frame is created
+    // untracked and stays untracked while it runs, so it is in no GC
+    // generation list and no collector can observe or incref it. Hence no
+    // thread can mint a new reference without already holding one, and every
+    // escape (traceback, `sys._getframe`, `f_back`, a stored trace-hook arg)
+    // is a heap reference created on this thread while the frame ran.
+    // Therefore `strong_count() == 1` here means nothing escaped, and
+    // `strong_count() > 1` means the frame escaped.
+    debug_assert!(
+        !frame_obj.is_gc_tracked(),
+        "datastack frame is GC-tracked at release"
+    );
+    if frame_obj.strong_count() == 1 {
+        // A reference minted and already released by another thread (through a
+        // heap escape carried across threads) ends in a release-decref; the
+        // fence orders that thread's memory before our drops below.
+        atomic::fence(Acquire);
+        // SAFETY: unique owner and no way to mint a new reference, so
+        // localsplus can never be observed again. The base pointer came
+        // from this thread's data stack.
+        unsafe {
+            if let Some(base) = frame.release_localsplus() {
+                vm.datastack_pop(base);
+            }
+        }
+        return;
+    }
+    // Escaped. Stabilize localsplus on the heap FIRST, then join the GC. This
+    // order guarantees a concurrent (stop-the-world) collector only ever sees a
+    // tracked frame whose localsplus is heap-resident and no longer mutating:
+    // the frame has stopped executing before it becomes a candidate, so its
+    // outgoing edges are stable while a collector traverses them.
+    // SAFETY: the frame finished executing; the base pointer came from this
+    // thread's data stack.
     unsafe {
         if let Some(base) = frame.materialize_localsplus() {
             vm.datastack_pop(base);
         }
     }
+    // Retain a strong reference to the caller so `f_back` keeps resolving once
+    // the caller returns and leaves the live frame chain. The caller is still
+    // executing here (this frame is unwinding back into it), so its payload
+    // pointer is live.
+    {
+        let mut guard = frame.iframe().cold().retained_back.lock();
+        if guard.is_none() {
+            let prev = frame.previous_iframe();
+            *guard = unsafe { owned_chain_frame(prev) };
+        }
+    }
+    // Note: previous is NOT cleared here. retained_back captures the
+    // caller reference, and previous may be read again by f_back or
+    // frame chain walkers (the pointer is live as long as the caller
+    // is still executing, which it is at this point).
+    // Invariant: a tracked frame must always have heap-backed localsplus
+    // (proven here for escaped datastack frames and by construction for
+    // generator frames, which are born heap-backed). A stop-the-world
+    // collector reads a frame's localsplus only when the frame is a tracked
+    // candidate, so this keeps it from ever reading data-stack-resident,
+    // still-mutating storage of an executing frame.
+    debug_assert!(
+        !frame.localsplus_is_datastack_backed(),
+        "escaped frame tracked before its localsplus was materialized"
+    );
+    // SAFETY: the frame is alive (held by `frame` and the escaped reference)
+    // and untracked.
+    unsafe {
+        crate::gc_state::gc_state()
+            .track_object(NonNull::from(frame_obj), crate::gc_state::current_owner())
+    };
 }
 
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
@@ -1240,9 +3108,52 @@ struct BinaryOpExtendSpecializationDescr {
 
 const BINARY_OP_EXTEND_EXTERNAL_CACHE_OFFSET: usize = 1;
 
+/// Max total args (including self) staged in a fixed-size stack buffer by the
+/// exact-args call fast paths; larger arities fall back to a heap buffer.
+const MAX_INLINE_CALL_ARGS: usize = 8;
+
+/// Staging buffer for exact-args call fast paths: fixed-size inline storage
+/// for small arities, avoiding a per-call Vec allocation.
+enum CallArgBuffer {
+    Inline(usize, [Option<PyObjectRef>; MAX_INLINE_CALL_ARGS]),
+    Heap(Vec<Option<PyObjectRef>>),
+}
+
+impl CallArgBuffer {
+    fn new(total_nargs: usize) -> Self {
+        if total_nargs <= MAX_INLINE_CALL_ARGS {
+            Self::Inline(total_nargs, [const { None }; MAX_INLINE_CALL_ARGS])
+        } else {
+            Self::Heap(vec![None; total_nargs])
+        }
+    }
+
+    fn slots(&mut self) -> &mut [Option<PyObjectRef>] {
+        match self {
+            Self::Inline(len, buf) => &mut buf[..*len],
+            Self::Heap(buf) => buf,
+        }
+    }
+}
+
 #[inline]
 fn compactlongs_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
     compact_int_from_obj(lhs, vm).is_some() && compact_int_from_obj(rhs, vm).is_some()
+}
+
+/// A conditional jump the instruction ahead of it can perform itself.
+///
+/// Built by [`ExecutingFrame::fused_bool_jump`] and consumed by
+/// [`ExecutingFrame::take_fused_bool_jump`].
+#[derive(Clone, Copy)]
+struct FusedBoolJump {
+    /// Boolean value that takes the branch.
+    jump_on: bool,
+    /// Code-unit index the branch lands on when taken.
+    taken: u32,
+    /// Code-unit index just past the jump and its cache, where the compiler
+    /// puts the `NOT_TAKEN` marker.
+    fallthrough: u32,
 }
 
 macro_rules! bitwise_longs_action {
@@ -1396,56 +3307,122 @@ impl fmt::Debug for ExecutingFrame<'_> {
     }
 }
 
+/// Run bytecode in a light frame context.
+#[allow(clippy::too_many_arguments)]
 impl ExecutingFrame<'_> {
+    /// Get the underlying InterpreterFrame.
+    #[inline(always)]
+    fn iframe(&self) -> &InterpreterFrame {
+        // SAFETY: the iframe pointer is valid for the lifetime of the ExecutingFrame.
+        unsafe { &*self.iframe }
+    }
+
+    /// Get the frame object. Materializes a FrameObject on demand if this
+    /// is a stack-allocated frame that hasn't been observed yet.
+    #[cold]
+    #[inline(never)]
+    fn frame_object(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        self.iframe().materialize(vm).to_owned()
+    }
+
+    /// Whether this frame has a per-frame trace function set.
     #[inline]
-    fn monitoring_disabled_for_code(&self, vm: &VirtualMachine) -> bool {
-        self.code.is(&vm.ctx.init_cleanup_code)
+    fn trace_is_set(&self, _vm: &VirtualMachine) -> bool {
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|c| c.trace.lock().is_some())
     }
 
-    fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
-        Frame::new(
-            vm.ctx.init_cleanup_code.clone(),
-            Scope::new(
-                Some(ArgMapping::from_dict_exact(vm.ctx.new_dict())),
-                self.globals.clone(),
-            ),
-            self.builtins.clone(),
-            &[],
-            None,
-            true,
-            vm,
-        )
-        .into_ref(&vm.ctx)
+    /// PY_START / PY_RESUME → PyTrace_CALL. Fired from the first RESUME of
+    /// this activation so lasti is already the resume unit
+    /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
+    /// and later RESUMEs in a SEND loop are not a new call either).
+    fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
+        if self.call_traced {
+            return Ok(());
+        }
+        self.call_traced = true;
+        if !vm.use_tracing.get() {
+            return Ok(());
+        }
+        // RESUME oparg 0 is PY_START; nonzero is PY_RESUME.
+        let what = if resume_type == 0 {
+            monitoring::MonitoringEvent::PyStart
+        } else {
+            monitoring::MonitoringEvent::PyResume
+        };
+        let trace_result = vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?;
+        if let Some(local_trace) = trace_result {
+            let was_unset = self.iframe().cold().trace.lock().is_none();
+            *self.iframe().cold().trace.lock() = Some(local_trace);
+            if was_unset {
+                self.iframe().sync_prev_line_from_lasti();
+            }
+        }
+        Ok(())
     }
 
-    fn specialization_run_init_cleanup_shim(
+    /// Access the frame's trace_opcodes lock.
+    #[inline]
+    fn trace_opcodes_is_set(&self) -> bool {
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|c| *c.trace_opcodes.lock())
+    }
+
+    /// f_trace_lines, defaulting to true when no frame object exists.
+    #[inline]
+    fn trace_lines_is_set(&self) -> bool {
+        self.iframe().trace_lines_flag()
+    }
+
+    /// Get pending_stack_pops from the frame.
+    #[inline]
+    fn pending_stack_pops(&self) -> u32 {
+        self.iframe()
+            .cold_opt()
+            .map_or(0, |c| c.pending_stack_pops.load(Relaxed))
+    }
+
+    /// Get pending_unwind_from_stack from the frame.
+    #[inline]
+    fn pending_unwind_from_stack(&self) -> i64 {
+        self.iframe()
+            .cold_opt()
+            .map_or(0, |c| c.pending_unwind_from_stack.load(Relaxed))
+    }
+
+    /// Set pending_stack_pops on the frame.
+    #[inline]
+    fn set_pending_stack_pops(&self, val: u32) {
+        self.iframe().cold().pending_stack_pops.store(val, Relaxed);
+    }
+
+    /// Run `__init__` for the tp_new specialization. `args` holds the
+    /// `__init__` args with slot 0 left empty; it is filled with `new_obj`
+    /// here. Enforces the `__init__() should return None` contract and
+    /// returns the constructed object.
+    fn specialization_run_init(
         &self,
         new_obj: PyObjectRef,
         init_func: &Py<PyFunction>,
-        pos_args: Vec<PyObjectRef>,
+        args: &mut [Option<PyObjectRef>],
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let shim = self.specialization_new_init_cleanup_frame(vm);
-        let shim_result = vm.with_frame_untraced(shim.clone(), |shim| {
-            shim.with_exec(vm, |mut exec| exec.push_value(new_obj.clone()));
+        args[0] = Some(new_obj.clone());
+        let taken = args
+            .iter_mut()
+            .map(|slot| slot.take().expect("arg slot must be filled"));
 
-            let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-            all_args.push(new_obj.clone());
-            all_args.extend(pos_args);
+        let init_result = init_func.invoke_prepared_exact_args(taken, vm)?;
 
-            let init_frame = init_func.prepare_exact_args_frame(all_args, vm);
-            let init_result = vm.run_frame(init_frame.clone());
-            release_datastack_frame(&init_frame, vm);
-            let init_result = init_result?;
-
-            shim.with_exec(vm, |mut exec| exec.push_value(init_result));
-            match shim.run(vm)? {
-                ExecutionResult::Return(value) => Ok(value),
-                ExecutionResult::Yield(_) => unreachable!("_Py_InitCleanup shim cannot yield"),
-            }
-        });
-        release_datastack_frame(&shim, vm);
-        shim_result
+        if !vm.is_none(&init_result) {
+            return Err(vm.new_type_error(format!(
+                "__init__() should return None, not '{:.200}'",
+                init_result.class().name()
+            )));
+        }
+        Ok(new_obj)
     }
 
     #[inline(always)]
@@ -1471,6 +3448,45 @@ impl ExecutingFrame<'_> {
             .expect("cell slot is not a PyCell")
     }
 
+    /// Apply a pending `f_lineno` jump's stack pops, if any.
+    fn apply_pending_lineno_jump(&mut self, vm: &VirtualMachine) {
+        let pops = self.pending_stack_pops();
+        if pops > 0 {
+            let from_stack = self.pending_unwind_from_stack();
+            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+            self.set_pending_stack_pops(0);
+        }
+    }
+
+    /// `_YIELD_VALUE_EVENT`: fire PY_YIELD while the value is still on the
+    /// stack. If the tracer assigned `f_lineno`, continue at the new lasti
+    /// instead of suspending.
+    fn yield_value_event(&mut self, vm: &VirtualMachine) -> PyResult<bool> {
+        let lasti_before = self.lasti();
+        if vm.use_tracing.get() {
+            let value = self.top_value().to_owned();
+            vm.trace_event_what(
+                crate::protocol::TraceEvent::Return,
+                monitoring::MonitoringEvent::PyYield,
+                Some(value),
+            )?;
+            if self.lasti() != lasti_before {
+                self.apply_pending_lineno_jump(vm);
+                return Ok(true);
+            }
+        }
+        if self.monitoring_mask & MonitoringEvent::PyYield.mask() != 0 {
+            let value = self.top_value().to_owned();
+            let offset = (self.lasti() - 1) * 2;
+            monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+            if self.lasti() != lasti_before {
+                self.apply_pending_lineno_jump(vm);
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Perform deferred stack unwinding after set_f_lineno.
     ///
     /// set_f_lineno cannot pop the value stack directly because the execution
@@ -1484,6 +3500,15 @@ impl ExecutingFrame<'_> {
             if stack_analysis::top_of_stack(cur_stack) == stack_analysis::Kind::Except as i64
                 && let Some(exc_obj) = val
             {
+                // An Except-typed stack slot is only produced by bytecode that
+                // also carries one of the opcodes scanned by
+                // `PyCode::has_exc_handling`; otherwise the save/restore that
+                // brackets this frame's exc_info is elided and this write would
+                // corrupt the shared exc_info slot.
+                debug_assert!(
+                    self.code.has_exc_handling,
+                    "unwinding an Except slot in a frame without exc-handling opcodes"
+                );
                 if vm.is_none(&exc_obj) {
                     vm.set_exception(None);
                 } else {
@@ -1498,12 +3523,12 @@ impl ExecutingFrame<'_> {
     /// Fire 'exception' trace event (sys.settrace) with (type, value, traceback) tuple.
     /// Matches `_PyEval_MonitorRaise` → `PY_MONITORING_EVENT_RAISE` →
     /// `sys_trace_exception_func` in legacy_tracing.c.
-    fn fire_exception_trace(&self, exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+    fn fire_exception_trace(&self, exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.use_tracing.get() && self.trace_is_set(vm) {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
-            let exc_value: PyObjectRef = exc.clone().into();
+            let exc_value: PyObjectRef = exc.to_owned().into();
             let exc_tb: PyObjectRef = exc
-                .__traceback__()
+                .traceback()
                 .map_or_else(|| vm.ctx.none(), |tb| -> PyObjectRef { tb.into() });
             let tuple = vm.ctx.new_tuple(vec![exc_type, exc_value, exc_tb]).into();
             vm.trace_event(crate::protocol::TraceEvent::Exception, Some(tuple))?;
@@ -1513,70 +3538,145 @@ impl ExecutingFrame<'_> {
 
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         flame_guard!(format!(
-            "Frame::run({obj_name})",
+            "FrameObject::run({obj_name})",
             obj_name = self.code.obj_name
         ));
         // Execute until return or exception:
+        //
+        // `lasti_cell` and `instructions` are plain shared references with the
+        // frame's own lifetime, so copying them into locals is free; read back
+        // through `self` inside the loop they would be re-loaded after every
+        // handler (which writes through `&mut self`), adding three dependent
+        // loads in front of the code-unit fetch.
+        //
+        // `idx` is likewise carried in a local: the next instruction's index
+        // is known from `lasti_before` and the cache count unless the handler
+        // jumped, so re-reading the frame's `lasti` at the top of the loop
+        // only added a store-to-load round trip to the fetch chain.
+        let lasti_cell = self.lasti;
+        // The instruction array never moves once the code object exists, so
+        // its base pointer is hoisted here; reading it through `self.code`
+        // inside the loop cost two more dependent loads per instruction.
+        let units_ptr = self.code.instructions.units_ptr();
         let mut arg_state = bytecode::OpArgState::default();
+        let mut idx = lasti_cell.load(Relaxed) as usize;
+        // Previous opcode in this frame, for the `(prev, op)` pair histogram.
+        // Zero (`CACHE`, never dispatched) marks "no predecessor yet".
+        #[cfg(feature = "opcode-histogram")]
+        let mut prev_op: u8 = 0;
         loop {
-            let idx = self.lasti() as usize;
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
             // locations[lasti - 1]) returns the line of the instruction
-            // being traced, not the previous one.
-            self.update_lasti(|i| *i += 1);
+            // being traced, not the previous one. Stored from `idx` rather
+            // than read-modify-written, which would re-load what was just read.
+            lasti_cell.store(idx as u32 + 1, Relaxed);
+
+            // Read once and reuse for both the line-trace check below and
+            // the opcode-trace check after the instruction is decoded,
+            // instead of re-reading the Cell twice per instruction. This is
+            // safe even though the intervening trace_event call could in
+            // principle toggle it, because we refresh `tracing` below right
+            // after that call returns (that cold path is only taken when
+            // tracing was already on, so it costs nothing on the hot path).
+            let mut tracing = vm.use_tracing.get();
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
             // (frames entered before sys.settrace() have trace=None).
             // Skip RESUME – it should not generate user-visible line events.
-            if vm.use_tracing.get()
-                && !vm.is_none(&self.object.trace.lock())
+            // Skip NO_LOCATION units (addr2line == -1); the locations table
+            // fills those with a dummy line, which would emit a 'line'
+            // event whose f_lineno is None.
+            if tracing
+                && self.trace_is_set(vm)
+                && self.trace_lines_is_set()
                 && !matches!(
                     self.code.instructions.read_op(idx),
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
-                && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != *self.prev_line
             {
-                *self.prev_line = loc.line.get() as u32;
-                vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
-                // Trace callback may have changed lasti via set_f_lineno.
-                // Re-read and restart the loop from the new position.
-                if self.lasti() != (idx as u32 + 1) {
-                    // set_f_lineno defers stack unwinding because we hold
-                    // the state mutex.  Perform it now.
-                    let pops = self.object.pending_stack_pops();
-                    if pops > 0 {
-                        let from_stack = self.object.pending_unwind_from_stack();
-                        self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
-                        self.object.set_pending_stack_pops(0);
+                let line = self.code.addr2line(idx as i32 * 2);
+                if line >= 0 && line as u32 != self.prev_line.get() {
+                    self.prev_line.set(line as u32);
+                    match vm.trace_event(crate::protocol::TraceEvent::Line, None) {
+                        Ok(_) => {}
+                        Err(exception) => {
+                            if let Some((loc, _end_loc)) = self.code.locations.get(idx) {
+                                let next = exception.traceback();
+                                let new_traceback = PyTraceback::new(
+                                    next,
+                                    self.frame_object(vm),
+                                    idx as i32 * 2,
+                                    loc.line,
+                                );
+                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
+                            }
+                            match self.unwind_blocks(
+                                vm,
+                                UnwindReason::Raising {
+                                    exception,
+                                    offset: idx as u32,
+                                },
+                            ) {
+                                Ok(None) => {
+                                    arg_state.reset();
+                                    idx = lasti_cell.load(Relaxed) as usize;
+                                    continue;
+                                }
+                                Ok(Some(value)) => break Ok(value),
+                                Err(e) => break Err(e),
+                            }
+                        }
                     }
-                    arg_state.reset();
-                    continue;
+                    // The trace callback may have toggled tracing (e.g. via
+                    // sys.settrace(None)); refresh before the opcode-trace check
+                    // below reuses this flag.
+                    tracing = vm.use_tracing.get();
+                    // Trace callback may have changed lasti via set_f_lineno.
+                    // Re-read and restart the loop from the new position.
+                    if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
+                        // set_f_lineno defers stack unwinding because we hold
+                        // the state mutex.  Perform it now.
+                        let pops = self.pending_stack_pops();
+                        if pops > 0 {
+                            let from_stack = self.pending_unwind_from_stack();
+                            self.unwind_stack_for_lineno(pops as usize, from_stack, vm);
+                            self.set_pending_stack_pops(0);
+                        }
+                        arg_state.reset();
+                        idx = lasti_cell.load(Relaxed) as usize;
+                        continue;
+                    }
                 }
             }
-            let op = self.code.instructions.read_op(idx);
-            let arg = arg_state.extend(self.code.instructions.read_arg(idx));
+            // One aligned acquire load fetches opcode and arg together; two
+            // separate atomic reads would force the instruction array pointer
+            // to be re-loaded across the acquire barrier.
+            // SAFETY: `idx` is a position this code object's own control flow
+            // produced, so it is in bounds of the instruction array, and
+            // `units_ptr` stays valid for as long as `self.code` is borrowed.
+            let unit = unsafe { bytecode::CodeUnits::read_unit_from(units_ptr, idx) };
+            let op = unit.op;
+            let arg = arg_state.extend(unit.arg);
             let mut do_extend_arg = false;
-            let caches = op.cache_entries();
 
-            // Update prev_line only when tracing or monitoring is active.
-            // When neither is enabled, prev_line is stale but unused.
-            if vm.use_tracing.get() {
-                if !matches!(
-                    op.into(),
-                    Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
-                ) && let Some((loc, _)) = self.code.locations.get(idx)
-                {
-                    *self.prev_line = loc.line.get() as u32;
-                }
+            // f_lineno for a live (currently executing) frame is derived
+            // lazily from lasti/locations (see `FrameObject::lineno`) rather
+            // than maintained here on every instruction. lasti already
+            // points past the instruction currently executing (see the
+            // `self.lasti.store` above), so `locations[lasti - 1]` gives
+            // exactly the line of the in-flight instruction — the same
+            // value this unconditional prev_line write used to compute.
+            // prev_line itself is now only touched on the (cold) tracing
+            // path, where it deduplicates consecutive 'line' events.
 
+            if tracing {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
                 // is set. Skip RESUME and ExtendedArg
                 // (_Py_call_instrumentation_instruction).
-                if !vm.is_none(&self.object.trace.lock())
-                    && *self.object.trace_opcodes.lock()
+                if self.trace_is_set(vm)
+                    && self.trace_opcodes_is_set()
                     && !matches!(
                         op.into(),
                         Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
@@ -1586,8 +3686,23 @@ impl ExecutingFrame<'_> {
                 }
             }
 
+            // The body is out of line so that the signal/QSBR/GC code it
+            // pulls in does not sit inside the dispatch loop, where it
+            // inflates register pressure (and hence per-instruction spills)
+            // for every opcode.
+            #[cold]
+            #[inline(never)]
+            fn eval_breaker_work(vm: &VirtualMachine) -> PyResult<()> {
+                vm.check_signals()?;
+                // Run a scheduled automatic collection here — a safepoint with
+                // no interpreter locks held — instead of synchronously inside
+                // the allocation that tripped the threshold.
+                #[cfg(feature = "threading")]
+                vm.run_scheduled_gc();
+                Ok(())
+            }
             if vm.eval_breaker_tripped()
-                && let Err(exception) = vm.check_signals()
+                && let Err(exception) = eval_breaker_work(vm)
             {
                 #[cold]
                 fn handle_signal_exception(
@@ -1597,17 +3712,23 @@ impl ExecutingFrame<'_> {
                     vm: &VirtualMachine,
                 ) -> FrameResult {
                     if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                        let next = exception.__traceback__();
+                        let next = exception.traceback();
                         let new_traceback = PyTraceback::new(
                             next,
-                            frame.object.to_owned(),
-                            idx as u32 * 2,
+                            frame.frame_object(vm),
+                            idx as i32 * 2,
                             loc.line,
                         );
-                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
                     vm.contextualize_exception(&exception);
-                    frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                    frame.unwind_blocks(
+                        vm,
+                        UnwindReason::Raising {
+                            exception,
+                            offset: idx as u32,
+                        },
+                    )
                 }
                 match handle_signal_exception(self, exception, idx, vm) {
                     Ok(None) => {}
@@ -1618,13 +3739,35 @@ impl ExecutingFrame<'_> {
                         break Err(exception);
                     }
                 }
+                // The handler this unwound to starts a fresh instruction,
+                // so drop any EXTENDED_ARG prefix collected for the one
+                // the signal interrupted — the loop's own reset at the
+                // bottom is skipped by this `continue`.
+                arg_state.reset();
+                idx = lasti_cell.load(Relaxed) as usize;
                 continue;
             }
-            let lasti_before = self.lasti();
+            // lasti was just stored as `idx + 1` above and nothing between
+            // there and here writes it, so the pre-dispatch value is known
+            // without an extra atomic load.
+            let lasti_before = idx as u32 + 1;
+            #[cfg(feature = "opcode-histogram")]
+            {
+                let op_byte = u8::from(op);
+                crate::opcode_histogram::record(prev_op, op_byte);
+                prev_op = op_byte;
+            }
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
-            if caches > 0 && self.lasti() == lasti_before {
-                self.update_lasti(|i| *i += caches as u32);
+            // `cache_entries()` is a table lookup, so it is done here rather
+            // than before dispatch: computing it up front kept the count live
+            // across the whole handler and cost a spill and a reload of it on
+            // every instruction.
+            let caches = op.cache_entries();
+            let mut next_idx = lasti_cell.load(Relaxed);
+            if caches > 0 && next_idx == lasti_before {
+                next_idx = lasti_before + caches as u32;
+                lasti_cell.store(next_idx, Relaxed);
             }
             match result {
                 Ok(None) => {}
@@ -1652,19 +3795,19 @@ impl ExecutingFrame<'_> {
                             // Check if the exception already has traceback entries before
                             // we add ours. If it does, it was propagated from a callee
                             // function and we should not re-contextualize it.
-                            let had_prior_traceback = exception.__traceback__().is_some();
+                            let had_prior_traceback = exception.traceback().is_some();
 
                             // PyTraceBack_Here always adds a new entry without
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
                             // a new traceback entry is added.
                             if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                                let next = exception.__traceback__();
+                                let next = exception.traceback();
 
                                 let new_traceback = PyTraceback::new(
                                     next,
-                                    frame.object.to_owned(),
-                                    idx as u32 * 2,
+                                    frame.frame_object(vm),
+                                    idx as i32 * 2,
                                     loc.line,
                                 );
                                 vm_trace!(
@@ -1672,8 +3815,7 @@ impl ExecutingFrame<'_> {
                                     new_traceback,
                                     loc.line
                                 );
-                                exception
-                                    .set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                                exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                             }
 
                             // _PyErr_SetObject sets __context__ only when the exception
@@ -1687,7 +3829,13 @@ impl ExecutingFrame<'_> {
                         }
 
                         // Use exception table for zero-cost exception handling
-                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                        frame.unwind_blocks(
+                            vm,
+                            UnwindReason::Raising {
+                                exception,
+                                offset: idx as u32,
+                            },
+                        )
                     }
 
                     // Check if this is a RERAISE instruction
@@ -1722,7 +3870,7 @@ impl ExecutingFrame<'_> {
                     let exception = {
                         let mon_events = vm.state.monitoring_events.load();
                         if is_reraise {
-                            if mon_events & monitoring::EVENT_RERAISE != 0 {
+                            if mon_events & MonitoringEvent::Reraise.mask() != 0 {
                                 let offset = idx as u32 * 2;
                                 let exc_obj: PyObjectRef = exception.clone().into();
                                 match monitoring::fire_reraise(vm, self.code, offset, &exc_obj) {
@@ -1732,7 +3880,7 @@ impl ExecutingFrame<'_> {
                             } else {
                                 exception
                             }
-                        } else if mon_events & monitoring::EVENT_RAISE != 0 {
+                        } else if mon_events & MonitoringEvent::Raise.mask() != 0 {
                             let offset = idx as u32 * 2;
                             let exc_obj: PyObjectRef = exception.clone().into();
                             match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
@@ -1752,12 +3900,14 @@ impl ExecutingFrame<'_> {
                     }
 
                     match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
-                        Ok(None) => {}
+                        // The handler unwound to a new position, so the next
+                        // index is whatever it left in the frame.
+                        Ok(None) => next_idx = lasti_cell.load(Relaxed),
                         Ok(Some(result)) => break Ok(result),
                         Err(exception) => {
                             // Fire PY_UNWIND: exception escapes this frame
                             let exception = if vm.state.monitoring_events.load()
-                                & monitoring::EVENT_PY_UNWIND
+                                & MonitoringEvent::PyUnwind.mask()
                                 != 0
                             {
                                 let offset = idx as u32 * 2;
@@ -1770,16 +3920,6 @@ impl ExecutingFrame<'_> {
                                 exception
                             };
 
-                            // Restore lasti from traceback so frame.f_lineno matches tb_lineno
-                            // The traceback was created with the correct lasti when exception
-                            // was first raised, but frame.lasti may have changed during cleanup
-                            if let Some(tb) = exception.__traceback__()
-                                && core::ptr::eq::<Py<Frame>>(&*tb.frame, self.object)
-                            {
-                                // This traceback entry is for this frame - restore its lasti
-                                // tb.lasti is in bytes (idx * 2), convert back to instruction index
-                                self.update_lasti(|i| *i = tb.lasti / 2);
-                            }
                             break Err(exception);
                         }
                     }
@@ -1788,6 +3928,7 @@ impl ExecutingFrame<'_> {
             if !do_extend_arg {
                 arg_state.reset()
             }
+            idx = next_idx as usize;
         }
     }
 
@@ -1850,33 +3991,46 @@ impl ExecutingFrame<'_> {
             };
 
             if is_gen_exit {
-                // gen_close_iter: close the sub-iterator
+                // gen_close_iter: close the sub-iterator. A failed
+                // lookup of close is unraisable; a failed close()
+                // call is raised into this generator.
                 let close_result = if let Some(coro) = self.builtin_coro(jen) {
                     coro.close(jen, vm).map(|_| ())
-                } else if let Some(close_meth) = vm.get_attribute_opt(jen.to_owned(), "close")? {
-                    close_meth.call((), vm).map(|_| ())
                 } else {
-                    Ok(())
+                    match vm.get_attribute_opt(jen, "close") {
+                        Ok(Some(close_meth)) => close_meth.call((), vm).map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => {
+                            let msg = jen
+                                .repr(vm)
+                                .ok()
+                                .map(|r| format!("Exception ignored while closing generator {r}"));
+                            vm.run_unraisable(e, msg, vm.ctx.none());
+                            Ok(())
+                        }
+                    }
                 };
                 if let Err(err) = close_result {
                     let idx = self.lasti().saturating_sub(1) as usize;
                     if idx < self.code.locations.len() {
                         let (loc, _end_loc) = self.code.locations[idx];
-                        let next = err.__traceback__();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            self.object.to_owned(),
-                            idx as u32 * 2,
-                            loc.line,
-                        );
-                        err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        let next = err.traceback();
+                        let new_traceback =
+                            PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
+                        err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 
                     self.push_value(vm.ctx.none());
-                    vm.contextualize_exception(&err);
-                    return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                    vm.chain_stack_item(&err);
+                    return match self.unwind_blocks(
+                        vm,
+                        UnwindReason::Raising {
+                            exception: err,
+                            offset: idx as u32,
+                        },
+                    ) {
                         Ok(None) => {
-                            *self.prev_line = 0;
+                            self.prev_line.set(0);
                             self.run(vm)
                         }
                         Ok(Some(result)) => Ok(result),
@@ -1889,15 +4043,26 @@ impl ExecutingFrame<'_> {
                 let thrower = if let Some(coro) = self.builtin_coro(jen) {
                     Some(Either::A(coro))
                 } else {
-                    vm.get_attribute_opt(jen.to_owned(), "throw")?
-                        .map(Either::B)
+                    vm.get_attribute_opt(jen, "throw")?.map(Either::B)
                 };
                 if let Some(thrower) = thrower {
                     let ret = match thrower {
                         Either::A(coro) => coro
                             .throw(jen, exc_type, exc_val, exc_tb, vm)
                             .to_pyresult(vm),
-                        Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
+                        Either::B(meth) => {
+                            // Omit trailing None so a 1-arg throw() stays 1-arg.
+                            // Passing None fillers makes throw() look like the
+                            // deprecated 3-arg form and warns under -W error.
+                            let args = if !vm.is_none(&exc_tb) {
+                                vec![exc_type, exc_val, exc_tb]
+                            } else if !vm.is_none(&exc_val) {
+                                vec![exc_type, exc_val]
+                            } else {
+                                vec![exc_type]
+                            };
+                            meth.call(args, vm)
+                        }
                     };
                     return ret.map(ExecutionResult::Yield).or_else(|err| {
                         // Add traceback entry for the yield-from/await point.
@@ -1907,21 +4072,27 @@ impl ExecutingFrame<'_> {
                         let idx = self.lasti().saturating_sub(1) as usize;
                         if idx < self.code.locations.len() {
                             let (loc, _end_loc) = self.code.locations[idx];
-                            let next = err.__traceback__();
+                            let next = err.traceback();
                             let new_traceback = PyTraceback::new(
                                 next,
-                                self.object.to_owned(),
-                                idx as u32 * 2,
+                                self.frame_object(vm),
+                                idx as i32 * 2,
                                 loc.line,
                             );
-                            err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                            err.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
                         }
 
                         self.push_value(vm.ctx.none());
-                        vm.contextualize_exception(&err);
-                        match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
+                        vm.chain_stack_item(&err);
+                        match self.unwind_blocks(
+                            vm,
+                            UnwindReason::Raising {
+                                exception: err,
+                                offset: idx as u32,
+                            },
+                        ) {
                             Ok(None) => {
-                                *self.prev_line = 0;
+                                self.prev_line.set(0);
                                 self.run(vm)
                             }
                             Ok(Some(result)) => Ok(result),
@@ -1939,7 +4110,7 @@ impl ExecutingFrame<'_> {
         let exception = match ctor.instantiate_value(exc_val, vm) {
             Ok(exc) => {
                 if let Some(tb) = Option::<PyRef<PyTraceback>>::try_from_object(vm, exc_tb)? {
-                    exc.set_traceback_typed(Some(tb));
+                    exc.set_traceback(Some(tb));
                 }
                 exc
             }
@@ -1950,17 +4121,26 @@ impl ExecutingFrame<'_> {
         let idx = self.lasti().saturating_sub(1) as usize;
         if idx < self.code.locations.len() {
             let (loc, _end_loc) = self.code.locations[idx];
-            let next = exception.__traceback__();
+            let next = exception.traceback();
             let new_traceback =
-                PyTraceback::new(next, self.object.to_owned(), idx as u32 * 2, loc.line);
-            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                PyTraceback::new(next, self.frame_object(vm), idx as i32 * 2, loc.line);
+            exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
         }
 
         // Fire PY_THROW and RAISE events before raising the exception.
         // If a monitoring callback fails, its exception replaces the original.
+        if vm.use_tracing.get() {
+            let what = monitoring::MonitoringEvent::PyThrow;
+            if let Some(local_trace) =
+                vm.trace_event_what(crate::protocol::TraceEvent::Call, what, None)?
+            {
+                *self.iframe().cold().trace.lock() = Some(local_trace);
+            }
+            self.fire_exception_trace(&exception, vm)?;
+        }
         let exception = {
             let mon_events = vm.state.monitoring_events.load();
-            let exception = if mon_events & monitoring::EVENT_PY_THROW != 0 {
+            let exception = if mon_events & MonitoringEvent::PyThrow.mask() != 0 {
                 let offset = idx as u32 * 2;
                 let exc_obj: PyObjectRef = exception.clone().into();
                 match monitoring::fire_py_throw(vm, self.code, offset, &exc_obj) {
@@ -1970,7 +4150,7 @@ impl ExecutingFrame<'_> {
             } else {
                 exception
             };
-            if mon_events & monitoring::EVENT_RAISE != 0 {
+            if mon_events & MonitoringEvent::Raise.mask() != 0 {
                 let offset = idx as u32 * 2;
                 let exc_obj: PyObjectRef = exception.clone().into();
                 match monitoring::fire_raise(vm, self.code, offset, &exc_obj) {
@@ -1982,27 +4162,33 @@ impl ExecutingFrame<'_> {
             }
         };
 
-        // when raising an exception, set __context__ to the current exception
-        // This is done in _PyErr_SetObject
-        vm.contextualize_exception(&exception);
+        // PyErr_Restore: do not touch __context__. Chain only when this
+        // generator's own exc_info slot is occupied (_PyErr_ChainStackItem).
+        vm.chain_stack_item(&exception);
 
         // always pushes Py_None before calling gen_send_ex with exc=1
         // This is needed for exception handler to have correct stack state
         self.push_value(vm.ctx.none());
 
-        match self.unwind_blocks(vm, UnwindReason::Raising { exception }) {
+        match self.unwind_blocks(
+            vm,
+            UnwindReason::Raising {
+                exception,
+                offset: idx as u32,
+            },
+        ) {
             Ok(None) => {
                 // Reset prev_line so that the first instruction in the handler
                 // fires a LINE event. In CPython, gen_send_ex re-enters the
                 // eval loop which reinitializes its local prev_instr tracker.
-                *self.prev_line = 0;
+                self.prev_line.set(0);
                 self.run(vm)
             }
             Ok(Some(result)) => Ok(result),
             Err(exception) => {
                 // Fire PY_UNWIND: exception escapes the generator frame.
                 let exception =
-                    if vm.state.monitoring_events.load() & monitoring::EVENT_PY_UNWIND != 0 {
+                    if vm.state.monitoring_events.load() & MonitoringEvent::PyUnwind.mask() != 0 {
                         let offset = idx as u32 * 2;
                         let exc_obj: PyObjectRef = exception.clone().into();
                         match monitoring::fire_py_unwind(vm, self.code, offset, &exc_obj) {
@@ -2046,43 +4232,7 @@ impl ExecutingFrame<'_> {
 
     /// Get the variable name for a localsplus index.
     fn localsplus_name(&self, idx: usize) -> &'static PyStrInterned {
-        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL};
-        let nlocals = self.code.varnames.len();
-        let kind = self.code.localspluskinds.get(idx).copied().unwrap_or(0);
-        if kind & CO_FAST_LOCAL != 0 {
-            // Merged cell or regular local: name is in varnames
-            self.code.varnames[idx]
-        } else if kind & CO_FAST_FREE != 0 {
-            // Free var: slots are at the end of localsplus
-            let nlocalsplus = self.code.localspluskinds.len();
-            let nfrees = self.code.freevars.len();
-            let free_start = nlocalsplus - nfrees;
-            self.code.freevars[idx - free_start]
-        } else if kind & CO_FAST_CELL != 0 {
-            // Non-merged cell: count how many non-merged cell slots are before
-            // this index to find the corresponding cellvars entry.
-            // Non-merged cellvars appear in their original order (skipping merged ones).
-            let nonmerged_pos = self.code.localspluskinds[nlocals..idx]
-                .iter()
-                .filter(|&&k| k == CO_FAST_CELL)
-                .count();
-            // Skip merged cellvars to find the right one
-            let mut cv_idx = 0;
-            let mut nonmerged_count = 0;
-            for (i, name) in self.code.cellvars.iter().enumerate() {
-                let is_merged = self.code.varnames.contains(name);
-                if !is_merged {
-                    if nonmerged_count == nonmerged_pos {
-                        cv_idx = i;
-                        break;
-                    }
-                    nonmerged_count += 1;
-                }
-            }
-            self.code.cellvars[cv_idx]
-        } else {
-            self.code.varnames[idx]
-        }
+        localsplus_name(self.code, idx)
     }
 
     /// Execute a single instruction.
@@ -2095,7 +4245,7 @@ impl ExecutingFrame<'_> {
         vm: &VirtualMachine,
     ) -> FrameResult {
         flame_guard!(format!(
-            "Frame::execute_instruction({instruction:?} {arg:?})"
+            "FrameObject::execute_instruction({instruction:?} {arg:?})"
         ));
 
         #[cfg(feature = "vm-tracing-logging")]
@@ -2324,14 +4474,14 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ContainsOp { invert } => {
                 self.adaptive(|s, ii, cb| s.specialize_contains_op(vm, ii, cb));
-                let b = self.pop_value();
-                let a = self.pop_value();
+                let b = self.pop_stackref();
+                let a = self.pop_stackref();
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => self._in(vm, &a, &b)?,
                     bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                 };
-                self.push_value(vm.ctx.new_bool(value).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
             Instruction::ConvertValue { oparg: conversion } => {
@@ -2344,17 +4494,15 @@ impl ExecutingFrame<'_> {
                 let idx = index.get(arg) as usize;
                 let stack_len = self.localsplus.stack_len();
                 debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
-                let value = self.localsplus.stack_index(stack_len - idx).clone();
-                self.push_stackref_opt(value);
+                let value = self.localsplus.stack_index(stack_len - idx);
+                self.push_stackref_opt(value.cloned());
                 Ok(None)
             }
             Instruction::CopyFreeVars { n } => {
                 let n = n.get(arg) as usize;
                 if n > 0 {
                     let closure = self
-                        .object
                         .func_obj
-                        .as_ref()
                         .and_then(|f| f.downcast_ref::<PyFunction>())
                         .and_then(|f| f.closure.as_ref());
                     let nlocalsplus = self.code.localspluskinds.len();
@@ -2362,7 +4510,8 @@ impl ExecutingFrame<'_> {
                     let fastlocals = self.localsplus.fastlocals_mut();
                     if let Some(closure) = closure {
                         for i in 0..n {
-                            fastlocals[freevar_start + i] = Some(closure[i].clone().into());
+                            fastlocals[freevar_start + i] =
+                                Some(closure.as_slice()[i].clone().into());
                         }
                     }
                 }
@@ -2374,6 +4523,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::DeleteFast { var_num } => {
+                self.localsplus
+                    .debug_audit_local_release(var_num.get(arg).as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
                 let idx = var_num.get(arg);
                 if fastlocals[idx].is_none() {
@@ -2464,6 +4615,33 @@ impl ExecutingFrame<'_> {
                 let callable = self.nth_value(idx + 2);
                 let func_str = Self::object_function_str(callable, vm);
 
+                // Fast path: source is an exact dict (not a subclass, which may
+                // override `keys`/`__getitem__`). Iterate its entries natively
+                // instead of going through the mapping protocol, mirroring
+                // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
+                let source = if source.class().is(vm.ctx.types.dict_type) {
+                    let src_dict = source
+                        .downcast_ref::<PyDict>()
+                        .expect("exact dict must have a PyDict payload");
+                    // Snapshot under a single read lock so a mutation of `source`
+                    // triggered by `dict.set_item` (e.g. via a target subclass, or
+                    // aliasing) can't be observed mid-iteration.
+                    for (key, value) in src_dict.items_vec() {
+                        if dict.contains_key(&*key, vm) {
+                            let key_str = key.str(vm)?;
+                            return Err(vm.new_type_error(format!(
+                                "{} got multiple values for keyword argument '{}'",
+                                func_str,
+                                key_str.as_wtf8()
+                            )));
+                        }
+                        dict.set_item(&*key, value, vm)?;
+                    }
+                    return Ok(None);
+                } else {
+                    source
+                };
+
                 // Check if source is a mapping
                 if vm
                     .get_method(source.clone(), vm.ctx.intern_str("keys"))
@@ -2540,7 +4718,24 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetAiter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
+                let aiter = match vm.get_special_method(&aiterable, identifier!(vm, __aiter__))? {
+                    Some(meth) => meth.invoke((), vm)?,
+                    None => {
+                        return Err(vm.new_type_error(format!(
+                            "'async for' requires an object with __aiter__ method, got {}",
+                            aiterable.class().name()
+                        )));
+                    }
+                };
+                if vm
+                    .get_special_method(&aiter, identifier!(vm, __anext__))?
+                    .is_none()
+                {
+                    return Err(vm.new_type_error(format!(
+                        "'async for' received an object from __aiter__ that does not implement __anext__: {}",
+                        aiter.class().name()
+                    )));
+                }
                 self.push_value(aiter);
                 Ok(None)
             }
@@ -2552,8 +4747,10 @@ impl ExecutingFrame<'_> {
                 let awaitable = if aiter.class().is(vm.ctx.types.async_generator) {
                     vm.call_special_method(aiter, identifier!(vm, __anext__), ())?
                 } else {
-                    if !aiter.has_attr("__anext__", vm).unwrap_or(false) {
-                        // TODO: __anext__ must be protocol
+                    if vm
+                        .get_special_method(aiter, identifier!(vm, __anext__))?
+                        .is_none()
+                    {
                         let msg = format!(
                             "'async for' requires an iterator with __anext__ method, got {:.100}",
                             aiter.class().name()
@@ -2562,26 +4759,13 @@ impl ExecutingFrame<'_> {
                     }
                     let next_iter =
                         vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
-
-                    // _PyCoro_GetAwaitableIter in CPython
-                    fn get_awaitable_iter(next_iter: &PyObject, vm: &VirtualMachine) -> PyResult {
-                        let gen_is_coroutine = |_| {
-                            // TODO: cpython gen_is_coroutine
-                            true
-                        };
-                        if next_iter.class().is(vm.ctx.types.coroutine_type)
-                            || gen_is_coroutine(next_iter)
-                        {
-                            return Ok(next_iter.to_owned());
-                        }
-                        // TODO: error handling
-                        vm.call_special_method(next_iter, identifier!(vm, __await__), ())
-                    }
-                    get_awaitable_iter(&next_iter, vm).map_err(|_| {
-                        vm.new_type_error(format!(
+                    crate::coroutine::get_awaitable_iter(next_iter.clone(), vm).map_err(|e| {
+                        let err = vm.new_type_error(format!(
                             "'async for' received an invalid object from __anext__: {:.200}",
                             next_iter.class().name()
-                        ))
+                        ));
+                        err.set_cause(Some(e));
+                        err
                     })?
                 };
                 self.push_value(awaitable);
@@ -2622,7 +4806,11 @@ impl ExecutingFrame<'_> {
 
                 // Check if coroutine is already being awaited
                 if let Some(coro) = iter.downcast_ref::<PyCoroutine>()
-                    && coro.as_coro().frame().yield_from_target().is_some()
+                    && coro
+                        .as_coro()
+                        .frame_opt()
+                        .and_then(|f| f.yield_from_target())
+                        .is_some()
                 {
                     return Err(vm.new_runtime_error("coroutine is being awaited already"));
                 }
@@ -2632,7 +4820,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = iterated_obj.get_iter(vm)?;
+                let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
                 self.push_value(iter_obj.into());
                 Ok(None)
             }
@@ -2657,7 +4845,7 @@ impl ExecutingFrame<'_> {
                     iterable
                 } else {
                     // Otherwise, get iterator
-                    iterable.get_iter(vm)?.into()
+                    PyIter::try_from_object(vm, iterable)?.into()
                 };
                 self.push_value(iter);
                 Ok(None)
@@ -2679,15 +4867,15 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
-                let b = self.pop_value();
-                let a = self.pop_value();
-                let res = a.is(&b);
+                let b = self.pop_stackref();
+                let a = self.pop_stackref();
+                let res = a.is(b.as_object());
 
                 let value = match invert.get(arg) {
                     bytecode::Invert::No => res,
                     bytecode::Invert::Yes => !res,
                 };
-                self.push_value(vm.ctx.new_bool(value).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                 Ok(None)
             }
             Instruction::JumpForward { .. } => {
@@ -2703,15 +4891,15 @@ impl ExecutingFrame<'_> {
                         .instructions
                         .replace_op(instr_idx, Instruction::JumpBackwardNoJit);
                 }
-                self.jump_relative_backward(u32::from(arg), 1);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 1, vm)?;
                 Ok(None)
             }
             Instruction::JumpBackwardJit | Instruction::JumpBackwardNoJit => {
-                self.jump_relative_backward(u32::from(arg), 1);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 1, vm)?;
                 Ok(None)
             }
             Instruction::JumpBackwardNoInterrupt { .. } => {
-                self.jump_relative_backward(u32::from(arg), 0);
+                self.jump_relative_backward_and_trace_line(u32::from(arg), 0, vm)?;
                 Ok(None)
             }
             Instruction::ListAppend { i } => {
@@ -2735,7 +4923,7 @@ impl ExecutingFrame<'_> {
                 // Only rewrite the error if the type is truly not iterable
                 // (no __iter__ and no __getitem__). Preserve original TypeError
                 // from custom iterables that raise during iteration.
-                let not_iterable = iterable.class().slots.iter.load().is_none()
+                let not_iterable = iterable.class().slots().iter.load().is_none()
                     && iterable
                         .get_class_attr(vm.ctx.intern_str("__getitem__"))
                         .is_none();
@@ -2859,9 +5047,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadSmallInt { i: idx } => {
-                // Push small integer (-5..=256) directly without constant table lookup
-                let value = vm.ctx.new_int(idx.get(arg) as i32);
-                self.push_value(value.into());
+                // Cached small integers live for the whole Context, so the value stack can
+                // borrow them without touching the refcount.
+                let value = vm.ctx.cached_int(idx.get(arg) as i32);
+                unsafe { self.push_borrowed(value.as_object()) };
                 Ok(None)
             }
             Instruction::LoadDeref { i } => {
@@ -2934,38 +5123,16 @@ impl ExecutingFrame<'_> {
                 self.push_value(x2);
                 Ok(None)
             }
-            // Borrow optimization not yet active; falls back to clone.
-            // push_borrowed() is available but disabled until stack
-            // lifetime issues at yield/exception points are resolved.
             Instruction::LoadFastBorrow { var_num } => {
                 let idx = var_num.get(arg);
-                let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx]
-                    ))
-                })?;
-                self.push_value(x);
+                self.push_local(idx.as_usize(), vm)?;
                 Ok(None)
             }
             Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
-                let fastlocals = self.localsplus.fastlocals();
-                let x1 = fastlocals[idx1].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx1]
-                    ))
-                })?;
-                let x2 = fastlocals[idx2].clone().ok_or_else(|| {
-                    vm.new_unbound_local_error(format!(
-                        "local variable '{}' referenced before assignment",
-                        self.code.varnames[idx2]
-                    ))
-                })?;
-                self.push_value(x1);
-                self.push_value(x2);
+                self.push_local(idx1.as_usize(), vm)?;
+                self.push_local(idx2.as_usize(), vm)?;
                 Ok(None)
             }
             Instruction::LoadGlobal { namei: idx } => {
@@ -3051,15 +5218,23 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
                 let nargs_val = nargs.get(arg) as usize;
 
+                let Some(cls_type) = cls.downcast_ref::<PyType>() else {
+                    return Err(vm.new_type_error("called match pattern must be a class"));
+                };
+                // Only the error paths need the class name; compute it lazily so a
+                // successful match does not take the name lock or allocate.
+                let type_name = || cls_type.name().to_string();
+
                 // Check if subject is an instance of cls
                 if subject.is_instance(cls.as_ref(), vm)? {
                     let mut extracted = vec![];
+                    let seen_attrs = PySet::default().into_ref(&vm.ctx);
 
                     // Get __match_args__ for positional arguments if nargs > 0
                     if nargs_val > 0 {
                         // Get __match_args__ from the class
                         let match_args =
-                            vm.get_attribute_opt(cls.clone(), identifier!(vm, __match_args__))?;
+                            vm.get_attribute_opt(&cls, identifier!(vm, __match_args__))?;
 
                         if let Some(match_args) = match_args {
                             // Convert to tuple
@@ -3067,12 +5242,7 @@ impl ExecutingFrame<'_> {
                                 Ok(tuple) => tuple,
                                 Err(match_args) => {
                                     // __match_args__ must be a tuple
-                                    // Get type names for error message
-                                    let type_name = cls
-                                        .downcast::<crate::builtins::PyType>()
-                                        .ok()
-                                        .and_then(|t| t.__name__(vm).to_str().map(str::to_owned))
-                                        .unwrap_or_else(|| String::from("?"));
+                                    let type_name = type_name();
                                     let match_args_type_name = match_args.class().__name__(vm);
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}.__match_args__ must be a tuple (got {match_args_type_name})"
@@ -3081,25 +5251,41 @@ impl ExecutingFrame<'_> {
                             };
 
                             // Check if we have enough match args
-                            if match_args.len() < nargs_val {
+                            if match_args.as_slice().len() < nargs_val {
+                                let type_name = type_name();
+                                let plural = if match_args.as_slice().len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                };
                                 return Err(vm.new_type_error(format!(
-                                    "class pattern accepts at most {} positional sub-patterns ({} given)",
-                                    match_args.len(),
+                                    "{type_name}() accepts {} positional sub-pattern{} ({} given)",
+                                    match_args.as_slice().len(),
+                                    plural,
                                     nargs_val
                                 )));
                             }
 
                             // Extract positional attributes
                             for i in 0..nargs_val {
-                                let attr_name = &match_args[i];
+                                let attr_name = &match_args.as_slice()[i];
                                 let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
                                     Some(s) => s,
                                     None => {
-                                        return Err(vm.new_type_error(
-                                            "__match_args__ elements must be strings",
-                                        ));
+                                        let attr_type_name = attr_name.class().name();
+                                        return Err(vm.new_type_error(format!(
+                                            "__match_args__ elements must be strings (got {attr_type_name})"
+                                        )));
                                     }
                                 };
+                                if seen_attrs.contains(attr_name.as_object(), vm)? {
+                                    let type_name = type_name();
+                                    let attr_repr = attr_name.as_object().repr(vm)?;
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
+                                    )));
+                                }
+                                seen_attrs.add(attr_name.clone(), vm)?;
                                 match subject.get_attr(attr_name_str, vm) {
                                     Ok(value) => extracted.push(value),
                                     Err(e)
@@ -3116,9 +5302,8 @@ impl ExecutingFrame<'_> {
                             // No __match_args__, check if this is a type with MATCH_SELF behavior
                             // For built-in types like bool, int, str, list, tuple, dict, etc.
                             // they match the subject itself as the single positional argument
-                            let is_match_self_type = cls
-                                .downcast::<PyType>()
-                                .is_ok_and(|t| t.slots.flags.contains(PyTypeFlags::_MATCH_SELF));
+                            let is_match_self_type =
+                                cls_type.slots.flags.has_feature(PyTypeFlags::_MATCH_SELF);
 
                             if is_match_self_type {
                                 if nargs_val == 1 {
@@ -3126,16 +5311,18 @@ impl ExecutingFrame<'_> {
                                     extracted.push(subject.clone());
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
-                                    return Err(vm.new_type_error(
-                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types",
-                                    ));
+                                    let type_name = type_name();
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() accepts 1 positional sub-pattern ({nargs_val} given)"
+                                    )));
                                 }
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
-                                    return Err(vm.new_type_error(
-                                        "class pattern defines no positional sub-patterns (__match_args__ missing)",
-                                    ));
+                                    let type_name = type_name();
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() accepts 0 positional sub-patterns ({nargs_val} given)"
+                                    )));
                                 }
                             }
                         }
@@ -3144,6 +5331,14 @@ impl ExecutingFrame<'_> {
                     // Extract keyword attributes
                     for name in kwd_attrs {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
+                        if seen_attrs.contains(name_str.as_object(), vm)? {
+                            let type_name = type_name();
+                            let attr_repr = name.as_object().repr(vm)?;
+                            return Err(vm.new_type_error(format!(
+                                "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
+                            )));
+                        }
+                        seen_attrs.add(name.clone(), vm)?;
                         match subject.get_attr(name_str, vm) {
                             Ok(value) => extracted.push(value),
                             Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
@@ -3167,10 +5362,14 @@ impl ExecutingFrame<'_> {
                 let subject = self.nth_value(1); // stack[-2]
 
                 // Check if subject is a mapping and extract values for keys
-                if subject.class().slots.flags.contains(PyTypeFlags::MAPPING) {
+                if subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::MAPPING)
+                {
                     let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
                     let mut values = Vec::new();
                     let mut all_match = true;
+                    let seen_keys = PySet::default().into_ref(&vm.ctx);
 
                     // We use the two argument form of map.get(key, default) for two reasons:
                     // - Atomically check for a key and get its value without error handling.
@@ -3187,22 +5386,35 @@ impl ExecutingFrame<'_> {
                             .new_base_object(vm.ctx.types.object_type.to_owned(), None);
 
                         for key in keys {
+                            if seen_keys.contains(key.as_object(), vm)? {
+                                return Err(vm.new_value_error(format!(
+                                    "mapping pattern checks duplicate key ({})",
+                                    key.as_object().repr(vm)?
+                                )));
+                            }
+                            seen_keys.add(key.as_object().to_owned(), vm)?;
                             // value = map.get(key, dummy)
-                            match get_method.call((key.as_object(), dummy.clone()), vm) {
-                                Ok(value) => {
-                                    // if value == dummy: key not in map!
-                                    if value.is(&dummy) {
-                                        all_match = false;
-                                        break;
-                                    }
-                                    values.push(value);
+                            {
+                                let value =
+                                    get_method.call((key.as_object(), dummy.clone()), vm)?;
+                                // if value == dummy: key not in map!
+                                if value.is(&dummy) {
+                                    all_match = false;
+                                    break;
                                 }
-                                Err(e) => return Err(e),
+                                values.push(value);
                             }
                         }
                     } else {
                         // Fallback if .get() method is not available (shouldn't happen for mappings)
                         for key in keys {
+                            if seen_keys.contains(key.as_object(), vm)? {
+                                return Err(vm.new_value_error(format!(
+                                    "mapping pattern checks duplicate key ({})",
+                                    key.as_object().repr(vm)?
+                                )));
+                            }
+                            seen_keys.add(key.as_object().to_owned(), vm)?;
                             match subject.get_item(key.as_object(), vm) {
                                 Ok(value) => values.push(value),
                                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -3232,7 +5444,9 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
 
                 // Check if the type has the MAPPING flag
-                let is_mapping = subject.class().slots.flags.contains(PyTypeFlags::MAPPING);
+                let is_mapping = subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::MAPPING);
 
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
@@ -3243,7 +5457,9 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
 
                 // Check if the type has the SEQUENCE flag
-                let is_sequence = subject.class().slots.flags.contains(PyTypeFlags::SEQUENCE);
+                let is_sequence = subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::SEQUENCE);
 
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
@@ -3276,7 +5492,7 @@ impl ExecutingFrame<'_> {
                 // Python preserves exception tracebacks even after the exception is no longer
                 // the "current exception". This is important for code that catches an exception,
                 // stores it, and later inspects its traceback.
-                // Reference cycles (Exception → Traceback → Frame → locals) are handled by
+                // Reference cycles (Exception → Traceback → FrameObject → locals) are handled by
                 // Python's garbage collector which can detect and break cycles.
 
                 Ok(None)
@@ -3284,32 +5500,36 @@ impl ExecutingFrame<'_> {
             Instruction::PopJumpIfFalse { .. } => self.pop_jump_if_relative(vm, arg, 1, false),
             Instruction::PopJumpIfTrue { .. } => self.pop_jump_if_relative(vm, arg, 1, true),
             Instruction::PopJumpIfNone { .. } => {
-                let value = self.pop_value();
+                let value = self.pop_stackref();
                 if vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
+                } else {
+                    self.skip_fallthrough_not_taken(vm, 1);
                 }
                 Ok(None)
             }
             Instruction::PopJumpIfNotNone { .. } => {
-                let value = self.pop_value();
+                let value = self.pop_stackref();
                 if !vm.is_none(&value) {
                     self.jump_relative_forward(u32::from(arg), 1);
+                } else {
+                    self.skip_fallthrough_not_taken(vm, 1);
                 }
                 Ok(None)
             }
             Instruction::PopTop => {
                 // Pop value from stack and ignore.
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::EndFor => {
                 // Pop the next value from stack (cleanup after loop body)
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::PopIter => {
                 // Pop the iterator from stack (end of for loop)
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::PushNull => {
@@ -3319,21 +5539,14 @@ impl ExecutingFrame<'_> {
             }
             Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } | Instruction::ResumeCheck => {
-                // Lazy quickening: initialize adaptive counters on first execution
-                if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
+                // Lazy quickening: initialize adaptive counters on first execution.
+                // Read before the swap so that the steady state — every call after
+                // the first — costs a load rather than a read-modify-write.
+                if !self.code.quickened.load(atomic::Ordering::Relaxed)
+                    && !self.code.quickened.swap(true, atomic::Ordering::Relaxed)
+                {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
-                }
-                if self.monitoring_disabled_for_code(vm) {
-                    let global_ver = vm
-                        .state
-                        .instrumentation_version
-                        .load(atomic::Ordering::Acquire);
-                    monitoring::instrument_code(self.code, 0);
-                    self.code
-                        .instrumentation_version
-                        .store(global_ver, atomic::Ordering::Release);
-                    return Ok(None);
                 }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
@@ -3355,11 +5568,20 @@ impl ExecutingFrame<'_> {
                         .store(global_ver, atomic::Ordering::Release);
                     // Re-execute this instruction (it may now be INSTRUMENTED_RESUME)
                     self.update_lasti(|i| *i -= 1);
+                } else {
+                    self.trace_call_from_resume(vm, u32::from(arg))?;
                 }
                 Ok(None)
             }
             Instruction::ReturnValue => {
                 let value = self.pop_value();
+                if vm.use_tracing.get() {
+                    vm.trace_event_what(
+                        crate::protocol::TraceEvent::Return,
+                        monitoring::MonitoringEvent::PyReturn,
+                        Some(value.clone()),
+                    )?;
+                }
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::SetAdd { i } => {
@@ -3427,19 +5649,16 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_bool(result).into());
                 Ok(None)
             }
-            Instruction::Reraise { depth: _ } => {
+            Instruction::Reraise { depth } => {
                 // inst(RERAISE, (values[oparg], exc -- values[oparg]))
                 //
-                // RERAISE pops only `exc` from TOS. The `values` below it
-                // (lasti and optional prev_exc) stay on the stack — the
-                // outer exception handler's exception-table unwind will
-                // pop them down to its configured stack depth.
-                //
-                // `oparg` encodes how many values are preserved below exc
-                // (1 for simple reraise, 2 for with-block reraise where
-                // values[0]=lasti). Runtime-wise we don't need oparg since
-                // the exception table handles stack layout.
+                // Pops only `exc`. When oparg != 0, values[0] is the lasti
+                // pushed by the exception table; restore it before unwind so
+                // a later handler that also pushes lasti records the original
+                // raise.
+                let oparg = depth.get(arg);
                 let exc = self.pop_value();
+                self.restore_reraise_lasti(oparg);
 
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>() {
                     Err(exc_ref.to_owned())
@@ -3468,8 +5687,10 @@ impl ExecutingFrame<'_> {
             Instruction::StoreFast { var_num } => {
                 // pop_value_opt: allows NULL from LoadFastAndClear restore path
                 let value = self.pop_value_opt();
+                let idx = var_num.get(arg);
+                self.localsplus.debug_audit_local_release(idx.as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
-                fastlocals[var_num.get(arg)] = value;
+                fastlocals[idx] = value;
                 Ok(None)
             }
             Instruction::StoreFastLoadFast { var_nums } => {
@@ -3477,6 +5698,8 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value_opt();
                 let oparg = var_nums.get(arg);
                 let (store_idx, load_idx) = oparg.indexes();
+                self.localsplus
+                    .debug_audit_local_release(store_idx.as_usize());
                 let load_value = {
                     let locals = self.localsplus.fastlocals_mut();
                     locals[store_idx] = value;
@@ -3491,6 +5714,8 @@ impl ExecutingFrame<'_> {
                 // pop_value_opt: allows NULL from LoadFastAndClear restore path
                 let value1 = self.pop_value_opt();
                 let value2 = self.pop_value_opt();
+                self.localsplus.debug_audit_local_release(idx1.as_usize());
+                self.localsplus.debug_audit_local_release(idx2.as_usize());
                 let fastlocals = self.localsplus.fastlocals_mut();
                 fastlocals[idx1] = value1;
                 fastlocals[idx2] = value2;
@@ -3547,9 +5772,9 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ToBool => {
                 self.adaptive(|s, ii, cb| s.specialize_to_bool(vm, ii, cb));
-                let obj = self.pop_value();
+                let obj = self.pop_stackref();
                 let bool_val = obj.try_to_bool(vm)?;
-                self.push_value(vm.ctx.new_bool(bool_val).into());
+                self.push_bool_or_fused_jump(instruction.cache_entries(), bool_val, vm);
                 Ok(None)
             }
             Instruction::UnpackEx { counts: args } => {
@@ -3568,10 +5793,10 @@ impl ExecutingFrame<'_> {
 
                 let stack_len = self.localsplus.stack_len();
                 let exit_func = expect_unchecked(
-                    self.localsplus.stack_index(stack_len - 5).clone(),
+                    self.localsplus.stack_index(stack_len - 5),
                     "WithExceptStart: exit_func is NULL",
                 );
-                let self_or_null = self.localsplus.stack_index(stack_len - 4).clone();
+                let self_or_null = self.localsplus.stack_index(stack_len - 4);
 
                 let (tp, val, tb) = if let Some(ref exc) = exc {
                     vm.split_exception(exc.clone())
@@ -3580,7 +5805,7 @@ impl ExecutingFrame<'_> {
                 };
 
                 let exit_res = if let Some(self_exit) = self_or_null {
-                    exit_func.call((self_exit.to_pyobj(), tp, val, tb), vm)?
+                    exit_func.call((self_exit.clone().to_pyobj(), tp, val, tb), vm)?
                 } else {
                     exit_func.call((tp, val, tb), vm)?
                 };
@@ -3589,6 +5814,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::YieldValue { .. } => {
+                // The frame outlives this block from here on, so nothing it
+                // still holds may be a borrow of something else's slot.
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -3597,6 +5825,11 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
+                // _YIELD_VALUE_EVENT: if f_lineno jumped, DISPATCH to the
+                // new instruction instead of suspending.
+                if self.yield_value_event(vm)? {
+                    return Ok(None);
+                }
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
@@ -3628,7 +5861,7 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                        if vm.use_tracing.get() && self.trace_is_set(vm) {
                             let stop_exc = vm.new_stop_iteration(value.clone());
                             self.fire_exception_trace(&stop_exc, vm)?;
                         }
@@ -3643,16 +5876,29 @@ impl ExecutingFrame<'_> {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 // Stack: [receiver, val] — peek receiver before popping
                 let receiver = self.nth_value(1);
+                let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
-                    && self
-                        .builtin_coro(receiver)
-                        .is_some_and(|coro| !coro.running() && !coro.closed());
+                    && self.builtin_coro(receiver).is_some_and(|coro| {
+                        started = coro.started();
+                        !coro.running() && !coro.closed()
+                    });
                 let val = self.pop_value();
 
                 if can_fast_send {
                     let receiver = self.top_value();
+                    // Hand an already-suspended generator to the trampoline,
+                    // which runs its frame in this same eval loop and re-yields
+                    // for this frame — no Rust frame and no instruction per
+                    // level of a `yield from` / `await` chain.
+                    if self.flatten != Flatten::Nothing
+                        && started
+                        && let Some(cont) = self.send_yield_from_cont(receiver, exit_label)
+                    {
+                        vm.set_pending_gen_resume(receiver.to_owned(), val, cont);
+                        return Ok(Some(ExecutionResult::GenResume));
+                    }
                     let coro = self.builtin_coro(receiver).unwrap();
                     let ret = if vm.is_none(&val) {
                         coro.send_none(receiver, vm)?
@@ -3665,7 +5911,7 @@ impl ExecutingFrame<'_> {
                             return Ok(None);
                         }
                         PyIterReturn::StopIteration(value) => {
-                            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                            if vm.use_tracing.get() && self.trace_is_set(vm) {
                                 let stop_exc = vm.new_stop_iteration(value.clone());
                                 self.fire_exception_trace(&stop_exc, vm)?;
                             }
@@ -3683,7 +5929,7 @@ impl ExecutingFrame<'_> {
                         Ok(None)
                     }
                     PyIterReturn::StopIteration(value) => {
-                        if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                        if vm.use_tracing.get() && self.trace_is_set(vm) {
                             let stop_exc = vm.new_stop_iteration(value.clone());
                             self.fire_exception_trace(&stop_exc, vm)?;
                         }
@@ -3698,7 +5944,7 @@ impl ExecutingFrame<'_> {
                 // Stack: (receiver, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
-                self.pop_value(); // discard receiver
+                self.pop_stackref(); // discard receiver
                 self.push_value(value);
                 Ok(None)
             }
@@ -3707,7 +5953,7 @@ impl ExecutingFrame<'_> {
                 let should_be_none = self.pop_value();
                 if !vm.is_none(&should_be_none) {
                     return Err(vm.new_type_error(format!(
-                        "__init__() should return None, not '{}'",
+                        "__init__() should return None, not '{:.200}'",
                         should_be_none.class().name()
                     )));
                 }
@@ -3733,9 +5979,9 @@ impl ExecutingFrame<'_> {
                     // Extract value from StopIteration
                     let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
                     // Now pop all three
-                    self.pop_value(); // exc
-                    self.pop_value(); // last_sent_val
-                    self.pop_value(); // sub_iter
+                    self.pop_stackref(); // exc
+                    self.pop_stackref(); // last_sent_val
+                    self.pop_stackref(); // sub_iter
                     self.push_value(vm.ctx.none());
                     self.push_value(value);
                     return Ok(None);
@@ -3743,8 +5989,8 @@ impl ExecutingFrame<'_> {
 
                 // Re-raise other exceptions: pop all three and return Err(exc)
                 let exc = self.pop_value(); // exc
-                self.pop_value(); // last_sent_val
-                self.pop_value(); // sub_iter
+                self.pop_stackref(); // last_sent_val
+                self.pop_stackref(); // sub_iter
 
                 let exc = exc
                     .downcast::<PyBaseException>()
@@ -3778,12 +6024,12 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let owner = self.pop_value();
+                    let owner = self.pop_stackref();
                     self.push_value(func);
-                    self.push_value(owner);
+                    self.push_stackref_opt(Some(owner));
                     Ok(None)
                 } else {
                     self.load_attr_slow(vm, oparg)
@@ -3797,13 +6043,13 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && owner.dict().is_none()
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
+                    && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    let owner = self.pop_value();
+                    let owner = self.pop_stackref();
                     self.push_value(func);
-                    self.push_value(owner);
+                    self.push_stackref_opt(Some(owner));
                     Ok(None)
                 } else {
                     self.load_attr_slow(vm, oparg)
@@ -3817,28 +6063,22 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
-                    // Check instance dict doesn't shadow the method
-                    let shadowed = if let Some(dict) = owner.dict() {
-                        match dict.get_item_opt(attr_name, vm) {
-                            Ok(Some(_)) => true,
-                            Ok(None) => false,
-                            Err(_) => {
-                                // Dict lookup error -> use safe path.
-                                return self.load_attr_slow(vm, oparg);
-                            }
-                        }
-                    } else {
-                        false
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
+                    // Check instance dict doesn't shadow the method.
+                    let shadowed = match self.shadowing_instance_attr(cache_base, attr_name, vm) {
+                        Ok(shadowed) => shadowed.is_some(),
+                        // Dict lookup error -> use safe path.
+                        Err(_) => return self.load_attr_slow(vm, oparg),
                     };
 
                     if !shadowed
                         && let Some(func) =
                             self.try_read_cached_descriptor(cache_base, type_version)
                     {
-                        let owner = self.pop_value();
+                        let owner = self.pop_stackref();
                         self.push_value(func);
-                        self.push_value(owner);
+                        self.push_stackref_opt(Some(owner));
                         return Ok(None);
                     }
                 }
@@ -3852,13 +6092,14 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Type version matches — no data descriptor for this attr.
                     // Try direct dict lookup, skipping full descriptor protocol.
                     if let Some(dict) = owner.dict()
                         && let Some(value) = dict.get_item_opt(attr_name, vm)?
                     {
-                        self.pop_value();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -3875,18 +6116,31 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
-                    && let Some(value) = dict.get_item_opt(attr_name, vm)?
                 {
-                    self.pop_value();
-                    if oparg.is_method() {
-                        self.push_value(value);
-                        self.push_value_opt(None);
-                    } else {
-                        self.push_value(value);
+                    // Try the cached entry index first; a hit is an identity
+                    // check on the entry key instead of a hash probe.
+                    let hint = self.code.instructions.read_cache_u16(cache_base + 3);
+                    if let Some((value, refreshed)) =
+                        dict.get_item_opt_refresh_hint(attr_name, hint, vm)?
+                    {
+                        if let Some(new_hint) = refreshed {
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .write_cache_u16(cache_base + 3, new_hint);
+                            }
+                        }
+                        self.pop_stackref();
+                        if oparg.is_method() {
+                            self.push_value(value);
+                            self.push_value_opt(None);
+                        } else {
+                            self.push_value(value);
+                        }
+                        return Ok(None);
                     }
-                    return Ok(None);
                 }
 
                 self.load_attr_slow(vm, oparg)
@@ -3895,16 +6149,21 @@ impl ExecutingFrame<'_> {
                 let oparg = LoadAttr::from_u32(u32::from(arg));
                 let cache_base = self.lasti() as usize;
                 let attr_name = self.code.names[oparg.name_idx() as usize];
-
                 let owner = self.top_value();
-                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
+                let type_version = self.code.instructions.read_cache_ptr(cache_base + 6);
+                let keys_version = self.code.instructions.read_cache_ptr(cache_base + 7);
+                let index = self.code.instructions.read_cache_ptr(cache_base + 8);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && keys_version != 0
+                    && owner.class().tp_version_tag().load(Acquire) as usize == type_version
                     && let Some(module) = owner.downcast_ref_if_exact::<PyModule>(vm)
-                    && let Ok(value) = module.get_attr(attr_name, vm)
+                    && let Some(value) =
+                        module
+                            .dict()
+                            .get_cached_module_attr(attr_name, keys_version, index, vm)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(value);
                         self.push_value_opt(None);
@@ -3923,10 +6182,10 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -3945,12 +6204,11 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     // Instance dict has priority — check if attr is shadowed
-                    if let Some(dict) = owner.dict()
-                        && let Some(value) = dict.get_item_opt(attr_name, vm)?
-                    {
-                        self.pop_value();
+                    if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
+                        self.pop_stackref();
                         if oparg.is_method() {
                             self.push_value(value);
                             self.push_value_opt(None);
@@ -3964,7 +6222,7 @@ impl ExecutingFrame<'_> {
                     else {
                         return self.load_attr_slow(vm, oparg);
                     };
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -3987,7 +6245,7 @@ impl ExecutingFrame<'_> {
                     && owner_type.tp_version_tag.load(Acquire) == type_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -4010,10 +6268,10 @@ impl ExecutingFrame<'_> {
                     && metaclass_version != 0
                     && let Some(owner_type) = owner.downcast_ref::<PyType>()
                     && owner_type.tp_version_tag.load(Acquire) == type_version
-                    && owner.class().tp_version_tag.load(Acquire) == metaclass_version
+                    && owner.class().tp_version_tag().load(Acquire) == metaclass_version
                     && let Some(attr) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
-                    self.pop_value();
+                    self.pop_stackref();
                     if oparg.is_method() {
                         self.push_value(attr);
                         self.push_value_opt(None);
@@ -4035,7 +6293,7 @@ impl ExecutingFrame<'_> {
                     && !self.specialization_eval_frame_active(vm)
                     && type_version != 0
                     && func_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(func_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = func_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -4045,7 +6303,8 @@ impl ExecutingFrame<'_> {
                     debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
-                    let result = func.invoke_exact_args(vec![owner, attr_name], vm)?;
+                    let result =
+                        func.invoke_exact_args_slots(&mut [Some(owner), Some(attr_name)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4058,11 +6317,12 @@ impl ExecutingFrame<'_> {
                 let owner = self.top_value();
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
-                if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
+                if type_version != 0 && owner.class().tp_version_tag().load(Acquire) == type_version
+                {
                     let slot_offset =
-                        self.code.instructions.read_cache_u32(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u32(cache_base + 3) as i32 as isize;
                     if let Some(value) = owner.get_slot(slot_offset) {
-                        self.pop_value();
+                        self.pop_stackref();
                         if oparg.is_method() {
                             self.push_value(value);
                             self.push_value_opt(None);
@@ -4084,7 +6344,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && !self.specialization_eval_frame_active(vm)
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(fget_obj) =
                         self.try_read_cached_descriptor(cache_base, type_version)
                     && let Some(func) = fget_obj.downcast_ref_if_exact::<PyFunction>(vm)
@@ -4092,7 +6352,7 @@ impl ExecutingFrame<'_> {
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
-                    let result = func.invoke_exact_args(vec![owner], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4107,12 +6367,15 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
-                    self.pop_value(); // owner
+                    self.pop_stackref(); // owner
                     let value = self.pop_value();
-                    dict.set_item(attr_name, value, vm)?;
+                    // The key was absent at specialization time, but this
+                    // very store inserts it; hint learning makes later
+                    // executions replace by entry index.
+                    self.store_attr_dict_hinted(&dict, attr_name, value, cache_base, vm)?;
                     return Ok(None);
                 }
                 self.store_attr(vm, attr_idx)
@@ -4126,12 +6389,12 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0
-                    && owner.class().tp_version_tag.load(Acquire) == type_version
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
                 {
-                    self.pop_value(); // owner
+                    self.pop_stackref(); // owner
                     let value = self.pop_value();
-                    dict.set_item(attr_name, value, vm)?;
+                    self.store_attr_dict_hinted(&dict, attr_name, value, cache_base, vm)?;
                     return Ok(None);
                 }
                 self.store_attr(vm, attr_idx)
@@ -4142,12 +6405,12 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let version_match = type_version != 0 && {
                     let owner = self.top_value();
-                    owner.class().tp_version_tag.load(Acquire) == type_version
+                    owner.class().tp_version_tag().load(Acquire) == type_version
                 };
 
                 if version_match {
                     let slot_offset =
-                        self.code.instructions.read_cache_u16(cache_base + 3) as usize;
+                        self.code.instructions.read_cache_u16(cache_base + 3) as i16 as isize;
                     let owner = self.pop_value();
                     let value = self.pop_value();
                     owner.set_slot(slot_offset, Some(value));
@@ -4158,8 +6421,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::StoreSubscrListInt => {
                 // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
-                let idx = self.pop_value();
-                let obj = self.pop_value();
+                let idx = self.pop_stackref();
+                let obj = self.pop_stackref();
                 let value = self.pop_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm)
                     && let Some(int_idx) = idx.downcast_ref_if_exact::<PyInt>(vm)
@@ -4171,31 +6434,31 @@ impl ExecutingFrame<'_> {
                         return Ok(None);
                     }
                 }
-                obj.set_item(&*idx, value, vm)?;
+                obj.set_item(idx.as_object(), value, vm)?;
                 Ok(None)
             }
             Instruction::StoreSubscrDict => {
                 // Stack: [value, obj, idx] (TOS=idx, TOS1=obj, TOS2=value)
-                let idx = self.pop_value();
-                let obj = self.pop_value();
+                let idx = self.pop_stackref();
+                let obj = self.pop_stackref();
                 let value = self.pop_value();
                 if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
-                    dict.set_item(&*idx, value, vm)?;
+                    dict.set_item(idx.as_object(), value, vm)?;
                     Ok(None)
                 } else {
-                    obj.set_item(&*idx, value, vm)?;
+                    obj.set_item(idx.as_object(), value, vm)?;
                     Ok(None)
                 }
             }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
-                self.execute_binary_op_int(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
+                self.execute_binary_op_int(vm, Self::int_add, bytecode::BinaryOperator::Add)
             }
             Instruction::BinaryOpSubtractInt => {
-                self.execute_binary_op_int(vm, |a, b| a - b, bytecode::BinaryOperator::Subtract)
+                self.execute_binary_op_int(vm, Self::int_sub, bytecode::BinaryOperator::Subtract)
             }
             Instruction::BinaryOpMultiplyInt => {
-                self.execute_binary_op_int(vm, |a, b| a * b, bytecode::BinaryOperator::Multiply)
+                self.execute_binary_op_int(vm, Self::int_mul, bytecode::BinaryOperator::Multiply)
             }
             Instruction::BinaryOpAddFloat => {
                 self.execute_binary_op_float(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
@@ -4214,8 +6477,8 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
@@ -4223,8 +6486,12 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::BinaryOpSubscrGetitem => {
+                let cache_base = self.lasti() as usize;
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let owner = self.nth_value(1);
                 if !self.specialization_eval_frame_active(vm)
+                    && type_version != 0
+                    && owner.class().tp_version_tag().load(Acquire) == type_version
                     && let Some((func, func_version)) =
                         owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
@@ -4233,7 +6500,7 @@ impl ExecutingFrame<'_> {
                     debug_assert!(func.has_exact_argcount(2));
                     let sub = self.pop_value();
                     let owner = self.pop_value();
-                    let result = func.invoke_exact_args(vec![owner, sub], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner), Some(sub)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4249,8 +6516,8 @@ impl ExecutingFrame<'_> {
                     && (descr.guard)(a, b, vm)
                     && let Some(result) = (descr.action)(a, b, vm)
                 {
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -4269,8 +6536,8 @@ impl ExecutingFrame<'_> {
                     if i < vec.len() {
                         let value = vec.do_get(i);
                         drop(vec);
-                        self.pop_value();
-                        self.pop_value();
+                        self.pop_stackref();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -4288,8 +6555,8 @@ impl ExecutingFrame<'_> {
                     let elements = tuple.as_slice();
                     if i < elements.len() {
                         let value = elements[i].clone();
-                        self.pop_value();
-                        self.pop_value();
+                        self.pop_stackref();
+                        self.pop_stackref();
                         self.push_value(value);
                         return Ok(None);
                     }
@@ -4302,14 +6569,14 @@ impl ExecutingFrame<'_> {
                 if let Some(dict) = a.downcast_ref_if_exact::<PyDict>(vm) {
                     match dict.get_item_opt(b, vm) {
                         Ok(Some(value)) => {
-                            self.pop_value();
-                            self.pop_value();
+                            self.pop_stackref();
+                            self.pop_stackref();
                             self.push_value(value);
                             return Ok(None);
                         }
                         Ok(None) => {
                             let key = self.pop_value();
-                            self.pop_value();
+                            self.pop_stackref();
                             return Err(vm.new_key_error(key));
                         }
                         Err(e) => {
@@ -4330,8 +6597,8 @@ impl ExecutingFrame<'_> {
                     && ch.is_ascii()
                 {
                     let ascii_idx = ch.to_u32() as usize;
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(vm.ctx.ascii_char_cache[ascii_idx].clone().into());
                     return Ok(None);
                 }
@@ -4370,6 +6637,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
                     if !func.has_exact_argcount(effective_nargs) {
                         return self.execute_call_vectorcall(nargs, vm);
@@ -4380,19 +6650,28 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    if self.flatten == Flatten::CallAndGenResume && !func.is_generator_like() {
+                        self.tailcall_prepare_frame(nargs, self_or_null_is_some, vm);
+                        return Ok(Some(ExecutionResult::TailCall));
+                    }
+                    // Recursive path: pop args and call.
+                    let base = usize::from(self_or_null_is_some);
+                    let mut arg_buf = CallArgBuffer::new(nargs as usize + base);
+                    let args = arg_buf.slots();
+                    for (slot, arg) in args[base..]
+                        .iter_mut()
+                        .zip(self.pop_multiple(nargs as usize))
+                    {
+                        *slot = Some(arg);
+                    }
                     let self_or_null = self.pop_value_opt();
+                    debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+                    if self_or_null.is_some() {
+                        args[0] = self_or_null;
+                    }
                     let callable = self.pop_value();
                     let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
-                    let args = if let Some(self_val) = self_or_null {
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(self_val);
-                        all_args.extend(pos_args);
-                        all_args
-                    } else {
-                        pos_args
-                    };
-                    let result = func.invoke_exact_args(args, vm)?;
+                    let result = func.invoke_exact_args_slots(args, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -4417,12 +6696,15 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if !func.has_exact_argcount(nargs + 1) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
@@ -4432,14 +6714,28 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        let pos_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(bound_self);
-                        all_args.extend(pos_args);
-                        let result = func.invoke_exact_args(all_args, vm)?;
+                        if self.flatten == Flatten::CallAndGenResume && !func.is_generator_like() {
+                            self.tailcall_prepare_bound_method_frame(
+                                nargs,
+                                bound_function,
+                                bound_self,
+                                vm,
+                            );
+                            return Ok(Some(ExecutionResult::TailCall));
+                        }
+                        // Recursive path: stage args without a per-call Vec.
+                        // [bound_self, arg1, ..., argN]
+                        let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
+                        let args = arg_buf.slots();
+                        for (slot, arg) in
+                            args[1..].iter_mut().zip(self.pop_multiple(nargs as usize))
+                        {
+                            *slot = Some(arg);
+                        }
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
+                        args[0] = Some(bound_self);
+                        let result = func.invoke_exact_args_slots(args, vm)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -4487,16 +6783,18 @@ impl ExecutingFrame<'_> {
                         .as_ref()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                     {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(2);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(pos_args);
-                        let result = all_args[0].is_instance(&all_args[1], vm)?;
+                        // Stack: [callable, self_or_null, args...]; effective_nargs == 2,
+                        // so the instance is either the first positional arg or self_or_null.
+                        let cls = self.pop_value();
+                        let inst = if nargs == 2 {
+                            let inst = self.pop_value();
+                            self.pop_stackref_opt(); // null
+                            inst
+                        } else {
+                            self.pop_value() // self_or_null holds the instance
+                        };
+                        self.pop_stackref(); // callable
+                        let result = inst.is_instance(&cls, vm)?;
                         self.push_value(vm.ctx.new_bool(result).into());
                         return Ok(None);
                     }
@@ -4578,15 +6876,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::O && effective_nargs == 1 {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -4612,15 +6903,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::FASTCALL {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -4642,21 +6926,14 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
-                        let mut v = Vec::with_capacity(nargs_usize + 1);
-                        v.push(self_val);
-                        v.extend(pos_args);
-                        (v, nargs_usize + 1)
-                    } else {
-                        (pos_args, nargs_usize)
-                    };
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
                     let result =
                         vectorcall_function(&callable, args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
@@ -4682,22 +6959,24 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
-                        args_vec.extend(pos_args);
+                        args_vec.extend(self.pop_multiple(nargs_usize));
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
                         let result = vectorcall_function(
                             &bound_function,
                             args_vec,
@@ -4776,23 +7055,17 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args)?;
+                        let result = func(vm, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -4823,23 +7096,17 @@ impl ExecutingFrame<'_> {
                             .localsplus
                             .stack_index(self_index)
                             .as_ref()
-                            .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                            .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let callee = Callee::named(descr.method.name).with_instance_arg(true);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
                         };
-                        let result = func(vm, args)?;
+                        let result = func(vm, args, callee)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -4870,23 +7137,17 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args)?;
+                    let result = func(vm, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4896,24 +7157,11 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.slots.vectorcall.load().is_some()
+                    && cls.slots().vectorcall.load().is_some()
                 {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let self_is_some = self_or_null.is_some();
-                    let mut args_vec = Vec::with_capacity(nargs_usize + usize::from(self_is_some));
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
-                    }
-                    args_vec.extend(pos_args);
-                    let result = callable.vectorcall(
-                        args_vec,
-                        nargs_usize + usize::from(self_is_some),
-                        None,
-                        vm,
-                    )?;
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
+                    let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4934,39 +7182,37 @@ impl ExecutingFrame<'_> {
                     && !self_or_null_is_some
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.tp_version_tag.load(Acquire) == cached_version
-                    && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
-                    && let Some(cls_alloc) = cls.slots.alloc.load()
+                    && cls.tp_version_tag().load(Acquire) == cached_version
+                    && let Some((init_func, init_func_version)) =
+                        cls.get_cached_init_for_specialization(cached_version)
+                    && init_func.func_version() == init_func_version
+                    && init_func.has_exact_argcount(nargs + 1)
+                    && let Some(cls_alloc) = cls.slots().alloc.load()
                 {
-                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
-                    // shape, using RustPython's datastack-backed frame size
-                    // equivalent for the extra shim frame.
-                    let init_cleanup_stack_bytes =
-                        datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
-                            .expect("_Py_InitCleanup shim is not a generator/coroutine");
-                    if !self.specialization_has_datastack_space_for_func_with_extra(
-                        vm,
-                        &init_func,
-                        init_cleanup_stack_bytes,
-                    ) {
+                    // The specialization runs `__init__` directly with no
+                    // interpreter-visible trampoline frame. Deopt when the
+                    // datastack or recursion budget for the `__init__` frame is
+                    // unavailable.
+                    if !self.specialization_has_datastack_space_for_func(vm, &init_func) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
-                    // Keep the guard conservative and deopt when the effective
-                    // recursion budget for those two frames is not available.
-                    if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
+                    if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
                     let cls_ref = cls.to_owned();
                     let new_obj = cls_alloc(cls_ref, 0, vm)?;
 
-                    // Build args: [new_obj, arg1, ..., argN]
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    // Stage args as [new_obj, arg1, ..., argN]; slot 0 is
+                    // filled by the init runner.
+                    let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
+                    let args = arg_buf.slots();
+                    for (slot, arg) in args[1..].iter_mut().zip(self.pop_multiple(nargs as usize)) {
+                        *slot = Some(arg);
+                    }
                     let _null = self.pop_value_opt(); // self_or_null (None)
                     let _callable = self.pop_value(); // callable (type)
-                    let result = self
-                        .specialization_run_init_cleanup_shim(new_obj, &init_func, pos_args, vm)?;
+                    let result = self.specialization_run_init(new_obj, &init_func, args, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4997,23 +7243,17 @@ impl ExecutingFrame<'_> {
                         .localsplus
                         .stack_index(self_index)
                         .as_ref()
-                        .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
+                        .is_some_and(|self_obj| self_obj.class().is(descr.common.typ))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let callee = Callee::named(descr.method.name).with_instance_arg(true);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
                     };
-                    let result = func(vm, args)?;
+                    let result = func(vm, args, callee)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -5037,15 +7277,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -5069,22 +7302,13 @@ impl ExecutingFrame<'_> {
                 {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                let nargs_usize = nargs as usize;
-                let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                let self_or_null = self.pop_value_opt();
-                let callable = self.pop_value();
-                let mut args_vec =
-                    Vec::with_capacity(nargs_usize + usize::from(self_or_null_is_some));
-                if let Some(self_val) = self_or_null {
-                    args_vec.push(self_val);
-                }
-                args_vec.extend(pos_args);
-                let result = callable.vectorcall(
-                    args_vec,
-                    nargs_usize + usize::from(self_or_null_is_some),
-                    None,
-                    vm,
-                )?;
+                let (callable, args_vec) = self.take_call_args(nargs as usize);
+                debug_assert_eq!(
+                    args_vec.len(),
+                    nargs as usize + usize::from(self_or_null_is_some)
+                );
+                let effective_nargs = args_vec.len();
+                let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
@@ -5102,6 +7326,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_kw_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_kw_vectorcall(nargs, vm);
                     }
@@ -5110,7 +7337,7 @@ impl ExecutingFrame<'_> {
                     let kwarg_names_tuple = kwarg_names_obj
                         .downcast_ref::<PyTuple>()
                         .expect("kwarg names should be tuple");
-                    let kw_count = kwarg_names_tuple.len();
+                    let kw_count = kwarg_names_tuple.as_slice().len();
                     let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                     let self_or_null = self.pop_value_opt();
                     let callable = self.pop_value();
@@ -5154,21 +7381,24 @@ impl ExecutingFrame<'_> {
                 if !self_or_null_is_some
                     && let Some(bound_method) = callable.downcast_ref_if_exact::<PyBoundMethod>(vm)
                 {
-                    let bound_function = bound_method.function_obj().clone();
-                    let bound_self = bound_method.self_obj().clone();
+                    let bound_function = bound_method.function_obj().to_owned();
+                    let bound_self = bound_method.self_obj().to_owned();
                     if let Some(func) = bound_function.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_kw_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let kwarg_names_obj = self.pop_value();
                         let kwarg_names_tuple = kwarg_names_obj
                             .downcast_ref::<PyTuple>()
                             .expect("kwarg names should be tuple");
-                        let kw_count = kwarg_names_tuple.len();
+                        let kw_count = kwarg_names_tuple.as_slice().len();
                         let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
+                        self.pop_stackref_opt(); // null (self_or_null)
+                        self.pop_stackref(); // callable (bound method)
                         let pos_count = nargs_usize - kw_count;
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
@@ -5207,7 +7437,7 @@ impl ExecutingFrame<'_> {
                 let kwarg_names_tuple = kwarg_names_obj
                     .downcast_ref::<PyTuple>()
                     .expect("kwarg names should be tuple");
-                let kw_count = kwarg_names_tuple.len();
+                let kw_count = kwarg_names_tuple.as_slice().len();
                 let all_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
                 let self_or_null = self.pop_value_opt();
                 let callable = self.pop_value();
@@ -5257,13 +7487,13 @@ impl ExecutingFrame<'_> {
                             let obj_arg = if self_obj.is(start_type.as_object()) {
                                 None
                             } else {
-                                Some(self_obj.to_owned())
+                                Some(self_obj)
                             };
                             let result = vm
                                 .call_get_descriptor_specific(
                                     &descr,
                                     obj_arg,
-                                    Some(start_type.as_object().to_owned()),
+                                    Some(start_type.as_object()),
                                 )
                                 .unwrap_or(Ok(descr))?;
                             found = Some(result);
@@ -5271,9 +7501,9 @@ impl ExecutingFrame<'_> {
                         }
                     }
                     if let Some(attr) = found {
-                        self.pop_value(); // self
-                        self.pop_value(); // class
-                        self.pop_value(); // super
+                        self.pop_stackref(); // self
+                        self.pop_stackref(); // class
+                        self.pop_stackref(); // super
                         self.push_value(attr);
                         return Ok(None);
                     }
@@ -5309,19 +7539,19 @@ impl ExecutingFrame<'_> {
                         if let Some(descr) = cls.get_direct_attr(attr_name) {
                             let descr_cls = descr.class();
                             if descr_cls
-                                .slots
+                                .slots()
                                 .flags
                                 .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
                             {
                                 // Method descriptor: push unbound func + self
                                 // CALL will prepend self as first positional arg
                                 found = Some((descr, true));
-                            } else if let Some(descr_get) = descr_cls.slots.descr_get.load() {
+                            } else if let Some(descr_get) = descr_cls.slots().descr_get.load() {
                                 // Has __get__ but not METHOD_DESCRIPTOR: bind it
                                 let bound = descr_get(
-                                    descr,
-                                    Some(self_val.clone()),
-                                    Some(start_type.as_object().to_owned()),
+                                    &descr,
+                                    Some(&self_val),
+                                    Some(start_type.as_object()),
                                     vm,
                                 )?;
                                 found = Some((bound, false));
@@ -5333,9 +7563,9 @@ impl ExecutingFrame<'_> {
                         }
                     }
                     if let Some((attr, is_method)) = found {
-                        self.pop_value(); // self
-                        self.pop_value(); // class
-                        self.pop_value(); // super
+                        self.pop_stackref(); // self
+                        self.pop_stackref(); // class
+                        self.pop_stackref(); // super
                         self.push_value(attr);
                         if is_method {
                             self.push_value(self_val);
@@ -5355,14 +7585,14 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    specialization_compact_int_value(a_int, vm),
-                    specialization_compact_int_value(b_int, vm),
+                    specialization_compact_int_value(a_int),
+                    specialization_compact_int_value(b_int),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -5382,9 +7612,9 @@ impl ExecutingFrame<'_> {
                         Some(ord) => op.eval_ord(ord),
                         None => op == PyComparisonOp::Ne, // NaN != anything is true
                     };
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -5398,13 +7628,16 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    if op != PyComparisonOp::Eq && op != PyComparisonOp::Ne {
+                    // The same two shortcuts the unspecialized comparison takes:
+                    // one object is equal to itself, and equality answers two
+                    // strings of different length without reading either.
+                    let Some(result) = op.eval_eq(|| a.is(b) || a_str.as_wtf8() == b_str.as_wtf8())
+                    else {
                         return self.execute_compare(vm, arg);
-                    }
-                    let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    };
+                    self.pop_stackref();
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -5413,12 +7646,19 @@ impl ExecutingFrame<'_> {
             Instruction::ToBoolBool => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.bool_type) {
-                    // Already a bool, no-op
+                    // Already a bool, so normally a no-op — but when a
+                    // POP_JUMP_IF_* follows, branching on it here retires both
+                    // instructions in one dispatch.
+                    if let Some(jump) = self.fused_bool_jump(instruction.cache_entries(), vm) {
+                        let result = obj.is(&vm.ctx.true_value);
+                        self.pop_stackref();
+                        self.take_fused_bool_jump(jump, result);
+                    }
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -5426,26 +7666,26 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(int_val) = obj.downcast_ref_if_exact::<PyInt>(vm) {
                     let result = !int_val.as_bigint().is_zero();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
             Instruction::ToBoolNone => {
                 let obj = self.top_value();
                 if obj.class().is(vm.ctx.types.none_type) {
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(false).into());
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), false, vm);
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -5453,13 +7693,13 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(list) = obj.downcast_ref_if_exact::<PyList>(vm) {
                     let result = !list.borrow_vec().is_empty();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -5467,13 +7707,13 @@ impl ExecutingFrame<'_> {
                 let obj = self.top_value();
                 if let Some(s) = obj.downcast_ref_if_exact::<PyStr>(vm) {
                     let result = !s.is_empty();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -5484,15 +7724,16 @@ impl ExecutingFrame<'_> {
                 let cache_base = instr_idx + 1;
                 let obj = self.top_value();
                 let cached_version = self.code.instructions.read_cache_u32(cache_base + 1);
-                if cached_version != 0 && obj.class().tp_version_tag.load(Acquire) == cached_version
+                if cached_version != 0
+                    && obj.class().tp_version_tag().load(Acquire) == cached_version
                 {
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(true).into());
+                    self.pop_stackref();
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), true, vm);
                     Ok(None)
                 } else {
-                    let obj = self.pop_value();
+                    let obj = self.pop_stackref();
                     let result = obj.try_to_bool(vm)?;
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), result, vm);
                     Ok(None)
                 }
             }
@@ -5501,15 +7742,15 @@ impl ExecutingFrame<'_> {
                 if let Some(dict) = b.downcast_ref_if_exact::<PyDict>(vm) {
                     let a = self.nth_value(1); // needle
                     let found = dict.get_item_opt(a, vm)?.is_some();
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
                         .unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 } else {
                     let b = self.pop_value();
@@ -5520,7 +7761,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
             }
@@ -5531,15 +7772,15 @@ impl ExecutingFrame<'_> {
                 {
                     let a = self.nth_value(1); // needle
                     let found = vm._contains(b, a)?;
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     let invert = bytecode::Invert::try_from(u32::from(arg) as u8)
                         .unwrap_or(bytecode::Invert::No);
                     let value = match invert {
                         bytecode::Invert::No => found,
                         bytecode::Invert::Yes => !found,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 } else {
                     let b = self.pop_value();
@@ -5550,7 +7791,7 @@ impl ExecutingFrame<'_> {
                         bytecode::Invert::No => self._in(vm, &a, &b)?,
                         bytecode::Invert::Yes => self._not_in(vm, &a, &b)?,
                     };
-                    self.push_value(vm.ctx.new_bool(value).into());
+                    self.push_bool_or_fused_jump(instruction.cache_entries(), value, vm);
                     Ok(None)
                 }
             }
@@ -5561,7 +7802,7 @@ impl ExecutingFrame<'_> {
                     if elements.len() == 2 {
                         let e0 = elements[0].clone();
                         let e1 = elements[1].clone();
-                        self.pop_value();
+                        self.pop_stackref();
                         self.push_value(e1);
                         self.push_value(e0);
                         return Ok(None);
@@ -5577,7 +7818,7 @@ impl ExecutingFrame<'_> {
                     let elements = tuple.as_slice();
                     if elements.len() == size {
                         let elems: Vec<_> = elements.to_vec();
-                        self.pop_value();
+                        self.pop_stackref();
                         for elem in elems.into_iter().rev() {
                             self.push_value(elem);
                         }
@@ -5594,7 +7835,7 @@ impl ExecutingFrame<'_> {
                     if vec.len() == size {
                         let elems: Vec<_> = vec.to_vec();
                         drop(vec);
-                        self.pop_value();
+                        self.pop_stackref();
                         for elem in elems.into_iter().rev() {
                             self.push_value(elem);
                         }
@@ -5665,7 +7906,17 @@ impl ExecutingFrame<'_> {
                             self.push_value(value);
                         }
                         Ok(PyIterReturn::StopIteration(value)) => {
-                            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+                            // FOR_ITER_GEN returns through END_FOR, which
+                            // fires STOP_ITERATION rather than RAISE.
+                            if vm.state.monitoring_events.load()
+                                & MonitoringEvent::StopIteration.mask()
+                                != 0
+                            {
+                                let offset = (self.lasti() - 1) * 2;
+                                let val = vm.unwrap_or_none(value.clone());
+                                monitoring::fire_stop_iteration(vm, self.code, offset, &val)?;
+                            }
+                            if vm.use_tracing.get() && self.trace_is_set(vm) {
                                 let stop_exc = vm.new_stop_iteration(value);
                                 self.fire_exception_trace(&stop_exc, vm)?;
                             }
@@ -5685,17 +7936,16 @@ impl ExecutingFrame<'_> {
                 // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_version) = u16::try_from(self.globals.version())
-                    && cached_version == current_version
+                if cached_version != 0
+                    && let Some(x) = self
+                        .globals
+                        .get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = self.globals.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -5711,20 +7961,19 @@ impl ExecutingFrame<'_> {
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_globals_ver) = u16::try_from(self.globals.version())
+                if cached_globals_ver != 0
+                    && cached_builtins_ver != 0
+                    && let Ok(current_globals_ver) = u16::try_from(self.globals.keys_version())
                     && cached_globals_ver == current_globals_ver
                     && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
-                    && let Ok(current_builtins_ver) = u16::try_from(builtins_dict.version())
-                    && cached_builtins_ver == current_builtins_ver
+                    && let Some(x) = builtins_dict
+                        .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = builtins_dict.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -5753,17 +8002,23 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        if self.monitoring_disabled_for_code(vm) {
-            let global_ver = vm
-                .state
-                .instrumentation_version
-                .load(atomic::Ordering::Acquire);
-            monitoring::instrument_code(self.code, 0);
-            self.code
-                .instrumentation_version
-                .store(global_ver, atomic::Ordering::Release);
-            self.update_lasti(|i| *i -= 1);
-            return Ok(None);
+        // Update prev_line so InstrumentedLine's own change-detection (see
+        // below) stays in sync. `prev_line` is no longer read for
+        // `f_lineno` -- that's now derived lazily from `lasti` -- this
+        // write only exists to dedup LINE events. The main bytecode loop
+        // skips instrumented opcodes to avoid interfering with that
+        // de-duplication in InstrumentedLine, so it's updated here instead,
+        // except for RESUME (prev_line must stay 0 for the first LINE
+        // event) and InstrumentedLine (manages prev_line in its own
+        // handler).
+        if !matches!(
+            instruction,
+            Instruction::InstrumentedResume | Instruction::InstrumentedLine
+        ) {
+            let idx = self.lasti() as usize - 1;
+            if let Some((loc, _)) = self.code.locations.get(idx) {
+                self.prev_line.set(loc.line.get() as u32);
+            }
         }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
@@ -5793,23 +8048,32 @@ impl ExecutingFrame<'_> {
                 let resume_type = u32::from(arg);
                 let offset = (self.lasti() - 1) * 2;
                 if resume_type == 0 {
-                    if self.monitoring_mask & monitoring::EVENT_PY_START != 0 {
+                    if self.monitoring_mask & MonitoringEvent::PyStart.mask() != 0 {
                         monitoring::fire_py_start(vm, self.code, offset)?;
                     }
-                } else if self.monitoring_mask & monitoring::EVENT_PY_RESUME != 0 {
+                } else if self.monitoring_mask & MonitoringEvent::PyResume.mask() != 0 {
                     monitoring::fire_py_resume(vm, self.code, offset)?;
                 }
+                self.trace_call_from_resume(vm, resume_type)?;
                 Ok(None)
             }
             Instruction::InstrumentedReturnValue => {
                 let value = self.pop_value();
-                if self.monitoring_mask & monitoring::EVENT_PY_RETURN != 0 {
+                if vm.use_tracing.get() {
+                    vm.trace_event_what(
+                        crate::protocol::TraceEvent::Return,
+                        monitoring::MonitoringEvent::PyReturn,
+                        Some(value.clone()),
+                    )?;
+                }
+                if self.monitoring_mask & MonitoringEvent::PyReturn.mask() != 0 {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_py_return(vm, self.code, offset, &value)?;
                 }
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::InstrumentedYieldValue => {
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -5818,12 +8082,10 @@ impl ExecutingFrame<'_> {
                         .all(|sr| !sr.is_borrowed()),
                     "borrowed refs on stack at yield point"
                 );
-                let value = self.pop_value();
-                if self.monitoring_mask & monitoring::EVENT_PY_YIELD != 0 {
-                    let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_py_yield(vm, self.code, offset, &value)?;
+                if self.yield_value_event(vm)? {
+                    return Ok(None);
                 }
-                Ok(Some(ExecutionResult::Yield(value)))
+                Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::InstrumentedCall => {
                 let args = self.collect_positional_args(u32::from(arg));
@@ -5841,7 +8103,7 @@ impl ExecutingFrame<'_> {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
                 let offset = (self.lasti() - 1) * 2;
                 // Fire CALL event before super() call
-                let call_args = if self.monitoring_mask & monitoring::EVENT_CALL != 0 {
+                let call_args = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
                     let global_super: PyObjectRef = self.nth_value(2).to_owned();
                     let arg0 = if oparg.has_class() {
                         self.nth_value(1).to_owned()
@@ -5886,19 +8148,21 @@ impl ExecutingFrame<'_> {
                 let target_idx = self.lasti() + u32::from(arg);
                 let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
-                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
+                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
                 Ok(None)
             }
             Instruction::InstrumentedJumpBackward => {
                 let src_offset = (self.lasti() - 1) * 2;
+                let from_idx = self.lasti().saturating_sub(1) as usize;
                 let target_idx = self.lasti() + 1 - u32::from(arg);
                 let target = bytecode::Label::from_u32(target_idx);
                 self.jump(target);
-                if self.monitoring_mask & monitoring::EVENT_JUMP != 0 {
+                if self.monitoring_mask & MonitoringEvent::Jump.mask() != 0 {
                     monitoring::fire_jump(vm, self.code, src_offset, target.as_u32() * 2)?;
                 }
+                self.trace_backward_same_line(from_idx, vm)?;
                 Ok(None)
             }
             Instruction::InstrumentedForIter => {
@@ -5906,12 +8170,14 @@ impl ExecutingFrame<'_> {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
                 let continued = self.execute_for_iter(vm, target)?;
                 if continued {
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
                         let dest_offset = (self.lasti() + 1) * 2; // after caches
                         monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
                     }
-                } else if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
-                    let dest_offset = self.lasti() * 2;
+                } else if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
+                    // INSTRUMENTED_POP_ITER: dest is the instruction after
+                    // POP_ITER (FOR_ITER jumps over END_FOR onto POP_ITER).
+                    let dest_offset = (self.lasti() + 1) * 2;
                     monitoring::fire_branch_right(vm, self.code, src_offset, dest_offset)?;
                 }
                 Ok(None)
@@ -5924,7 +8190,7 @@ impl ExecutingFrame<'_> {
                     .downcast_ref::<crate::builtins::PyGenerator>()
                     .is_some();
                 let value = self.pop_value();
-                if is_gen && self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                if is_gen && self.monitoring_mask & MonitoringEvent::StopIteration.mask() != 0 {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_stop_iteration(vm, self.code, offset, &value)?;
                 }
@@ -5940,7 +8206,9 @@ impl ExecutingFrame<'_> {
                     || receiver
                         .downcast_ref::<crate::builtins::PyCoroutine>()
                         .is_some();
-                if is_gen_or_coro && self.monitoring_mask & monitoring::EVENT_STOP_ITERATION != 0 {
+                if is_gen_or_coro
+                    && self.monitoring_mask & MonitoringEvent::StopIteration.mask() != 0
+                {
                     let offset = (self.lasti() - 1) * 2;
                     monitoring::fire_stop_iteration(vm, self.code, offset, &value)?;
                 }
@@ -5954,7 +8222,7 @@ impl ExecutingFrame<'_> {
                 let value = obj.try_to_bool(vm)?;
                 if value {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -5967,7 +8235,7 @@ impl ExecutingFrame<'_> {
                 let value = obj.try_to_bool(vm)?;
                 if !value {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -5979,7 +8247,7 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if vm.is_none(&value) {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
@@ -5991,14 +8259,14 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 if !vm.is_none(&value) {
                     self.jump(bytecode::Label::from_u32(target_idx));
-                    if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                    if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                         monitoring::fire_branch_right(vm, self.code, src_offset, target_idx * 2)?;
                     }
                 }
                 Ok(None)
             }
             Instruction::InstrumentedNotTaken => {
-                if self.monitoring_mask & monitoring::EVENT_BRANCH_LEFT != 0 {
+                if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
                     let not_taken_idx = self.lasti() as usize - 1;
                     // Scan backwards past CACHE entries to find the branch instruction
                     let mut branch_idx = not_taken_idx.saturating_sub(1);
@@ -6018,11 +8286,11 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopIter => {
                 // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
-                self.pop_value();
+                self.pop_stackref();
                 Ok(None)
             }
             Instruction::InstrumentedEndAsyncFor => {
-                if self.monitoring_mask & monitoring::EVENT_BRANCH_RIGHT != 0 {
+                if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                     let oparg_val = u32::from(arg);
                     // src = next_instr - oparg (END_SEND position)
                     let src_offset = (self.lasti() - oparg_val) * 2;
@@ -6067,8 +8335,8 @@ impl ExecutingFrame<'_> {
                 // Fire LINE event only if line changed
                 if let Some((loc, _)) = self.code.locations.get(idx) {
                     let line = loc.line.get() as u32;
-                    if line != *self.prev_line && line > 0 {
-                        *self.prev_line = line;
+                    if line != self.prev_line.get() && line > 0 {
+                        self.prev_line.set(line);
                         monitoring::fire_line(vm, self.code, offset, line)?;
                     }
                 }
@@ -6077,6 +8345,14 @@ impl ExecutingFrame<'_> {
                 if also_instruction {
                     monitoring::fire_instruction(vm, self.code, offset)?;
                 }
+
+                // NOTE: prev_line is already up to date here -- the
+                // dedup check above (`if line != self.prev_line.get() ...`)
+                // reads the same `idx`/`loc` and, when the line changed,
+                // already set `prev_line` to that same value; no further
+                // write is needed (a prior unconditional re-write here was
+                // a dead duplicate of that one, and also isn't needed for
+                // `f_lineno`, which is derived lazily from `lasti`).
 
                 // Re-dispatch to the real original opcode
                 let original_op = Instruction::try_from(real_op_byte)
@@ -6136,7 +8412,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn mapping_get_optional(
         &self,
-        mapping: &PyObjectRef,
+        mapping: &PyObject,
         name: &Py<PyStr>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
@@ -6159,7 +8435,7 @@ impl ExecutingFrame<'_> {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
-            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals.as_ref()) };
+            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals) };
             globals_exact
                 .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
@@ -6180,38 +8456,34 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
         let module_name = module_name.unwrap_or(vm.ctx.empty_str);
-        let top = self.pop_value();
-        let from_list = match <Option<PyTupleRef>>::try_from_object(vm, top)? {
-            Some(from_list) => from_list.try_into_typed::<PyStr>(vm)?,
-            None => vm.ctx.empty_tuple_typed().to_owned(),
-        };
+        let from_list = self.pop_value();
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, &from_list, level)?;
+        let module = vm.import_from(module_name, from_list, level)?;
 
         self.push_value(module);
         Ok(())
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.top_value();
         let name = self.code.names[idx as usize];
 
         // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module.to_owned(), name)? {
+        if let Some(obj) = vm.get_attribute_opt(module, name)? {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
         let fallback_module = (|| {
             let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
-            let mod_name = mod_name.downcast_ref::<PyStr>()?;
-            let full_mod_name = format!("{mod_name}.{name}");
+            let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
+            let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
             let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
-            sys_modules.get_item(&full_mod_name, vm).ok()
+            sys_modules.get_item(&*full_mod_name, vm).ok()
         })();
 
         if let Some(sub_module) = fallback_module {
@@ -6224,17 +8496,17 @@ impl ExecutingFrame<'_> {
 
         // Get module name for the error message
         let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
-        let mod_name_str = mod_name_obj
+        let mod_name = mod_name_obj
             .as_ref()
-            .and_then(|n| n.downcast_ref::<PyUtf8Str>().map(|s| s.as_str().to_owned()));
-        let module_name = mod_name_str.as_deref().unwrap_or("<unknown module name>");
+            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
+        let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
 
         let spec = module
             .get_attr("__spec__", vm)
             .ok()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(&spec, vm);
+        let origin = get_spec_file_origin(spec.as_deref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -6284,7 +8556,13 @@ impl ExecutingFrame<'_> {
                 format!("cannot import name '{name}' from '{module_name}' (unknown location)")
             }
         };
-        let err = vm.new_import_error(msg, vm.ctx.new_utf8_str(module_name));
+        let err = vm.new_import_error(
+            msg,
+            match mod_name {
+                Some(s) => s.to_owned().into_wtf8(),
+                None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
+            },
+        );
 
         if let Some(ref path) = origin {
             let _ignore = err
@@ -6298,7 +8576,7 @@ impl ExecutingFrame<'_> {
         Err(err)
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn import_star(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         let module = self.pop_value();
 
@@ -6351,28 +8629,21 @@ impl ExecutingFrame<'_> {
     /// The reason for unwinding gives a hint on what to do when
     /// unwinding a block.
     /// Optionally returns an exception.
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // use exception table for exception handling
         match reason {
-            UnwindReason::Raising { exception } => {
-                // Look up handler in exception table
-                // lasti points to NEXT instruction (already incremented in run loop)
-                // The exception occurred at the previous instruction
-                // Python uses signed int where INSTR_OFFSET() - 1 = -1 before first instruction.
-                // We use u32, so check for 0 explicitly.
-                if self.lasti() == 0 {
-                    // No instruction executed yet, no handler can match
-                    return Err(exception);
-                }
-                let offset = self.lasti() - 1;
+            UnwindReason::Raising { exception, offset } => {
+                // Look up handler from the raising instruction. lasti may
+                // already have been restored by RERAISE to the original raise.
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
                     // Fire EXCEPTION_HANDLED before setting up handler.
                     // If the callback raises, the handler is NOT set up and the
                     // new exception propagates instead.
-                    if vm.state.monitoring_events.load() & monitoring::EVENT_EXCEPTION_HANDLED != 0
+                    if vm.state.monitoring_events.load() & MonitoringEvent::ExceptionHandled.mask()
+                        != 0
                     {
                         let byte_offset = offset * 2;
                         let exc_obj: PyObjectRef = exception.clone().into();
@@ -6384,10 +8655,11 @@ impl ExecutingFrame<'_> {
                         let _ = self.localsplus.stack_pop();
                     }
 
-                    // 2. If push_lasti=true (SETUP_CLEANUP), push lasti before exception
-                    // pushes lasti as PyLong
+                    // 2. If push_lasti=true, push the current lasti (which
+                    // RERAISE may have restored to the original raise).
                     if entry.push_lasti {
-                        self.push_value(vm.ctx.new_int(offset as i32).into());
+                        let lasti = self.lasti().saturating_sub(1);
+                        self.push_value(vm.ctx.new_int(lasti as i32).into());
                     }
 
                     // 3. Push exception onto stack
@@ -6409,18 +8681,43 @@ impl ExecutingFrame<'_> {
         }
     }
 
+    /// Restore lasti from the exception-table value still on the stack.
+    ///
+    /// `oparg` is RERAISE's operand: values[0] is lasti when oparg != 0.
+    /// lasti is stored as the next instruction index, so the saved index is
+    /// incremented by one.
+    fn restore_reraise_lasti(&mut self, oparg: u32) {
+        if oparg == 0 {
+            return;
+        }
+        let stack_len = self.localsplus.stack_len();
+        if stack_len < oparg as usize {
+            return;
+        }
+        let Some(lasti_ref) = self.localsplus.stack_index(stack_len - oparg as usize) else {
+            return;
+        };
+        let Some(int) = lasti_ref.as_object().downcast_ref::<PyInt>() else {
+            return;
+        };
+        let Some(idx) = int.as_bigint().to_u32() else {
+            return;
+        };
+        self.lasti.store(idx.saturating_add(1), Relaxed);
+    }
+
     fn execute_store_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let idx = self.pop_value();
-        let obj = self.pop_value();
+        let idx = self.pop_stackref();
+        let obj = self.pop_stackref();
         let value = self.pop_value();
-        obj.set_item(&*idx, value, vm)?;
+        obj.set_item(idx.as_object(), value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &VirtualMachine) -> FrameResult {
-        let idx = self.pop_value();
-        let obj = self.pop_value();
-        obj.del_item(&*idx, vm)?;
+        let idx = self.pop_stackref();
+        let obj = self.pop_stackref();
+        obj.del_item(idx.as_object(), vm)?;
         Ok(None)
     }
 
@@ -6460,7 +8757,7 @@ impl ExecutingFrame<'_> {
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {
         FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
-            kwargs: IndexMap::new(),
+            ..Default::default()
         }
     }
 
@@ -6483,25 +8780,23 @@ impl ExecutingFrame<'_> {
 
     fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
         let kwargs_or_null = self.pop_value_opt();
-        let kwargs = if let Some(kw_obj) = kwargs_or_null {
-            let mut kwargs = IndexMap::new();
-
+        let mut kwargs = KwArgs::default();
+        if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
             let func_str = Self::object_function_str(callable, vm);
 
-            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key| {
+            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
+                // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
+                // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 let key_str = key
-                    .downcast_ref::<PyUtf8Str>()
+                    .downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                let value = kw_obj.get_item(&*key, vm)?;
-                kwargs.insert(key_str.as_str().to_owned(), value);
+                kwargs.insert(key_str.as_wtf8().to_owned(), value);
                 Ok(())
-            })?;
-            kwargs
-        } else {
-            IndexMap::new()
+            })?
         };
+
         let args_obj = self.pop_value();
         let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()
@@ -6510,7 +8805,7 @@ impl ExecutingFrame<'_> {
             // Stack: [callable, self_or_null]
             let callable = self.nth_value(1);
             let func_str = Self::object_function_str(callable, vm);
-            let not_iterable = args_obj.class().slots.iter.load().is_none()
+            let not_iterable = args_obj.class().slots().iter.load().is_none()
                 && args_obj
                     .get_class_attr(vm.ctx.intern_str("__getitem__"))
                     .is_none();
@@ -6519,7 +8814,7 @@ impl ExecutingFrame<'_> {
                     vm.new_type_error(format!(
                         "{} argument after * must be an iterable, not {}",
                         func_str,
-                        args_obj.class().name()
+                        args_obj.class().slot_name()
                     ))
                 } else {
                     e
@@ -6563,8 +8858,23 @@ impl ExecutingFrame<'_> {
         mut key_handler: F,
     ) -> PyResult<()>
     where
-        F: FnMut(PyObjectRef) -> PyResult<()>,
+        F: FnMut(PyObjectRef, PyObjectRef) -> PyResult<()>,
     {
+        // Fast path: exact dict (e.g. built by DICT_MERGE), not a subclass which
+        // may override `keys`/`__getitem__`. Iterate its entries natively,
+        // mirroring CPython's `PyDict_Check(kwargs)` fast path in `CALL_FUNCTION_EX`.
+        if mapping.class().is(vm.ctx.types.dict_type) {
+            let dict = mapping
+                .downcast_ref::<PyDict>()
+                .expect("exact dict must have a PyDict payload");
+            // Snapshot under a single read lock: safe against mutation of
+            // `mapping` from within `key_handler`.
+            for (key, value) in dict.items_vec() {
+                key_handler(key, value)?;
+            }
+            return Ok(());
+        }
+
         let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!(
                 "{} argument after ** must be a mapping, not {}",
@@ -6573,9 +8883,10 @@ impl ExecutingFrame<'_> {
             )));
         };
 
-        let keys = keys_method?.call((), vm)?.get_iter(vm)?;
+        let keys = PyIter::try_from_object(vm, keys_method?.call((), vm)?)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
-            key_handler(key)?;
+            let value = mapping.get_item(&*key, vm)?;
+            key_handler(key, value)?;
         }
         Ok(())
     }
@@ -6645,7 +8956,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names_tuple = kwarg_names_obj
             .downcast_ref::<PyTuple>()
             .expect("kwarg names should be tuple");
-        let kw_count = kwarg_names_tuple.len();
+        let kw_count = kwarg_names_tuple.as_slice().len();
         debug_assert!(kw_count <= nargs_usize, "CALL_KW kw_count exceeds nargs");
 
         let stack_len = self.localsplus.stack_len();
@@ -6736,7 +9047,7 @@ impl ExecutingFrame<'_> {
         let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
 
         // Fire CALL event
-        let call_arg0 = if self.monitoring_mask & monitoring::EVENT_CALL != 0 {
+        let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
             let arg0 = final_args
                 .args
                 .first()
@@ -6819,9 +9130,33 @@ impl ExecutingFrame<'_> {
         #[cfg(debug_assertions)]
         debug!("Exception raised: {exception:?} with cause: {cause:?}");
         if let Some(cause) = cause {
-            exception.set___cause__(cause);
+            exception.set_cause(cause);
         }
         Err(exception)
+    }
+
+    /// The continuation for parking this frame at the `SEND` it is executing,
+    /// if handing `receiver` to the trampoline is worth it: see `GenCont` for
+    /// the shape this needs, and `is_delegating` for why one lone level of
+    /// delegation keeps the recursive path.
+    #[inline(never)]
+    fn send_yield_from_cont(
+        &self,
+        receiver: &PyObject,
+        exit_label: bytecode::Label,
+    ) -> Option<GenCont> {
+        let next_idx = self.lasti() as usize + 1;
+        let unit = self.code.instructions.get(next_idx)?;
+        if !matches!(unit.op, Instruction::YieldValue { .. }) || u8::from(unit.arg) < 1 {
+            return None;
+        }
+        if !self.builtin_coro(receiver).is_some_and(is_delegating) {
+            return None;
+        }
+        Some(GenCont {
+            exit: exit_label.as_u32(),
+            resumed_at: next_idx as u32 + 1,
+        })
     }
 
     fn builtin_coro<'a>(&self, coro: &'a PyObject) -> Option<&'a Coro> {
@@ -6849,10 +9184,10 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
+    fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u32) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
@@ -6928,6 +9263,69 @@ impl ExecutingFrame<'_> {
         self.update_lasti(|i| *i = target);
     }
 
+    /// JUMP_BACKWARD plus the settrace LINE event for a backward edge that
+    /// stays on the same source line (`sys_trace_jump_func`).
+    fn jump_relative_backward_and_trace_line(
+        &mut self,
+        delta: u32,
+        caches: u32,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let from_idx = self.lasti().saturating_sub(1) as usize;
+        self.jump_relative_backward(delta, caches);
+        self.trace_backward_same_line(from_idx, vm)
+    }
+
+    /// sys.settrace generates line events for all backward edges, even if on
+    /// the same line.
+    fn trace_backward_same_line(&mut self, from_idx: usize, vm: &VirtualMachine) -> PyResult<()> {
+        if !(vm.use_tracing.get() && self.trace_is_set(vm) && self.trace_lines_is_set()) {
+            return Ok(());
+        }
+        let to_idx = self.lasti() as usize;
+        let from_line = self.code.addr2line(from_idx as i32 * 2);
+        let to_line = self.code.addr2line(to_idx as i32 * 2);
+        if to_line >= 0 && to_line == from_line {
+            self.prev_line.set(to_line as u32);
+            // lasti currently names the destination instruction; f_lineno
+            // reads lasti-1 (the in-flight opcode), so point past dest for
+            // the duration of the callback.
+            let dest = self.lasti();
+            self.update_lasti(|i| *i = dest + 1);
+            let result = vm.trace_event(crate::protocol::TraceEvent::Line, None);
+            self.update_lasti(|i| *i = dest);
+            result?;
+        }
+        Ok(())
+    }
+
+    /// Step over the `NOT_TAKEN` marker on a conditional jump's fall-through edge.
+    ///
+    /// The compiler plants `NOT_TAKEN` after every conditional jump purely as the
+    /// anchor `sys.monitoring` swaps for `INSTRUMENTED_NOT_TAKEN` when branch
+    /// events are on. Left alone it is a no-op, so land past it instead of
+    /// spending a whole dispatch on it. `caches` is the jump's own inline-cache
+    /// count, which the fall-through path would otherwise leave for the dispatch
+    /// loop to add.
+    ///
+    /// Skipped while tracing, where the dispatch loop is what emits per-opcode
+    /// `sys.settrace` events and every executed instruction has to be seen.
+    #[inline]
+    fn skip_fallthrough_not_taken(&mut self, vm: &VirtualMachine, caches: u32) {
+        if self.specialization_eval_frame_active(vm) {
+            return;
+        }
+        let next = self.lasti() + caches;
+        if (next as usize) < self.code.instructions.len()
+            && matches!(
+                self.code.instructions.read_op(next as usize),
+                Instruction::NotTaken
+            )
+        {
+            self.update_lasti(|i| *i = next + 1);
+        }
+    }
+
     #[inline]
     fn pop_jump_if_relative(
         &mut self,
@@ -6936,12 +9334,47 @@ impl ExecutingFrame<'_> {
         caches: u32,
         flag: bool,
     ) -> FrameResult {
-        let obj = self.pop_value();
+        let obj = self.pop_stackref();
         let value = obj.try_to_bool(vm)?;
         if value == flag {
             self.jump_relative_forward(u32::from(arg), caches);
+        } else {
+            self.skip_fallthrough_not_taken(vm, caches);
         }
         Ok(None)
+    }
+
+    /// `_PyEval_MonitorRaise` for a StopIteration produced by FOR_ITER.
+    /// Sequence iterators match FOR_ITER_LIST/RANGE/TUPLE and do not raise.
+    /// Generators still report RAISE and the settrace exception event
+    /// (Internal StopIteration).
+    fn monitor_for_iter_stop(
+        &self,
+        value: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let iter = self.top_value();
+        if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some()
+            || iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some()
+            || iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some()
+        {
+            return Ok(());
+        }
+        let need_raise = vm.state.monitoring_events.load() & MonitoringEvent::Raise.mask() != 0;
+        let need_trace = vm.use_tracing.get() && self.trace_is_set(vm);
+        if !need_raise && !need_trace {
+            return Ok(());
+        }
+        let stop_exc = vm.new_stop_iteration(value);
+        if need_raise {
+            let offset = (self.lasti() - 1) * 2;
+            let exc_obj: PyObjectRef = stop_exc.clone().into();
+            monitoring::fire_raise(vm, self.code, offset, &exc_obj)?;
+        }
+        if need_trace {
+            self.fire_exception_trace(&stop_exc, vm)?;
+        }
+        Ok(())
     }
 
     /// Advance the iterator on top of stack.
@@ -6959,7 +9392,7 @@ impl ExecutingFrame<'_> {
                 self.push_value(vm.ctx.new_int(value).into());
                 return Ok(true);
             }
-            if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
+            if vm.use_tracing.get() && self.trace_is_set(vm) {
                 let stop_exc = vm.new_stop_iteration(None);
                 self.fire_exception_trace(&stop_exc, vm)?;
             }
@@ -6976,17 +9409,14 @@ impl ExecutingFrame<'_> {
                 Ok(true)
             }
             Ok(PyIterReturn::StopIteration(value)) => {
-                // Fire 'exception' trace event for StopIteration, matching
-                // FOR_ITER's inline call to _PyEval_MonitorRaise.
-                if vm.use_tracing.get() && !vm.is_none(&self.object.trace.lock()) {
-                    let stop_exc = vm.new_stop_iteration(value);
-                    self.fire_exception_trace(&stop_exc, vm)?;
-                }
+                // _FOR_ITER / INSTRUMENTED_FOR_ITER: _PyEval_MonitorRaise
+                // then clear the StopIteration and jump over END_FOR.
+                self.monitor_for_iter_stop(value, vm)?;
                 self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
             Err(next_error) => {
-                self.pop_value();
+                self.pop_stackref();
                 Err(next_error)
             }
         }
@@ -7013,7 +9443,7 @@ impl ExecutingFrame<'_> {
             .expect("Stack value should be code object");
 
         // Create function with minimal attributes
-        let func_obj = PyFunction::new(code_obj, self.globals.clone(), vm)?.into_pyobject(vm);
+        let func_obj = PyFunction::new(code_obj, self.globals.to_owned(), vm)?.into_pyobject(vm);
 
         self.push_value(func_obj);
         Ok(None)
@@ -7048,20 +9478,21 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn execute_bin_op(&mut self, vm: &VirtualMachine, op: bytecode::BinaryOperator) -> FrameResult {
-        let b_ref = &self.pop_value();
-        let a_ref = &self.pop_value();
+        let b = self.pop_stackref();
+        let a = self.pop_stackref();
+        let (a_ref, b_ref) = (a.as_object(), b.as_object());
         let value = match op {
-            // BINARY_OP_ADD_INT / BINARY_OP_SUBTRACT_INT fast paths:
-            // bypass binary_op1 dispatch for exact int types, use i64 arithmetic
-            // when possible to avoid BigInt heap allocation.
+            // Exact-int fast paths for +, -, *, //, %: bypass binary_op1
+            // dispatch and use i64 arithmetic when possible to avoid BigInt
+            // heap allocation, falling back to the slow path otherwise.
             bytecode::BinaryOperator::Add | bytecode::BinaryOperator::InplaceAdd => {
                 if let (Some(a), Some(b)) = (
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(self.int_add(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_add(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Add) {
                     vm._add(a_ref, b_ref)
                 } else {
@@ -7073,32 +9504,65 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(self.int_sub(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_sub(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Subtract) {
                     vm._sub(a_ref, b_ref)
                 } else {
                     vm._isub(a_ref, b_ref)
                 }
             }
-            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply | bytecode::BinaryOperator::InplaceMultiply => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(Self::int_mul(a, b, vm))
+                } else if matches!(op, bytecode::BinaryOperator::Multiply) {
+                    vm._mul(a_ref, b_ref)
+                } else {
+                    vm._imul(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
             bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide
+            | bytecode::BinaryOperator::InplaceFloorDivide => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Some(result) = Self::int_floordiv(a.as_bigint(), b.as_bigint(), vm)
+                {
+                    Ok(result)
+                } else if matches!(op, bytecode::BinaryOperator::FloorDivide) {
+                    vm._floordiv(a_ref, b_ref)
+                } else {
+                    vm._ifloordiv(a_ref, b_ref)
+                }
+            }
+            bytecode::BinaryOperator::Remainder | bytecode::BinaryOperator::InplaceRemainder => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Some(result) = Self::int_mod(a.as_bigint(), b.as_bigint(), vm)
+                {
+                    Ok(result)
+                } else if matches!(op, bytecode::BinaryOperator::Remainder) {
+                    vm._mod(a_ref, b_ref)
+                } else {
+                    vm._imod(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
             bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
             bytecode::BinaryOperator::InplacePower => {
                 vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
             }
             bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
@@ -7111,28 +9575,108 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    /// Int binary op with an i64 fast path to avoid BigInt heap allocation.
+    /// `checked` computes the i64 result; on `None` (either operand does not
+    /// fit i64, or the op overflows i64) it falls through to `fallback` on the
+    /// full BigInt values. Result boxing always goes through `new_int` so the
+    /// small-int cache is consulted identically.
     #[inline]
-    fn int_add(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
-        use num_traits::ToPrimitive;
-        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
-            && let Some(result) = av.checked_add(bv)
+    fn int_fast_op(
+        a: &Py<PyInt>,
+        b: &Py<PyInt>,
+        vm: &VirtualMachine,
+        checked: fn(i64, i64) -> Option<i64>,
+        fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
+    ) -> PyObjectRef {
+        if let (Some(av), Some(bv)) = (a.try_to_i64_fast(), b.try_to_i64_fast())
+            && let Some(result) = checked(av, bv)
         {
             return vm.ctx.new_int(result).into();
         }
-        vm.ctx.new_int(a + b).into()
+        vm.ctx
+            .new_int(fallback(a.as_bigint(), b.as_bigint()))
+            .into()
+    }
+
+    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_add(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_add, |a, b| a + b)
     }
 
     /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_sub(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_sub(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_sub, |a, b| a - b)
+    }
+
+    /// Int multiplication with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_mul(a: &Py<PyInt>, b: &Py<PyInt>, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
+    }
+
+    /// Int divide/remainder i64 fast path. Returns `None` to signal the caller
+    /// to fall through to the slow path when either operand does not fit i64
+    /// or `compute` reports a case it cannot handle (zero divisor or i64
+    /// overflow). Result boxing goes through `new_int` so the small-int cache
+    /// is consulted identically.
+    #[inline]
+    fn int_div_fast_op(
+        a: &BigInt,
+        b: &BigInt,
+        vm: &VirtualMachine,
+        compute: fn(i64, i64) -> Option<i64>,
+    ) -> Option<PyObjectRef> {
         use num_traits::ToPrimitive;
-        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
-            && let Some(result) = av.checked_sub(bv)
-        {
-            return vm.ctx.new_int(result).into();
+        let (av, bv) = (a.to_i64()?, b.to_i64()?);
+        compute(av, bv).map(|r| vm.ctx.new_int(r).into())
+    }
+
+    /// Floor division of two i64 values with floor (toward negative infinity)
+    /// semantics. `None` when `b == 0` or the quotient overflows i64
+    /// (`i64::MIN / -1`).
+    #[inline]
+    fn floordiv_i64(a: i64, b: i64) -> Option<i64> {
+        if b == 0 {
+            return None;
         }
-        vm.ctx.new_int(a - b).into()
+        let q = a.checked_div(b)?;
+        let r = a % b;
+        Some(if r != 0 && (r < 0) != (b < 0) {
+            q - 1
+        } else {
+            q
+        })
+    }
+
+    /// Remainder of two i64 values, taking the sign of the divisor. `None`
+    /// when `b == 0` or the operation overflows i64 (`i64::MIN % -1`).
+    #[inline]
+    fn mod_i64(a: i64, b: i64) -> Option<i64> {
+        if b == 0 {
+            return None;
+        }
+        let r = a.checked_rem(b)?;
+        Some(if r != 0 && (r < 0) != (b < 0) {
+            r + b
+        } else {
+            r
+        })
+    }
+
+    /// Int floor division with i64 fast path. `None` falls through to the
+    /// slow path (bigint operands, zero divisor, or i64 overflow).
+    #[inline]
+    fn int_floordiv(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        Self::int_div_fast_op(a, b, vm, Self::floordiv_i64)
+    }
+
+    /// Int remainder with i64 fast path. `None` falls through to the slow
+    /// path (bigint operands, zero divisor, or i64 overflow).
+    #[inline]
+    fn int_mod(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        Self::int_div_fast_op(a, b, vm, Self::mod_i64)
     }
 
     #[cold]
@@ -7153,7 +9697,7 @@ impl ExecutingFrame<'_> {
 
     /// _PyEval_UnpackIterableStackRef
     fn unpack_sequence(&mut self, size: u32, vm: &VirtualMachine) -> FrameResult {
-        let value = self.pop_value();
+        let value = self.pop_stackref();
         let size = size as usize;
 
         // Fast path for exact tuple/list types (not subclasses) — push
@@ -7172,11 +9716,11 @@ impl ExecutingFrame<'_> {
 
         // General path — iterate up to `size + 1` elements to avoid
         // consuming the entire iterator (fixes hang on infinite sequences).
-        let not_iterable = value.class().slots.iter.load().is_none()
+        let not_iterable = value.class().slots().iter.load().is_none()
             && value
                 .get_class_attr(vm.ctx.intern_str("__getitem__"))
                 .is_none();
-        let iter = PyIter::try_from_object(vm, value.clone()).map_err(|e| {
+        let iter = PyIter::try_from_object(vm, value.as_object().to_owned()).map_err(|e| {
             if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                 vm.new_type_error(format!(
                     "cannot unpack non-iterable {} object",
@@ -7290,12 +9834,12 @@ impl ExecutingFrame<'_> {
         Ok(!self._in(vm, needle, haystack)?)
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
+    #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     fn execute_compare(&mut self, vm: &VirtualMachine, arg: bytecode::OpArg) -> FrameResult {
         let op = bytecode::ComparisonOperator::try_from(u32::from(arg))
             .unwrap_or(bytecode::ComparisonOperator::Equal);
-        let b = self.pop_value();
-        let a = self.pop_value();
+        let b = self.pop_stackref();
+        let a = self.pop_stackref();
         let cmp_op: PyComparisonOp = op.into();
         let force_bool = u32::from(arg) & bytecode::oparg::COMPARE_OP_BOOL_MASK != 0;
 
@@ -7320,7 +9864,7 @@ impl ExecutingFrame<'_> {
             return Ok(None);
         }
 
-        let value = a.rich_compare(b, cmp_op, vm)?;
+        let value = a.rich_compare(b.as_object(), cmp_op, vm)?;
         let value = if force_bool {
             let bool_val = value.try_to_bool(vm)?;
             vm.ctx.new_bool(bool_val).into()
@@ -7328,6 +9872,67 @@ impl ExecutingFrame<'_> {
             value
         };
         self.push_value(value);
+        Ok(None)
+    }
+
+    /// Store an instance attribute through the cached entry index at
+    /// `cache_base + 3`, refreshing the cache when the hint missed.
+    fn store_attr_dict_hinted(
+        &mut self,
+        dict: &Py<PyDict>,
+        attr_name: &'static PyStrInterned,
+        value: PyObjectRef,
+        cache_base: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let hint = self.code.instructions.read_cache_u16(cache_base + 3);
+        if let Some(new_hint) = dict.set_item_with_hint(attr_name, hint, value, vm)? {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base + 3, new_hint);
+            }
+        }
+        Ok(())
+    }
+
+    /// Shadow check for method/nondescriptor loads: return the instance
+    /// attribute shadowing the cached class attr, or `None` if not shadowed.
+    ///
+    /// A keys-version stamp of the instance dict is kept in the pointer cache
+    /// at `cache_base + 3`. While the dict reports the same stamp, its key
+    /// set is unchanged since the name was last verified absent, so the probe
+    /// is skipped. On a verified-absent probe the current stamp is recorded
+    /// for the next execution.
+    fn shadowing_instance_attr(
+        &self,
+        cache_base: usize,
+        attr_name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
+        // Take the stamp check first, on a borrowed dict: a hit is the whole
+        // fast path, and cloning the dict for it would cost more than the
+        // comparison it exists to make.
+        let stamped = self.top_value().with_instance_dict(|dict| {
+            dict.is_some_and(|d| stamp != 0 && stamp == d.keys_version() as usize)
+        });
+        if stamped {
+            return Ok(None);
+        }
+        let Some(dict) = self.top_value().dict() else {
+            return Ok(None);
+        };
+        // Take the stamp before probing so it attests the probed key set.
+        let stamp = dict.assign_keys_version(vm);
+        if let Some(value) = dict.get_item_opt(attr_name, vm)? {
+            return Ok(Some(value));
+        }
+        unsafe {
+            self.code
+                .instructions
+                .write_cache_ptr(cache_base + 3, stamp as usize);
+        }
         Ok(None)
     }
 
@@ -7481,22 +10086,65 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Only specialize if getattro is the default (PyBaseObject::getattro)
-        let is_default_getattro = cls
-            .slots
-            .getattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
-        if !is_default_getattro {
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
+        // Capture the version before inspecting getattro and the MRO so a
+        // concurrently installed __getattribute__/__getattr__ invalidates the
+        // version this specialization is cached against.
+        let type_version = cls.version_for_specialization(_vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
             }
-            if type_version != 0
-                && !oparg.is_method()
+            return;
+        }
+
+        let attr_name = self.code.names[oparg.name_idx() as usize];
+
+        // Match CPython: only specialize module attribute loads when the
+        // current module dict has no __getattr__ override and the attribute is
+        // already present. Modules have their own getattro, so this comes first.
+        // The module type must not define the name either, so reading the dict
+        // entry directly gives what the generic lookup would.
+        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
+            let module_dict = module.dict();
+            if cls.get_attr(attr_name).is_none()
+                && let Some((keys_version, index)) = module_dict.module_attr_cache(attr_name, _vm)
+            {
+                // Keep module guards atomic and separate from every other LOAD_ATTR
+                // payload: a concurrent reader may already be executing another kind.
+                unsafe {
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 6, type_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 7, keys_version as usize);
+                    self.code
+                        .instructions
+                        .write_cache_ptr(cache_base + 8, usize::from(index));
+                }
+                self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
+            } else {
+                self.cooldown_adaptive_at(cache_base);
+            }
+            return;
+        }
+
+        // Only specialize if getattro is the default (PyBaseObject::getattro)
+        let is_default_getattro = cls.slots().getattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::getattro as crate::types::GetattroFunc)
+        });
+        if !is_default_getattro {
+            let getattribute = cls.get_attr(identifier!(_vm, __getattribute__));
+            if !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
                 && cls.get_attr(identifier!(_vm, __getattr__)).is_none()
-                && let Some(getattribute) = cls.get_attr(identifier!(_vm, __getattribute__))
+                && let Some(getattribute) = getattribute
                 && let Some(func) = getattribute.downcast_ref_if_exact::<PyFunction>(_vm)
                 && func.can_specialize_call(2)
             {
@@ -7528,59 +10176,8 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
-        if type_version == 0 {
-            // Version counter overflow — backoff to avoid re-attempting every execution
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
-
-        let attr_name = self.code.names[oparg.name_idx() as usize];
-
-        // Match CPython: only specialize module attribute loads when the
-        // current module dict has no __getattr__ override and the attribute is
-        // already present.
-        if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
-            let module_dict = module.dict();
-            match (
-                module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
-                module_dict.get_item_opt(attr_name, _vm),
-            ) {
-                (Ok(None), Ok(Some(_))) => {
-                    unsafe {
-                        self.code
-                            .instructions
-                            .write_cache_u32(cache_base + 1, type_version);
-                    }
-                    self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrModule);
-                }
-                (Ok(_), Ok(_)) => self.cooldown_adaptive_at(cache_base),
-                _ => unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                },
-            }
-            return;
-        }
-
-        // Look up attr in class via MRO
         let cls_attr = cls.get_attr(attr_name);
-        let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
+        let class_has_dict = cls.slots().flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
             // Method specialization
@@ -7619,18 +10216,24 @@ impl ExecutingFrame<'_> {
             // Regular attribute access
             let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
                 let descr_cls = descr.class();
-                descr_cls.slots.descr_get.load().is_some()
-                    && descr_cls.slots.descr_set.load().is_some()
+                descr_cls.slots().descr_get.load().is_some()
+                    && descr_cls.slots().descr_set.load().is_some()
             });
             let has_descr_get = cls_attr
                 .as_ref()
-                .is_some_and(|descr| descr.class().slots.descr_get.load().is_some());
+                .is_some_and(|descr| descr.class().slots().descr_get.load().is_some());
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
+                // The slot offset only means anything on the layout the
+                // descriptor was defined for; the specialized instruction
+                // guards on the type version alone, so what descr_get()
+                // checks on every access has to be checked here instead.
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
-                    && let MemberGetter::Offset(offset) = member_descr.member.getter
+                    && let Some(offset) = member_descr.slot_offset()
+                    && !member_descr.member.audit_read()
+                    && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
                         self.code
@@ -7691,10 +10294,12 @@ impl ExecutingFrame<'_> {
                     // attribute is missing on both the class and the current
                     // instance, keep the generic opcode and just enter
                     // cooldown instead of specializing a repeated miss path.
-                    let has_instance_attr = if let Some(dict) = obj.dict() {
-                        match dict.get_item_opt(attr_name, _vm) {
-                            Ok(Some(_)) => true,
-                            Ok(None) => false,
+                    // A present attribute always specializes; when no entry
+                    // index is representable the hint degrades to 0 and the
+                    // handler simply keeps taking its full-probe fallback.
+                    let instance_attr_hint = if let Some(dict) = obj.dict() {
+                        match dict.get_item_opt_refresh_hint(attr_name, 0, _vm) {
+                            Ok(present) => present.map(|(_, refreshed)| refreshed.unwrap_or(0)),
                             Err(_) => {
                                 unsafe {
                                     self.code.instructions.write_adaptive_counter(
@@ -7710,13 +10315,14 @@ impl ExecutingFrame<'_> {
                             }
                         }
                     } else {
-                        false
+                        None
                     };
-                    if has_instance_attr {
+                    if let Some(hint) = instance_attr_hint {
                         unsafe {
                             self.code
                                 .instructions
                                 .write_cache_u32(cache_base + 1, type_version);
+                            self.code.instructions.write_cache_u16(cache_base + 3, hint);
                         }
                         self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrWithHint);
                     } else {
@@ -7750,32 +10356,14 @@ impl ExecutingFrame<'_> {
     ) {
         let obj = self.top_value();
         let owner_type = obj.downcast_ref::<PyType>().unwrap();
-
-        // Get or assign type version for the type object itself
-        let mut type_version = owner_type.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = owner_type.assign_version_tag();
-        }
-        if type_version == 0 {
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
-
         let attr_name = self.code.names[oparg.name_idx() as usize];
 
         // Check metaclass: ensure no data descriptor on metaclass for this name
         let mcl = obj.class();
-        let mcl_attr = mcl.get_attr(attr_name);
+        let (mcl_attr, mut metaclass_version) = mcl.lookup_ref_and_version_interned(attr_name, _vm);
         if let Some(ref attr) = mcl_attr {
             let attr_class = attr.class();
-            if attr_class.slots.descr_set.load().is_some() {
+            if attr_class.slots().descr_set.load().is_some() {
                 // Data descriptor on metaclass — can't specialize
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7788,12 +10376,7 @@ impl ExecutingFrame<'_> {
                 return;
             }
         }
-        let mut metaclass_version = 0;
         if !mcl.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            metaclass_version = mcl.tp_version_tag.load(Acquire);
-            if metaclass_version == 0 {
-                metaclass_version = mcl.assign_version_tag();
-            }
             if metaclass_version == 0 {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
@@ -7805,10 +10388,22 @@ impl ExecutingFrame<'_> {
                 }
                 return;
             }
+        } else {
+            metaclass_version = 0;
         }
 
-        // Look up attr in the type's own MRO
-        let cls_attr = owner_type.get_attr(attr_name);
+        let (cls_attr, type_version) = owner_type.lookup_ref_and_version_interned(attr_name, _vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
         if let Some(ref descr) = cls_attr {
             let descr_class = descr.class();
             let has_descr_get = descr_class.slots.descr_get.load().is_some();
@@ -7850,25 +10445,28 @@ impl ExecutingFrame<'_> {
 
     fn load_attr_slow(&mut self, vm: &VirtualMachine, oparg: LoadAttr) -> FrameResult {
         let attr_name = self.code.names[oparg.name_idx() as usize];
-        let parent = self.pop_value();
 
-        if oparg.is_method() {
-            // Method call: push [method, self_or_null]
-            let method = PyMethod::get(parent.clone(), attr_name, vm)?;
-            match method {
-                PyMethod::Function { target: _, func } => {
-                    self.push_value(func);
-                    self.push_value(parent);
-                }
-                PyMethod::Attribute(val) => {
-                    self.push_value(val);
-                    self.push_null();
-                }
-            }
-        } else {
-            // Regular attribute access
+        if !oparg.is_method() {
+            // Regular attribute access: `get_attr` reads through the receiver,
+            // so a borrowed entry never has to become an owned one.
+            let parent = self.pop_stackref();
             let obj = parent.get_attr(attr_name, vm)?;
             self.push_value(obj);
+            return Ok(None);
+        }
+
+        // Method call: push [method, self_or_null]. `PyMethod::get` binds the
+        // receiver, so this path does need it owned.
+        let parent = self.pop_value();
+        match PyMethod::get(parent.clone(), attr_name, vm)? {
+            PyMethod::Function { target: _, func } => {
+                self.push_value(func);
+                self.push_value(parent);
+            }
+            PyMethod::Attribute(val) => {
+                self.push_value(val);
+                self.push_null();
+            }
         }
         Ok(None)
     }
@@ -7980,26 +10578,31 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
                     let cls = a.class();
-                    if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
+                    // Check the cheap gates before the __getitem__ lookup, which
+                    // takes the global type lock and may allocate a version tag.
+                    if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
-                        && let Some(_getitem) = cls.get_attr(identifier!(vm, __getitem__))
-                        && let Some(func) = _getitem.downcast_ref_if_exact::<PyFunction>(vm)
-                        && func.can_specialize_call(2)
                     {
-                        let mut type_version = cls.tp_version_tag.load(Acquire);
-                        if type_version == 0 {
-                            type_version = cls.assign_version_tag();
-                        }
-                        if type_version != 0 {
-                            if cls.cache_getitem_for_specialization(
+                        let (getitem, type_version) =
+                            cls.lookup_ref_and_version_interned(identifier!(vm, __getitem__), vm);
+                        if type_version != 0
+                            && let Some(getitem) = getitem
+                            && let Some(func) = getitem.downcast_ref_if_exact::<PyFunction>(vm)
+                            && func.can_specialize_call(2)
+                            && cls.cache_getitem_for_specialization(
                                 func.to_owned(),
                                 type_version,
                                 vm,
-                            ) {
-                                Some(Instruction::BinaryOpSubscrGetitem)
-                            } else {
-                                None
+                            )
+                        {
+                            // Record the type version so the specialized handler
+                            // can revalidate before using the cached __getitem__.
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .write_cache_u32(cache_base + 1, type_version);
                             }
+                            Some(Instruction::BinaryOpSubscrGetitem)
                         } else {
                             None
                         }
@@ -8169,7 +10772,7 @@ impl ExecutingFrame<'_> {
     fn execute_binary_op_int(
         &mut self,
         vm: &VirtualMachine,
-        op: impl FnOnce(&BigInt, &BigInt) -> BigInt,
+        op: impl FnOnce(&Py<PyInt>, &Py<PyInt>, &VirtualMachine) -> PyObjectRef,
         deopt_op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b = self.top_value();
@@ -8178,10 +10781,10 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            let result = op(a_int.as_bigint(), b_int.as_bigint());
-            self.pop_value();
-            self.pop_value();
-            self.push_value(vm.ctx.new_bigint(&result).into());
+            let result = op(a_int, b_int, vm);
+            self.pop_stackref();
+            self.pop_stackref();
+            self.push_value(result);
             Ok(None)
         } else {
             self.execute_bin_op(vm, deopt_op)
@@ -8204,8 +10807,8 @@ impl ExecutingFrame<'_> {
             b.downcast_ref_if_exact::<PyFloat>(vm),
         ) {
             let result = op(a_f.to_f64(), b_f.to_f64());
-            self.pop_value();
-            self.pop_value();
+            self.pop_stackref();
+            self.pop_stackref();
             self.push_value(vm.ctx.new_float(result).into());
             Ok(None)
         } else {
@@ -8237,7 +10840,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -8300,7 +10903,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -8486,7 +11089,7 @@ impl ExecutingFrame<'_> {
 
         // type/str/tuple(x) and class-call specializations
         if let Some(cls) = callable.downcast_ref::<PyType>() {
-            if cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            if cls.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
                 if !self_or_null_is_some && nargs == 1 {
                     let new_op = if callable.is(&vm.ctx.types.type_type.as_object()) {
                         Some(Instruction::CallType1)
@@ -8502,7 +11105,7 @@ impl ExecutingFrame<'_> {
                         return;
                     }
                 }
-                if cls.slots.vectorcall.load().is_some() {
+                if cls.slots().vectorcall.load().is_some() {
                     self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                     return;
                 }
@@ -8518,22 +11121,21 @@ impl ExecutingFrame<'_> {
             }
 
             // CallAllocAndEnterInit: heap type with default __new__
-            if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                let object_new = vm.ctx.types.object_type.slots.new.load();
-                let cls_new = cls.slots.new.load();
-                let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
-                let cls_alloc = cls.slots.alloc.load();
+            if !self_or_null_is_some && cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                // Capture the version before inspecting tp_new/tp_alloc so a
+                // concurrently installed __new__ invalidates the version this
+                // specialization is cached against.
+                let type_version = cls.version_for_specialization(vm);
+                let object_new = vm.ctx.types.object_type.slots().new.load();
+                let cls_new = cls.slots().new.load();
+                let object_alloc = vm.ctx.types.object_type.slots().alloc.load();
+                let cls_alloc = cls.slots().alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
-                    && cls_new_fn as usize == obj_new_fn as usize
-                    && cls_alloc_fn as usize == obj_alloc_fn as usize
+                    && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
+                    && crate::types::fn_addr(cls_alloc_fn) == crate::types::fn_addr(obj_alloc_fn)
                 {
-                    let init = cls.get_attr(identifier!(vm, __init__));
-                    let mut version = cls.tp_version_tag.load(Acquire);
-                    if version == 0 {
-                        version = cls.assign_version_tag();
-                    }
-                    if version == 0 {
+                    if type_version == 0 {
                         unsafe {
                             self.code.instructions.write_adaptive_counter(
                                 cache_base,
@@ -8544,15 +11146,17 @@ impl ExecutingFrame<'_> {
                         }
                         return;
                     }
+                    let init = cls.get_attr(identifier!(vm, __init__));
                     if let Some(init) = init
                         && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                        && init_func.is_simple_for_call_specialization()
-                        && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
+                        && init_func.can_specialize_call(nargs + 1)
+                        && !init_func.is_generator_like()
+                        && cls.cache_init_for_specialization(init_func.to_owned(), type_version, vm)
                     {
                         unsafe {
                             self.code
                                 .instructions
-                                .write_cache_u32(cache_base + 1, version);
+                                .write_cache_u32(cache_base + 1, type_version);
                         }
                         self.specialize_at(
                             instr_idx,
@@ -8594,7 +11198,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -8645,7 +11249,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -8788,8 +11392,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if specialization_compact_int_value(a_int, vm).is_some()
-                && specialization_compact_int_value(b_int, vm).is_some()
+            if specialization_compact_int_value(a_int).is_some()
+                && specialization_compact_int_value(b_int).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -8820,6 +11424,89 @@ impl ExecutingFrame<'_> {
             .into()
     }
 
+    /// Execute an immediately following conditional jump without materializing
+    /// the comparison result as a Python bool. This is the adaptive interpreter
+    /// equivalent of keeping the result virtual across the two-opcode trace.
+    #[inline]
+    /// A `POP_JUMP_IF_TRUE`/`POP_JUMP_IF_FALSE` sitting immediately after the
+    /// running instruction, resolved so the boolean's producer can branch on it
+    /// without the jump being dispatched at all.
+    ///
+    /// `None` when the successor is anything else -- its instrumented form
+    /// included, so `sys.monitoring` branch events still fire -- or while
+    /// tracing, where the dispatch loop has to see every instruction to report
+    /// it.
+    fn fused_bool_jump(&self, caches: usize, vm: &VirtualMachine) -> Option<FusedBoolJump> {
+        if self.specialization_eval_frame_active(vm) {
+            return None;
+        }
+
+        let jump_idx = self.lasti() as usize + caches;
+        if jump_idx >= self.code.instructions.len() {
+            return None;
+        }
+
+        // One Acquire load for opcode and delta together. A jump needing
+        // EXTENDED_ARG has that prefix at `jump_idx` instead, so the match
+        // rejects it and this single byte is the whole delta.
+        let jump = self.code.instructions.read_unit(jump_idx);
+        let jump_on = match jump.op {
+            Instruction::PopJumpIfFalse { .. } => false,
+            Instruction::PopJumpIfTrue { .. } => true,
+            _ => return None,
+        };
+        debug_assert_eq!(jump.op.cache_entries(), 1);
+        let fallthrough = jump_idx as u32 + 2;
+        Some(FusedBoolJump {
+            jump_on,
+            taken: fallthrough + jump.arg.as_u32(),
+            fallthrough,
+        })
+    }
+
+    /// Land on the edge `result` selects, stepping over the fall-through
+    /// `NOT_TAKEN` marker. The marker is only probed when the branch is not
+    /// taken, keeping the taken edge to a single instruction-array read.
+    #[inline]
+    fn take_fused_bool_jump(&mut self, jump: FusedBoolJump, result: bool) {
+        let target = if result == jump.jump_on {
+            jump.taken
+        } else {
+            self.not_taken_skipped(jump.fallthrough)
+        };
+        self.lasti.store(target, Relaxed);
+    }
+
+    /// Push `result` as the running instruction's boolean output, or branch on it
+    /// directly when a `POP_JUMP_IF_*` follows. See [`Self::fused_bool_jump`].
+    #[inline]
+    fn push_bool_or_fused_jump(&mut self, caches: usize, result: bool, vm: &VirtualMachine) {
+        match self.fused_bool_jump(caches, vm) {
+            Some(jump) => self.take_fused_bool_jump(jump, result),
+            None => self.push_value(vm.ctx.new_bool(result).into()),
+        }
+    }
+
+    /// `next`, advanced past a `NOT_TAKEN` marker sitting there.
+    ///
+    /// The fused-jump paths land directly on the successor, so they step over
+    /// the marker themselves rather than going through
+    /// [`Self::skip_fallthrough_not_taken`]; the tracing guard is the caller's,
+    /// since fusion is already disabled while tracing.
+    #[inline]
+    fn not_taken_skipped(&self, next: u32) -> u32 {
+        if (next as usize) < self.code.instructions.len()
+            && matches!(
+                self.code.instructions.read_op(next as usize),
+                Instruction::NotTaken
+            )
+        {
+            next + 1
+        } else {
+            next
+        }
+    }
+
     /// Recover the BinaryOperator from the instruction arg byte.
     /// `replace_op` preserves the arg byte, so the original op remains accessible.
     fn binary_op_from_arg(&self, arg: bytecode::OpArg) -> bytecode::BinaryOperator {
@@ -8846,34 +11533,35 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
-        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            && cls.slots.as_number.boolean.load().is_none()
-            && cls.slots.as_mapping.length.load().is_none()
-            && cls.slots.as_sequence.length.load().is_none()
-        {
-            // Cache type version for ToBoolAlwaysTrue guard
-            let mut type_version = cls.tp_version_tag.load(Acquire);
-            if type_version == 0 {
-                type_version = cls.assign_version_tag();
-            }
-            if type_version != 0 {
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, type_version);
+        } else if cls.slots().flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            // Capture the version before inspecting the bool/len slots so a
+            // concurrently installed __bool__/__len__ invalidates the version
+            // the ToBoolAlwaysTrue guard is cached against.
+            let type_version = cls.version_for_specialization(vm);
+            let has_bool_or_len = cls.slots().as_number.boolean.load().is_some()
+                || cls.slots().as_mapping.length.load().is_some()
+                || cls.slots().as_sequence.length.load().is_some();
+            if !has_bool_or_len {
+                if type_version != 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                    }
+                    self.specialize_at(instr_idx, cache_base, Instruction::ToBoolAlwaysTrue);
+                } else {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
                 }
-                self.specialize_at(instr_idx, cache_base, Instruction::ToBoolAlwaysTrue);
-            } else {
-                unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
+                return;
             }
-            return;
+            None
         } else {
             None
         };
@@ -8961,6 +11649,138 @@ impl ExecutingFrame<'_> {
             >= vm.recursion_limit.get()
     }
 
+    /// Prepare a callee frame on the datastack for a TailCall.
+    /// Pops args, self_or_null, and callable from the caller's stack,
+    /// builds the callee InterpreterFrame, and stores its pointer in
+    /// `vm.pending_tailcall_frame`.
+    ///
+    /// The callable must be at stack position `nargs + 1` (already validated).
+    fn tailcall_prepare_frame(
+        &mut self,
+        nargs: u32,
+        self_or_null_is_some: bool,
+        vm: &VirtualMachine,
+    ) {
+        let base = usize::from(self_or_null_is_some);
+        let effective_nargs = nargs as usize + base;
+
+        // Peek at the callable (still on the stack) to build the callee
+        // frame. The callable stays on the caller's stack until we're done
+        // constructing the callee.
+        let callable = self.nth_value(nargs + 1);
+        let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
+
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = unsafe {
+            // SAFETY: the callable stays on the caller's stack until it is
+            // moved into `pending_tailcall_owner`, which keeps `func` alive
+            // while this frame runs.
+            InterpreterFrame::new_on_datastack(
+                code,
+                &func.globals,
+                &func.builtins,
+                Some(func.as_object()),
+                locals,
+                func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
+
+        // Move args directly from the caller's stack into callee fastlocals,
+        // avoiding an intermediate buffer.
+        {
+            let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+            for (dst, arg) in fastlocals[base..effective_nargs]
+                .iter_mut()
+                .zip(self.pop_multiple(nargs as usize))
+            {
+                *dst = Some(arg);
+            }
+            let self_or_null = self.pop_value_opt();
+            debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+            if self_or_null.is_some() {
+                fastlocals[0] = self_or_null;
+            }
+        }
+
+        // Pop the callable and transfer ownership to the trampoline. This one
+        // reference keeps every field borrowed by the callee frame alive.
+        let callable = self.pop_value();
+        vm.set_pending_tailcall_owner(callable);
+
+        vm.set_pending_tailcall(callee_iframe);
+    }
+
+    /// Prepare a callee frame for a bound method TailCall.
+    /// Pops args, self_or_null (null), and callable from the caller's stack,
+    /// builds the callee InterpreterFrame with bound_self prepended, and
+    /// stores its pointer in `vm.pending_tailcall_frame`.
+    fn tailcall_prepare_bound_method_frame(
+        &mut self,
+        nargs: u32,
+        bound_function: PyObjectRef,
+        bound_self: PyObjectRef,
+        vm: &VirtualMachine,
+    ) {
+        let effective_nargs = nargs as usize + 1; // +1 for bound_self
+
+        let func = bound_function
+            .downcast_ref_if_exact::<PyFunction>(vm)
+            .unwrap();
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = unsafe {
+            // SAFETY: `bound_function` is held on this stack until the
+            // callee frame is stored as a pending tailcall, and `func`
+            // is borrowed from it.
+            InterpreterFrame::new_on_datastack(
+                code,
+                &func.globals,
+                &func.builtins,
+                Some(func.as_object()),
+                locals,
+                func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                vm,
+            )
+        };
+
+        // Move args directly from the caller's stack into callee fastlocals.
+        let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+        for (dst, arg) in fastlocals[1..effective_nargs]
+            .iter_mut()
+            .zip(self.pop_multiple(nargs as usize))
+        {
+            *dst = Some(arg);
+        }
+        self.pop_stackref_opt(); // null (self_or_null)
+        self.pop_stackref(); // callable (bound method)
+        fastlocals[0] = Some(bound_self);
+
+        // The function owns every field borrowed by the callee frame.
+        // bound_self is owned by fastlocals; the bound-method object itself is
+        // no longer needed and was dropped above, matching the recursive path.
+        vm.set_pending_tailcall_owner(bound_function);
+
+        vm.set_pending_tailcall(callee_iframe);
+    }
+
     #[inline]
     fn for_iter_has_end_for_shape(&self, instr_idx: usize, jump_delta: u32) -> bool {
         let target_idx = instr_idx
@@ -9008,7 +11828,7 @@ impl ExecutingFrame<'_> {
             return;
         }
         let name = self.code.names[(oparg >> 1) as usize];
-        let Ok(globals_version) = u16::try_from(self.globals.version()) else {
+        let Ok(globals_version @ 1..) = u16::try_from(self.globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -9036,7 +11856,7 @@ impl ExecutingFrame<'_> {
 
         if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
             && let Ok(Some(builtins_hint)) = builtins_dict.hint_for_key(name, vm)
-            && let Ok(builtins_version) = u16::try_from(builtins_dict.version())
+            && let Ok(builtins_version @ 1..) = u16::try_from(builtins_dict.assign_keys_version(vm))
         {
             unsafe {
                 self.code
@@ -9134,7 +11954,7 @@ impl ExecutingFrame<'_> {
         }
         let obj = self.top_value();
         let new_op = if let Some(tuple) = obj.downcast_ref_if_exact::<PyTuple>(vm) {
-            if tuple.len() != expected_count as usize {
+            if tuple.as_slice().len() != expected_count as usize {
                 None
             } else if expected_count == 2 {
                 Some(Instruction::UnpackSequenceTwoTuple)
@@ -9171,12 +11991,27 @@ impl ExecutingFrame<'_> {
         let owner = self.top_value();
         let cls = owner.class();
 
+        // Capture the version before inspecting the setattro slot so a
+        // concurrently installed __setattr__ invalidates the version this
+        // specialization is cached against.
+        let type_version = cls.version_for_specialization(vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
+
         // Only specialize if setattr is the default (generic_setattr)
-        let is_default_setattr = cls
-            .slots
-            .setattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::slot_setattro as *const () as usize);
+        let is_default_setattr = cls.slots().setattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::slot_setattro as crate::types::SetattroFunc)
+        });
         if !is_default_setattr {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -9189,36 +12024,24 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        // Get or assign type version
-        let mut type_version = cls.tp_version_tag.load(Acquire);
-        if type_version == 0 {
-            type_version = cls.assign_version_tag();
-        }
-        if type_version == 0 {
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
-
-        // Check for data descriptor
         let attr_name = self.code.names[attr_idx as usize];
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
-            descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
+            descr_cls.slots().descr_get.load().is_some()
+                && descr_cls.slots().descr_set.load().is_some()
         });
 
         if has_data_descr {
             // Check for member descriptor (slot access)
+            // As in the load specialization, the offset is only valid for
+            // instances of the type the descriptor belongs to.
             if let Some(ref descr) = cls_attr
                 && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
-                && let MemberGetter::Offset(offset) = member_descr.member.getter
+                && let Some(offset) = member_descr
+                    .slot_offset()
+                    .filter(|_| !member_descr.member.readonly())
+                && cls.fast_issubclass(&member_descr.common.typ)
             {
                 unsafe {
                     self.code
@@ -9240,9 +12063,8 @@ impl ExecutingFrame<'_> {
                 }
             }
         } else if let Some(dict) = owner.dict() {
-            let use_hint = match dict.get_item_opt(attr_name, vm) {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
+            let hint = match dict.hint_for_key(attr_name, vm) {
+                Ok(hint) => hint,
                 Err(_) => {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
@@ -9259,11 +12081,14 @@ impl ExecutingFrame<'_> {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, type_version);
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base + 3, hint.unwrap_or(0));
             }
             self.specialize_at(
                 instr_idx,
                 cache_base,
-                if use_hint {
+                if hint.is_some() {
                     Instruction::StoreAttrWithHint
                 } else {
                     Instruction::StoreAttrInstanceValue
@@ -9321,7 +12146,7 @@ impl ExecutingFrame<'_> {
 
     fn store_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize];
-        let parent = self.pop_value();
+        let parent = self.pop_stackref();
         let value = self.pop_value();
         parent.set_attr(attr_name, value, vm)?;
         Ok(None)
@@ -9329,14 +12154,14 @@ impl ExecutingFrame<'_> {
 
     fn delete_attr(&mut self, vm: &VirtualMachine, attr: bytecode::NameIdx) -> FrameResult {
         let attr_name = self.code.names[attr as usize];
-        let parent = self.pop_value();
+        let parent = self.pop_stackref();
         parent.del_attr(attr_name, vm)?;
         Ok(None)
     }
 
     // Block stack functions removed - exception table handles all exception/cleanup
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn push_stackref_opt(&mut self, obj: Option<PyStackRef>) {
         match self.localsplus.stack_try_push(obj) {
@@ -9345,13 +12170,13 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller] // not a real track_caller but push_value is less useful for debugging
     fn push_value_opt(&mut self, obj: Option<PyObjectRef>) {
         self.push_stackref_opt(obj.map(PyStackRef::new_owned));
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn push_value(&mut self, obj: PyObjectRef) {
         self.push_stackref_opt(Some(PyStackRef::new_owned(obj)));
@@ -9364,18 +12189,54 @@ impl ExecutingFrame<'_> {
     /// The compiler guarantees consumption within the same basic block.
     #[inline]
     #[track_caller]
-    #[allow(dead_code)]
     unsafe fn push_borrowed(&mut self, obj: &PyObject) {
         self.push_stackref_opt(Some(unsafe { PyStackRef::new_borrowed(obj) }));
     }
 
-    #[inline]
+    /// Push the fastlocals slot `idx` for a `LOAD_FAST_BORROW`.
+    ///
+    /// With [`BORROW_LOCAL_LOADS`] on this is a borrow: the slot holds the
+    /// strong count and codegen has proved the entry is consumed before
+    /// anything can release that slot, so the push and its matching pop cost
+    /// no atomic traffic at all. With the flag off it is a plain clone, which
+    /// is what every `LOAD_FAST` does.
+    #[inline(always)]
+    fn push_local(&mut self, idx: usize, vm: &VirtualMachine) -> PyResult<()> {
+        #[cold]
+        #[inline(never)]
+        fn unbound(varname: &'static PyStrInterned, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            vm.new_unbound_local_error(format!(
+                "local variable '{varname}' referenced before assignment"
+            ))
+        }
+        if BORROW_LOCAL_LOADS {
+            // Take the address out of the slot before the push needs `&mut
+            // self`; the borrow of `localsplus` ends with this statement.
+            let obj: *const PyObject = match self.localsplus.fastlocals()[idx].as_ref() {
+                Some(obj) => obj.as_object(),
+                None => return Err(unbound(self.code.varnames[idx], vm)),
+            };
+            // SAFETY: the fastlocals slot owns a strong count on `obj` and,
+            // per the borrow invariant on `PyStackRef`, cannot release it
+            // before this entry is popped.
+            unsafe { self.push_borrowed(&*obj) };
+        } else {
+            let obj = match self.localsplus.fastlocals()[idx].clone() {
+                Some(obj) => obj,
+                None => return Err(unbound(self.code.varnames[idx], vm)),
+            };
+            self.push_value(obj);
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
     fn push_null(&mut self) {
         self.push_stackref_opt(None);
     }
 
     /// Pop a raw stackref from the stack, returning None if the stack slot is NULL.
-    #[inline]
+    #[inline(always)]
     fn pop_stackref_opt(&mut self) -> Option<PyStackRef> {
         if self.localsplus.stack_is_empty() {
             self.fatal("tried to pop from empty stack");
@@ -9384,7 +12245,7 @@ impl ExecutingFrame<'_> {
     }
 
     /// Pop a raw stackref from the stack. Panics if NULL.
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn pop_stackref(&mut self) -> PyStackRef {
         expect_unchecked(
@@ -9395,12 +12256,12 @@ impl ExecutingFrame<'_> {
 
     /// Pop a value from the stack, returning None if the stack slot is NULL.
     /// Automatically promotes borrowed refs to owned.
-    #[inline]
+    #[inline(always)]
     fn pop_value_opt(&mut self) -> Option<PyObjectRef> {
         self.pop_stackref_opt().map(|sr| sr.to_pyobj())
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn pop_value(&mut self) -> PyObjectRef {
         self.pop_stackref().to_pyobj()
@@ -9457,10 +12318,10 @@ impl ExecutingFrame<'_> {
                     .downcast()
                     .map_err(|_| vm.new_type_error("TypeAlias expects a tuple argument"))?;
 
-                if tuple.len() != 3 {
+                if tuple.as_slice().len() != 3 {
                     return Err(vm.new_type_error(format!(
                         "TypeAlias expects exactly 3 arguments, got {}",
-                        tuple.len()
+                        tuple.as_slice().len()
                     )));
                 }
 
@@ -9507,8 +12368,8 @@ impl ExecutingFrame<'_> {
                     // see in tracebacks (suppress_context becomes true), but
                     // assertions that inspect __context__ also expect it set.
                     let cause: Option<PyBaseExceptionRef> = arg.downcast().ok();
-                    err.set___context__(cause.clone());
-                    err.set___cause__(cause);
+                    err.set_context(cause.clone());
+                    err.set_cause(cause);
                     Ok(err.into())
                 } else {
                     // Not StopIteration, pass through for RERAISE
@@ -9561,9 +12422,52 @@ impl ExecutingFrame<'_> {
                 // arg1 = orig (original exception)
                 // arg2 = excs (list of exceptions raised/reraised in except* blocks)
                 // Returns: exception to reraise, or None if nothing to reraise
-                crate::exceptions::prep_reraise_star(arg1, arg2, vm)
+                crate::exceptions::prep_reraise_star(&arg1, &arg2, vm)
             }
         }
+    }
+
+    /// Take a call's `[self_or_null, arg1, ..., argN]` off the stack as one
+    /// vectorcall argument list, along with the callable underneath them.
+    ///
+    /// The stack already holds the arguments in vectorcall order, so filling a
+    /// single vector by index costs one allocation — collecting the positional
+    /// arguments first and then pushing `self` in front of them costs two plus
+    /// a copy.
+    fn take_call_args(&mut self, nargs: usize) -> (PyObjectRef, Vec<PyObjectRef>) {
+        let stack_len = self.localsplus.stack_len();
+        debug_assert!(
+            stack_len >= nargs + 2,
+            "CALL stack underflow: need callable + self_or_null + {nargs} args, have {stack_len}"
+        );
+        let callable_idx = stack_len - nargs - 2;
+        let self_or_null_idx = callable_idx + 1;
+
+        let self_or_null = self
+            .localsplus
+            .stack_index_mut(self_or_null_idx)
+            .take()
+            .map(|sr| sr.to_pyobj());
+        let mut args = Vec::with_capacity(nargs + usize::from(self_or_null.is_some()));
+        args.extend(self_or_null);
+        for stack_idx in self_or_null_idx + 1..stack_len {
+            let val = self
+                .localsplus
+                .stack_index_mut(stack_idx)
+                .take()
+                .unwrap()
+                .to_pyobj();
+            args.push(val);
+        }
+
+        let callable = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
+        (callable, args)
     }
 
     /// Pop multiple values from the stack. Panics if any slot is NULL.
@@ -9595,7 +12499,7 @@ impl ExecutingFrame<'_> {
         slot.map(|sr| sr.to_pyobj())
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn top_value(&self) -> &PyObject {
         match self.localsplus.stack_last() {
@@ -9605,7 +12509,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
         let idx = self.localsplus.stack_len() - depth as usize - 1;
@@ -9624,11 +12528,13 @@ impl ExecutingFrame<'_> {
     }
 }
 
-impl fmt::Debug for Frame {
+impl fmt::Debug for FrameObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: Debug is best-effort; concurrent mutation is unlikely
         // and would only affect debug output.
-        let iframe = unsafe { &*self.iframe.get() };
+        let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
+            return f.write_str("FrameObject Object { cleared }");
+        };
         let stack_str =
             iframe
                 .localsplus
@@ -9651,16 +12557,16 @@ impl fmt::Debug for Frame {
         // TODO: fix this up
         write!(
             f,
-            "Frame Object {{ \n Stack:{}\n Locals initialized:{}\n}}",
+            "FrameObject Object {{ \n Stack:{}\n Locals initialized:{}\n}}",
             stack_str,
-            self.locals.get().is_some()
+            self.iframe().locals.get().is_some()
         )
     }
 }
 
 /// _PyEval_SpecialMethodCanSuggest
 fn special_method_can_suggest(
-    obj: &PyObjectRef,
+    obj: &PyObject,
     oparg: SpecialMethod,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {

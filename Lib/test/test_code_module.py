@@ -128,7 +128,6 @@ class TestInteractiveConsole(unittest.TestCase, MockSys):
         self.assertIsNone(self.sysmod.last_value.__traceback__)
         self.assertIs(self.sysmod.last_exc, self.sysmod.last_value)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UnicodeDecodeError: invalid utf-8 sequence of 1 bytes from index 1\n\nnow exiti [truncated]... doesn't start with 'UnicodeEncodeError: '
     def test_unicode_error(self):
         self.infunc.side_effect = ["'\ud800'", EOFError('Finished')]
         self.console.interact()

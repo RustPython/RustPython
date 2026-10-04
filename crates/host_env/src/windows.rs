@@ -1,28 +1,30 @@
 use rustpython_wtf8::Wtf8;
-use std::{
-    ffi::{OsStr, OsString},
-    io,
-    os::windows::ffi::{OsStrExt, OsStringExt},
-};
-use windows_sys::Win32::{
-    Foundation::{
-        E_POINTER, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FLAGS, ERROR_NO_UNICODE_TRANSLATION,
-        MAX_PATH, S_OK,
-    },
-    Networking::WinSock::WSAStartup,
-    Storage::FileSystem::{
-        GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
-    },
-    System::{
-        Diagnostics::Debug::{
-            FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
-            FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+use std::{ffi::OsStr, io};
+use widestring::{WideCStr, WideCString};
+use windows_sys::{
+    Win32::{
+        Foundation::{
+            E_POINTER, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FLAGS,
+            ERROR_NO_UNICODE_TRANSLATION, MAX_PATH, S_OK,
         },
-        LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
-        SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
-        Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
+        Networking::WinSock::WSAStartup,
+        Storage::FileSystem::{
+            GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+        },
+        System::{
+            Diagnostics::Debug::{
+                FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
+                FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+            },
+            LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+            SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
+            Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
+        },
     },
+    w,
 };
+
+const NUL_ERROR: &str = "embedded null character";
 
 /// _MAX_ENV from Windows CRT stdlib.h - maximum environment variable size
 pub const _MAX_ENV: usize = 32767;
@@ -154,8 +156,8 @@ pub struct WindowsVersionInfo {
 
 fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
     unsafe {
-        let module_name: Vec<u16> = OsStr::new("kernel32.dll").to_wide_with_nul();
-        let h_kernel32 = GetModuleHandleW(module_name.as_ptr()).check_nonnull()?;
+        let module_name = w!("kernel32.dll");
+        let h_kernel32 = GetModuleHandleW(module_name).check_nonnull()?;
 
         let mut kernel32_path = [0u16; MAX_PATH as usize];
         let len = GetModuleFileNameW(
@@ -181,13 +183,13 @@ fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
         )
         .check_win32_bool()?;
 
-        let sub_block: Vec<u16> = OsStr::new("").to_wide_with_nul();
+        let sub_block = w!("");
 
         let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
         let mut ffi_len: u32 = 0;
         VerQueryValueW(
             ver_block.as_ptr() as *const _,
-            sub_block.as_ptr(),
+            sub_block,
             &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
             &mut ffi_len as *mut u32,
         )
@@ -214,18 +216,12 @@ pub fn get_windows_version() -> io::Result<WindowsVersionInfo> {
     }
     .check_win32_bool()?;
 
-    let service_pack = {
-        let (last, _) = version
-            .szCSDVersion
-            .iter()
-            .take_while(|&x| x != &0)
-            .enumerate()
-            .last()
-            .unwrap_or((0, &0));
-        let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-        sp.into_string()
-            .map_err(|_| io::Error::other("service pack is not ASCII"))?
-    };
+    // szCSDVersion is at most 128 wide chars and represented as slice so overflow is impossible.
+    let service_pack = WideCStr::from_slice_truncate(&version.szCSDVersion)
+        .map_err(|_| io::Error::other(NUL_ERROR))?
+        .to_string()
+        .map_err(|_| io::Error::other("service pack is not ASCII"))?;
+
     let (major, minor, build) = get_kernel32_version()?;
     Ok(WindowsVersionInfo {
         major,
@@ -394,54 +390,39 @@ pub fn multi_byte_to_wide(
     }
 }
 
+/// [`OsStr`] to [`WideCString`] for Windows FFI.
+///
+/// Prefer using this trait when encoding bytes to pass to Windows. Interior NULs are memory safe
+/// but possibly a security hazard for FFI.
+///
+/// https://github.com/python/cpython/issues/111656
 pub trait ToWideString {
-    fn to_wide(&self) -> Vec<u16>;
-    fn to_wide_with_nul(&self) -> Vec<u16>;
-    fn to_wide_cstring(&self) -> widestring::WideCString {
-        widestring::WideCString::from_vec_truncate(self.to_wide())
-    }
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error>;
 }
 
 impl<T> ToWideString for T
 where
     T: AsRef<OsStr>,
 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().chain(Some(0)).collect()
-    }
-}
-
-impl ToWideString for OsStr {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        WideCString::from_os_str(self).map_err(|_| io::Error::other(NUL_ERROR))
     }
 }
 
 impl ToWideString for Wtf8 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
-    }
-}
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        // CPython's "test_invalid_cmd" test calls Popen with "pass#\0" as a command line.
+        // That's technically valid since it caps the string, but CString and WideCString differ
+        // in how they handle it. Rust's CString rejects any NULs whereas WideCString accepts a NUL
+        // only if it appears at the end of a buffer.
+        //
+        // For the sake of that behavior, fail on trailing NUL.
+        if self.as_bytes().last().is_some_and(|&b| b == 0) {
+            return Err(io::Error::other(NUL_ERROR));
+        }
 
-pub trait FromWideString
-where
-    Self: Sized,
-{
-    fn from_wides_until_nul(wide: &[u16]) -> Self;
-}
-
-impl FromWideString for OsString {
-    fn from_wides_until_nul(wide: &[u16]) -> Self {
-        let len = wide.iter().take_while(|&&c| c != 0).count();
-        Self::from_wide(&wide[..len])
+        let mut buf = Vec::with_capacity(self.len() + 1);
+        buf.extend(self.encode_wide());
+        WideCString::from_vec(buf).map_err(|_| io::Error::other(NUL_ERROR))
     }
 }

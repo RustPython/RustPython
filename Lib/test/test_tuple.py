@@ -42,7 +42,6 @@ class TupleTest(seq_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             tuple(sequence=())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         class subclass(tuple):
             pass

@@ -16,19 +16,20 @@ pub fn sys_stdout_write_console(data: &str, _vm: &VirtualMachine) -> PyResult<()
     Ok(())
 }
 
-pub fn make_stdout_object(
+pub fn sys_stderr_write_console(data: &str, _vm: &VirtualMachine) -> PyResult<()> {
+    console::error_1(&data.into());
+    Ok(())
+}
+
+pub fn make_stdstream_object(
     vm: &VirtualMachine,
+    name: &'static str,
     write_f: impl Fn(&str, &VirtualMachine) -> PyResult<()> + 'static,
 ) -> PyObjectRef {
     let ctx = &vm.ctx;
     // there's not really any point to storing this class so that there's a consistent type object,
     // we just want a half-decent repr() output
-    let cls = PyRef::leak(py_class!(
-        ctx,
-        "JSStdout",
-        vm.ctx.types.object_type.to_owned(),
-        {}
-    ));
+    let cls = PyRef::leak(py_class!(ctx, name, vm.ctx.types.object_type.to_owned(), {}));
     let write_method = vm.new_method(
         "write",
         cls,

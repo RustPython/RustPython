@@ -1922,7 +1922,6 @@ class TestTokenize(TestCase):
         tokens = list(tokenize.tokenize(BytesIO(source.encode('utf-8')).readline))
         self.assertEqual(tokens, expected_tokens)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'SyntaxError' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_invalid_character_in_fstring_middle(self):
         # See gh-103824
         script = b'''F"""
@@ -2173,6 +2172,7 @@ if 1:
         # Two string literals on the same line
         self.check_roundtrip("'' ''")
 
+    @unittest.skipIf(support.is_resource_enabled("cpu") and __import__("sys").platform == "win32", "TODO: RUSTPYTHON; Timeout after 10 minutes")
     def test_random_files(self):
         # Test roundtrip on random python modules.
         # pass the '-ucpu' option to process the full directory.

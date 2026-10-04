@@ -3,26 +3,37 @@ pub(crate) use _functools::module_def;
 #[pymodule]
 mod _functools {
     use crate::{
-        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
             PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
         },
-        common::lock::PyRwLock,
-        function::{FuncArgs, KwArgs, OptionalOption, PySetterValue},
-        object::AsObject,
+        common::{hash::PyHash, lock::PyRwLock},
+        function::{
+            Either, FuncArgs, KwArgs, OptionalOption, PosArgs, PyComparisonValue, PySetterValue,
+        },
+        object::{AsObject, PyAtomicRef, TraverseFn},
         protocol::PyIter,
         pyclass,
         recursion::ReprGuard,
-        types::{Callable, Constructor, GetDescriptor, Representable},
+        types::{Callable, Constructor, GetDescriptor, PyComparisonOp, Representable},
     };
-    use indexmap::IndexMap;
+    use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use parking_lot::lock_api::RawReentrantMutex as GenericRawReentrantMutex;
     use rustpython_common::wtf8::Wtf8Buf;
+
+    /// Reentrant raw mutex used to guard the LRU cache's lookup/insert critical
+    /// sections. Defined locally (rather than reusing `stdlib::_thread::RawRMutex`)
+    /// because that type is only available when the `threading` feature is enabled,
+    /// while `parking_lot` itself is always a dependency.
+    type RawRMutex = GenericRawReentrantMutex<parking_lot::RawMutex, parking_lot::RawThreadId>;
 
     #[derive(FromArgs)]
     struct ReduceArgs {
+        #[pyarg(positional)]
         function: PyObjectRef,
-        iterator: PyIter,
-        #[pyarg(any, optional, name = "initial")]
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(any, optional)]
         initial: OptionalOption<PyObjectRef>,
     }
 
@@ -30,10 +41,10 @@ mod _functools {
     fn reduce(args: ReduceArgs, vm: &VirtualMachine) -> PyResult {
         let ReduceArgs {
             function,
-            iterator,
+            iterable,
             initial,
         } = args;
-        let mut iter = iterator.iter_without_hint(vm)?;
+        let mut iter = iterable.iter(vm)?;
         // OptionalOption distinguishes between:
         // - Missing: no argument provided → use first element from iterator
         // - Present(None): explicitly passed None → use None as initial value
@@ -53,6 +64,118 @@ mod _functools {
             accumulator = function.call((accumulator, next_obj?), vm)?
         }
         Ok(accumulator)
+    }
+
+    #[derive(FromArgs)]
+    struct CmpToKeyArgs {
+        mycmp: PyObjectRef,
+    }
+
+    #[pyfunction]
+    fn cmp_to_key(args: CmpToKeyArgs) -> PyKeyWrapper {
+        PyKeyWrapper {
+            cmp: args.mycmp,
+            object: PyRwLock::new(None),
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct KeyWrapperCallArgs {
+        obj: PyObjectRef,
+    }
+
+    #[pyclass(
+        no_attr,
+        name = "KeyWrapper",
+        module = "functools",
+        unhashable = true,
+        traverse = "manual"
+    )]
+    #[derive(Debug, PyPayload)]
+    struct PyKeyWrapper {
+        cmp: PyObjectRef,
+        object: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    // SAFETY: Each owned reference is visited once, without cloning it.
+    unsafe impl crate::object::Traverse for PyKeyWrapper {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.cmp.traverse(tracer_fn);
+            self.object.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            out.push(core::mem::replace(&mut self.cmp, Context::genesis().none()));
+            if let Some(object) = self.object.get_mut().take() {
+                out.push(object);
+            }
+        }
+    }
+
+    #[pyclass(with(Callable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    impl Py<PyKeyWrapper> {
+        #[pygetset]
+        fn obj(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.object.read().clone().unwrap_or_else(|| vm.ctx.none())
+        }
+
+        #[pygetset(setter)]
+        fn set_obj(&self, value: PySetterValue) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            let old = core::mem::replace(&mut *self.object.write(), value);
+            drop(old);
+        }
+
+        #[pygetset]
+        fn __text_signature__(&self) -> &'static str {
+            "(obj)"
+        }
+
+        #[pyslot]
+        fn slot_richcompare(
+            zelf: &PyObject,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+            let Some(zelf) = zelf.downcast_ref::<PyKeyWrapper>() else {
+                return Err(vm.new_type_error(format!(
+                    "unexpected payload for {}",
+                    op.method_name(&vm.ctx).as_str()
+                )));
+            };
+            let Some(other) = other.downcast_ref::<PyKeyWrapper>() else {
+                return Err(vm.new_type_error("other argument must be K instance"));
+            };
+            let x = zelf
+                .object
+                .read()
+                .clone()
+                .ok_or_else(|| vm.new_attribute_error("object"))?;
+            let y = other
+                .object
+                .read()
+                .clone()
+                .ok_or_else(|| vm.new_attribute_error("object"))?;
+            let res = zelf.cmp.call((x, y), vm)?;
+            res.rich_compare(vm.ctx.new_int(0).into(), op, vm)
+                .map(Either::A)
+        }
+    }
+
+    impl Callable for PyKeyWrapper {
+        type Args = KeyWrapperCallArgs;
+
+        fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            Ok(Self {
+                cmp: zelf.cmp.clone(),
+                object: PyRwLock::new(Some(args.obj)),
+            }
+            .into_pyobject(vm))
+        }
     }
 
     // Placeholder singleton for partial arguments
@@ -94,7 +217,7 @@ mod _functools {
     }
 
     #[pyclass(with(Constructor, Representable))]
-    impl PyPlaceholderType {
+    impl Py<PyPlaceholderType> {
         #[pymethod]
         fn __reduce__(&self) -> &'static str {
             "Placeholder"
@@ -113,7 +236,7 @@ mod _functools {
         }
     }
 
-    fn is_placeholder(obj: &PyObjectRef) -> bool {
+    fn is_placeholder(obj: &PyObject) -> bool {
         &*obj.class().name() == "_PlaceholderType"
     }
 
@@ -122,18 +245,31 @@ mod _functools {
     }
 
     #[pyattr]
-    #[pyclass(name = "partial", module = "functools")]
+    #[pyclass(name = "partial", module = "functools", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyPartial {
-        inner: PyRwLock<PyPartialInner>,
+        #[pymember]
+        func: PyAtomicRef<PyObject>,
+        #[pymember]
+        args: PyAtomicRef<PyTuple>,
+        #[pymember]
+        keywords: PyAtomicRef<PyDict>,
+        phcount: AtomicUsize,
     }
 
-    #[derive(Debug)]
-    struct PyPartialInner {
-        func: PyObjectRef,
-        args: PyRef<PyTuple>,
-        keywords: PyRef<PyDict>,
-        phcount: usize,
+    // SAFETY: Each owned reference is visited once, without cloning it.
+    unsafe impl crate::object::Traverse for PyPartial {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.func.traverse(tracer_fn);
+            self.args.traverse(tracer_fn);
+            self.keywords.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            // __setstate__ can make func point directly back to this partial.
+            // The args tuple and keywords dict have their own cycle clearing.
+            out.push(self.func.store(Context::genesis().none()));
+        }
     }
 
     #[pyclass(
@@ -141,21 +277,6 @@ mod _functools {
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
-        #[pygetset]
-        fn func(&self) -> PyObjectRef {
-            self.inner.read().func.clone()
-        }
-
-        #[pygetset]
-        fn args(&self) -> PyRef<PyTuple> {
-            self.inner.read().args.clone()
-        }
-
-        #[pygetset]
-        fn keywords(&self) -> PyRef<PyDict> {
-            self.inner.read().keywords.clone()
-        }
-
         #[pygetset]
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
@@ -174,7 +295,9 @@ mod _functools {
 
         #[pymethod]
         fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
-            let inner = zelf.inner.read();
+            let func = zelf.func.load_owned();
+            let args = zelf.args.load_owned();
+            let keywords = zelf.keywords.load_owned();
             let partial_type = zelf.class();
 
             // Get __dict__ if it exists and is not empty
@@ -183,38 +306,36 @@ mod _functools {
                 _ => vm.ctx.none(),
             };
 
-            let state = vm.ctx.new_tuple(vec![
-                inner.func.clone(),
-                inner.args.clone().into(),
-                inner.keywords.clone().into(),
-                dict_obj,
-            ]);
+            let state =
+                vm.ctx
+                    .new_tuple(vec![func.clone(), args.into(), keywords.into(), dict_obj]);
             vm.ctx
                 .new_tuple(vec![
                     partial_type.to_owned().into(),
-                    vm.ctx.new_tuple(vec![inner.func.clone()]).into(),
+                    vm.ctx.new_tuple(vec![func]).into(),
                     state.into(),
                 ])
                 .into()
         }
 
         #[pymethod]
-        fn __setstate__(zelf: &Py<Self>, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn __setstate__(zelf: &Py<Self>, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let state = object;
             let state_tuple = state
                 .downcast::<PyTuple>()
                 .map_err(|_| vm.new_type_error("argument to __setstate__ must be a tuple"))?;
 
-            if state_tuple.len() != 4 {
+            if state_tuple.as_slice().len() != 4 {
                 return Err(vm.new_type_error(format!(
                     "expected 4 items in state, got {}",
-                    state_tuple.len()
+                    state_tuple.as_slice().len()
                 )));
             }
 
-            let func = &state_tuple[0];
-            let args = &state_tuple[1];
-            let kwds = &state_tuple[2];
-            let dict = &state_tuple[3];
+            let func = &state_tuple.as_slice()[0];
+            let args = &state_tuple.as_slice()[1];
+            let kwds = &state_tuple.as_slice()[2];
+            let dict = &state_tuple.as_slice()[3];
 
             if !func.is_callable() {
                 return Err(vm.new_type_error("invalid partial state"));
@@ -262,15 +383,10 @@ mod _functools {
             }
             let phcount = count_placeholders(args_slice);
 
-            // Actually update the state
-            let mut inner = zelf.inner.write();
-            inner.func = func.clone();
-            // Handle args - use the already validated tuple
-            inner.args = args_tuple;
-
-            // Handle keywords - keep the original type
-            inner.keywords = keywords_dict;
-            inner.phcount = phcount;
+            zelf.func.store(func.clone());
+            zelf.args.store(args_tuple);
+            zelf.keywords.store(keywords_dict);
+            zelf.phcount.store(phcount, Ordering::Relaxed);
 
             // Update __dict__ if provided
             let Some(instance_dict) = zelf.as_object().dict() else {
@@ -300,21 +416,48 @@ mod _functools {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
-            PyGenericAlias::from_args(cls, args, vm)
+        ) -> PyResult<PyGenericAlias> {
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
+    #[derive(FromArgs)]
+    pub(crate) struct PartialSig {
+        #[pyarg(positional)]
+        func: PyObjectRef,
+        #[pyarg(flatten)]
+        args: PosArgs<PyObjectRef>,
+        #[pyarg(flatten)]
+        keywords: KwArgs<PyObjectRef, crate::function::NameKeywords>,
+    }
+
     impl Constructor for PyPartial {
-        type Args = FuncArgs;
+        type Args = PartialSig;
+
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let zelf = Self::py_new_funcargs(args, vm)?;
+            zelf.into_ref_with_type(vm, cls).map(Into::into)
+        }
 
         fn py_new(
             _cls: &crate::Py<crate::builtins::PyType>,
-            args: Self::Args,
+            _args: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let Self::Args {
+                func,
+                args,
+                keywords,
+            } = _args;
+            let _ = (func, args, keywords);
+            Err(vm.new_type_error("use slot_new"))
+        }
+    }
+
+    impl PyPartial {
+        fn py_new_funcargs(args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
             let (func, args_slice) = args
                 .args
                 .split_first()
@@ -337,8 +480,10 @@ mod _functools {
             // Handle nested partial objects
             let (final_func, final_args, final_keywords) =
                 if let Some(partial) = func.downcast_ref::<Self>() {
-                    let inner = partial.inner.read();
-                    let stored_args = inner.args.as_slice();
+                    let stored_args_obj = partial.args.load_owned();
+                    let stored_func = partial.func.load_owned();
+                    let stored_keywords = partial.keywords.load_owned();
+                    let stored_args = stored_args_obj.as_slice();
 
                     // Merge placeholders: replace placeholders in stored_args with new args
                     let mut merged_args = Vec::with_capacity(stored_args.len() + args_slice.len());
@@ -359,7 +504,7 @@ mod _functools {
                     // Append remaining new args
                     merged_args.extend(new_args_iter.cloned());
 
-                    (inner.func.clone(), merged_args, inner.keywords.clone())
+                    (stored_func, merged_args, stored_keywords)
                 } else {
                     (func.clone(), args_slice.to_vec(), vm.ctx.new_dict())
                 };
@@ -373,16 +518,14 @@ mod _functools {
 
             // Add new keywords
             for (key, value) in args.kwargs {
-                final_keywords.set_item(vm.ctx.intern_str(key.as_str()), value, vm)?;
+                final_keywords.set_item(vm.ctx.intern_str(key), value, vm)?;
             }
 
             Ok(Self {
-                inner: PyRwLock::new(PyPartialInner {
-                    func: final_func,
-                    args: vm.ctx.new_tuple(final_args),
-                    keywords: final_keywords,
-                    phcount,
-                }),
+                func: PyAtomicRef::from(final_func),
+                args: PyAtomicRef::from(vm.ctx.new_tuple(final_args)),
+                keywords: PyAtomicRef::from(final_keywords),
+                phcount: AtomicUsize::new(phcount),
             })
         }
     }
@@ -392,15 +535,10 @@ mod _functools {
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Clone and release lock before calling Python code to prevent deadlock
-            let (func, stored_args, keywords, phcount) = {
-                let inner = zelf.inner.read();
-                (
-                    inner.func.clone(),
-                    inner.args.clone(),
-                    inner.keywords.clone(),
-                    inner.phcount,
-                )
-            };
+            let func = zelf.func.load_owned();
+            let stored_args = zelf.args.load_owned();
+            let keywords = zelf.keywords.load_owned();
+            let phcount = zelf.phcount.load(Ordering::Relaxed);
 
             // Check if we have enough args to fill placeholders
             if phcount > 0 && args.args.len() < phcount {
@@ -412,7 +550,8 @@ mod _functools {
             }
 
             // Build combined args, replacing placeholders
-            let mut combined_args = Vec::with_capacity(stored_args.len() + args.args.len());
+            let mut combined_args =
+                Vec::with_capacity(stored_args.as_slice().len() + args.args.len());
             let mut new_args_iter = args.args.iter();
 
             for stored_arg in stored_args.as_slice() {
@@ -432,14 +571,15 @@ mod _functools {
             combined_args.extend(new_args_iter.cloned());
 
             // Merge keywords from self.keywords and args.kwargs
-            let mut final_kwargs = IndexMap::new();
+            let mut final_kwargs = crate::function::KwArgsMap::default();
 
             // Add keywords from self.keywords
             for (key, value) in &*keywords {
+                // `expect_str()` would panic on surrogate keys; keep them as WTF-8.
                 let key_str = key
                     .downcast_ref::<crate::builtins::PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                final_kwargs.insert(key_str.expect_str().to_owned(), value);
+                final_kwargs.insert(key_str.as_wtf8().to_owned(), value);
             }
 
             // Add keywords from args.kwargs (these override self.keywords)
@@ -453,16 +593,18 @@ mod _functools {
 
     impl GetDescriptor for PyPartial {
         fn descr_get(
-            zelf: PyObjectRef,
-            obj: Option<PyObjectRef>,
-            _cls: Option<PyObjectRef>,
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
             vm: &VirtualMachine,
         ) -> PyResult {
             let obj = match obj {
-                Some(obj) if !vm.is_none(&obj) => obj,
-                _ => return Ok(zelf),
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
             };
-            Ok(PyBoundMethod::new(obj, zelf).into_ref(&vm.ctx).into())
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 
@@ -473,14 +615,9 @@ mod _functools {
             let obj = zelf.as_object();
             if let Some(_guard) = ReprGuard::enter(vm, obj) {
                 // Clone and release lock before calling Python code to prevent deadlock
-                let (func, args, keywords) = {
-                    let inner = zelf.inner.read();
-                    (
-                        inner.func.clone(),
-                        inner.args.clone(),
-                        inner.keywords.clone(),
-                    )
-                };
+                let func = zelf.func.load_owned();
+                let args = zelf.args.load_owned();
+                let keywords = zelf.keywords.load_owned();
 
                 let qualname = zelf.class().__qualname__(vm);
                 let qualname_wtf8 = qualname
@@ -489,7 +626,7 @@ mod _functools {
                         || Wtf8Buf::from(zelf.class().name().to_owned()),
                         |s| s.as_wtf8().to_owned(),
                     );
-                let module = zelf.class().__module__(vm);
+                let module = zelf.class().__module__(vm)?;
 
                 let mut result = Wtf8Buf::new();
                 if let Ok(module_str) = module.downcast::<crate::builtins::PyStr>() {
@@ -525,6 +662,319 @@ mod _functools {
             } else {
                 Ok(Wtf8Buf::from("..."))
             }
+        }
+    }
+
+    /// RAII guard that releases a [`RawRMutex`] acquired with `lock()`, even on early
+    /// return through `?`. The mutex is reentrant, so a nested call from the same
+    /// thread (e.g. via a custom `__hash__`/`__eq__` invoked while probing the cache)
+    /// re-enters instead of deadlocking.
+    struct RMutexGuard<'a>(&'a RawRMutex);
+
+    impl<'a> RMutexGuard<'a> {
+        fn acquire(mu: &'a RawRMutex) -> Self {
+            mu.lock();
+            Self(mu)
+        }
+    }
+
+    impl Drop for RMutexGuard<'_> {
+        fn drop(&mut self) {
+            // SAFETY: this guard is only constructed right after a matching `lock()`
+            // call on the same mutex, so the current thread holds (at least one level
+            // of) the lock.
+            unsafe { self.0.unlock() };
+        }
+    }
+
+    #[pyclass(no_attr, name = "_lru_list_elem", module = "functools", traverse)]
+    #[derive(Debug, PyPayload)]
+    struct PyLruListElem {
+        #[pytraverse(skip)]
+        hash: PyHash,
+        result: PyObjectRef,
+    }
+
+    #[pyclass(flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
+    impl PyLruListElem {}
+
+    // Native implementation of `functools._lru_cache_wrapper`, mirroring CPython's
+    // `_functools` accelerator so `functools.lru_cache` doesn't fall back to the much
+    // slower pure-Python implementation in `Lib/functools.py`.
+    #[pyattr]
+    #[pyclass(name = "_lru_cache_wrapper", module = "functools", traverse = "manual")]
+    #[derive(PyPayload)]
+    pub(super) struct PyLruCacheWrapper {
+        /// The wrapped user function.
+        func: PyObjectRef,
+        /// `None` means unbounded; `Some(0)` means "never cache".
+        maxsize: Option<usize>,
+        typed: bool,
+        /// Sentinel marking the boundary between positional and keyword arguments
+        /// within a cache key tuple. Fixed for the lifetime of the wrapper, matching
+        /// `_make_key`'s `kwd_mark` default argument in `Lib/functools.py`.
+        keyword_marker: PyObjectRef,
+        /// The namedtuple type used to build `cache_info()` results.
+        cache_info_type: PyObjectRef,
+        hits: AtomicU64,
+        misses: AtomicU64,
+        /// Entries are kept in least-to-most-recently-used order: a hit moves its
+        /// entry to the end by removing and reinserting it, so the front of the dict
+        /// is always the next eviction candidate. Ordering is only maintained (at the
+        /// cost of the extra reinsert on a hit) when `maxsize` is `Some`.
+        /// Unbounded caches store results directly, without an LRU entry wrapper.
+        cache: PyRwLock<PyDictRef>,
+        /// Coarse-grained reentrant lock guarding the cache lookup/insert critical
+        /// sections (not held while calling the user function), matching CPython.
+        lock: RawRMutex,
+    }
+
+    // SAFETY: Each owned reference is visited once; the instance dict is
+    // traversed separately by the object layer.
+    unsafe impl crate::object::Traverse for PyLruCacheWrapper {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.func.traverse(tracer_fn);
+            self.keyword_marker.traverse(tracer_fn);
+            self.cache_info_type.traverse(tracer_fn);
+            self.cache.traverse(tracer_fn);
+        }
+    }
+
+    impl core::fmt::Debug for PyLruCacheWrapper {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.pad("lru_cache_wrapper")
+        }
+    }
+
+    #[derive(FromArgs)]
+    pub(super) struct LruCacheWrapperArgs {
+        #[pyarg(positional)]
+        function: PyObjectRef,
+        #[pyarg(positional)]
+        maxsize: Option<isize>,
+        #[pyarg(positional)]
+        typed: bool,
+        #[pyarg(positional)]
+        cache_info_type: PyObjectRef,
+    }
+
+    impl Constructor for PyLruCacheWrapper {
+        type Args = LruCacheWrapperArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            if !args.function.is_callable() {
+                return Err(vm.new_type_error("the first argument must be callable"));
+            }
+            // Negative maxsize is normalized to 0 by `functools.lru_cache` before
+            // reaching here, but clamp defensively to match that behavior exactly.
+            let maxsize = args.maxsize.map(|n| n.max(0) as usize);
+            Ok(Self {
+                func: args.function,
+                maxsize,
+                typed: args.typed,
+                keyword_marker: vm
+                    .ctx
+                    .new_base_object(vm.ctx.types.object_type.to_owned(), None),
+                cache_info_type: args.cache_info_type,
+                hits: AtomicU64::new(0),
+                misses: AtomicU64::new(0),
+                cache: PyRwLock::new(vm.ctx.new_dict()),
+                lock: RawRMutex::INIT,
+            })
+        }
+    }
+
+    impl PyLruCacheWrapper {
+        /// Build the cache key for a call, following `functools._make_key`.
+        fn make_key(&self, args: &FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+            let mut elements: Vec<PyObjectRef> = args.args.clone();
+            if !args.kwargs.is_empty() {
+                elements.push(self.keyword_marker.clone());
+                for (name, value) in &args.kwargs {
+                    elements.push(vm.ctx.new_str(name.clone()).into());
+                    elements.push(value.to_owned());
+                }
+            }
+            if self.typed {
+                elements.extend(args.args.iter().map(|a| a.class().to_owned().into()));
+                if !args.kwargs.is_empty() {
+                    elements.extend(
+                        (&args.kwargs)
+                            .into_iter()
+                            .map(|(_, v)| v.class().to_owned().into()),
+                    );
+                }
+            }
+            vm.ctx.new_tuple(elements).into()
+        }
+
+        /// Refresh `key`'s recency by moving it to the end of `cache`'s insertion
+        /// order (removing then reinserting it). `hash` is the already-computed
+        /// hash of `key`, so `__hash__` is not called again.
+        fn touch_key(
+            key: &PyObject,
+            hash: PyHash,
+            value: &PyObject,
+            cache: &Py<PyDict>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            cache.del_item_known_hash(key, hash, vm)?;
+            cache.set_item_known_hash(key, hash, value.to_owned(), vm)?;
+            Ok(())
+        }
+
+        /// Evict the least-recently-used entry (the first item in `cache`'s
+        /// insertion order) if `cache` grew past `maxsize`.
+        fn evict_if_full(maxsize: usize, cache: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
+            if cache.__len__() <= maxsize {
+                return Ok(());
+            }
+            let oldest = cache.into_iter().next();
+            if let Some((oldest_key, oldest_val)) = oldest {
+                let Some(elem) = oldest_val.downcast_ref::<PyLruListElem>() else {
+                    return Err(vm.new_type_error("lru cache entry is corrupted"));
+                };
+                cache.del_item_known_hash(oldest_key.as_object(), elem.hash, vm)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[pyclass(
+        with(Constructor, Callable, GetDescriptor),
+        flags(HAS_DICT, HAS_WEAKREF)
+    )]
+    impl Py<PyLruCacheWrapper> {
+        #[pymethod]
+        fn cache_info(&self, vm: &VirtualMachine) -> PyResult {
+            let hits = self.hits.load(Ordering::Relaxed);
+            let misses = self.misses.load(Ordering::Relaxed);
+            let currsize = self.cache.read().__len__();
+            let maxsize: PyObjectRef = match self.maxsize {
+                Some(n) => vm.ctx.new_int(n).into(),
+                None => vm.ctx.none(),
+            };
+            self.cache_info_type
+                .call((hits, misses, maxsize, currsize), vm)
+        }
+
+        #[pymethod]
+        fn cache_clear(&self, vm: &VirtualMachine) {
+            let new_cache = vm.ctx.new_dict();
+            let old_cache = {
+                let _guard = RMutexGuard::acquire(&self.lock);
+                let old_cache = core::mem::replace(&mut *self.cache.write(), new_cache);
+                self.hits.store(0, Ordering::Relaxed);
+                self.misses.store(0, Ordering::Relaxed);
+                old_cache
+            };
+            drop(old_cache);
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: &Self, vm: &VirtualMachine) -> PyResult {
+            zelf.as_object().get_attr("__qualname__", vm)
+        }
+
+        #[pymethod]
+        fn __copy__(zelf: PyObjectRef) -> PyObjectRef {
+            zelf
+        }
+
+        #[pymethod]
+        fn __deepcopy__(zelf: PyObjectRef, _memo: PyObjectRef) -> PyObjectRef {
+            zelf
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyGenericAlias> {
+            PyGenericAlias::from_args(cls, args, vm)
+        }
+    }
+
+    impl Callable for PyLruCacheWrapper {
+        type Args = FuncArgs;
+
+        fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if zelf.maxsize == Some(0) {
+                zelf.misses.fetch_add(1, Ordering::Relaxed);
+                return zelf.func.call(args, vm);
+            }
+
+            let key = zelf.make_key(&args, vm);
+            let hash = key.hash(vm)?;
+
+            {
+                let _guard = RMutexGuard::acquire(&zelf.lock);
+                let cache = zelf.cache.read().clone();
+                if let Some(value) = cache.get_item_known_hash(key.as_object(), hash, vm)? {
+                    let result = if zelf.maxsize.is_some() {
+                        let Some(elem) = value.downcast_ref::<PyLruListElem>() else {
+                            return Err(vm.new_type_error("lru cache entry is corrupted"));
+                        };
+                        elem.result.clone()
+                    } else {
+                        value.clone()
+                    };
+                    zelf.hits.fetch_add(1, Ordering::Relaxed);
+                    if zelf.maxsize.is_some() {
+                        Self::touch_key(&key, hash, &value, &cache, vm)?;
+                    }
+                    return Ok(result);
+                }
+                zelf.misses.fetch_add(1, Ordering::Relaxed);
+                // Lock released here (guard dropped) before calling into user code, so
+                // other threads may compute the same miss concurrently.
+            }
+
+            let result = zelf.func.call(args, vm)?;
+
+            {
+                let _guard = RMutexGuard::acquire(&zelf.lock);
+                let cache = zelf.cache.read().clone();
+                // A reentrant or concurrent call may have already inserted this key
+                // (e.g. recursive lookups, or another thread finishing first); in that
+                // case keep the existing entry instead of creating orphan eviction
+                // links (see CPython issue gh-35780).
+                if !cache.contains_known_hash(key.as_object(), hash, vm)? {
+                    let entry = if zelf.maxsize.is_some() {
+                        PyLruListElem {
+                            hash,
+                            result: result.clone(),
+                        }
+                        .into_pyobject(vm)
+                    } else {
+                        result.clone()
+                    };
+                    cache.set_item_known_hash(key.as_object(), hash, entry, vm)?;
+                    if let Some(maxsize) = zelf.maxsize {
+                        Self::evict_if_full(maxsize, &cache, vm)?;
+                    }
+                }
+            }
+
+            Ok(result)
+        }
+    }
+
+    impl GetDescriptor for PyLruCacheWrapper {
+        fn descr_get(
+            zelf: &PyObject,
+            obj: Option<&PyObject>,
+            _cls: Option<&PyObject>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let obj = match obj {
+                Some(obj) if !vm.is_none(obj) => obj,
+                _ => return Ok(zelf.to_owned()),
+            };
+            Ok(PyBoundMethod::new(obj.to_owned(), zelf.to_owned())
+                .into_ref(&vm.ctx)
+                .into())
         }
     }
 }

@@ -160,10 +160,22 @@ mod _tkinter {
             return Ok(varname);
         }
 
-        if let Some(_tcl_obj) = obj.downcast_ref::<TclObject>() {
-            // Assume that the Tcl object has a method to retrieve a string.
-            // return tcl_obj.
-            todo!();
+        if let Some(tcl_obj) = obj.downcast_ref::<TclObject>() {
+            let c_str = unsafe { tk_sys::Tcl_GetString(tcl_obj.value) };
+            let bytes = unsafe { ffi::CStr::from_ptr(c_str as _) }.to_bytes();
+            let varname = core::str::from_utf8(bytes)
+                .map_err(|e| {
+                    vm.new_unicode_decode_error(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.error_len()
+                            .map_or(bytes.len(), |len| e.valid_up_to() + len),
+                        vm.ctx.new_str(e.to_string()),
+                    )
+                })?
+                .to_owned();
+            return Ok(varname);
         }
 
         // Construct an error message using the type name (truncated to 50 characters).
@@ -310,19 +322,23 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getvar(&self, args: TkAppGetVarArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self.var_invoke();
-            self.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
+        fn getvar(
+            zelf: &Py<Self>,
+            args: TkAppGetVarArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
+            zelf.var_invoke();
+            zelf.inner_getvar(args, tk_sys::TCL_LEAVE_ERR_MSG, vm)
         }
 
         #[pymethod]
         fn globalgetvar(
-            &self,
+            zelf: &Py<Self>,
             args: TkAppGetVarArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            self.var_invoke();
-            self.inner_getvar(
+            zelf.var_invoke();
+            zelf.inner_getvar(
                 args,
                 tk_sys::TCL_LEAVE_ERR_MSG | tk_sys::TCL_GLOBAL_ONLY,
                 vm,
@@ -330,7 +346,11 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn getint(&self, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn getint(
+            _zelf: &Py<Self>,
+            arg: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyObjectRef> {
             if let Some(int) = arg.downcast_ref::<PyInt>() {
                 return Ok(PyObjectRef::from(vm.ctx.new_int(int.as_bigint().clone())));
             }
@@ -345,7 +365,7 @@ mod _tkinter {
         }
         // TODO: Fix arguments
         #[pymethod]
-        fn mainloop(&self, threshold: Option<i32>) -> PyResult<()> {
+        fn mainloop(zelf: &Py<Self>, threshold: Option<i32>) -> PyResult<()> {
             let threshold = threshold.unwrap_or(0);
             // self.dispatching = true;
             QUIT_MAIN_LOOP.store(false, Ordering::Relaxed);
@@ -353,7 +373,7 @@ mod _tkinter {
                 && !QUIT_MAIN_LOOP.load(Ordering::Relaxed)
                 && !ERROR_IN_CMD.load(Ordering::Relaxed)
             {
-                if self.threaded {
+                if zelf.threaded {
                     unsafe { tk_sys::Tcl_DoOneEvent(0 as _) };
                 } else {
                     unsafe { tk_sys::Tcl_DoOneEvent(tk_sys::TCL_DONT_WAIT as _) };
@@ -365,7 +385,7 @@ mod _tkinter {
         }
 
         #[pymethod]
-        fn quit(&self) {
+        fn quit(_zelf: &Py<Self>) {
             QUIT_MAIN_LOOP.store(true, Ordering::Relaxed);
         }
     }

@@ -71,7 +71,8 @@ pub use shell::run_shell;
 
 #[cfg(all(
     feature = "ssl",
-    not(any(feature = "ssl-rustls", feature = "ssl-openssl"))
+    not(any(feature = "ssl-rustls", feature = "ssl-openssl")),
+    not(target_arch = "wasm32"),
 ))]
 compile_error!(
     "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\". Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls*"
@@ -83,6 +84,7 @@ compile_error!(
 /// **Note**: This function provides no way to further initialize the VM after the builder is applied.
 /// All VM initialization (adding native modules, init hooks, etc.) must be done through the
 /// [`InterpreterBuilder`] parameter before calling this function.
+#[must_use]
 pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     env_logger::init();
 
@@ -141,12 +143,12 @@ __import__("io").TextIOWrapper(
         mode = "eval"
     );
     eprintln!("downloading get-pip.py...");
-    let getpip_code = vm.run_code_obj(vm.ctx.new_code(get_getpip), vm.new_scope_with_builtins())?;
+    let getpip_code = vm.run_code_obj(vm.new_code(get_getpip), vm.new_scope_with_builtins())?;
     let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py")?;
     Ok(())
 }
 
@@ -163,11 +165,67 @@ fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> 
     }
 }
 
+/// The working directory, when it can be named.
+fn current_dir() -> Option<String> {
+    env::current_dir().ok()?.into_os_string().into_string().ok()
+}
+
+/// `_Py_abspath`: `path` joined onto the working directory. Windows normalizes
+/// the result through `GetFullPathNameW`; elsewhere it is left as joined.
+fn abs_path(path: &str) -> String {
+    if path.is_empty() || path == "." {
+        return current_dir().unwrap_or_else(|| path.to_owned());
+    }
+    if cfg!(windows) {
+        return std::path::absolute(path)
+            .ok()
+            .and_then(|p| p.into_os_string().into_string().ok())
+            .unwrap_or_else(|| path.to_owned());
+    }
+    if std::path::Path::new(path).is_absolute() {
+        return path.to_owned();
+    }
+    // Keep the relative path when the working directory is unavailable.
+    current_dir().map_or_else(
+        || path.to_owned(),
+        |cwd| format!("{cwd}{}{path}", std::path::MAIN_SEPARATOR),
+    )
+}
+
+/// `_PyPathConfig_ComputeSysPath0` for a script argument: the directory holding
+/// the script, with symlinks resolved.
+fn script_sys_path0(argv0: &str) -> String {
+    // `realpath()`, which Windows has no counterpart for; there the path is
+    // only made absolute.
+    let resolved = if cfg!(windows) {
+        Some(abs_path(argv0))
+    } else {
+        std::fs::canonicalize(argv0)
+            .ok()
+            .and_then(|p| p.into_os_string().into_string().ok())
+    };
+    let path0 = resolved.as_deref().unwrap_or(argv0);
+    let Some(sep) = path0.rfind(std::path::is_separator) else {
+        return String::new();
+    };
+    // Drop the trailing separator unless it is all that is left of a root.
+    let end = if sep == 0 || (cfg!(windows) && path0[..sep].ends_with(':')) {
+        sep + 1
+    } else {
+        sep
+    };
+    path0[..end].to_owned()
+}
+
 // pymain_run_file_obj in Modules/main.c
-fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
+fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
+    // config_run_filename_abspath: __file__ and co_filename are absolute even
+    // when the script was named relative to the working directory.
+    let path = &abs_path(argv0);
+
     // Check if path is a package/directory with __main__.py
     if let Some(_importer) = get_importer(path, vm)? {
-        vm.insert_sys_path(vm.new_pyobj(path))?;
+        vm.insert_sys_path(vm.new_pyobj(path.clone()))?;
         let runpy = vm.import("runpy", 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
         run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
@@ -176,25 +234,34 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
 
     // Add script directory to sys.path[0]
     if !vm.state.config.settings.safe_path {
-        let dir = std::path::Path::new(path)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or("");
-        vm.insert_sys_path(vm.new_pyobj(dir))?;
+        vm.insert_sys_path(vm.new_pyobj(script_sys_path0(argv0)))?;
     }
 
     cfg_select! {
-        feature = "host_env" => vm.run_any_file(scope, path),
+        feature = "host_env" => {
+            match rustpython_vm::host_env::fs::metadata(path) {
+                Ok(_) => vm.run_any_file(scope, path),
+                Err(err) => cant_open_file(vm, path, &err),
+            }
+        }
         _ => {
             // In sandbox mode, the binary reads the file and feeds source to the VM.
             // The VM itself has no filesystem access.
             let path = if path.is_empty() { "???" } else { path };
             match std::fs::read_to_string(path) {
-                Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
-                Err(err) => Err(vm.new_os_error(err.to_string())),
+                Ok(source) => vm.run_string(scope, &source, path).map(drop),
+                Err(err) => cant_open_file(vm, path, &err),
             }
         }
     }
+}
+
+fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<()> {
+    let program = &vm.state.config.paths.executable;
+    let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
+    let errno = err.raw_os_error().unwrap_or(2);
+    eprintln!("{program}: can't open file {filename_repr}: [Errno {errno}] {err}");
+    Err(vm.new_system_exit(vec![vm.ctx.new_int(2).into()].into()))
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -221,7 +288,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
         }
     }
     Ok(if let Some(imp) = importer {
-        let imp = path_importer_cache.get_or_insert(vm, path_obj.into(), || imp.clone())?;
+        let imp = path_importer_cache.get_or_insert(vm, path_obj.as_object(), || imp.clone())?;
         Some(imp)
     } else {
         None
@@ -294,8 +361,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_string(scope.clone(), &command, "<string>".to_owned())
-                .map(drop)
+            vm.run_string(scope.clone(), &command, "<string>").map(drop)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");
@@ -304,12 +370,15 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
-            debug!("Running script {}", &script_path);
+            debug!("Running script {script_path}");
             run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),
     };
     let result = if is_repl || vm.state.config.settings.inspect {
+        if std::io::stdin().is_terminal() {
+            warn_if_pyrepl_unavailable(vm);
+        }
         shell::run_shell(vm, scope)
     } else {
         res
@@ -324,6 +393,23 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     result
+}
+
+/// When the fancy REPL cannot start (for example `TERM=dumb`), print the same
+/// warning `_pyrepl.main` would have printed, then keep the rustyline shell.
+fn warn_if_pyrepl_unavailable(vm: &VirtualMachine) {
+    let _ = vm.run_simple_string(
+        r"
+import os, sys
+if not os.getenv('PYTHON_BASIC_REPL'):
+    try:
+        from _pyrepl.main import CAN_USE_PYREPL, FAIL_REASON
+        if not CAN_USE_PYREPL and FAIL_REASON:
+            print(FAIL_REASON, file=sys.stderr)
+    except Exception:
+        pass
+",
+    );
 }
 
 #[cfg(feature = "flame-it")]
@@ -382,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run_script() {
+    fn run_script() {
         interpreter().enter(|vm| {
             vm.unwrap_pyresult((|| {
                 let scope = vm.new_scope_with_main()?;

@@ -6,8 +6,12 @@ extern crate alloc;
 mod macros;
 pub use macros::*;
 
+#[cfg(feature = "ctypes")]
 pub mod ctypes;
 #[cfg(any(unix, windows, target_os = "wasi"))]
+pub mod errno;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+#[path = "errno_wasm.rs"]
 pub mod errno;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod io;
@@ -26,10 +30,14 @@ pub mod crt_fd;
 
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fileutils;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
+#[cfg(feature = "native-certs")]
+pub mod native_certs;
+pub mod readline;
+#[cfg(feature = "ssl")]
+pub mod ssl;
 
 #[cfg(windows)]
 pub mod windows;
@@ -39,6 +47,9 @@ pub mod fcntl;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod select;
 #[cfg(any(unix, windows))]
+pub mod socket;
+#[cfg(any(all(target_arch = "wasm32", target_os = "unknown"), target_os = "wasi"))]
+#[path = "socket_wasm.rs"]
 pub mod socket;
 #[cfg(unix)]
 pub mod syslog;
@@ -52,6 +63,11 @@ pub mod posix;
 #[cfg(target_os = "wasi")]
 #[path = "posix_wasi.rs"]
 pub mod posix;
+#[cfg(windows)]
+#[path = "posix_windows.rs"]
+pub mod posix;
+#[cfg(any(unix, target_os = "wasi"))]
+pub mod posix_unix_like;
 #[cfg(unix)]
 pub mod pwd;
 #[cfg(unix)]
@@ -64,6 +80,10 @@ pub mod time;
 
 #[cfg(windows)]
 pub mod cert_store;
+#[cfg(target_os = "macos")]
+pub mod system_configuration {
+    pub use ::system_configuration::*;
+}
 #[cfg(any(unix, windows))]
 pub mod faulthandler;
 #[cfg(any(unix, windows))]
@@ -78,6 +98,8 @@ pub mod nt;
 pub mod overlapped;
 #[cfg(windows)]
 pub mod testconsole;
+#[cfg(windows)]
+pub mod uuid;
 #[cfg(windows)]
 pub mod winapi;
 #[cfg(windows)]

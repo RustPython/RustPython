@@ -5,7 +5,7 @@ mod _browser {
     use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
     use js_sys::Promise;
     use rustpython_vm::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
         class::PyClassImpl,
         convert::ToPyObject,
@@ -166,8 +166,8 @@ mod _browser {
     #[pyclass]
     impl Document {
         #[pymethod]
-        fn query(&self, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let elem = self
+        fn query(zelf: &Py<Self>, query: PyStrRef, vm: &VirtualMachine) -> PyResult {
+            let elem = zelf
                 .doc
                 .query_selector(query.expect_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?
@@ -199,20 +199,25 @@ mod _browser {
     impl Element {
         #[pymethod]
         fn get_attr(
-            &self,
+            zelf: &Py<Self>,
             attr: PyStrRef,
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyObjectRef {
-            match self.elem.get_attribute(attr.expect_str()) {
+            match zelf.elem.get_attribute(attr.expect_str()) {
                 Some(s) => vm.ctx.new_str(s).into(),
                 None => default.unwrap_or_none(vm),
             }
         }
 
         #[pymethod]
-        fn set_attr(&self, attr: PyStrRef, value: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-            self.elem
+        fn set_attr(
+            zelf: &Py<Self>,
+            attr: PyStrRef,
+            value: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            zelf.elem
                 .set_attribute(attr.expect_str(), value.expect_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))
         }

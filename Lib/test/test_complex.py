@@ -92,7 +92,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         if y:
             self.assertClose(z / y, x)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: floats nan and inf are not identical
     def test_truediv(self):
         simple_real = [float(i) for i in range(-5, 6)]
         simple_complex = [complex(x, y) for x in simple_real for y in simple_real]
@@ -289,7 +288,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(TypeError, operator.sub, 1j, None)
         self.assertRaises(TypeError, operator.sub, None, 1j)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mul(self):
         self.assertEqual(1j * int(20), complex(0, 20))
         self.assertEqual(1j * int(-1), complex(0, -1))

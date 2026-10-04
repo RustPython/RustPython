@@ -136,7 +136,7 @@ instance variables cannot be assigned to:
     >>> a.default = -1
     >>> a[1]
     -1
-    >>> a.x1 = 1 # TODO: RUSTPYTHON; # doctest: +EXPECTED_FAILURE
+    >>> a.x1 = 1
     Traceback (most recent call last):
       File "<stdin>", line 1, in ?
     AttributeError: 'defaultdict2' object has no attribute 'x1' and no __dict__ for setting new attributes

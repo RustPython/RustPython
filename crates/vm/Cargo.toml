@@ -10,12 +10,14 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler", "wasmbind", "gc", "host_env", "stdio"]
-host_env = []
+default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
+doc = ["dep:rustpython-doc", "dep:xz"]
+host_env = ["rustpython-host_env/ctypes"]
 stdio = []
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
+opcode-histogram = []
 flame-it = ["flame", "flamer"]
 freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
@@ -26,12 +28,13 @@ ast = ["ruff_python_ast", "ruff_text_size"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["ast"]
 serde = ["dep:serde"]
-wasmbind = ["rustpython-common/wasm_js", "chrono/wasmbind", "wasm-bindgen"]
+wasmbind = ["rustpython-common/wasm_js", "jiff/js", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
 rustpython-codegen = { workspace = true, optional = true }
 rustpython-common = { workspace = true }
+rustpython-doc = { workspace = true, optional = true }
 rustpython-derive = { workspace = true }
 rustpython-host_env = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
@@ -42,18 +45,21 @@ ruff_text_size = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
+bitflagset = { workspace = true }
 bstr = { workspace = true }
 crossbeam-utils = { workspace = true }
-chrono = { workspace = true }
 constant_time_eq = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
+itoa = { workspace = true }
 is-macro = { workspace = true }
+jiff = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 malachite-bigint = { workspace = true }
@@ -67,9 +73,11 @@ rapidhash = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true, optional = true }
 static_assertions = { workspace = true }
+xz = { workspace = true, optional = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
+thin-vec = { workspace = true }
 memchr = { workspace = true }
 
 flamer = { workspace = true, optional = true }
@@ -77,29 +85,16 @@ half = { workspace = true }
 psm = { workspace = true }
 optional = { workspace = true }
 result-like = { workspace = true }
-timsort = { workspace = true }
-
-## unicode stuff
-icu_casemap = { workspace = true }
-icu_locale = { workspace = true }
-icu_properties = { workspace = true }
-writeable = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-exitcode = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = { workspace = true }
-which = { workspace = true }
 widestring = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
 
 [build-dependencies]
-chrono = { workspace = true }
 glob = { workspace = true }
-itertools = { workspace = true }
+jiff = { workspace = true }
 
 [lints]
 workspace = true

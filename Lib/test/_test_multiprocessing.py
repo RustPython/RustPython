@@ -1606,7 +1606,6 @@ class _TestLock(BaseTestCase):
         for _ in range(n):
             lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky timeout - thread start latency")
     def test_repr_rlock(self):
         if self.TYPE != 'processes':
             self.skipTest('test not appropriate for {}'.format(self.TYPE))
@@ -3167,7 +3166,6 @@ class _TestPool(BaseTestCase):
         # check that we indeed waited for all jobs
         self.assertGreater(time.monotonic() - t_start, 0.9)
 
-    @unittest.skip("TODO: RUSTPYTHON; reference counting differences")
     def test_release_task_refs(self):
         # Issue #29861: task arguments and results should not be kept
         # alive after we are done with them.
@@ -4085,7 +4083,6 @@ class _TestPicklingConnections(BaseTestCase):
 
         conn.close()
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_pickling(self):
         families = self.connection.families
 
@@ -4307,7 +4304,6 @@ class _TestSharedCTypes(BaseTestCase):
         for i in range(len(arr)):
             arr[i] *= 2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - ctypes Structure shared memory not working
     def test_sharedctypes(self, lock=False):
         x = Value('i', 7, lock=lock)
         y = Value(c_double, 1.0/3.0, lock=lock)
@@ -4331,7 +4327,6 @@ class _TestSharedCTypes(BaseTestCase):
             self.assertAlmostEqual(arr[i], i*2)
         self.assertEqual(string.value, latin('hellohello'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - calls test_sharedctypes which fails
     def test_synchronize(self):
         self.test_sharedctypes(lock=True)
 
@@ -5009,7 +5004,6 @@ class _TestFinalize(BaseTestCase):
         result = [obj for obj in iter(conn.recv, 'STOP')]
         self.assertEqual(result, ['a', 'b', 'd10', 'd03', 'd02', 'd01', 'e'])
 
-    @unittest.skip("TODO: RUSTPYTHON; SIGSEGV due to dict thread-safety issue under aggressive GC")
     @support.requires_resource('cpu')
     def test_thread_safety(self):
         # bpo-24484: _run_finalizers() should be thread-safe
@@ -6275,7 +6269,6 @@ class TestResourceTracker(unittest.TestCase):
             # restore sigmask to what it was before executing test
             signal.pthread_sigmask(signal.SIG_SETMASK, orig_sigmask)
 
-    @unittest.expectedFailureIf(not hasattr(os, "killpg"), "TODO: RUSTPYTHON")
     @only_run_in_forkserver_testsuite("avoids redundant testing.")
     def test_resource_tracker_fork_deadlock(self):
         # gh-146313: ResourceTracker.__del__ used to deadlock if a forked
@@ -6791,7 +6784,6 @@ class TestSyncManagerTypes(unittest.TestCase):
         obj.clear()
         case.assertEqual(len(obj), 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dict(self):
         o = self.manager.dict()
         o['foo'] = 5

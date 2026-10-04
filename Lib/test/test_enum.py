@@ -3972,7 +3972,6 @@ class OldTestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):
@@ -4493,7 +4492,6 @@ class OldTestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @threading_helper.reap_threads
     @threading_helper.requires_working_threading()
     def test_unique_composite(self):

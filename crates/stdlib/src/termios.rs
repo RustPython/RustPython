@@ -52,6 +52,12 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::TCSASOFT;
+    #[cfg(target_os = "macos")]
+    #[pyattr]
+    use host_termios::{
+        _POSIX_VDISABLE, ALTWERASE, B7200, B14400, B28800, B76800, CIGNORE, EXTPROC, IUTF8, MDMBUF,
+        NOKERNINFO, ONOEOT, OXTABS, VDSUSP, VSTATUS,
+    };
     #[pyattr]
     use host_termios::{
         B0, B50, B75, B110, B134, B150, B200, B300, B600, B1200, B1800, B2400, B4800, B9600,
@@ -99,6 +105,41 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{CBAUD, CIBAUD, IUCLC, OLCUC, XCASE};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{CSTART, CSTOP, CSWTCH};
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{FIOASYNC, TIOCGETD, TIOCSETD};
+    #[pyattr]
+    use host_termios::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{
+        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
+        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
+        TIOCMSET, TIOCNXCL, TIOCSCTTY,
+    };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{
+        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
+        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
+    };
     #[cfg(any(
         target_os = "android",
         target_os = "freebsd",
@@ -109,47 +150,6 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{TAB0, TABDLY};
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use host_termios::{VSWTC, VSWTC as VSWTCH};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use host_termios::{VSWTCH, VSWTCH as VSWTC};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use libc::{CSTART, CSTOP, CSWTCH};
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{FIOASYNC, TIOCGETD, TIOCSETD};
-    #[pyattr]
-    use libc::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{
-        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
-        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
-        TIOCMSET, TIOCNXCL, TIOCSCTTY,
-    };
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use libc::{
-        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
-        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
-    };
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -158,13 +158,19 @@ mod termios {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
+    use host_termios::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
-    use libc::{
+    use host_termios::{
         TIOCNOTTY, TIOCPKT, TIOCPKT_DATA, TIOCPKT_DOSTOP, TIOCPKT_FLUSHREAD, TIOCPKT_FLUSHWRITE,
         TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
     };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{VSWTC, VSWTC as VSWTCH};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{VSWTCH, VSWTCH as VSWTC};
 
     #[pyfunction]
     fn tcgetattr(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
@@ -268,21 +274,41 @@ mod termios {
         Ok(())
     }
 
+    #[pyfunction]
+    fn tcgetwinsize(Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<(u16, u16)> {
+        let size = host_termios::tcgetwinsize(fd).map_err(|e| termios_error(e, vm))?;
+        Ok(size)
+    }
+
+    #[pyfunction]
+    fn tcsetwinsize(Fildes(fd): Fildes, winsize: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let size = winsize;
+        let seq = size.try_sequence(vm)?;
+        if seq.length(vm)? != 2 {
+            return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));
+        }
+        let row = seq.get_item(0, vm)?;
+        let col = seq.get_item(1, vm)?;
+
+        let row: u16 = row.try_index(vm)?.try_to_primitive(vm)?;
+        let col: u16 = col.try_index(vm)?.try_to_primitive(vm)?;
+
+        host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(
+        vm.new_exception(
             error_type(vm),
-            Some(err.posix_errno()),
-            vm.ctx.new_str(err.to_string()),
+            vec![
+                vm.ctx.new_int(err.posix_errno()).into(),
+                vm.ctx.new_str(err.to_string()).into(),
+            ],
         )
-        .upcast()
     }
 
     #[pyattr(name = "error", once)]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        vm.ctx.new_exception_type(
-            "termios",
-            "error",
-            Some(vec![vm.ctx.exceptions.os_error.to_owned()]),
-        )
+        vm.ctx.new_exception_type("termios", "error", None)
     }
 }

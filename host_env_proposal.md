@@ -347,7 +347,7 @@ The strongest guarantee. If a crate doesn't list `rustpython-host_env` in its `[
 
 **Pure crates (no host_env dependency allowed):**
 - `rustpython-common`
-- `rustpython-compiler`, `rustpython-compiler-core`, `rustpython-compiler-source`
+- `rustpython-compiler`, `rustpython-compiler-core`
 - `rustpython-codegen`
 - `rustpython-literal`
 - `rustpython-sre_engine`
@@ -357,7 +357,7 @@ The strongest guarantee. If a crate doesn't list `rustpython-host_env` in its `[
 CI check:
 ```bash
 # Verify pure crates don't depend on host_env
-for crate in common compiler compiler-core compiler-source codegen literal sre_engine wtf8 derive derive-impl; do
+for crate in common compiler compiler-core codegen literal sre_engine wtf8 derive derive-impl; do
   if rg 'rustpython-host_env' "crates/$crate/Cargo.toml"; then
     echo "ERROR: $crate should not depend on host_env"
     exit 1
@@ -471,7 +471,6 @@ After removing host modules from `common`, it could potentially become `#![no_st
 Candidate crates for unconditional `#![no_std]`:
 - `rustpython-literal`
 - `rustpython-wtf8`
-- `rustpython-compiler-source`
 
 ### Summary of enforcement layers
 

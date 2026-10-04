@@ -8,30 +8,31 @@ pub use builtins::{ascii, print, reversed};
 #[pymodule]
 mod builtins {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
-            function::{PyCellRef, PyFunction},
-            int::PyIntRef,
+            function::{PyCell, PyCellRef, PyFunction},
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
         },
+        bytecode,
         common::hash::PyHash,
         function::{
-            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike, Either,
+            FsPath, FuncArgs, KwArgs, NameKws, OptionalArg, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
+        vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
     use itertools::Itertools;
-    use num_traits::{Signed, ToPrimitive, Zero};
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
 
     #[cfg(not(feature = "rustpython-compiler"))]
@@ -69,8 +70,9 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(x: PyIntRef) -> String {
-        let x = x.as_bigint();
+    fn bin(number: ArgIndex) -> String {
+        let number = number.into_int_ref();
+        let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -84,7 +86,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
+    fn chr(i: ArgIndex, vm: &VirtualMachine) -> PyResult<CodePoint> {
+        let i = i.into_int_ref();
         let value = i
             .as_bigint()
             .to_u32()
@@ -103,185 +106,71 @@ mod builtins {
         filename: PyObjectRef,
         mode: PyUtf8StrRef,
         // CPython parity: flags / optimize accept any object with __index__,
-        // not just exact int. Matches the behavior of `int(x)` arg conversion
-        // used by Python/Python-ast.c::compile.
-        #[pyarg(any, optional)]
-        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
-        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
-        // arbitrary objects with `__bool__` are accepted (and any exception
-        // raised inside `__bool__` propagates) — not the strict bool type.
-        #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<ArgIntoBool>,
-        #[pyarg(any, optional)]
-        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
-        #[pyarg(any, optional)]
-        _feature_version: OptionalArg<i32>,
+        // not just exact int. Matches the argument conversion used by
+        // builtin_compile_impl.
+        // Any object with __index__ is accepted.
+        #[pyarg(any, default = 0)]
+        flags: i32,
+        // dont_inherit goes through PyObject_IsTrue, so arbitrary objects
+        // with `__bool__` are accepted (and any exception raised inside
+        // `__bool__` propagates) — not the strict bool type.
+        #[pyarg(any, default = false)]
+        dont_inherit: ArgIntoBool,
+        #[pyarg(any, default = -1)]
+        optimize: i32,
+        #[pyarg(named, default = -1)]
+        _feature_version: i32,
     }
 
-    /// Detect PEP 263 encoding cookie from source bytes.
-    /// Checks first two lines for `# coding[:=] <encoding>` pattern.
-    /// Returns the encoding name if found, or None for default (UTF-8).
-    #[cfg(feature = "parser")]
-    fn detect_source_encoding(source: &[u8]) -> Option<String> {
-        fn find_encoding_in_line(line: &[u8]) -> Option<String> {
-            // PEP 263: '#' must be preceded only by whitespace/formfeed
-            let hash_pos = line.iter().position(|&b| b == b'#')?;
-            if !line[..hash_pos]
-                .iter()
-                .all(|&b| matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
-            {
-                return None;
-            }
-            let after_hash = &line[hash_pos..];
-
-            // Find "coding" after the #
-            let coding_pos = after_hash.windows(6).position(|w| w == b"coding")?;
-            let after_coding = &after_hash[coding_pos + 6..];
-
-            // Next char must be ':' or '='
-            let rest = if matches!(after_coding.first(), Some(b':' | b'=')) {
-                &after_coding[1..]
-            } else {
-                return None;
-            };
-
-            // Skip whitespace
-            let rest = rest
-                .iter()
-                .copied()
-                .skip_while(|&b| matches!(b, b' ' | b'\t'))
-                .collect::<Vec<_>>();
-
-            // Read encoding name: [-\w.]+
-            let name = rest
-                .iter()
-                .take_while(|&&b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
-                .map(|&b| b as char)
-                .collect::<String>();
-
-            if name.is_empty() {
-                None
-            } else {
-                Some(normalize_source_encoding(&name))
-            }
+    fn merge_compile_future_features(
+        flags: i32,
+        dont_inherit: bool,
+        _vm: &VirtualMachine,
+    ) -> bytecode::CodeFlags {
+        let mut future_features = compile_future_features_from_flags(flags);
+        if !dont_inherit && let Some(code) = crate::frame::current_code() {
+            future_features |= code.flags & bytecode::CodeFlags::FUTURE_MASK;
         }
-
-        // Split into lines (first two only)
-        let mut lines = source.splitn(3, |&b| b == b'\n');
-
-        if let Some(first) = lines.next() {
-            // Strip BOM if present
-            let first = first.strip_prefix(b"\xef\xbb\xbf").unwrap_or(first);
-            if let Some(enc) = find_encoding_in_line(first) {
-                return Some(enc);
-            }
-            // Only check second line if first line is blank or a comment
-            let trimmed = first
-                .iter()
-                .find(|&&b| !matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
-                .copied();
-
-            if trimmed.is_some_and(|b| b != b'#') {
-                return None;
-            }
-        }
-
-        lines.next().and_then(find_encoding_in_line)
+        future_features
     }
 
-    /// Match CPython's Parser/tokenizer/helpers.c:get_normal_name().
-    #[cfg(feature = "parser")]
-    fn normalize_source_encoding(name: &str) -> String {
-        let mut normalized = String::with_capacity(name.len().min(12));
-        for ch in name.chars().take(12) {
-            if ch == '_' {
-                normalized.push('-');
-            } else {
-                normalized.push(ch.to_ascii_lowercase());
-            }
-        }
+    fn audit_compile_source(vm: &VirtualMachine, source: &[u8], filename: &str) -> PyResult<()> {
+        vm.audit("compile", || {
+            (vm.ctx.new_bytes(source.to_vec()), vm.ctx.new_str(filename))
+        })
+    }
 
-        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
-            "utf-8".to_owned()
-        } else if normalized == "latin-1"
-            || normalized == "iso-8859-1"
-            || normalized == "iso-latin-1"
-            || normalized.starts_with("latin-1-")
-            || normalized.starts_with("iso-8859-1-")
-            || normalized.starts_with("iso-latin-1-")
+    fn trim_eval_source_bytes(mut source: &[u8]) -> &[u8] {
+        while let Some((&first, rest)) = source.split_first()
+            && matches!(first, b' ' | b'\t')
         {
-            "iso-8859-1".to_owned()
-        } else {
-            name.to_owned()
+            source = rest;
         }
+        source
     }
 
-    /// Decode source bytes to a string, handling PEP 263 encoding declarations
-    /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
-    /// declaration.
-    #[cfg(feature = "parser")]
-    fn is_utf8_encoding(name: &str) -> bool {
-        name == "utf-8"
-    }
-
-    #[cfg(feature = "parser")]
-    fn decode_source_bytes(source: &[u8], filename: &str, vm: &VirtualMachine) -> PyResult<String> {
-        let has_bom = source.starts_with(b"\xef\xbb\xbf");
-        let encoding = detect_source_encoding(source);
-
-        let is_utf8 = encoding.as_deref().is_none_or(is_utf8_encoding);
-
-        // Validate BOM + encoding combination
-        if has_bom && !is_utf8 {
-            let enc = encoding.as_deref().unwrap_or("utf-8");
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem: {enc} with BOM").into(),
-            ));
+    fn decode_eval_exec_source_bytes(
+        vm: &VirtualMachine,
+        source: &[u8],
+        filename: &str,
+    ) -> PyResult<String> {
+        #[cfg(feature = "parser")]
+        {
+            vm.decode_source_bytes(source, filename, false)
         }
-
-        if is_utf8 {
-            let src = if has_bom { &source[3..] } else { source };
-            match core::str::from_utf8(src) {
-                Ok(s) => Ok(s.to_owned()),
-                Err(e) => {
-                    let bad_byte = src[e.valid_up_to()];
-                    let line = src[..e.valid_up_to()]
-                        .iter()
-                        .filter(|&&b| b == b'\n')
-                        .count()
-                        + 1;
-                    Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.syntax_error.to_owned(),
-                        format!(
-                            "Non-UTF-8 code starting with '\\x{bad_byte:02x}' \
-                             on line {line}, but no encoding declared; \
-                             see https://peps.python.org/pep-0263/ for details \
-                             ({filename}, line {line})"
-                        )
-                        .into(),
-                    ))
-                }
-            }
-        } else {
-            // Use codec registry for non-UTF-8 encodings
-            let enc = encoding.as_deref().unwrap();
-            let bytes_obj = vm.ctx.new_bytes(source.to_vec());
-            let decoded = vm
-                .state
-                .codec_registry
-                .decode_text(bytes_obj.into(), enc, None, vm)
-                .map_err(|exc| {
-                    if exc.fast_isinstance(vm.ctx.exceptions.lookup_error) {
-                        vm.new_exception_msg(
-                            vm.ctx.exceptions.syntax_error.to_owned(),
-                            format!("unknown encoding for '{filename}': {enc}").into(),
-                        )
-                    } else {
-                        exc
-                    }
-                })?;
-            Ok(decoded.to_string_lossy().into_owned())
+        #[cfg(not(feature = "parser"))]
+        {
+            _ = filename;
+            core::str::from_utf8(source)
+                .map(str::to_owned)
+                .map_err(|err| {
+                    let msg = format!(
+                        "(unicode error) 'utf-8' codec can't decode byte 0x{:x?} in position {}: invalid start byte",
+                        source[err.valid_up_to()],
+                        err.valid_up_to()
+                    );
+                    vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg.into())
+                })
         }
     }
 
@@ -303,30 +192,53 @@ mod builtins {
 
             use crate::{class::PyClassImpl, stdlib::_ast};
 
-            let feature_version = feature_version_from_arg(args._feature_version, vm)?;
+            let feature_version = args._feature_version;
 
             let mode_str = args.mode.as_str();
+            let flags: i32 = args.flags;
+            let cf = CompilerFlags::from_bits_retain(flags);
 
-            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
+            if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
+                return Err(vm.new_value_error("compile(): unrecognised flags"));
+            }
+
+            let optimize: i32 = args.optimize;
             let optimize: u8 = match optimize {
-                -1 => vm.state.config.settings.optimize,
+                -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
+            let dont_inherit = args.dont_inherit.into_bool();
+            let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
+            let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
-            if args
-                .source
-                .fast_isinstance(&_ast::NodeAst::make_static_type())
-            {
-                let flags: i32 = args.flags.map_or(0, |v| v.value);
-                let is_ast_only = !(flags & _ast::PY_CF_ONLY_AST).is_zero();
-
-                // func_type mode requires PyCF_ONLY_AST
-                if mode_str == "func_type" && !is_ast_only {
+            let start = if mode_str == "exec" {
+                CompileStart::File
+            } else if mode_str == "eval" {
+                CompileStart::Eval
+            } else if mode_str == "single" {
+                CompileStart::Single
+            } else if mode_str == "func_type" {
+                if !is_ast_only {
                     return Err(vm.new_value_error(
                         "compile() mode 'func_type' requires flag PyCF_ONLY_AST",
                     ));
                 }
+                CompileStart::FuncType
+            } else {
+                let msg = if is_ast_only {
+                    "compile() mode must be 'exec', 'eval', 'single' or 'func_type'"
+                } else {
+                    "compile() mode must be 'exec', 'eval' or 'single'"
+                };
+                return Err(vm.new_value_error(msg));
+            };
+
+            let ast_type = _ast::NodeAst::make_static_type().as_object().to_owned();
+            if args.source.is_instance(&ast_type, vm)? {
+                let explicit_future_annotations =
+                    future_features.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+                vm.audit("compile", || (args.source.clone(), vm.ctx.none()))?;
 
                 // compile(ast_node, ..., PyCF_ONLY_AST) returns the AST after validation
                 if is_ast_only {
@@ -336,15 +248,29 @@ mod builtins {
                                 "compile() mode must be 'exec', 'eval', 'single' or 'func_type'",
                             )
                         })?;
-                    if !args.source.fast_isinstance(&expected_type) {
+                    if !args.source.is_instance(expected_type.as_object(), vm)? {
                         return Err(vm.new_type_error(format!(
                             "expected {} node, got {}",
                             expected_name,
                             args.source.class().name()
                         )));
                     }
-                    _ast::validate_ast_object(vm, args.source.clone())?;
-                    return Ok(args.source);
+                    #[cfg(not(feature = "rustpython-codegen"))]
+                    {
+                        _ast::validate_ast_object(vm, args.source.clone())?;
+                        return Ok(args.source);
+                    }
+                    #[cfg(feature = "rustpython-codegen")]
+                    {
+                        return _ast::preprocess_ast_object(
+                            vm,
+                            args.source,
+                            &filename.to_string_lossy(),
+                            optimize,
+                            cf.contains(CompilerFlags::OPTIMIZED_AST),
+                            explicit_future_annotations,
+                        );
+                    }
                 }
 
                 #[cfg(not(feature = "rustpython-codegen"))]
@@ -353,141 +279,108 @@ mod builtins {
                 }
                 #[cfg(feature = "rustpython-codegen")]
                 {
+                    let (expected_type, expected_name) = _ast::mode_type_and_name(mode_str)
+                        .ok_or_else(|| {
+                            vm.new_value_error("compile() mode must be 'exec', 'eval' or 'single'")
+                        })?;
+                    if !args.source.is_instance(expected_type.as_object(), vm)? {
+                        return Err(vm.new_type_error(format!(
+                            "expected {} node, got {}",
+                            expected_name,
+                            args.source.class().name()
+                        )));
+                    }
                     let mode = mode_str
                         .parse::<crate::compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    return _ast::compile(
-                        vm,
-                        args.source,
-                        &filename.to_string_lossy(),
-                        mode,
-                        Some(optimize),
-                    );
+                    let mut opts = vm.compile_opts();
+                    opts.optimize = optimize;
+                    opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
+                    opts.future_features = future_features;
+                    return _ast::compile(vm, args.source, &filename.to_string_lossy(), mode, opts);
                 }
             }
 
             #[cfg(not(feature = "parser"))]
-            return Err(vm.new_type_error(
-                "can't compile() source code when the `parser` feature of rustpython is disabled",
-            ));
-
+            {
+                Err(vm.new_type_error(
+                    "can't compile() source code when the `parser` feature of rustpython is disabled",
+                ))
+            }
             #[cfg(feature = "parser")]
             {
-                use crate::convert::ToPyException;
-
-                use ruff_python_parser as parser;
-
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
-                let source = source.borrow_bytes();
 
-                let source = decode_source_bytes(&source, &filename.to_string_lossy(), vm)?;
-                let source = source.as_str();
-
-                let flags: i32 = args.flags.map_or(0, |v| v.value);
-
-                if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
-                    return Err(vm.new_value_error("compile(): unrecognised flags"));
-                }
-
-                let allow_incomplete = !(flags & _ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
-                let type_comments = !(flags & _ast::PY_CF_TYPE_COMMENTS).is_zero();
-
-                let optimize_level = optimize;
-
-                if (flags & _ast::PY_CF_ONLY_AST).is_zero() {
-                    #[cfg(not(feature = "compiler"))]
-                    {
-                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED))
-                    }
-                    #[cfg(feature = "compiler")]
-                    {
-                        if let Some(feature_version) = feature_version {
-                            let mode = mode_str
-                                .parse::<parser::Mode>()
-                                .map_err(|err| vm.new_value_error(err.to_string()))?;
-                            let _ = _ast::parse(
-                                vm,
-                                source,
-                                mode,
-                                optimize_level,
-                                Some(feature_version),
-                                type_comments,
-                            )
-                            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
-                        }
-
-                        let mode = mode_str
-                            .parse::<crate::compiler::Mode>()
-                            .map_err(|err| vm.new_value_error(err.to_string()))?;
-
-                        let mut opts = vm.compile_opts();
-                        opts.optimize = optimize;
-
-                        let code = vm
-                            .compile_with_opts(
-                                source,
-                                mode,
-                                filename.to_string_lossy().into_owned(),
-                                opts,
-                            )
-                            .map_err(|err| {
-                                (err, Some(source), allow_incomplete).to_pyexception(vm)
-                            })?;
-                        Ok(code.into())
-                    }
-                } else {
-                    if mode_str == "func_type" {
-                        return _ast::parse_func_type(vm, source, optimize_level, feature_version)
-                            .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm));
-                    }
-
-                    let mode = mode_str
-                        .parse::<parser::Mode>()
-                        .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    let parsed = _ast::parse(
-                        vm,
+                let mut compile_flags = flags | future_features.bits() as i32;
+                #[cfg(feature = "rustpython-compiler")]
+                let compile_source = |source: &[u8], compile_flags: i32| {
+                    vm.compile_string_object_with_flags(
                         source,
-                        mode,
-                        optimize_level,
+                        &filename.to_string_lossy(),
+                        start.as_i32(),
+                        compile_flags,
                         feature_version,
-                        type_comments,
+                        optimize as i32,
                     )
-                    .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(vm))?;
-
-                    if mode_str == "single" {
-                        return _ast::wrap_interactive(vm, parsed);
+                };
+                match &source {
+                    ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
+                        if source.as_bytes().contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        audit_compile_source(
+                            vm,
+                            source.as_bytes(),
+                            filename.to_string_lossy().as_ref(),
+                        )?;
+                        compile_flags |= CompilerFlags::IGNORE_COOKIE.bits();
+                        #[cfg(feature = "rustpython-compiler")]
+                        {
+                            compile_source(source.as_bytes(), compile_flags)
+                        }
+                        #[cfg(not(feature = "rustpython-compiler"))]
+                        {
+                            Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED))
+                        }
                     }
-
-                    Ok(parsed)
+                    ArgStrOrBytesLike::Buf(source) => {
+                        let source_bytes = source.borrow_buf();
+                        let source_bytes: &[u8] = &source_bytes;
+                        if source_bytes.contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        audit_compile_source(
+                            vm,
+                            source_bytes,
+                            filename.to_string_lossy().as_ref(),
+                        )?;
+                        #[cfg(feature = "rustpython-compiler")]
+                        {
+                            compile_source(source_bytes, compile_flags)
+                        }
+                        #[cfg(not(feature = "rustpython-compiler"))]
+                        {
+                            Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED))
+                        }
+                    }
                 }
             }
         }
     }
 
-    #[cfg(feature = "ast")]
-    fn feature_version_from_arg(
-        feature_version: OptionalArg<i32>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<ruff_python_ast::PythonVersion>> {
-        let Some(minor) = feature_version.into_option() else {
-            return Ok(None);
-        };
-
-        if minor < 0 {
-            return Ok(None);
-        }
-
-        u8::try_from(minor)
-            .map(|v| Some(ruff_python_ast::PythonVersion { major: 3, minor: v }))
-            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))
-    }
-
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_| {
+    fn delattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.del_attr(attr, vm)
@@ -499,55 +392,52 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._divmod(&a, &b)
+    fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._divmod(&x, &y)
     }
 
     #[derive(FromArgs)]
     struct ScopeArgs {
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<ArgMapping>,
     }
 
     impl ScopeArgs {
-        fn validate_globals_dict(
-            globals: &PyObject,
-            vm: &VirtualMachine,
-            func_name: &'static str,
-        ) -> PyResult<()> {
-            if globals.fast_isinstance(vm.ctx.types.dict_type) {
-                return Ok(());
-            }
-
-            let msg = match func_name {
-                "eval" => {
-                    let is_mapping = globals.mapping_unchecked().check();
-                    if is_mapping {
-                        "globals must be a real dict; try eval(expr, {}, mapping)".into()
-                    } else {
-                        "globals must be a dict".into()
-                    }
-                }
-                "exec" => format!(
-                    "exec() globals must be a dict, not {}",
-                    globals.class().name()
-                ),
-                _ => "globals must be a dict".into(),
-            };
-
-            Err(vm.new_type_error(msg))
-        }
-
         fn make_scope(
             self,
             vm: &VirtualMachine,
             func_name: &'static str,
         ) -> PyResult<crate::scope::Scope> {
+            fn validate_globals_dict(
+                globals: &PyObject,
+                vm: &VirtualMachine,
+                func_name: &'static str,
+            ) -> PyResult<()> {
+                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
+                    return Err(match func_name {
+                        "eval" => {
+                            let is_mapping = globals.mapping_unchecked().check();
+                            vm.new_type_error(if is_mapping {
+                                "globals must be a real dict; try eval(expr, {}, mapping)"
+                            } else {
+                                "globals must be a dict"
+                            })
+                        }
+                        "exec" => vm.new_type_error(format!(
+                            "exec() globals must be a dict, not {}",
+                            globals.class().name()
+                        )),
+                        _ => vm.new_type_error("globals must be a dict"),
+                    });
+                }
+                Ok(())
+            }
+
             let (globals, locals) = match self.globals {
                 Some(globals) => {
-                    Self::validate_globals_dict(&globals, vm, func_name)?;
+                    validate_globals_dict(&globals, vm, func_name)?;
 
                     let globals = PyDictRef::try_from_object(vm, globals)?;
                     if !globals.contains_key(identifier!(vm, __builtins__), vm) {
@@ -575,9 +465,64 @@ mod builtins {
         }
     }
 
+    #[derive(FromArgs)]
+    struct ExecArgs {
+        #[pyarg(positional)]
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
+        #[pyarg(any, optional)]
+        globals: Option<PyObjectRef>,
+        #[pyarg(any, optional)]
+        locals: Option<ArgMapping>,
+        #[pyarg(named, optional)]
+        closure: Option<PyObjectRef>,
+    }
+
+    fn exec_closure(
+        code_obj: &Py<crate::builtins::PyCode>,
+        closure: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyRef<PyTuple<PyCellRef>>>> {
+        let num_free = code_obj.freevars.len();
+        let Some(closure) = closure else {
+            if num_free == 0 {
+                return Ok(None);
+            }
+            return Err(vm.new_type_error(format!(
+                "code object requires a closure of exactly length {num_free}"
+            )));
+        };
+
+        if num_free == 0 {
+            return Err(vm.new_type_error("cannot use a closure with this code object"));
+        }
+
+        let closure_tuple = closure
+            .downcast_exact::<PyTuple>(vm)
+            .map_err(|_| {
+                vm.new_type_error(format!(
+                    "code object requires a closure of exactly length {num_free}"
+                ))
+            })?
+            .into_pyref();
+        if closure_tuple.as_slice().len() != num_free {
+            return Err(vm.new_type_error(format!(
+                "code object requires a closure of exactly length {num_free}"
+            )));
+        }
+
+        closure_tuple
+            .try_into_typed::<PyCell>(vm)
+            .map(Some)
+            .map_err(|_| {
+                vm.new_type_error(format!(
+                    "code object requires a closure of exactly length {num_free}"
+                ))
+            })
+    }
+
     #[pyfunction]
     fn eval(
-        source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, ArgStrOrBytesLike>,
         scope: ScopeArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -585,78 +530,152 @@ mod builtins {
 
         // source as string
         let code = match source {
-            Either::A(either) => {
-                let source: &[u8] = &either.borrow_bytes();
-                if source.contains(&0) {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.syntax_error.to_owned(),
-                        "source code string cannot contain null bytes".into(),
-                    ));
-                }
-
-                let source = core::str::from_utf8(source).map_err(|err| {
-                    let msg = format!(
-                        "(unicode error) 'utf-8' codec can't decode byte 0x{:x?} in position {}: invalid start byte",
-                        source[err.valid_up_to()],
-                        err.valid_up_to()
-                    );
-
-                    vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg.into())
-                })?;
-                Ok(Either::A(vm.ctx.new_utf8_str(source.trim_start())))
+            Either::B(either) => {
+                let source = match &either {
+                    ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
+                        if source.as_bytes().contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        let source = source.trim_start_matches([' ', '\t']);
+                        audit_compile_source(vm, source.as_bytes(), "<string>")?;
+                        source.to_owned()
+                    }
+                    ArgStrOrBytesLike::Buf(source) => {
+                        let source: &[u8] = &source.borrow_buf();
+                        if source.contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        let source = trim_eval_source_bytes(source);
+                        audit_compile_source(vm, source, "<string>")?;
+                        decode_eval_exec_source_bytes(vm, source, "eval")?
+                    }
+                };
+                Ok(Either::B(vm.ctx.new_utf8_str(source)))
             }
-            Either::B(code) => Ok(Either::B(code)),
+            Either::A(code) => Ok(Either::A(code)),
         }?;
-        run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
+        run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval", None)
     }
 
     #[pyfunction]
-    fn exec(
-        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
-        scope: ScopeArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let scope = scope.make_scope(vm, "exec")?;
-        run_code(vm, source, scope, crate::compiler::Mode::Exec, "exec")
+    fn exec(args: ExecArgs, vm: &VirtualMachine) -> PyResult {
+        let ExecArgs {
+            source,
+            globals,
+            locals,
+            closure,
+        } = args;
+        let scope = ScopeArgs { globals, locals }.make_scope(vm, "exec")?;
+        let (source, closure) = match source {
+            Either::B(either) => {
+                if closure.is_some() {
+                    return Err(
+                        vm.new_type_error("closure can only be used when source is a code object")
+                    );
+                }
+                let source = match &either {
+                    ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
+                        if source.as_bytes().contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        audit_compile_source(vm, source.as_bytes(), "<string>")?;
+                        source.to_owned()
+                    }
+                    ArgStrOrBytesLike::Buf(source) => {
+                        let source: &[u8] = &source.borrow_buf();
+                        if source.contains(&0) {
+                            return Err(vm.new_exception_msg(
+                                vm.ctx.exceptions.syntax_error.to_owned(),
+                                "source code string cannot contain null bytes".into(),
+                            ));
+                        }
+                        audit_compile_source(vm, source, "<string>")?;
+                        decode_eval_exec_source_bytes(vm, source, "exec")?
+                    }
+                };
+                (Either::B(vm.ctx.new_utf8_str(source)), None)
+            }
+            Either::A(code) => {
+                let closure = exec_closure(&code, closure, vm)?;
+                (Either::A(code), closure)
+            }
+        };
+        run_code(
+            vm,
+            source,
+            scope,
+            crate::compiler::Mode::Exec,
+            "exec",
+            closure,
+        )
     }
 
     fn run_code(
         vm: &VirtualMachine,
-        source: Either<PyUtf8StrRef, PyRef<crate::builtins::PyCode>>,
+        source: Either<PyRef<crate::builtins::PyCode>, PyUtf8StrRef>,
         scope: crate::scope::Scope,
         #[allow(unused_variables)] mode: crate::compiler::Mode,
         func: &str,
+        closure: Option<PyRef<PyTuple<PyCellRef>>>,
     ) -> PyResult {
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
-            Either::A(string) => {
+            Either::B(string) => {
                 let source = string.as_str();
-                vm.compile(source, mode, "<string>".to_owned())
-                    .map_err(|err| vm.new_syntax_error(&err, Some(source)))?
+                let mut opts = vm.compile_opts();
+                if let Some(code) = crate::frame::current_code() {
+                    opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
+                }
+                vm.compile_with_opts(source, mode, "<string>", opts)
+                    .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
-            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
-            Either::B(code_obj) => code_obj,
+            Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
+            Either::A(code_obj) => code_obj,
         };
 
-        if !code_obj.freevars.is_empty() {
+        vm.audit("exec", || (code_obj.clone(),))?;
+
+        if closure.is_none() && !code_obj.freevars.is_empty() {
             return Err(vm.new_type_error(format!(
                 "code object passed to {func}() may not contain free variables"
             )));
         }
 
         // Run the code:
-        vm.run_code_obj(code_obj, scope)
+        vm.run_code_obj_with_closure(code_obj, scope, closure)
+    }
+
+    #[derive(FromArgs)]
+    struct FormatArgs {
+        #[pyarg(positional)]
+        value: PyObjectRef,
+        #[pyarg(positional, default = "")]
+        format_spec: PyStrRef,
+    }
+
+    #[derive(FromArgs)]
+    struct InputArgs {
+        // Missing means an empty prompt.
+        #[pyarg(positional, optional, py_default = "''")]
+        prompt: OptionalArg<PyStrRef>,
     }
 
     #[pyfunction]
-    fn format(
-        value: PyObjectRef,
-        format_spec: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
+    fn format(args: FormatArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        vm.format(&args.value, args.format_spec)
     }
 
     #[pyfunction]
@@ -674,7 +693,7 @@ mod builtins {
         })?;
 
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(&obj, attr)?.unwrap_or(default))
         } else {
             obj.get_attr(attr, vm)
         }
@@ -686,14 +705,14 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn hasattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
-        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
+        obj.has_attr(attr, vm)
     }
 
     #[pyfunction]
@@ -702,7 +721,15 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn breakpoint(
+        args: PosArgs,
+        kws: KwArgs<PyObjectRef, NameKws>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let args = FuncArgs {
+            args: args.into_vec(),
+            kwargs: kws.into_default(),
+        };
         match vm
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
@@ -725,7 +752,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn input(prompt: OptionalArg<PyStrRef>, vm: &VirtualMachine) -> PyResult {
+    fn input(args: InputArgs, vm: &VirtualMachine) -> PyResult {
+        let prompt = args.prompt;
         use std::io::IsTerminal;
 
         let stdin = sys::get_stdin(vm)?;
@@ -740,18 +768,37 @@ mod builtins {
                 .is_ok_and(|fd| fd == expected)
         };
 
-        // Check if we should use rustyline (interactive terminal, not PTY child)
-        let use_rustyline = fd_matches(&stdin, 0)
+        let tty = fd_matches(&stdin, 0)
             && fd_matches(&stdout, 1)
             && std::io::stdin().is_terminal()
-            && !is_pty_child();
+            && std::io::stdout().is_terminal();
 
-        // Disable rustyline if prompt contains surrogates (not valid UTF-8 for terminal)
+        // Encode the prompt with stdout's encoding and reject embedded NULs
+        // (`strlen` on the encoded bytes).
+        if tty && let OptionalArg::Present(prompt) = &prompt {
+            let _ = vm.call_method(&stdout, "flush", ());
+            let encoding = stdout.get_attr("encoding", vm)?;
+            let errors = stdout.get_attr("errors", vm)?;
+            if !vm.is_none(&encoding) {
+                let encoded = vm.call_method(prompt.as_object(), "encode", (encoding, errors))?;
+                let bytes = encoded
+                    .downcast::<PyBytes>()
+                    .map_err(|_| vm.new_type_error("encode() must return bytes".to_owned()))?;
+                if bytes.as_bytes().contains(&0) {
+                    return Err(vm.new_value_error(
+                        "input: prompt string cannot contain null characters".to_owned(),
+                    ));
+                }
+            }
+        }
+
+        // rustyline is the interactive tty reader. Skip it in a PTY child
+        // (`pty.fork` + `setsid`): raw mode hangs there.
         let prompt_str = match &prompt {
             OptionalArg::Present(s) => s.to_str(),
             OptionalArg::Missing => Some(""),
         };
-        let use_rustyline = use_rustyline && prompt_str.is_some();
+        let use_rustyline = tty && !is_pty_child() && prompt_str.is_some();
 
         if use_rustyline {
             let prompt = prompt_str.unwrap();
@@ -792,13 +839,21 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        obj.is_instance(&typ, vm)
+    fn isinstance(
+        obj: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        obj.is_instance(&class_or_tuple, vm)
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        subclass.is_subclass(&typ, vm)
+    fn issubclass(
+        cls: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        cls.is_subclass(&class_or_tuple, vm)
     }
 
     #[pyfunction]
@@ -814,13 +869,13 @@ mod builtins {
                 .into();
             Ok(PyIter::new(iterator))
         } else {
-            iter_target.get_iter(vm)
+            PyIter::try_from_object(vm, iter_target)
         }
     }
 
     #[pyfunction]
-    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        iter_target.get_aiter(vm)
+    fn aiter(async_iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        async_iterable.get_aiter(vm)
     }
 
     #[pyfunction]
@@ -863,32 +918,30 @@ mod builtins {
     fn min_or_max(
         mut args: FuncArgs,
         vm: &VirtualMachine,
-        func_name: &str,
+        func_name: &'static str,
         op: PyComparisonOp,
     ) -> PyResult {
+        // A call with nothing to compare is refused before the keywords are read.
+        if args.args.is_empty() {
+            return Err(vm.new_arity_type_error(func_name, 1..=usize::MAX, 0));
+        }
+
         let default = args.take_keyword("default");
         let key_func = args.take_keyword("key");
 
-        if let Some(err) = args.check_kwargs_empty(vm) {
+        if let Some(err) = args.check_kwargs_empty_for(vm, func_name) {
             return Err(err);
         }
 
-        let candidates = match args.args.len().cmp(&1) {
-            core::cmp::Ordering::Greater => {
-                if default.is_some() {
-                    return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {func_name}() with multiple positional arguments"
-                    )));
-                }
-                args.args
+        let candidates = if args.args.len() > 1 {
+            if default.is_some() {
+                return Err(vm.new_type_error(format!(
+                    "Cannot specify a default for {func_name}() with multiple positional arguments"
+                )));
             }
-            core::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
-            core::cmp::Ordering::Less => {
-                // zero arguments means type error:
-                return Err(
-                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
-                );
-            }
+            args.args
+        } else {
+            args.args[0].try_to_value(vm)?
         };
 
         let mut candidates_iter = candidates.into_iter();
@@ -940,8 +993,8 @@ mod builtins {
     ) -> PyResult<PyIterReturn> {
         if !PyIter::check(&iterator) {
             return Err(vm.new_type_error(format!(
-                "{} object is not an iterator",
-                iterator.class().name()
+                "'{}' object is not an iterator",
+                iterator.class().slot_name()
             )));
         }
         PyIter::new(iterator)
@@ -968,18 +1021,10 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn ord(string: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
-        match string {
-            Either::A(bytes) => bytes.with_ref(|bytes| {
-                let bytes_len = bytes.len();
-                if bytes_len != 1 {
-                    return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {bytes_len} found"
-                    )));
-                }
-                Ok(u32::from(bytes[0]))
-            }),
-            Either::B(string) => match string.as_wtf8().code_points().exactly_one() {
+    // builtin_ord
+    fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
+            return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
                     let string_len = string.char_len();
@@ -987,8 +1032,24 @@ mod builtins {
                         "ord() expected a character, but string of length {string_len} found"
                     )))
                 }
-            },
+            };
+        } else if let Some(bytes) = character.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().to_vec()
+        } else if let Some(bytearray) = character.downcast_ref::<PyByteArray>() {
+            bytearray.borrow_buf().to_vec()
+        } else {
+            return Err(vm.new_type_error(format!(
+                "ord() expected string of length 1, but {} found",
+                character.class().name()
+            )));
+        };
+        let bytes_len = bytes.len();
+        if bytes_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {bytes_len} found"
+            )));
         }
+        Ok(u32::from(bytes[0]))
     }
 
     #[derive(FromArgs)]
@@ -1007,27 +1068,29 @@ mod builtins {
             modulus,
         } = args;
         let modulus = modulus
-            .as_ref()
-            .map_or_else(|| vm.ctx.none.as_object(), |m| m);
+            .as_deref()
+            .unwrap_or_else(|| vm.ctx.none.as_object());
         vm._pow(&x, &y, modulus)
     }
 
     #[pyfunction]
     pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
+        Err(vm.new_system_exit(vec![code].into()))
     }
 
     #[derive(Debug, Default, FromArgs)]
     pub struct PrintOptions {
-        #[pyarg(named, default)]
+        // None means a space; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "' '")]
         sep: Option<PyStrRef>,
-        #[pyarg(named, default)]
+        // None means a newline; the string is filled in when printing.
+        #[pyarg(named, default, py_default = "'\\n'")]
         end: Option<PyStrRef>,
+        #[pyarg(named, optional)]
+        file: Option<PyObjectRef>,
         #[pyarg(named, default = ArgIntoBool::FALSE)]
         flush: ArgIntoBool,
-        #[pyarg(named, default)]
-        file: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1067,15 +1130,17 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
+    pub fn reversed(sequence: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(reversed_method) =
+            vm.get_method(sequence.clone(), identifier!(vm, __reversed__))
+        {
             reversed_method?.call((), vm)
         } else {
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
+            vm.get_method_or_type_error(sequence.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
             })?;
-            let len = obj.length(vm)?;
-            let obj_iterator = PyReverseSequenceIterator::new(obj, len);
+            let len = sequence.length(vm)?;
+            let obj_iterator = PyReverseSequenceIterator::new(sequence, len);
             Ok(obj_iterator.into_pyobject(vm))
         }
     }
@@ -1084,7 +1149,7 @@ mod builtins {
     pub(super) struct RoundArgs {
         number: PyObjectRef,
         #[pyarg(any, optional)]
-        ndigits: OptionalOption<PyObjectRef>,
+        ndigits: Option<PyObjectRef>,
     }
 
     #[pyfunction]
@@ -1093,11 +1158,11 @@ mod builtins {
             .get_special_method(&number, identifier!(vm, __round__))?
             .ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "type {} doesn't define __round__",
-                    number.class().name()
+                    "type {} doesn't define __round__ method",
+                    number.class().slot_name()
                 ))
             })?;
-        match ndigits.flatten() {
+        match ndigits {
             Some(obj) => {
                 let ndigits = obj.try_index(vm)?;
                 meth.invoke((ndigits,), vm)
@@ -1112,14 +1177,14 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyObjectRef,
+        name: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.set_attr(attr, value, vm)?;
@@ -1130,7 +1195,9 @@ mod builtins {
 
     #[pyfunction]
     fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
-        let items: Vec<_> = iterable.try_to_value(vm)?;
+        // `PySequence_List()`, so the room comes from what the iterable reports
+        // rather than from its iterator.
+        let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
         lst.sort(opts, vm)?;
         Ok(lst)
@@ -1140,20 +1207,14 @@ mod builtins {
     pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
-        #[pyarg(any, optional)]
-        start: OptionalArg<PyObjectRef>,
+        // The int object needs the VM, so the default is not a literal.
+        #[pyarg(any, default = 0)]
+        start: PyObjectRef,
     }
 
-    #[expect(
-        clippy::redundant_else,
-        reason = "match_class! macro expansion arms has a `return` inside"
-    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
-        // Start with zero and add at will:
-        let mut sum = start
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.new_int(0).into());
+        let mut sum = start;
 
         match_class!(match sum {
             PyStr =>
@@ -1176,13 +1237,14 @@ mod builtins {
     #[derive(FromArgs)]
     struct ImportArgs {
         #[pyarg(any)]
-        name: PyStrRef,
-        #[pyarg(any, default)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
         globals: Option<PyObjectRef>,
         #[allow(dead_code)]
-        #[pyarg(any, default)]
+        #[pyarg(any, optional)]
         locals: Option<PyObjectRef>,
-        #[pyarg(any, default)]
+        // Missing means an empty fromlist.
+        #[pyarg(any, default, py_default = "()")]
         fromlist: Option<PyObjectRef>,
         #[pyarg(any, default)]
         level: i32,
@@ -1190,7 +1252,19 @@ mod builtins {
 
     #[pyfunction]
     fn __import__(args: ImportArgs, vm: &VirtualMachine) -> PyResult {
-        crate::import::import_module_level(&args.name, args.globals, args.fromlist, args.level, vm)
+        // The name is faulted for not being a string by the import itself,
+        // ahead of the level beside it. = PyImport_ImportModuleLevelObject
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        crate::import::import_module_level(
+            name,
+            args.globals.as_deref(),
+            args.fromlist,
+            args.level,
+            vm,
+        )
     }
 
     #[pyfunction]
@@ -1216,15 +1290,14 @@ mod builtins {
         // Update bases.
         let mut new_bases: Option<Vec<PyObjectRef>> = None;
         let bases = PyTuple::new_ref(bases.into_vec(), &vm.ctx);
-        for (i, base) in bases.iter().enumerate() {
+        for (i, base) in bases.as_slice().iter().enumerate() {
             if base.fast_isinstance(vm.ctx.types.type_type) {
                 if let Some(bases) = &mut new_bases {
                     bases.push(base.clone());
                 }
                 continue;
             }
-            let mro_entries =
-                vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
+            let mro_entries = vm.get_attribute_opt(base, identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
                 Some(meth) => meth.call((bases.clone(),), vm)?,
                 None => {
@@ -1237,8 +1310,8 @@ mod builtins {
             let entries: PyTupleRef = entries
                 .downcast()
                 .map_err(|_| vm.new_type_error("__mro_entries__ must return a tuple"))?;
-            let new_bases = new_bases.get_or_insert_with(|| bases[..i].to_vec());
-            new_bases.extend_from_slice(&entries);
+            let new_bases = new_bases.get_or_insert_with(|| bases.as_slice()[..i].to_vec());
+            new_bases.extend_from_slice(entries.as_slice());
         }
 
         let new_bases = new_bases.map(|v| PyTuple::new_ref(v, &vm.ctx));
@@ -1251,10 +1324,10 @@ mod builtins {
         let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
             || {
                 // if there are no bases, use type; else get the type of the first base
-                Ok(if bases.is_empty() {
+                Ok(if bases.as_slice().is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
-                    bases.first().unwrap().class().to_owned()
+                    bases.as_slice().first().unwrap().class().to_owned()
                 })
             },
             |metaclass| {
@@ -1266,7 +1339,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in bases.iter() {
+                for base in bases.as_slice() {
                     let base_class = base.class();
                     // if winner is subtype of tmptype, continue (winner is more derived)
                     if metaclass.fast_issubclass(base_class) {
@@ -1293,7 +1366,7 @@ mod builtins {
 
         // Prepare uses full __getattribute__ resolution chain.
         let namespace = vm
-            .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
+            .get_attribute_opt(&metaclass, identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
                 let args = FuncArgs::new(vec![name_obj.clone(), bases.clone()], kwargs.clone());
                 prepare.call(args, vm)
@@ -1313,7 +1386,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             // Set .type_params in namespace so the compiler-generated code can use it
             namespace
@@ -1346,7 +1419,7 @@ mod builtins {
             .as_object()
             .get_attr(identifier!(vm, __type_params__), vm)
             && let Some(type_params_tuple) = type_params.downcast_ref::<PyTuple>()
-            && !type_params_tuple.is_empty()
+            && !type_params_tuple.as_slice().is_empty()
         {
             class.set_attr(identifier!(vm, __type_params__), type_params.clone(), vm)?;
             // Also set __parameters__ for compatibility with typing module

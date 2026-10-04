@@ -6,7 +6,7 @@
 //!
 //! Some stdlib modules are implemented here, but most of them are in the `rustpython-stdlib` module. The
 
-#![deny(clippy::disallowed_methods)]
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![allow(
     clippy::module_inception,
     reason = "
@@ -76,7 +76,11 @@ pub mod iter;
 pub mod object;
 
 #[cfg(feature = "host_env")]
+#[cfg(feature = "opcode-histogram")]
+pub mod opcode_histogram;
 pub mod ospath;
+#[cfg(feature = "host_env")]
+mod ospath_fd;
 
 pub mod prelude;
 pub mod protocol;
@@ -86,12 +90,13 @@ pub mod py_io;
 pub mod py_serde;
 
 pub mod gc_state;
-pub mod readline;
+pub use rustpython_host_env::readline;
 pub mod recursion;
 pub mod scope;
 pub mod sequence;
 pub mod signal;
 pub mod sliceable;
+pub mod sorting;
 pub mod stdlib;
 pub mod suggestion;
 pub mod types;
@@ -105,10 +110,15 @@ pub mod windows;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
-    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
-    PyResult, PyStackRef, PyWeakRef,
+    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectCell, PyObjectRef, PyPayload, PyRef,
+    PyRefExact, PyResult, PyStackRef, PyWeakRef,
 };
-pub use self::vm::{Context, Interpreter, InterpreterBuilder, Settings, VirtualMachine};
+pub use self::vm::runtime;
+pub use self::vm::{
+    Context, InterpFeatureFlags, Interpreter, InterpreterBuilder, InterpreterConfig,
+    InterpreterGil, InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID, Settings,
+    VirtualMachine,
+};
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core::{bytecode, frozen};

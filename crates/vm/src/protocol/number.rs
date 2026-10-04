@@ -3,16 +3,39 @@ use core::ops::Deref;
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int,
     },
-    common::int::{BytesToIntError, bytes_to_int},
+    common::{
+        int::{BytesToIntError, bytes_to_int},
+        str::{PyKindStr, transform_decimal_and_space_to_ascii},
+    },
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
     stdlib::_warnings,
 };
+use alloc::borrow::Cow;
+
+/// Normalize a `str` for the byte-oriented numeric parsers: Unicode decimal digits
+/// and whitespace fold to their ASCII equivalents, the way CPython runs every
+/// numeric constructor's string argument through
+/// `_PyUnicode_TransformDecimalAndSpaceToASCII` first.
+///
+/// `int`, `float` and `complex` share this step and nothing else — only `int` takes
+/// a base, and only `int` and `float` accept bytes-like input, so each keeps its own
+/// entry point around this one.
+///
+/// A string holding surrogates can never be a valid literal, so it folds to an
+/// empty — and therefore invalid — one.
+pub fn numeric_literal_from_str(s: &Py<PyStr>) -> Cow<'_, str> {
+    match s.as_str_kind() {
+        PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
+        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),
+        PyKindStr::Wtf8(_) => Cow::Borrowed(""),
+    }
+}
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber<'_>, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
@@ -39,7 +62,7 @@ impl PyObject {
         self.try_index_opt(vm).transpose()?.ok_or_else(|| {
             vm.new_type_error(format!(
                 "'{}' object cannot be interpreted as an integer",
-                self.class()
+                self.class().slot_name()
             ))
         })
     }
@@ -59,9 +82,9 @@ impl PyObject {
         } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
-            try_convert(self, s.as_wtf8().trim().as_bytes(), vm)
+            try_convert(self, numeric_literal_from_str(s).as_bytes(), vm)
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
-            try_convert(self, bytes, vm)
+            try_convert(self, bytes.as_bytes(), vm)
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
             try_convert(self, &bytearray.borrow_buf(), vm)
         } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
@@ -70,7 +93,7 @@ impl PyObject {
         } else {
             Err(vm.new_type_error(format!(
                 "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-                self.class()
+                self.class().slot_name()
             )))
         }
     }
@@ -89,7 +112,10 @@ impl PyObject {
     #[inline]
     pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
         self.try_float_opt(vm).ok_or_else(|| {
-            vm.new_type_error(format!("must be real number, not {}", self.class()))
+            vm.new_type_error(format!(
+                "must be real number, not {}",
+                self.class().slot_name()
+            ))
         })?
     }
 }
@@ -631,28 +657,16 @@ impl Deref for PyNumber<'_> {
     }
 }
 
-impl<'a> PyNumber<'a> {
-    // PyNumber_Check - slots are now inherited
-    #[must_use]
-    pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.as_number;
-        let has_number = methods.int.load().is_some()
-            || methods.index.load().is_some()
-            || methods.float.load().is_some();
-        has_number || obj.downcastable::<PyComplex>()
-    }
-}
-
 impl PyNumber<'_> {
     // PyIndex_Check
     #[must_use]
     pub fn is_index(self) -> bool {
-        self.class().slots.as_number.index.load().is_some()
+        self.class().slots().as_number.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.int.load().map(|f| {
+        self.class().slots().as_number.int.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
@@ -662,18 +676,18 @@ impl PyNumber<'_> {
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
                 let msg = format!(
-                    "__int__ returned non-int (type {ret_class}).  \
+                    "__int__ returned non-int (type {}).  \
 The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__int__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
+                    "__int__ returned non-int (type {})",
+                    ret_class.slot_name()
                 )))
             }
         })
@@ -681,7 +695,7 @@ and may be removed in a future version of Python."
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.as_number.index.load().map(|f| {
+        self.class().slots().as_number.index.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
@@ -691,18 +705,18 @@ and may be removed in a future version of Python."
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyInt>() {
                 let msg = format!(
-                    "__index__ returned non-int (type {ret_class}).  \
+                    "__index__ returned non-int (type {}).  \
 The ability to return an instance of a strict subclass of int is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__index__ returned non-int(type {})",
-                    self.class(),
-                    ret_class
+                    "__index__ returned non-int (type {})",
+                    ret_class.slot_name()
                 )))
             }
         })
@@ -710,7 +724,7 @@ and may be removed in a future version of Python."
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.class().slots.as_number.float.load().map(|f| {
+        self.class().slots().as_number.float.load().map(|f| {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyFloat>(vm) {
@@ -720,21 +734,33 @@ and may be removed in a future version of Python."
             let ret_class = ret.class().to_owned();
             if let Some(ret) = ret.downcast_ref::<PyFloat>() {
                 let msg = format!(
-                    "__float__ returned non-float (type {ret_class}).  \
+                    "{}.__float__ returned non-float (type {}).  \
 The ability to return an instance of a strict subclass of float is deprecated, \
-and may be removed in a future version of Python."
+and may be removed in a future version of Python.",
+                    self.class().slot_name(),
+                    ret_class.slot_name()
                 );
                 _warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
 
                 Ok(ret.to_owned())
             } else {
                 Err(vm.new_type_error(format!(
-                    "{}.__float__ returned non-float(type {})",
-                    self.class(),
-                    ret_class
+                    "{}.__float__ returned non-float (type {})",
+                    self.class().slot_name(),
+                    ret_class.slot_name()
                 )))
             }
         })
+    }
+
+    // PyNumber_Check - slots are now inherited
+    #[must_use]
+    pub fn check(obj: &PyObject) -> bool {
+        let methods = &obj.class().slots().as_number;
+        let has_number = methods.int.load().is_some()
+            || methods.index.load().is_some()
+            || methods.float.load().is_some();
+        has_number || obj.downcastable::<PyComplex>()
     }
 }
 

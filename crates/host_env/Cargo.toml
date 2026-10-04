@@ -8,49 +8,97 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+# `ctypes` module: libffi (linked against the system library) and libloading.
+ctypes = ["dep:libffi", "dep:libloading"]
+native-certs = ["dep:rustls-native-certs"]
+# rustls-free `_ssl` surface: MemoryBIO, constants, OID, ALPN, hostname.
+ssl = []
+# rustls engine. Implies `ssl`. Browser wasm enables this together with
+# rustls-pki-types `web` on that crate; wasm-host enables `ssl` only.
+rustls = [
+    "ssl",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:rustls-webpki",
+    "dep:x509-parser",
+    "dep:der",
+    "dep:pkcs8",
+    "dep:sha2",
+]
+
 [dependencies]
 rustpython-wtf8 = { workspace = true }
 
 bitflags = { workspace = true }
+bitflagset = { workspace = true }
+der = { workspace = true, optional = true }
 getrandom = { workspace = true }
 libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional = true }
+rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+rustls-webpki = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+widestring = { workspace = true }
+x509-parser = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
+
+[target.'cfg(any(unix, target_os = "macos", target_os = "redox", target_os = "wasi"))'.dependencies]
 rustix = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
-num_cpus = "1.17.0"
+num_cpus = { workspace = true }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
+mac_address = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dns-lookup = { workspace = true }
+gethostname = { workspace = true }
+rustyline = { workspace = true }
+rustls-native-certs = { workspace = true, optional = true }
+socket2 = { workspace = true, features = ["all"] }
+which = { workspace = true }
 
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
 termios = { workspace = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
-memmap2 = "0.9.10"
-libloading = "0.9"
+memmap2 = { workspace = true }
+libloading = { workspace = true, optional = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
-libffi = { workspace = true, features = ["system"] }
+libffi = { workspace = true, features = ["system"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
-widestring = { workspace = true }
 windows-sys = { workspace = true, features = [
+    "Win32_Devices_Bluetooth",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Media_Audio",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
+    "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Environment",
+    "Win32_System_Ole",
     "Win32_System_IO",
     "Win32_System_Ioctl",
     "Win32_System_JobObjects",
@@ -60,6 +108,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Pipes",
     "Win32_System_Performance",
     "Win32_System_Registry",
+    "Win32_System_Rpc",
     "Win32_System_SystemInformation",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
@@ -69,5 +118,13 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws_lc_rs"] }
+
+[build-dependencies]
+cc = "1"
+
 [lints]
 workspace = true
+
+

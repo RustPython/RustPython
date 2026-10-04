@@ -1248,7 +1248,6 @@ os.does_not_exist
                 stdout, stderr = popen.communicate()
                 self.assertRegex(stdout, expected_error)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; _imp.create_dynamic not implemented
     def test_create_dynamic_null(self):
         with self.assertRaisesRegex(ValueError, 'embedded null character'):
             class Spec:
@@ -2554,6 +2553,7 @@ class SubinterpImportTests(unittest.TestCase):
         self.assertIsNot(excsnap, None)
 
     @requires_subinterpreters
+    @unittest.skip("TODO: RUSTPYTHON; test requires _testsinglephase module")
     def test_pyinit_function_raises_exception(self):
         # gh-144601: PyInit functions that raised exceptions would cause a
         # crash when imported from a subinterpreter.

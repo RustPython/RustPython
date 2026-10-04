@@ -5,6 +5,130 @@
 
 use std::io;
 
+#[cfg(unix)]
+pub use libc::{
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, PROT_EXEC, PROT_READ,
+    PROT_WRITE,
+};
+
+#[cfg(unix)]
+bitflags::bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct MapFlags: libc::c_int {
+        const MAP_SHARED = libc::MAP_SHARED;
+        const MAP_PRIVATE = libc::MAP_PRIVATE;
+        const MAP_ANON = libc::MAP_ANON;
+        const MAP_ANONYMOUS = libc::MAP_ANONYMOUS;
+
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_DENYWRITE = libc::MAP_DENYWRITE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_EXECUTABLE = libc::MAP_EXECUTABLE;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+        const MAP_POPULATE = libc::MAP_POPULATE;
+
+        #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+        const MAP_STACK = libc::MAP_STACK;
+
+        #[cfg(target_vendor = "apple")]
+        const MAP_NORESERVE = libc::MAP_NORESERVE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOEXTEND = libc::MAP_NOEXTEND;
+        #[cfg(target_vendor = "apple")]
+        const MAP_HASSEMAPHORE = libc::MAP_HASSEMAPHORE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_NOCACHE = libc::MAP_NOCACHE;
+        #[cfg(target_vendor = "apple")]
+        const MAP_JIT = libc::MAP_JIT;
+        // libc does not name these `sys/mman.h` flags.
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_CODESIGN = 0x2000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_RESILIENT_MEDIA = 0x4000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_32BIT = 0x8000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TRANSLATED_ALLOW_EXECUTE = 0x20000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_UNIX03 = 0x40000;
+        #[cfg(target_vendor = "apple")]
+        const MAP_TPRO = 0x80000;
+    }
+}
+
+#[cfg(unix)]
+macro_rules! map_flag_consts {
+    ($($name:ident),+ $(,)?) => {
+        $(pub const $name: libc::c_int = MapFlags::$name.bits();)+
+    };
+}
+
+#[cfg(unix)]
+map_flag_consts! {
+    MAP_SHARED, MAP_PRIVATE, MAP_ANON, MAP_ANONYMOUS,
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+map_flag_consts! {
+    MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE,
+}
+
+#[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+map_flag_consts! {
+    MAP_STACK,
+}
+
+#[cfg(target_vendor = "apple")]
+map_flag_consts! {
+    MAP_HASSEMAPHORE, MAP_JIT, MAP_NOCACHE, MAP_NOEXTEND, MAP_NORESERVE,
+    MAP_RESILIENT_CODESIGN, MAP_RESILIENT_MEDIA, MAP_32BIT,
+    MAP_TRANSLATED_ALLOW_EXECUTE, MAP_UNIX03, MAP_TPRO,
+}
+
+#[cfg(target_os = "macos")]
+pub use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::MADV_FREE;
+
+#[cfg(target_os = "linux")]
+pub use libc::{
+    MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
+    MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
+};
+
+#[cfg(any(
+    target_os = "android",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "s390x",
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "sparc64"
+        )
+    )
+))]
+pub use libc::MADV_SOFT_OFFLINE;
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
+
+pub use libc::EOVERFLOW;
+
 #[cfg(windows)]
 use crate::windows::{CheckWin32Bool, HandleToOwned};
 #[cfg(unix)]

@@ -1,11 +1,9 @@
 use super::{
+    Traverse, TraverseFn,
     core::{Py, PyObject, PyObjectRef, PyRef},
     payload::PyPayload,
 };
-use crate::common::{
-    atomic::{Ordering, PyAtomic, Radium},
-    lock::PyRwLockReadGuard,
-};
+use crate::common::atomic::{Ordering, PyAtomic, Radium};
 use crate::{
     VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
@@ -242,6 +240,22 @@ pub struct PyAtomicRef<T> {
     _phantom: PhantomData<T>,
 }
 
+// The cell stores a pointer, not an inline `T`. `PhantomData<T>` would
+// otherwise make `PyAtomicRef<PyObject>` `!Unpin` because `PyObject` is pinned.
+impl<T> Unpin for PyAtomicRef<T> {}
+
+// Typed and untyped cells are the same pointer-sized slot. A typed nullable
+// CAS forwards to the untyped one through this layout.
+const _: () = assert!(
+    core::mem::size_of::<PyAtomicRef<Option<PyObject>>>()
+        == core::mem::size_of::<PyAtomicRef<()>>()
+        && core::mem::align_of::<PyAtomicRef<Option<PyObject>>>()
+            == core::mem::align_of::<PyAtomicRef<()>>()
+        && core::mem::offset_of!(PyAtomicRef<Option<PyObject>>, inner)
+            == core::mem::offset_of!(PyAtomicRef<()>, inner)
+        && core::mem::offset_of!(PyAtomicRef<Option<PyObject>>, inner) == 0
+);
+
 impl<T> Drop for PyAtomicRef<T> {
     fn drop(&mut self) {
         // SAFETY: We are dropping the atomic reference, so we can safely
@@ -269,13 +283,16 @@ cfg_select! {
     _ => {}
 }
 
-impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
+impl<T> fmt::Debug for PyAtomicRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PyAtomicRef(")?;
+        // The stored pointer is a `Py<T>` — the full object, header included —
+        // as `Deref`, `load_raw` and `swap` all read it. Formatting it as a
+        // bare payload would skip the header and print misaligned bytes.
         unsafe {
             self.inner
                 .load(Ordering::Relaxed)
-                .cast::<T>()
+                .cast::<PyObject>()
                 .as_ref()
                 .fmt(f)
         }?;
@@ -312,6 +329,22 @@ impl<T: PyPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyPayload> PyAtomicRef<T> {
+    /// Move a reference into an atomic pointer without creating a Rust
+    /// reference to the pointee. This is only for bootstrap objects whose
+    /// allocation is valid but whose payload is still being initialized.
+    ///
+    /// # Safety
+    /// The pointee must remain allocated, and this atomic reference must not
+    /// be dereferenced until the pointee has been fully initialized.
+    pub(super) unsafe fn from_ref_without_retag(pyref: PyRef<T>) -> Self {
+        let ptr = pyref.into_non_null().as_ptr().cast::<u8>();
+        ptr.expose_provenance();
+        Self {
+            inner: Radium::new(ptr),
+            _phantom: Default::default(),
+        }
+    }
+
     /// Load the raw pointer without creating a reference.
     /// Avoids Stacked Borrows retag, safe for use during bootstrap
     /// when type objects have self-referential pointers being mutated.
@@ -333,8 +366,34 @@ impl<T: PyPayload> PyAtomicRef<T> {
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
         let old = unsafe { self.swap(pyref) };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
+    }
+
+    /// Strong reference to the current value.
+    ///
+    /// The cell is never null. A concurrent store may drop the previous value;
+    /// the incref is retried until it applies to the pointer still in the slot.
+    /// A null load is retried rather than forged.
+    pub(crate) fn load_owned(&self) -> PyRef<T> {
+        loop {
+            if let Some(obj) = cell_load_owned(&self.inner) {
+                // SAFETY: this cell is only stored with `PyRef<T>`.
+                return unsafe { obj.downcast_unchecked() };
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// `None` only if the cell was empty. Callers that publish through
+    /// `From<PyRef<T>>` and `store` keep a `T` in the slot.
+    pub(crate) fn store(&self, value: PyRef<T>) -> Option<PyRef<T>> {
+        cell_store(&self.inner, Some(value.into())).map(|obj| {
+            // SAFETY: this cell is only stored with `PyRef<T>`.
+            unsafe { obj.downcast_unchecked() }
+        })
     }
 }
 
@@ -349,20 +408,28 @@ impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
 }
 
 impl<T: PyPayload> PyAtomicRef<Option<T>> {
+    /// Optional form of PyAtomicRef::from_ref_without_retag.
+    ///
+    /// # Safety
+    /// A non-None pointee must remain allocated, and this atomic reference
+    /// must not be dereferenced until the pointee has been fully initialized.
+    pub(super) unsafe fn from_optional_ref_without_retag(opt_ref: Option<PyRef<T>>) -> Self {
+        let ptr = opt_ref.map_or(null_mut(), |pyref| {
+            pyref.into_non_null().as_ptr().cast::<u8>()
+        });
+        ptr.expose_provenance();
+        Self {
+            inner: Radium::new(ptr),
+            _phantom: Default::default(),
+        }
+    }
+
     pub fn deref(&self) -> Option<&Py<T>> {
         self.deref_ordering(Ordering::Relaxed)
     }
 
     pub fn deref_ordering(&self, ordering: Ordering) -> Option<&Py<T>> {
         unsafe { self.inner.load(ordering).cast::<Py<T>>().as_ref() }
-    }
-
-    pub fn to_owned(&self) -> Option<PyRef<T>> {
-        self.to_owned_ordering(Ordering::Relaxed)
-    }
-
-    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyRef<T>> {
-        self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
     /// # Safety
@@ -380,7 +447,135 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
+        }
+    }
+
+    /// Strong reference to the current value, or `None` when the slot is empty.
+    ///
+    /// This is the owned read for a nullable cell. A concurrent store may drop
+    /// the previous value; the incref is retried until it applies to the
+    /// pointer still in the slot. Published-object memory is reclaimed only
+    /// after a QSBR grace period (see `object::qsbr`), so the refcount word of
+    /// a swapped-out value stays readable.
+    pub fn load_owned(&self) -> Option<PyRef<T>> {
+        cell_load_owned(&self.inner).map(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    pub(crate) fn store(&self, value: Option<PyRef<T>>) -> Option<PyRef<T>> {
+        cell_store(&self.inner, value.map(PyObjectRef::from)).map(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
+    }
+
+    /// Store `value` only when the cell is empty.
+    ///
+    /// On failure the cell is unchanged and `value` is returned still owned.
+    pub(crate) fn compare_exchange_empty(&self, value: PyRef<T>) -> Result<(), PyRef<T>> {
+        // SAFETY: every `PyAtomicRef<_>` is an atomic pointer plus a
+        // zero-sized marker, so the layouts match. The untyped cell API only
+        // loads and stores that pointer.
+        let cell = unsafe { &*core::ptr::from_ref(self).cast::<PyAtomicRef<Option<PyObject>>>() };
+        cell.compare_exchange_empty(value.into()).map_err(|obj| {
+            // SAFETY: a typed cell only stores references of payload `T`.
+            unsafe { obj.downcast_unchecked() }
+        })
+    }
+}
+
+fn cell_load_ptr(inner: &PyAtomic<*mut u8>) -> *mut PyObject {
+    inner.load(Ordering::Acquire).cast()
+}
+
+/// Try-incref the pointer in `inner`.
+///
+/// A concurrent store may drop the previous value. The incref is retried
+/// until it applies to the pointer still in the slot. Returns `None` when
+/// the slot is empty.
+fn cell_load_owned(inner: &PyAtomic<*mut u8>) -> Option<PyObjectRef> {
+    let ptr = inner.load(Ordering::Acquire);
+    if ptr.is_null() {
+        return None;
+    }
+    // Without threading the slot's own reference keeps the object alive,
+    // so one incref is enough. With threading, retry when a store retires
+    // the pointer between the load and the incref.
+    #[cfg(not(feature = "threading"))]
+    {
+        // SAFETY: `ptr` is non-null and the cell's own reference keeps the
+        // object alive for this incref.
+        unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+    }
+    #[cfg(feature = "threading")]
+    {
+        let mut ptr = ptr;
+        loop {
+            // SAFETY: `ptr` is non-null. A value that left the cell was marked
+            // published, so its refcount word stays readable until QSBR.
+            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast()) }
+                && core::ptr::eq(inner.load(Ordering::Acquire), ptr)
+            {
+                return Some(obj);
+            }
+            ptr = inner.load(Ordering::Acquire);
+            if ptr.is_null() {
+                return None;
+            }
+            core::hint::spin_loop();
+        }
+    }
+}
+
+/// Replace the stored reference. Returns the previous one, still owned.
+///
+/// The value placed in the slot is not marked published, so it can still
+/// return to the freelist. With threading, the value that leaves the slot
+/// is marked so its free waits out a reader that already loaded it.
+fn cell_store(inner: &PyAtomic<*mut u8>, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+    let new_ptr = match value {
+        Some(obj) => {
+            let ptr = obj.into_raw().as_ptr();
+            ptr.expose_provenance();
+            ptr.cast()
+        }
+        None => null_mut(),
+    };
+    let old = Radium::swap(inner, new_ptr, Ordering::AcqRel);
+    // SAFETY: a non-null slot pointer is an owning reference the cell just released.
+    let old = NonNull::new(old.cast()).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+    #[cfg(feature = "threading")]
+    if let Some(old) = old.as_ref() {
+        old.mark_cache_published();
+    }
+    old
+}
+
+/// Store `value` only when the cell is empty.
+///
+/// On failure the cell is unchanged and `value` is returned still owned.
+fn cell_compare_exchange_empty(
+    inner: &PyAtomic<*mut u8>,
+    value: PyObjectRef,
+) -> Result<(), PyObjectRef> {
+    let raw = value.into_raw();
+    let ptr = raw.as_ptr();
+    ptr.expose_provenance();
+    match inner.compare_exchange(
+        core::ptr::null_mut(),
+        ptr.cast(),
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            // SAFETY: the exchange did not take the pointer, so `raw` is
+            // still the unique owning reference.
+            Err(unsafe { PyObjectRef::from_raw(raw) })
         }
     }
 }
@@ -410,6 +605,21 @@ impl Deref for PyAtomicRef<PyObject> {
 }
 
 impl PyAtomicRef<PyObject> {
+    /// Strong reference to the current value.
+    ///
+    /// The cell is never null. A concurrent store may drop the previous value;
+    /// the incref is retried until it applies to the pointer still in the slot.
+    pub(crate) fn load_owned(&self) -> PyObjectRef {
+        cell_load_owned(&self.inner).expect("non-null atomic cell")
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    ///
+    /// The cell is never null, before and after the store.
+    pub(crate) fn store(&self, value: PyObjectRef) -> PyObjectRef {
+        cell_store(&self.inner, Some(value)).expect("non-null atomic cell")
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -423,7 +633,7 @@ impl PyAtomicRef<PyObject> {
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
         let old = unsafe { self.swap(obj) };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }
@@ -439,20 +649,60 @@ impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
 }
 
 impl PyAtomicRef<Option<PyObject>> {
+    /// Empty slot. The pointer is null and owns no reference.
+    pub(crate) const fn new_empty() -> Self {
+        Self {
+            inner: {
+                #[cfg(feature = "threading")]
+                {
+                    core::sync::atomic::AtomicPtr::new(null_mut())
+                }
+                #[cfg(not(feature = "threading"))]
+                {
+                    core::cell::Cell::new(null_mut())
+                }
+            },
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Borrowed pointer currently stored. Null when the slot is empty.
+    ///
+    /// The slot owns the reference, so this stays valid while the slot is
+    /// unchanged. Traversal calls it with other threads stopped.
+    pub(crate) fn load_ptr(&self) -> *mut PyObject {
+        cell_load_ptr(&self.inner)
+    }
+
+    /// Strong reference to the current value, or `None` when the slot is empty.
+    ///
+    /// This is the owned read for a nullable cell. A concurrent store may drop
+    /// the previous value; the incref is retried until it applies to the
+    /// pointer still in the slot. Published-object memory is reclaimed only
+    /// after a QSBR grace period (see `object::qsbr`), so the refcount word of
+    /// a swapped-out value stays readable.
+    pub fn load_owned(&self) -> Option<PyObjectRef> {
+        cell_load_owned(&self.inner)
+    }
+
+    /// Replace the stored reference. Returns the previous one, still owned.
+    pub(crate) fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        cell_store(&self.inner, value)
+    }
+
+    /// Store `value` only when the cell is empty.
+    ///
+    /// On failure the cell is unchanged and `value` is returned still owned.
+    pub(crate) fn compare_exchange_empty(&self, value: PyObjectRef) -> Result<(), PyObjectRef> {
+        cell_compare_exchange_empty(&self.inner, value)
+    }
+
     pub fn deref(&self) -> Option<&PyObject> {
         self.deref_ordering(Ordering::Relaxed)
     }
 
     pub fn deref_ordering(&self, ordering: Ordering) -> Option<&PyObject> {
         unsafe { self.inner.load(ordering).cast::<PyObject>().as_ref() }
-    }
-
-    pub fn to_owned(&self) -> Option<PyObjectRef> {
-        self.to_owned_ordering(Ordering::Relaxed)
-    }
-
-    pub fn to_owned_ordering(&self, ordering: Ordering) -> Option<PyObjectRef> {
-        self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
     /// # Safety
@@ -470,10 +720,61 @@ impl PyAtomicRef<Option<PyObject>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }
+
+/// A nullable object reference that can be replaced without invalidating readers.
+///
+/// Unlike [`PyAtomicRef`], this cell only exposes owned reads. Concurrent stores
+/// use the same QSBR reclamation as object slots without retaining old values
+/// for the lifetime of a Python frame.
+#[repr(transparent)]
+pub struct PyObjectCell(PyAtomicRef<Option<PyObject>>);
+
+impl From<Option<PyObjectRef>> for PyObjectCell {
+    fn from(value: Option<PyObjectRef>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl PyObjectCell {
+    /// Return an owned reference to the current value, or `None` for an empty cell.
+    #[inline]
+    pub fn load_owned(&self) -> Option<PyObjectRef> {
+        self.0.load_owned()
+    }
+
+    /// Replace the stored value and return the previous reference, still owned.
+    #[inline]
+    pub fn store(&self, value: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        self.0.store(value)
+    }
+}
+
+impl fmt::Debug for PyObjectCell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("PyObjectCell")
+            .field(&self.load_owned())
+            .finish()
+    }
+}
+
+// SAFETY: the underlying cell visits its single owned reference while mutating
+// threads are stopped. It does not clone the reference during traversal.
+unsafe impl Traverse for PyObjectCell {
+    #[inline]
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+        self.0.traverse(traverse_fn);
+    }
+}
+
+// Object members address a single pointer-sized cell at the field's offset.
+const _: () = assert!(
+    core::mem::size_of::<PyObjectCell>() == core::mem::size_of::<*mut PyObject>()
+        && core::mem::align_of::<PyObjectCell>() == core::mem::align_of::<*mut PyObject>()
+);
 
 /// Atomic borrowed (non-ref-counted) optional reference to a Python object.
 /// Unlike `PyAtomicRef`, this does NOT own the reference.
@@ -589,46 +890,6 @@ impl PyObject {
 //     }
 // }
 
-/// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
-/// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
-// TODO: check if we still need this
-#[allow(dead_code)]
-pub struct PyLease<'a, T: PyPayload> {
-    inner: PyRwLockReadGuard<'a, PyRef<T>>,
-}
-
-impl<T: PyPayload> PyLease<'_, T> {
-    #[inline(always)]
-    #[must_use]
-    pub fn into_owned(self) -> PyRef<T> {
-        self.inner.clone()
-    }
-}
-
-impl<T: PyPayload> Borrow<PyObject> for PyLease<'_, T> {
-    #[inline(always)]
-    fn borrow(&self) -> &PyObject {
-        self.inner.as_ref()
-    }
-}
-
-impl<T: PyPayload> Deref for PyLease<'_, T> {
-    type Target = PyRef<T>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> fmt::Display for PyLease<'_, T>
-where
-    T: PyPayload + fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
-    }
-}
-
 impl<T: PyPayload> ToPyObject for PyRef<T> {
     #[inline(always)]
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
@@ -688,5 +949,64 @@ impl IntoPyException for PyBaseExceptionRef {
     #[inline(always)]
     fn into_pyexception(self, _vm: &VirtualMachine) -> PyBaseExceptionRef {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_cell_snapshots_survive_replacement_and_clear() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let cell = PyObjectCell::from(Some(vm.ctx.new_bytes(vec![1, 2, 3]).into()));
+            let first = cell.load_owned().unwrap();
+            let previous = cell.store(Some(vm.ctx.new_bytes(vec![4, 5, 6]).into()));
+            assert!(previous.as_ref().unwrap().is(&first));
+            drop(previous);
+            assert_eq!(first.strong_count(), 1);
+            assert_eq!(
+                first
+                    .downcast_ref::<crate::builtins::PyBytes>()
+                    .unwrap()
+                    .as_bytes(),
+                &[1, 2, 3]
+            );
+
+            let second = cell.load_owned().unwrap();
+            let previous = cell.store(None);
+            assert!(previous.as_ref().unwrap().is(&second));
+            drop(previous);
+            assert!(cell.load_owned().is_none());
+            assert!(cell.store(None).is_none());
+            assert_eq!(second.strong_count(), 1);
+            assert_eq!(
+                second
+                    .downcast_ref::<crate::builtins::PyBytes>()
+                    .unwrap()
+                    .as_bytes(),
+                &[4, 5, 6]
+            );
+        });
+    }
+
+    #[test]
+    fn object_cell_traverses_current_reference_once_without_cloning() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let cell = PyObjectCell::from(None);
+            cell.traverse(&mut |_| panic!("empty cell owns no edge"));
+            let value: PyObjectRef = vm.ctx.new_bytes(vec![1, 2, 3]).into();
+            assert!(cell.store(Some(value.clone())).is_none());
+            let references = value.strong_count();
+            let mut edges = 0;
+            cell.traverse(&mut |child| {
+                assert!(child.is(&value));
+                assert_eq!(value.strong_count(), references);
+                edges += 1;
+            });
+            assert_eq!(edges, 1);
+            drop(cell.store(None));
+            cell.traverse(&mut |_| panic!("cleared cell owns no edge"));
+        });
     }
 }

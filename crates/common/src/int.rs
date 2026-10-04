@@ -48,6 +48,9 @@ pub fn bytes_to_int(
     if base != 0 && !(2..=36).contains(&base) {
         return Err(BytesToIntError::InvalidBase);
     }
+    // A rejected literal names the base that was asked for, not the one a
+    // base of 0 turned out to mean.
+    let requested_base = base;
 
     let mut buf = buf.trim_ascii();
 
@@ -55,7 +58,11 @@ pub fn bytes_to_int(
     let sign = match buf.first() {
         Some(b'+') => Some(Sign::Plus),
         Some(b'-') => Some(Sign::Minus),
-        None => return Err(BytesToIntError::InvalidLiteral { base }),
+        None => {
+            return Err(BytesToIntError::InvalidLiteral {
+                base: requested_base,
+            });
+        }
         _ => None,
     };
 
@@ -67,6 +74,9 @@ pub fn bytes_to_int(
     if base == 0 {
         match (buf.first(), buf.get(1)) {
             (Some(v), _) if *v != b'0' => base = 10,
+            // A sign on its own leaves nothing to read, which is not the
+            // old octal form either.
+            (None, _) => base = 10,
             (_, Some(b'x' | b'X')) => base = 16,
             (_, Some(b'o' | b'O')) => base = 8,
             (_, Some(b'b' | b'B')) => base = 2,
@@ -82,7 +92,9 @@ pub fn bytes_to_int(
         if let [_first, others @ .., last] = buf {
             let is_zero = *last == b'0' && others.iter().all(|&c| c == b'0' || c == b'_');
             if !is_zero {
-                return Err(BytesToIntError::InvalidLiteral { base });
+                return Err(BytesToIntError::InvalidLiteral {
+                    base: requested_base,
+                });
             }
         }
         return Ok(BigInt::zero());
@@ -103,14 +115,29 @@ pub fn bytes_to_int(
         }
     }
 
+    // A pure digit string longer than the limit can be rejected from its
+    // length. The check is a wide digit test so it stays cheaper than parsing.
+    if digit_limit > 0
+        && !base.is_power_of_two()
+        && buf.len() > digit_limit
+        && let Some(digits) = plain_ascii_digit_len(buf)
+    {
+        return Err(BytesToIntError::DigitLimit {
+            got: digits,
+            limit: digit_limit,
+        });
+    }
+
     // Reject empty strings
-    let mut prev = *buf
-        .first()
-        .ok_or(BytesToIntError::InvalidLiteral { base })?;
+    let mut prev = *buf.first().ok_or(BytesToIntError::InvalidLiteral {
+        base: requested_base,
+    })?;
 
     // Leading underscore not allowed
     if prev == b'_' || !prev.is_ascii_alphanumeric() {
-        return Err(BytesToIntError::InvalidLiteral { base });
+        return Err(BytesToIntError::InvalidLiteral {
+            base: requested_base,
+        });
     }
 
     // Verify all characters are digits and underscores
@@ -119,12 +146,16 @@ pub fn bytes_to_int(
         if cur == b'_' {
             // Double underscore not allowed
             if prev == b'_' {
-                return Err(BytesToIntError::InvalidLiteral { base });
+                return Err(BytesToIntError::InvalidLiteral {
+                    base: requested_base,
+                });
             }
         } else if cur.is_ascii_alphanumeric() {
             digits += 1;
         } else {
-            return Err(BytesToIntError::InvalidLiteral { base });
+            return Err(BytesToIntError::InvalidLiteral {
+                base: requested_base,
+            });
         }
 
         prev = cur;
@@ -132,7 +163,9 @@ pub fn bytes_to_int(
 
     // Trailing underscore not allowed
     if prev == b'_' {
-        return Err(BytesToIntError::InvalidLiteral { base });
+        return Err(BytesToIntError::InvalidLiteral {
+            base: requested_base,
+        });
     }
 
     if digit_limit > 0 && !base.is_power_of_two() && digits > digit_limit {
@@ -142,8 +175,31 @@ pub fn bytes_to_int(
         });
     }
 
-    let uint = BigUint::parse_bytes(buf, base).ok_or(BytesToIntError::InvalidLiteral { base })?;
+    let uint = BigUint::parse_bytes(buf, base).ok_or(BytesToIntError::InvalidLiteral {
+        base: requested_base,
+    })?;
     Ok(BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint))
+}
+
+/// `Some(buf.len())` when every byte is an ASCII digit.
+fn plain_ascii_digit_len(buf: &[u8]) -> Option<usize> {
+    let mut rest = buf;
+    while rest.len() >= 8 {
+        let (head, tail) = rest.split_at(8);
+        let word = u64::from_le_bytes(head.try_into().unwrap());
+        if !word_all_ascii_digits(word) {
+            return None;
+        }
+        rest = tail;
+    }
+    rest.iter().all(u8::is_ascii_digit).then_some(buf.len())
+}
+
+/// True when each byte of `word` is in `b'0'..=b'9'`.
+fn word_all_ascii_digits(word: u64) -> bool {
+    let below = word.wrapping_sub(0x3030_3030_3030_3030);
+    let above = 0x3939_3939_3939_3939u64.wrapping_sub(word);
+    (below | above) & 0x8080_8080_8080_8080 == 0
 }
 
 // num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
@@ -180,9 +236,11 @@ mod tests {
     #[test]
     fn bytes_to_int_invalid_literal() {
         for ((buf, base), expected) in [
-            (("09_99", 0), BytesToIntError::InvalidLiteral { base: 10 }),
-            (("0_", 0), BytesToIntError::InvalidLiteral { base: 10 }),
+            (("09_99", 0), BytesToIntError::InvalidLiteral { base: 0 }),
+            (("0_", 0), BytesToIntError::InvalidLiteral { base: 0 }),
             (("0_", 2), BytesToIntError::InvalidLiteral { base: 2 }),
+            (("-", 0), BytesToIntError::InvalidLiteral { base: 0 }),
+            (("+", 0), BytesToIntError::InvalidLiteral { base: 0 }),
         ] {
             assert_eq!(
                 bytes_to_int(buf.as_bytes(), base, DIGIT_LIMIT),
@@ -206,6 +264,27 @@ mod tests {
         assert_eq!(
             bytes_to_int("012345".as_bytes(), 10, 5),
             Err(BytesToIntError::DigitLimit { got: 6, limit: 5 })
+        );
+        let long = "8".repeat(20_000);
+        assert_eq!(
+            bytes_to_int(long.as_bytes(), 10, 100),
+            Err(BytesToIntError::DigitLimit {
+                got: 20_000,
+                limit: 100
+            })
+        );
+        // Underscores are not digits, so the plain-digit fast path must not count them.
+        assert_eq!(
+            bytes_to_int(b"1_1_1", 10, 2),
+            Err(BytesToIntError::DigitLimit { got: 3, limit: 2 })
+        );
+        let over = format!("{}{}", "1_".repeat(80), "2".repeat(40));
+        assert_eq!(
+            bytes_to_int(over.as_bytes(), 10, 100),
+            Err(BytesToIntError::DigitLimit {
+                got: 120,
+                limit: 100
+            })
         );
     }
 }

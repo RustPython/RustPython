@@ -743,7 +743,7 @@ def test_list_commands():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
     ...     ret = test_function_2('baz')
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON; Flaky # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'step',      # go to the test function line
     ...     'list',      # list first function
     ...     'step',      # step into second function
@@ -1290,7 +1290,7 @@ def test_post_mortem_chained():
     ...     except Exception as e:
     ...         pdb._post_mortem(e, instance)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'exceptions',
     ...     'exceptions 0',
     ...     '$_exception',
@@ -1688,7 +1688,7 @@ def test_post_mortem():
     ...     test_function_2()
     ...     print('Not reached.')
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'step',      # step to test_function_2() line
     ...     'next',      # step over exception-raising call
     ...     'bt',        # get a backtrace
@@ -1867,7 +1867,7 @@ def test_pdb_skip_modules_with_callback():
     ...     import pdb; pdb.Pdb(skip=['module_to_skip*'], nosigint=True, readrc=False).set_trace()
     ...     mod.foo_pony(callback)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput([
     ...     'step',
     ...     'step',
     ...     'step',
@@ -2133,7 +2133,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(test(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     '$_asynctask',
             ...     'continue',
             ... ]):
@@ -2165,7 +2165,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     'x = await task',
             ...     'p x',
             ...     'x = await test()',
@@ -2280,7 +2280,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+            >>> with PdbTestInput([
             ...     'p var.get()',
             ...     'print(await get_var())',
             ...     'print(await asyncio.create_task(set_var(100)))',
@@ -2336,7 +2336,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'step',
         ...                    'next',
@@ -2515,7 +2515,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'step',
         ...                    'next',
@@ -2555,7 +2555,7 @@ def test_pdb_until_command_for_generator():
     ...         print(i)
     ...     print("finished")
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'until 4',
     ...                    'step',
@@ -2612,7 +2612,7 @@ if not SKIP_CORO_TESTS:
         ...     run_yielding_async_fn(test_main)
         ...     print("finished")
 
-        >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+        >>> with PdbTestInput(['step',
         ...                    'step',
         ...                    'until 8',
         ...                    'continue']):
@@ -2695,7 +2695,7 @@ def test_pdb_next_command_subiterator():
     ...         print('value', i)
     ...     x = 123
 
-    >>> with PdbTestInput(['step',  # TODO: RUSTPYTHON; Flaky # doctest: +SKIP
+    >>> with PdbTestInput(['step',
     ...                    'step',
     ...                    'step',
     ...                    'next',
@@ -2768,7 +2768,7 @@ def test_pdb_multiline_statement():
     >>> def test_function():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'def f(x):',
     ...     '  return x * 2',
     ...     '',
@@ -2806,7 +2806,7 @@ def test_pdb_closure():
     ...     g = 3
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'k',
     ...     'g',
     ...     'y = y',
@@ -3122,7 +3122,7 @@ def test_pdb_issue_gh_101673():
     ...    a = 1
     ...    import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     '!a = 2',
     ...     'll',
     ...     'p a',
@@ -3224,7 +3224,7 @@ def test_pdb_issue_gh_127321():
     ...     import pdb; pdb_instance = pdb.Pdb(nosigint=True, readrc=False)
     ...     [1, 2] and pdb_instance.set_trace()
     ...     a = 1
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'continue'
     ... ]):
     ...    test_function()
@@ -3445,7 +3445,7 @@ def test_pdb_issue_gh_65052():
 
     >>> def test_function():
     ...     A()
-    >>> with PdbTestInput([ # TODO: RUSTPYTHON; Flaky # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE +SKIP
+    >>> with PdbTestInput([ # doctest: +ELLIPSIS +NORMALIZE_WHITESPACE
     ...     's',
     ...     's',
     ...     'retval',
@@ -4185,7 +4185,6 @@ def bœr():
         self.assertTrue(any("__main__.py(4)<module>()"
                             in l for l in stdout.splitlines()), stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_modified_after_execution(self):
         script = """
             print("hello")
@@ -4259,7 +4258,6 @@ def bœr():
         self.assertIn("WARNING:", stdout)
         self.assertIn("was edited", stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_modified_after_execution_with_restart(self):
         script = """
             import random
@@ -4577,7 +4575,6 @@ def bœr():
             self.assertIn('4 B', stdout, "breakpoint not found")
             self.assertIn('-> def func():', stdout, "stack entry not found")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_empty_file(self):
         script = ''
         commands = 'q\n'
@@ -4617,7 +4614,6 @@ def bœr():
             self.assertIn('42', stdout)
             self.assertIn('return x + 1', stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_zipimport(self):
         with os_helper.temp_dir() as temp_dir:
             os.mkdir(os.path.join(temp_dir, 'source'))

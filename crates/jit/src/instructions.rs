@@ -39,6 +39,7 @@ impl JitValue {
             JitType::Int => Self::Int(val),
             JitType::Float => Self::Float(val),
             JitType::Bool => Self::Bool(val),
+            JitType::None => unreachable!("None cannot be used as an argument type"),
         }
     }
 
@@ -47,7 +48,8 @@ impl JitValue {
             Self::Int(_) => Some(JitType::Int),
             Self::Float(_) => Some(JitType::Float),
             Self::Bool(_) => Some(JitType::Bool),
-            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
+            Self::None => Some(JitType::None),
+            Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 
@@ -112,8 +114,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+        let cranelift_ty = ty.to_cranelift().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx].get_or_insert_with(|| {
-            let var = builder.declare_var(ty.to_cranelift());
+            let var = builder.declare_var(cranelift_ty);
             Local {
                 var,
                 ty: ty.clone(),
@@ -328,27 +331,27 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
-        if let Some(ref ty) = self.sig.ret {
-            // If the signature has a return type, enforce it
-            if val.to_jit_type().as_ref() != Some(ty) {
+        let val_type = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+        if let Some(ref ret_type) = self.sig.ret {
+            if ret_type != &val_type {
                 return Err(JitCompileError::NotSupported);
             }
         } else {
-            // First time we see a return, define it in the signature
-            let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-            self.sig.ret = Some(ty.clone());
-            self.builder
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ty.to_cranelift()));
+            self.sig.ret = Some(val_type.clone());
+            if let Some(val_type) = val_type.to_cranelift() {
+                self.builder
+                    .func
+                    .signature
+                    .returns
+                    .push(AbiParam::new(val_type));
+            }
         }
 
-        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
-        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
-        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
-
-        self.builder.ins().return_(&[cr_val]);
+        if let Some(cr_val) = val.into_value() {
+            self.builder.ins().return_(&[cr_val]);
+        } else {
+            self.builder.ins().return_(&[]);
+        }
         Ok(())
     }
 
@@ -426,7 +429,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     ) => {
                         // Shifts throw an exception if we have a negative shift count
                         // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
-                        let sign = self.builder.ins().ushr_imm(b, 63);
+                        let sign = self.builder.ins().ushr_imm_u(b, 63);
                         self.builder.ins().trapnz(
                             sign,
                             TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
@@ -545,8 +548,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::FuncRef(reference) => {
                         let call = self.builder.ins().call(reference, &args);
-                        let returns = self.builder.inst_results(call);
-                        self.stack.push(JitValue::Int(returns[0]));
+                        // The only callable reachable here is this function itself,
+                        // so the result carries the declared return type - it is not
+                        // always an Int. A function whose return type is still
+                        // unknown has no return slot in the signature it was
+                        // declared with, and there is nothing to type the result as.
+                        let ret = match *self.builder.inst_results(call) {
+                            [] => None,
+                            [val] => Some(val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        let val = match (self.sig.ret.clone(), ret) {
+                            (Some(JitType::None), None) => JitValue::None,
+                            (Some(ty), Some(val)) => JitValue::from_type_and_value(ty, val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        self.stack.push(val);
 
                         Ok(())
                     }
@@ -666,6 +683,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
+
+                #[expect(
+                    clippy::tuple_array_conversions,
+                    reason = "Seems like a false positive"
+                )]
                 for idx in [idx1, idx2] {
                     let local = self.variables[idx]
                         .as_ref()
@@ -778,7 +800,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     JitValue::Bool(val) => val,
                     _ => return Err(JitCompileError::BadBytecode),
                 };
-                let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                let not_boolean = self.builder.ins().bxor_imm_u(boolean, 1);
                 self.stack.push(JitValue::Bool(not_boolean));
                 Ok(())
             }
@@ -1019,10 +1041,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let need_nan = self.builder.ins().bor(cmp_le, cmp_nan);
 
         // (B) Reinterpret the bits of x as an integer.
-        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), x);
+        let bits = self
+            .builder
+            .ins()
+            .bitcast(types::I64, MemFlagsData::new(), x);
 
         // (C) Extract the exponent (top 11 bits) from the bit representation.
-        let shift_52 = self.builder.ins().ushr_imm(bits, 52);
+        let shift_52 = self.builder.ins().ushr_imm_u(bits, 52);
         let exponent_mask = self.builder.ins().iconst(types::I64, 0x7FF);
         let exponent = self.builder.ins().band(shift_52, exponent_mask);
 
@@ -1036,7 +1061,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // (E) For normal numbers (exponent ≠ 0), add the implicit leading 1.
         let implicit_one = self.builder.ins().iconst(types::I64, 1 << 52);
-        let zero_exp = self.builder.ins().icmp_imm(IntCC::Equal, exponent, 0);
+        let zero_exp = self.builder.ins().icmp_imm_u(IntCC::Equal, exponent, 0);
         let frac_one_bor = self.builder.ins().bor(fraction_part, implicit_one);
         let fraction_with_leading_one = self.builder.ins().select(
             zero_exp,
@@ -1050,7 +1075,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let m = self
             .builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), fraction_bits);
+            .bitcast(types::F64, MemFlagsData::new(), fraction_bits);
 
         // (G) Compute ln(m) using the series ln(1+f) with f = m - 1.
         let one_f64 = self.builder.ins().f64const(1.0);
@@ -1139,7 +1164,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let two_to_k = self
             .builder
             .ins()
-            .bitcast(types::F64, MemFlags::new(), shifted);
+            .bitcast(types::F64, MemFlagsData::new(), shifted);
         let result = self.dd_scale(sum, two_to_k);
 
         // (C) If overflow was detected, return infinity; otherwise, return the computed value.
@@ -1456,14 +1481,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let base_phi = params[2];
 
         // If exponent is odd, multiply result by base
-        let is_odd = self.builder.ins().band_imm(exp_phi, 1);
-        let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
+        let is_odd = self.builder.ins().band_imm_u(exp_phi, 1);
+        let is_odd = self.builder.ins().icmp_imm_u(IntCC::Equal, is_odd, 1);
         let mul_result = self.builder.ins().imul(result_phi, base_phi);
         let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
 
         // Square the base and divide exponent by 2
         let squared_base = self.builder.ins().imul(base_phi, base_phi);
-        let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
+        let new_exp = self.builder.ins().sshr_imm_u(exp_phi, 1);
         self.builder.ins().jump(
             loop_block,
             &[new_exp.into(), new_result.into(), squared_base.into()],

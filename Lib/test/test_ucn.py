@@ -149,7 +149,6 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("HALFWIDTH KATAKANA SEMI-VOICED SOUND MARK", "\uFF9F")
         self.checkletter("FULLWIDTH LATIN SMALL LETTER A", "\uFF41")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_aliases(self):
         # Check that the aliases defined in the NameAliases.txt file work.
         # This should be updated when new aliases are added or the file
@@ -190,7 +189,6 @@ class UnicodeNamesTest(unittest.TestCase):
                 unicodedata.name(chr(cp))
             self.assertEqual(str(cm.exception), 'no such name')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_named_sequences_sample(self):
         # Check a few named sequences.  See #12753.
         sequences = [
@@ -207,7 +205,6 @@ class UnicodeNamesTest(unittest.TestCase):
             with self.assertRaises(KeyError):
                 unicodedata.ucd_3_2_0.lookup(seqname)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_named_sequences_full(self):
         # Check all the named sequences
         def check_version(testfile):

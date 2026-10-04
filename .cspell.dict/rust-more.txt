@@ -50,6 +50,7 @@ modpow
 msvc
 muldiv
 nanos
+noalias
 nonoverlapping
 objclass
 peekable
@@ -59,6 +60,7 @@ powf
 powi
 prepended
 punct
+qself
 replacen
 retag
 rmatch

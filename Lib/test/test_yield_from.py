@@ -538,7 +538,6 @@ class TestPEP380Operation(unittest.TestCase):
             "finishing g",
         ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_broken_getattr_handling(self):
         """
         Test subiterator with a broken getattr implementation

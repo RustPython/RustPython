@@ -3,7 +3,7 @@ use super::base::{CDATA_BUFFER_METHODS, PyCData};
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     atomic_func,
     builtins::{
         PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef, genericalias::PyGenericAlias,
@@ -22,6 +22,15 @@ use rustpython_host_env::ctypes::{
     wchar_from_bytes, write_array_element, write_char_array_raw, write_char_array_value,
     write_wchar_array_value, wstring_from_bytes, zeroed_bytes,
 };
+
+fn cow_bytes_as_mut<'buf>(buffer: &'buf mut Cow<'_, [u8]>) -> &'buf mut [u8] {
+    match buffer {
+        Cow::Borrowed(slice) => unsafe {
+            rustpython_host_env::ctypes::borrowed_slice_as_mut(slice)
+        },
+        Cow::Owned(vec) => vec.as_mut_slice(),
+    }
+}
 
 /// Get itemsize from a PEP 3118 format string
 /// Extracts the type code (last char after endianness prefix) and returns its size
@@ -156,7 +165,7 @@ fn create_array_type_with_name(
     Ok(new_type)
 }
 
-/// PyCArrayType - metatype for Array types
+// PyCArrayType - metatype for Array types
 #[pyclass(name = "PyCArrayType", base = PyType, module = "_ctypes")]
 #[derive(Debug)]
 #[repr(transparent)]
@@ -166,25 +175,17 @@ pub(super) struct PyCArrayType(PyType);
 impl Initializer for PyCArrayType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // zelf is the newly created array type (e.g., T in "class T(Array)")
         let new_type: &PyType = &zelf.0;
 
         new_type.check_not_initialized(vm)?;
 
         // 1. Get _length_ from class dict first
-        let direct_length = new_type
-            .attributes
-            .read()
-            .get(vm.ctx.intern_str("_length_"))
-            .cloned();
+        let direct_length = new_type.attributes.get(vm.ctx.intern_str("_length_"));
 
         // 2. Get _type_ from class dict first
-        let direct_type = new_type
-            .attributes
-            .read()
-            .get(vm.ctx.intern_str("_type_"))
-            .cloned();
+        let direct_type = new_type.attributes.get(vm.ctx.intern_str("_type_"));
 
         // 3. Find parent StgInfo from MRO (for inheritance)
         // Note: PyType.mro does NOT include self, so no skip needed
@@ -387,8 +388,7 @@ impl AsNumber for PyCArrayType {
     }
 }
 
-/// PyCArray - Array instance
-/// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
+// All array metadata (element_type, length, element_size) is stored in the type's StgInfo
 #[pyclass(
     name = "Array",
     base = PyCData,
@@ -429,13 +429,13 @@ impl Constructor for PyCArray {
         }
 
         // Create array with zero-initialized buffer
-        let buffer = vec![0u8; total_size];
+        let buffer = vm.new_zeroed_bytes(total_size)?;
         let instance = Self(PyCData::from_bytes_with_length(buffer, None, length))
             .into_ref_with_type(vm, cls)?;
 
         // Initialize elements using setitem_by_index (Array_init pattern)
         for (i, value) in args.args.iter().enumerate() {
-            Self::setitem_by_index(&instance, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(&instance, i as isize, value, vm)?;
         }
 
         Ok(instance.into())
@@ -449,10 +449,10 @@ impl Constructor for PyCArray {
 impl Initializer for PyCArray {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Re-initialize array elements when __init__ is called
         for (i, value) in args.args.iter().enumerate() {
-            Self::setitem_by_index(&zelf, i as isize, value.clone(), vm)?;
+            Self::setitem_by_index(zelf, i as isize, value, vm)?;
         }
         Ok(())
     }
@@ -472,7 +472,7 @@ impl AsSequence for PyCArray {
             ass_item: atomic_func!(|seq, i, value, vm| {
                 let zelf = PyCArray::sequence_downcast(seq);
                 match value {
-                    Some(v) => PyCArray::setitem_by_index(zelf, i, v, vm),
+                    Some(v) => PyCArray::setitem_by_index(zelf, i, &v, vm),
                     None => Err(vm.new_type_error("cannot delete array elements")),
                 }
             }),
@@ -491,12 +491,12 @@ impl AsMapping for PyCArray {
             }),
             subscript: atomic_func!(|mapping, needle, vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
-                PyCArray::__getitem__(zelf, needle.to_owned(), vm)
+                PyCArray::__getitem__(zelf, needle, vm)
             }),
             ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                 let zelf = PyCArray::mapping_downcast(mapping);
                 match value {
-                    Some(value) => PyCArray::__setitem__(zelf, needle.to_owned(), value, vm),
+                    Some(value) => PyCArray::__setitem__(zelf, needle, value, vm),
                     None => PyCArray::__delitem__(zelf, needle.to_owned(), vm),
                 }
             }),
@@ -511,8 +511,12 @@ impl AsMapping for PyCArray {
 )]
 impl PyCArray {
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
     }
 
     fn int_to_bytes(i: &malachite_bigint::BigInt, size: usize) -> Vec<u8> {
@@ -641,6 +645,14 @@ impl PyCArray {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     zelf.0.keep_alive(index, kept_alive);
                     (ptr, Some(value.to_owned()))
+                } else if let Some(simple) = value.downcast_ref::<super::PyCSimple>()
+                    && value.class().type_code(vm).as_deref() == Some("z")
+                {
+                    let buffer = simple.0.buffer.read();
+                    (
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer),
+                        None,
+                    )
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
@@ -667,6 +679,14 @@ impl PyCArray {
                 } else if let Some(s) = value.downcast_ref::<PyStr>() {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     (ptr, Some(holder))
+                } else if let Some(simple) = value.downcast_ref::<super::PyCSimple>()
+                    && value.class().type_code(vm).as_deref() == Some("Z")
+                {
+                    let buffer = simple.0.buffer.read();
+                    (
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer),
+                        None,
+                    )
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
@@ -766,7 +786,7 @@ impl PyCArray {
     fn setitem_by_index(
         zelf: &Py<Self>,
         i: isize,
-        value: PyObjectRef,
+        value: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stg = zelf.class().stg_info_opt();
@@ -806,7 +826,7 @@ impl PyCArray {
                     final_offset,
                     element_size,
                     type_code.as_deref(),
-                    &value,
+                    value,
                     zelf,
                     index,
                     vm,
@@ -817,7 +837,7 @@ impl PyCArray {
                 final_offset,
                 element_size,
                 type_code.as_deref(),
-                &value,
+                value,
                 zelf,
                 index,
                 vm,
@@ -826,7 +846,7 @@ impl PyCArray {
     }
 
     // Array_subscript
-    fn __getitem__(zelf: &Py<Self>, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn __getitem__(zelf: &Py<Self>, item: &PyObject, vm: &VirtualMachine) -> PyResult {
         // PyIndex_Check
         if let Some(i) = item.downcast_ref::<PyInt>() {
             let i = i.as_bigint().to_isize().ok_or_else(|| {
@@ -844,7 +864,7 @@ impl PyCArray {
     }
 
     // Array_subscript slice handling
-    fn getitem_by_slice(zelf: &Py<Self>, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+    fn getitem_by_slice(zelf: &Py<Self>, slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult {
         let stg = zelf.class().stg_info_opt();
         let length = stg.as_ref().map_or(0, |i| i.length);
 
@@ -932,7 +952,7 @@ impl PyCArray {
     // Array_ass_subscript
     fn __setitem__(
         zelf: &Py<Self>,
-        item: PyObjectRef,
+        item: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -945,11 +965,11 @@ impl PyCArray {
                 vm.new_index_error("cannot fit index into an index-sized integer")
             })?;
             // setitem_by_index handles negative index normalization
-            Self::setitem_by_index(zelf, i, value, vm)
+            Self::setitem_by_index(zelf, i, &value, vm)
         }
         // PySlice_Check
         else if let Some(slice) = item.downcast_ref::<PySlice>() {
-            Self::setitem_by_slice(zelf, slice, value, vm)
+            Self::setitem_by_slice(zelf, slice, &value, vm)
         } else {
             Err(vm.new_type_error("indices must be integer"))
         }
@@ -963,8 +983,8 @@ impl PyCArray {
     // Array_ass_subscript slice handling
     fn setitem_by_slice(
         zelf: &Py<Self>,
-        slice: &PySlice,
-        value: PyObjectRef,
+        slice: &Py<PySlice>,
+        value: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let length = zelf.class().stg_info_opt().map_or(0, |i| i.length);
@@ -974,18 +994,24 @@ impl PyCArray {
         let (range, step, slice_len) = sat_slice.adjust_indices(length);
 
         // other_len = PySequence_Length(value);
-        let items: Vec<PyObjectRef> = vm.extract_elements_with(&value, Ok)?;
-        let other_len = items.len();
+        // Size the operand before consuming it so an unbounded iterable is
+        // rejected without being materialized.
+        let other_len = value
+            .sequence_unchecked()
+            .length(vm)
+            .map_err(|_| vm.new_value_error("Can only assign sequence of same size"))?;
 
         if other_len != slice_len {
             return Err(vm.new_value_error("Can only assign sequence of same size"));
         }
 
+        let items: Vec<PyObjectRef> = vm.extract_elements_with(value, Ok)?;
+
         // Use SaturatedSliceIter for correct index iteration (handles negative step)
         let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
 
         for (idx, item) in iter.zip(items) {
-            Self::setitem_by_index(zelf, idx as isize, item, vm)?;
+            Self::setitem_by_index(zelf, idx as isize, &item, vm)?;
         }
         Ok(())
     }
@@ -1035,6 +1061,7 @@ impl AsBuffer for PyCArray {
             dim_desc.reverse();
 
             BufferDescriptor {
+                offset: 0,
                 len: buffer_len,
                 readonly: false,
                 itemsize,
@@ -1075,7 +1102,7 @@ fn char_array_set_value(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachin
         return Err(vm.new_value_error("byte string too long"));
     }
 
-    write_char_array_value(buffer.to_mut(), src);
+    write_char_array_value(cow_bytes_as_mut(&mut buffer), src);
     Ok(())
 }
 
@@ -1100,7 +1127,7 @@ fn char_array_set_raw(
     if src.len() > buffer.len() {
         return Err(vm.new_value_error("byte string too long"));
     }
-    write_char_array_raw(buffer.to_mut(), &src);
+    write_char_array_raw(cow_bytes_as_mut(&mut buffer), &src);
     Ok(())
 }
 
@@ -1122,53 +1149,45 @@ fn wchar_array_set_value(
         .downcast_ref::<PyStr>()
         .ok_or_else(|| vm.new_type_error("unicode string expected"))?;
     let mut buffer = zelf.0.buffer.write();
-    write_wchar_array_value(buffer.to_mut(), s.as_wtf8()).map_err(|err| match err {
-        WCharArrayWriteError::TooLong => vm.new_value_error("string too long"),
-    })?;
+    write_wchar_array_value(cow_bytes_as_mut(&mut buffer), s.as_wtf8()).map_err(
+        |err| match err {
+            WCharArrayWriteError::TooLong => vm.new_value_error("string too long"),
+        },
+    )?;
     Ok(())
 }
 
 /// add_getset for c_char arrays - adds 'value' and 'raw' attributes
 /// add_getset((PyTypeObject*)self, CharArray_getsets)
 fn add_char_array_getsets(array_type: &Py<PyType>, vm: &VirtualMachine) {
-    // SAFETY: getset is owned by array_type which outlives the getset
-    let value_getset = unsafe {
-        vm.ctx.new_getset(
-            "value",
-            array_type,
-            char_array_get_value,
-            char_array_set_value,
-        )
-    };
-    let raw_getset = unsafe {
-        vm.ctx
-            .new_getset("raw", array_type, char_array_get_raw, char_array_set_raw)
-    };
+    let value_getset = vm.ctx.new_getset(
+        "value",
+        array_type,
+        char_array_get_value,
+        char_array_set_value,
+    );
+    let raw_getset = vm
+        .ctx
+        .new_getset("raw", array_type, char_array_get_raw, char_array_set_raw);
 
     array_type
         .attributes
-        .write()
         .insert(vm.ctx.intern_str("value"), value_getset.into());
     array_type
         .attributes
-        .write()
         .insert(vm.ctx.intern_str("raw"), raw_getset.into());
 }
 
 /// add_getset for c_wchar arrays - adds only 'value' attribute (no 'raw')
 fn add_wchar_array_getsets(array_type: &Py<PyType>, vm: &VirtualMachine) {
-    // SAFETY: getset is owned by array_type which outlives the getset
-    let value_getset = unsafe {
-        vm.ctx.new_getset(
-            "value",
-            array_type,
-            wchar_array_get_value,
-            wchar_array_set_value,
-        )
-    };
+    let value_getset = vm.ctx.new_getset(
+        "value",
+        array_type,
+        wchar_array_get_value,
+        wchar_array_set_value,
+    );
 
     array_type
         .attributes
-        .write()
         .insert(vm.ctx.intern_str("value"), value_getset.into());
 }

@@ -6,7 +6,7 @@ use crate::{
     builtins::{PyBaseObject, PyStr, PyStrInterned, descriptor::PyMethodDescriptor},
     function::{IntoFuncArgs, PyMethodFlags},
     object::{AsObject, Py, PyObject, PyObjectRef, PyResult},
-    types::PyTypeFlags,
+    types::{GetattroFunc, PyTypeFlags, fn_addr},
 };
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl PyMethod {
     pub(crate) fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.slots.getattro.load().unwrap();
-        if getattro as usize != PyBaseObject::getattro as *const () as usize {
+        if fn_addr(getattro) != fn_addr(PyBaseObject::getattro as GetattroFunc) {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
@@ -52,8 +52,8 @@ impl PyMethod {
                     if let Some(descr_get) = descr_get
                         && descr_cls.slots.descr_set.load().is_some()
                     {
-                        let cls = cls.to_owned().into();
-                        return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
+                        return descr_get(descr.as_object(), Some(&obj), Some(cls.as_object()), vm)
+                            .map(Self::Attribute);
                     }
                     descr_get
                 };
@@ -75,8 +75,8 @@ impl PyMethod {
                     func: attr,
                 }),
                 Some(descr_get) => {
-                    let cls = cls.to_owned().into();
-                    descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
+                    descr_get(attr.as_object(), Some(&obj), Some(cls.as_object()), vm)
+                        .map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
             }
@@ -91,6 +91,21 @@ impl PyMethod {
         obj: &PyObject,
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
+    ) -> PyResult<Option<Self>> {
+        Self::get_special_ex::<DIRECT>(obj, name, vm, false)
+    }
+
+    /// lookup_method_ex.
+    ///
+    /// `raise_attribute_error` is CPython's same-named argument: when false
+    /// (`lookup_maybe_method`), AttributeError from `tp_descr_get` is cleared
+    /// and the lookup reports a miss. When true (`lookup_method`), that error
+    /// is kept.
+    pub(crate) fn get_special_ex<const DIRECT: bool>(
+        obj: &PyObject,
+        name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+        raise_attribute_error: bool,
     ) -> PyResult<Option<Self>> {
         let obj_cls = obj.class();
         let attr = if DIRECT {
@@ -115,10 +130,21 @@ impl PyMethod {
                 func,
             }
         } else {
-            let obj_cls = obj_cls.to_owned().into();
-            let attr = vm
-                .call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls))
-                .unwrap_or(Ok(func))?;
+            let attr = match vm.call_get_descriptor_specific(
+                &func,
+                Some(obj),
+                Some(obj_cls.as_object()),
+            ) {
+                Some(Ok(attr)) => attr,
+                Some(Err(e))
+                    if !raise_attribute_error
+                        && e.fast_isinstance(vm.ctx.exceptions.attribute_error) =>
+                {
+                    return Ok(None);
+                }
+                Some(Err(e)) => return Err(e),
+                None => func,
+            };
             Self::Attribute(attr)
         };
         Ok(Some(meth))

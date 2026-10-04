@@ -47,6 +47,16 @@ struct CompilationSource {
     span: (Span, Span),
 }
 
+/// Read a source file as text. A byte order mark belongs to the file's
+/// encoding rather than to the text, so it never reaches the compiler.
+fn read_source_file(path: &Path) -> std::io::Result<String> {
+    let mut source = fs::read_to_string(path)?;
+    if source.starts_with('\u{feff}') {
+        source.drain(..'\u{feff}'.len_utf8());
+    }
+    Ok(source)
+}
+
 pub trait Compiler {
     fn compile(
         &self,
@@ -103,7 +113,7 @@ impl CompilationSource {
         match &self.kind {
             CompilationSourceKind::File { base, rel_path } => {
                 let path = base.join(rel_path);
-                let source = fs::read_to_string(&path).map_err(|err| {
+                let source = read_source_file(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
                         format!("Error reading file {path:?}: {err}"),
@@ -172,7 +182,7 @@ impl CompilationSource {
                 };
 
                 let compile_path = |src_path: &Path| {
-                    let source = fs::read_to_string(src_path).map_err(|err| {
+                    let source = read_source_file(src_path).map_err(|err| {
                         Diagnostic::spans_error(
                             self.span,
                             format!("Error reading file {path:?}: {err}"),
@@ -227,7 +237,7 @@ impl PyCompileArgs {
         let mut source: Option<CompilationSource> = None;
         let mut crate_name = None;
 
-        fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), syn::Error> {
+        fn assert_source_empty(source: Option<&CompilationSource>) -> Result<(), syn::Error> {
             if let Some(source) = source {
                 Err(syn::Error::new(
                     source.span.0,
@@ -263,14 +273,14 @@ impl PyCompileArgs {
             } else if ident == "module_name" {
                 module_name = Some(check_str()?.value())
             } else if ident == "source" {
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let code = check_str()?.value();
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::SourceCode(code),
                     span: (ident.span(), meta.input.cursor().span()),
                 });
             } else if ident == "file" {
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::File { base, rel_path },
@@ -281,7 +291,7 @@ impl PyCompileArgs {
                     bail_span!(ident, "py_compile doesn't accept dir")
                 }
 
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::Dir { base, rel_path },

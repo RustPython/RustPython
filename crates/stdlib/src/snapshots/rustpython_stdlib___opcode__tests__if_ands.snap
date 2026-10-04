@@ -1,6 +1,7 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: "if True and False and False:\n  pass"
+assertion_line: 252
+expression: "dis(r#\"\nif True and False and False:\n    pass\n\"#)"
 ---
   0           RESUME                   0
 

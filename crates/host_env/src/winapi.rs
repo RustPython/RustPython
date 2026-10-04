@@ -3,22 +3,20 @@
     reason = "This module mirrors Win32 APIs with raw handle and pointer parameters."
 )]
 
+use core::hint::cold_path;
 use std::{io, path::Path};
-use windows_sys::Win32::{
-    Foundation::{HANDLE, HMODULE, WAIT_FAILED},
-    System::Threading::PROCESS_INFORMATION,
-};
 
 use crate::windows::{CheckWin32Bool, CheckWin32Handle};
 
+use memchr::memchr;
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
-        ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
-        ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
-        ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
-        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_OBJECT_0,
-        WAIT_TIMEOUT,
+        ERROR_BROKEN_PIPE, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, ERROR_MORE_DATA,
+        ERROR_NETNAME_DELETED, ERROR_NO_DATA, ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND,
+        ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE,
+        ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT, ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE,
+        HANDLE, HMODULE, STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Globalization::{
         LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING,
@@ -26,16 +24,17 @@ pub use windows_sys::Win32::{
         LCMAP_UPPERCASE,
     },
     Storage::FileSystem::{
-        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_FAIL_IF_EXISTS,
-        COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD, COPY_FILE_OPEN_SOURCE_FOR_WRITE,
-        COPY_FILE_REQUEST_COMPRESSED_TRAFFIC, COPY_FILE_REQUEST_SECURITY_PRIVILEGES,
-        COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE, COPYFILE2_CALLBACK_CHUNK_FINISHED,
-        COPYFILE2_CALLBACK_CHUNK_STARTED, COPYFILE2_CALLBACK_ERROR,
-        COPYFILE2_CALLBACK_POLL_CONTINUE, COPYFILE2_CALLBACK_STREAM_FINISHED,
-        COPYFILE2_CALLBACK_STREAM_STARTED, COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE,
-        COPYFILE2_PROGRESS_PAUSE, COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP,
-        FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-        FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, OPEN_EXISTING,
+        COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK, COPY_FILE_DIRECTORY,
+        COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+        COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+        COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE, COPY_FILE_RESUME_FROM_PAUSE,
+        COPYFILE2_CALLBACK_CHUNK_FINISHED, COPYFILE2_CALLBACK_CHUNK_STARTED,
+        COPYFILE2_CALLBACK_ERROR, COPYFILE2_CALLBACK_POLL_CONTINUE,
+        COPYFILE2_CALLBACK_STREAM_FINISHED, COPYFILE2_CALLBACK_STREAM_STARTED,
+        COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE,
+        COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE,
+        FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING,
         PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
     },
     System::{
@@ -52,26 +51,31 @@ pub use windows_sys::Win32::{
             NMPWAIT_WAIT_FOREVER, PIPE_READMODE_MESSAGE, PIPE_TYPE_MESSAGE,
             PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         },
-        SystemServices::LOCALE_NAME_MAX_LENGTH,
+        SystemServices::{LOCALE_NAME_MAX_LENGTH, MAXIMUM_WAIT_OBJECTS},
         Threading::{
             ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
             CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
-            NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS, PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS,
-            STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING,
-            STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID, STARTF_TITLEISLINKNAME,
-            STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS, STARTF_USEFILLATTRIBUTE,
-            STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW, STARTF_USESIZE,
-            STARTF_USESTDHANDLES,
+            NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS, PROCESS_DUP_HANDLE, PROCESS_INFORMATION,
+            REALTIME_PRIORITY_CLASS, STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK,
+            STARTF_PREVENTPINNING, STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID,
+            STARTF_TITLEISLINKNAME, STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS,
+            STARTF_USEFILLATTRIBUTE, STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW,
+            STARTF_USESIZE, STARTF_USESTDHANDLES,
         },
     },
     UI::WindowsAndMessaging::SW_HIDE,
 };
+use windows_sys::w;
 
 pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
 pub type FileType = windows_sys::Win32::Storage::FileSystem::FILE_TYPE;
 pub const MAX_PATH_USIZE: usize = windows_sys::Win32::Foundation::MAX_PATH as usize;
+/// Empty locale name (`LOCALE_NAME_INVARIANT`).
+pub const LOCALE_NAME_INVARIANT: &str = "";
+/// Reserved name for the system default locale.
+pub const LOCALE_NAME_SYSTEM_DEFAULT: &str = "!x-sys-default-locale";
 pub const INFINITE_TIMEOUT: u32 = windows_sys::Win32::System::Threading::INFINITE;
 pub const CREATE_UNICODE_ENVIRONMENT_FLAG: u32 =
     windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
@@ -189,7 +193,7 @@ pub fn create_file_w(
 /// `startup_info` must point to a valid `STARTUPINFOW` (or extended).
 unsafe fn create_process_w_raw(
     app_name: Option<&widestring::WideCStr>,
-    command_line: Option<&mut [u16]>,
+    command_line: Option<&mut widestring::WideCStr>,
     inherit_handles: i32,
     creation_flags: u32,
     env: Option<&[u16]>,
@@ -215,37 +219,6 @@ unsafe fn create_process_w_raw(
     Ok(unsafe { procinfo.assume_init() })
 }
 
-/// Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
-/// The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it
-/// in place.
-#[inline]
-fn validate_command_line_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.last() == Some(&0) {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command_line buffer passed to create_process must be NUL-terminated",
-        ))
-    }
-}
-
-/// Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
-/// `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
-/// final terminating `\0` — i.e. the block ends with two consecutive zero
-/// `u16`s.
-#[inline]
-fn validate_environment_block_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0] {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "env block passed to create_process must end with a double NUL terminator",
-        ))
-    }
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
@@ -260,11 +233,28 @@ pub fn create_process(
     startup_info: StartupInfoData,
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
-    if let Some(cmd) = command_line.as_deref() {
-        validate_command_line_terminated(cmd)?;
-    }
-    if let Some(env_block) = env {
-        validate_environment_block_terminated(env_block)?;
+    // Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
+    // The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it in place.
+    let command_line = command_line
+        .map(widestring::WideCStr::from_slice_mut)
+        .transpose()
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "command_line buffer passed to create_process must be NUL-terminated",
+            )
+        })?;
+    // Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
+    // `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
+    // final terminating `\0` — i.e. the block ends with two consecutive zero
+    // `u16`s.
+    if let Some(env_block) = env
+        && !env_block.ends_with(&[0, 0])
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "env block passed to create_process must end with a double NUL terminator",
+        ));
     }
 
     let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
@@ -312,7 +302,8 @@ pub fn build_environment_block(
 
     let mut last_entry: HashMap<String, Vec<u16>> = HashMap::new();
     for (key, value) in entries {
-        if key.contains('\0') || value.contains('\0') {
+        if memchr(b'\0', key.as_bytes()).is_some() || memchr(b'\0', value.as_bytes()).is_some() {
+            cold_path();
             return Err(BuildEnvironmentBlockError::ContainsNul);
         }
         if key.is_empty() || key[1..].contains('=') {
@@ -509,8 +500,7 @@ pub fn batched_wait_for_multiple_objects(
         },
     };
 
-    const MAXIMUM_WAIT_OBJECTS: usize = 64;
-    let batch_size = MAXIMUM_WAIT_OBJECTS - 1;
+    let batch_size = MAXIMUM_WAIT_OBJECTS as usize - 1;
     let mut batches: Vec<&[HANDLE]> = Vec::new();
     let mut i = 0;
     while i < handles.len() {
@@ -605,9 +595,7 @@ pub fn batched_wait_for_multiple_objects(
             let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
             let _ = set_event(data.cancel_event);
             err
-        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS as u32)
-            .contains(&result)
-        {
+        } else if (WAIT_ABANDONED_0..WAIT_ABANDONED_0 + MAXIMUM_WAIT_OBJECTS).contains(&result) {
             data.result.store(WAIT_FAILED, Ordering::SeqCst);
             let _ = set_event(data.cancel_event);
             windows_sys::Win32::Foundation::ERROR_ABANDONED_WAIT_0
@@ -802,6 +790,22 @@ pub fn get_last_error() -> u32 {
 #[must_use]
 pub fn get_version() -> u32 {
     unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
+}
+
+/// `GetVersionExW` major/minor/build. Not `get_version()`: that DWORD is
+/// `GetVersion()`, and `get_windows_version()` overwrites the triple with
+/// kernel32's file version.
+#[must_use]
+pub fn version_ex_triple() -> Option<(u32, u32, u32)> {
+    use windows_sys::Win32::System::SystemInformation::{GetVersionExW, OSVERSIONINFOW};
+
+    let mut info: OSVERSIONINFOW = unsafe { core::mem::zeroed() };
+    info.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOW>() as u32;
+    (unsafe { GetVersionExW(&mut info) } != 0).then_some((
+        info.dwMajorVersion,
+        info.dwMinorVersion,
+        info.dwBuildNumber,
+    ))
 }
 
 pub fn create_job_object_w(name: Option<&widestring::WideCStr>) -> io::Result<HANDLE> {
@@ -1094,14 +1098,14 @@ where
             return Err(MimeRegistryReadError::Os(err));
         }
 
-        let content_type_key: Vec<u16> = "Content Type\0".encode_utf16().collect();
+        let content_type_key = w!("Content Type");
         let mut type_buf = [0u16; 256];
         let mut cb_type = (type_buf.len() * 2) as u32;
         let mut reg_type = 0;
         let err = unsafe {
             RegQueryValueExW(
                 subkey,
-                content_type_key.as_ptr(),
+                content_type_key,
                 core::ptr::null_mut(),
                 &mut reg_type,
                 type_buf.as_mut_ptr().cast(),
@@ -1140,6 +1144,12 @@ pub fn lc_map_string_ex(
     src: &[u16],
 ) -> io::Result<Vec<u16>> {
     let src_len = src.len() as i32;
+    // SAFETY:
+    // * locale does not have interior NULs and ends with a NUL. This is guaranteed by
+    // WideCStr.
+    // * src CAN have interior NULs and DOES NOT need to end with a NUL. However, the length must be
+    // passed into LCMapStringEx. If the length is NOT passed in, Windows calculates the length
+    // and interior NULs are not allowed.
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
             locale.as_ptr(),
@@ -1293,6 +1303,23 @@ pub fn read_file(handle: HANDLE, size: u32) -> io::Result<ReadFileResult> {
     Ok(ReadFileResult { data, error: err })
 }
 
+pub fn get_named_pipe_handle_state(handle: HANDLE) -> io::Result<u32> {
+    let mut mode = 0u32;
+    unsafe {
+        windows_sys::Win32::System::Pipes::GetNamedPipeHandleStateW(
+            handle,
+            &mut mode,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            0,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(mode)
+}
+
 pub fn set_named_pipe_handle_state(
     handle: HANDLE,
     mode: Option<u32>,
@@ -1357,3 +1384,78 @@ pub fn need_current_directory_for_exe_path_w(exe_name: &widestring::WideCStr) ->
             != 0
     }
 }
+
+pub type DllDirectoryCookie = *mut core::ffi::c_void;
+
+pub fn add_dll_directory(path: &widestring::WideCStr) -> io::Result<DllDirectoryCookie> {
+    let cookie =
+        unsafe { windows_sys::Win32::System::LibraryLoader::AddDllDirectory(path.as_ptr()) };
+    if cookie.is_null() {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(cookie)
+    }
+}
+
+pub fn remove_dll_directory(cookie: DllDirectoryCookie) -> io::Result<()> {
+    unsafe { windows_sys::Win32::System::LibraryLoader::RemoveDllDirectory(cookie) }
+        .check_win32_bool()
+}
+
+/// `CreateHardLinkW(new, existing)` — `dst` is the new name, `src` the file it names.
+pub fn create_hard_link(dst: &widestring::WideCStr, src: &widestring::WideCStr) -> io::Result<()> {
+    unsafe {
+        windows_sys::Win32::Storage::FileSystem::CreateHardLinkW(
+            dst.as_ptr(),
+            src.as_ptr(),
+            core::ptr::null(),
+        )
+    }
+    .check_win32_bool()
+}
+
+/// `SW_SHOWNORMAL` — the default `os.startfile` show command.
+pub const SW_SHOWNORMAL: i32 = 1;
+
+/// `ShellExecuteW` with a null owner window. Failure is a return of 32 or less.
+pub fn shell_execute_w(
+    file: &widestring::WideCStr,
+    operation: Option<&widestring::WideCStr>,
+    arguments: Option<&widestring::WideCStr>,
+    directory: Option<&widestring::WideCStr>,
+    show_cmd: i32,
+) -> io::Result<()> {
+    let as_ptr = |wide: Option<&widestring::WideCStr>| {
+        wide.map_or(core::ptr::null(), widestring::WideCStr::as_ptr)
+    };
+    let rc = unsafe {
+        windows_sys::Win32::UI::Shell::ShellExecuteW(
+            core::ptr::null_mut(),
+            as_ptr(operation),
+            file.as_ptr(),
+            as_ptr(arguments),
+            as_ptr(directory),
+            show_cmd,
+        )
+    };
+    if rc as isize <= 32 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// `CompareStringOrdinal`. Returns the CSTR_* result, or 0 on failure.
+pub fn compare_string_ordinal(left: &[u16], right: &[u16], ignore_case: bool) -> i32 {
+    unsafe {
+        windows_sys::Win32::Globalization::CompareStringOrdinal(
+            left.as_ptr(),
+            left.len() as i32,
+            right.as_ptr(),
+            right.len() as i32,
+            i32::from(ignore_case),
+        )
+    }
+}
+
+pub const CSTR_EQUAL: i32 = windows_sys::Win32::Globalization::CSTR_EQUAL;

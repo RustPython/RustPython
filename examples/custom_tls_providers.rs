@@ -30,6 +30,7 @@ fn main() {
         "ring" => {
             let ext = CryptoExt {
                 all_cipher_suites: Some(ring::ALL_CIPHER_SUITES),
+                default_cipher_suites: Some(ring::DEFAULT_CIPHER_SUITES),
                 all_kx_groups: Some(ring::ALL_KX_GROUPS),
                 any_supported_key: Some(ring::sign::any_supported_type),
                 ticketer: ring::Ticketer::new,
@@ -40,6 +41,7 @@ fn main() {
         "graviola" => {
             let ext = CryptoExt {
                 all_cipher_suites: Some(rustls_graviola::suites::ALL_CIPHER_SUITES),
+                default_cipher_suites: None,
                 all_kx_groups: Some(rustls_graviola::kx::ALL_KX_GROUPS),
                 any_supported_key: None,
                 ticketer: rustls_graviola::Ticketer::new,

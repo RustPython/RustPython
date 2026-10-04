@@ -2,8 +2,9 @@
 //!
 //! This module provides a centralized array of all slot definitions,
 
-use super::{PyComparisonOp, PyTypeSlots};
+use super::{PyComparisonOp, PyTypeSlots, fn_addr};
 use crate::builtins::descriptor::SlotFunc;
+use num_enum::TryFromPrimitive;
 
 /// Slot operation type
 ///
@@ -68,10 +69,10 @@ pub struct SlotDef {
 ///
 /// Values match CPython's Py_* slot IDs from typeslots.h.
 /// Unused slots are included for value reservation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum SlotAccessor {
-    // Buffer protocol (1-2) - Reserved, not used in RustPython
+    // Buffer protocol (1-2)
     BfGetBuffer = 1,
     BfReleaseBuffer = 2,
 
@@ -173,9 +174,7 @@ impl SlotAccessor {
     pub fn is_reserved(&self) -> bool {
         matches!(
             self,
-            Self::BfGetBuffer
-                | Self::BfReleaseBuffer
-                | Self::TpAlloc
+            Self::TpAlloc
                 | Self::TpBase
                 | Self::TpBases
                 | Self::TpClear
@@ -411,6 +410,10 @@ impl SlotAccessor {
                 )
             }
 
+            // Buffer protocol
+            Self::BfGetBuffer => matches!(slot_func, SlotFunc::GetBuffer(_)),
+            Self::BfReleaseBuffer => matches!(slot_func, SlotFunc::ReleaseBuffer),
+
             // New and reserved slots
             Self::TpNew => false,
             _ => false, // Reserved slots
@@ -425,14 +428,16 @@ impl SlotAccessor {
 
         macro_rules! inherit_main {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.$slot.load());
+                let inherited = mro.iter().find_map(|cls| cls.payload().slots.$slot.load());
                 typ.slots.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_number {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_number.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_number.$slot.load());
                 typ.slots.as_number.$slot.store(inherited);
             }};
         }
@@ -441,14 +446,16 @@ impl SlotAccessor {
             ($slot:ident) => {{
                 let inherited = mro
                     .iter()
-                    .find_map(|cls| cls.slots.as_sequence.$slot.load());
+                    .find_map(|cls| cls.payload().slots.as_sequence.$slot.load());
                 typ.slots.as_sequence.$slot.store(inherited);
             }};
         }
 
         macro_rules! inherit_mapping {
             ($slot:ident) => {{
-                let inherited = mro.iter().find_map(|cls| cls.slots.as_mapping.$slot.load());
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_mapping.$slot.load());
                 typ.slots.as_mapping.$slot.store(inherited);
             }};
         }
@@ -467,8 +474,8 @@ impl SlotAccessor {
                 // vectorcall as a constructor fast path (call=None).
                 // See vectorcall_type() in type.rs for the dual-use design rationale.
                 let inherited_vc = mro.iter().find_map(|cls| {
-                    if cls.slots.call.load().is_some() {
-                        cls.slots.vectorcall.load()
+                    if cls.payload().slots.call.load().is_some() {
+                        cls.payload().slots.vectorcall.load()
                     } else {
                         None
                     }
@@ -539,6 +546,24 @@ impl SlotAccessor {
             Self::MpSubscript => inherit_mapping!(subscript),
             Self::MpAssSubscript => inherit_mapping!(ass_subscript),
 
+            // Buffer protocol
+            Self::BfGetBuffer => {
+                let inherited = mro
+                    .iter()
+                    .find_map(|cls| cls.payload().slots.as_buffer.load());
+                typ.slots.as_buffer.store(inherited);
+            }
+            Self::BfReleaseBuffer => {
+                let has_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.has_release_buffer.load());
+                typ.slots.has_release_buffer.store(has_release);
+                let py_release = mro
+                    .iter()
+                    .any(|cls| cls.payload().slots.python_release_buffer.load());
+                typ.slots.python_release_buffer.store(py_release);
+            }
+
             // Reserved slots - no-op
             _ => {}
         }
@@ -608,8 +633,9 @@ impl SlotAccessor {
                 if typ.slots.init.load().is_none()
                     && let Some(base_val) = base.slots.init.load()
                 {
-                    let slot_defined = base.base.as_ref().is_none_or(|bb| {
-                        bb.slots.init.load().map(|v| v as usize) != Some(base_val as usize)
+                    let slot_defined = base.base.deref().is_none_or(|bb| {
+                        bb.payload().slots.init.load().map(|v| fn_addr(v))
+                            != Some(fn_addr(base_val))
                     });
                     if slot_defined {
                         typ.slots.init.store(Some(base_val));
@@ -676,6 +702,25 @@ impl SlotAccessor {
             Self::MpLength => copy_mapping!(length),
             Self::MpSubscript => copy_mapping!(subscript),
             Self::MpAssSubscript => copy_mapping!(ass_subscript),
+
+            // Buffer protocol
+            Self::BfGetBuffer => {
+                if typ.slots.as_buffer.load().is_none()
+                    && let Some(base_val) = base.slots.as_buffer.load()
+                {
+                    typ.slots.as_buffer.store(Some(base_val));
+                }
+            }
+            Self::BfReleaseBuffer => {
+                if !typ.slots.has_release_buffer.load() && base.slots.has_release_buffer.load() {
+                    typ.slots.has_release_buffer.store(true);
+                }
+                if !typ.slots.python_release_buffer.load()
+                    && base.slots.python_release_buffer.load()
+                {
+                    typ.slots.python_release_buffer.store(true);
+                }
+            }
 
             // Reserved slots - no-op
             _ => {}
@@ -815,6 +860,16 @@ impl SlotAccessor {
                 .ass_subscript
                 .load()
                 .map(SlotFunc::MapSetSubscript),
+
+            // Buffer protocol
+            Self::BfGetBuffer => slots.as_buffer.load().map(SlotFunc::GetBuffer),
+            Self::BfReleaseBuffer => {
+                if slots.has_release_buffer.load() || slots.python_release_buffer.load() {
+                    Some(SlotFunc::ReleaseBuffer)
+                } else {
+                    None
+                }
+            }
 
             // Reserved slots
             _ => None,
@@ -968,146 +1023,156 @@ pub fn find_slot_defs_by_name(name: &str) -> impl Iterator<Item = &'static SlotD
     SLOT_DEFS.iter().filter(move |def| def.name == name)
 }
 
-/// Total number of slot definitions
-pub const SLOT_DEFS_COUNT: usize = SLOT_DEFS.len();
-
 /// All slot definitions
-pub static SLOT_DEFS: &[SlotDef] = &[
+pub const SLOT_DEFS: &[SlotDef] = &[
+    // Buffer protocol (bf_*)
+    SlotDef {
+        name: "__buffer__",
+        accessor: SlotAccessor::BfGetBuffer,
+        op: None,
+        doc: "__buffer__($self, flags, /)\n--\n\nReturn a buffer object that exposes the underlying memory of the object.",
+    },
+    SlotDef {
+        name: "__release_buffer__",
+        accessor: SlotAccessor::BfReleaseBuffer,
+        op: None,
+        doc: "__release_buffer__($self, buffer, /)\n--\n\nRelease the buffer object that exposes the underlying memory of the object.",
+    },
     // Type slots (tp_*)
     SlotDef {
         name: "__init__",
         accessor: SlotAccessor::TpInit,
         op: None,
-        doc: "Initialize self. See help(type(self)) for accurate signature.",
+        doc: "__init__($self, /, *args, **kwargs)\n--\n\nInitialize self.  See help(type(self)) for accurate signature.",
     },
     SlotDef {
         name: "__new__",
         accessor: SlotAccessor::TpNew,
         op: None,
-        doc: "Create and return a new object. See help(type) for accurate signature.",
+        doc: "__new__($type, /, *args, **kwargs)\n--\n\nCreate and return new object.  See help(type) for accurate signature.",
     },
     SlotDef {
         name: "__del__",
         accessor: SlotAccessor::TpDel,
         op: None,
-        doc: "Called when the instance is about to be destroyed.",
+        doc: "__del__($self, /)\n--\n\nCalled when the instance is about to be destroyed.",
     },
     SlotDef {
         name: "__repr__",
         accessor: SlotAccessor::TpRepr,
         op: None,
-        doc: "Return repr(self).",
+        doc: "__repr__($self, /)\n--\n\nReturn repr(self).",
     },
     SlotDef {
         name: "__str__",
         accessor: SlotAccessor::TpStr,
         op: None,
-        doc: "Return str(self).",
+        doc: "__str__($self, /)\n--\n\nReturn str(self).",
     },
     SlotDef {
         name: "__hash__",
         accessor: SlotAccessor::TpHash,
         op: None,
-        doc: "Return hash(self).",
+        doc: "__hash__($self, /)\n--\n\nReturn hash(self).",
     },
     SlotDef {
         name: "__call__",
         accessor: SlotAccessor::TpCall,
         op: None,
-        doc: "Call self as a function.",
+        doc: "__call__($self, /, *args, **kwargs)\n--\n\nCall self as a function.",
     },
     SlotDef {
         name: "__iter__",
         accessor: SlotAccessor::TpIter,
         op: None,
-        doc: "Implement iter(self).",
+        doc: "__iter__($self, /)\n--\n\nImplement iter(self).",
     },
     SlotDef {
         name: "__next__",
         accessor: SlotAccessor::TpIternext,
         op: None,
-        doc: "Implement next(self).",
+        doc: "__next__($self, /)\n--\n\nImplement next(self).",
     },
     // Attribute access
     SlotDef {
         name: "__getattribute__",
         accessor: SlotAccessor::TpGetattro,
         op: None,
-        doc: "Return getattr(self, name).",
+        doc: "__getattribute__($self, name, /)\n--\n\nReturn getattr(self, name).",
     },
     SlotDef {
         name: "__getattr__",
         accessor: SlotAccessor::TpGetattro,
         op: None,
-        doc: "Implement getattr(self, name).",
+        doc: "__getattr__($self, name, /)\n--\n\nImplement getattr(self, name).",
     },
     SlotDef {
         name: "__setattr__",
         accessor: SlotAccessor::TpSetattro,
         op: None,
-        doc: "Implement setattr(self, name, value).",
+        doc: "__setattr__($self, name, value, /)\n--\n\nImplement setattr(self, name, value).",
     },
     SlotDef {
         name: "__delattr__",
         accessor: SlotAccessor::TpSetattro,
         op: Some(SlotOp::Delete),
-        doc: "Implement delattr(self, name).",
+        doc: "__delattr__($self, name, /)\n--\n\nImplement delattr(self, name).",
     },
     // Rich comparison - all map to TpRichcompare with different op
     SlotDef {
         name: "__eq__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Eq),
-        doc: "Return self==value.",
+        doc: "__eq__($self, value, /)\n--\n\nReturn self==value.",
     },
     SlotDef {
         name: "__ne__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Ne),
-        doc: "Return self!=value.",
+        doc: "__ne__($self, value, /)\n--\n\nReturn self!=value.",
     },
     SlotDef {
         name: "__lt__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Lt),
-        doc: "Return self<value.",
+        doc: "__lt__($self, value, /)\n--\n\nReturn self<value.",
     },
     SlotDef {
         name: "__le__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Le),
-        doc: "Return self<=value.",
+        doc: "__le__($self, value, /)\n--\n\nReturn self<=value.",
     },
     SlotDef {
         name: "__gt__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Gt),
-        doc: "Return self>value.",
+        doc: "__gt__($self, value, /)\n--\n\nReturn self>value.",
     },
     SlotDef {
         name: "__ge__",
         accessor: SlotAccessor::TpRichcompare,
         op: Some(SlotOp::Ge),
-        doc: "Return self>=value.",
+        doc: "__ge__($self, value, /)\n--\n\nReturn self>=value.",
     },
     // Descriptor protocol
     SlotDef {
         name: "__get__",
         accessor: SlotAccessor::TpDescrGet,
         op: None,
-        doc: "Return an attribute of instance, which is of type owner.",
+        doc: "__get__($self, instance, owner=None, /)\n--\n\nReturn an attribute of instance, which is of type owner.",
     },
     SlotDef {
         name: "__set__",
         accessor: SlotAccessor::TpDescrSet,
         op: None,
-        doc: "Set an attribute of instance to value.",
+        doc: "__set__($self, instance, value, /)\n--\n\nSet an attribute of instance to value.",
     },
     SlotDef {
         name: "__delete__",
         accessor: SlotAccessor::TpDescrSet,
         op: Some(SlotOp::Delete),
-        doc: "Delete an attribute of instance.",
+        doc: "__delete__($self, instance, /)\n--\n\nDelete an attribute of instance.",
     },
     // Mapping protocol (mp_*) - must come before Sequence protocol
     // so that mp_subscript wins over sq_item for __getitem__
@@ -1116,385 +1181,388 @@ pub static SLOT_DEFS: &[SlotDef] = &[
         name: "__len__",
         accessor: SlotAccessor::MpLength,
         op: None,
-        doc: "Return len(self).",
+        doc: "__len__($self, /)\n--\n\nReturn len(self).",
     },
     SlotDef {
         name: "__getitem__",
         accessor: SlotAccessor::MpSubscript,
         op: None,
-        doc: "Return self[key].",
+        doc: "__getitem__($self, key, /)\n--\n\nReturn self[key].",
     },
     SlotDef {
         name: "__setitem__",
         accessor: SlotAccessor::MpAssSubscript,
         op: None,
-        doc: "Set self[key] to value.",
+        doc: "__setitem__($self, key, value, /)\n--\n\nSet self[key] to value.",
     },
     SlotDef {
         name: "__delitem__",
         accessor: SlotAccessor::MpAssSubscript,
         op: Some(SlotOp::Delete),
-        doc: "Delete self[key].",
+        doc: "__delitem__($self, key, /)\n--\n\nDelete self[key].",
     },
     // Sequence protocol (sq_*)
     SlotDef {
         name: "__len__",
         accessor: SlotAccessor::SqLength,
         op: None,
-        doc: "Return len(self).",
+        doc: "__len__($self, /)\n--\n\nReturn len(self).",
     },
     SlotDef {
         name: "__getitem__",
         accessor: SlotAccessor::SqItem,
         op: None,
-        doc: "Return self[key].",
+        doc: "__getitem__($self, key, /)\n--\n\nReturn self[key].",
     },
     SlotDef {
         name: "__setitem__",
         accessor: SlotAccessor::SqAssItem,
         op: None,
-        doc: "Set self[key] to value.",
+        doc: "__setitem__($self, key, value, /)\n--\n\nSet self[key] to value.",
     },
     SlotDef {
         name: "__delitem__",
         accessor: SlotAccessor::SqAssItem,
         op: Some(SlotOp::Delete),
-        doc: "Delete self[key].",
+        doc: "__delitem__($self, key, /)\n--\n\nDelete self[key].",
     },
     SlotDef {
         name: "__contains__",
         accessor: SlotAccessor::SqContains,
         op: None,
-        doc: "Return key in self.",
+        doc: "__contains__($self, key, /)\n--\n\nReturn bool(key in self).",
     },
     // Number protocol - binary ops with left/right variants
     SlotDef {
         name: "__add__",
         accessor: SlotAccessor::NbAdd,
         op: Some(SlotOp::Left),
-        doc: "Return self+value.",
+        doc: "__add__($self, value, /)\n--\n\nReturn self+value.",
     },
     SlotDef {
         name: "__radd__",
         accessor: SlotAccessor::NbAdd,
         op: Some(SlotOp::Right),
-        doc: "Return value+self.",
+        doc: "__radd__($self, value, /)\n--\n\nReturn value+self.",
     },
     SlotDef {
         name: "__iadd__",
         accessor: SlotAccessor::NbInplaceAdd,
         op: None,
-        doc: "Implement self+=value.",
+        doc: "__iadd__($self, value, /)\n--\n\nReturn self+=value.",
     },
     SlotDef {
         name: "__sub__",
         accessor: SlotAccessor::NbSubtract,
         op: Some(SlotOp::Left),
-        doc: "Return self-value.",
+        doc: "__sub__($self, value, /)\n--\n\nReturn self-value.",
     },
     SlotDef {
         name: "__rsub__",
         accessor: SlotAccessor::NbSubtract,
         op: Some(SlotOp::Right),
-        doc: "Return value-self.",
+        doc: "__rsub__($self, value, /)\n--\n\nReturn value-self.",
     },
     SlotDef {
         name: "__isub__",
         accessor: SlotAccessor::NbInplaceSubtract,
         op: None,
-        doc: "Implement self-=value.",
+        doc: "__isub__($self, value, /)\n--\n\nReturn self-=value.",
     },
     SlotDef {
         name: "__mul__",
         accessor: SlotAccessor::NbMultiply,
         op: Some(SlotOp::Left),
-        doc: "Return self*value.",
+        doc: "__mul__($self, value, /)\n--\n\nReturn self*value.",
     },
     SlotDef {
         name: "__rmul__",
         accessor: SlotAccessor::NbMultiply,
         op: Some(SlotOp::Right),
-        doc: "Return value*self.",
+        doc: "__rmul__($self, value, /)\n--\n\nReturn value*self.",
     },
     SlotDef {
         name: "__imul__",
         accessor: SlotAccessor::NbInplaceMultiply,
         op: None,
-        doc: "Implement self*=value.",
+        doc: "__imul__($self, value, /)\n--\n\nReturn self*=value.",
     },
     SlotDef {
         name: "__mod__",
         accessor: SlotAccessor::NbRemainder,
         op: Some(SlotOp::Left),
-        doc: "Return self%value.",
+        doc: "__mod__($self, value, /)\n--\n\nReturn self%value.",
     },
     SlotDef {
         name: "__rmod__",
         accessor: SlotAccessor::NbRemainder,
         op: Some(SlotOp::Right),
-        doc: "Return value%self.",
+        doc: "__rmod__($self, value, /)\n--\n\nReturn value%self.",
     },
     SlotDef {
         name: "__imod__",
         accessor: SlotAccessor::NbInplaceRemainder,
         op: None,
-        doc: "Implement self%=value.",
+        doc: "__imod__($self, value, /)\n--\n\nReturn self%=value.",
     },
     SlotDef {
         name: "__divmod__",
         accessor: SlotAccessor::NbDivmod,
         op: Some(SlotOp::Left),
-        doc: "Return divmod(self, value).",
+        doc: "__divmod__($self, value, /)\n--\n\nReturn divmod(self, value).",
     },
     SlotDef {
         name: "__rdivmod__",
         accessor: SlotAccessor::NbDivmod,
         op: Some(SlotOp::Right),
-        doc: "Return divmod(value, self).",
+        doc: "__rdivmod__($self, value, /)\n--\n\nReturn divmod(value, self).",
     },
     SlotDef {
         name: "__pow__",
         accessor: SlotAccessor::NbPower,
         op: Some(SlotOp::Left),
-        doc: "Return pow(self, value, mod).",
+        doc: "__pow__($self, value, mod=None, /)\n--\n\nReturn pow(self, value, mod).",
     },
     SlotDef {
         name: "__rpow__",
         accessor: SlotAccessor::NbPower,
         op: Some(SlotOp::Right),
-        doc: "Return pow(value, self, mod).",
+        doc: "__rpow__($self, value, mod=None, /)\n--\n\nReturn pow(value, self, mod).",
     },
     SlotDef {
         name: "__ipow__",
         accessor: SlotAccessor::NbInplacePower,
         op: None,
-        doc: "Implement self**=value.",
+        doc: "__ipow__($self, value, /)\n--\n\nReturn self**=value.",
     },
     SlotDef {
         name: "__lshift__",
         accessor: SlotAccessor::NbLshift,
         op: Some(SlotOp::Left),
-        doc: "Return self<<value.",
+        doc: "__lshift__($self, value, /)\n--\n\nReturn self<<value.",
     },
     SlotDef {
         name: "__rlshift__",
         accessor: SlotAccessor::NbLshift,
         op: Some(SlotOp::Right),
-        doc: "Return value<<self.",
+        doc: "__rlshift__($self, value, /)\n--\n\nReturn value<<self.",
     },
     SlotDef {
         name: "__ilshift__",
         accessor: SlotAccessor::NbInplaceLshift,
         op: None,
-        doc: "Implement self<<=value.",
+        doc: "__ilshift__($self, value, /)\n--\n\nReturn self<<=value.",
     },
     SlotDef {
         name: "__rshift__",
         accessor: SlotAccessor::NbRshift,
         op: Some(SlotOp::Left),
-        doc: "Return self>>value.",
+        doc: "__rshift__($self, value, /)\n--\n\nReturn self>>value.",
     },
     SlotDef {
         name: "__rrshift__",
         accessor: SlotAccessor::NbRshift,
         op: Some(SlotOp::Right),
-        doc: "Return value>>self.",
+        doc: "__rrshift__($self, value, /)\n--\n\nReturn value>>self.",
     },
     SlotDef {
         name: "__irshift__",
         accessor: SlotAccessor::NbInplaceRshift,
         op: None,
-        doc: "Implement self>>=value.",
+        doc: "__irshift__($self, value, /)\n--\n\nReturn self>>=value.",
     },
     SlotDef {
         name: "__and__",
         accessor: SlotAccessor::NbAnd,
         op: Some(SlotOp::Left),
-        doc: "Return self&value.",
+        doc: "__and__($self, value, /)\n--\n\nReturn self&value.",
     },
     SlotDef {
         name: "__rand__",
         accessor: SlotAccessor::NbAnd,
         op: Some(SlotOp::Right),
-        doc: "Return value&self.",
+        doc: "__rand__($self, value, /)\n--\n\nReturn value&self.",
     },
     SlotDef {
         name: "__iand__",
         accessor: SlotAccessor::NbInplaceAnd,
         op: None,
-        doc: "Implement self&=value.",
+        doc: "__iand__($self, value, /)\n--\n\nReturn self&=value.",
     },
     SlotDef {
         name: "__xor__",
         accessor: SlotAccessor::NbXor,
         op: Some(SlotOp::Left),
-        doc: "Return self^value.",
+        doc: "__xor__($self, value, /)\n--\n\nReturn self^value.",
     },
     SlotDef {
         name: "__rxor__",
         accessor: SlotAccessor::NbXor,
         op: Some(SlotOp::Right),
-        doc: "Return value^self.",
+        doc: "__rxor__($self, value, /)\n--\n\nReturn value^self.",
     },
     SlotDef {
         name: "__ixor__",
         accessor: SlotAccessor::NbInplaceXor,
         op: None,
-        doc: "Implement self^=value.",
+        doc: "__ixor__($self, value, /)\n--\n\nReturn self^=value.",
     },
     SlotDef {
         name: "__or__",
         accessor: SlotAccessor::NbOr,
         op: Some(SlotOp::Left),
-        doc: "Return self|value.",
+        doc: "__or__($self, value, /)\n--\n\nReturn self|value.",
     },
     SlotDef {
         name: "__ror__",
         accessor: SlotAccessor::NbOr,
         op: Some(SlotOp::Right),
-        doc: "Return value|self.",
+        doc: "__ror__($self, value, /)\n--\n\nReturn value|self.",
     },
     SlotDef {
         name: "__ior__",
         accessor: SlotAccessor::NbInplaceOr,
         op: None,
-        doc: "Implement self|=value.",
+        doc: "__ior__($self, value, /)\n--\n\nReturn self|=value.",
     },
     SlotDef {
         name: "__floordiv__",
         accessor: SlotAccessor::NbFloorDivide,
         op: Some(SlotOp::Left),
-        doc: "Return self//value.",
+        doc: "__floordiv__($self, value, /)\n--\n\nReturn self//value.",
     },
     SlotDef {
         name: "__rfloordiv__",
         accessor: SlotAccessor::NbFloorDivide,
         op: Some(SlotOp::Right),
-        doc: "Return value//self.",
+        doc: "__rfloordiv__($self, value, /)\n--\n\nReturn value//self.",
     },
     SlotDef {
         name: "__ifloordiv__",
         accessor: SlotAccessor::NbInplaceFloorDivide,
         op: None,
-        doc: "Implement self//=value.",
+        doc: "__ifloordiv__($self, value, /)\n--\n\nReturn self//=value.",
     },
     SlotDef {
         name: "__truediv__",
         accessor: SlotAccessor::NbTrueDivide,
         op: Some(SlotOp::Left),
-        doc: "Return self/value.",
+        doc: "__truediv__($self, value, /)\n--\n\nReturn self/value.",
     },
     SlotDef {
         name: "__rtruediv__",
         accessor: SlotAccessor::NbTrueDivide,
         op: Some(SlotOp::Right),
-        doc: "Return value/self.",
+        doc: "__rtruediv__($self, value, /)\n--\n\nReturn value/self.",
     },
     SlotDef {
         name: "__itruediv__",
         accessor: SlotAccessor::NbInplaceTrueDivide,
         op: None,
-        doc: "Implement self/=value.",
+        doc: "__itruediv__($self, value, /)\n--\n\nReturn self/=value.",
     },
     SlotDef {
         name: "__matmul__",
         accessor: SlotAccessor::NbMatrixMultiply,
         op: Some(SlotOp::Left),
-        doc: "Return self@value.",
+        doc: "__matmul__($self, value, /)\n--\n\nReturn self@value.",
     },
     SlotDef {
         name: "__rmatmul__",
         accessor: SlotAccessor::NbMatrixMultiply,
         op: Some(SlotOp::Right),
-        doc: "Return value@self.",
+        doc: "__rmatmul__($self, value, /)\n--\n\nReturn value@self.",
     },
     SlotDef {
         name: "__imatmul__",
         accessor: SlotAccessor::NbInplaceMatrixMultiply,
         op: None,
-        doc: "Implement self@=value.",
+        doc: "__imatmul__($self, value, /)\n--\n\nReturn self@=value.",
     },
     // Number unary operations
     SlotDef {
         name: "__neg__",
         accessor: SlotAccessor::NbNegative,
         op: None,
-        doc: "Return -self.",
+        doc: "__neg__($self, /)\n--\n\n-self",
     },
     SlotDef {
         name: "__pos__",
         accessor: SlotAccessor::NbPositive,
         op: None,
-        doc: "Return +self.",
+        doc: "__pos__($self, /)\n--\n\n+self",
     },
     SlotDef {
         name: "__abs__",
         accessor: SlotAccessor::NbAbsolute,
         op: None,
-        doc: "Return abs(self).",
+        doc: "__abs__($self, /)\n--\n\nabs(self)",
     },
     SlotDef {
         name: "__invert__",
         accessor: SlotAccessor::NbInvert,
         op: None,
-        doc: "Return ~self.",
+        doc: "__invert__($self, /)\n--\n\n~self",
     },
     SlotDef {
         name: "__bool__",
         accessor: SlotAccessor::NbBool,
         op: None,
-        doc: "Return self != 0.",
+        doc: "__bool__($self, /)\n--\n\nTrue if self else False",
     },
     SlotDef {
         name: "__int__",
         accessor: SlotAccessor::NbInt,
         op: None,
-        doc: "Return int(self).",
+        doc: "__int__($self, /)\n--\n\nint(self)",
     },
     SlotDef {
         name: "__float__",
         accessor: SlotAccessor::NbFloat,
         op: None,
-        doc: "Return float(self).",
+        doc: "__float__($self, /)\n--\n\nfloat(self)",
     },
     SlotDef {
         name: "__index__",
         accessor: SlotAccessor::NbIndex,
         op: None,
-        doc: "Return self converted to an integer, if self is suitable for use as an index into a list.",
+        doc: "__index__($self, /)\n--\n\nReturn self converted to an integer, if self is suitable for use as an index into a list.",
     },
     // Sequence inplace operations (also map to number slots for some types)
     SlotDef {
         name: "__add__",
         accessor: SlotAccessor::SqConcat,
         op: None,
-        doc: "Return self+value.",
+        doc: "__add__($self, value, /)\n--\n\nReturn self+value.",
     },
     SlotDef {
         name: "__mul__",
         accessor: SlotAccessor::SqRepeat,
         op: None,
-        doc: "Return self*value.",
+        doc: "__mul__($self, value, /)\n--\n\nReturn self*value.",
     },
     SlotDef {
         name: "__rmul__",
         accessor: SlotAccessor::SqRepeat,
         op: None,
-        doc: "Return value*self.",
+        doc: "__rmul__($self, value, /)\n--\n\nReturn value*self.",
     },
     SlotDef {
         name: "__iadd__",
         accessor: SlotAccessor::SqInplaceConcat,
         op: None,
-        doc: "Implement self+=value.",
+        doc: "__iadd__($self, value, /)\n--\n\nImplement self+=value.",
     },
     SlotDef {
         name: "__imul__",
         accessor: SlotAccessor::SqInplaceRepeat,
         op: None,
-        doc: "Implement self*=value.",
+        doc: "__imul__($self, value, /)\n--\n\nImplement self*=value.",
     },
 ];
+
+/// Total number of slot definitions.
+pub const SLOT_DEFS_COUNT: usize = SLOT_DEFS.len();
 
 #[cfg(test)]
 mod tests {

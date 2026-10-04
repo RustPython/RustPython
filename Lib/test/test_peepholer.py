@@ -157,7 +157,6 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'UNPACK_SEQUENCE')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LOAD_CONST count mismatch in long-tuple branch
     def test_constant_folding_tuples_of_constants(self):
         for line, elem in (
             ('a = 1,2,3', (1, 2, 3)),
@@ -728,7 +727,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(format('x = %s!', '%% %s'), 'x = %% %s!')
         self.assertEqual(format('x = %s, y = %d', 12, 34), 'x = 12, y = 34')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: unsupported format character 'z' (0x7a) at index 3
     def test_format_errors(self):
         with self.assertRaisesRegex(TypeError,
                     'not enough arguments for format string'):
@@ -1007,7 +1005,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
         self.assertEqual(f.__code__.co_code, co_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_setting_lineno_one_undefined(self):
         code = textwrap.dedent("""\
             def f():
@@ -1042,7 +1039,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertNotInBytecode(f, "LOAD_FAST_CHECK")
         self.assertEqual(f.__code__.co_code, co_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RuntimeWarning not triggered
     def test_setting_lineno_two_undefined(self):
         code = textwrap.dedent("""\
             def f():

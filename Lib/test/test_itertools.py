@@ -538,7 +538,6 @@ class TestBasicOps(unittest.TestCase):
         #check proper internal error handling for large "step' sizes
         count(1, maxsize+5); sys.exc_info()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; 'count(10.5)' != 'count(10.5, 1.0)'
     def test_count_with_step(self):
         self.assertEqual(lzip('abc',count(2,3)), [('a', 2), ('b', 5), ('c', 8)])
         self.assertEqual(lzip('abc',count(start=2,step=3)),
@@ -755,7 +754,6 @@ class TestBasicOps(unittest.TestCase):
         next(g)
         next(g)  # must pass with address sanitizer
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 4 != 1
     def test_grouper_reentrant_eq_does_not_crash(self):
         # regression test for gh-146613
         grouper_iter = None
@@ -1137,7 +1135,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(repr(repeat('a', times=-1)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', times=-2)), "repeat('a', 0)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_map(self):
         self.assertEqual(list(map(operator.pow, range(3), range(1,7))),
                          [0**1, 1**2, 2**3])
@@ -1169,7 +1166,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(ValueError, next, starmap(errfunc, [(4,5)]))
         self.assertRaises(TypeError, next, starmap(onearg, [(4,5)]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_islice(self):
         for args in [          # islice(args) should agree with range(args)
                 (10, 20, 3),
@@ -1262,7 +1258,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(t), [1, 1, 1])
         self.assertRaises(StopIteration, next, t)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dropwhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(dropwhile(underten, data)), [20, 2, 4, 6, 8])
@@ -1273,7 +1268,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(TypeError, next, dropwhile(10, [(4,5)]))
         self.assertRaises(ValueError, next, dropwhile(errfunc, [(4,5)]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tee(self):
         n = 200
 
@@ -2497,7 +2491,6 @@ class RegressionTests(unittest.TestCase):
 
 
 class SubclassWithKwargsTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         # count is not subclassable...
         testcases = [

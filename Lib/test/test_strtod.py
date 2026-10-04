@@ -146,7 +146,6 @@ class StrtodTests(unittest.TestCase):
                     digits *= 5
                     exponent -= 1
 
-    @unittest.skip("TODO: RUSTPYTHON; fails on debug mode, flaky in release mode")
     def test_halfway_cases(self):
         # test halfway cases for the round-half-to-even rule
         for i in range(100 * TEST_SIZE):
@@ -213,7 +212,6 @@ class StrtodTests(unittest.TestCase):
                 s = '{}e{}'.format(digits, exponent)
                 self.check_strtod(s)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_parsing(self):
         # make '0' more likely to be chosen than other digits
         digits = '000000123456789'

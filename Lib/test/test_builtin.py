@@ -486,7 +486,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                                 msg=f"source={source} mode={mode}")
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_top_level_await(self):
         """Test whether code with top level await can be compiled.
 
@@ -627,7 +626,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
     def test_compile_ast(self):
         args = ("a*__debug__", "f.py", "exec")
         raw = compile(*args, flags = ast.PyCF_ONLY_AST).body[0]
@@ -657,7 +655,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         msg = r"^attribute name must be string, not 'int'$"
         self.assertRaisesRegex(TypeError, msg, delattr, sys, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__repr__' unexpectedly found in ['__class__', '__delattr__', '__dict__', '__dir__', '__doc__', '__eq__', '__firstlineno__', '__format__', '__ge__', '__getattribute__', '__getstate__', '__gt__', '__hash__', '__init__', '__init_subclass__', '__le__', '__lt__', '__module__', '__ne__', '__new__', '__reduce__', '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__slots__', '__str__', '__subclasshook__', 'bar']
     def test_dir(self):
         # dir(wrong number of arguments)
         self.assertRaises(TypeError, dir, 42, 42)
@@ -991,7 +988,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                eval, code, ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_exec_builtins_mapping_import(self):
         code = compile("import foo.bar", "test", "exec")
         ns = {'__builtins__': types.MappingProxyType({})}
@@ -1000,7 +996,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(code, ns)
         self.assertEqual(ns['foo'], ('foo.bar', ns, ns, None, 0))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
     def test_eval_builtins_mapping_reduce(self):
         # list_iterator.__reduce__() calls _PyEval_GetBuiltin("iter")
         code = compile("x.__reduce__()", "test", "eval")
@@ -1020,7 +1015,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         finally:
             sys.stdout = savestdout
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument closure
     def test_exec_closure(self):
         def function_without_closures():
             return 3 * 5
@@ -2717,43 +2711,35 @@ class PtyTests(unittest.TestCase):
         else:
             yield
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty(self):
         # Test input() functionality when wired to a tty
         self.check_input_tty("prompt", b"quux")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii(self):
         # Check stdin/stdout encoding is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xc3\xa9", "utf-8")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_non_ascii_unicode_errors(self):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_null_in_prompt(self):
         self.check_input_tty("prompt\0", b"",
                 expected='ValueError: input: prompt string cannot contain '
                          'null characters')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nonencodable_prompt(self):
         self.check_input_tty("prompté", b"quux", "ascii", stdout_errors='strict',
                 expected="UnicodeEncodeError: 'ascii' codec can't encode "
                          "character '\\xe9' in position 6: ordinal not in "
                          "range(128)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_tty_nondecodable_input(self):
         self.check_input_tty("prompt", b"quux\xe9", "ascii", stdin_errors='strict',
                 expected="UnicodeDecodeError: 'ascii' codec can't decode "
                          "byte 0xe9 in position 4: ordinal not in "
                          "range(128)")
 
-    @unittest.skip("TODO: RUSTPYTHON; FAILURE, WORKER BUG")
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: got 0 lines in pipe but expected 2, child output was: quux
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor
@@ -2973,7 +2959,6 @@ class TestType(unittest.TestCase):
         A.__firstlineno__ = 43
         self.assertEqual(A.__dict__['__firstlineno__'], 43)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'tuple' but 'str' found.
     def test_type_typeparams(self):
         class A[T]:
             pass
@@ -3043,7 +3028,6 @@ class TestType(unittest.TestCase):
         with self.assertRaises(TypeError):
             type('A', (B,), {'__slots__': '__weakref__'})
 
-    @unittest.skip("TODO: RUSTPYTHON; random failure")
     def test_namespace_order(self):
         # bpo-34320: namespace should preserve order
         od = collections.OrderedDict([('a', 1), ('b', 2)])

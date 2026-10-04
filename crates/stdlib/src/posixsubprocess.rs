@@ -4,7 +4,7 @@ use crate::vm::{
     builtins::PyListRef,
     function::ArgSequence,
     ospath::OsPath,
-    {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
+    {PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
 use rustpython_host_env::posix as host_posix;
 use std::{
@@ -26,7 +26,7 @@ mod _posixsubprocess {
     use crate::vm::{PyResult, VirtualMachine, convert::IntoPyException};
 
     #[pyfunction]
-    fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+    fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<host_posix::pid_t> {
         // Check for interpreter shutdown when preexec_fn is used
         if args.preexec_fn.is_some()
             && vm
@@ -40,13 +40,13 @@ mod _posixsubprocess {
         }
 
         let extra_groups = args
-            .groups_list
+            .extra_groups
             .as_ref()
             .map(|l| Vec::<RawGid>::try_from_borrowed_object(vm, l.as_object()))
             .map(|res| res.map(|groups| groups.into_iter().map(|gid| gid.0).collect::<Vec<_>>()))
             .transpose()?;
         let argv = args.args.iter().collect::<CharPtrVec<'_>>();
-        let envp = args.env_list.as_ref().map(CharPtrVec::from_iter);
+        let envp = args.env.as_ref().map(CharPtrVec::from_iter);
         let procargs = ProcArgs {
             argv: &argv,
             envp: envp.as_deref(),
@@ -85,7 +85,7 @@ impl AsRef<CStr> for CStrPathLike {
 
 #[derive(Default)]
 struct CharPtrVec<'a> {
-    vec: Vec<*const libc::c_char>,
+    vec: Vec<*const host_posix::c_char>,
     marker: PhantomData<Vec<&'a CStr>>,
 }
 
@@ -107,7 +107,7 @@ impl<'a> Deref for CharPtrVec<'a> {
     type Target = CharPtrSlice<'a>;
     fn deref(&self) -> &Self::Target {
         unsafe {
-            &*(self.vec.as_slice() as *const [*const libc::c_char] as *const CharPtrSlice<'a>)
+            &*(self.vec.as_slice() as *const [*const host_posix::c_char] as *const CharPtrSlice<'a>)
         }
     }
 }
@@ -115,11 +115,11 @@ impl<'a> Deref for CharPtrVec<'a> {
 #[repr(transparent)]
 struct CharPtrSlice<'a> {
     marker: PhantomData<[&'a CStr]>,
-    slice: [*const libc::c_char],
+    slice: [*const host_posix::c_char],
 }
 
 impl CharPtrSlice<'_> {
-    const fn as_ptr(&self) -> *const *const libc::c_char {
+    const fn as_ptr(&self) -> *const *const host_posix::c_char {
         self.slice.as_ptr()
     }
 }
@@ -202,7 +202,7 @@ struct RawUid(u32);
 #[derive(Copy, Clone)]
 struct RawGid(u32);
 
-fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
+fn try_from_id(vm: &VirtualMachine, obj: &PyObject, typ_name: &str) -> PyResult<u32> {
     use core::cmp::Ordering;
     let i = obj
         .try_to_ref::<crate::vm::builtins::PyInt>(vm)
@@ -225,13 +225,13 @@ fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResul
 
 impl TryFromObject for RawUid {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        try_from_id(vm, obj, "uid").map(Self)
+        try_from_id(vm, &obj, "uid").map(Self)
     }
 }
 
 impl TryFromObject for RawGid {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        try_from_id(vm, obj, "gid").map(Self)
+        try_from_id(vm, &obj, "gid").map(Self)
     }
 }
 
@@ -239,11 +239,11 @@ impl TryFromObject for RawGid {
 
 gen_args! {
     args: ArgSequence<CStrPathLike> /* list */,
-    exec_list: ArgSequence<CStrPathLike> /* list */,
+    executable_list: ArgSequence<CStrPathLike> /* list */,
     close_fds: bool,
-    fds_to_keep: ArgSequence<BorrowedFd<'fd>>,
+    pass_fds: ArgSequence<BorrowedFd<'fd>>,
     cwd: Option<CStrPathLike>,
-    env_list: Option<ArgSequence<CStrPathLike>>,
+    env: Option<ArgSequence<CStrPathLike>>,
     p2cread: MaybeFd,
     p2cwrite: MaybeFd,
     c2pread: MaybeFd,
@@ -254,9 +254,9 @@ gen_args! {
     errpipe_write: Fd,
     restore_signals: bool,
     call_setsid: bool,
-    pgid_to_set: libc::pid_t,
+    pgid_to_set: host_posix::pid_t,
     gid: Option<RawGid>,
-    groups_list: Option<PyListRef>,
+    extra_groups: Option<PyListRef>,
     uid: Option<RawUid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
@@ -313,7 +313,7 @@ fn exec_inner(
     vm: &VirtualMachine,
 ) -> std::io::Result<Never> {
     host_posix::setup_child_fds(
-        args.fds_to_keep.as_slice(),
+        args.pass_fds.as_slice(),
         args.errpipe_write.as_fd(),
         args.p2cread.as_raw_fd(),
         args.p2cwrite.as_raw_fd(),
@@ -355,11 +355,11 @@ fn exec_inner(
     *ctx = ExecErrorContext::Exec;
 
     if args.close_fds {
-        host_posix::close_fds(2, args.fds_to_keep.as_slice());
+        host_posix::close_fds(2, args.pass_fds.as_slice());
     }
 
     let err = host_posix::exec_replace(
-        args.exec_list.as_slice(),
+        args.executable_list.as_slice(),
         procargs.argv.as_ptr(),
         procargs.envp.map(CharPtrSlice::as_ptr),
     );

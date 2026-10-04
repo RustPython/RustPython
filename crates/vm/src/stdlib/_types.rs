@@ -106,8 +106,7 @@ mod _types {
 
     #[pyattr]
     fn ClassMethodDescriptorType(vm: &VirtualMachine) -> PyObjectRef {
-        // TODO: implement as separate type
-        vm.ctx.types.method_descriptor_type.to_owned().into()
+        vm.ctx.types.classmethod_descriptor_type.to_owned().into()
     }
 
     #[pyattr]

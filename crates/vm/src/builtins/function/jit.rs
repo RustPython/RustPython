@@ -31,9 +31,9 @@ pub(super) enum ArgsError {
 impl ToPyObject for AbiValue {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.to_pyobject(vm),
-            AbiValue::Float(f) => f.to_pyobject(vm),
-            AbiValue::Bool(b) => b.to_pyobject(vm),
+            Self::Int(i) => i.to_pyobject(vm),
+            Self::Float(f) => f.to_pyobject(vm),
+            Self::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }
@@ -158,32 +158,35 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsEr
 /// `fill_locals_from_args` which will raise the actual exception if needed.
 #[cfg(feature = "jit")]
 pub(crate) fn get_jit_args<'a>(
-    func: &PyFunction,
+    func: &Py<PyFunction>,
     func_args: &FuncArgs,
     jitted_code: &'a CompiledCode,
     vm: &VirtualMachine,
 ) -> Result<Args<'a>, ArgsError> {
     let mut jit_args = jitted_code.args_builder();
-    let nargs = func_args.args.len();
 
     let code: &Py<PyCode> = &func.code;
     let arg_names = code.arg_names();
     let arg_count = code.arg_count;
     let posonlyarg_count = code.posonlyarg_count;
 
+    let nargs = func_args.args.len();
     if nargs > arg_count as usize || nargs < posonlyarg_count as usize {
         return Err(ArgsError::WrongNumberOfArgs);
     }
 
     // Add positional arguments
-    for i in 0..nargs {
-        jit_args.set(i, get_jit_value(vm, &func_args.args[i])?)?;
+    for (i, args) in func_args.args.iter().enumerate() {
+        jit_args.set(i, get_jit_value(vm, args)?)?;
     }
 
     // Handle keyword arguments
     for (name, value) in &func_args.kwargs {
         let arg_pos =
             |args: &[&PyStrInterned], name: &str| args.iter().position(|arg| arg.as_str() == name);
+        // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
+        // can never match one.
+        let name = name.as_str().map_err(|_| ArgsError::NotAKeywordArg)?;
         if let Some(arg_idx) = arg_pos(arg_names.args, name) {
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
@@ -204,8 +207,8 @@ pub(crate) fn get_jit_args<'a>(
 
     // fill in positional defaults
     if let Some(defaults) = defaults {
-        for (i, default) in defaults.iter().enumerate() {
-            let arg_idx = i + arg_count as usize - defaults.len();
+        for (i, default) in defaults.as_slice().iter().enumerate() {
+            let arg_idx = i + arg_count as usize - defaults.as_slice().len();
             if !jit_args.is_set(arg_idx) {
                 jit_args.set(arg_idx, get_jit_value(vm, default)?)?;
             }

@@ -1795,7 +1795,6 @@ class TestCase(unittest.TestCase):
         self.assertIsNot(d['f'], t)
         self.assertEqual(d['f'].my_a(), 6)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_asdict_defaultdict(self):
         # Ensure asdict() does not throw exceptions when a
         # defaultdict is a member of a dataclass
@@ -1938,7 +1937,6 @@ class TestCase(unittest.TestCase):
         t = astuple(c, tuple_factory=list)
         self.assertEqual(t, ['outer', T(1, ['inner', T(11, 12, 13)], 2)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_astuple_defaultdict(self):
         # Ensure astuple() does not throw exceptions when a
         # defaultdict is a member of a dataclass
@@ -2756,6 +2754,55 @@ class TestEq(unittest.TestCase):
         self.assertEqual(C(1), 5)
         self.assertNotEqual(C(1), 1)
 
+    def test_eq_field_by_field(self):
+        @dataclasses.dataclass
+        class Point:
+            x: int
+            y: int
+
+        p1 = Point(1, 2)
+        p2 = Point(1, 2)
+        p3 = Point(2, 1)
+        self.assertEqual(p1, p2)
+        self.assertNotEqual(p1, p3)
+
+    def test_eq_type_check(self):
+        @dataclasses.dataclass
+        class A:
+            x: int
+
+        @dataclasses.dataclass
+        class B:
+            x: int
+
+        a = A(1)
+        b = B(1)
+        self.assertNotEqual(a, b)
+
+    def test_eq_custom_field(self):
+        class AlwaysEqual(int):
+            def __eq__(self, other):
+                return True
+
+        @dataclasses.dataclass
+        class Foo:
+            x: AlwaysEqual
+            y: int
+
+        f1 = Foo(AlwaysEqual(1), 2)
+        f2 = Foo(AlwaysEqual(2), 2)
+        self.assertEqual(f1, f2)
+
+    def test_eq_nan_field(self):
+        @dataclasses.dataclass
+        class D:
+            x: float
+
+        nan = float('nan')
+        d1 = D(nan)
+        d2 = D(nan)
+        self.assertNotEqual(d1, d2)
+
 
 class TestOrdering(unittest.TestCase):
     def test_functools_total_ordering(self):
@@ -3292,6 +3339,47 @@ class TestFrozen(unittest.TestCase):
                 class D:
                     x: int
                     y: int = 10
+                    z: int = 1
+
+                    @property
+                    def readonly(self) -> int:
+                        return self.x
+
+                    @property
+                    def prop(self) -> int:
+                        return self.z
+
+                    @prop.setter
+                    def prop(self, val: int) -> None:
+                        object.__setattr__(self, 'z', val)
+
+                    @prop.deleter
+                    def prop(self) -> None:
+                        object.__setattr__(self, 'z', 0)
+
+                d = D(5)
+                self.assertEqual(d.x, 5)
+                self.assertEqual(d.y, 10)
+                self.assertEqual(d.z, 1)
+                self.assertEqual(d.readonly, 5)
+                self.assertEqual(d.prop, 1)
+
+                with self.assertRaises(FrozenInstanceError):
+                    d.x = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.readonly = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.z = 5
+                with self.assertRaises(FrozenInstanceError):
+                    d.prop = 5
+                with self.assertRaises(FrozenInstanceError):
+                    del d.prop
+
+                self.assertEqual(d.x, 5)
+                self.assertEqual(d.y, 10)
+                self.assertEqual(d.z, 1)
+                self.assertEqual(d.readonly, 5)
+                self.assertEqual(d.prop, 1)
 
                 class S(D):
                     pass
@@ -3299,16 +3387,40 @@ class TestFrozen(unittest.TestCase):
                 s = S(3)
                 self.assertEqual(s.x, 3)
                 self.assertEqual(s.y, 10)
+                self.assertEqual(s.z, 1)
+                self.assertEqual(s.readonly, 3)
+                self.assertEqual(s.prop, 1)
+                # Can set new attrs:
                 s.cached = True
+                self.assertTrue(s.cached)
+                # Can mutate them:
+                s.cached = False
+                self.assertFalse(s.cached)
+
+                # Can also change writable properties:
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    'object has no setter',
+                ) as cm:
+                    s.readonly = 5
+                self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                s.prop = 2
+                self.assertEqual(s.x, 3)
+                self.assertEqual(s.readonly, 3)
+                self.assertEqual(s.prop, 2)
+                self.assertEqual(s.z, 2)
 
                 # But can't change the frozen attributes.
                 with self.assertRaises(FrozenInstanceError):
                     s.x = 5
                 with self.assertRaises(FrozenInstanceError):
                     s.y = 5
+                with self.assertRaises(FrozenInstanceError):
+                    s.z = 5
                 self.assertEqual(s.x, 3)
                 self.assertEqual(s.y, 10)
-                self.assertEqual(s.cached, True)
+                self.assertEqual(s.z, 2)
+                self.assertIs(s.cached, False)
 
                 with self.assertRaises(FrozenInstanceError):
                     del s.x
@@ -3316,11 +3428,26 @@ class TestFrozen(unittest.TestCase):
                 with self.assertRaises(FrozenInstanceError):
                     del s.y
                 self.assertEqual(s.y, 10)
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    'object has no deleter',
+                ) as cm:
+                    del s.readonly
+                self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                self.assertEqual(s.x, 3)
+                self.assertEqual(s.readonly, 3)
                 del s.cached
                 self.assertNotHasAttr(s, 'cached')
-                with self.assertRaises(AttributeError) as cm:
+                with self.assertRaisesRegex(
+                    AttributeError,
+                    "object has no attribute 'cached'",
+                ) as cm:
                     del s.cached
                 self.assertNotIsInstance(cm.exception, FrozenInstanceError)
+                del s.prop
+                self.assertEqual(s.z, 0)
+                self.assertEqual(s.prop, 0)
+                del s.prop
 
     def test_non_frozen_normal_derived_from_empty_frozen(self):
         @dataclass(frozen=True)
@@ -3977,7 +4104,6 @@ class TestSlots(unittest.TestCase):
         # that we create internally.
         self.assertEqual(CorrectSuper.args, ["default", "default"])
 
-    @unittest.skip("TODO: RUSTPYTHON; Crash - static type name must be already interned but async_generator_wrapped_value is not")
     def test_original_class_is_gced(self):
         # gh-135228: Make sure when we replace the class with slots=True, the original class
         # gets garbage collected.
@@ -4874,7 +5000,6 @@ class TestAbstract(unittest.TestCase):
         self.assertFalse(inspect.isabstract(Date))
         self.assertGreater(Date(2020,12,25), Date(2020,8,31))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_maintain_abc(self):
         class A(abc.ABC):
             @abc.abstractmethod

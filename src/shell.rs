@@ -7,9 +7,11 @@ use rustpython_compiler::{
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
+    bytecode::CodeFlags,
     compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
+    vm::VmCompileError,
 };
 
 enum ShellExecResult {
@@ -25,6 +27,7 @@ fn shell_exec(
     scope: Scope,
     empty_line_given: bool,
     continuing_block: bool,
+    future_features: &mut CodeFlags,
 ) -> ShellExecResult {
     // compiling expects only UNIX style line endings, and will replace windows line endings
     // internally. Since we might need to analyze the source to determine if an error could be
@@ -32,10 +35,15 @@ fn shell_exec(
     // was actually compiled.
     #[cfg(windows)]
     let source = &source.replace("\r\n", "\n");
-    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
+    let opts = compiler::CompileOpts {
+        future_features: *future_features,
+        ..vm.compile_opts()
+    };
+    match vm.compile_with_opts(source, compiler::Mode::Single, "<stdin>", opts) {
         Ok(code) => {
+            *future_features |= code.code.flags & CodeFlags::FUTURE_MASK;
+            let _ = vm.register_code_in_linecache(&code, source);
             if empty_line_given || !continuing_block {
-                // We want to execute the full code
                 match vm.run_code_obj(code, scope) {
                     Ok(_val) => ShellExecResult::Ok,
                     Err(err) => ShellExecResult::PyErr(err),
@@ -45,25 +53,26 @@ fn shell_exec(
                 ShellExecResult::Ok
             }
         }
-        Err(CompileError::Parse(ParseError {
-            error: ParseErrorType::Lexical(LexicalErrorType::Eof),
-            ..
-        })) => ShellExecResult::ContinueLine,
-        Err(CompileError::Parse(ParseError {
-            error:
-                ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                    InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-                )),
-            ..
-        })) => ShellExecResult::ContinueLine,
         Err(err) => {
-            // Check if the error is from an unclosed triple quoted string (which should always
-            // continue)
-            if let CompileError::Parse(ParseError {
+            if matches!(
+                &err,
+                VmCompileError::Compile(CompileError::Parse(ParseError {
+                    error: ParseErrorType::Lexical(
+                        LexicalErrorType::Eof
+                            | LexicalErrorType::FStringError(
+                                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            )
+                    ),
+                    ..
+                }))
+            ) {
+                return ShellExecResult::ContinueLine;
+            }
+            if let VmCompileError::Compile(CompileError::Parse(ParseError {
                 error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
                 raw_location,
                 ..
-            }) = err
+            })) = &err
             {
                 let loc = raw_location.start().to_usize();
                 let mut iter = source.chars();
@@ -73,34 +82,23 @@ fn shell_exec(
                 {
                     return ShellExecResult::ContinueLine;
                 }
-            };
-
-            // bad_error == true if we are handling an error that should be thrown even if we are continuing
-            // if its an indentation error, set to true if we are continuing and the error is on column 0,
-            // since indentations errors on columns other than 0 should be ignored.
-            // if its an unrecognized token for dedent, set to false
-
-            let bad_error = match err {
-                CompileError::Parse(ref p) => {
-                    match &p.error {
-                        ParseErrorType::Lexical(LexicalErrorType::IndentationError) => {
-                            continuing_block
-                        } // && p.location.is_some()
-                        ParseErrorType::OtherError(msg) => {
-                            !msg.starts_with("Expected an indented block")
-                        }
-                        _ => true, // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
-                    }
-                }
-                _ => true, // It is a bad error for everything else
-            };
-
-            // If we are handling an error on an empty line or an error worthy of throwing
-            if empty_line_given || bad_error {
-                ShellExecResult::PyErr(vm.new_syntax_error(&err, Some(source)))
-            } else {
-                ShellExecResult::ContinueBlock
             }
+
+            // An unfinished suite is _IncompleteInputError, not IndentationError.
+            let exc = err.into_pyexception_maybe_incomplete(vm, Some(source), !empty_line_given);
+            if !empty_line_given && exc.fast_isinstance(vm.ctx.exceptions.incomplete_input_error) {
+                ShellExecResult::ContinueBlock
+            } else {
+                ShellExecResult::PyErr(exc)
+            }
+        }
+    }
+}
+
+fn flush_stdio(vm: &VirtualMachine) {
+    for name in ["stdout", "stderr"] {
+        if let Ok(stream) = vm.sys_module.get_attr(name, vm) {
+            let _ = vm.call_method(&stream, "flush", ());
         }
     }
 }
@@ -120,9 +118,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         None => ".repl_history.txt".into(),
     };
 
-    if repl.load_history(&repl_history_path).is_err() {
-        println!("No previous history.");
-    }
+    let _ = repl.load_history(&repl_history_path);
 
     // We might either be waiting to know if a block is complete, or waiting to know if a multiline
     // statement is complete. In the former case, we need to ensure that we read one extra new line
@@ -130,6 +126,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     // valid.
     let mut continuing_block = false;
     let mut continuing_line = false;
+    let mut future_features = CodeFlags::empty();
 
     loop {
         let prompt_name = if continuing_block || continuing_line {
@@ -169,6 +166,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     scope.clone(),
                     empty_line_given,
                     continuing_block,
+                    &mut future_features,
                 ) {
                     ShellExecResult::Ok => {
                         if continuing_block {
@@ -215,7 +213,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     vm.ctx.exceptions.os_error.to_owned(),
                     format!("{num:?}").into(),
                 );
-                vm.print_exception(os_error);
+                vm.print_exception(&os_error);
                 break;
             }
             ReadlineResult::Other(err) => {
@@ -233,8 +231,9 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 repl.save_history(&repl_history_path).unwrap();
                 return Err(exc);
             }
-            vm.print_exception(exc);
+            vm.print_exception(&exc);
         }
+        flush_stdio(vm);
     }
     repl.save_history(&repl_history_path).unwrap();
 

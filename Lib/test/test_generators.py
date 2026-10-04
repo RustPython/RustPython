@@ -134,7 +134,6 @@ class FinalizationTest(unittest.TestCase):
         self.assertEqual(len(resurrected), 1)
         self.assertIsInstance(resurrected[0].gi_code, types.CodeType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <frame object at 0xb4000073269f09e0> is not None
     def test_exhausted_generator_frame_cycle(self):
         def g():
             yield
@@ -303,7 +302,6 @@ class GeneratorTest(unittest.TestCase):
 
         self.assertEqual([1, 2], list(i for i in C()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_close_clears_frame(self):
         # gh-142766: Test that closing a generator clears its frame
         class DetectDelete:
@@ -722,7 +720,6 @@ class GeneratorCloseTest(unittest.TestCase):
 
 # See https://github.com/python/cpython/issues/125723
 class GeneratorDeallocTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame uses shared Arc, no ownership transfer
     def test_frame_outlives_generator(self):
         def g1():
             a = 42
@@ -762,7 +759,6 @@ class GeneratorDeallocTest(unittest.TestCase):
                 self.assertIn('a', frame_locals)
                 self.assertEqual(frame_locals['a'], 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame locals don't survive generator deallocation
     def test_frame_locals_outlive_generator(self):
         frame_locals1 = None
 
@@ -1373,7 +1369,7 @@ From the Iterators list, about the types of these things.
 >>> [s for s in dir(i) if not s.startswith('_')]
 ['close', 'gi_code', 'gi_frame', 'gi_running', 'gi_suspended', 'gi_yieldfrom', 'send', 'throw']
 >>> from test.support import HAVE_DOCSTRINGS
->>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> print(i.__next__.__doc__ if HAVE_DOCSTRINGS else 'Implement next(self).')
 Implement next(self).
 >>> iter(i) is i
 True
@@ -2530,12 +2526,12 @@ Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible
 
->>> def f(): (yield bar) = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) = y
 Traceback (most recent call last):
   ...
 SyntaxError: cannot assign to yield expression here. Maybe you meant '==' instead of '='?
 
->>> def f(): (yield bar) += y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): (yield bar) += y
 Traceback (most recent call last):
   ...
 SyntaxError: 'yield expression' is an illegal expression for augmented assignment
@@ -2731,7 +2727,7 @@ RuntimeError: generator ignored GeneratorExit
 
 Our ill-behaved code should be invoked during GC:
 
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     g = f()
 ...     next(g)
 ...     gen_repr = repr(g)
@@ -2849,7 +2845,7 @@ to test.
 ...             raise RuntimeError(message)
 ...         invoke("del failed")
 ...
->>> with support.catch_unraisable_exception() as cm:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> with support.catch_unraisable_exception() as cm:
 ...     leaker = Leaker()
 ...     del_repr = repr(type(leaker).__del__)
 ...     del leaker

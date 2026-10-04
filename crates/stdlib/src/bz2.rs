@@ -4,53 +4,50 @@ pub(crate) use _bz2::module_def;
 
 #[pymodule]
 mod _bz2 {
-    use crate::compression::{
-        DecompressArgs, DecompressError, DecompressState, DecompressStatus, Decompressor,
-    };
+    use crate::compression::DecompressorArgs;
     use crate::vm::{
-        Py, VirtualMachine,
-        builtins::{PyBytesRef, PyType},
+        Py, PyObject, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyBytes, PyType},
         common::lock::PyMutex,
-        function::{ArgBytesLike, OptionalArg},
-        object::PyResult,
+        function::ArgBytesLike,
+        object::{PyAtomicRef, PyResult},
         types::Constructor,
     };
     use alloc::fmt;
-    use bzip2::{Decompress, Status, write::BzEncoder};
-    use rustpython_vm::convert::ToPyException;
-    use std::io::Write;
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use rustpython_common::compression::bz2 as backend;
 
-    const BUFSIZ: usize = 8192;
+    fn map_bz2_error(error: backend::Bz2Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match error {
+            backend::Bz2Error::Param => {
+                vm.new_value_error("Internal error - invalid parameters passed to libbzip2")
+            }
+            backend::Bz2Error::Data => vm.new_os_error("Invalid data stream"),
+            backend::Bz2Error::Sequence => vm.new_runtime_error(
+                "Internal error - Invalid sequence of commands sent to libbzip2",
+            ),
+            backend::Bz2Error::Mem => vm.no_memory_error(),
+        }
+    }
+
+    struct PyBZ2DecompressorInner {
+        decompress: backend::Decompressor,
+    }
 
     #[pyattr]
-    #[pyclass(name = "BZ2Decompressor")]
+    #[pyclass(name = "BZ2Decompressor", traverse)]
     #[derive(PyPayload)]
     struct BZ2Decompressor {
-        state: PyMutex<DecompressState<Decompress>>,
-    }
-
-    impl Decompressor for Decompress {
-        type Flush = ();
-        type Status = Status;
-        type Error = bzip2::Error;
-
-        fn total_in(&self) -> u64 {
-            self.total_in()
-        }
-        fn decompress_vec(
-            &mut self,
-            input: &[u8],
-            output: &mut Vec<u8>,
-            (): Self::Flush,
-        ) -> Result<Self::Status, Self::Error> {
-            self.decompress_vec(input, output)
-        }
-    }
-
-    impl DecompressStatus for Status {
-        fn is_stream_end(&self) -> bool {
-            *self == Self::StreamEnd
-        }
+        #[pytraverse(skip)]
+        inner: PyMutex<PyBZ2DecompressorInner>,
+        #[pymember]
+        #[pytraverse(skip)]
+        eof: AtomicBool,
+        #[pymember]
+        #[pytraverse(skip)]
+        needs_input: AtomicBool,
+        #[pymember(type = "object_ex")]
+        unused_data: PyAtomicRef<Option<PyObject>>,
     }
 
     impl fmt::Debug for BZ2Decompressor {
@@ -64,7 +61,12 @@ mod _bz2 {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
-                state: PyMutex::new(DecompressState::new(Decompress::new(false), vm)),
+                inner: PyMutex::new(PyBZ2DecompressorInner {
+                    decompress: backend::Decompressor::new(),
+                }),
+                eof: AtomicBool::new(false),
+                needs_input: AtomicBool::new(true),
+                unused_data: PyAtomicRef::from(Some(vm.ctx.empty_bytes.clone().into())),
             })
         }
     }
@@ -72,54 +74,48 @@ mod _bz2 {
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn decompress(
+            zelf: &Py<Self>,
+            args: DecompressorArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
             let max_length = args.max_length();
             let data = &*args.data();
 
-            let mut state = self.state.lock();
-            state
-                .decompress(data, max_length, BUFSIZ, vm)
-                .map_err(|e| match e {
-                    DecompressError::Decompress(err) => vm.new_os_error(err.to_string()),
-                    DecompressError::Eof(err) => err.to_pyexception(vm),
-                })
-        }
-
-        #[pygetset]
-        fn eof(&self) -> bool {
-            self.state.lock().eof()
-        }
-
-        #[pygetset]
-        fn unused_data(&self) -> PyBytesRef {
-            self.state.lock().unused_data()
-        }
-
-        #[pygetset]
-        fn needs_input(&self) -> bool {
-            // False if the decompress() method can provide more
-            // decompressed data before requiring new uncompressed input.
-            self.state.lock().needs_input()
+            let mut inner = zelf.inner.lock();
+            if inner.decompress.eof() {
+                return Err(vm.new_eof_error("End of stream already reached"));
+            }
+            if inner.decompress.failed() {
+                return Err(vm.new_value_error("Decompressor is unusable after a previous error"));
+            }
+            let result = inner.decompress.decompress(data, max_length);
+            zelf.eof.store(inner.decompress.eof(), Ordering::Relaxed);
+            zelf.needs_input
+                .store(inner.decompress.needs_input(), Ordering::Relaxed);
+            let stale = zelf.unused_data.deref().is_none_or(|obj| {
+                obj.downcast_ref::<PyBytes>()
+                    .is_none_or(|bytes| bytes.as_bytes() != inner.decompress.unused_data())
+            });
+            if stale {
+                let bytes = vm.ctx.new_bytes(inner.decompress.unused_data().to_vec());
+                // The previous bytes object is dropped after the slot is replaced.
+                let _previous = unsafe { zelf.unused_data.swap(Some(bytes.into())) };
+            }
+            result.map_err(|error| map_bz2_error(error, vm))
         }
 
         #[pymethod(name = "__reduce__")]
-        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Decompressor' object"))
         }
-
-        // TODO: mro()?
-    }
-
-    struct CompressorState {
-        flushed: bool,
-        encoder: Option<BzEncoder<Vec<u8>>>,
     }
 
     #[pyattr]
     #[pyclass(name = "BZ2Compressor")]
     #[derive(PyPayload)]
     struct BZ2Compressor {
-        state: PyMutex<CompressorState>,
+        state: PyMutex<backend::Compressor>,
     }
 
     impl fmt::Debug for BZ2Compressor {
@@ -128,69 +124,51 @@ mod _bz2 {
         }
     }
 
+    #[derive(FromArgs)]
+    struct BZ2CompressorArgs {
+        #[pyarg(positional, default = 9)]
+        compresslevel: i32,
+    }
+
     impl Constructor for BZ2Compressor {
-        type Args = (OptionalArg<i32>,);
+        type Args = BZ2CompressorArgs;
 
         fn py_new(
             _cls: &Py<PyType>,
-            (compresslevel,): Self::Args,
+            BZ2CompressorArgs { compresslevel }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            // TODO: seriously?
-            // compresslevel.unwrap_or(bzip2::Compression::best().level().try_into().unwrap());
-            let compresslevel = compresslevel.unwrap_or(9);
-            let level = match compresslevel {
-                valid_level @ 1..=9 => bzip2::Compression::new(valid_level as u32),
-                _ => {
-                    return Err(vm.new_value_error("compresslevel must be between 1 and 9"));
-                }
-            };
-
+            let compressor = backend::Compressor::new(i64::from(compresslevel))
+                .ok_or_else(|| vm.new_value_error("compresslevel must be between 1 and 9"))?;
             Ok(Self {
-                state: PyMutex::new(CompressorState {
-                    flushed: false,
-                    encoder: Some(BzEncoder::new(Vec::new(), level)),
-                }),
+                state: PyMutex::new(compressor),
             })
         }
     }
 
-    // TODO: return partial results from compress() instead of returning everything in flush()
     #[pyclass(with(Constructor))]
     impl BZ2Compressor {
         #[pymethod]
-        fn compress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut state = self.state.lock();
-            if state.flushed {
+        fn compress(zelf: &Py<Self>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut compressor = zelf.state.lock();
+            if compressor.is_flushed() {
                 return Err(vm.new_value_error("Compressor has been flushed"));
             }
-
-            // let CompressorState { flushed, encoder } = &mut *state;
-            let CompressorState { encoder, .. } = &mut *state;
-
-            // TODO: handle Err
-            data.with_ref(|input_bytes| encoder.as_mut().unwrap().write_all(input_bytes).unwrap());
-            Ok(vm.ctx.new_bytes(Vec::new()))
+            data.with_ref(|input| compressor.compress(input))
+                .map_err(|error| map_bz2_error(error, vm))
         }
 
         #[pymethod]
-        fn flush(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            let mut state = self.state.lock();
-            if state.flushed {
+        fn flush(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut compressor = zelf.state.lock();
+            if compressor.is_flushed() {
                 return Err(vm.new_value_error("Repeated call to flush()"));
             }
-
-            // let CompressorState { flushed, encoder } = &mut *state;
-            let CompressorState { encoder, .. } = &mut *state;
-
-            // TODO: handle Err
-            let out = encoder.take().unwrap().finish().unwrap();
-            state.flushed = true;
-            Ok(vm.ctx.new_bytes(out.to_vec()))
+            compressor.flush().map_err(|error| map_bz2_error(error, vm))
         }
 
         #[pymethod(name = "__reduce__")]
-        fn reduce(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn reduce(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             Err(vm.new_type_error("cannot pickle '_bz2.BZ2Compressor' object"))
         }
     }

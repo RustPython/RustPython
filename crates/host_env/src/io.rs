@@ -3,17 +3,33 @@ use core::ffi::CStr;
 use std::io;
 
 #[cfg(any(unix, target_os = "wasi"))]
+use rustix::{fs::FileType, io::Errno};
+
+#[cfg(any(unix, target_os = "wasi"))]
 use crate::fileutils;
 use crate::{crt_fd, os};
 
-bitflags::bitflags! {
+bitflagset::bitflag! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct FileMode: u8 {
-        const CREATED   = 0b0001;
-        const READABLE  = 0b0010;
-        const WRITABLE  = 0b0100;
-        const APPENDING = 0b1000;
+    #[repr(u8)]
+    pub enum FileModeFlag {
+        Created = 0,
+        Readable = 1,
+        Writable = 2,
+        Appending = 3,
     }
+}
+
+bitflagset::bitflagset! {
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    pub struct FileMode(u8): FileModeFlag
+}
+
+impl FileMode {
+    pub const CREATED: Self = Self::from_element(FileModeFlag::Created);
+    pub const READABLE: Self = Self::from_element(FileModeFlag::Readable);
+    pub const WRITABLE: Self = Self::from_element(FileModeFlag::Writable);
+    pub const APPENDING: Self = Self::from_element(FileModeFlag::Appending);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,20 +58,20 @@ pub struct ParsedFileMode {
 
 impl FileMode {
     pub const fn raw_mode(self) -> &'static str {
-        if self.contains(Self::CREATED) {
-            if self.contains(Self::READABLE) {
+        if self.contains(&FileModeFlag::Created) {
+            if self.contains(&FileModeFlag::Readable) {
                 "xb+"
             } else {
                 "xb"
             }
-        } else if self.contains(Self::APPENDING) {
-            if self.contains(Self::READABLE) {
+        } else if self.contains(&FileModeFlag::Appending) {
+            if self.contains(&FileModeFlag::Readable) {
                 "ab+"
             } else {
                 "ab"
             }
-        } else if self.contains(Self::READABLE) {
-            if self.contains(Self::WRITABLE) {
+        } else if self.contains(&FileModeFlag::Readable) {
+            if self.contains(&FileModeFlag::Writable) {
                 "rb+"
             } else {
                 "rb"
@@ -78,38 +94,38 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::CREATED);
-                flags |= libc::O_EXCL | libc::O_CREAT;
+                mode |= FileMode::WRITABLE | FileMode::CREATED;
+                flags |= os::O_EXCL | os::O_CREAT;
             }
             b'r' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::READABLE);
+                mode |= FileMode::READABLE;
             }
             b'w' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE);
-                flags |= libc::O_CREAT | libc::O_TRUNC;
+                mode |= FileMode::WRITABLE;
+                flags |= os::O_CREAT | os::O_TRUNC;
             }
             b'a' => {
                 if rwa {
                     return Err(FileModeError::BadRwa);
                 }
                 rwa = true;
-                mode.insert(FileMode::WRITABLE | FileMode::APPENDING);
-                flags |= libc::O_APPEND | libc::O_CREAT;
+                mode |= FileMode::WRITABLE | FileMode::APPENDING;
+                flags |= os::O_APPEND | os::O_CREAT;
             }
             b'+' => {
                 if plus {
                     return Err(FileModeError::BadRwa);
                 }
                 plus = true;
-                mode.insert(FileMode::READABLE | FileMode::WRITABLE);
+                mode |= FileMode::READABLE | FileMode::WRITABLE;
             }
             b'b' => {}
             _ => return Err(FileModeError::Invalid),
@@ -120,21 +136,21 @@ pub fn parse_fileio_mode(mode_str: &str) -> Result<ParsedFileMode, FileModeError
         return Err(FileModeError::BadRwa);
     }
 
-    if mode.contains(FileMode::READABLE | FileMode::WRITABLE) {
-        flags |= libc::O_RDWR;
-    } else if mode.contains(FileMode::READABLE) {
-        flags |= libc::O_RDONLY;
+    if mode.is_superset(&(FileMode::READABLE | FileMode::WRITABLE)) {
+        flags |= os::O_RDWR;
+    } else if mode.contains(&FileModeFlag::Readable) {
+        flags |= os::O_RDONLY;
     } else {
-        flags |= libc::O_WRONLY;
+        flags |= os::O_WRONLY;
     }
 
     #[cfg(windows)]
     {
-        flags |= libc::O_BINARY | libc::O_NOINHERIT;
+        flags |= os::O_BINARY | os::O_NOINHERIT;
     }
     #[cfg(unix)]
     {
-        flags |= libc::O_CLOEXEC;
+        flags |= os::O_CLOEXEC;
     }
 
     Ok(ParsedFileMode { mode, flags })
@@ -148,8 +164,8 @@ pub struct FileTargetInfo {
 #[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
     let status = fileutils::fstat(fd)?;
-    if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    if FileType::from_raw_mode(status.st_mode).is_dir() {
+        return Err(io::Error::from(Errno::ISDIR));
     }
     #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
     let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
@@ -194,6 +210,29 @@ pub fn seek_to_end(fd: crt_fd::Borrowed<'_>) -> io::Result<crt_fd::Offset> {
 
 pub fn is_seekable(fd: crt_fd::Borrowed<'_>) -> bool {
     os::seek_fd(fd, 0, libc::SEEK_CUR).is_ok()
+}
+
+/// Whether a read from `fd` answers from data the file already holds, rather
+/// than waiting for whoever writes the other end.
+///
+/// Seeking answers this everywhere but Windows, where a pipe seeks too --
+/// `lseek` on one succeeds and reports a position, so a reader that took
+/// seekability for an answer would wait on a peer while holding whatever it
+/// holds for the length of the call.
+#[cfg(not(windows))]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    is_seekable(fd)
+}
+
+#[cfg(windows)]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+
+    let Ok(handle) = crt_fd::as_handle(fd) else {
+        return false;
+    };
+    unsafe { GetFileType(handle.as_raw_handle() as _) == FILE_TYPE_DISK }
 }
 
 pub fn validate_whence(whence: i32) -> bool {

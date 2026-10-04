@@ -685,7 +685,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @skip_unless_reliable_fork
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -749,7 +748,6 @@ class ThreadTests(BaseTestCase):
                          "main ident True\n"
                          "current is main True\n")
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky; process timeout after fork")
     @skip_unless_reliable_fork
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
     def test_main_thread_after_fork_from_nonmain_thread(self):
@@ -1020,7 +1018,6 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.settrace(old_trace)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gettrace_all_threads(self):
         def fn(*args): pass
         old_trace = threading.gettrace()
@@ -1059,7 +1056,6 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.setprofile(old_profile)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getprofile_all_threads(self):
         def fn(*args): pass
         old_profile = threading.getprofile()
@@ -1183,7 +1179,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertIn(b"can't create new thread at interpreter shutdown", err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_join_daemon_thread_in_finalization(self):
         # gh-123940: Py_Finalize() prevents other threads from running Python
         # code, so join() can not succeed unless the thread is already done.
@@ -1471,7 +1466,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @skip_unless_reliable_fork
     def test_3_join_in_forked_from_thread(self):
         # Like the test above, but fork() was called from a worker thread
@@ -1572,7 +1566,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertEqual(rc, 0)
 
-    @unittest.skip("TODO: RUSTPYTHON; - flaky, parking_lot mutex not fork-safe")
     @skip_unless_reliable_fork
     def test_reinit_tls_after_fork(self):
         # Issue #13817: fork() would deadlock in a multithreaded program with
@@ -1853,7 +1846,6 @@ class ThreadingExceptionTests(BaseTestCase):
         lock = threading.Lock()
         self.assertRaises(RuntimeError, lock.release)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @requires_subprocess()
     def test_recursion_limit(self):
         # Issue 9670
@@ -2237,10 +2229,6 @@ class CRLockTests(lock_tests.RLockTests):
             CustomRLock(1, b=2)
         self.assertEqual(warnings_log, [])
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
-    def test_different_thread(self):
-        return super().test_different_thread()
-
 class EventTests(lock_tests.EventTests):
     eventtype = staticmethod(threading.Event)
 
@@ -2250,10 +2238,6 @@ class ConditionAsRLockTests(lock_tests.RLockTests):
 
     def test_recursion_count(self):
         self.skipTest("Condition does not expose _recursion_count()")
-
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
-    def test_different_thread(self):
-        return super().test_different_thread()
 
 class ConditionTests(lock_tests.ConditionTests):
     condtype = staticmethod(threading.Condition)
@@ -2414,7 +2398,6 @@ class InterruptMainTests(unittest.TestCase):
             # Restore original handler
             signal.signal(signum, handler)
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @requires_gil_enabled("gh-118433: Flaky due to a longstanding bug")
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main

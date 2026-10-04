@@ -13,6 +13,7 @@ use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
 // use ruff_python_parser::{LexicalError, LexicalErrorType};
 type LexicalError = Infallible;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EscapedChar {
     Literal(CodePoint),
     Escape(char),
@@ -113,7 +114,7 @@ impl StringParser {
         let name_and_ending = self.skip_bytes(close_idx + 1);
         let name = &name_and_ending[..name_and_ending.len() - 1];
 
-        unicode_names2::character(name).ok_or_else(|| unreachable!())
+        rustpython_unicode::lookup_character(name).ok_or_else(|| unreachable!())
     }
 
     /// Parse an escaped character, returning the new character.

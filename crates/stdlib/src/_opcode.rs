@@ -89,43 +89,49 @@ mod _opcode {
         Ok(effect)
     }
 
+    #[derive(FromArgs)]
+    struct OpcodeArg {
+        #[pyarg(any)]
+        opcode: i32,
+    }
+
     #[pyfunction]
-    fn is_valid(opcode: i32) -> bool {
+    fn is_valid(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok()
     }
 
     #[pyfunction]
-    fn has_arg(opcode: i32) -> bool {
+    fn has_arg(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_arg())
     }
 
     #[pyfunction]
-    fn has_const(opcode: i32) -> bool {
+    fn has_const(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
-    fn has_name(opcode: i32) -> bool {
+    fn has_name(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
-    fn has_jump(opcode: i32) -> bool {
+    fn has_jump(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
-    fn has_free(opcode: i32) -> bool {
+    fn has_free(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
-    fn has_local(opcode: i32) -> bool {
+    fn has_local(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
-    fn has_exc(opcode: i32) -> bool {
+    fn has_exc(OpcodeArg { opcode }: OpcodeArg) -> bool {
         try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
     }
 
@@ -164,8 +170,17 @@ mod _opcode {
             .collect()
     }
 
+    #[derive(FromArgs)]
+    #[allow(dead_code)]
+    struct ExecutorArgs {
+        #[pyarg(any)]
+        code: PyObjectRef,
+        #[pyarg(any)]
+        offset: i32,
+    }
+
     #[pyfunction]
-    fn get_executor(_code: PyObjectRef, _offset: i32, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_executor(_args: ExecutorArgs, vm: &VirtualMachine) -> PyObjectRef {
         // TODO
         vm.ctx.none()
     }
@@ -192,7 +207,7 @@ mod tests {
     ///
     /// Memory addresses in the output are replaced with `0xdeadbeef` for consistency.
     fn dis(source: &str) -> String {
-        let fname = String::from("<?>");
+        const FNAME: &str = "<?>";
 
         let builder = vm::Interpreter::builder(Default::default());
         let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
@@ -204,8 +219,8 @@ mod tests {
         interp.enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let code_obj = vm
-                .compile(source.trim(), Mode::Exec, fname.clone())
-                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                .compile(source.trim(), Mode::Exec, FNAME)
+                .map_err(|err| err.into_pyexception(vm, Some(source)))
                 .unwrap();
             scope.globals.set_item("code", code_obj.into(), vm).unwrap();
 
@@ -227,8 +242,8 @@ output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
 "#;
 
             let py_code_obj = vm
-                .compile(py_source, Mode::Exec, fname)
-                .map_err(|err| vm.new_syntax_error(&err, Some(py_source)))
+                .compile(py_source, Mode::Exec, FNAME)
+                .map_err(|err| err.into_pyexception(vm, Some(py_source)))
                 .unwrap();
 
             vm.run_code_obj(py_code_obj, scope.clone()).unwrap();

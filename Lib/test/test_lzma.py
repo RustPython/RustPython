@@ -143,7 +143,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         self.assertTrue(lzd.eof)
         self.assertEqual(lzd.unused_data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; EOFError: End of stream already reached
     def test_decompressor_chunks_empty(self):
         lzd = LZMADecompressor()
         out = []
@@ -656,7 +655,6 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), check=lzma.CHECK_UNKNOWN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     def test_init_bad_preset(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", preset=4.39)

@@ -742,12 +742,12 @@ plain ol' Python and is guaranteed to be available.
 
     >>> import builtins
     >>> tests = doctest.DocTestFinder().find(builtins)
-    >>> 750 < len(tests) < 800 # approximate number of objects with docstrings  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> 750 < len(tests) < 800 # approximate number of objects with docstrings
     True
     >>> real_tests = [t for t in tests if len(t.examples) > 0]
-    >>> len(real_tests) # objects that actually have doctests  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> len(real_tests) # objects that actually have doctests
     14
-    >>> for t in real_tests:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> for t in real_tests:
     ...     print('{}  {}'.format(len(t.examples), t.name))
     ...
     1  builtins.bin
@@ -2129,7 +2129,7 @@ if not hasattr(sys, 'gettrace') or not sys.gettrace():
           ...    'list',     # list source from example 3
           ...    'continue', # stop debugging
           ...    ''])
-          >>> try: runner.run(test)  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+          >>> try: runner.run(test)
           ... finally: sys.stdin = real_stdin
           ... # doctest: +NORMALIZE_WHITESPACE
           > <doctest foo-bar@baz[1]>(3)g()

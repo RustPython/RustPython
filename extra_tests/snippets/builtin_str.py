@@ -110,6 +110,24 @@ s = "^*RustPython*^"
 assert s.strip("^*") == "RustPython"
 assert s.lstrip("^*") == "RustPython*^"
 assert s.rstrip("^*") == "^*RustPython"
+assert " abc ".strip(" é") == "abc"
+assert "éabcé".strip("é\ud800") == "abc"
+
+
+def test_strip_unchanged():
+    class StrSubclass(str):
+        pass
+
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for method in (str.strip, str.lstrip, str.rstrip):
+            for chars in (None, "#"):
+                assert method(text, chars) is text
+                result = method(StrSubclass(text), chars)
+                assert result == text
+                assert type(result) is str
+
+
+test_strip_unchanged()
 
 s = "RustPython"
 assert s.ljust(8) == "RustPython"
@@ -169,6 +187,15 @@ assert "aaa".count("a", 1) == 2
 assert "aaa".count("a", 1, 2) == 1
 assert "aaa".count("a", 2, 2) == 0
 assert "aaa".count("a", 2, 1) == 0
+
+# An empty needle is counted in characters, not in encoded positions.
+assert "".count("") == 1
+assert "abc".count("") == 4
+assert "가나다".count("") == 4
+assert "가나다".count("", 1) == 3
+assert "가나다".count("", 1, 2) == 2
+assert "가나다".count("", 4, 4) == 0
+assert "a\U0001f600b".count("") == 4
 
 assert "___a__".find("a") == 3
 assert "___a__".find("a", -10) == 3
@@ -251,6 +278,33 @@ assert (
 )
 assert "abc\t12345\txyz".expandtabs() == "abc     12345   xyz"
 assert "-".join(["1", "2", "3"]) == "1-2-3"
+assert "-".join(("1", "2")) == "1-2"
+assert "-".join([]) == ""
+assert "-".join(x for x in "ab") == "a-b"
+with assert_raises(TypeError) as cm:
+    "-".join(["a", 1])
+assert str(cm.exception) == "sequence item 1: expected str instance, int found"
+
+
+class JoinStr(str):
+    pass
+
+
+assert type("-".join([JoinStr("a")])) is str
+assert type("-".join((JoinStr("a"), "b"))) is str
+single = "single"
+assert "-".join([single]) is single
+
+
+def join_broken_iterable():
+    yield 42
+    yield "a"
+    raise RuntimeError("producer failed")
+
+
+with assert_raises(RuntimeError):
+    "-".join(join_broken_iterable())
+
 assert "HALLO".isupper()
 assert not "123".isupper()
 assert not "123".islower()
@@ -313,6 +367,66 @@ assert (
 # Printf-style String formatting
 assert "%d %d" % (1, 2) == "1 2"
 assert "%*c  " % (3, "❤") == "  ❤  "
+for precision in (-1, -3, -(2**31)):
+    assert "%.*s" % (precision, "🐍hello") == ""
+assert "%*.*d" % (-6, -3, 12) == "12    "
+assert "%.*f" % (-3, 1.25) == "1"
+assert "%.*g" % (-3, 12.5) == "1e+01"
+assert_raises(OverflowError, "%.*s".__mod__, (-(2**31) - 1, "abc"))
+assert_raises(TypeError, "%.*s".__mod__, (1.0, "abc"))
+
+
+class PercentIndex:
+    def __index__(self):
+        return 7
+
+
+class PercentInt(PercentIndex):
+    def __init__(self, value):
+        self.value = value
+
+    def __int__(self):
+        if isinstance(self.value, Exception):
+            raise self.value
+        return self.value
+
+
+class PercentFloat(float):
+    __int__ = PercentInt.__int__
+    __index__ = PercentIndex.__index__
+
+
+class PercentFloatIndex(float):
+    __index__ = PercentIndex.__index__
+
+
+class PercentIntSubclass(int):
+    def __int__(self):
+        raise AssertionError("int subclasses must use their stored value")
+
+
+for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
+    assert template % PercentInt(3) == template % 3
+    assert template % PercentIndex() == template % 7
+    for value in (None, TypeError("conversion failed")):
+        with assert_raises(TypeError) as cm:
+            template % PercentInt(value)
+        assert str(cm.exception).endswith("a real number is required, not PercentInt")
+    assert_raises(
+        RuntimeError, template.__mod__, PercentInt(RuntimeError("conversion failed"))
+    )
+    number = PercentFloat(1.25)
+    number.value = 3
+    assert template % number == template % 3
+    number.value = None
+    assert_raises(TypeError, template.__mod__, number)
+    number.value = RuntimeError("conversion failed")
+    assert_raises(RuntimeError, template.__mod__, number)
+    assert template % PercentFloatIndex(1.25) == template % 1
+    assert template % PercentIntSubclass(1) == template % 1
+assert "%x" % PercentInt(3) == "7"
+assert b"%o" % PercentInt(3) == b"7"
+
 assert (
     "%(first)s %(second)s" % {"second": "World!", "first": "Hello,"} == "Hello, World!"
 )
@@ -426,6 +540,25 @@ assert "a" >= "a"
 
 # str.translate
 assert "abc".translate({97: "🎅", 98: None, 99: "xd"}) == "🎅xd"
+assert "abc".translate({97: 100}) == "dbc"
+# Any `LookupError` leaves the character unchanged, not only `KeyError`.
+assert "\x00bc".translate(["x"]) == "xbc"
+assert "\x00\x01\x05".translate(("z", None)) == "z\x05"
+
+
+class TranslateMissing(dict):
+    def __missing__(self, key):
+        return "M"
+
+
+assert "abc".translate(TranslateMissing({97: "A"})) == "AMM"
+assert "".translate(5) == ""
+with assert_raises(TypeError):
+    "a".translate(5)
+with assert_raises(ValueError):
+    "a".translate({97: 0x110000})
+with assert_raises(TypeError):
+    "a".translate({97: 1.5})
 
 # str.maketrans
 assert str.maketrans({"a": "abc", "b": None, "c": 33}) == {97: "abc", 98: None, 99: 33}
@@ -891,3 +1024,139 @@ assert id(b) != id(b * 0)
 assert id(b) != id(b * 1)
 assert id(b) != id(1 * b)
 assert id(b) != id(b * 2)
+
+
+def test_huge_width():
+    # A width that cannot be allocated is a MemoryError, not an aborted
+    # process, and a tabsize wider than a C int does not fit at all.
+    for meth in ("center", "ljust", "rjust", "zfill"):
+        assert_raises(MemoryError, lambda meth=meth: getattr("a", meth)(1 << 62))
+    assert_raises(OverflowError, lambda: "\ta".expandtabs(1 << 62))
+    assert_raises(OverflowError, lambda: "\ta".expandtabs(2**31))
+    # The widest tabsize that still fits is accepted. With no tab to expand
+    # there is nothing to lay out, so the width is never allocated.
+    assert "a".expandtabs(2**31 - 1) == "a"
+
+
+test_huge_width()
+
+
+def test_replace_empty_pattern():
+    # An empty pattern matches at every code point boundary, and only there.
+    # Matching it byte by byte instead put the replacement inside a multi-byte
+    # character, so what came back was no longer the text that went in.
+    assert "abc".replace("", "-") == "-a-b-c-"
+    assert "ábç".replace("", "#") == "#á#b#ç#"
+    assert "😀".replace("", "-") == "-😀-"
+    assert "".replace("", "-") == "-"
+    assert "abc".replace("", "") == "abc"
+
+    # The count is a number of insertions, and the one after the last
+    # character only happens if the count reaches that far.
+    assert "abc".replace("", "-", 0) == "abc"
+    assert "abc".replace("", "-", 1) == "-abc"
+    assert "abc".replace("", "-", 3) == "-a-b-c"
+    assert "abc".replace("", "-", 4) == "-a-b-c-"
+    assert "abc".replace("", "-", 99) == "-a-b-c-"
+    assert "ábç".replace("", "#", 2) == "#á#bç"
+
+    # The result has to stay readable as text afterwards.
+    spread = "á".replace("", "-")
+    assert len(spread) == 3
+    assert list(spread) == ["-", "á", "-"]
+    assert spread[1] == "á"
+    assert spread.upper() == "-Á-"
+    assert spread.encode("utf-8") == b"-\xc3\xa1-"
+
+    # A pattern that is not empty was already fine and stays that way.
+    assert "ábç".replace("b", "#") == "á#ç"
+    assert "ábç".replace("á", "#") == "#bç"
+    assert "aaa".replace("a", "b", 2) == "bba"
+
+
+test_replace_empty_pattern()
+
+
+def test_replace_unchanged():
+    for text in ("already clean", "déjà propre", "a\ud800b"):
+        for old, new, count in (
+            (text[:1], "#", 0),
+            (text[:1], text[:1], -1),
+            (text + " more", "replacement", -1),
+        ):
+            assert text.replace(old, new, count) is text
+            result = MyString(text).replace(old, new, count)
+            assert result == text
+            assert type(result) is str
+
+    # Returning the original string must not bypass argument conversion.
+    assert_raises(TypeError, lambda: "abc".replace(1, "x", 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", 1, 0))
+    assert_raises(TypeError, lambda: "abc".replace("a", "a", None))
+
+
+test_replace_unchanged()
+
+
+def test_expandtabs_zero_tabsize():
+    # With no width to advance to, the tabs come out and nothing else moves.
+    # A tab that followed a character used to ask for a run of usize::MAX
+    # spaces and take the interpreter down with it.
+    for tabsize in (0, -1, -8):
+        assert "a\tb".expandtabs(tabsize) == "ab"
+        assert "ab\tcd\tef".expandtabs(tabsize) == "abcdef"
+        assert "a\nb\tc".expandtabs(tabsize) == "a\nbc"
+        assert "a\r\nb\tc".expandtabs(tabsize) == "a\r\nbc"
+        assert "á\tb".expandtabs(tabsize) == "áb"
+        assert "😀\tb".expandtabs(tabsize) == "😀b"
+        assert "\ta".expandtabs(tabsize) == "a"
+        assert "\t".expandtabs(tabsize) == ""
+        assert "".expandtabs(tabsize) == ""
+        assert "no tabs".expandtabs(tabsize) == "no tabs"
+        assert b"a\tb".expandtabs(tabsize) == b"ab"
+        assert bytearray(b"a\tb").expandtabs(tabsize) == bytearray(b"ab")
+
+    # A tab size that is actually there keeps working.
+    assert "a\tb".expandtabs(8) == "a       b"
+    assert "a\tb".expandtabs(1) == "a b"
+    assert "abcd\te".expandtabs(4) == "abcd    e"
+    assert "a\nb\tc".expandtabs(4) == "a\nb   c"
+
+
+test_expandtabs_zero_tabsize()
+
+
+def test_concat_error_message():
+    # CPython falls back to str's sequence concatenation once a reflected
+    # __radd__ declines, so the message names the concatenation, not the
+    # generic binary operation. Types that define __radd__ (every number)
+    # used to take the generic path here.
+    def message(other):
+        try:
+            "a" + other
+        except TypeError as err:
+            return str(err)
+        raise AssertionError("TypeError was not raised")
+
+    assert message(1) == 'can only concatenate str (not "int") to str'
+    assert message(1.5) == 'can only concatenate str (not "float") to str'
+    assert message(True) == 'can only concatenate str (not "bool") to str'
+    assert message([]) == 'can only concatenate str (not "list") to str'
+    assert message(None) == 'can only concatenate str (not "NoneType") to str'
+    assert message(b"b") == 'can only concatenate str (not "bytes") to str'
+
+    class Declines:
+        def __radd__(self, other):
+            return NotImplemented
+
+    assert message(Declines()) == 'can only concatenate str (not "Declines") to str'
+
+    # A __radd__ that returns a value still wins.
+    class Accepts:
+        def __radd__(self, other):
+            return "from-radd"
+
+    assert "a" + Accepts() == "from-radd"
+
+
+test_concat_error_message()

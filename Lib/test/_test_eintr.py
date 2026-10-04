@@ -452,7 +452,6 @@ class SignalEINTRTest(EINTRBaseTest):
 class SelectEINTRTest(EINTRBaseTest):
     """ EINTR tests for the select module. """
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_select(self):
         t0 = time.monotonic()
         select.select([], [], [], self.sleep_time)
@@ -460,7 +459,6 @@ class SelectEINTRTest(EINTRBaseTest):
         self.stop_alarm()
         self.check_elapsed_time(dt)
 
-    @unittest.skip("TODO: RUSTPYTHON; timed out at the 10 minute mark")
     @unittest.skipIf(sys.platform == "darwin",
                      "poll may fail on macOS; see issue #28087")
     @unittest.skipUnless(hasattr(select, 'poll'), 'need select.poll')
@@ -544,12 +542,10 @@ class FCNTLEINTRTest(EINTRBaseTest):
 
     # Issue 35633: See https://bugs.python.org/issue35633#msg333662
     # skip test rather than accept PermissionError from all platforms
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; InterruptedError: [Errno 4] Interrupted system call
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf(self):
         self._lock(fcntl.lockf, "lockf")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; InterruptedError: [Errno 4] Interrupted system call
     def test_flock(self):
         self._lock(fcntl.flock, "flock")
 

@@ -4,7 +4,7 @@ use crate::{
     Py, PyRef,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyUtf8Str},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyNumberBinaryOp, PyNumberTernaryOp},
+    protocol::{PyNumberBinaryOp, PyNumberSlots, PyNumberTernaryOp, PyNumberUnaryFunc, PySequence},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -110,11 +110,19 @@ impl VirtualMachine {
     }
 
     pub fn length_hint_opt(&self, iter: PyObjectRef) -> PyResult<Option<usize>> {
-        match iter.length(self) {
-            Ok(len) => return Ok(Some(len)),
-            Err(e) => {
-                if !e.fast_isinstance(self.ctx.exceptions.type_error) {
-                    return Err(e);
+        // Ask for a length only from something that could have one. `length()`
+        // answers a type with no length slot -- every iterator, every
+        // generator, which is most of what gets passed here -- by building a
+        // `TypeError` this caller immediately throws away. CPython's
+        // `PyObject_LengthHint` gates the call on the slots for the same
+        // reason.
+        if let Some(len) = iter.length_opt(self) {
+            match len {
+                Ok(len) => return Ok(Some(len)),
+                Err(e) => {
+                    if !e.fast_isinstance(self.ctx.exceptions.type_error) {
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -168,6 +176,26 @@ impl VirtualMachine {
         }
     }
 
+    /// `vec![0; len]` for a length that came from Python, where a request too
+    /// large to satisfy is a `MemoryError` rather than an aborted process.
+    ///
+    /// The bytes are left for the allocator to zero, so a large request costs
+    /// no more than the pages that are actually written to.
+    pub fn new_zeroed_bytes(&self, len: usize) -> PyResult<Vec<u8>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        let layout = core::alloc::Layout::array::<u8>(len).map_err(|_| self.no_memory_error())?;
+        // SAFETY: `len` is not zero, so neither is the layout's size.
+        let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
+        if ptr.is_null() {
+            return Err(self.no_memory_error());
+        }
+        // SAFETY: `ptr` was just allocated by the global allocator for exactly
+        // this many bytes, and every one of them is initialized to zero.
+        Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
+    }
+
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:
@@ -180,13 +208,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -194,7 +222,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_binary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {
@@ -257,14 +285,14 @@ impl VirtualMachine {
     ///
     /// - Otherwise, in-place modification is not supported. Handle it exactly as
     ///   a non in-place operation of the same kind.
-    fn binary_iop1(
+    pub(crate) fn binary_iop1(
         &self,
         a: &PyObject,
         b: &PyObject,
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_binary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_binary_op(iop_slot) {
             let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -302,13 +330,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -316,7 +344,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_ternary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {
@@ -349,9 +377,12 @@ impl VirtualMachine {
             }
         }
 
+        // The modulus gets its turn whenever its slot is not one of the two
+        // already tried, which includes the case where neither operand had one:
+        // `pow(10, 2, Decimal(7))` reaches `Decimal` only this way.
         if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot)
-            && slot_a.is_some_and(|slot_a| !core::ptr::fn_addr_eq(slot_a, slot_c))
-            && slot_b.is_some_and(|slot_b| !core::ptr::fn_addr_eq(slot_b, slot_c))
+            && slot_a.is_none_or(|slot_a| !core::ptr::fn_addr_eq(slot_a, slot_c))
+            && slot_b.is_none_or(|slot_b| !core::ptr::fn_addr_eq(slot_b, slot_c))
         {
             let ret = slot_c(a, b, c, self)?;
             if !ret.is(&self.ctx.not_implemented) {
@@ -364,17 +395,17 @@ impl VirtualMachine {
                 "unsupported operand type(s) for {}: \
                 '{}' and '{}'",
                 op_str,
-                a.class(),
-                b.class()
+                a.class().slot_name(),
+                b.class().slot_name()
             ))
         } else {
             self.new_type_error(format!(
                 "unsupported operand type(s) for {}: \
                 '{}', '{}', '{}'",
                 op_str,
-                a.class(),
-                b.class(),
-                c.class()
+                a.class().slot_name(),
+                b.class().slot_name(),
+                c.class().slot_name()
             ))
         })
     }
@@ -388,7 +419,7 @@ impl VirtualMachine {
         op_slot: PyNumberTernaryOp,
         op_str: &str,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.as_number.left_ternary_op(iop_slot) {
+        if let Some(slot) = a.class().slots().as_number.left_ternary_op(iop_slot) {
             let x = slot(a, b, c, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
@@ -461,20 +492,11 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = a.try_sequence(self) {
-            let n = b
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
-            return seq_a.repeat(n, self);
-        } else if let Ok(seq_b) = b.try_sequence(self) {
-            let n = a
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
-            return seq_b.repeat(n, self);
+        if let Some(f) = a.sequence_unchecked().slots().repeat.load() {
+            return self.sequence_repeat(f, a, b);
+        }
+        if let Some(f) = b.sequence_unchecked().slots().repeat.load() {
+            return self.sequence_repeat(f, b, a);
         }
         Err(self.new_unsupported_bin_op_error(a, b, "*"))
     }
@@ -489,43 +511,72 @@ impl VirtualMachine {
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
-        if let Ok(seq_a) = a.try_sequence(self) {
-            let n = b
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
-            return seq_a.inplace_repeat(n, self);
-        } else if let Ok(seq_b) = b.try_sequence(self) {
-            let n = a
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
-            /* Note that the right hand operand should not be
-             * mutated in this case so inplace_repeat is not
-             * used. */
-            return seq_b.repeat(n, self);
+        let a_seq = a.sequence_unchecked();
+        let a_slots = a_seq.slots();
+        if let Some(f) = a_slots
+            .inplace_repeat
+            .load()
+            .or_else(|| a_slots.repeat.load())
+        {
+            return self.sequence_repeat(f, a, b);
+        }
+        // The right operand is only tried when the left type has no sequence table at all,
+        // and every heap type has one. It is repeated, never mutated in place.
+        if !a_slots.has_any()
+            && a.class().heaptype_ext().is_none()
+            && let Some(f) = b.sequence_unchecked().slots().repeat.load()
+        {
+            return self.sequence_repeat(f, b, a);
         }
         Err(self.new_unsupported_bin_op_error(a, b, "*="))
     }
 
+    // sequence_repeat in CPython
+    fn sequence_repeat(
+        &self,
+        repeat: fn(PySequence<'_>, isize, &Self) -> PyResult,
+        seq: &PyObject,
+        n: &PyObject,
+    ) -> PyResult {
+        let index = n.try_index_opt(self).ok_or_else(|| {
+            self.new_type_error(format!(
+                "can't multiply sequence by non-int of type '{}'",
+                n.class().slot_name()
+            ))
+        })??;
+        let count = index.as_bigint().to_isize().ok_or_else(|| {
+            self.new_overflow_error(format!(
+                "cannot fit '{}' into an index-sized integer",
+                n.class().slot_name()
+            ))
+        })?;
+        repeat(seq.sequence_unchecked(), count, self)
+    }
+
+    fn unary_op(
+        &self,
+        a: &PyObject,
+        slot: impl FnOnce(&PyNumberSlots) -> Option<PyNumberUnaryFunc>,
+        op: &str,
+    ) -> PyResult {
+        let f = slot(&a.class().slots.as_number)
+            .ok_or_else(|| self.new_unsupported_unary_error(a, op))?;
+        f(a.number(), self)
+    }
+
+    // PyNumber_Absolute
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
-        self.get_special_method(a, identifier!(self, __abs__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "abs()"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.absolute.load(), "abs()")
     }
 
+    // PyNumber_Positive
     pub fn _pos(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a, identifier!(self, __pos__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary +"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.positive.load(), "unary +")
     }
 
+    // PyNumber_Negative
     pub fn _neg(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a, identifier!(self, __neg__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary -"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.negative.load(), "unary -")
     }
 
     pub fn _invert(&self, a: &PyObject) -> PyResult {
@@ -540,9 +591,7 @@ impl VirtualMachine {
                 self,
             )?;
         }
-        self.get_special_method(a, identifier!(self, __invert__))?
-            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary ~"))?
-            .invoke((), self)
+        self.unary_op(a, |s| s.invert.load(), "unary ~")
     }
 
     // PyObject_Format
@@ -568,7 +617,7 @@ impl VirtualMachine {
         formatted.downcast().map_err(|result| {
             self.new_type_error(format!(
                 "__format__ must return a str, not {}",
-                &result.class().name()
+                result.class().name()
             ))
         })
     }

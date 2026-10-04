@@ -93,3 +93,21 @@ assert math.copysign(1.0, round(0.0, 2)) == 1.0
 assert round(1.0, 1000) == 1.0
 assert round(1.0, -1000) == 0.0
 assert round(1.7976931348623157e308, 0) == 1.7976931348623157e308
+
+
+# round() normalizes an int subclass to an exact int, like CPython's long_long().
+assert round(True) == 1
+assert type(round(True)) is int
+assert type(round(True, 0)) is int
+assert type(round(False)) is int
+
+
+class MyInt(int):
+    pass
+
+
+assert round(MyInt(5)) == 5
+assert type(round(MyInt(5))) is int
+assert type(round(MyInt(5), 2)) is int
+# A negative ndigits already produced a fresh exact int.
+assert type(round(MyInt(15), -1)) is int

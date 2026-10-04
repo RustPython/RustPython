@@ -4,26 +4,27 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
+pub use sys::{COPYRIGHT, PLATFORM};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
 mod sys_jit {
-    /// Return True if the current Python executable supports JIT compilation,
-    /// and False otherwise.
+    // Return True if the current Python executable supports JIT compilation,
+    // and False otherwise.
     #[pyfunction]
     const fn is_available() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if JIT compilation is enabled for the current Python process,
-    /// and False otherwise.
+    // Return True if JIT compilation is enabled for the current Python process,
+    // and False otherwise.
     #[pyfunction]
     const fn is_enabled() -> bool {
         false // RustPython has no JIT
     }
 
-    /// Return True if the topmost Python frame is currently executing JIT code,
-    /// and False otherwise.
+    // Return True if the topmost Python frame is currently executing JIT code,
+    // and False otherwise.
     #[pyfunction]
     const fn is_active() -> bool {
         false // RustPython has no JIT
@@ -33,7 +34,7 @@ mod sys_jit {
 #[pymodule]
 pub mod sys {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyTypeRef, PyUtf8StrRef,
@@ -43,13 +44,14 @@ pub mod sys {
             hash::{PyHash, PyUHash},
         },
         convert::ToPyObject,
-        frame::{Frame, FrameRef},
+        frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::{_warnings::warn, builtins},
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
     };
+    use core::ffi::CStr;
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
@@ -73,8 +75,11 @@ pub mod sys {
     #[derive(Debug, PyPayload)]
     pub(super) struct BootstrapStderr;
 
+    #[pyclass(with(Py))]
+    impl BootstrapStderr {}
+
     #[pyclass]
-    impl BootstrapStderr {
+    impl Py<BootstrapStderr> {
         #[pymethod]
         fn write(&self, s: PyStrRef) -> usize {
             let bytes = s.as_bytes();
@@ -88,8 +93,8 @@ pub mod sys {
         }
     }
 
-    /// Lightweight stdio wrapper for sandbox mode (no host_env).
-    /// Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
+    // Lightweight stdio wrapper for sandbox mode (no host_env).
+    // Directly uses Rust's std::io for stdin/stdout/stderr without FileIO.
     #[pyclass(no_attr, name = "_SandboxStdio")]
     #[derive(Debug, PyPayload)]
     pub struct SandboxStdio {
@@ -98,8 +103,11 @@ pub mod sys {
         pub mode: String,
     }
 
+    #[pyclass(with(Py))]
+    impl SandboxStdio {}
+
     #[pyclass]
-    impl SandboxStdio {
+    impl Py<SandboxStdio> {
         #[pymethod]
         fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fd == 0 {
@@ -222,7 +230,7 @@ pub mod sys {
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
-    const COPYRIGHT: &str = "Copyright (c) 2019 RustPython Team";
+    pub const COPYRIGHT: &CStr = c"Copyright (c) 2019 RustPython Team";
     #[pyattr(name = "float_repr_style")]
     const FLOAT_REPR_STYLE: &str = "short";
     #[pyattr(name = "_framework")]
@@ -235,20 +243,20 @@ pub mod sys {
     const MAXUNICODE: u32 = core::char::MAX as u32;
 
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = cfg_select! {
-        target_os = "linux" => "linux",
-        target_os = "android" => "android",
-        target_os = "macos" => "darwin",
-        target_os = "ios" => "ios",
-        windows => "win32",
-        target_os = "wasi" => "wasi",
-        _ => "unknown"
+    pub const PLATFORM: &CStr = cfg_select! {
+        target_os = "linux" => c"linux",
+        target_os = "android" => c"android",
+        target_os = "macos" => c"darwin",
+        target_os = "ios" => c"ios",
+        windows => c"win32",
+        target_os = "wasi" => c"wasi",
+        _ => c"unknown"
     };
 
     #[pyattr(name = "ps1")]
-    const PS1: &str = ">>>>> ";
+    const PS1: &str = ">>> ";
     #[pyattr(name = "ps2")]
-    const PS2: &str = "..... ";
+    const PS2: &str = "... ";
 
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
@@ -307,7 +315,7 @@ pub mod sys {
         vm.ctx.new_tuple(
             module_names
                 .into_iter()
-                .map(|n| vm.ctx.new_str(n).into())
+                .map(|n| vm.ctx.new_utf8_str(n).into())
                 .collect(),
         )
     }
@@ -399,6 +407,7 @@ pub mod sys {
         "_suggestions",
         "_symtable",
         "_sysconfig",
+        "_testinternalcapi",
         "_thread",
         "_threading_local",
         "_tkinter",
@@ -667,7 +676,8 @@ pub mod sys {
             "_multiarch" => ctx.new_str(multiarch()),
             "version" => PyVersionInfo::from_data(VersionInfoData::IMPLEMENTATION, vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX_IMPL),
-            "supports_isolated_interpreters" => ctx.new_bool(false),
+            "supports_isolated_interpreters" =>
+                ctx.new_bool(crate::vm::runtime::SUPPORTS_ISOLATED_INTERPRETERS),
         })
     }
 
@@ -750,8 +760,8 @@ pub mod sys {
         handle
             .read_to_string(&mut source)
             .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
-            .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
+        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
+            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
         Ok(())
     }
 
@@ -760,22 +770,56 @@ pub mod sys {
         false // RustPython has no GIL (like free-threaded Python)
     }
 
-    /// Return True if remote debugging is enabled, False otherwise.
     #[pyfunction]
     const fn is_remote_debug_enabled() -> bool {
         false // RustPython does not support remote debugging
     }
 
+    #[derive(FromArgs)]
+    struct ExitArgs {
+        #[pyarg(positional, optional)]
+        status: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameArgs {
+        #[pyarg(positional, default)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct GetFrameModuleNameArgs {
+        #[pyarg(any, default)]
+        depth: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetMaxDigitsArgs {
+        #[pyarg(any)]
+        maxdigits: usize,
+    }
+
+    #[derive(FromArgs)]
+    struct SetDepthArgs {
+        #[pyarg(any)]
+        depth: i32,
+    }
+
+    #[derive(FromArgs)]
+    struct AuditHookArgs {
+        #[pyarg(any)]
+        hook: PyObjectRef,
+    }
+
     #[pyfunction]
-    fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let status = code.unwrap_or_none(vm);
+    fn exit(args: ExitArgs, vm: &VirtualMachine) -> PyResult {
+        let status = args.status.unwrap_or_else(|| vm.ctx.none());
         let args = if let Some(status_tuple) = status.downcast_ref::<PyTuple>() {
             status_tuple.as_slice().to_vec()
         } else {
             vec![status]
         };
-        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit.to_owned(), args)?;
-        Err(exc)
+        Err(vm.new_system_exit(args.into()))
     }
 
     #[pyfunction]
@@ -793,31 +837,50 @@ pub mod sys {
 
     #[pyfunction(name = "__displayhook__")]
     #[pyfunction]
-    fn displayhook(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn displayhook(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Save non-None values as "_"
-        if vm.is_none(&obj) {
+        if vm.is_none(&object) {
             return Ok(());
         }
         // set to none to avoid recursion while printing
         vm.builtins.set_attr("_", vm.ctx.none(), vm)?;
         // TODO: catch encoding errors
-        let repr = obj.repr(vm)?.into();
+        let repr = object.repr(vm)?.into();
         builtins::print(PosArgs::new(vec![repr]), Default::default(), vm)?;
-        vm.builtins.set_attr("_", obj, vm)?;
+        vm.builtins.set_attr("_", object, vm)?;
         Ok(())
     }
 
     #[pyfunction(name = "__excepthook__")]
     #[pyfunction]
     fn excepthook(
-        exc_type: PyObjectRef,
-        exc_val: PyObjectRef,
-        exc_tb: PyObjectRef,
+        exctype: PyObjectRef,
+        value: PyObjectRef,
+        traceback: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-        match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
+        // Keep runtime SyntaxErrors on the normal traceback path.
+        let has_traceback = !vm.is_none(&traceback);
+        match vm.normalize_exception(exctype, value.clone(), traceback) {
             Ok(exc) => {
+                let native_syntax_error_display = !has_traceback
+                    && exc.fast_isinstance(vm.ctx.exceptions.syntax_error)
+                    && exc
+                        .as_object()
+                        .get_attr("msg", vm)
+                        .ok()
+                        .and_then(|msg| msg.downcast::<PyStr>().ok())
+                        .is_some_and(|msg| msg.to_string_lossy() == "unexpected EOF while parsing")
+                    && exc
+                        .as_object()
+                        .get_attr("text", vm)
+                        .ok()
+                        .and_then(|text| text.downcast::<PyStr>().ok())
+                        .is_some_and(|text| text.to_string_lossy().trim_end() == "\\");
+                if native_syntax_error_display {
+                    return vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc);
+                }
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
                     && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
@@ -831,7 +894,7 @@ pub mod sys {
                 vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
             }
             Err(_) => {
-                let type_name = exc_val.class().name();
+                let type_name = value.class().name();
                 let msg = format!(
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
@@ -868,8 +931,7 @@ pub mod sys {
                 format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
                 0,
                 vm,
-            )
-            .unwrap();
+            )?;
             Ok(vm.ctx.none())
         };
 
@@ -892,7 +954,7 @@ pub mod sys {
             }
         };
 
-        match vm.get_attribute_opt(module, &vm.ctx.new_str(attr_name)) {
+        match vm.get_attribute_opt(&module, &vm.ctx.new_str(attr_name)) {
             Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }
@@ -922,8 +984,8 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn getrefcount(obj: PyObjectRef) -> usize {
-        obj.strong_count()
+    fn getrefcount(object: PyObjectRef) -> usize {
+        object.strong_count()
     }
 
     #[pyfunction]
@@ -933,7 +995,7 @@ pub mod sys {
 
     #[derive(FromArgs)]
     struct GetsizeofArgs {
-        obj: PyObjectRef,
+        object: PyObjectRef,
         #[pyarg(any, optional)]
         default: Option<PyObjectRef>,
     }
@@ -941,7 +1003,7 @@ pub mod sys {
     #[pyfunction]
     fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
         let sizeof = || -> PyResult<usize> {
-            let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = vm.call_special_method(&args.object, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
             Ok(res + core::mem::size_of::<PyObject>())
         };
@@ -962,51 +1024,35 @@ pub mod sys {
 
     #[pyfunction]
     fn getprofile(vm: &VirtualMachine) -> PyObjectRef {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            return slot.profile_func.lock().clone();
+        }
         vm.profile_func.borrow().clone()
     }
 
     #[pyfunction]
-    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
-        let offset = offset.into_option().unwrap_or(0);
-        let frame_ref = {
-            let frames = vm.frames.borrow();
-            if offset >= frames.len() {
-                return Err(vm.new_value_error("call stack is not deep enough"));
-            }
-
-            let idx = frames.len() - offset - 1;
-            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-            let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-            py.to_owned()
-        };
-
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
-        }
+    fn _getframe(args: GetFrameArgs, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
+        let depth = args.depth;
+        let frame_ref = crate::frame::frame_at_offset(depth, vm)
+            .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
+        vm.audit("sys._getframe", || (frame_ref.to_owned(),))?;
 
         Ok(frame_ref)
     }
 
     #[pyfunction]
     fn _getframemodulename(
-        depth: OptionalArg<usize>,
+        args: GetFrameModuleNameArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let depth = depth.into_option().unwrap_or(0);
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
-        }
+        let depth = args.depth;
+        vm.audit("sys._getframemodulename", || (depth,))?;
 
         // Get the frame at the specified depth
-        let func_obj = {
-            let frames = vm.frames.borrow();
-            if depth >= frames.len() {
-                return Ok(vm.ctx.none());
-            }
-            let idx = frames.len() - depth - 1;
-            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-            let frame: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-            frame.func_obj.clone()
+        let func_obj = match crate::frame::frame_at_offset(depth, vm) {
+            Some(frame) => frame.iframe().func_obj().map(|o| o.to_owned()),
+            None => return Ok(vm.ctx.none()),
         };
 
         // If the frame has a function object, return its __module__ attribute
@@ -1022,8 +1068,6 @@ pub mod sys {
         })
     }
 
-    /// Return a dictionary mapping each thread's identifier to the topmost stack frame
-    /// currently active in that thread at the time the function is called.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1041,8 +1085,6 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Return a dictionary mapping each thread's identifier to its currently
-    /// active exception, or None if no exception is active.
     #[cfg(feature = "threading")]
     #[pyfunction]
     fn _current_exceptions(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -1068,7 +1110,7 @@ pub mod sys {
         Ok(dict)
     }
 
-    /// Stub for non-threading builds - returns empty dict
+    // Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
     fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
@@ -1077,6 +1119,10 @@ pub mod sys {
 
     #[pyfunction]
     fn gettrace(vm: &VirtualMachine) -> PyObjectRef {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            return slot.trace_func.lock().clone();
+        }
         vm.trace_func.borrow().clone()
     }
 
@@ -1146,15 +1192,20 @@ pub mod sys {
                 .fast_issubclass(vm.ctx.exceptions.base_exception_type)
         );
 
-        // Print module name (if not builtins or __main__)
-        let module_name = unraisable.exc_type.__module__(vm);
-        if let Ok(module_str) = module_name.downcast::<PyStr>() {
+        // Print module name (if not builtins or __main__).
+        // A failed lookup or a non-str `__module__` is discarded: print
+        // `<unknown>` with no trailing `.`, then the qualname.
+        let module_name = unraisable.exc_type.__module__(vm).ok();
+        if let Some(module_str) = module_name
+            .as_ref()
+            .and_then(|name| name.downcast_ref::<PyStr>())
+        {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
                 write!(stderr, "{module}.");
             }
         } else {
-            write!(stderr, "<unknown>.");
+            write!(stderr, "<unknown>");
         }
 
         // Print qualname
@@ -1207,13 +1258,19 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn intern(s: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
-        vm.ctx.intern_str(s).to_owned()
+    fn intern(string: PyRefExact<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
+        vm.ctx.intern_str(string).to_owned()
     }
 
     #[pyattr]
     fn int_info(vm: &VirtualMachine) -> PyTupleRef {
         PyIntInfo::from_data(IntInfoData::INFO, vm)
+    }
+
+    // Private function for getting PyConfig.cpu_count
+    #[pyfunction]
+    fn _get_cpu_count_config(vm: &VirtualMachine) -> i32 {
+        vm.state.config.settings.cpu_count.map_or(-1, |n| n.get())
     }
 
     #[pyfunction]
@@ -1222,13 +1279,16 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_int_max_str_digits(
+        SetMaxDigitsArgs { maxdigits }: SetMaxDigitsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let threshold = IntInfoData::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
         } else {
-            let error = format!("maxdigits must be 0 or larger than {threshold:?}");
+            let error = format!("maxdigits must be 0 or larger than {threshold}");
             Err(vm.new_value_error(error))
         }
     }
@@ -1239,50 +1299,83 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn setprofile(profilefunc: PyObjectRef, vm: &VirtualMachine) {
-        vm.profile_func.replace(profilefunc);
+    fn setprofile(function: PyObjectRef, vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            *slot.profile_func.lock() = function.clone();
+        }
+        vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
 
     #[pyfunction]
-    fn setrecursionlimit(recursion_limit: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let recursion_limit = recursion_limit
-            .to_usize()
-            .filter(|&u| u >= 1)
-            .ok_or_else(|| {
-                vm.new_value_error("recursion limit must be greater than or equal to one")
-            })?;
+    fn setrecursionlimit(limit: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let limit = limit.to_usize().filter(|&u| u >= 1).ok_or_else(|| {
+            vm.new_value_error("recursion limit must be greater than or equal to one")
+        })?;
         let recursion_depth = vm.current_recursion_depth();
 
-        if recursion_limit > recursion_depth {
-            vm.recursion_limit.set(recursion_limit);
+        if limit > recursion_depth {
+            vm.recursion_limit.set(limit);
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
-                "cannot set the recursion limit to {recursion_limit} at the recursion depth {recursion_depth}: the limit is too low"
+                "cannot set the recursion limit to {limit} at the recursion depth {recursion_depth}: the limit is too low"
             )))
         }
     }
 
     #[pyfunction]
-    fn settrace(tracefunc: PyObjectRef, vm: &VirtualMachine) {
-        vm.trace_func.replace(tracefunc);
+    fn settrace(function: PyObjectRef, vm: &VirtualMachine) {
+        #[cfg(feature = "threading")]
+        if let Some(slot) = crate::vm::thread::current_thread_slot() {
+            *slot.trace_func.lock() = function.clone();
+        }
+        vm.trace_func.replace(function);
         update_use_tracing(vm);
+        // The rest of the current line already started before tracing was
+        // enabled; sync prev_line so leftover opcodes on this line do not
+        // emit a spurious 'line' event.
+        if let Some(frame) = vm.current_frame() {
+            frame.iframe().sync_prev_line_from_lasti();
+        }
     }
 
     #[pyfunction]
-    fn _settraceallthreads(tracefunc: PyObjectRef, vm: &VirtualMachine) {
-        let func = (!vm.is_none(&tracefunc)).then(|| tracefunc.clone());
+    fn _settraceallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_trace_func.lock() = func;
-        vm.trace_func.replace(tracefunc);
+        #[cfg(feature = "threading")]
+        {
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
+            for slot in registry.values() {
+                *slot.trace_func.lock() = function.clone();
+            }
+        }
+        vm.trace_func.replace(function);
         update_use_tracing(vm);
     }
 
     #[pyfunction]
-    fn _setprofileallthreads(profilefunc: PyObjectRef, vm: &VirtualMachine) {
-        let func = (!vm.is_none(&profilefunc)).then(|| profilefunc.clone());
+    fn _setprofileallthreads(function: PyObjectRef, vm: &VirtualMachine) {
+        let func = (!vm.is_none(&function)).then(|| function.clone());
         *vm.state.global_profile_func.lock() = func;
-        vm.profile_func.replace(profilefunc);
+        #[cfg(feature = "threading")]
+        {
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "every thread slot, order is irrelevant"
+            )]
+            for slot in registry.values() {
+                *slot.profile_func.lock() = function.clone();
+            }
+        }
+        vm.profile_func.replace(function);
         update_use_tracing(vm);
     }
 
@@ -1305,7 +1398,10 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_coroutine_origin_tracking_depth(
+        SetDepthArgs { depth }: SetDepthArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if depth < 0 {
             return Err(vm.new_value_error("depth must be >= 0"));
         }
@@ -1319,27 +1415,23 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _clear_type_descriptors(type_obj: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn _clear_type_descriptors(r#type: PyTypeRef, vm: &VirtualMachine) -> PyResult<()> {
         use crate::types::PyTypeFlags;
 
         // Check if type is immutable
-        if type_obj.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+        if r#type.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error("argument is immutable"));
         }
 
-        let mut attributes = type_obj.attributes.write();
-
         // Remove __dict__ descriptor if present
-        attributes.swap_remove(identifier!(vm, __dict__));
+        r#type.attributes.remove(identifier!(vm, __dict__));
 
         // Remove __weakref__ descriptor if present
-        attributes.swap_remove(identifier!(vm, __weakref__));
-
-        drop(attributes);
+        r#type.attributes.remove(identifier!(vm, __weakref__));
 
         // Update slots to notify subclasses and recalculate cached values
-        type_obj.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);
-        type_obj.update_slot::<true>(identifier!(vm, __weakref__), &vm.ctx);
+        r#type.update_slot::<true>(identifier!(vm, __dict__), &vm.ctx);
+        r#type.update_slot::<true>(identifier!(vm, __weakref__), &vm.ctx);
 
         Ok(())
     }
@@ -1499,7 +1591,7 @@ pub mod sys {
     pub(super) struct PyFlags;
 
     #[pyclass(with(PyStructSequence))]
-    impl PyFlags {
+    impl Py<PyFlags> {
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create 'sys.flags' instances"))
@@ -1733,57 +1825,129 @@ pub mod sys {
     impl PyUnraisableHookArgs {}
 
     pub(crate) fn run_audit_hooks(
-        event: PyStrRef,
-        args: &PyObjectRef,
+        event: &Py<PyStr>,
+        args: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
+        let hooks = vm.state.audit_hooks.lock().clone();
 
         if hooks.is_empty() {
             return Ok(());
         }
 
         for hook in hooks {
-            hook.call((event.clone(), args.clone()), vm)?;
+            call_audit_hook(&hook, event.to_owned().into(), args, vm)?;
         }
 
         Ok(())
+    }
+
+    fn audit_hook_can_trace(hook: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        match hook.get_attr("__cantrace__", vm) {
+            Ok(can_trace) => can_trace.try_to_bool(vm),
+            Err(exc)
+                if exc
+                    .class()
+                    .fast_issubclass(vm.ctx.exceptions.attribute_error) =>
+            {
+                Ok(false)
+            }
+            Err(exc) => Err(exc),
+        }
+    }
+
+    fn call_audit_hook(
+        hook: &PyObject,
+        event: PyObjectRef,
+        args: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Tracing is suppressed while dispatching Python audit hooks,
+        // except for hooks that explicitly opt in with __cantrace__.
+        vm.enter_tracing();
+        let can_trace = audit_hook_can_trace(hook, vm);
+        let result = match can_trace {
+            Ok(can_trace) => {
+                if can_trace {
+                    vm.leave_tracing();
+                }
+                let result = hook.call((event, args.to_owned()), vm).map(|_| ());
+                if can_trace {
+                    vm.enter_tracing();
+                }
+                result
+            }
+            Err(exc) => Err(exc),
+        };
+
+        vm.leave_tracing();
+        result
     }
 
     #[pyfunction]
     fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.audit_hooks.borrow().is_empty() {
+        if vm.state.audit_hooks.lock().is_empty() {
             return Ok(());
         }
 
-        let args_tup = vm.ctx.new_tuple(args.into_vec()).into();
-        run_audit_hooks(event, &args_tup, vm)
+        let args_tup: PyObjectRef = vm.ctx.new_tuple(args.into_vec()).into();
+        run_audit_hooks(&event, &args_tup, vm)
     }
 
     #[pyfunction]
-    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let hooks = vm.audit_hooks.borrow().clone();
-
-        if hooks.is_empty() {
-            vm.audit_hooks.borrow_mut().push(hook);
-            return Ok(());
-        }
-
+    fn addaudithook(AuditHookArgs { hook }: AuditHookArgs, vm: &VirtualMachine) -> PyResult<()> {
         let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
-        for existing_hook in hooks {
-            let Err(exc) = existing_hook.call((event.clone(), args.clone()), vm) else {
-                continue;
+        // Hooks are append-only: append only once every hook present has been notified,
+        // notifying any added by other threads meanwhile. Python hooks run unlocked.
+        let mut notified = 0;
+        loop {
+            let pending = {
+                let mut hooks = vm.state.audit_hooks.lock();
+                if hooks.len() == notified {
+                    hooks.push(hook);
+                    return Ok(());
+                }
+                hooks[notified..].to_vec()
             };
-            if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
-                return Ok(());
+            for existing_hook in pending {
+                if let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) {
+                    return if exc
+                        .class()
+                        .fast_issubclass(vm.ctx.exceptions.exception_type)
+                    {
+                        Ok(())
+                    } else {
+                        Err(exc)
+                    };
+                }
+                notified += 1;
             }
-            return Err(exc);
         }
+    }
+}
 
-        vm.audit_hooks.borrow_mut().push(hook);
-        Ok(())
+fn sys_module_doc() -> Option<&'static str> {
+    let raw = crate::function::plain_doc(sys::DOC)?;
+    #[cfg(windows)]
+    {
+        Some(raw)
+    }
+    #[cfg(not(windows))]
+    {
+        use std::sync::OnceLock;
+        static FILTERED: OnceLock<String> = OnceLock::new();
+        let filtered = FILTERED.get_or_init(|| {
+            let mut out = String::new();
+            for line in raw.split_inclusive('\n') {
+                if !line.contains("[Windows only]") {
+                    out.push_str(line);
+                }
+            }
+            out
+        });
+        Some(filtered.as_str())
     }
 }
 
@@ -1804,7 +1968,7 @@ pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: 
     let jit_module = jit_def.create_module(vm).unwrap();
 
     extend_module!(vm, module, {
-        "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
+        "__doc__" => sys_module_doc().to_pyobject(vm),
         "modules" => modules,
         "_jit" => jit_module,
     });
@@ -1866,7 +2030,7 @@ pub(crate) fn sysconfigdata_name() -> String {
     format!(
         "_sysconfigdata_{}_{}_{}",
         sys::ABIFLAGS,
-        sys::PLATFORM,
+        sys::PLATFORM.to_string_lossy(),
         sys::multiarch()
     )
 }

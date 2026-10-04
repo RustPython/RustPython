@@ -6,15 +6,18 @@ use crate::common::static_cell::StaticCell;
 
 #[pymodule(with(#[cfg(windows)] _codecs_windows))]
 mod _codecs {
+    use core::hint::cold_path;
+
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
     use crate::common::wtf8::Wtf8Buf;
     use crate::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyUtf8StrRef},
+        builtins::{PyBytesRef, PyStrRef, PyUtf8StrRef},
         codecs,
-        exceptions::cstring_error,
-        function::{ArgBytesLike, FuncArgs},
+        convert::TryFromObject,
+        exceptions::nul_char_error,
+        function::ArgBytesLike,
     };
 
     #[pyfunction]
@@ -24,13 +27,14 @@ mod _codecs {
 
     #[pyfunction]
     fn unregister(search_function: PyObjectRef, vm: &VirtualMachine) {
-        vm.state.codec_registry.unregister(search_function);
+        vm.state.codec_registry.unregister(&search_function);
     }
 
     #[pyfunction]
     fn lookup(encoding: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        if encoding.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if encoding.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry
@@ -41,9 +45,11 @@ mod _codecs {
     #[derive(FromArgs)]
     struct CodeArgs {
         obj: PyObjectRef,
-        #[pyarg(any, optional)]
+        // None is replaced with utf-8 before the codec runs.
+        #[pyarg(any, optional, py_default = "'utf-8'")]
         encoding: Option<PyUtf8StrRef>,
-        #[pyarg(any, optional)]
+        // None is replaced with strict before the codec runs.
+        #[pyarg(any, optional, py_default = "'strict'")]
         errors: Option<PyUtf8StrRef>,
     }
 
@@ -90,7 +96,7 @@ mod _codecs {
 
     #[pyfunction]
     fn register_error(
-        name: PyUtf8StrRef,
+        errors: PyUtf8StrRef,
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -99,22 +105,24 @@ mod _codecs {
         }
         vm.state
             .codec_registry
-            .register_error(name.as_str().to_owned(), handler);
+            .register_error(errors.as_str().to_owned(), handler);
         Ok(())
     }
 
     #[pyfunction]
     fn lookup_error(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        if name.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if name.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
     #[pyfunction]
     fn _unregister_error(errors: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if errors.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if errors.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry
@@ -126,7 +134,7 @@ mod _codecs {
     #[derive(FromArgs)]
     struct EncodeArgs {
         #[pyarg(positional)]
-        s: PyStrRef,
+        str: PyStrRef,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
     }
@@ -137,10 +145,10 @@ mod _codecs {
         where
             F: FnOnce(PyEncodeContext<'a>, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
         {
-            let ctx = PyEncodeContext::new(name, &self.s, vm);
+            let ctx = PyEncodeContext::new(name, &self.str, vm);
             let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
             let encoded = encode(ctx, &errors)?;
-            Ok((encoded, self.s.char_len()))
+            Ok((encoded, self.str.char_len()))
         }
     }
 
@@ -152,7 +160,7 @@ mod _codecs {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, name = "final", default)]
         final_decode: bool,
     }
 
@@ -197,13 +205,13 @@ mod _codecs {
 
     #[pyfunction]
     fn utf_8_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        if args.s.is_utf8()
+        if args.str.is_utf8()
             || args
                 .errors
                 .as_ref()
                 .is_some_and(|s| s.is(identifier!(vm, surrogatepass)))
         {
-            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
+            return Ok((args.str.as_bytes().to_vec(), args.str.byte_len()));
         }
         do_codec!(utf8::encode, args, vm)
     }
@@ -215,8 +223,8 @@ mod _codecs {
 
     #[pyfunction]
     fn latin_1_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        if args.s.isascii() {
-            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
+        if args.str.isascii() {
+            return Ok((args.str.as_bytes().to_vec(), args.str.byte_len()));
         }
         do_codec!(latin_1::encode, args, vm)
     }
@@ -228,8 +236,8 @@ mod _codecs {
 
     #[pyfunction]
     fn ascii_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        if args.s.isascii() {
-            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
+        if args.str.isascii() {
+            return Ok((args.str.as_bytes().to_vec(), args.str.byte_len()));
         }
         do_codec!(ascii::encode, args, vm)
     }
@@ -239,7 +247,386 @@ mod _codecs {
         do_codec!(ascii::decode, args, vm)
     }
 
-    // TODO: implement these codecs in Rust!
+    fn wide_order(byteorder: i32) -> encodings::utf16::ByteOrder {
+        match byteorder.cmp(&0) {
+            core::cmp::Ordering::Less => encodings::utf16::ByteOrder::Little,
+            core::cmp::Ordering::Greater => encodings::utf16::ByteOrder::Big,
+            core::cmp::Ordering::Equal => encodings::utf16::ByteOrder::Native,
+        }
+    }
+
+    fn warn_escape(
+        note: Option<encodings::unicode_escape::EscapeNote>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(note) = note {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                note.message,
+                1,
+                vm,
+            )?;
+        }
+        Ok(())
+    }
+
+    #[derive(FromArgs)]
+    struct ReadBufferEncodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn readbuffer_encode(args: ReadBufferEncodeArgs, vm: &VirtualMachine) -> PyResult {
+        rustpython_common::static_cell!(
+            static FUNC: PyObjectRef;
+        );
+        let mut forwarded = vec![args.data];
+        if let Some(errors) = args.errors {
+            forwarded.push(errors);
+        }
+        super::delegate_pycodecs(&FUNC, "readbuffer_encode", forwarded, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct EscapeEncodeArgs {
+        #[pyarg(positional)]
+        data: PyBytesRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+    }
+
+    #[pyfunction]
+    fn escape_encode(args: EscapeEncodeArgs, _vm: &VirtualMachine) -> (Vec<u8>, usize) {
+        let _ = args.errors;
+        let encoded = encodings::escape::encode(args.data.as_bytes());
+        (encoded, args.data.as_bytes().len())
+    }
+
+    #[derive(FromArgs)]
+    struct EscapeDecodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+    }
+
+    #[pyfunction]
+    fn escape_decode(args: EscapeDecodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
+        let data = if let Ok(s) = args.data.clone().downcast::<crate::builtins::PyStr>() {
+            s.as_bytes().to_vec()
+        } else {
+            ArgBytesLike::try_from_object(vm, args.data)?
+                .borrow_buf()
+                .to_vec()
+        };
+        let name = args.errors.as_ref().map_or("strict", |s| s.as_str());
+        let mode = encodings::escape::EscapeErrorMode::from_name(name).ok_or_else(|| {
+            vm.new_value_error(format!(
+                "decoding error; unknown error handling code: {name}"
+            ))
+        })?;
+        match encodings::escape::decode(&data, mode) {
+            Ok((out, warning)) => {
+                if let Some(message) = warning {
+                    crate::stdlib::_warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        message,
+                        1,
+                        vm,
+                    )?;
+                }
+                let consumed = data.len();
+                Ok((out, consumed))
+            }
+            Err(encodings::escape::EscapeDecodeError::TrailingBackslash) => {
+                Err(vm.new_value_error("Trailing \\ in string"))
+            }
+            Err(encodings::escape::EscapeDecodeError::InvalidHex { position }) => {
+                Err(vm.new_value_error(format!("invalid \\x escape at position {position}")))
+            }
+            Err(encodings::escape::EscapeDecodeError::UnknownHandler { name }) => Err(vm
+                .new_value_error(format!(
+                    "decoding error; unknown error handling code: {name}"
+                ))),
+        }
+    }
+
+    #[pyfunction]
+    fn unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::unicode_escape::ENCODING_NAME,
+            encodings::unicode_escape::encode,
+            vm,
+        )
+    }
+
+    #[derive(FromArgs)]
+    struct EscapeTextDecodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(positional, name = "final", default = true)]
+        final_decode: bool,
+    }
+
+    impl EscapeTextDecodeArgs {
+        fn bytes(&self, vm: &VirtualMachine) -> PyResult<ArgBytesLike> {
+            if let Ok(s) = self.data.clone().downcast::<crate::builtins::PyStr>() {
+                let bytes = vm.ctx.new_bytes(s.as_bytes().to_vec());
+                ArgBytesLike::try_from_object(vm, bytes.into())
+            } else {
+                ArgBytesLike::try_from_object(vm, self.data.clone())
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn unicode_escape_decode(args: EscapeTextDecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let data = args.bytes(vm)?;
+        let ctx = PyDecodeContext::new(encodings::unicode_escape::ENCODING_NAME, &data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, note) =
+            encodings::unicode_escape::decode(ctx, &errors, args.final_decode)?;
+        warn_escape(note, vm)?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn raw_unicode_escape_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::raw_unicode_escape::ENCODING_NAME,
+            encodings::raw_unicode_escape::encode,
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn raw_unicode_escape_decode(args: EscapeTextDecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let data = args.bytes(vm)?;
+        let ctx = PyDecodeContext::new(encodings::raw_unicode_escape::ENCODING_NAME, &data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::raw_unicode_escape::decode(ctx, &errors, args.final_decode)
+    }
+
+    #[pyfunction]
+    fn utf_7_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(encodings::utf7::ENCODING_NAME, encodings::utf7::encode, vm)
+    }
+
+    #[pyfunction]
+    fn utf_7_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf7::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf7::decode(ctx, &errors, args.final_decode)
+    }
+
+    #[derive(FromArgs)]
+    struct WideEncodeArgs {
+        #[pyarg(positional)]
+        str: PyStrRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(positional, default)]
+        byteorder: i32,
+    }
+
+    impl WideEncodeArgs {
+        fn encode<F>(&self, name: &str, encode: F, vm: &VirtualMachine) -> EncodeResult
+        where
+            F: FnOnce(
+                PyEncodeContext<'_>,
+                &ErrorsHandler<'_>,
+                encodings::utf16::ByteOrder,
+                bool,
+            ) -> PyResult<Vec<u8>>,
+        {
+            let ctx = PyEncodeContext::new(name, &self.str, vm);
+            let errors = ErrorsHandler::new(self.errors.as_deref(), vm);
+            let encoded = encode(
+                ctx,
+                &errors,
+                wide_order(self.byteorder),
+                self.byteorder == 0,
+            )?;
+            Ok((encoded, self.str.char_len()))
+        }
+    }
+
+    #[pyfunction]
+    fn utf_16_encode(args: WideEncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME,
+            |ctx, errors, order, bom| encodings::utf16::encode(ctx, errors, order, bom),
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Native,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_16_le_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME_LE,
+            |ctx, errors| {
+                encodings::utf16::encode(ctx, errors, encodings::utf16::ByteOrder::Little, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_le_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME_LE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Little,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_16_be_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf16::ENCODING_NAME_BE,
+            |ctx, errors| {
+                encodings::utf16::encode(ctx, errors, encodings::utf16::ByteOrder::Big, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_16_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME_BE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf16::decode(
+            ctx,
+            &errors,
+            encodings::utf16::ByteOrder::Big,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[derive(FromArgs)]
+    struct ExDecodeArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(positional, optional)]
+        errors: Option<PyUtf8StrRef>,
+        #[pyarg(positional, default)]
+        byteorder: i32,
+        #[pyarg(positional, name = "final", default)]
+        final_decode: bool,
+    }
+
+    #[pyfunction]
+    fn utf_16_ex_decode(
+        args: ExDecodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Wtf8Buf, usize, i32)> {
+        let ctx = PyDecodeContext::new(encodings::utf16::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf16::decode(ctx, &errors, wide_order(args.byteorder), args.final_decode)
+    }
+
+    #[pyfunction]
+    fn utf_32_encode(args: WideEncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME,
+            |ctx, errors, order, bom| encodings::utf32::encode(ctx, errors, order, bom),
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Native,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_le_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME_LE,
+            |ctx, errors| {
+                encodings::utf32::encode(ctx, errors, encodings::utf32::ByteOrder::Little, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_le_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME_LE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Little,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_be_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        args.encode(
+            encodings::utf32::ENCODING_NAME_BE,
+            |ctx, errors| {
+                encodings::utf32::encode(ctx, errors, encodings::utf32::ByteOrder::Big, false)
+            },
+            vm,
+        )
+    }
+
+    #[pyfunction]
+    fn utf_32_be_decode(args: DecodeArgs, vm: &VirtualMachine) -> DecodeResult {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME_BE, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        let (text, consumed, _) = encodings::utf32::decode(
+            ctx,
+            &errors,
+            encodings::utf32::ByteOrder::Big,
+            args.final_decode,
+        )?;
+        Ok((text, consumed))
+    }
+
+    #[pyfunction]
+    fn utf_32_ex_decode(
+        args: ExDecodeArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Wtf8Buf, usize, i32)> {
+        let ctx = PyDecodeContext::new(encodings::utf32::ENCODING_NAME, &args.data, vm);
+        let errors = ErrorsHandler::new(args.errors.as_deref(), vm);
+        encodings::utf32::decode(ctx, &errors, wide_order(args.byteorder), args.final_decode)
+    }
 
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{
@@ -250,109 +637,64 @@ mod _codecs {
         }};
     }
 
+    #[derive(FromArgs)]
+    struct CharmapEncodeArgs {
+        #[pyarg(positional)]
+        str: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyObjectRef>,
+        #[pyarg(positional, optional)]
+        mapping: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct CharmapDecodeArgs {
+        #[pyarg(positional)]
+        data: PyObjectRef,
+        #[pyarg(positional, optional)]
+        errors: Option<PyObjectRef>,
+        #[pyarg(positional, optional)]
+        mapping: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct CharmapBuildArgs {
+        #[pyarg(positional)]
+        map: PyObjectRef,
+    }
+
+    fn push_optional(forwarded: &mut Vec<PyObjectRef>, value: Option<PyObjectRef>) {
+        if let Some(value) = value {
+            forwarded.push(value);
+        }
+    }
+
     #[pyfunction]
-    fn readbuffer_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(readbuffer_encode, args, vm)
+    fn charmap_encode(args: CharmapEncodeArgs, vm: &VirtualMachine) -> PyResult {
+        let mut forwarded = vec![args.str];
+        if args.mapping.is_some() && args.errors.is_none() {
+            forwarded.push(vm.ctx.new_str("strict").into());
+        } else {
+            push_optional(&mut forwarded, args.errors);
+        }
+        push_optional(&mut forwarded, args.mapping);
+        delegate_pycodecs!(charmap_encode, forwarded, vm)
     }
     #[pyfunction]
-    fn escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_encode, args, vm)
+    fn charmap_decode(args: CharmapDecodeArgs, vm: &VirtualMachine) -> PyResult {
+        let mut forwarded = vec![args.data];
+        if args.mapping.is_some() && args.errors.is_none() {
+            forwarded.push(vm.ctx.new_str("strict").into());
+        } else {
+            push_optional(&mut forwarded, args.errors);
+        }
+        push_optional(&mut forwarded, args.mapping);
+        delegate_pycodecs!(charmap_decode, forwarded, vm)
     }
     #[pyfunction]
-    fn escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_encode, args, vm)
-    }
-    #[pyfunction]
-    fn raw_unicode_escape_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(raw_unicode_escape_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_7_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_7_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_encode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_decode, args, vm)
-    }
-    #[pyfunction]
-    fn charmap_build(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(charmap_build, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_be_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_16_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_16_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_ex_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_ex_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_le_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_le_decode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_encode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_encode, args, vm)
-    }
-    #[pyfunction]
-    fn utf_32_be_decode(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        delegate_pycodecs!(utf_32_be_decode, args, vm)
+    fn charmap_build(args: CharmapBuildArgs, vm: &VirtualMachine) -> PyResult {
+        let forwarded = vec![args.map];
+        delegate_pycodecs!(charmap_build, forwarded, vm)
     }
 }
 
@@ -360,7 +702,7 @@ mod _codecs {
 fn delegate_pycodecs(
     cell: &'static StaticCell<crate::PyObjectRef>,
     name: &'static str,
-    args: crate::function::FuncArgs,
+    args: Vec<crate::PyObjectRef>,
     vm: &crate::VirtualMachine,
 ) -> crate::PyResult {
     let f = cell.get_or_try_init(|| {
@@ -371,11 +713,31 @@ fn delegate_pycodecs(
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "_codecs")]
 mod _codecs_windows {
-    use crate::{PyResult, VirtualMachine};
-    use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
+    use crate::{Py, PyResult, VirtualMachine};
+    use crate::{
+        builtins::PyStr, builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike,
+    };
     use rustpython_host_env::windows as host_windows;
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
+
+    fn string_from_utf16(
+        encoding: &str,
+        data: &[u8],
+        wide: &[u16],
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
+        String::from_utf16(wide).map_err(|err| {
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str(encoding),
+                vm.ctx.new_bytes(data.to_vec()),
+                0,
+                data.len(),
+                vm.ctx.new_str(format!("{encoding}_decode failed: {err}")),
+            )
+        })
+    }
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
@@ -387,16 +749,12 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
             None => {
                 // String contains surrogates - not encodable with mbcs
-                return Err(vm.new_unicode_encode_error(
-                    "'mbcs' codec can't encode character: surrogates not allowed",
-                ));
+                return encode_code_page_errors(host_windows::CP_ACP, &args.s, errors, "mbcs", vm);
             }
         };
         let char_len = args.s.char_len();
@@ -406,7 +764,7 @@ mod _codecs_windows {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
+        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
 
         // Get the required buffer size
         let (size, _) = host_windows::wide_char_to_multi_byte_len(
@@ -428,9 +786,7 @@ mod _codecs_windows {
         .map_err(|err| vm.new_os_error(format!("mbcs_encode failed: {err}")))?;
 
         if errors == "strict" && used_default_char {
-            return Err(vm.new_unicode_encode_error(
-                "'mbcs' codec can't encode characters: invalid character",
-            ));
+            return encode_code_page_errors(host_windows::CP_ACP, &args.s, errors, "mbcs", vm);
         }
 
         buffer.truncate(result);
@@ -443,7 +799,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         #[allow(dead_code)]
         r#final: bool,
     }
@@ -479,8 +835,7 @@ mod _codecs_windows {
             )
             .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
             buffer.truncate(result);
-            let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
+            let s = string_from_utf16("mbcs", data.as_ref(), &buffer, vm)?;
             return Ok((s, len));
         }
 
@@ -495,8 +850,7 @@ mod _codecs_windows {
         )
         .map_err(|err| vm.new_os_error(format!("mbcs_decode failed: {err}")))?;
         buffer.truncate(result);
-        let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("mbcs_decode failed: {e}")))?;
+        let s = string_from_utf16("mbcs", data.as_ref(), &buffer, vm)?;
 
         Ok((s, len))
     }
@@ -511,16 +865,12 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
             None => {
                 // String contains surrogates - not encodable with oem
-                return Err(vm.new_unicode_encode_error(
-                    "'oem' codec can't encode character: surrogates not allowed",
-                ));
+                return encode_code_page_errors(host_windows::CP_OEMCP, &args.s, errors, "oem", vm);
             }
         };
         let char_len = args.s.char_len();
@@ -530,7 +880,7 @@ mod _codecs_windows {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
+        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
 
         // Get the required buffer size
         let (size, _) = host_windows::wide_char_to_multi_byte_len(
@@ -552,9 +902,7 @@ mod _codecs_windows {
         .map_err(|err| vm.new_os_error(format!("oem_encode failed: {err}")))?;
 
         if errors == "strict" && used_default_char {
-            return Err(vm.new_unicode_encode_error(
-                "'oem' codec can't encode characters: invalid character",
-            ));
+            return encode_code_page_errors(host_windows::CP_OEMCP, &args.s, errors, "oem", vm);
         }
 
         buffer.truncate(result);
@@ -567,7 +915,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         #[allow(dead_code)]
         r#final: bool,
     }
@@ -604,8 +952,7 @@ mod _codecs_windows {
             )
             .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
             buffer.truncate(result);
-            let s = String::from_utf16(&buffer)
-                .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
+            let s = string_from_utf16("oem", data.as_ref(), &buffer, vm)?;
             return Ok((s, len));
         }
 
@@ -620,8 +967,7 @@ mod _codecs_windows {
         )
         .map_err(|err| vm.new_os_error(format!("oem_decode failed: {err}")))?;
         buffer.truncate(result);
-        let s = String::from_utf16(&buffer)
-            .map_err(|e| vm.new_unicode_decode_error(format!("oem_decode failed: {e}")))?;
+        let s = string_from_utf16("oem", data.as_ref(), &buffer, vm)?;
 
         Ok((s, len))
     }
@@ -719,12 +1065,15 @@ mod _codecs_windows {
     /// Encode character by character with error handling.
     fn encode_code_page_errors(
         code_page: u32,
-        s: &PyStrRef,
+        s: &Py<PyStr>,
         errors: &str,
         encoding_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
-        use crate::builtins::{PyBytes, PyStr, PyTuple};
+        use crate::{
+            Py,
+            builtins::{PyBytes, PyStr, PyTuple},
+        };
 
         let char_len = s.char_len();
         let flags = encode_code_page_flags(code_page, errors);
@@ -765,9 +1114,9 @@ mod _codecs_windows {
                     _ => break,
                 }
             }
-            return Err(vm.new_unicode_encode_error_real(
+            return Err(vm.new_unicode_encode_error(
                 encoding_str,
-                s.clone(),
+                s.to_owned(),
                 fail_pos,
                 fail_pos + 1,
                 reason_str,
@@ -786,19 +1135,18 @@ mod _codecs_windows {
 
             // Convert code point to UTF-16
             let mut wchars = [0u16; 2];
-            let wchar_len;
             let is_surrogate = (0xD800..=0xDFFF).contains(&ch);
 
-            if is_surrogate {
-                wchar_len = 0; // Can't encode surrogates normally
+            let wchar_len = if is_surrogate {
+                0 // Can't encode surrogates normally
             } else if ch < 0x10000 {
                 wchars[0] = ch as u16;
-                wchar_len = 1;
+                1
             } else {
                 wchars[0] = ((ch - 0x10000) >> 10) as u16 + 0xD800;
                 wchars[1] = ((ch - 0x10000) & 0x3FF) as u16 + 0xDC00;
-                wchar_len = 2;
-            }
+                2
+            };
 
             if !is_surrogate {
                 let mut buf = [0u8; 8];
@@ -817,9 +1165,9 @@ mod _codecs_windows {
             }
 
             // Character can't be encoded - call error handler
-            let exc = vm.new_unicode_encode_error_real(
+            let exc = vm.new_unicode_encode_error(
                 encoding_str.clone(),
-                s.clone(),
+                s.to_owned(),
                 pos,
                 pos + 1,
                 reason_str.clone(),
@@ -828,7 +1176,7 @@ mod _codecs_windows {
             let res = error_handler.call((exc,), vm)?;
             let tuple_err =
                 || vm.new_type_error("encoding error handler must return (str/bytes, int) tuple");
-            let tuple: &PyTuple = res.downcast_ref().ok_or_else(&tuple_err)?;
+            let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(tuple_err)?;
             let tuple_slice = tuple.as_slice();
             if tuple_slice.len() != 2 {
                 return Err(tuple_err());
@@ -838,15 +1186,15 @@ mod _codecs_windows {
             let new_pos_obj = tuple_slice[1].clone();
 
             if let Some(bytes) = replacement.downcast_ref::<PyBytes>() {
-                output.extend_from_slice(bytes);
+                output.extend_from_slice(bytes.as_bytes());
             } else if let Some(rep_str) = replacement.downcast_ref::<PyStr>() {
                 // Replacement string - try to encode each character
                 for rcp in rep_str.as_wtf8().code_points() {
                     let rch = rcp.to_u32();
                     if rch > 127 {
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             encoding_str,
-                            s.clone(),
+                            s.to_owned(),
                             pos,
                             pos + 1,
                             vm.ctx
@@ -875,8 +1223,6 @@ mod _codecs_windows {
         args: CodePageEncodeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         if args.code_page < 0 {
             return Err(vm.new_value_error("invalid code page number"));
         }
@@ -893,7 +1239,7 @@ mod _codecs_windows {
 
         // Fast path: try encoding the whole string at once (only if no surrogates)
         if let Some(str_data) = args.s.to_str() {
-            let wide: Vec<u16> = std::ffi::OsStr::new(str_data).to_wide();
+            let wide: Vec<_> = OsStr::new(str_data).encode_wide().collect();
             if let Some(result) = try_encode_code_page_strict(code_page, &wide, vm)? {
                 return Ok((result, char_len));
             }
@@ -911,7 +1257,7 @@ mod _codecs_windows {
         data: ArgBytesLike,
         #[pyarg(positional, optional)]
         errors: Option<PyUtf8StrRef>,
-        #[pyarg(positional, default = false)]
+        #[pyarg(positional, default)]
         r#final: bool,
     }
 
@@ -970,8 +1316,8 @@ mod _codecs_windows {
         encoding_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<(PyStrRef, usize)> {
-        use crate::builtins::PyTuple;
         use crate::common::wtf8::Wtf8Buf;
+        use crate::{Py, builtins::PyTuple};
 
         let len = data.len();
         let encoding_str = vm.ctx.new_str(encoding_name);
@@ -1020,7 +1366,7 @@ mod _codecs_windows {
                 }
             }
             let object = vm.ctx.new_bytes(data.to_vec());
-            return Err(vm.new_unicode_decode_error_real(
+            return Err(vm.new_unicode_decode_error(
                 encoding_str,
                 object,
                 fail_pos,
@@ -1111,7 +1457,7 @@ mod _codecs_windows {
                     }
                     "strict" => {
                         let object = vm.ctx.new_bytes(data.to_vec());
-                        return Err(vm.new_unicode_decode_error_real(
+                        return Err(vm.new_unicode_decode_error(
                             encoding_str,
                             object,
                             pos,
@@ -1122,7 +1468,7 @@ mod _codecs_windows {
                     _ => {
                         // Custom error handler
                         let object = vm.ctx.new_bytes(data.to_vec());
-                        let exc = vm.new_unicode_decode_error_real(
+                        let exc = vm.new_unicode_decode_error(
                             encoding_str.clone(),
                             object,
                             pos,
@@ -1134,7 +1480,7 @@ mod _codecs_windows {
                         let tuple_err = || {
                             vm.new_type_error("decoding error handler must return (str, int) tuple")
                         };
-                        let tuple: &PyTuple = res.downcast_ref().ok_or_else(&tuple_err)?;
+                        let tuple: &Py<PyTuple> = res.downcast_ref().ok_or_else(tuple_err)?;
                         let tuple_slice = tuple.as_slice();
                         if tuple_slice.len() != 2 {
                             return Err(tuple_err());

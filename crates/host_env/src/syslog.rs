@@ -3,6 +3,19 @@ use core::ffi::CStr;
 use parking_lot::RwLock;
 use std::{os::raw::c_char, sync::OnceLock};
 
+pub use libc::{
+    LOG_ALERT, LOG_AUTH, LOG_CONS, LOG_CRIT, LOG_DAEMON, LOG_DEBUG, LOG_EMERG, LOG_ERR, LOG_INFO,
+    LOG_KERN, LOG_LOCAL0, LOG_LOCAL1, LOG_LOCAL2, LOG_LOCAL3, LOG_LOCAL4, LOG_LOCAL5, LOG_LOCAL6,
+    LOG_LOCAL7, LOG_LPR, LOG_MAIL, LOG_NDELAY, LOG_NEWS, LOG_NOTICE, LOG_NOWAIT, LOG_ODELAY,
+    LOG_PID, LOG_SYSLOG, LOG_USER, LOG_UUCP, LOG_WARNING,
+};
+
+#[cfg(not(target_os = "redox"))]
+pub use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
+
 #[derive(Debug)]
 enum GlobalIdent {
     Explicit(Box<CStr>),

@@ -1,3 +1,5 @@
+import sys
+
 from testutils import assert_raises
 
 x = [1, 2, 3]
@@ -140,6 +142,38 @@ recursive = []
 recursive.append(recursive)
 assert repr(recursive) == "[[...]]"
 
+
+def test_repr_mutation():
+    class ReplaceNext:
+        def __repr__(self):
+            values[1] = 42
+            return "item"
+
+    values = [ReplaceNext(), 0]
+    assert repr(values) == "[item, 42]"
+
+    class AppendNext:
+        def __repr__(self):
+            values.append(42)
+            return "item"
+
+    values = [AppendNext()]
+    assert repr(values) == "[item, 42]"
+
+    class RemoveSelf:
+        def __repr__(self):
+            values.pop(0)
+            return "item"
+
+        def __del__(self):
+            values.append(42)
+
+    values = [RemoveSelf(), 0]
+    assert repr(values) == "[item, 42]"
+
+
+test_repr_mutation()
+
 # insert()
 x = ["a", "b", "c"]
 x.insert(0, "z")  # insert is in-place, no return value
@@ -241,6 +275,33 @@ assert sorted([(1, 2, 3), (0, 3, 6)]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[0]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[1]) == [(1, 2, 3), (0, 3, 6)]
 assert sorted([(1, 2), (), (5,)], key=len) == [(), (5,), (1, 2)]
+
+assert sorted(["b", "a", "é", "z\U0001f600", "z"]) == [
+    "a",
+    "b",
+    "z",
+    "z\U0001f600",
+    "é",
+]
+assert sorted([10**30, -(10**30), 5, 0]) == [-(10**30), 0, 5, 10**30]
+assert sorted([True, False, True]) == [False, True, True]
+
+
+class IntSub(int):
+    pass
+
+
+assert sorted([IntSub(2), 3, IntSub(1)]) == [1, 2, 3]
+assert sorted([2.5, 1, 3.0, 2]) == [1, 2, 2.5, 3.0]
+assert_raises(TypeError, sorted, [1, "a"])
+nan = float("nan")
+assert repr(sorted([nan, 1.0, 2.0])) == "[nan, 1.0, 2.0]"
+assert sorted([b"b", b"a", b"c"]) == [b"a", b"b", b"c"]
+assert sorted([(2, 9), (1, 5), (2, 1)]) == [(1, 5), (2, 1), (2, 9)]
+assert sorted([(1, "b"), (1, "a")]) == [(1, "a"), (1, "b")]
+assert sorted([(1,), (1, 2), ()]) == [(), (1,), (1, 2)]
+assert sorted([((2,), "x"), ((1,), "y")]) == [((1,), "y"), ((2,), "x")]
+assert sorted([(1, "a"), (2.5, "b"), (0, "c")]) == [(0, "c"), (1, "a"), (2.5, "b")]
 
 lst = [3, 1, 5, 2, 4]
 
@@ -433,6 +494,43 @@ assert x == [0, 1, 2, 3, 4, "a", "b", "c"]
 assert x == y
 assert x == z
 assert x == zz
+
+
+# A huge length hint is a MemoryError, not an aborted process
+class HugeLen:
+    def __len__(self):
+        return 2**62
+
+    def __getitem__(self, i):
+        if i >= 3:
+            raise IndexError
+        return i
+
+
+slice_target = [3, 1, 2]
+with assert_raises(MemoryError):
+    slice_target[1::-1] = HugeLen()
+
+
+class ShortLen(HugeLen):
+    def __len__(self):
+        return 1
+
+
+slice_target[::-1] = ShortLen()
+assert slice_target == [2, 1, 0]
+
+
+def fails_during_iteration():
+    yield 9
+    raise MemoryError
+
+
+with assert_raises(MemoryError):
+    slice_target[:] = fails_during_iteration()
+assert slice_target == [2, 1, 0]
+
+
 # insert sec
 x = a[:]
 y = a[:]
@@ -896,3 +994,397 @@ class poc:
 list1 = rewrite_list_eq([poc()])
 list1.remove(list1)
 assert list1 == []
+
+# The repeat count is multiplied by the element size; a count that overflows
+# that product must raise instead of wrapping into a short allocation.
+with assert_raises(MemoryError):
+    [1] * sys.maxsize
+
+# 64-bit only: on 32-bit targets 10**17 does not fit in an index so the
+# repeat raises OverflowError before any allocation is attempted
+if sys.maxsize > 2**32:
+    assert_raises(MemoryError, lambda: [1, 2, 3] * (10**17))
+
+    def imul_no_memory():
+        x = [1, 2, 3]
+        x *= 10**17
+
+    assert_raises(MemoryError, imul_no_memory)
+
+
+# A list takes the length an iterable reports before reading it, so one that
+# reports more than can be held says so instead of filling memory.
+class Reports:
+    def __init__(self, hint):
+        self.hint = hint
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __length_hint__(self):
+        return self.hint
+
+
+with assert_raises(MemoryError):
+    list(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    [].extend(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    empty = []
+    empty += Reports(sys.maxsize)
+
+# A report that leaves no room for what the list already holds cannot be true,
+# so it is passed over rather than refused.
+held = [1, 2, 3, 4]
+held.extend(Reports(sys.maxsize))
+assert held == [1, 2, 3, 4, 1, 2, 3]
+
+
+# Reporting runs the iterable's own code, so what the list holds is counted
+# after the report rather than before it.
+grew = []
+
+
+class Grows:
+    def __iter__(self):
+        return iter([7])
+
+    def __length_hint__(self):
+        grew.extend([0] * 100)
+        return sys.maxsize - 50
+
+
+grew.extend(Grows())
+assert len(grew) == 101 and grew[-1] == 7, grew[-3:]
+
+shrunk = [1] * 100
+
+
+class Shrinks:
+    def __iter__(self):
+        return iter([])
+
+    def __length_hint__(self):
+        shrunk.clear()
+        return sys.maxsize
+
+
+with assert_raises(MemoryError):
+    shrunk.extend(Shrinks())
+
+
+# Only the callers that take the room ask at all, which is why an iterable whose
+# __len__ raises reaches tuple() but not list().
+class Lazy:
+    def __len__(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+
+assert tuple(Lazy()) == (1, 2, 3)
+assert (lambda *a: a)(*Lazy()) == (1, 2, 3)
+assert min(Lazy()) == 1
+with assert_raises(NotImplementedError):
+    list(Lazy())
+with assert_raises(NotImplementedError):
+    sorted(Lazy())
+with assert_raises(NotImplementedError):
+    [].extend(Lazy())
+with assert_raises(NotImplementedError):
+    [*Lazy()]
+
+
+# Nothing asks the iterator, so what it would have answered never runs.
+class LoudIterator:
+    def __init__(self):
+        self.i = iter([1, 2, 3])
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.i)
+
+    def __length_hint__(self):
+        raise NotImplementedError
+
+
+class HandsOutLoud:
+    def __iter__(self):
+        return LoudIterator()
+
+
+assert tuple(HandsOutLoud()) == (1, 2, 3)
+assert (lambda *a: a)(*HandsOutLoud()) == (1, 2, 3)
+assert min(HandsOutLoud()) == 1
+assert max(HandsOutLoud()) == 3
+assert list(HandsOutLoud()) == [1, 2, 3]
+assert sorted(HandsOutLoud()) == [1, 2, 3]
+assert bytearray(HandsOutLoud()) == bytearray(b"\x01\x02\x03")
+held = [0]
+held.extend(HandsOutLoud())
+assert held == [0, 1, 2, 3]
+
+
+# A report the list can act on is acted on.
+assert list(Reports(3)) == [1, 2, 3]
+assert list(Reports(0)) == [1, 2, 3]
+
+# Repeating an empty list by a huge count returns at once
+empty = []
+empty *= sys.maxsize
+assert empty == []
+assert [] * sys.maxsize == []
+
+
+def test_incremental_list_updates():
+    def iadd(target, source):
+        target += source
+
+    for update in (list.extend, iadd, list.__init__):
+        target = [0]
+        initial = [] if update is list.__init__ else [0]
+
+        def source():
+            assert target == initial
+            yield 7
+            assert target == initial + [7]
+            yield 8
+            raise RuntimeError("source failed")
+
+        with assert_raises(RuntimeError):
+            update(target, source())
+        assert target == initial + [7, 8]
+
+    class ListSubclass(list):
+        def __iter__(self):
+            raise AssertionError("self-extension must use stored elements")
+
+        def __len__(self):
+            raise AssertionError("self-extension must use stored length")
+
+    for update in (list.extend, iadd):
+        target = ListSubclass([1, 2])
+        update(target, target)
+        assert target == [1, 2, 1, 2]
+    target[::-1] = target
+    assert target == [2, 1, 2, 1]
+    target.__init__(target)
+    assert target == []
+
+
+test_incremental_list_updates()
+
+
+def test_extend_length_hint_capacity():
+    class Source:
+        def __init__(self, values, hint):
+            self.values = values
+            self.hint = hint
+
+        def __iter__(self):
+            return iter(self.values)
+
+        def __length_hint__(self):
+            return self.hint
+
+    for values in ((), (1, 2, 3)):
+        target = []
+        target.extend(Source(values, 4096))
+        assert target == list(values)
+        if values:
+            assert target.__sizeof__() <= ([None] * 16).__sizeof__()
+        else:
+            assert target.__sizeof__() == [].__sizeof__()
+
+    # Small extensions must retain the spare capacity from ordinary growth.
+    target = list(range(32))
+    target.extend(Source((32,), 0))
+    size = target.__sizeof__()
+    target.extend(Source((33,), 0))
+    assert target.__sizeof__() == size
+    assert target == list(range(34))
+
+    # Iteration errors preserve both the accepted prefix and its reservation.
+    sizes = []
+    target = []
+
+    def failing():
+        yield 1
+        sizes.append(target.__sizeof__())
+        raise RuntimeError("source failed")
+
+    with assert_raises(RuntimeError):
+        target.extend(Source(failing(), 4096))
+    assert target == [1]
+    assert target.__sizeof__() == sizes[0]
+
+
+test_extend_length_hint_capacity()
+
+
+def test_extend_resizes_before_iterator_cleanup():
+    target = []
+    empty_size = target.__sizeof__()
+    sizes = []
+
+    class Iterator:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise StopIteration
+
+        def __del__(self):
+            sizes.append(target.__sizeof__())
+            target.append(1)
+
+    class Source:
+        def __iter__(self):
+            return Iterator()
+
+        def __length_hint__(self):
+            return 4096
+
+    target.extend(Source())
+    assert sizes == [empty_size]
+    assert target == [1]
+
+
+test_extend_resizes_before_iterator_cleanup()
+
+
+def test_slice_assignment_iterator_hint():
+    class Rows:
+        def __iter__(self):
+            return iter([7, 8])
+
+        def __len__(self):
+            raise AssertionError("slice assignment must ask the iterator")
+
+    target = [0]
+    target[:] = Rows()
+    assert target == [7, 8]
+
+
+test_slice_assignment_iterator_hint()
+
+
+# A failing iterator hint aborts slice assignment without changing the list.
+target = [0]
+with assert_raises(NotImplementedError):
+    target[:] = LoudIterator()
+assert target == [0]
+
+
+def test_list_mutation_finalizers():
+    cases = (
+        (lambda a: a.__setitem__(0, 99), [99, 1, 2, 3], [0]),
+        (lambda a: a.__delitem__(0), [1, 2, 3], [0]),
+        (lambda a: a.__imul__(0), [], [3, 2, 1, 0]),
+        (list.clear, [], [3, 2, 1, 0]),
+        (lambda a: a.__setitem__(slice(1, 3), [10, 11]), [0, 10, 11, 3], [2, 1]),
+        (lambda a: a.__delitem__(slice(1, 3)), [0, 3], [2, 1]),
+        (
+            lambda a: a.__setitem__(slice(None, None, 2), [10, 11]),
+            [10, 1, 11, 3],
+            [0, 2],
+        ),
+        (
+            lambda a: a.__setitem__(slice(None, None, -2), [10, 11]),
+            [0, 11, 2, 10],
+            [3, 1],
+        ),
+        (lambda a: a.__delitem__(slice(None, None, -2)), [0, 2], [1, 3]),
+        (lambda a: a.__delitem__(slice(None, None, -1)), [], [0, 1, 2, 3]),
+    )
+    for mutate, expected, order in cases:
+        target = []
+        seen = []
+
+        class Item:
+            def __init__(self, value):
+                self.value = value
+
+            def __del__(self):
+                snapshot = [x.value if isinstance(x, Item) else x for x in target]
+                seen.append((self.value, snapshot))
+                target.append("released")
+
+        target.extend(Item(i) for i in range(4))
+        mutate(target)
+        assert seen == [
+            (value, expected + ["released"] * i) for i, value in enumerate(order)
+        ]
+        target.clear()
+
+    target = []
+
+    class Rejected:
+        def __del__(self):
+            target.append("released")
+
+    with assert_raises(IndexError):
+        target[0] = Rejected()
+    assert target == ["released"]
+
+
+test_list_mutation_finalizers()
+
+
+def test_slice_replacement_lifetime():
+    events = []
+    target = []
+
+    class Old:
+        def __init__(self, value):
+            self.value = value
+
+        def __del__(self):
+            events.append(("old start", self.value))
+            target.clear()
+            events.append(("old end", self.value))
+
+    class New:
+        def __init__(self, value):
+            self.value = value
+
+        def __del__(self):
+            events.append(("new", self.value))
+
+    for selection in (slice(None), slice(None, None, -1)):
+        events.clear()
+        target.extend(Old(i) for i in range(2))
+        target[selection] = (New(i) for i in range(2))
+        assert events == [
+            ("old start", 1),
+            ("old end", 1),
+            ("old start", 0),
+            ("old end", 0),
+            ("new", 1),
+            ("new", 0),
+        ]
+        assert target == []
+
+    events.clear()
+    target.append(0)
+    with assert_raises(ValueError):
+        target[::2] = (New(i) for i in range(3))
+    assert events == [("new", 2), ("new", 1), ("new", 0)]
+    assert target == [0]
+
+    def failing_source():
+        yield New(0)
+        yield New(1)
+        raise RuntimeError("source failed")
+
+    events.clear()
+    with assert_raises(RuntimeError):
+        target[:] = failing_source()
+    assert events == [("new", 1), ("new", 0)]
+    assert target == [0]
+
+
+test_slice_replacement_lifetime()

@@ -8,7 +8,7 @@ on:
       python-version:
         description: Target python version to generate doc db for
         type: string
-        default: "3.14.3"
+        default: "3.14.7"
       base-ref:
         description: Base branch to create the update branch from
         type: string
@@ -30,13 +30,13 @@ jobs:
           - windows-latest
           - macos-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: |
             crates/doc
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ inputs.python-version }}
 
@@ -58,7 +58,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true
           ref: ${{ inputs.base-ref }}
@@ -82,8 +82,8 @@ jobs:
           # Merge all artifacts
           jq -s "add" --sort-keys crates/doc/generated/*.json > crates/doc/generated/merged.json
 
-          # Format merged json for the phf macro
-          jq -r 'to_entries[] | "    \(.key | @json) => \(.value | @json),"' crates/doc/generated/merged.json > crates/doc/generated/raw_entries.txt
+          # Format merged json as a sorted const slice
+          jq -r 'to_entries[] | "    (\(.key | @json), \(.value | @json)),"' crates/doc/generated/merged.json > crates/doc/generated/raw_entries.txt
 
           OUTPUT_FILE='crates/doc/src/data.inc.rs'
 
@@ -93,9 +93,10 @@ jobs:
             echo "// CPython version: ${PYTHON_VERSION}"
             echo '// spell-checker: disable'
             echo ''
-            echo "pub static DB: phf::Map<&'static str, &'static str> = phf::phf_map! {"
+            echo '#[rustfmt::skip]'
+            echo 'pub const DB: &[(&str, &str)] = &['
             cat crates/doc/generated/raw_entries.txt
-            echo '};'
+            echo '];'
           } > "$OUTPUT_FILE"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

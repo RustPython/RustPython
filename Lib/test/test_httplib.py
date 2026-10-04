@@ -2166,7 +2166,6 @@ class HTTPSTest(TestCase):
         self.addCleanup(resp.close)
         self.assertEqual(resp.status, 404)
 
-    @unittest.skip("TODO: RUSTPYTHON; Flaky on CI")
     def test_local_bad_hostname(self):
         # The (valid) cert doesn't validate the HTTPS hostname
         import ssl

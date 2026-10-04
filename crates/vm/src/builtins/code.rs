@@ -1,5 +1,6 @@
 //! Infamous code object. The python class `code`
 
+use super::descriptor::{MemberKind, MemberLayout};
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
 #[cfg(feature = "host_env")]
@@ -7,7 +8,7 @@ use crate::convert::ToPyException;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
-    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
+    bytecode::{self, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     frozen,
@@ -216,7 +217,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         ref f @ super::float::PyFloat => BorrowedConstant::Float { value: f.to_f64() },
         ref c @ super::complex::PyComplex => BorrowedConstant::Complex {
-            value: c.to_complex()
+            value: c.as_complex()
         },
         ref s @ super::pystr::PyStr => BorrowedConstant::Str { value: s.as_wtf8() },
         ref b @ super::bytes::PyBytes => BorrowedConstant::Bytes {
@@ -262,85 +263,13 @@ impl Constant for Literal {
     }
 }
 
-impl<'a> AsBag for &'a Context {
-    type Bag = PyObjBag<'a>;
-    fn as_bag(self) -> PyObjBag<'a> {
-        PyObjBag(self)
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct PyObjBag<'a>(pub &'a Context);
-
-impl ConstantBag for PyObjBag<'_> {
-    type Constant = Literal;
-
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
-        let ctx = self.0;
-        let obj = match constant {
-            BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
-            BorrowedConstant::Float { value } => ctx.new_float(value).into(),
-            BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            BorrowedConstant::Str { value } if value.len() <= 20 => {
-                ctx.intern_str(value).to_object()
-            }
-            BorrowedConstant::Str { value } => ctx.new_str(value).into(),
-            BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
-            BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
-            BorrowedConstant::Code { code } => ctx.new_code(code.map_clone_bag(self)).into(),
-            BorrowedConstant::Tuple { elements } => {
-                let elements = elements
-                    .iter()
-                    .map(|constant| self.make_constant(constant.borrow_constant()).0)
-                    .collect();
-                ctx.new_tuple(elements).into()
-            }
-            BorrowedConstant::Slice { elements } => {
-                let [start, stop, step] = elements;
-                let start_obj = self.make_constant(start.borrow_constant()).0;
-                let stop_obj = self.make_constant(stop.borrow_constant()).0;
-                let step_obj = self.make_constant(step.borrow_constant()).0;
-                // Store as PySlice with Some() for all fields (even None values)
-                // so borrow_obj_constant can reference them.
-                use crate::builtins::PySlice;
-                PySlice {
-                    start: Some(start_obj),
-                    stop: stop_obj,
-                    step: Some(step_obj),
-                }
-                .into_ref(ctx)
-                .into()
-            }
-            BorrowedConstant::Frozenset { elements: _ } => {
-                // Creating a frozenset requires VirtualMachine for element hashing.
-                // PyObjBag only has Context, so we cannot construct PyFrozenSet here.
-                // Frozenset constants from .pyc are handled by PyMarshalBag which has VM access.
-                unimplemented!(
-                    "frozenset constant in PyObjBag::make_constant requires VirtualMachine"
-                )
-            }
-            BorrowedConstant::None => ctx.none(),
-            BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
-        };
-
-        Literal(obj)
-    }
-
-    fn make_name(&self, name: &str) -> &'static PyStrInterned {
-        self.0.intern_str(name)
-    }
-
-    fn make_int(&self, value: BigInt) -> Self::Constant {
-        Literal(self.0.new_int(value).into())
-    }
-
-    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
-        Literal(self.0.new_tuple(elements.map(|lit| lit.0).collect()).into())
-    }
-
-    fn make_code(&self, code: CodeObject) -> Self::Constant {
-        Literal(self.0.new_code(code).into())
-    }
+/// Whether a string constant reads as a name. Those are the ones interned,
+/// the way `all_name_chars` picks them out.
+fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
+    value
+        .as_bytes()
+        .iter()
+        .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 #[derive(Clone, Copy)]
@@ -356,7 +285,7 @@ impl ConstantBag for PyVmBag<'_> {
             BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
             BorrowedConstant::Float { value } => ctx.new_float(value).into(),
             BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            BorrowedConstant::Str { value } if value.len() <= 20 => {
+            BorrowedConstant::Str { value } if is_name_chars(value) => {
                 ctx.intern_str(value).to_object()
             }
             BorrowedConstant::Str { value } => ctx.new_str(value).into(),
@@ -427,24 +356,24 @@ impl ConstantBag for PyVmBag<'_> {
 pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
-    fn into_code_object(self, ctx: &Context) -> CodeObject;
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject;
 }
 
 impl IntoCodeObject for CodeObject {
-    fn into_code_object(self, _ctx: &Context) -> Self {
+    fn into_code_object(self, _vm: &VirtualMachine) -> Self {
         self
     }
 }
 
 impl IntoCodeObject for bytecode::CodeObject {
-    fn into_code_object(self, ctx: &Context) -> CodeObject {
-        self.map_bag(PyObjBag(ctx))
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject {
+        self.map_bag(PyVmBag(vm))
     }
 }
 
 impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
-    fn into_code_object(self, ctx: &Context) -> CodeObject {
-        self.decode(ctx)
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject {
+        self.decode(PyVmBag(vm))
     }
 }
 
@@ -462,8 +391,22 @@ pub struct CoMonitoringData {
 
 #[pyclass(module = false, name = "code")]
 pub struct PyCode {
+    #[pymember(name = "co_argcount", path = "arg_count")]
+    #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
+    #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
+    #[pymember(name = "co_stacksize", path = "max_stackdepth")]
+    #[pymember(name = "co_name", path = "obj_name")]
+    #[pymember(name = "co_qualname", path = "qualname")]
+    #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
+    /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
+    /// Derived once so frame-local proxy operations do not repeatedly scan
+    /// merged cell variables.
+    localsplus_names: Box<[&'static PyStrInterned]>,
+    #[pymember(name = "co_filename")]
     source_path: AtomicPtr<PyStrInterned>,
+    #[pymember(name = "co_nlocals")]
+    nlocals: i32,
     /// Version counter for lazy re-instrumentation.
     /// Compared against `PyGlobalState::instrumentation_version` at RESUME.
     pub instrumentation_version: AtomicU64,
@@ -471,6 +414,11 @@ pub struct PyCode {
     pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
     /// Whether adaptive counters have been initialized (lazy quickening).
     pub quickened: core::sync::atomic::AtomicBool,
+    /// Whether the bytecode contains any instruction that mutates the current
+    /// exc_info slot (`vm.set_exception`). When false, a normal frame call for
+    /// this code cannot leave the slot unbalanced, so `with_frame` skips the
+    /// exc_info save/restore. Computed once by scanning the instruction stream.
+    pub has_exc_handling: bool,
 }
 
 impl Deref for PyCode {
@@ -480,16 +428,143 @@ impl Deref for PyCode {
     }
 }
 
+fn build_localspluskinds(
+    varnames: &[&'static PyStrInterned],
+    cellvars: &[&'static PyStrInterned],
+    freevars: &[&'static PyStrInterned],
+    arg_counts: (u32, u32, u32),
+    flags: CodeFlags,
+    instructions: &CodeUnits,
+) -> Result<Box<[u8]>, usize> {
+    use rustpython_compiler_core::bytecode::{
+        CO_FAST_ARG_KW, CO_FAST_ARG_POS, CO_FAST_ARG_VAR, CO_FAST_CELL, CO_FAST_FREE,
+        CO_FAST_HIDDEN, CO_FAST_LOCAL, OpArgState,
+    };
+
+    let num_merged_cells = cellvars
+        .iter()
+        .filter(|cell| varnames.iter().any(|local| *local == **cell))
+        .count();
+    let mut kinds = vec![0; varnames.len() + cellvars.len() - num_merged_cells + freevars.len()];
+
+    let (posonlyarg_count, arg_count, kwonlyarg_count) = arg_counts;
+    let positional_only = posonlyarg_count as usize;
+    let positional_or_keyword = arg_count.saturating_sub(posonlyarg_count) as usize;
+    let argument_kinds = [
+        (positional_only, CO_FAST_ARG_POS),
+        (positional_or_keyword, CO_FAST_ARG_POS | CO_FAST_ARG_KW),
+        (kwonlyarg_count as usize, CO_FAST_ARG_KW),
+        (
+            usize::from(flags.contains(CodeFlags::VARARGS)),
+            CO_FAST_ARG_VAR | CO_FAST_ARG_POS,
+        ),
+        (
+            usize::from(flags.contains(CodeFlags::VARKEYWORDS)),
+            CO_FAST_ARG_VAR | CO_FAST_ARG_KW,
+        ),
+        (usize::MAX, 0),
+    ];
+    let mut local_index = 0;
+    let mut argument_end = 0usize;
+    for (count, argument_kind) in argument_kinds {
+        argument_end = argument_end.saturating_add(count);
+        while local_index < argument_end && local_index < varnames.len() {
+            kinds[local_index] = CO_FAST_LOCAL | argument_kind;
+            local_index += 1;
+        }
+    }
+
+    let mut dropped_cells = 0;
+    for (cell_index, cell) in cellvars.iter().enumerate() {
+        if let Some(local_index) = varnames.iter().position(|local| *local == *cell) {
+            kinds[local_index] |= CO_FAST_CELL;
+            dropped_cells += 1;
+        } else {
+            kinds[varnames.len() + cell_index - dropped_cells] = CO_FAST_CELL;
+        }
+    }
+
+    let free_start = varnames.len() + cellvars.len() - num_merged_cells;
+    for kind in kinds.iter_mut().skip(free_start) {
+        *kind = CO_FAST_FREE;
+    }
+
+    if !flags.contains(CodeFlags::OPTIMIZED) {
+        let mut arg_state = OpArgState::default();
+        for unit in instructions.iter().copied() {
+            let (instruction, arg) = arg_state.get(unit);
+            if matches!(instruction, Instruction::LoadFastAndClear { .. }) {
+                let index = u32::from(arg) as usize;
+                let Some(kind) = kinds.get_mut(index) else {
+                    return Err(index);
+                };
+                *kind |= CO_FAST_HIDDEN;
+            }
+        }
+    }
+
+    Ok(kinds.into_boxed_slice())
+}
+
+impl MemberLayout for CodeFlags {
+    const KIND: MemberKind = MemberKind::Int;
+}
+
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
+        let nlocals = i32::try_from(code.varnames.len()).unwrap_or(i32::MAX);
+        let localsplus_names = {
+            let varname_ids = code
+                .varnames
+                .iter()
+                .map(|name| name.get_id())
+                .collect::<std::collections::HashSet<_>>();
+            let names = code
+                .varnames
+                .iter()
+                .chain(
+                    code.cellvars
+                        .iter()
+                        .filter(|name| !varname_ids.contains(&name.get_id())),
+                )
+                .chain(code.freevars.iter())
+                .copied()
+                .collect::<Box<[_]>>();
+            debug_assert_eq!(names.len(), code.localspluskinds.len());
+            names
+        };
+        // The only opcodes that call `vm.set_exception` (mutating the shared
+        // exc_info slot); instrumented variants only replace these base opcodes
+        // in place, so scanning the freshly-built stream is a sound predicate.
+        let has_exc_handling = code.instructions.iter().any(|u| {
+            matches!(
+                u.op,
+                Instruction::PushExcInfo
+                    | Instruction::PopExcept
+                    | Instruction::CheckEgMatch
+                    | Instruction::EndAsyncFor
+                    | Instruction::InstrumentedEndAsyncFor
+            )
+        });
         Self {
             code,
+            localsplus_names,
             source_path: AtomicPtr::new(sp),
+            nlocals,
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
+            has_exc_handling,
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn localsplus_name(&self, index: usize) -> &'static PyStrInterned {
+        // Bytecode operands and frame-proxy indices are validated against
+        // localspluskinds, whose length is kept equal to localsplus_names by
+        // every CodeObject construction path.
+        self.localsplus_names[index]
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {
@@ -516,7 +591,9 @@ impl PyCode {
         vm: &VirtualMachine,
         code: frozen::FrozenCodeObject<B>,
     ) -> PyRef<Self> {
-        Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)))
+        let py_code = Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)));
+        apply_frozen_co_filename(&py_code, vm);
+        py_code
     }
 
     #[cfg(feature = "host_env")]
@@ -564,9 +641,62 @@ impl PyCode {
     }
 }
 
+fn frozen_co_filename(path: &str) -> Option<&'static str> {
+    match path {
+        "_frozen_importlib" => Some("<frozen importlib._bootstrap>"),
+        "_frozen_importlib_external" => Some("<frozen importlib._bootstrap_external>"),
+        _ => None,
+    }
+}
+
+fn apply_frozen_co_filename(code: &PyCode, vm: &VirtualMachine) {
+    let Some(new) = frozen_co_filename(code.source_path().as_str()) else {
+        return;
+    };
+    set_source_path_tree(code, vm.ctx.intern_str(new));
+}
+
+fn set_source_path_tree(code: &PyCode, interned: &'static PyStrInterned) {
+    code.set_source_path(interned);
+    for constant in code.constants.iter() {
+        set_source_path_in_const(&constant.0, interned);
+    }
+}
+
+fn set_source_path_in_const(obj: &PyObject, interned: &'static PyStrInterned) {
+    if let Some(inner) = obj.downcast_ref::<PyCode>() {
+        set_source_path_tree(inner, interned);
+    } else if let Some(tup) = obj.downcast_ref::<super::PyTuple>() {
+        for item in tup {
+            set_source_path_in_const(item, interned);
+        }
+    }
+}
+
 impl fmt::Debug for PyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "code: {:?}", self.code)
+    }
+}
+
+impl PyCode {
+    /// Line number for a byte offset, or -1 when the linetable has no line.
+    pub fn addr2line(&self, lasti_bytes: i32) -> i32 {
+        if lasti_bytes < 0 {
+            return self.code.first_line_number.map_or(-1, |n| n.get() as i32);
+        }
+        let linetable = self.code.linetable.as_ref();
+        if linetable.is_empty() {
+            return self.code.first_line_number.map_or(-1, |n| n.get() as i32);
+        }
+        let first_line = self.code.first_line_number.map_or(0, |n| n.get() as i32);
+        let mut range = PyCodeAddressRange::new(linetable, first_line);
+        while range.ar_end <= lasti_bytes {
+            if !range.advance() {
+                return -1;
+            }
+        }
+        range.ar_line
     }
 }
 
@@ -582,7 +712,7 @@ impl Representable for PyCode {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let code = &zelf.code;
         Ok(format!(
-            "<code object {} at {:#x} file {:?}, line {}>",
+            "<code object {} at {:#x}, file \"{}\", line {}>",
             code.obj_name,
             zelf.get_id(),
             zelf.source_path().as_str(),
@@ -690,6 +820,7 @@ impl Constructor for PyCode {
         // Convert names tuple to vector of interned strings
         let names: Box<[&'static PyStrInterned]> = args
             .names
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -702,6 +833,7 @@ impl Constructor for PyCode {
 
         let varnames: Box<[&'static PyStrInterned]> = args
             .varnames
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -714,6 +846,7 @@ impl Constructor for PyCode {
 
         let cellvars: Box<[&'static PyStrInterned]> = args
             .cellvars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -726,6 +859,7 @@ impl Constructor for PyCode {
 
         let freevars: Box<[&'static PyStrInterned]> = args
             .freevars
+            .as_slice()
             .iter()
             .map(|obj| {
                 let s = obj
@@ -753,6 +887,7 @@ impl Constructor for PyCode {
         // Convert constants
         let constants = args
             .consts
+            .as_slice()
             .iter()
             .map(|obj| {
                 // Convert PyObject to Literal constant. For now, just wrap it
@@ -777,43 +912,26 @@ impl Constructor for PyCode {
             )],
         > = vec![(loc, loc); instructions.len()].into_boxed_slice();
 
-        // Build localspluskinds with cell-local merging
-        let localspluskinds = {
-            use rustpython_compiler_core::bytecode::*;
-            let nlocals = varnames.len();
-            let ncells = cellvars.len();
-            let nfrees = freevars.len();
-            let numdropped = cellvars
-                .iter()
-                .filter(|cv| varnames.iter().any(|v| *v == **cv))
-                .count();
-            let nlocalsplus = nlocals + ncells - numdropped + nfrees;
-            let mut kinds = vec![0u8; nlocalsplus];
-            for kind in kinds.iter_mut().take(nlocals) {
-                *kind = CO_FAST_LOCAL;
-            }
-            let mut cell_numdropped = 0usize;
-            for (i, cv) in cellvars.iter().enumerate() {
-                let merged_idx = varnames.iter().position(|v| **v == **cv);
-                if let Some(local_idx) = merged_idx {
-                    kinds[local_idx] |= CO_FAST_CELL;
-                    cell_numdropped += 1;
-                } else {
-                    kinds[nlocals + i - cell_numdropped] = CO_FAST_CELL;
-                }
-            }
-            let free_start = nlocals + ncells - numdropped;
-            for i in 0..nfrees {
-                kinds[free_start + i] = CO_FAST_FREE;
-            }
-            kinds.into_boxed_slice()
-        };
+        let flags = CodeFlags::from_bits_truncate(args.flags);
+        let localspluskinds = build_localspluskinds(
+            &varnames,
+            &cellvars,
+            &freevars,
+            (args.posonlyargcount, args.argcount, args.kwonlyargcount),
+            flags,
+            &instructions,
+        )
+        .map_err(|index| {
+            vm.new_value_error(format!(
+                "code: LOAD_FAST_AND_CLEAR oparg {index} out of range"
+            ))
+        })?;
 
         // Build the CodeObject
         let code = CodeObject {
             instructions,
             locations,
-            flags: CodeFlags::from_bits_truncate(args.flags),
+            flags,
             posonlyarg_count: args.posonlyargcount,
             arg_count: args.argcount,
             kwonlyarg_count: args.kwonlyargcount,
@@ -823,7 +941,8 @@ impl Constructor for PyCode {
             } else {
                 None
             },
-            max_stackdepth: args.stacksize,
+            // Room for one value is always reserved, even where nothing is pushed.
+            max_stackdepth: args.stacksize.max(1),
             obj_name: vm.ctx.intern_str(args.name.as_wtf8()),
             qualname: vm.ctx.intern_str(args.qualname.as_wtf8()),
             constants,
@@ -840,31 +959,18 @@ impl Constructor for PyCode {
     }
 }
 
-#[pyclass(
-    with(Representable, Constructor, Comparable, Hashable),
-    flags(HAS_WEAKREF)
-)]
 impl PyCode {
-    #[pygetset]
-    const fn co_posonlyargcount(&self) -> usize {
-        self.code.posonlyarg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_argcount(&self) -> usize {
-        self.code.arg_count as usize
-    }
-
-    #[pygetset]
-    const fn co_stacksize(&self) -> u32 {
-        self.code.max_stackdepth
-    }
-
-    #[pygetset]
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
+}
 
+#[pyclass(
+    itemsize = core::mem::size_of::<u16>(),
+    with(Representable, Constructor, Comparable, Hashable),
+    flags(HAS_WEAKREF)
+)]
+impl Py<PyCode> {
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let cellvars = self
@@ -876,33 +982,14 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_nlocals(&self) -> usize {
-        self.code.varnames.len()
-    }
-
-    #[pygetset]
     fn co_firstlineno(&self) -> u32 {
         self.code.first_line_number.map_or(0, |n| n.get() as _)
-    }
-
-    #[pygetset]
-    const fn co_kwonlyargcount(&self) -> usize {
-        self.code.kwonlyarg_count as usize
     }
 
     #[pygetset]
     fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
-    }
-
-    #[pygetset]
-    fn co_name(&self) -> PyStrRef {
-        self.code.obj_name.to_owned()
-    }
-    #[pygetset]
-    fn co_qualname(&self) -> PyStrRef {
-        self.code.qualname.to_owned()
     }
 
     #[pygetset]
@@ -915,11 +1002,6 @@ impl PyCode {
             .map(|name| name.to_pyobject(vm))
             .collect();
         vm.ctx.new_tuple(names)
-    }
-
-    #[pygetset]
-    const fn co_flags(&self) -> u32 {
-        self.code.flags.bits()
     }
 
     #[pygetset]
@@ -1189,15 +1271,14 @@ impl PyCode {
             let (src, left, right) = match op {
                 Instruction::ForIter { .. } => {
                     // left = fall-through past CACHE entries (continue iteration)
-                    // right = past END_FOR (iterator exhausted, skip cleanup)
-                    // arg is relative forward from after instruction+caches
+                    // right = next_offset + oparg + 2 (skip END_FOR and POP_ITER)
                     let after_cache = i + 1 + caches;
                     let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
                         Some(Instruction::EndFor | Instruction::InstrumentedEndFor)
                     ) {
-                        (target + 1) * 2
+                        (target + 2) * 2
                     } else {
                         target * 2
                     };
@@ -1246,12 +1327,12 @@ impl PyCode {
     }
 
     #[pymethod]
-    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn __replace__(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         self.replace(args, vm)
     }
 
     #[pymethod]
-    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         let ReplaceArgs {
             co_posonlyargcount,
             co_argcount,
@@ -1318,12 +1399,12 @@ impl PyCode {
                 .collect(),
         };
 
-        let flags = match co_flags {
+        let flags = CodeFlags::from_bits_truncate(match co_flags {
             OptionalArg::Present(flags) => flags,
             OptionalArg::Missing => self.code.flags.bits(),
-        };
+        });
 
-        let varnames = match co_varnames {
+        let varname_objects = match co_varnames {
             OptionalArg::Present(varnames) => varnames,
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
@@ -1333,10 +1414,12 @@ impl PyCode {
             OptionalArg::Missing => self.code.qualname.to_owned(),
         };
 
+        // Room for one value is always reserved, even where nothing is pushed.
         let max_stackdepth = match co_stacksize {
             OptionalArg::Present(stacksize) => stacksize,
             OptionalArg::Missing => self.code.max_stackdepth,
-        };
+        }
+        .max(1);
 
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {
@@ -1347,32 +1430,55 @@ impl PyCode {
             OptionalArg::Missing => self.code.instructions.clone(),
         };
 
+        let intern_all = |objs: Vec<PyObjectRef>, field: &str| -> PyResult<Box<[_]>> {
+            objs.into_iter()
+                .map(|o| {
+                    let s = o.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
+                        vm.new_type_error(format!("{field} must be a tuple of strings"))
+                    })?;
+                    Ok(vm.ctx.intern_str(s.as_wtf8()))
+                })
+                .collect::<PyResult<Vec<_>>>()
+                .map(Vec::into_boxed_slice)
+        };
+
+        let varnames = intern_all(varname_objects, "co_varnames")?;
+
         let cellvars = match co_cellvars {
-            OptionalArg::Present(cellvars) => cellvars
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            OptionalArg::Present(cellvars) => intern_all(cellvars, "co_cellvars")?,
             OptionalArg::Missing => self.code.cellvars.clone(),
         };
 
         let freevars = match co_freevars {
-            OptionalArg::Present(freevars) => freevars
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            OptionalArg::Present(freevars) => intern_all(freevars, "co_freevars")?,
             OptionalArg::Missing => self.code.freevars.clone(),
         };
 
-        // Validate co_nlocals if provided
-        if let OptionalArg::Present(nlocals) = co_nlocals
-            && nlocals as usize != varnames.len()
-        {
+        let nlocals = match co_nlocals {
+            OptionalArg::Present(nlocals) => nlocals as usize,
+            OptionalArg::Missing => self.code.varnames.len(),
+        };
+        if nlocals != varnames.len() {
             return Err(vm.new_value_error(format!(
                 "co_nlocals ({}) != len(co_varnames) ({})",
                 nlocals,
                 varnames.len()
             )));
         }
+
+        let localspluskinds = build_localspluskinds(
+            &varnames,
+            &cellvars,
+            &freevars,
+            (posonlyarg_count, arg_count, kwonlyarg_count),
+            flags,
+            &instructions,
+        )
+        .map_err(|index| {
+            vm.new_value_error(format!(
+                "code: LOAD_FAST_AND_CLEAR oparg {index} out of range"
+            ))
+        })?;
 
         // Handle linetable and exceptiontable
         let linetable = match co_linetable {
@@ -1388,14 +1494,14 @@ impl PyCode {
         };
 
         let new_code = CodeObject {
-            flags: CodeFlags::from_bits_truncate(flags),
+            flags,
             posonlyarg_count,
             arg_count,
             kwonlyarg_count,
-            source_path: source_path.as_object().as_interned_str(vm).unwrap(),
+            source_path: vm.ctx.intern_str(source_path.as_wtf8()),
             first_line_number,
-            obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
-            qualname: qualname.as_object().as_interned_str(vm).unwrap(),
+            obj_name: vm.ctx.intern_str(obj_name.as_wtf8()),
+            qualname: vm.ctx.intern_str(qualname.as_wtf8()),
 
             max_stackdepth,
             instructions,
@@ -1403,22 +1509,16 @@ impl PyCode {
             // It can be removed once we move every other code to use linetable only.
             locations: self.code.locations.clone(),
             constants: constants.into_iter().map(Literal).collect(),
-            names: names
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
-            varnames: varnames
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            names: intern_all(names, "co_names")?,
+            varnames,
             cellvars,
             freevars,
-            localspluskinds: self.code.localspluskinds.clone(),
+            localspluskinds,
             linetable,
             exceptiontable,
         };
 
-        Ok(Self::new(new_code))
+        Ok(PyCode::new(new_code))
     }
 
     #[pymethod]
@@ -1464,7 +1564,7 @@ impl PyCode {
 
 impl ToPyObject for CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_code(self).into()
+        vm.new_code(self).into()
     }
 }
 

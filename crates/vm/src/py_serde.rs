@@ -37,11 +37,11 @@ pub struct PyObjectSerializer<'s> {
 }
 
 impl<'s> PyObjectSerializer<'s> {
-    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObjectRef) -> Self {
+    pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObject) -> Self {
         PyObjectSerializer { pyobject, vm }
     }
 
-    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer<'_> {
+    fn clone_with_object(&self, pyobject: &'s PyObject) -> PyObjectSerializer<'_> {
         PyObjectSerializer {
             pyobject,
             vm: self.vm,
@@ -63,7 +63,10 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                 seq.end()
             };
         if let Some(s) = self.pyobject.downcast_ref::<PyStr>() {
-            serializer.serialize_str(s.as_ref())
+            serializer.serialize_str(
+                s.to_str()
+                    .ok_or_else(|| serde::ser::Error::custom("str contains surrogates"))?,
+            )
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.bool_type) {
@@ -83,7 +86,7 @@ impl serde::Serialize for PyObjectSerializer<'_> {
         } else if let Some(list) = self.pyobject.downcast_ref::<PyList>() {
             serialize_seq_elements(serializer, &list.borrow_vec())
         } else if let Some(tuple) = self.pyobject.downcast_ref::<PyTuple>() {
-            serialize_seq_elements(serializer, tuple)
+            serialize_seq_elements(serializer, tuple.as_slice())
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.dict_type) {
             let dict: PyDictRef = self.pyobject.to_owned().downcast().unwrap();
             let pairs: Vec<_> = dict.into_iter().collect();
@@ -111,8 +114,9 @@ pub struct PyObjectDeserializer<'c> {
 }
 
 impl<'c> PyObjectDeserializer<'c> {
-    pub fn new(vm: &'c VirtualMachine) -> Self {
-        PyObjectDeserializer { vm }
+    #[must_use]
+    pub const fn new(vm: &'c VirtualMachine) -> Self {
+        Self { vm }
     }
 }
 

@@ -5,7 +5,8 @@
 
 # This script generates Lib/snippets/whats_left_data.py with these variables defined:
 # expected_methods - a dictionary mapping builtin objects to their methods
-# cpymods - a dictionary mapping module names to their contents
+# cpymods - a dictionary mapping module names to their contents, including
+#           the members of native classes as "Class.member"
 # libdir - the location of RustPython's Lib/ directory.
 
 #
@@ -24,6 +25,7 @@ import platform
 import re
 import subprocess
 import sys
+import types
 import warnings
 from pydoc import ModuleScanner
 
@@ -71,6 +73,10 @@ def parse_args():
         help="which features to enable when building RustPython (default: [])",
         default=[],
     )
+    parser.add_argument(
+        "--rustpython",
+        help="use this RustPython executable instead of building one with cargo",
+    )
 
     args = parser.parse_args()
     return args
@@ -105,18 +111,66 @@ def attr_is_not_inherited(type_, attr):
     """
     returns True if type_'s attr is not inherited from any of its base classes
     """
-    bases = type_.__mro__[1:]
-    return getattr(type_, attr) not in (getattr(base, attr, None) for base in bases)
+    return attr in type_.__dict__
 
 
 def extra_info(obj):
-    if callable(obj) and not inspect._signature_is_builtin(obj):
+    import sys
+
+    class _OrderedSet:
+        """Set repr with sorted elements, so hash order does not change it."""
+
+        def __init__(self, items, braces):
+            self.items = items
+            self.braces = braces
+
+        def __repr__(self):
+            if not self.items:
+                return "set()" if self.braces else "frozenset()"
+            body = ", ".join(sorted(repr(item) for item in self.items))
+            if self.braces:
+                return "{" + body + "}"
+            return "frozenset({" + body + "})"
+
+    def canon_default(param):
+        default = param.default
+        # The interpreter path, version tuple, and install scheme differ per process.
+        if isinstance(default, str) and default == sys.executable:
+            return "<sys.executable>"
+        if default is sys.version_info:
+            return "<sys.version_info>"
+        if param.name == "scheme" and isinstance(default, str):
+            import sysconfig
+
+            if default == sysconfig.get_default_scheme():
+                return "<sysconfig.get_default_scheme()>"
+        if isinstance(default, frozenset):
+            return _OrderedSet(default, False)
+        if isinstance(default, set):
+            return _OrderedSet(default, True)
+        return default
+
+    def stable_signature(target):
+        sig = inspect.signature(target)
+        params = []
+        changed = False
+        for param in sig.parameters.values():
+            if param.default is not inspect.Parameter.empty:
+                default = canon_default(param)
+                if default is not param.default:
+                    param = param.replace(default=default)
+                    changed = True
+            params.append(param)
+        if changed:
+            sig = sig.replace(parameters=params)
+        # remove function memory addresses
+        return re.sub(r" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", str(sig))
+
+    if callable(obj):
         doc = inspect.getdoc(obj)
         try:
-            sig = str(inspect.signature(obj))
-            # remove function memory addresses
             return {
-                "sig": re.sub(" at 0x[0-9A-Fa-f]+", " at 0xdeadbeef", sig),
+                "sig": stable_signature(obj),
                 "doc": doc,
             }
         except Exception as e:
@@ -147,36 +201,70 @@ def name_sort_key(name):
     return name + "2"
 
 
+BUILTIN_TYPES = [
+    bool,
+    bytearray,
+    bytes,
+    complex,
+    dict,
+    enumerate,
+    filter,
+    float,
+    frozenset,
+    int,
+    list,
+    map,
+    memoryview,
+    range,
+    set,
+    slice,
+    str,
+    super,
+    tuple,
+    object,
+    zip,
+    classmethod,
+    staticmethod,
+    property,
+    Exception,
+    BaseException,
+]
+
+
+# CPython's per-class annotations cache and its vectorcall C API offset
+CPYTHON_INTERNAL_ATTRS = {"__annotations_cache__", "__vectorcalloffset__"}
+
+
+def own_attrs(typ):
+    attrs = []
+    for attr in dir(typ):
+        if attr in CPYTHON_INTERNAL_ATTRS:
+            continue
+        # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
+        if not hasattr(typ, attr):
+            continue
+        if attr_is_not_inherited(typ, attr):
+            attrs.append((attr, extra_info(getattr(typ, attr))))
+    return attrs
+
+
+def is_native_class(obj):
+    # A class statement records __firstlineno__. A class made by calling
+    # type(), like a namedtuple, still has Python functions.
+    if not isinstance(obj, type) or "__firstlineno__" in obj.__dict__:
+        return False
+    for value in obj.__dict__.values():
+        if isinstance(value, (classmethod, staticmethod)):
+            value = value.__func__
+        if isinstance(value, property):
+            value = value.fget
+        if isinstance(value, types.FunctionType):
+            return False
+    return True
+
+
 def gen_methods():
-    types = [
-        bool,
-        bytearray,
-        bytes,
-        complex,
-        dict,
-        enumerate,
-        filter,
-        float,
-        frozenset,
-        int,
-        list,
-        map,
-        memoryview,
-        range,
-        set,
-        slice,
-        str,
-        super,
-        tuple,
-        object,
-        zip,
-        classmethod,
-        staticmethod,
-        property,
-        Exception,
-        BaseException,
-    ]
-    objects = [t.__name__ for t in types]
+    objects = [t.__name__ for t in BUILTIN_TYPES]
     objects.append("type(None)")
 
     iters = [
@@ -198,14 +286,7 @@ def gen_methods():
     methods = {}
     for typ_code in objects + iters:
         typ = eval(typ_code)
-        attrs = []
-        for attr in dir(typ):
-            # Skip attributes in dir() but not actually accessible (e.g., descriptor that raises)
-            if not hasattr(typ, attr):
-                continue
-            if attr_is_not_inherited(typ, attr):
-                attrs.append((attr, extra_info(getattr(typ, attr))))
-        methods[typ.__name__] = (typ_code, extra_info(typ), attrs)
+        methods[typ.__name__] = (typ_code, extra_info(typ), own_attrs(typ))
 
     output = "expected_methods = {\n"
     for name in sorted(methods.keys(), key=name_sort_key):
@@ -268,13 +349,68 @@ def is_child(module, item):
 
 def dir_of_mod_or_error(module_name, keep_other=True):
     module = import_module(module_name)
+    if isinstance(module, Exception):
+        return module
     item_names = sorted(set(dir(module)))
     result = {}
     for item_name in item_names:
+        # eval() adds __builtins__ to its globals, and inspect.signature() evals
+        # defaults in the module's namespace, so whether it exists depends on
+        # what was inspected before.
+        if item_name == "__builtins__":
+            continue
+        if item_name == "__doc__":
+            # extra_info() reports a docstring for a callable only, and a module
+            # is not one. getdoc() matches how a callable's is normalized.
+            result[item_name] = {"sig": None, "doc": inspect.getdoc(module)}
+            continue
         item = getattr(module, item_name)
         # don't repeat items imported from other modules
         if keep_other or is_child(module, item) or inspect.getmodule(item) is None:
             result[item_name] = extra_info(item)
+    return result
+
+
+def _is_decimal_fallback_item(item):
+    """Items that belong to the pure decimal module, not an imported helper."""
+    if inspect.ismodule(item):
+        return False
+    declared = getattr(item, "__module__", None)
+    if declared in {"decimal", "_pydecimal"}:
+        return True
+    return declared is None and inspect.getmodule(item) is None
+
+
+def _expand_class_members(dir_result, module):
+    for item_name in list(dir_result):
+        if "." in item_name:
+            continue
+        item = getattr(module, item_name)
+        if (
+            isinstance(item, type)
+            and item not in BUILTIN_TYPES
+            and getattr(item, "__name__", None) == item_name
+        ):
+            for attr, info in own_attrs(item):
+                dir_result[f"{item_name}.{attr}"] = info
+
+
+def _pure_decimal_baseline(wrapper):
+    """Signatures and docs from `_pydecimal`, with the wrapper module docstring."""
+    import _pydecimal
+
+    result = {}
+    for item_name in sorted(set(dir(_pydecimal))):
+        if item_name == "__builtins__":
+            continue
+        if item_name == "__doc__":
+            result[item_name] = {"sig": None, "doc": inspect.getdoc(wrapper)}
+            continue
+        item = getattr(_pydecimal, item_name)
+        if not _is_decimal_fallback_item(item):
+            continue
+        result[item_name] = extra_info(item)
+    _expand_class_members(result, _pydecimal)
     return result
 
 
@@ -285,6 +421,17 @@ def gen_modules():
     for mod_name in sorted(scan_modules(), key=name_sort_key):
         if mod_name in IGNORED_MODULES:
             continue
+        # decimal's accelerated types are not the implementation under test.
+        if mod_name == "decimal":
+            module = import_module(mod_name)
+            if isinstance(module, Exception):
+                print(
+                    f"!!! {mod_name} skipped because {type(module).__name__}: {str(module)}",
+                    file=sys.stderr,
+                )
+                continue
+            modules[mod_name] = _pure_decimal_baseline(module)
+            continue
         # when generating CPython list, ignore items defined by other modules
         dir_result = dir_of_mod_or_error(mod_name, keep_other=False)
         if isinstance(dir_result, Exception):
@@ -293,6 +440,17 @@ def gen_modules():
                 file=sys.stderr,
             )
             continue
+        module = import_module(mod_name)
+        for item_name in list(dir_result):
+            item = getattr(module, item_name)
+            # an alias such as array.ArrayType is scanned under its real name
+            if (
+                is_native_class(item)
+                and item not in BUILTIN_TYPES
+                and item.__name__ == item_name
+            ):
+                for attr, info in own_attrs(item):
+                    dir_result[f"{item_name}.{attr}"] = info
         modules[mod_name] = dir_result
     return modules
 
@@ -342,28 +500,46 @@ def compare():
     import warnings
     from contextlib import redirect_stdout
 
+    def sig_mismatch(rustpy_sig, cpython_sig):
+        # A signature CPython cannot produce is never a mismatch; having one is fine.
+        if cpython_sig is None or cpython_sig.startswith("ValueError("):
+            return False
+        return rustpy_sig != cpython_sig
+
     def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
             return ""
 
         is_inherited = not attr_is_not_inherited(typ, method_name)
-        if is_inherited:
+        # Inheriting something that reads the same as CPython's own member
+        # leaves nothing to implement.
+        if is_inherited and extra_info(getattr(typ, method_name)) != real_method_value:
             return "(inherited)"
-
-        value = extra_info(getattr(typ, method_name))
-        if value != real_method_value:
-            return f"{value} != {real_method_value}"
 
         return None
 
     not_implementeds = {}
+    mismatched_methods = {}
+    mismatched_method_docs = {}
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
             reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
+                continue
+            # A method that exists but differs is a mismatch, not a missing one.
+            value = extra_info(getattr(typ, method))
+            item = f"{name}.{method}"
+            if sig_mismatch(value["sig"], real_method_value["sig"]):
+                mismatched_methods.setdefault(name, []).append(
+                    (item, value["sig"], real_method_value["sig"])
+                )
+            if value["doc"] != real_method_value["doc"]:
+                mismatched_method_docs.setdefault(name, []).append(
+                    (item, value["doc"], real_method_value["doc"])
+                )
         if missing_methods:
             not_implementeds[name] = missing_methods
 
@@ -390,42 +566,62 @@ def compare():
         "not_implemented": {},
         "failed_to_import": {},
         "missing_items": {},
-        "mismatched_items": {},
-        "mismatched_doc_items": {},
+        # builtin types first, keyed by type name, then modules
+        "mismatched_items": mismatched_methods,
+        "mismatched_doc_items": mismatched_method_docs,
     }
     for modname, cpymod in cpymods.items():
         rustpymod = rustpymods.get(modname)
         if rustpymod is None:
             result["not_implemented"][modname] = None
         elif isinstance(rustpymod, Exception):
-            result["failed_to_import"][modname] = rustpymod.__class__.__name__ + str(
-                rustpymod
+            result["failed_to_import"][modname] = (
+                f"{rustpymod.__class__.__name__}: {rustpymod}"
             )
         else:
+            module = import_module(modname)
+            skipped = set()
+            inherited = set()
+            for item in cpymod:
+                cls_name, dot, attr = item.partition(".")
+                if not dot:
+                    continue
+                cls = getattr(module, cls_name, None)
+                if not isinstance(cls, type):
+                    # The class line already reports a missing class or one
+                    # implemented as something else.
+                    skipped.add(item)
+                elif not hasattr(cls, attr):
+                    continue
+                elif attr_is_not_inherited(cls, attr):
+                    rustpymod[item] = extra_info(getattr(cls, attr))
+                elif extra_info(getattr(cls, attr)) == cpymod[item]:
+                    rustpymod[item] = cpymod[item]
+                else:
+                    inherited.add(item)
             implemented_items = sorted(set(cpymod) & set(rustpymod))
-            mod_missing_items = set(cpymod) - set(rustpymod)
+            mod_missing_items = set(cpymod) - set(rustpymod) - skipped
             mod_missing_items = sorted(
-                f"{modname}.{item}" for item in mod_missing_items
+                f"{modname}.{item}" + (" (inherited)" if item in inherited else "")
+                for item in mod_missing_items
             )
             mod_mismatched_items = [
                 (f"{modname}.{item}", rustpymod[item]["sig"], cpymod[item]["sig"])
                 for item in implemented_items
-                if rustpymod[item]["sig"] != cpymod[item]["sig"]
-                and not isinstance(cpymod[item]["sig"], Exception)
+                if sig_mismatch(rustpymod[item]["sig"], cpymod[item]["sig"])
             ]
             mod_mismatched_doc_items = [
                 (f"{modname}.{item}", rustpymod[item]["doc"], cpymod[item]["doc"])
                 for item in implemented_items
                 if rustpymod[item]["doc"] != cpymod[item]["doc"]
             ]
-            if mod_missing_items or mod_mismatched_items:
-                if mod_missing_items:
-                    result["missing_items"][modname] = mod_missing_items
-                if mod_mismatched_items:
-                    result["mismatched_items"][modname] = mod_mismatched_items
-                if mod_mismatched_doc_items:
-                    result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
-            else:
+            if mod_missing_items:
+                result["missing_items"][modname] = mod_missing_items
+            if mod_mismatched_items:
+                result["mismatched_items"][modname] = mod_mismatched_items
+            if mod_mismatched_doc_items:
+                result["mismatched_doc_items"][modname] = mod_mismatched_doc_items
+            if not (mod_missing_items or mod_mismatched_items):
                 result["implemented"][modname] = None
 
     result["cpython_modules"] = cpymods
@@ -446,27 +642,40 @@ with open(GENERATED_FILE, "w", encoding="utf-8") as f:
     f.write(output + "\n")
 
 
-cargo_build_command = ["cargo", "build", "--release"]
-if args.no_default_features:
-    cargo_build_command.append("--no-default-features")
+def resolve_rustpython(path):
+    if os.path.isfile(path):
+        return path
+    if os.name == "nt" and not path.lower().endswith(".exe"):
+        exe = path + ".exe"
+        if os.path.isfile(exe):
+            return exe
+    sys.exit(f"RustPython executable not found: {path}")
 
-joined_features = ",".join(args.features)
-if args.features:
-    cargo_build_command.extend(["--features", joined_features])
 
-subprocess.run(cargo_build_command, check=True)
+if args.rustpython:
+    rustpython_run_command = [resolve_rustpython(args.rustpython), GENERATED_FILE]
+else:
+    cargo_build_command = ["cargo", "build", "--release"]
+    if args.no_default_features:
+        cargo_build_command.append("--no-default-features")
 
-cargo_run_command = ["cargo", "run", "--release"]
-if args.no_default_features:
-    cargo_run_command.append("--no-default-features")
+    joined_features = ",".join(args.features)
+    if args.features:
+        cargo_build_command.extend(["--features", joined_features])
 
-if args.features:
-    cargo_run_command.extend(["--features", joined_features])
+    subprocess.run(cargo_build_command, check=True)
 
-cargo_run_command.extend(["-q", "--", GENERATED_FILE])
+    rustpython_run_command = ["cargo", "run", "--release"]
+    if args.no_default_features:
+        rustpython_run_command.append("--no-default-features")
+
+    if args.features:
+        rustpython_run_command.extend(["--features", joined_features])
+
+    rustpython_run_command.extend(["-q", "--", GENERATED_FILE])
 
 result = subprocess.run(
-    cargo_run_command,
+    rustpython_run_command,
     env={**os.environ.copy(), "RUSTPYTHONPATH": "Lib"},
     text=True,
     capture_output=True,
@@ -504,8 +713,6 @@ if args.signature:
     print("\n# mismatching signatures (warnings)")
     for modname, mismatched in result["mismatched_items"].items():
         for i, (item, rustpy_value, cpython_value) in enumerate(mismatched):
-            if cpython_value and cpython_value.startswith("ValueError("):
-                continue  # these items will never match
             if rustpy_value is None or rustpy_value.startswith("ValueError("):
                 rustpy_value = f" {rustpy_value}"
             print(f"{item}{rustpy_value}")

@@ -1,7 +1,9 @@
 // spell-checker:ignore uncomputed
-use crate::atomic::{PyAtomic, Radium};
+use crate::atomic::{OncePtr, PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+use crate::wtf8_index::Wtf8Index;
+use alloc::borrow::Cow;
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
 use core::ops::{Bound, RangeBounds};
@@ -25,11 +27,10 @@ impl core::ops::BitOr for StrKind {
     type Output = Self;
 
     fn bitor(self, other: Self) -> Self {
-        use StrKind::*;
         match (self, other) {
-            (Wtf8, _) | (_, Wtf8) => Wtf8,
-            (Utf8, _) | (_, Utf8) => Utf8,
-            (Ascii, Ascii) => Ascii,
+            (Self::Wtf8, _) | (_, Self::Wtf8) => Self::Wtf8,
+            (Self::Utf8, _) | (_, Self::Utf8) => Self::Utf8,
+            (Self::Ascii, Self::Ascii) => Self::Ascii,
         }
     }
 }
@@ -113,11 +114,70 @@ pub enum PyKindStr<'a> {
     Wtf8(&'a Wtf8),
 }
 
+/// How far from an end an index is resolved by walking rather than by building
+/// the code point index.
+///
+/// PyPy spells this `MAX_UNROLL_NEXT_CODEPOINT_POS`, in a guard that also asks
+/// the JIT whether the index is a constant, so that the walk unrolls. There is
+/// no JIT here to ask, and the walk is short rather than free -- but four steps
+/// still beat a pass over the whole buffer, and skipping the build is what
+/// keeps `s[0]` and `s[1:-1]` on a long string from paying for a table.
+const MAX_WALK_TO_INDEX: usize = 4;
+
 #[derive(Debug, Clone)]
 pub struct StrData {
     data: Box<Wtf8>,
     kind: StrKind,
     len: StrLen,
+    index: Wtf8IndexSlot,
+}
+
+/// A [`Wtf8Index`] built on first use.
+///
+/// The table is a pure function of `data`, so publishing it races benignly: a
+/// thread that loses the exchange drops its own copy and reads the winner's.
+#[derive(Default)]
+struct Wtf8IndexSlot(OncePtr<Wtf8Index>);
+
+impl Wtf8IndexSlot {
+    #[inline(always)]
+    fn new() -> Self {
+        Self(OncePtr::new())
+    }
+
+    #[inline]
+    fn get_or_build(&self, data: &Wtf8, char_len: usize) -> &Wtf8Index {
+        let index = self
+            .0
+            .get_or_init(|| Box::new(Wtf8Index::new(data, char_len)));
+        // The slot owns the table, never replaces it, and outlives the borrow.
+        unsafe { index.as_ref() }
+    }
+}
+
+impl fmt::Debug for Wtf8IndexSlot {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0.get() {
+            Some(_) => f.write_str("<built>"),
+            None => f.write_str("<unbuilt>"),
+        }
+    }
+}
+
+impl Clone for Wtf8IndexSlot {
+    /// A fresh slot: the clone copies the buffer, so it has to index that copy,
+    /// and the table is rebuilt on demand rather than eagerly here.
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Wtf8IndexSlot {
+    fn drop(&mut self) {
+        if let Some(index) = self.0.get() {
+            drop(unsafe { Box::from_raw(index.as_ptr()) });
+        }
+    }
 }
 
 struct StrLen(PyAtomic<usize>);
@@ -164,6 +224,7 @@ impl Default for StrData {
             data: <Box<Wtf8>>::default(),
             kind: StrKind::Ascii,
             len: StrLen::zero(),
+            index: Wtf8IndexSlot::new(),
         }
     }
 }
@@ -194,6 +255,7 @@ impl From<Box<AsciiStr>> for StrData {
             len: value.len().into(),
             data: value.into(),
             kind: StrKind::Ascii,
+            index: Wtf8IndexSlot::new(),
         }
     }
 }
@@ -213,6 +275,7 @@ impl From<char> for StrData {
                 data: ch.to_string().into(),
                 kind: StrKind::Utf8,
                 len: 1.into(),
+                index: Wtf8IndexSlot::new(),
             }
         }
     }
@@ -227,6 +290,7 @@ impl From<CodePoint> for StrData {
                 data: Wtf8Buf::from(ch).into(),
                 kind: StrKind::Wtf8,
                 len: 1.into(),
+                index: Wtf8IndexSlot::new(),
             }
         }
     }
@@ -242,7 +306,12 @@ impl StrData {
             StrKind::Ascii => data.len().into(),
             _ => StrLen::uncomputed(),
         };
-        Self { data, kind, len }
+        Self {
+            data,
+            kind,
+            len,
+            index: Wtf8IndexSlot::new(),
+        }
     }
 
     /// # Safety
@@ -254,6 +323,7 @@ impl StrData {
             data,
             kind,
             len: char_len.into(),
+            index: Wtf8IndexSlot::new(),
         }
     }
 
@@ -323,11 +393,117 @@ impl StrData {
         len
     }
 
+    /// The byte offset the `index`-th code point starts at.
+    ///
+    /// An `index` at or past the end answers the buffer's byte length, so a
+    /// caller walking to a bound does not have to special-case it.
+    ///
+    /// O(1), but the first call on a non-ASCII string builds an index over the
+    /// whole buffer, so a caller that resolves a single index and stops is
+    /// better served by [`Self::nth_char`].
+    pub fn char_index_to_byte(&self, index: usize) -> usize {
+        // For ASCII the two units coincide, and the table would be a Nth entry
+        // saying N.
+        if self.kind.is_ascii() {
+            return index.min(self.data.len());
+        }
+        let char_len = self.char_len();
+        if index >= char_len {
+            return self.data.len();
+        }
+        self.index
+            .get_or_build(&self.data, char_len)
+            .byte_offset(&self.data, index)
+    }
+
+    /// The byte offset of code point `index`, for a caller that resolves one
+    /// index and stops.
+    ///
+    /// Building the table costs a pass over the whole buffer, so it is worth it
+    /// only for a caller that comes back; an index within
+    /// [`MAX_WALK_TO_INDEX`] steps of either end is cheaper to walk to, and
+    /// walking keeps `s[0]` on a long string from paying for a table it will
+    /// never use again. Anything further in builds, on the reasoning that a
+    /// string indexed once in the middle tends to be indexed again.
+    fn char_index_to_byte_once(&self, index: usize) -> usize {
+        if index <= MAX_WALK_TO_INDEX {
+            return self
+                .data
+                .code_point_indices()
+                .nth(index)
+                .map_or(self.data.len(), |(byte, _)| byte);
+        }
+        let from_end = self.char_len() - index;
+        if from_end <= MAX_WALK_TO_INDEX {
+            return self
+                .data
+                .code_point_indices()
+                .nth_back(from_end - 1)
+                .map_or(self.data.len(), |(byte, _)| byte);
+        }
+        self.char_index_to_byte(index)
+    }
+
+    /// The byte range spanned by the code points in `range`, whose end must not
+    /// exceed the string's code point count.
+    ///
+    /// A range that reaches within [`MAX_WALK_TO_INDEX`] of *both* ends is
+    /// walked to for the same reason a single index near one end is -- a slice
+    /// like `s[1:-1]` should not build a table over the whole string.
+    #[must_use]
+    pub fn char_range_to_bytes(&self, range: core::ops::Range<usize>) -> core::ops::Range<usize> {
+        if self.kind.is_ascii() {
+            return range;
+        }
+        let from_end = self.char_len() - range.end;
+        if range.start <= MAX_WALK_TO_INDEX && from_end <= MAX_WALK_TO_INDEX {
+            // Two walks over disjoint ends, each of at most MAX_WALK_TO_INDEX
+            // steps -- one iterator driven from both sides would have them meet
+            // on a short string.
+            let start = self
+                .data
+                .code_point_indices()
+                .nth(range.start)
+                .map_or(self.data.len(), |(byte, _)| byte);
+            let end = match from_end {
+                0 => self.data.len(),
+                n => self
+                    .data
+                    .code_point_indices()
+                    .nth_back(n - 1)
+                    .map_or(self.data.len(), |(byte, _)| byte),
+            };
+            return start..end;
+        }
+        self.char_index_to_byte(range.start)..self.char_index_to_byte(range.end)
+    }
+
+    /// The character index of the character starting at byte offset `bytepos`,
+    /// the inverse of [`Self::char_index_to_byte`].
+    ///
+    /// `bytepos` must be a character boundary at or before the end.
+    ///
+    /// Logarithmic rather than constant, because the index is keyed the other
+    /// way -- but a search whose bounds came from `char_index_to_byte` has the
+    /// table already, and this is what turns a byte offset back into the answer
+    /// a caller asked for in characters.
+    pub fn byte_to_char_index(&self, bytepos: usize) -> usize {
+        if self.kind.is_ascii() {
+            return bytepos;
+        }
+        let char_len = self.char_len();
+        self.index
+            .get_or_build(&self.data, char_len)
+            .char_index_at_byte(&self.data, bytepos, char_len)
+    }
+
     pub fn nth_char(&self, index: usize) -> CodePoint {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s[index].into(),
-            PyKindStr::Utf8(s) => s.chars().nth(index).unwrap().into(),
-            PyKindStr::Wtf8(w) => w.code_points().nth(index).unwrap(),
+            _ => self.data[self.char_index_to_byte_once(index)..]
+                .code_points()
+                .next()
+                .unwrap(),
         }
     }
 }
@@ -417,20 +593,21 @@ pub fn codepoint_range_end(s: &Wtf8, n_chars: usize) -> Option<usize> {
 }
 
 #[must_use]
-pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
+/// Returns `None` for a width whose result cannot be allocated.
+pub fn zfill(bytes: &[u8], width: usize) -> Option<Vec<u8>> {
     if width <= bytes.len() {
-        bytes.to_vec()
-    } else {
-        let (sign, s) = match bytes.first() {
-            Some(_sign @ (b'+' | b'-')) => (unsafe { bytes.get_unchecked(..1) }, &bytes[1..]),
-            _ => (&b""[..], bytes),
-        };
-        let mut filled = Vec::new();
-        filled.extend_from_slice(sign);
-        filled.extend(core::iter::repeat_n(b'0', width - bytes.len()));
-        filled.extend_from_slice(s);
-        filled
+        return Some(bytes.to_vec());
     }
+    let (sign, s) = match bytes.first() {
+        Some(_sign @ (b'+' | b'-')) => (unsafe { bytes.get_unchecked(..1) }, &bytes[1..]),
+        _ => (&b""[..], bytes),
+    };
+    let mut filled = Vec::new();
+    filled.try_reserve_exact(width).ok()?;
+    filled.extend_from_slice(sign);
+    filled.extend(core::iter::repeat_n(b'0', width - bytes.len()));
+    filled.extend_from_slice(s);
+    Some(filled)
 }
 
 /// Convert a string to ascii compatible, escaping unicode-s into escape
@@ -565,26 +742,31 @@ pub mod levenshtein {
 
 /// Replace all tabs in a string with spaces, using the given tab size.
 #[must_use]
-pub fn expandtabs(input: &str, tab_size: usize) -> String {
+pub fn expandtabs(input: &Wtf8, tab_size: usize) -> Wtf8Buf {
+    // A tab size of zero, which is also where a negative one lands, leaves no
+    // column for a tab to advance to: the tabs come out and nothing else moves.
+    // Going through the arithmetic anyway subtracts the current column from a
+    // tab stop of zero and underflows on the first tab, so the width asked for
+    // next is `usize::MAX`. The bytes version of this already returns here.
+    if tab_size == 0 {
+        return input.code_points().filter(|ch| *ch != '\t').collect();
+    }
+
     let tab_stop = tab_size;
-    let mut expanded_str = String::with_capacity(input.len());
+    let mut expanded_str = Wtf8Buf::with_capacity(input.len());
     let mut tab_size = tab_stop;
     let mut col_count = 0usize;
-    for ch in input.chars() {
-        match ch {
-            '\t' => {
-                let num_spaces = tab_size - col_count;
-                col_count += num_spaces;
-                let expand = " ".repeat(num_spaces);
-                expanded_str.push_str(&expand);
-            }
-            '\r' | '\n' => {
-                expanded_str.push(ch);
+    for ch in input.code_points() {
+        if ch == '\t' {
+            let num_spaces = tab_size - col_count;
+            col_count += num_spaces;
+            expanded_str.push_str(&" ".repeat(num_spaces));
+        } else {
+            expanded_str.push(ch);
+            if ch == '\r' || ch == '\n' {
                 col_count = 0;
                 tab_size = 0;
-            }
-            _ => {
-                expanded_str.push(ch);
+            } else {
                 col_count += 1;
             }
         }
@@ -615,53 +797,86 @@ macro_rules! ascii {
 }
 pub use ascii;
 
-// TODO: this should probably live in a crate like unic or unicode-properties
-const UNICODE_DECIMAL_VALUES: &[char] = &[
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨',
-    '٩', '۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹', '߀', '߁', '߂', '߃', '߄', '߅', '߆', '߇',
-    '߈', '߉', '०', '१', '२', '३', '४', '५', '६', '७', '८', '९', '০', '১', '২', '৩', '৪', '৫', '৬',
-    '৭', '৮', '৯', '੦', '੧', '੨', '੩', '੪', '੫', '੬', '੭', '੮', '੯', '૦', '૧', '૨', '૩', '૪', '૫',
-    '૬', '૭', '૮', '૯', '୦', '୧', '୨', '୩', '୪', '୫', '୬', '୭', '୮', '୯', '௦', '௧', '௨', '௩', '௪',
-    '௫', '௬', '௭', '௮', '௯', '౦', '౧', '౨', '౩', '౪', '౫', '౬', '౭', '౮', '౯', '೦', '೧', '೨', '೩',
-    '೪', '೫', '೬', '೭', '೮', '೯', '൦', '൧', '൨', '൩', '൪', '൫', '൬', '൭', '൮', '൯', '෦', '෧', '෨',
-    '෩', '෪', '෫', '෬', '෭', '෮', '෯', '๐', '๑', '๒', '๓', '๔', '๕', '๖', '๗', '๘', '๙', '໐', '໑',
-    '໒', '໓', '໔', '໕', '໖', '໗', '໘', '໙', '༠', '༡', '༢', '༣', '༤', '༥', '༦', '༧', '༨', '༩', '၀',
-    '၁', '၂', '၃', '၄', '၅', '၆', '၇', '၈', '၉', '႐', '႑', '႒', '႓', '႔', '႕', '႖', '႗', '႘', '႙',
-    '០', '១', '២', '៣', '៤', '៥', '៦', '៧', '៨', '៩', '᠐', '᠑', '᠒', '᠓', '᠔', '᠕', '᠖', '᠗', '᠘',
-    '᠙', '᥆', '᥇', '᥈', '᥉', '᥊', '᥋', '᥌', '᥍', '᥎', '᥏', '᧐', '᧑', '᧒', '᧓', '᧔', '᧕', '᧖', '᧗',
-    '᧘', '᧙', '᪀', '᪁', '᪂', '᪃', '᪄', '᪅', '᪆', '᪇', '᪈', '᪉', '᪐', '᪑', '᪒', '᪓', '᪔', '᪕', '᪖',
-    '᪗', '᪘', '᪙', '᭐', '᭑', '᭒', '᭓', '᭔', '᭕', '᭖', '᭗', '᭘', '᭙', '᮰', '᮱', '᮲', '᮳', '᮴', '᮵',
-    '᮶', '᮷', '᮸', '᮹', '᱀', '᱁', '᱂', '᱃', '᱄', '᱅', '᱆', '᱇', '᱈', '᱉', '᱐', '᱑', '᱒', '᱓', '᱔',
-    '᱕', '᱖', '᱗', '᱘', '᱙', '꘠', '꘡', '꘢', '꘣', '꘤', '꘥', '꘦', '꘧', '꘨', '꘩', '꣐', '꣑', '꣒', '꣓',
-    '꣔', '꣕', '꣖', '꣗', '꣘', '꣙', '꤀', '꤁', '꤂', '꤃', '꤄', '꤅', '꤆', '꤇', '꤈', '꤉', '꧐', '꧑', '꧒',
-    '꧓', '꧔', '꧕', '꧖', '꧗', '꧘', '꧙', '꧰', '꧱', '꧲', '꧳', '꧴', '꧵', '꧶', '꧷', '꧸', '꧹', '꩐', '꩑',
-    '꩒', '꩓', '꩔', '꩕', '꩖', '꩗', '꩘', '꩙', '꯰', '꯱', '꯲', '꯳', '꯴', '꯵', '꯶', '꯷', '꯸', '꯹', '０',
-    '１', '２', '３', '４', '５', '６', '７', '８', '９', '𐒠', '𐒡', '𐒢', '𐒣', '𐒤', '𐒥', '𐒦', '𐒧',
-    '𐒨', '𐒩', '𑁦', '𑁧', '𑁨', '𑁩', '𑁪', '𑁫', '𑁬', '𑁭', '𑁮', '𑁯', '𑃰', '𑃱', '𑃲', '𑃳', '𑃴', '𑃵', '𑃶',
-    '𑃷', '𑃸', '𑃹', '𑄶', '𑄷', '𑄸', '𑄹', '𑄺', '𑄻', '𑄼', '𑄽', '𑄾', '𑄿', '𑇐', '𑇑', '𑇒', '𑇓', '𑇔', '𑇕',
-    '𑇖', '𑇗', '𑇘', '𑇙', '𑋰', '𑋱', '𑋲', '𑋳', '𑋴', '𑋵', '𑋶', '𑋷', '𑋸', '𑋹', '𑑐', '𑑑', '𑑒', '𑑓', '𑑔',
-    '𑑕', '𑑖', '𑑗', '𑑘', '𑑙', '𑓐', '𑓑', '𑓒', '𑓓', '𑓔', '𑓕', '𑓖', '𑓗', '𑓘', '𑓙', '𑙐', '𑙑', '𑙒', '𑙓',
-    '𑙔', '𑙕', '𑙖', '𑙗', '𑙘', '𑙙', '𑛀', '𑛁', '𑛂', '𑛃', '𑛄', '𑛅', '𑛆', '𑛇', '𑛈', '𑛉', '𑜰', '𑜱', '𑜲',
-    '𑜳', '𑜴', '𑜵', '𑜶', '𑜷', '𑜸', '𑜹', '𑣠', '𑣡', '𑣢', '𑣣', '𑣤', '𑣥', '𑣦', '𑣧', '𑣨', '𑣩', '𑱐', '𑱑',
-    '𑱒', '𑱓', '𑱔', '𑱕', '𑱖', '𑱗', '𑱘', '𑱙', '𑵐', '𑵑', '𑵒', '𑵓', '𑵔', '𑵕', '𑵖', '𑵗', '𑵘', '𑵙', '𖩠',
-    '𖩡', '𖩢', '𖩣', '𖩤', '𖩥', '𖩦', '𖩧', '𖩨', '𖩩', '𖭐', '𖭑', '𖭒', '𖭓', '𖭔', '𖭕', '𖭖', '𖭗', '𖭘', '𖭙',
-    '𝟎', '𝟏', '𝟐', '𝟑', '𝟒', '𝟓', '𝟔', '𝟕', '𝟖', '𝟗', '𝟘', '𝟙', '𝟚', '𝟛', '𝟜', '𝟝', '𝟞', '𝟟', '𝟠',
-    '𝟡', '𝟢', '𝟣', '𝟤', '𝟥', '𝟦', '𝟧', '𝟨', '𝟩', '𝟪', '𝟫', '𝟬', '𝟭', '𝟮', '𝟯', '𝟰', '𝟱', '𝟲', '𝟳',
-    '𝟴', '𝟵', '𝟶', '𝟷', '𝟸', '𝟹', '𝟺', '𝟻', '𝟼', '𝟽', '𝟾', '𝟿', '𞥐', '𞥑', '𞥒', '𞥓', '𞥔', '𞥕', '𞥖',
-    '𞥗', '𞥘', '𞥙',
-];
-
+/// The decimal digit value of `ch`, if it has one — CPython's `Py_UNICODE_TODECIMAL`.
+///
+/// Reads the bundled character database, the same source `unicodedata.decimal`
+/// consults, so the two can never disagree and new scripts are picked up with the
+/// next Unicode update.
 #[must_use]
 pub fn char_to_decimal(ch: char) -> Option<u8> {
-    UNICODE_DECIMAL_VALUES
-        .binary_search(&ch)
-        .ok()
-        .map(|i| (i % 10) as u8)
+    let value = rustpython_unicode::Ucd::new(true).decimal(CodePoint::from(ch))?;
+    u8::try_from(value).ok()
+}
+
+/// Replace Unicode decimal digits with their ASCII equivalents and any Unicode
+/// whitespace with a plain space, so the byte-oriented numeric parsers can read
+/// them. Mirrors CPython's `_PyUnicode_TransformDecimalAndSpaceToASCII`.
+///
+/// The result is always ASCII. Any other non-ASCII character cannot appear in a
+/// numeric literal, so it becomes a `?` and the rest of the string is dropped:
+/// `?` is rejected by every parser at every base, which leaves the caller — the
+/// one that knows the base and owns the original string — to raise the error.
+#[must_use]
+pub fn transform_decimal_and_space_to_ascii(s: &str) -> Cow<'_, str> {
+    if s.is_ascii() {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if (c as u32) < 127 {
+            out.push(c);
+        } else if c.is_whitespace() {
+            out.push(' ');
+        } else if let Some(n) = char_to_decimal(c) {
+            out.push(char::from_digit(n.into(), 10).unwrap());
+        } else {
+            out.push('?');
+            break;
+        }
+    }
+    debug_assert!(out.is_ascii());
+    Cow::Owned(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn char_to_decimal_values() {
+        assert_eq!(char_to_decimal('7'), Some(7));
+        // Decimal digits from any script, including scripts the previous
+        // hand-written table predated.
+        assert_eq!(char_to_decimal('٣'), Some(3)); // U+0663 Arabic-Indic
+        assert_eq!(char_to_decimal('𐴵'), Some(5)); // U+10D35, Unicode 11
+        assert_eq!(char_to_decimal('🯵'), Some(5)); // U+1FBF5, Unicode 13
+        // Numeric but not a decimal digit, so it has no digit value.
+        assert_eq!(char_to_decimal('½'), None);
+        assert_eq!(char_to_decimal('가'), None);
+    }
+
+    #[test]
+    fn transform_decimal_and_space() {
+        // ASCII input is passed through untouched, without allocating.
+        assert!(matches!(
+            transform_decimal_and_space_to_ascii("123"),
+            Cow::Borrowed("123")
+        ));
+        // Decimal digits from any script fold to ASCII.
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢٣"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("１２३"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("1٢3"), "123");
+        // Unicode whitespace folds to a plain space.
+        assert_eq!(transform_decimal_and_space_to_ascii("\u{3000}٣"), " 3");
+        // ASCII characters ride through untouched, whatever they are.
+        assert_eq!(transform_decimal_and_space_to_ascii("0x١f"), "0x1f");
+        assert_eq!(transform_decimal_and_space_to_ascii("-١_٢"), "-1_2");
+        // Anything else poisons the literal and truncates it, so the result stays
+        // ASCII and the caller's parser is guaranteed to reject it.
+        assert_eq!(transform_decimal_and_space_to_ascii("½가"), "?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢가٣"), "12?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١\u{7f}"), "1?");
+    }
 
     #[test]
     fn get_chars_basic() {
@@ -674,5 +889,33 @@ mod tests {
 
         let s = "0😀😃😄😁😆😅😂🤣9";
         assert_eq!(get_chars(s, 3..7), "😄😁😆😅");
+    }
+
+    fn expandtabs(input: &str, tab_size: usize) -> Wtf8Buf {
+        super::expandtabs(Wtf8::new(input), tab_size)
+    }
+
+    #[test]
+    fn expandtabs_with_zero_tab_size_drops_tabs() {
+        // A tab that follows a character used to subtract that column from a
+        // tab stop of zero, so the width of the run of spaces came out as
+        // `usize::MAX` and the allocation aborted the process.
+        assert_eq!(expandtabs("a\tb", 0), Wtf8Buf::from("ab"));
+        assert_eq!(expandtabs("ab\tcd\tef", 0), Wtf8Buf::from("abcdef"));
+        assert_eq!(expandtabs("a\nb\tc", 0), Wtf8Buf::from("a\nbc"));
+        assert_eq!(expandtabs("á\tb", 0), Wtf8Buf::from("áb"));
+        assert_eq!(expandtabs("\ta", 0), Wtf8Buf::from("a"));
+        assert_eq!(expandtabs("\t", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("", 0), Wtf8Buf::from(""));
+        assert_eq!(expandtabs("no tabs", 0), Wtf8Buf::from("no tabs"));
+    }
+
+    #[test]
+    fn expandtabs_with_a_real_tab_size_is_unchanged() {
+        assert_eq!(expandtabs("a\tb", 8), Wtf8Buf::from("a       b"));
+        assert_eq!(expandtabs("a\tb", 1), Wtf8Buf::from("a b"));
+        assert_eq!(expandtabs("abcd\te", 4), Wtf8Buf::from("abcd    e"));
+        assert_eq!(expandtabs("a\nb\tc", 4), Wtf8Buf::from("a\nb   c"));
+        assert_eq!(expandtabs("\ta", 4), Wtf8Buf::from("    a"));
     }
 }

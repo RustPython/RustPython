@@ -1558,7 +1558,6 @@ BRANCH_OFFSET_RECORDERS = BranchLeftOffsetRecorder, BranchRightOffsetRecorder
 class TestBranchAndJumpEvents(CheckEvents):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_loop(self):
 
         def func():
@@ -1710,7 +1709,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 12, 12)])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_match(self):
 
         def func(v=1):
@@ -1984,7 +1982,6 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_method_call_error(self):
         nonopt_func, nonopt_expected = self._super_method_call_error(optimized=False)
         opt_func, opt_expected = self._super_method_call_error(optimized=True)
@@ -2022,7 +2019,6 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_attr(self):
         nonopt_func, nonopt_expected = self._super_attr(optimized=False)
         opt_func, opt_expected = self._super_attr(optimized=True)

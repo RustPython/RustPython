@@ -1,6 +1,12 @@
-use icu_properties::props::{EnumeratedProperty, GeneralCategory, GeneralCategoryGroup};
 use rustpython_wtf8::Wtf8;
 
+/// A position in the subject, paired with the byte pointer it resolves to.
+///
+/// `position` is a **character index**, never a byte offset. The engine does
+/// arithmetic on it directly — it subtracts two positions to get a character
+/// count, adds a repeat count to get a bound, and compares one against a
+/// lookbehind width — so the unit is part of the [`StrDrive`] contract rather
+/// than a detail each implementation may pick.
 #[derive(Debug, Clone, Copy)]
 pub struct StringCursor {
     pub(crate) ptr: *const u8,
@@ -16,15 +22,43 @@ impl Default for StringCursor {
     }
 }
 
+/// Random access over the subject being matched.
+///
+/// An implementation chooses how a character is spelled in memory — one byte
+/// for `&[u8]`, one code point for `&str` and `&Wtf8` — but **not** how
+/// positions are counted. Every position this trait produces or consumes is a
+/// character index: `count` is the subject's length in characters, and
+/// `skip(n)` advances a cursor's `position` by exactly `n`.
+///
+/// That is load-bearing, not incidental. The engine reads position arithmetic
+/// as character arithmetic in several places — `_count` bounds a repeat with
+/// `position + max_count` and reports the repeat's length as a difference of
+/// positions, `ASSERT` tests `position < back` against a lookbehind width, and
+/// `search_info` recovers a match start as `position - (len - 1)`. A drive
+/// that stored byte offsets here would leave all of those type-correct and
+/// silently wrong, and would index a lookbehind out of bounds.
+///
+/// So a drive over a variable-width encoding pays for the mapping: `count`
+/// and `create_cursor` have to resolve character indices, and cannot simply
+/// hand back byte lengths and byte offsets.
 pub trait StrDrive: Copy {
+    /// The subject's length, in characters.
     fn count(&self) -> usize;
+    /// A cursor at character index `n`.
     fn create_cursor(&self, n: usize) -> StringCursor;
+    /// Move `cursor` to character index `n`, from wherever it is now.
     fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize);
+    /// Consume one character, returning it; `position` grows by one.
     fn advance(cursor: &mut StringCursor) -> u32;
+    /// The character at `cursor`, without moving it.
     fn peek(cursor: &StringCursor) -> u32;
+    /// Skip `n` characters, so `position` grows by exactly `n`.
     fn skip(cursor: &mut StringCursor, n: usize);
+    /// Step back over one character, returning it; `position` shrinks by one.
     fn back_advance(cursor: &mut StringCursor) -> u32;
+    /// The character before `cursor`, without moving it.
     fn back_peek(cursor: &StringCursor) -> u32;
+    /// Step back `n` characters, so `position` shrinks by exactly `n`.
     fn back_skip(cursor: &mut StringCursor, n: usize);
 }
 
@@ -333,92 +367,88 @@ const fn utf8_is_cont_byte(byte: u8) -> bool {
 /// Mask of the value bits of a continuation byte.
 const CONT_MASK: u8 = 0b0011_1111;
 
-const fn is_py_ascii_whitespace(b: u8) -> bool {
-    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
-}
+// Character-class and case predicates for the SRE engine.
+//
+// Every predicate takes a raw `u32` code point (SRE decodes strings into `u32`s,
+// including lone surrogates) and returns whether it belongs to the class.
+// ASCII-mode predicates only ever consider byte values; Unicode-mode predicates
+// consult the shared property tables in `rustpython_unicode::classify`.
+
+const UNDERSCORE: u32 = '_' as u32;
 
 #[inline]
 pub(crate) fn is_word(ch: u32) -> bool {
-    ch == '_' as u32 || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
+    ch == UNDERSCORE || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
+
 #[inline]
 pub(crate) fn is_space(ch: u32) -> bool {
-    u8::try_from(ch).is_ok_and(is_py_ascii_whitespace)
+    u8::try_from(ch).is_ok_and(rustpython_wtf8::is_py_ascii_whitespace)
 }
+
 #[inline]
 pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
+
 #[inline]
 pub(crate) fn is_loc_alnum(ch: u32) -> bool {
     // FIXME: Ignore the locales
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
+
 #[inline]
 pub(crate) fn is_loc_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_loc_alnum(ch)
+    ch == UNDERSCORE || is_loc_alnum(ch)
 }
+
 #[inline]
 pub(crate) const fn is_linebreak(ch: u32) -> bool {
     ch == '\n' as u32
 }
+
 #[inline]
 #[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch).map_or(ch, |x| x.to_ascii_lowercase() as u32)
 }
+
 #[inline]
 pub(crate) fn lower_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     lower_ascii(ch)
 }
+
 #[inline]
 pub(crate) fn upper_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     u8::try_from(ch).map_or(ch, |x| x.to_ascii_uppercase() as u32)
 }
+
 #[inline]
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
-    // TODO: check with cpython
-    char::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
+    // SRE_UNI_IS_DIGIT matches Unicode decimal digits (Py_UNICODE_ISDECIMAL),
+    // not just ASCII 0-9. Fast-path true ASCII (< 0x80) to skip the
+    // general-category table lookup for the overwhelmingly common case;
+    // u8 covers the whole Latin-1 range, so gate on 0x80 rather than
+    // `u8::try_from` succeeding.
+    if ch < 0x80 {
+        return (ch as u8).is_ascii_digit();
+    }
+    char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_decimal)
 }
+
 #[inline]
 pub(crate) fn is_uni_space(ch: u32) -> bool {
-    // TODO: check with cpython
-    is_space(ch)
-        || matches!(
-            ch,
-            0x0009
-                | 0x000A
-                | 0x000B
-                | 0x000C
-                | 0x000D
-                | 0x001C
-                | 0x001D
-                | 0x001E
-                | 0x001F
-                | 0x0020
-                | 0x0085
-                | 0x00A0
-                | 0x1680
-                | 0x2000
-                | 0x2001
-                | 0x2002
-                | 0x2003
-                | 0x2004
-                | 0x2005
-                | 0x2006
-                | 0x2007
-                | 0x2008
-                | 0x2009
-                | 0x200A
-                | 0x2028
-                | 0x2029
-                | 0x202F
-                | 0x205F
-                | 0x3000
-        )
+    // SRE_UNI_IS_SPACE is Py_UNICODE_ISSPACE. Fast-path ASCII: besides the
+    // usual whitespace bytes, Py_UNICODE_ISSPACE also covers the 0x1C..=0x1F
+    // separators (bidirectional class B/S/WS).
+    if ch < 0x80 {
+        return matches!(ch, 0x09..=0x0D | 0x1C..=0x20);
+    }
+    char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_space)
 }
+
 #[inline]
 pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
     matches!(
@@ -426,28 +456,35 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
         0x000A | 0x000B | 0x000C | 0x000D | 0x001C | 0x001D | 0x001E | 0x0085 | 0x2028 | 0x2029
     )
 }
+
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
-    char::try_from(ch).is_ok_and(|c| {
-        GeneralCategoryGroup::Letter
-            .union(GeneralCategoryGroup::Number)
-            .contains(GeneralCategory::for_char(c))
-    })
+    // Fast-path true ASCII (< 0x80) to skip the general-category table
+    // lookup, which dominates \w matching over otherwise-ASCII text (the
+    // common case). Latin-1 supplement characters (0x80..=0xFF) still need
+    // the full table (e.g. 'Ä' is alphanumeric but not ASCII).
+    if ch < 0x80 {
+        return (ch as u8).is_ascii_alphanumeric();
+    }
+    char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_alnum)
 }
+
 #[inline]
 pub(crate) fn is_uni_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_uni_alnum(ch)
+    ch == UNDERSCORE || is_uni_alnum(ch)
 }
+
 #[inline]
 #[must_use]
 pub fn lower_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch).map_or(ch, |x| x.to_lowercase().next().unwrap() as u32)
+    // SRE_UNI_LOWER is Py_UNICODE_TOLOWER, the simple one-to-one mapping.
+    char::try_from(ch).map_or(ch, |x| rustpython_unicode::case::simple_lowercase(x) as u32)
 }
+
 #[inline]
 #[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch).map_or(ch, |x| x.to_uppercase().next().unwrap() as u32)
+    // SRE_UNI_UPPER is Py_UNICODE_TOUPPER, the simple one-to-one mapping.
+    char::try_from(ch).map_or(ch, |x| rustpython_unicode::case::simple_uppercase(x) as u32)
 }

@@ -84,3 +84,161 @@ textio = TextIOWrapper(raw, encoding="utf-8", write_through=True)
 raw.textio = textio
 with assert_raises(AttributeError):
     textio.writelines(["x"])
+
+textio = TextIOWrapper(BytesIO())
+
+for invalid_chunk_size in (0, -1, 2**100):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"expected ValueError for {invalid_chunk_size!r}")
+
+for invalid_chunk_size in (1.5, "4"):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except TypeError:
+        pass
+    else:
+        raise AssertionError(f"expected TypeError for {invalid_chunk_size!r}")
+
+
+class ChunkSize:
+    def __index__(self):
+        return 16
+
+
+textio._CHUNK_SIZE = ChunkSize()
+assert textio._CHUNK_SIZE == 16
+
+
+class OversizedChunkSize:
+    def __index__(self):
+        return 2**100
+
+
+try:
+    textio._CHUNK_SIZE = OversizedChunkSize()
+except ValueError as error:
+    expected = "cannot fit 'OversizedChunkSize' into an index-sized integer"
+    if str(error) != expected:
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for oversized indexable object")
+
+
+def expect_value_error(expected, operation):
+    try:
+        operation()
+    except ValueError as error:
+        if str(error) != expected:
+            raise AssertionError(f"unexpected error message: {error}") from error
+    else:
+        raise AssertionError(f"expected ValueError: {expected}")
+
+
+class UninitializedChunkSize:
+    def __init__(self):
+        self.called = False
+
+    def __index__(self):
+        self.called = True
+        return 16
+
+
+uninitialized_textio = TextIOWrapper.__new__(TextIOWrapper)
+uninitialized_chunk_size = UninitializedChunkSize()
+expect_value_error(
+    "I/O operation on uninitialized object",
+    lambda: setattr(uninitialized_textio, "_CHUNK_SIZE", uninitialized_chunk_size),
+)
+
+if uninitialized_chunk_size.called:
+    raise AssertionError(
+        "__index__ should not be called for uninitialized TextIOWrapper"
+    )
+
+
+detached_textio = TextIOWrapper(BytesIO())
+detached_textio.detach()
+expect_value_error(
+    "underlying buffer has been detached",
+    lambda: setattr(detached_textio, "_CHUNK_SIZE", 16),
+)
+expect_value_error(
+    "underlying buffer has been detached",
+    lambda: delattr(detached_textio, "_CHUNK_SIZE"),
+)
+
+
+long_type_name = "X" * 250
+LongNamedChunkSize = type(
+    long_type_name,
+    (),
+    {"__index__": lambda self: 2**100},
+)
+expect_value_error(
+    f"cannot fit '{long_type_name[:200]}' into an index-sized integer",
+    lambda: setattr(textio, "_CHUNK_SIZE", LongNamedChunkSize()),
+)
+
+
+non_ascii_type_name = "é" * 250
+NonAsciiNamedChunkSize = type(
+    non_ascii_type_name,
+    (),
+    {"__index__": lambda self: 2**100},
+)
+truncated_non_ascii_type_name = non_ascii_type_name.encode("utf-8")[:200].decode(
+    "utf-8"
+)
+expect_value_error(
+    f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
+    lambda: setattr(textio, "_CHUNK_SIZE", NonAsciiNamedChunkSize()),
+)
+
+
+# A buffer size or read size that cannot be allocated is a MemoryError, not an
+# aborted process.
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a"), buffer_size=2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read(2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read1(2**62))
+
+
+def _text_cookie(
+    start_pos=0,
+    dec_flags=0,
+    bytes_to_feed=0,
+    chars_to_skip=0,
+    need_eof=0,
+    bytes_to_skip=0,
+):
+    packed = (
+        start_pos.to_bytes(8, "little", signed=True)
+        + dec_flags.to_bytes(4, "little", signed=True)
+        + bytes_to_feed.to_bytes(4, "little", signed=True)
+        + chars_to_skip.to_bytes(4, "little", signed=True)
+        + bytes([need_eof])
+        + bytes_to_skip.to_bytes(4, "little", signed=True)
+    )
+    return int.from_bytes(packed, "little")
+
+
+# A cookie names a position both in characters and in bytes, and everything
+# read back from it indexes what was decoded, so a position past the end is
+# refused rather than stored.
+for _bad in (
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1000, bytes_to_skip=0),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=100000, bytes_to_skip=3),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1, bytes_to_skip=1000),
+):
+    _textio = TextIOWrapper(BytesIO(b"hello world " * 20), encoding="utf-8")
+    _textio.read(1)
+    try:
+        _textio.seek(_bad)
+    except (OSError, OverflowError):
+        pass
+    else:
+        assert _textio.read(50) is not None
+        _textio.tell()

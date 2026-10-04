@@ -162,7 +162,6 @@ class BaseLockTests(BaseTestCase):
         self.assertFalse(result[0])
         lock.release()
 
-    @unittest.skip("TODO: RUSTPYTHON; sometimes hangs")
     def test_acquire_contended(self):
         lock = self.locktype()
         lock.acquire()
@@ -210,7 +209,6 @@ class BaseLockTests(BaseTestCase):
         with Bunch(f, 1):
             pass
 
-    @unittest.skip("TODO: RUSTPYTHON; sometimes hangs")
     def test_thread_leak(self):
         # The lock shouldn't leak a Thread instance when used from a foreign
         # (non-threading) thread.

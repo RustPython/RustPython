@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
@@ -12,53 +12,64 @@ const EVENTS_COUNT: usize = 19;
 const LOCAL_EVENTS_COUNT: usize = 11;
 const UNGROUPED_EVENTS_COUNT: usize = 18;
 
-// Event bit positions
-bitflags::bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct MonitoringEvents: u32 {
-        const PY_START           = 1 << 0;
-        const PY_RESUME          = 1 << 1;
-        const PY_RETURN          = 1 << 2;
-        const PY_YIELD           = 1 << 3;
-        const CALL               = 1 << 4;
-        const LINE               = 1 << 5;
-        const INSTRUCTION        = 1 << 6;
-        const JUMP               = 1 << 7;
-        const BRANCH_LEFT        = 1 << 8;
-        const BRANCH_RIGHT       = 1 << 9;
-        const STOP_ITERATION     = 1 << 10;
-        const RAISE              = 1 << 11;
-        const EXCEPTION_HANDLED  = 1 << 12;
-        const PY_UNWIND          = 1 << 13;
-        const PY_THROW           = 1 << 14;
-        const RERAISE            = 1 << 15;
-        const C_RETURN           = 1 << 16;
-        const C_RAISE            = 1 << 17;
-        const BRANCH             = 1 << 18;
+/// Event identifier (`PY_MONITORING_EVENT_*`), stored in `tstate->what_event`.
+/// `None` on the VM field is the `< 0` sentinel (not in a monitoring callback).
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum MonitoringEvent {
+    PyStart = 0,
+    PyResume = 1,
+    PyReturn = 2,
+    PyYield = 3,
+    Call = 4,
+    Line = 5,
+    Instruction = 6,
+    Jump = 7,
+    BranchLeft = 8,
+    BranchRight = 9,
+    StopIteration = 10,
+    Raise = 11,
+    ExceptionHandled = 12,
+    PyUnwind = 13,
+    PyThrow = 14,
+    Reraise = 15,
+    CReturn = 16,
+    CRaise = 17,
+    Branch = 18,
+}
+
+impl MonitoringEvent {
+    pub(crate) const fn mask(self) -> u32 {
+        1 << (self as u32)
+    }
+
+    pub(crate) const fn from_id(id: usize) -> Option<Self> {
+        match id {
+            0 => Some(Self::PyStart),
+            1 => Some(Self::PyResume),
+            2 => Some(Self::PyReturn),
+            3 => Some(Self::PyYield),
+            4 => Some(Self::Call),
+            5 => Some(Self::Line),
+            6 => Some(Self::Instruction),
+            7 => Some(Self::Jump),
+            8 => Some(Self::BranchLeft),
+            9 => Some(Self::BranchRight),
+            10 => Some(Self::StopIteration),
+            11 => Some(Self::Raise),
+            12 => Some(Self::ExceptionHandled),
+            13 => Some(Self::PyUnwind),
+            14 => Some(Self::PyThrow),
+            15 => Some(Self::Reraise),
+            16 => Some(Self::CReturn),
+            17 => Some(Self::CRaise),
+            18 => Some(Self::Branch),
+            _ => None,
+        }
     }
 }
 
-// Re-export as plain u32 constants for use in frame.rs hot-path checks
-pub(crate) const EVENT_PY_START: u32 = MonitoringEvents::PY_START.bits();
-pub(crate) const EVENT_PY_RESUME: u32 = MonitoringEvents::PY_RESUME.bits();
-pub(crate) const EVENT_PY_RETURN: u32 = MonitoringEvents::PY_RETURN.bits();
-pub(crate) const EVENT_PY_YIELD: u32 = MonitoringEvents::PY_YIELD.bits();
-pub(crate) const EVENT_CALL: u32 = MonitoringEvents::CALL.bits();
-pub(crate) const EVENT_LINE: u32 = MonitoringEvents::LINE.bits();
-pub(crate) const EVENT_INSTRUCTION: u32 = MonitoringEvents::INSTRUCTION.bits();
-pub(crate) const EVENT_JUMP: u32 = MonitoringEvents::JUMP.bits();
-pub(crate) const EVENT_BRANCH_LEFT: u32 = MonitoringEvents::BRANCH_LEFT.bits();
-pub(crate) const EVENT_BRANCH_RIGHT: u32 = MonitoringEvents::BRANCH_RIGHT.bits();
-pub(crate) const EVENT_RAISE: u32 = MonitoringEvents::RAISE.bits();
-pub(crate) const EVENT_EXCEPTION_HANDLED: u32 = MonitoringEvents::EXCEPTION_HANDLED.bits();
-pub(crate) const EVENT_PY_UNWIND: u32 = MonitoringEvents::PY_UNWIND.bits();
-pub(crate) const EVENT_C_RETURN: u32 = MonitoringEvents::C_RETURN.bits();
-const EVENT_C_RAISE: u32 = MonitoringEvents::C_RAISE.bits();
-pub(crate) const EVENT_STOP_ITERATION: u32 = MonitoringEvents::STOP_ITERATION.bits();
-pub(crate) const EVENT_PY_THROW: u32 = MonitoringEvents::PY_THROW.bits();
-const EVENT_BRANCH: u32 = MonitoringEvents::BRANCH.bits();
-pub(crate) const EVENT_RERAISE: u32 = MonitoringEvents::RERAISE.bits();
-const EVENT_C_RETURN_MASK: u32 = EVENT_C_RETURN | EVENT_C_RAISE;
+const C_RETURN_MASK: u32 = MonitoringEvent::CReturn.mask() | MonitoringEvent::CRaise.mask();
 
 const EVENT_NAMES: [&str; EVENTS_COUNT] = [
     "PY_START",
@@ -187,7 +198,7 @@ fn parse_single_event(event: i32, vm: &VirtualMachine) -> PyResult<usize> {
         return Err(vm.new_value_error("The callback can only be set for one event at a time"));
     }
     let event_id = event.trailing_zeros() as usize;
-    if event_id >= EVENTS_COUNT {
+    if MonitoringEvent::from_id(event_id).is_none() {
         return Err(vm.new_value_error(format!("invalid event {event}")));
     }
     Ok(event_id)
@@ -208,15 +219,17 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
         return Err(vm.new_value_error(format!("invalid {kind} 0x{event_set:x}")));
     }
 
-    if (event_set & EVENT_C_RETURN_MASK) != 0 && (event_set & EVENT_CALL) != EVENT_CALL {
+    if (event_set & C_RETURN_MASK) != 0
+        && (event_set & MonitoringEvent::Call.mask()) != MonitoringEvent::Call.mask()
+    {
         return Err(vm.new_value_error("cannot set C_RETURN or C_RAISE events independently"));
     }
 
-    event_set &= !EVENT_C_RETURN_MASK;
+    event_set &= !C_RETURN_MASK;
 
-    if (event_set & EVENT_BRANCH) != 0 {
-        event_set &= !EVENT_BRANCH;
-        event_set |= EVENT_BRANCH_LEFT | EVENT_BRANCH_RIGHT;
+    if (event_set & MonitoringEvent::Branch.mask()) != 0 {
+        event_set &= !MonitoringEvent::Branch.mask();
+        event_set |= MonitoringEvent::BranchLeft.mask() | MonitoringEvent::BranchRight.mask();
     }
 
     if local && event_set >= (1 << LOCAL_EVENTS_COUNT) {
@@ -224,6 +237,65 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
     }
 
     Ok(event_set)
+}
+
+/// Event that causes this opcode to be rewritten to INSTRUMENTED_*.
+/// RESUME uses `oparg`: 0 → PY_START, nonzero → PY_RESUME.
+fn event_for_opcode(
+    op: rustpython_compiler_core::bytecode::Instruction,
+    oparg: u8,
+) -> Option<MonitoringEvent> {
+    use rustpython_compiler_core::bytecode::Opcode;
+    match op.deoptimize().as_opcode() {
+        Opcode::ReturnValue => Some(MonitoringEvent::PyReturn),
+        Opcode::Call | Opcode::CallKw | Opcode::CallFunctionEx | Opcode::LoadSuperAttr => {
+            Some(MonitoringEvent::Call)
+        }
+        Opcode::YieldValue => Some(MonitoringEvent::PyYield),
+        Opcode::JumpForward | Opcode::JumpBackward => Some(MonitoringEvent::Jump),
+        Opcode::PopJumpIfFalse
+        | Opcode::PopJumpIfTrue
+        | Opcode::PopJumpIfNone
+        | Opcode::PopJumpIfNotNone => Some(MonitoringEvent::BranchRight),
+        Opcode::ForIter => Some(MonitoringEvent::BranchLeft),
+        Opcode::PopIter => Some(MonitoringEvent::BranchRight),
+        Opcode::EndFor | Opcode::EndSend => Some(MonitoringEvent::StopIteration),
+        Opcode::NotTaken => Some(MonitoringEvent::BranchLeft),
+        Opcode::EndAsyncFor => Some(MonitoringEvent::BranchRight),
+        Opcode::Resume => {
+            if oparg != 0 {
+                Some(MonitoringEvent::PyResume)
+            } else {
+                Some(MonitoringEvent::PyStart)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn opcode_event_is_active(
+    op: rustpython_compiler_core::bytecode::Instruction,
+    oparg: u8,
+    events: u32,
+) -> bool {
+    event_for_opcode(op, oparg).is_some_and(|ev| events & ev.mask() != 0)
+}
+
+/// Walk real instructions, skipping specialization CACHE payloads.
+/// Cache slots may contain pointer bits that are not valid opcodes.
+fn for_each_instruction(
+    code: &Py<PyCode>,
+    mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
+) {
+    let len = code.code.instructions.len();
+    let mut i = 0;
+    while i < len {
+        let op = code.code.instructions.read_op(i);
+        let oparg = code.code.instructions.read_arg(i).as_u8();
+        let caches = op.deoptimize().cache_entries();
+        f(i, op, oparg);
+        i += 1 + caches;
+    }
 }
 
 /// Rewrite a code object's bytecode in-place with layered instrumentation.
@@ -234,7 +306,8 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
 /// 3. Regular INSTRUMENTED_* — direct 1:1 opcode swap (no side-table needed)
 ///
 /// De-instrumentation peels layers in reverse order.
-pub(crate) fn instrument_code(code: &PyCode, events: u32) {
+/// Specialized opcodes are restored to base only when their EVENT_FOR_OPCODE is active.
+pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     use rustpython_compiler_core::bytecode::{self, Instruction};
 
     let len = code.code.instructions.len();
@@ -244,59 +317,71 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
 
     // Phase 1: Remove INSTRUMENTED_LINE → restore from side-table
     if let Some(data) = monitoring_data.as_mut() {
-        for i in 0..len {
-            if data.line_opcodes[i] != 0 {
-                let original = Instruction::try_from(data.line_opcodes[i])
-                    .expect("invalid opcode in line side-table");
+        for (i, opcode) in data.line_opcodes.iter_mut().enumerate().take(len) {
+            if *opcode != 0 {
+                let original =
+                    Instruction::try_from(*opcode).expect("invalid opcode in line side-table");
                 unsafe {
                     code.code.instructions.replace_op(i, original);
                 }
-                data.line_opcodes[i] = 0;
+                *opcode = 0;
             }
         }
     }
 
     // Phase 2: Remove INSTRUMENTED_INSTRUCTION → restore from side-table
     if let Some(data) = monitoring_data.as_mut() {
-        for i in 0..len {
-            if data.per_instruction_opcodes[i] != 0 {
-                let original = Instruction::try_from(data.per_instruction_opcodes[i])
+        for (i, opcode) in data
+            .per_instruction_opcodes
+            .iter_mut()
+            .enumerate()
+            .take(len)
+        {
+            if *opcode != 0 {
+                let original = Instruction::try_from(*opcode)
                     .expect("invalid opcode in instruction side-table");
                 unsafe {
                     code.code.instructions.replace_op(i, original);
                 }
-                data.per_instruction_opcodes[i] = 0;
+                *opcode = 0;
             }
         }
     }
 
-    // Phase 3: Remove regular INSTRUMENTED_* and specialized opcodes → restore base opcodes.
-    // Also clear all CACHE entries so specialization starts fresh.
+    // Phase 3: Restore INSTRUMENTED_* whose event is no longer active.
+    // Restore specialized opcodes to base only when that family will be instrumented.
     {
         let mut i = 0;
         while i < len {
-            let op = code.code.instructions[i].op;
+            let op = code.code.instructions.read_op(i);
+            let oparg = code.code.instructions.read_arg(i).as_u8();
             let base_op = op.deoptimize();
-            if u8::from(base_op) != u8::from(op) {
+            let caches = base_op.cache_entries();
+            // LINE/INSTRUCTION wrap every instruction, so specialized
+            // CACHE payloads must be cleared first.
+            let want_instrumented =
+                events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
+                    || opcode_event_is_active(base_op, oparg, events);
+            let restore_base = if want_instrumented {
+                !op.is_instrumented() && u8::from(base_op) != u8::from(op)
+            } else {
+                op.is_instrumented()
+            };
+            if restore_base {
                 unsafe {
                     code.code.instructions.replace_op(i, base_op);
                 }
-            }
-            let caches = base_op.cache_entries();
-            // Zero all CACHE entries (the op+arg bytes may have been overwritten
-            // by specialization with arbitrary data like pointers).
-            for c in 1..=caches {
-                if i + c < len {
-                    unsafe {
-                        code.code.instructions.write_cache_u16(i + c, 0);
+                for c in 1..=caches {
+                    if i + c < len {
+                        unsafe {
+                            code.code.instructions.write_cache_u16(i + c, 0);
+                        }
                     }
                 }
             }
             i += 1 + caches;
         }
     }
-
-    // All opcodes are now base opcodes.
 
     if events == 0 {
         *monitoring_data = None;
@@ -318,25 +403,44 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
     data.per_instruction_opcodes.resize(len, 0);
 
     // Find _co_firsttraceable: index of first RESUME instruction
-    let first_traceable = code
-        .code
-        .instructions
-        .iter()
-        .position(|u| matches!(u.op, Instruction::Resume { .. } | Instruction::ResumeCheck))
-        .unwrap_or(0);
+    let mut first_traceable = None;
+    for_each_instruction(code, |i, op, _| {
+        if first_traceable.is_none()
+            && matches!(
+                op,
+                Instruction::Resume { .. }
+                    | Instruction::ResumeCheck
+                    | Instruction::InstrumentedResume
+            )
+        {
+            first_traceable = Some(i);
+        }
+    });
+    let first_traceable = first_traceable.unwrap_or(0);
 
-    // Phase 4: Place regular INSTRUMENTED_* opcodes
-    for i in 0..len {
-        let op = code.code.instructions[i].op;
-        if let Some(instrumented) = op.to_instrumented() {
-            unsafe {
-                code.code.instructions.replace_op(i, instrumented);
+    // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
+    // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
+    {
+        let mut i = 0;
+        while i < len {
+            let op = code.code.instructions.read_op(i);
+            let oparg = code.code.instructions.read_arg(i).as_u8();
+            let caches = op.deoptimize().cache_entries();
+            if (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
+                || opcode_event_is_active(op, oparg, events))
+                && let Some(instrumented) = op.to_instrumented()
+            {
+                unsafe {
+                    code.code.instructions.replace_op(i, instrumented);
+                }
             }
+            i += 1 + caches;
         }
     }
 
-    // Phase 5: Place INSTRUMENTED_INSTRUCTION (if EVENT_INSTRUCTION is active)
-    if events & EVENT_INSTRUCTION != 0 {
+    // Phase 5: Place INSTRUMENTED_INSTRUCTION when Instruction is active
+    // LINE/INSTRUCTION restore specialized opcodes first, so CACHE slots are valid.
+    if events & MonitoringEvent::Instruction.mask() != 0 {
         for i in first_traceable..len {
             let op = code.code.instructions[i].op;
             // Skip ExtendedArg
@@ -344,7 +448,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 continue;
             }
             // Excluded: RESUME, END_FOR, CACHE (and their instrumented variants)
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(
                 base,
                 Instruction::Resume { .. } | Instruction::EndFor | Instruction::Cache
@@ -361,10 +465,10 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
         }
     }
 
-    // Phase 6: Place INSTRUMENTED_LINE (if EVENT_LINE is active)
+    // Phase 6: Place INSTRUMENTED_LINE when Line is active
     // Mirrors CPython's initialize_lines: first determine which positions
     // are line starts, then mark branch/jump targets, then place opcodes.
-    if events & EVENT_LINE != 0 {
+    if events & MonitoringEvent::Line.mask() != 0 {
         // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
         let mut is_line_start = vec![false; len];
         let line_locations = rustpython_compiler_core::marshal::linetable_to_locations(
@@ -387,7 +491,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
             .skip(first_traceable)
         {
             let op = unit.op;
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(base, Instruction::ExtendedArg) {
                 continue;
             }
@@ -425,7 +529,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
         let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
             let (op, arg) = arg_state.get(unit);
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
 
             if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
                 instr_idx += 1;
@@ -460,7 +564,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
@@ -482,8 +586,8 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_op = code.code.instructions.read_op(target_idx);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
@@ -502,7 +606,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
             .skip(first_traceable)
         {
             if marked {
-                let op = code.code.instructions[i].op;
+                let op = code.code.instructions.read_op(i);
                 data.line_opcodes[i] = u8::from(op);
                 unsafe {
                     code.code
@@ -528,16 +632,21 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // Each code object gets only the events that apply to it (global + its
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
-    for fp in vm.frames.borrow().iter() {
-        // SAFETY: frames in the Vec are alive while their FrameRef is on the call stack.
-        let frame = unsafe { fp.as_ref() };
-        let code = &frame.code;
-        let code_ver = code.instrumentation_version.load(Ordering::Acquire);
-        if code_ver != new_ver {
-            let code_events = state.events_for_code(code.get_id());
-            instrument_code(code, code_events);
-            code.instrumentation_version
-                .store(new_ver, Ordering::Release);
+    // Re-instrument all frames on the current thread's stack, including
+    // data stack frames that have no FrameObject.
+    {
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            let iframe_ref = unsafe { &*cur };
+            let code = iframe_ref.code();
+            let code_ver = code.instrumentation_version.load(Ordering::Acquire);
+            if code_ver != new_ver {
+                let code_events = state.events_for_code(code.get_id());
+                instrument_code(code, code_events);
+                code.instrumentation_version
+                    .store(new_ver, Ordering::Release);
+            }
+            cur = iframe_ref.previous();
         }
     }
 }
@@ -598,24 +707,16 @@ fn register_callback(
     let tool = check_valid_tool(tool_id, vm)?;
     let event_id = parse_single_event(event, vm)?;
 
-    if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-        audit.call(
-            (
-                vm.ctx.new_str("sys.monitoring.register_callback"),
-                func.clone(),
-            ),
-            vm,
-        )?;
-    }
+    vm.audit("sys.monitoring.register_callback", || (func.clone(),))?;
 
     let mut state = vm.state.monitoring.lock();
     let prev = state
         .callbacks
         .remove(&(tool, event_id))
         .unwrap_or_else(|| vm.ctx.none());
-    let branch_id = EVENT_BRANCH.trailing_zeros() as usize;
-    let branch_left_id = EVENT_BRANCH_LEFT.trailing_zeros() as usize;
-    let branch_right_id = EVENT_BRANCH_RIGHT.trailing_zeros() as usize;
+    let branch_id = MonitoringEvent::Branch as usize;
+    let branch_left_id = MonitoringEvent::BranchLeft as usize;
+    let branch_right_id = MonitoringEvent::BranchRight as usize;
     if !vm.is_none(&func) {
         state.callbacks.insert((tool, event_id), func.clone());
         // BRANCH is a composite event: also register for BRANCH_LEFT/RIGHT
@@ -649,7 +750,7 @@ fn set_events(tool_id: i32, event_set: i32, vm: &VirtualMachine) -> PyResult<()>
     Ok(())
 }
 
-fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+fn get_local_events(tool_id: i32, code: &PyObject, vm: &VirtualMachine) -> PyResult<u32> {
     if code.downcast_ref::<PyCode>().is_none() {
         return Err(vm.new_type_error("code must be a code object"));
     }
@@ -665,7 +766,7 @@ fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyR
 
 fn set_local_events(
     tool_id: i32,
-    code: PyObjectRef,
+    code: &PyObject,
     event_set: i32,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -702,9 +803,9 @@ fn all_events(vm: &VirtualMachine) -> PyResult<PyDictRef> {
             .filter_map(|(event_id, event_name)| {
                 let event_bit = 1u32 << event_id;
                 let mut tools_mask = 0u8;
-                for tool in 0..TOOL_LIMIT {
-                    if (state.global_events[tool] & event_bit) != 0 {
-                        tools_mask |= 1 << tool;
+                for (i, tool) in state.global_events.iter().enumerate().take(TOOL_LIMIT) {
+                    if (tool & event_bit) != 0 {
+                        tools_mask |= 1 << i;
                     }
                 }
                 if tools_mask != 0 {
@@ -741,24 +842,25 @@ thread_local! {
 /// `cb_extra` contains the callback arguments after the code object.
 fn fire(
     vm: &VirtualMachine,
-    event: u32,
-    code: &PyRef<PyCode>,
+    event: MonitoringEvent,
+    code: &Py<PyCode>,
     offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
     // Prevent recursive event firing
-    if FIRING.with(|f| f.get()) {
+    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
         return Ok(());
     }
 
-    let event_id = event.trailing_zeros() as usize;
+    let event_id = event as usize;
+    let event_mask = event.mask();
     let code_id = code.get_id();
 
     // C_RETURN and C_RAISE are implicitly enabled when CALL is set.
-    let check_bit = if event & EVENT_C_RETURN_MASK != 0 {
-        event | EVENT_CALL
+    let check_bit = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
+        event_mask | MonitoringEvent::Call.mask()
     } else {
-        event
+        event_mask
     };
 
     // Collect callbacks and snapshot the DISABLE sentinel under a single lock.
@@ -790,11 +892,13 @@ fn fire(
     }
 
     let mut args_vec = Vec::with_capacity(1 + cb_extra.len());
-    args_vec.push(code.clone().into());
+    args_vec.push(code.to_owned().into());
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
     FIRING.with(|f| f.set(true));
+    vm.enter_tracing();
+    let old_what = vm.what_event.replace(Some(event));
     let result = (|| {
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
@@ -817,34 +921,28 @@ fn fire(
         }
         Ok(())
     })();
+    vm.what_event.set(old_what);
+    vm.leave_tracing();
     FIRING.with(|f| f.set(false));
     result
 }
 
 // Public dispatch functions (called from frame.rs)
 
-pub(crate) fn fire_py_start(
-    vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
-    offset: u32,
-) -> PyResult<()> {
+pub(crate) fn fire_py_start(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
     fire(
         vm,
-        EVENT_PY_START,
+        MonitoringEvent::PyStart,
         code,
         offset,
         &[vm.ctx.new_int(offset).into()],
     )
 }
 
-pub(crate) fn fire_py_resume(
-    vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
-    offset: u32,
-) -> PyResult<()> {
+pub(crate) fn fire_py_resume(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
     fire(
         vm,
-        EVENT_PY_RESUME,
+        MonitoringEvent::PyResume,
         code,
         offset,
         &[vm.ctx.new_int(offset).into()],
@@ -853,99 +951,105 @@ pub(crate) fn fire_py_resume(
 
 pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_PY_RETURN,
+        MonitoringEvent::PyReturn,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
 pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    retval: &PyObjectRef,
+    retval: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_PY_YIELD,
+        MonitoringEvent::PyYield,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), retval.clone()],
+        &[vm.ctx.new_int(offset).into(), retval.to_owned()],
     )
 }
 
 pub(crate) fn fire_call(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_CALL,
+        MonitoringEvent::Call,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
 pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_C_RETURN,
+        MonitoringEvent::CReturn,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
 pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    callable: &PyObjectRef,
+    callable: &PyObject,
     arg0: PyObjectRef,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_C_RAISE,
+        MonitoringEvent::CRaise,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), callable.clone(), arg0],
+        &[vm.ctx.new_int(offset).into(), callable.to_owned(), arg0],
     )
 }
 
 pub(crate) fn fire_line(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     line: u32,
 ) -> PyResult<()> {
-    fire(vm, EVENT_LINE, code, offset, &[vm.ctx.new_int(line).into()])
+    fire(
+        vm,
+        MonitoringEvent::Line,
+        code,
+        offset,
+        &[vm.ctx.new_int(line).into()],
+    )
 }
 
 pub(crate) fn fire_instruction(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_INSTRUCTION,
+        MonitoringEvent::Instruction,
         code,
         offset,
         &[vm.ctx.new_int(offset).into()],
@@ -954,16 +1058,16 @@ pub(crate) fn fire_instruction(
 
 pub(crate) fn fire_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_RAISE,
+        MonitoringEvent::Raise,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
@@ -971,9 +1075,9 @@ pub(crate) fn fire_raise(
 /// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     if RERAISE_PENDING.with(|f| f.get()) {
         return Ok(());
@@ -981,10 +1085,10 @@ pub(crate) fn fire_reraise(
     RERAISE_PENDING.with(|f| f.set(true));
     let result = fire(
         vm,
-        EVENT_RERAISE,
+        MonitoringEvent::Reraise,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     );
     if result.is_err() {
         RERAISE_PENDING.with(|f| f.set(false));
@@ -994,75 +1098,82 @@ pub(crate) fn fire_reraise(
 
 pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
         vm,
-        EVENT_EXCEPTION_HANDLED,
+        MonitoringEvent::ExceptionHandled,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
 pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     RERAISE_PENDING.with(|f| f.set(false));
     fire(
         vm,
-        EVENT_PY_UNWIND,
+        MonitoringEvent::PyUnwind,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
 pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    exception: &PyObject,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_PY_THROW,
+        MonitoringEvent::PyThrow,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exception.to_owned()],
     )
 }
 
+/// If `value` is already a `StopIteration`, pass it directly; otherwise wrap
+/// it in a new `StopIteration(value)` — matching `PyMonitoring_FireStopIterationEvent`.
 pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    value: &PyObject,
 ) -> PyResult<()> {
+    let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+        value.to_owned()
+    } else {
+        vm.new_stop_iteration(Some(value.to_owned())).into()
+    };
     fire(
         vm,
-        EVENT_STOP_ITERATION,
+        MonitoringEvent::StopIteration,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exc],
     )
 }
 
 pub(crate) fn fire_jump(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_JUMP,
+        MonitoringEvent::Jump,
         code,
         offset,
         &[
@@ -1074,13 +1185,13 @@ pub(crate) fn fire_jump(
 
 pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_BRANCH_LEFT,
+        MonitoringEvent::BranchLeft,
         code,
         offset,
         &[
@@ -1092,13 +1203,13 @@ pub(crate) fn fire_branch_left(
 
 pub(crate) fn fire_branch_right(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
     fire(
         vm,
-        EVENT_BRANCH_RIGHT,
+        MonitoringEvent::BranchRight,
         code,
         offset,
         &[
@@ -1108,7 +1219,7 @@ pub(crate) fn fire_branch_right(
     )
 }
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "sys.monitoring")]
 pub(super) mod sys_monitoring {
     use super::*;
 
@@ -1196,7 +1307,7 @@ pub(super) mod sys_monitoring {
 
     #[pyfunction]
     fn get_local_events(tool_id: i32, code: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        super::get_local_events(tool_id, code, vm)
+        super::get_local_events(tool_id, &code, vm)
     }
 
     #[pyfunction]
@@ -1206,7 +1317,7 @@ pub(super) mod sys_monitoring {
         event_set: i32,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        super::set_local_events(tool_id, code, event_set, vm)
+        super::set_local_events(tool_id, &code, event_set, vm)
     }
 
     #[pyfunction]

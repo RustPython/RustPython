@@ -45,7 +45,6 @@ def clear_typing_caches():
 
 class TypesTests(unittest.TestCase):
 
-    @unittest.skipUnless(c_types, "TODO: RUSTPYTHON; requires _types module")
     def test_names(self):
         c_only_names = {'CapsuleType'}
         ignored = {'new_class', 'resolve_bases', 'prepare_class',
@@ -636,7 +635,6 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object.__lt__, types.WrapperDescriptorType)
         self.assertIsInstance(int.__lt__, types.WrapperDescriptorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; No signature found in builtin method __get__ of 'method_descriptor' objects.
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_dunder_get_signature(self):
@@ -661,7 +659,6 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(int.from_bytes, types.BuiltinMethodType)
         self.assertIsInstance(int.__new__, types.BuiltinMethodType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ModuleNotFoundError: No module named '_queue'
     def test_method_descriptor_crash(self):
         # gh-132747: The default __get__() implementation in C was unable
         # to handle a second argument of None when called from Python
@@ -1883,7 +1880,6 @@ class ClassCreationTests(unittest.TestCase):
         D.__getitem__ = dict.__getitem__
         self.assertIs(d[None], None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'tuple'> != <class 'test.test_types.ClassCreationTests.test_tu[41 chars]ass'>
     def test_tuple_subclass_as_bases(self):
         # gh-132176: it used to crash on using
         # tuple subclass for as base classes.

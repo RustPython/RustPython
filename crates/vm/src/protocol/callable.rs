@@ -28,9 +28,10 @@ impl PyObject {
     /// PyObject_Call
     pub fn call_with_args(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         vm_trace!("Invoke: {:?} {:?}", callable, args);
         callable.invoke(args, vm)
@@ -47,9 +48,10 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult {
         let Some(callable) = self.to_callable() else {
-            return Err(
-                vm.new_type_error(format!("'{}' object is not callable", self.class().name()))
-            );
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().slot_name()
+            )));
         };
         callable.invoke_vectorcall(args, nargs, kwnames, vm)
     }
@@ -64,7 +66,7 @@ pub struct PyCallable<'a> {
 
 impl<'a> PyCallable<'a> {
     pub fn new(obj: &'a PyObject) -> Option<Self> {
-        let slots = &obj.class().slots;
+        let slots = obj.class().slots();
         let call = slots.call.load()?;
         let vectorcall = slots.vectorcall.load();
         Some(PyCallable {
@@ -151,7 +153,7 @@ pub(crate) enum TraceEvent {
 impl TraceEvent {
     /// Whether sys.settrace receives this event.
     #[must_use]
-    const fn is_trace_event(&self) -> bool {
+    const fn is_trace_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::Exception | Self::Line | Self::Opcode
@@ -162,7 +164,7 @@ impl TraceEvent {
     /// In legacy_tracing.c, profile callbacks are only registered for
     /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
     #[must_use]
-    const fn is_profile_event(&self) -> bool {
+    const fn is_profile_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::CCall | Self::CReturn | Self::CException
@@ -171,23 +173,38 @@ impl TraceEvent {
 
     /// Whether this event is dispatched only when f_trace_opcodes is set.
     #[must_use]
-    pub(crate) const fn is_opcode_event(&self) -> bool {
+    pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
+    }
+
+    /// Default `what_event` for this legacy event.
+    #[must_use]
+    const fn default_what(self) -> crate::stdlib::sys::monitoring::MonitoringEvent {
+        use crate::stdlib::sys::monitoring::MonitoringEvent as Ev;
+        match self {
+            Self::Call => Ev::PyStart,
+            Self::Return => Ev::PyReturn,
+            Self::Exception => Ev::Raise,
+            Self::Line => Ev::Line,
+            Self::Opcode => Ev::Instruction,
+            Self::CCall => Ev::Call,
+            Self::CReturn => Ev::CReturn,
+            Self::CException => Ev::CRaise,
+        }
     }
 }
 
 impl core::fmt::Display for TraceEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use TraceEvent::*;
         match self {
-            Call => write!(f, "call"),
-            Return => write!(f, "return"),
-            Exception => write!(f, "exception"),
-            Line => write!(f, "line"),
-            Opcode => write!(f, "opcode"),
-            CCall => write!(f, "c_call"),
-            CReturn => write!(f, "c_return"),
-            CException => write!(f, "c_exception"),
+            Self::Call => write!(f, "call"),
+            Self::Return => write!(f, "return"),
+            Self::Exception => write!(f, "exception"),
+            Self::Line => write!(f, "line"),
+            Self::Opcode => write!(f, "opcode"),
+            Self::CCall => write!(f, "c_call"),
+            Self::CReturn => write!(f, "c_return"),
+            Self::CException => write!(f, "c_exception"),
         }
     }
 }
@@ -208,8 +225,24 @@ impl VirtualMachine {
         event: TraceEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
-        if self.use_tracing.get() {
-            self._trace_event_inner(event, arg)
+        self.trace_event_what(event, event.default_what(), arg)
+    }
+
+    /// Like [`Self::trace_event`], but records `what` as `tstate->what_event`
+    /// for the duration of the callback (so `f_lineno` assignment can tell
+    /// a 'line' event from a 'call'/'return'/'exception').
+    #[inline]
+    pub(crate) fn trace_event_what(
+        &self,
+        event: TraceEvent,
+        what: crate::stdlib::sys::monitoring::MonitoringEvent,
+        arg: Option<PyObjectRef>,
+    ) -> PyResult<Option<PyObjectRef>> {
+        if self.use_tracing.get() && !self.tracing_is_suppressed() {
+            let old = self.what_event.replace(Some(what));
+            let result = self._trace_event_inner(event, arg);
+            self.what_event.set(old);
+            result
         } else {
             Ok(None)
         }
@@ -229,39 +262,63 @@ impl VirtualMachine {
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
-        let Some(frame_ref) = self.current_frame() else {
+        let Some(frame_ref) = crate::frame::current_thread_frame_materialize(self) else {
             return Ok(None);
         };
 
         // Opcode events are only dispatched when f_trace_opcodes is set.
-        if is_opcode_event && !*frame_ref.trace_opcodes.lock() {
+        if is_opcode_event
+            && !frame_ref
+                .iframe()
+                .cold_opt()
+                .is_some_and(|c| *c.trace_opcodes.lock())
+        {
             return Ok(None);
         }
 
-        let frame: PyObjectRef = frame_ref.into();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, arg.unwrap_or_else(|| self.ctx.none())];
+        // trace_trampoline: CALL uses the global callback; every other
+        // event uses the per-frame f_trace (and is a no-op if that is unset).
+        let callback = if event == TraceEvent::Call {
+            if self.is_none(&trace_func) {
+                None
+            } else {
+                Some(trace_func)
+            }
+        } else {
+            frame_ref
+                .iframe()
+                .cold_opt()
+                .and_then(|c| c.trace.lock().clone())
+        };
+
+        let frame: PyObjectRef = frame_ref.to_owned().into();
+        let event_str: PyObjectRef = self.ctx.new_str(event.to_string()).into();
+        let args = vec![frame, event_str, arg.unwrap_or_else(|| self.ctx.none())];
 
         let mut trace_result = None;
 
         // temporarily disable tracing, during the call to the
         // tracing function itself.
-        if is_trace_event && !self.is_none(&trace_func) {
+        if is_trace_event && let Some(callback) = callback {
             self.use_tracing.set(false);
-            let res = trace_func.call(args.clone(), self);
+            self.enter_tracing();
+            let res = callback.call(args.clone(), self);
+            self.leave_tracing();
             self.use_tracing.set(true);
             match res {
                 Ok(result) => {
                     if !self.is_none(&result) {
+                        *frame_ref.iframe().cold().trace.lock() = Some(result.clone());
                         trace_result = Some(result);
                     }
                 }
                 Err(e) => {
-                    // trace_trampoline behavior: clear per-frame f_trace
-                    // and propagate the error.
-                    if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.trace.lock() = self.ctx.none();
-                    }
+                    // trace_trampoline: disable the global tracer and clear
+                    // this frame's f_trace, then propagate.
+                    *self.trace_func.borrow_mut() = self.ctx.none();
+                    *frame_ref.iframe().cold().trace.lock() = None;
+                    let profile_is_none = self.is_none(&self.profile_func.borrow());
+                    self.use_tracing.set(!profile_is_none);
                     return Err(e);
                 }
             }
@@ -269,7 +326,9 @@ impl VirtualMachine {
 
         if is_profile_event && !self.is_none(&profile_func) {
             self.use_tracing.set(false);
+            self.enter_tracing();
             let res = profile_func.call(args, self);
+            self.leave_tracing();
             self.use_tracing.set(true);
             if res.is_err() {
                 *self.profile_func.borrow_mut() = self.ctx.none();

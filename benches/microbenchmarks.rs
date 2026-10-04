@@ -5,10 +5,7 @@ use criterion::{
 use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
 use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{fs, io, path::Path};
 
 // List of microbenchmarks to skip.
 //
@@ -36,7 +33,7 @@ pub struct MicroBenchmark {
     iterate: bool,
 }
 
-fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_cpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     pyo3::Python::attach(|py| {
         let setup_name = format!("{}_setup", bench.name);
         let setup_code = cpy_compile_code(py, &bench.setup, &setup_name).unwrap();
@@ -49,8 +46,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
         let bench_func = |(globals, locals): &mut (
-            pyo3::Bound<pyo3::types::PyDict>,
-            pyo3::Bound<pyo3::types::PyDict>,
+            pyo3::Bound<'_, pyo3::types::PyDict>,
+            pyo3::Bound<'_, pyo3::types::PyDict>,
         )| {
             let res = exec.call((&code, &*globals, &*locals), None);
             if let Err(e) = res {
@@ -75,7 +72,7 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
                 group.bench_with_input(BenchmarkId::new("cpython", &bench.name), &idx, |b, idx| {
                     b.iter_batched_ref(
@@ -107,7 +104,7 @@ fn cpy_compile_code<'a>(
         .expect("compile() should return a code object"))
 }
 
-fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
+fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
@@ -118,10 +115,10 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     let interp = builder.add_native_modules(&defs).build();
     interp.enter(|vm| {
         let setup_code = vm
-            .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
+            .compile(&bench.setup, Mode::Exec, &bench.name)
             .expect("Error compiling setup code");
         let bench_code = vm
-            .compile(&bench.code, Mode::Exec, bench.name.to_owned())
+            .compile(&bench.code, Mode::Exec, &bench.name)
             .expect("Error compiling bench code");
 
         let bench_func = |scope| {
@@ -146,7 +143,7 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
         };
 
         if bench.iterate {
-            for idx in (100..=1_000).step_by(200) {
+            for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
                 group.bench_with_input(
                     BenchmarkId::new("rustpython", &bench.name),
@@ -168,10 +165,34 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     })
 }
 
+/// `true` when the benchmarks are executed by the CodSpeed runner.
+///
+/// CodSpeed tracks the performance of RustPython itself, so the CPython
+/// reference benchmarks are skipped there: they double the (already slow)
+/// instrumented run without ever reporting a change of RustPython.
+fn is_codspeed() -> bool {
+    std::env::var_os("CODSPEED_ENV").is_some()
+}
+
+/// The `ITERATIONS` values the benchmarks referencing them are run with.
+///
+/// A single size is used under CodSpeed: the criterion benchmark id does not
+/// include the iteration count, so every size would be reported under the same
+/// name.
+fn iteration_counts() -> Vec<i32> {
+    if is_codspeed() {
+        vec![1_000]
+    } else {
+        (100..=1_000).step_by(200).collect()
+    }
+}
+
 pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
     let mut group = c.benchmark_group("microbenchmarks");
 
-    bench_cpython_code(&mut group, &benchmark);
+    if !is_codspeed() {
+        bench_cpython_code(&mut group, &benchmark);
+    }
     bench_rustpython_code(&mut group, &benchmark);
 
     group.finish();
@@ -184,11 +205,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .unwrap()
         .collect::<io::Result<_>>()
         .unwrap();
-    let paths: Vec<PathBuf> = dirs.iter().map(|p| p.path()).collect();
 
-    let benchmarks: Vec<MicroBenchmark> = paths
-        .into_iter()
-        .map(|p| {
+    let benchmarks: Vec<MicroBenchmark> = dirs
+        .iter()
+        .map(|d| {
+            let p = d.path();
             let name = p.file_name().unwrap().to_os_string();
             let contents = fs::read_to_string(p).unwrap();
             let iterate = contents.contains("ITERATIONS");

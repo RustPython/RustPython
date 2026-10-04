@@ -1,20 +1,26 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        pystr, pystr::PyUtf8StrRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyList, PyListRef,
+        PyStr, PyStrRef, PyTuple, PyTupleRef, pystr, pystr::PyUtf8StrRef,
     },
-    byte::bytes_from_object,
     cformat::cformat_bytes,
-    common::hash,
-    function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
+    common::wtf8::is_py_ascii_whitespace,
+    common::{borrow::BorrowedValue, hash},
+    function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
-    protocol::PyBuffer,
+    protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
+/// How a source object that is neither a size nor a string is turned into
+/// bytes: [`crate::byte::bytes_from_object`] or
+/// [`crate::byte::bytearray_from_object`].
+pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
+
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -34,9 +40,126 @@ impl From<Vec<u8>> for PyBytesInner {
     }
 }
 
+// Keep exact lists live while acquiring buffers: an exporter can replace items
+// or resize the list. No list lock may span a call to the buffer protocol.
+pub(crate) struct BytesJoin {
+    items: Either<PyListRef, PyTupleRef>,
+}
+
+impl BytesJoin {
+    pub(crate) fn new(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let items = if let Some(list) = iterable.downcast_ref_if_exact::<PyList>(vm) {
+            Either::A(list.to_owned())
+        } else if let Some(tuple) = iterable.downcast_ref_if_exact::<PyTuple>(vm) {
+            Either::B(tuple.to_owned())
+        } else {
+            // PySequence_Fast exhausts the iterator before inspecting its items.
+            let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)
+                .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+            let items = iterable.iter_sized(vm)?.collect::<PyResult<Vec<_>>>()?;
+            Either::B(vm.ctx.new_tuple(items))
+        };
+        Ok(Self { items })
+    }
+
+    fn len(&self) -> usize {
+        match &self.items {
+            Either::A(list) => list.borrow_vec().len(),
+            Either::B(tuple) => tuple.as_slice().len(),
+        }
+    }
+
+    fn item(&self, i: usize) -> Option<PyObjectRef> {
+        match &self.items {
+            Either::A(list) => list.borrow_vec().get(i).cloned(),
+            Either::B(tuple) => tuple.as_slice().get(i).cloned(),
+        }
+    }
+
+    pub(crate) fn single_bytes(&self, vm: &VirtualMachine) -> Option<PyBytesRef> {
+        if self.len() != 1 {
+            return None;
+        }
+        self.item(0)?
+            .downcast_ref_if_exact::<PyBytes>(vm)
+            .map(ToOwned::to_owned)
+    }
+
+    // stringlib_bytes_join
+    pub(crate) fn join<'a>(
+        &self,
+        separator_len: usize,
+        mut separator: impl FnMut() -> BorrowedValue<'a, [u8]>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let count = self.len();
+        let mut objects = Vec::with_capacity(count);
+        let mut buffers = Vec::new();
+        let mut len = 0usize;
+        let overflow = || vm.new_overflow_error("join() result is too long");
+        let changed = || vm.new_runtime_error("sequence changed size during iteration");
+        for i in 0..count {
+            let obj = self.item(i).ok_or_else(changed)?;
+            let item_len = if let Some(bytes) = obj.downcast_ref_if_exact::<PyBytes>(vm) {
+                bytes.as_bytes().len()
+            } else {
+                // Whatever the buffer lookup ran into, the item is only ever
+                // reported as the wrong kind of thing.
+                let type_error = || {
+                    vm.new_type_error(format!(
+                        "sequence item {i}: expected a bytes-like object, {} found",
+                        obj.class().slot_name()
+                    ))
+                };
+                let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::SIMPLE)
+                    .map_err(|_| type_error())?;
+                if !buffer.desc.is_contiguous() {
+                    return Err(type_error());
+                }
+                let item_len = buffer.desc.len;
+                buffers.push((i, buffer));
+                item_len
+            };
+            objects.push(obj);
+            len = len.checked_add(item_len).ok_or_else(overflow)?;
+            if i != 0 {
+                len = len.checked_add(separator_len).ok_or_else(overflow)?;
+            }
+            if len > isize::MAX as usize {
+                return Err(overflow());
+            }
+            if self.len() != count {
+                return Err(changed());
+            }
+        }
+        let mut joined = Vec::new();
+        joined
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
+        // All Python callbacks have finished. Read the separator only now,
+        // so same-size mutations made by the iterator or exporters are visible.
+        let mut buffers_iter = buffers.iter().peekable();
+        for (i, obj) in objects.iter().enumerate() {
+            if i != 0 {
+                // Drop this borrow before acquiring an input buffer: it may
+                // refer to the same bytearray, with a writer waiting on it.
+                joined.extend_from_slice(&separator());
+            }
+            if buffers_iter.peek().is_some_and(|(index, _)| *index == i) {
+                let (_, buffer) = buffers_iter.next().unwrap();
+                joined.extend_from_slice(&buffer.as_contiguous().unwrap());
+            } else {
+                joined.extend_from_slice(obj.downcast_ref::<PyBytes>().unwrap().as_bytes());
+            }
+        }
+        Ok(joined)
+    }
+}
+
+/// "y*": any bytes-like object, and nothing else.
 impl<'a> TryFromBorrowedObject<'a> for PyBytesInner {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        bytes_from_object(vm, obj).map(Self::from)
+        obj.try_bytes_like(vm, <[u8]>::to_vec).map(Self::from)
     }
 }
 
@@ -57,15 +180,19 @@ impl ByteInnerNewOptions {
         errors: OptionalArg<PyUtf8StrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesInner> {
-        let bytes = pystr::encode_string(s, Some(encoding), errors.into_option(), vm)?;
+        let bytes = pystr::encode_string(s, Some(&encoding), errors.into_option(), vm)?;
         Ok(bytes.as_bytes().to_vec().into())
     }
 
-    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        bytes_from_object(vm, &source).map(|x| x.into())
+    fn get_value_from_source(
+        source: &PyObject,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        from_object(vm, source).map(|x| x.into())
     }
 
-    fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn get_value_from_size(size: &Py<PyInt>, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         let size = size
             .as_bigint()
             .to_isize()
@@ -75,34 +202,41 @@ impl ByteInnerNewOptions {
         } else {
             size as usize
         };
-        Ok(vec![0; size].into())
+        Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
-    fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn handle_object_fallback(
+        obj: PyObjectRef,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
-                Self::get_value_from_size(i, vm)
+                Self::get_value_from_size(&i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, vm)
+                Self::get_value_from_source(&obj, from_object, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    /// `from_object` is how a source that is neither a size nor a string is
+    /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
+    /// it is.
+    pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, vm)
+                                Self::handle_object_fallback(obj, from_object, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -110,7 +244,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, vm)
+                    Self::handle_object_fallback(obj, from_object, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
@@ -136,10 +270,50 @@ impl ByteInnerNewOptions {
     }
 }
 
+/// What is searched for: a bytes-like object, or a single byte given as an
+/// integer. parse_args_finds_byte
+pub enum ByteInnerSub {
+    Buffer(PyBytesInner),
+    Byte(PyIntRef),
+}
+
+impl TryFromObject for ByteInnerSub {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if obj.check_buffer() {
+            return PyBytesInner::try_from_object(vm, obj).map(Self::Buffer);
+        }
+        match obj.try_index_opt(vm) {
+            Some(int) => int.map(Self::Byte),
+            None => Err(vm.new_type_error(format!(
+                "argument should be integer or bytes-like object, not '{}'",
+                obj.class().name()
+            ))),
+        }
+    }
+}
+
+impl ByteInnerSub {
+    /// The needle of a containment test, which is an integer if it is one at
+    /// all and a bytes-like object otherwise. bytes_contains
+    pub fn from_contains_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        match obj.try_index_opt(vm) {
+            Some(int) => int.map(Self::Byte),
+            None => PyBytesInner::try_from_object(vm, obj).map(Self::Buffer),
+        }
+    }
+
+    fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        Ok(match self {
+            Self::Buffer(buffer) => buffer.elements,
+            Self::Byte(int) => vec![int.as_bigint().byte_or(vm)?],
+        })
+    }
+}
+
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
-    sub: Either<PyBytesInner, PyIntRef>,
+    sub: ByteInnerSub,
     #[pyarg(positional, default)]
     start: Option<PyIntRef>,
     #[pyarg(positional, default)]
@@ -152,11 +326,8 @@ impl ByteInnerFindOptions {
         len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
-        let sub = match self.sub {
-            Either::A(v) => v.elements.to_vec(),
-            Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
-        };
-        let range = anystr::adjust_indices(self.start, self.end, len);
+        let sub = self.sub.into_vec(vm)?;
+        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
         Ok((sub, range))
     }
 }
@@ -165,13 +336,14 @@ impl ByteInnerFindOptions {
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional)]
     width: isize,
-    #[pyarg(positional, optional)]
-    fillchar: OptionalArg<PyObjectRef>,
+    #[pyarg(positional, default = b" ")]
+    fillchar: PyObjectRef,
 }
 
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
-        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
+        let fillchar = {
+            let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
                 .flatten()
                 .ok_or_else(|| {
@@ -181,8 +353,6 @@ impl ByteInnerPaddingOptions {
                         v.class().name()
                     ))
                 })?
-        } else {
-            b' ' // default is space
         };
 
         Ok((self.width, fillchar))
@@ -193,8 +363,8 @@ impl ByteInnerPaddingOptions {
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
     table: Option<PyObjectRef>,
-    #[pyarg(any, optional)]
-    delete: OptionalArg<PyObjectRef>,
+    #[pyarg(any, default = b"")]
+    delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -202,23 +372,17 @@ impl ByteInnerTranslateOptions {
         let table = self.table.map_or_else(
             || Ok((0..=u8::MAX).collect::<Vec<u8>>()),
             |v| {
-                let bytes = v
-                    .try_into_value::<PyBytesInner>(vm)
-                    .ok()
-                    .filter(|v| v.elements.len() == 256)
-                    .ok_or_else(|| {
-                        vm.new_value_error("translation table must be 256 characters long")
-                    })?;
-                Ok(bytes.elements.to_vec())
+                let bytes: PyBytesInner = v.try_into_value(vm)?;
+                if bytes.elements.len() != 256 {
+                    return Err(vm.new_value_error("translation table must be 256 characters long"));
+                }
+                Ok(bytes.elements)
             },
         )?;
 
-        let delete = match self.delete {
-            OptionalArg::Present(byte) => {
-                let byte: PyBytesInner = byte.try_into_value(vm)?;
-                byte.elements
-            }
-            _ => vec![],
+        let delete = {
+            let byte: PyBytesInner = self.delete.try_into_value(vm)?;
+            byte.elements
         };
 
         Ok((table, delete))
@@ -227,10 +391,35 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
+fn bytearray_repr_char_len(ch: u8) -> usize {
+    match ch {
+        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        0x20..=0x7e => 1,
+        _ => 4, // \xHH
+    }
+}
+
+fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+    match ch {
+        b'\'' => buf.push_str(r#"\'"#),
+        b'\\' => buf.push_str(r#"\\"#),
+        b'\t' => buf.push_str(r#"\t"#),
+        b'\n' => buf.push_str(r#"\n"#),
+        b'\r' => buf.push_str(r#"\r"#),
+        0x20..=0x7e => buf.push(ch as char),
+        ch => {
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            buf.push_str(r#"\x"#);
+            buf.push(HEX[(ch >> 4) as usize] as char);
+            buf.push(HEX[(ch & 0x0f) as usize] as char);
+        }
+    }
+}
+
 impl PyBytesInner {
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.elements
+    pub const fn as_bytes(&self) -> &[u8] {
+        self.elements.as_slice()
     }
 
     fn new_repr_overflow_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -250,17 +439,33 @@ impl PyBytesInner {
     }
 
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
-        const DECORATION_LEN: isize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
-        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
-        let len = escape
-            .layout()
-            .len
-            .and_then(|len| (len as isize).checked_add(DECORATION_LEN + class_name.len() as isize))
-            .ok_or_else(|| Self::new_repr_overflow_error(vm))? as usize;
+        const DECORATION_LEN: usize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
+        let quote = if self.elements.contains(&b'\'') && !self.elements.contains(&b'"') {
+            '"'
+        } else {
+            '\''
+        };
+        let body_len = self
+            .elements
+            .iter()
+            .try_fold(0usize, |len, &ch| {
+                len.checked_add(bytearray_repr_char_len(ch))
+            })
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
+        let len = class_name
+            .len()
+            .checked_add(DECORATION_LEN)
+            .and_then(|len| len.checked_add(body_len))
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let mut buf = String::with_capacity(len);
         buf.push_str(class_name);
         buf.push('(');
-        escape.bytes_repr().write(&mut buf).unwrap();
+        buf.push('b');
+        buf.push(quote);
+        for &ch in &self.elements {
+            write_bytearray_repr_char(ch, &mut buf);
+        }
+        buf.push(quote);
         buf.push(')');
         debug_assert_eq!(buf.len(), len);
         Ok(buf)
@@ -303,23 +508,28 @@ impl PyBytesInner {
         // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
             other
-                .try_bytes_like(vm, |other| op.eval_ord(self.elements.as_slice().cmp(other)))
+                .try_bytes_like(vm, |other| {
+                    // Equality does not need the ordering, and answers two
+                    // buffers of different length without reading either.
+                    op.eval_eq(|| self.elements.as_slice() == other)
+                        .unwrap_or_else(|| op.eval_ord(self.elements.as_slice().cmp(other)))
+                })
                 .ok(),
         )
     }
 
-    pub fn hash(&self, vm: &VirtualMachine) -> hash::PyHash {
-        vm.state.hash_secret.hash_bytes(&self.elements)
+    pub fn hash(&self, _vm: &VirtualMachine) -> hash::PyHash {
+        crate::vm::hash_secret().hash_bytes(&self.elements)
     }
 
     pub fn add(&self, other: &[u8]) -> Vec<u8> {
         self.elements.py_add(other)
     }
 
-    pub fn contains(&self, needle: Either<Self, PyIntRef>, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: ByteInnerSub, vm: &VirtualMachine) -> PyResult<bool> {
         Ok(match needle {
-            Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
-            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
+            ByteInnerSub::Buffer(sub) => self.elements.contains_str(sub.elements.as_slice()),
+            ByteInnerSub::Byte(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
     }
 
@@ -355,44 +565,40 @@ impl PyBytesInner {
         self.elements.py_isupper()
     }
 
+    // _Py_bytes_isspace
     pub fn isspace(&self) -> bool {
+        // is_ascii_whitespace excludes vertical tab, while Py_ISSPACE accepts it
         !self.elements.is_empty()
             && self
                 .elements
                 .iter()
-                .all(|x| char::from(*x).is_ascii_whitespace())
+                .all(|x| x.is_ascii_whitespace() || *x == b'\x0b')
     }
 
+    // _Py_bytes_istitle
     pub fn istitle(&self) -> bool {
-        if self.elements.is_empty() {
-            return false;
-        }
+        let mut cased = false;
+        let mut previous_is_cased = false;
 
-        let mut iter = self.elements.iter().peekable();
-        let mut prev_cased = false;
-
-        while let Some(c) = iter.next() {
-            let current = char::from(*c);
-            let next = if let Some(k) = iter.peek() {
-                char::from(**k)
-            } else if current.is_uppercase() {
-                return !prev_cased;
+        for byte in &self.elements {
+            if byte.is_ascii_uppercase() {
+                if previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
+            } else if byte.is_ascii_lowercase() {
+                if !previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
             } else {
-                return prev_cased;
-            };
-
-            let is_cased = current.to_uppercase().next().unwrap() != current
-                || current.to_lowercase().next().unwrap() != current;
-            if (is_cased && next.is_uppercase() && !prev_cased)
-                || (!is_cased && next.is_lowercase())
-            {
-                return false;
+                previous_is_cased = false;
             }
-
-            prev_cased = is_cased;
         }
 
-        true
+        cased
     }
 
     pub fn lower(&self) -> Vec<u8> {
@@ -418,13 +624,8 @@ impl PyBytesInner {
         swapcase_ascii(self.as_bytes())
     }
 
-    pub fn hex(
-        &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep, vm)
+    pub fn hex(&self, sep: Option<u8>, bytes_per_sep: isize) -> String {
+        bytes_to_hex(self.elements.as_slice(), sep, bytes_per_sep)
     }
 
     pub fn fromhex(bytes: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -476,10 +677,11 @@ impl PyBytesInner {
     }
 
     /// Parse hex string from str or bytes-like object
-    pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn fromhex_object(string: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
-        } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &string) {
+        } else if string.check_buffer() {
+            let buffer = PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?;
             let borrowed = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;
@@ -496,16 +698,15 @@ impl PyBytesInner {
     fn _pad(
         &self,
         options: ByteInnerPaddingOptions,
-        pad: fn(&[u8], usize, u8, usize) -> Vec<u8>,
+        pad: PadFn,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
         let len = self.len();
-        Ok(if len as isize >= width {
-            Vec::from(&self.elements[..])
-        } else {
-            pad(&self.elements, width as usize, fillchar, len)
-        })
+        if len as isize >= width {
+            return Ok(Vec::from(&self.elements[..]));
+        }
+        pad(&self.elements, width as usize, fillchar, len).ok_or_else(|| vm.no_memory_error())
     }
 
     pub fn center(
@@ -537,11 +738,6 @@ impl PyBytesInner {
         Ok(self
             .elements
             .py_count(needle.as_slice(), range, |h, n| h.find_iter(n).count()))
-    }
-
-    pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let iter = iterable.iter(vm)?;
-        self.elements.py_join(iter)
     }
 
     #[inline]
@@ -597,7 +793,7 @@ impl PyBytesInner {
         Ok(res)
     }
 
-    pub fn strip(&self, chars: OptionalOption<Self>) -> Vec<u8> {
+    pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
         self.elements
             .py_strip(
                 chars,
@@ -607,7 +803,7 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn lstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
@@ -615,7 +811,7 @@ impl PyBytesInner {
         )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<Self>) -> &[u8] {
+    pub fn rstrip(&self, chars: Option<Self>) -> &[u8] {
         self.elements.py_strip(
             chars,
             |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
@@ -741,8 +937,10 @@ impl PyBytesInner {
         self.elements.py_bytes_splitlines(options, into_wrapper)
     }
 
-    pub fn zfill(&self, width: isize) -> Vec<u8> {
-        self.elements.py_zfill(width)
+    pub fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.elements
+            .py_zfill(width)
+            .ok_or_else(|| vm.no_memory_error())
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
@@ -861,25 +1059,23 @@ impl PyBytesInner {
         Ok(result)
     }
 
-    pub fn replace(
-        &self,
-        from: Self,
-        to: Self,
-        max_count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
-        // stringlib_replace in CPython
-        let max_count = match max_count {
-            OptionalArg::Present(max_count) if max_count >= 0 => {
-                if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
-                    // nothing to do; return the original bytes
-                    return Ok(self.elements.clone());
-                } else if self.elements.is_empty() && from.is_empty() {
-                    return Ok(to.elements);
-                }
-                Some(max_count as usize)
+    pub fn replace(&self, args: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let ByteInnerReplaceOptions {
+            old: from,
+            new: to,
+            count: max_count,
+        } = args;
+        // stringlib_replace
+        let max_count = if max_count >= 0 {
+            if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
+                // nothing to do; return the original bytes
+                return Ok(self.elements.clone());
+            } else if self.elements.is_empty() && from.is_empty() {
+                return Ok(to.elements);
             }
-            _ => None,
+            Some(max_count as usize)
+        } else {
+            None
         };
 
         // Handle zero-length special cases
@@ -919,7 +1115,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        cformat_bytes(vm, self.elements.as_slice(), values)
+        cformat_bytes(vm, self.elements.as_slice(), &values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -931,7 +1127,7 @@ impl PyBytesInner {
     }
 
     pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, other)?;
+        let buffer = PyBuffer::from_object(vm, other, BufferFlags::SIMPLE)?;
         let borrowed = buffer.as_contiguous();
         if let Some(other) = borrowed {
             let mut v = Vec::with_capacity(self.elements.len() + other.len());
@@ -997,10 +1193,20 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
         Self::with_capacity(capacity)
     }
 
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut v = Self::new();
+        v.try_reserve_exact(capacity).ok()?;
+        Some(v)
+    }
+
     fn push_str(&mut self, other: &[u8]) {
         self.extend(other)
     }
 }
+
+/// A padding function from `AnyStr`, returning `None` for a width whose result
+/// cannot be allocated.
+type PadFn = fn(&[u8], usize, u8, usize) -> Option<Vec<u8>>;
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
@@ -1090,10 +1296,28 @@ impl AnyStr for [u8] {
 }
 
 #[derive(FromArgs)]
+pub(crate) struct ByteInnerStripOptions {
+    #[pyarg(positional, optional)]
+    pub bytes: Option<PyBytesInner>,
+}
+
+#[derive(FromArgs)]
+pub struct ByteInnerReplaceOptions {
+    #[pyarg(positional)]
+    old: PyBytesInner,
+    #[pyarg(positional)]
+    new: PyBytesInner,
+    #[pyarg(positional, default = -1)]
+    count: isize,
+}
+
+#[derive(FromArgs)]
 pub(crate) struct DecodeArgs {
-    #[pyarg(any, default)]
+    // None is filled in as utf-8 when decoding.
+    #[pyarg(any, optional, py_default = "'utf-8'")]
     encoding: Option<PyUtf8StrRef>,
-    #[pyarg(any, default)]
+    // None is filled in as strict when decoding.
+    #[pyarg(any, optional, py_default = "'strict'")]
     errors: Option<PyUtf8StrRef>,
 }
 
@@ -1109,7 +1333,51 @@ pub(crate) fn bytes_decode(
     };
     vm.state
         .codec_registry
-        .decode_text(zelf, encoding, errors, vm)
+        .decode_text_object(zelf, encoding, errors, vm)
+}
+
+#[derive(FromArgs)]
+pub(crate) struct ByteInnerHexOptions {
+    #[pyarg(any, optional)]
+    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    #[pyarg(any, default = 1)]
+    pub bytes_per_sep: isize,
+}
+
+impl ByteInnerHexOptions {
+    /// The separator byte, and how many bytes go between two of them.
+    ///
+    /// Measuring the separator runs Python, so it happens here, before the
+    /// bytes to be written out are borrowed. _Py_strhex_impl
+    pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, isize)> {
+        let Self { sep, bytes_per_sep } = self;
+        let OptionalArg::Present(sep) = sep else {
+            return Ok((None, bytes_per_sep));
+        };
+
+        let s_guard;
+        let b_guard;
+        let (obj, bytes) = match &sep {
+            Either::A(s) => {
+                s_guard = s.as_wtf8();
+                (s.as_object(), s_guard.as_bytes())
+            }
+            Either::B(b) => {
+                b_guard = b.as_bytes();
+                (b.as_object(), b_guard)
+            }
+        };
+        if obj.length(vm)? != 1 {
+            return Err(vm.new_value_error("sep must be length 1."));
+        }
+        // An object that claims a length it does not have separates with NUL,
+        // which is what reading past the end of its data gives.
+        let sep = bytes.first().copied().unwrap_or(0);
+        if sep > 127 {
+            return Err(vm.new_value_error("sep must be ASCII."));
+        }
+        Ok((Some(sep), bytes_per_sep))
+    }
 }
 
 fn hex_impl_no_sep(bytes: &[u8]) -> String {
@@ -1164,51 +1432,11 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-pub(crate) fn bytes_to_hex(
-    bytes: &[u8],
-    sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-    bytes_per_sep: OptionalArg<isize>,
-    vm: &VirtualMachine,
-) -> PyResult<String> {
-    if bytes.is_empty() {
-        return Ok("".to_owned());
+pub(crate) fn bytes_to_hex(bytes: &[u8], sep: Option<u8>, bytes_per_sep: isize) -> String {
+    match sep {
+        Some(sep) if bytes_per_sep != 0 && !bytes.is_empty() => hex_impl(bytes, sep, bytes_per_sep),
+        _ => hex_impl_no_sep(bytes),
     }
-
-    if let OptionalArg::Present(sep) = sep {
-        let bytes_per_sep = bytes_per_sep.unwrap_or(1);
-        if bytes_per_sep == 0 {
-            return Ok(hex_impl_no_sep(bytes));
-        }
-
-        let s_guard;
-        let b_guard;
-        let sep = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                s_guard.as_bytes()
-            }
-            Either::B(bytes) => {
-                b_guard = bytes.as_bytes();
-                b_guard
-            }
-        };
-
-        if sep.len() != 1 {
-            return Err(vm.new_value_error("sep must be length 1."));
-        }
-        let sep = sep[0];
-        if sep > 127 {
-            return Err(vm.new_value_error("sep must be ASCII."));
-        }
-
-        Ok(hex_impl(bytes, sep, bytes_per_sep))
-    } else {
-        Ok(hex_impl_no_sep(bytes))
-    }
-}
-
-pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
-    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
 /// ASCII-only title casing.

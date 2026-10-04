@@ -57,8 +57,7 @@ except ImportError:
 try:
     from _collections import defaultdict
 except ImportError:
-    # TODO: RUSTPYTHON - implement defaultdict in Rust
-    from ._defaultdict import defaultdict
+    pass
 
 heapq = None  # Lazily imported
 
@@ -553,6 +552,9 @@ class Counter(dict):
     '''Dict subclass for counting hashable items.  Sometimes called a bag
     or multiset.  Elements are stored as dictionary keys and their counts
     are stored as dictionary values.
+
+    When constructed from a Mapping or Counter, the original object's
+    values will be used as the initial counts.
 
     >>> c = Counter('abcdeabcdabcaba')  # count elements from a string
 

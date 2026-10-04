@@ -1,6 +1,6 @@
 // export through sliceable module, not slice.
 use crate::{
-    PyObject, PyResult, VirtualMachine,
+    Py, PyObject, PyResult, VirtualMachine,
     builtins::{int::PyInt, slice::PySlice},
 };
 use core::ops::Range;
@@ -258,30 +258,49 @@ pub enum SequenceIndex {
 }
 
 impl SequenceIndex {
+    /// The index or slice `obj` stands for, or `None` when it is neither.
+    fn try_from_object_opt(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<Self>> {
+        const OVERFLOW: &str = "cannot fit 'int' into an index-sized integer";
+        if let Some(i) = obj.downcast_ref::<PyInt>() {
+            // TODO: number protocol
+            Some(
+                i.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int),
+            )
+        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
+            Some(slice.to_saturated(vm).map(Self::Slice))
+        } else {
+            // TODO: __index__ for indices is no more supported?
+            obj.try_index_opt(vm).map(|i| {
+                i?.try_to_primitive(vm)
+                    .map_err(|_| vm.new_index_error(OVERFLOW))
+                    .map(Self::Int)
+            })
+        }
+    }
+
     pub fn try_from_borrowed_object(
         vm: &VirtualMachine,
         obj: &PyObject,
         type_name: &str,
     ) -> PyResult<Self> {
-        if let Some(i) = obj.downcast_ref::<PyInt>() {
-            // TODO: number protocol
-            i.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
-        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
-            slice.to_saturated(vm).map(Self::Slice)
-        } else if let Some(i) = obj.try_index_opt(vm) {
-            // TODO: __index__ for indices is no more supported?
-            i?.try_to_primitive(vm)
-                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
-                .map(Self::Int)
-        } else {
+        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
             Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
-                type_name,
-                obj.class()
+                "{type_name} indices must be integers or slices, not {}",
+                obj.class().slot_name()
             )))
-        }
+        })
+    }
+
+    /// `unicode_subscript`, which turns down what it cannot use in its own words.
+    pub fn try_from_str_subscript(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
+            Err(vm.new_type_error(format!(
+                "string indices must be integers, not '{}'",
+                obj.class().slot_name()
+            )))
+        })
     }
 }
 
@@ -368,7 +387,7 @@ impl SaturatedSlice {
     }
 
     // Equivalent to PySlice_Unpack.
-    pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn with_slice(slice: &Py<PySlice>, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);
         if step == 0 {
             return Err(vm.new_value_error("slice step cannot be zero"));
@@ -376,7 +395,7 @@ impl SaturatedSlice {
         let start = to_isize_index(vm, slice.start_ref(vm))?
             .unwrap_or_else(|| if step.is_negative() { isize::MAX } else { 0 });
 
-        let stop = to_isize_index(vm, &slice.stop(vm))?.unwrap_or_else(|| {
+        let stop = to_isize_index(vm, &slice.stop)?.unwrap_or_else(|| {
             if step.is_negative() {
                 isize::MIN
             } else {
@@ -417,6 +436,50 @@ impl SaturatedSlice {
             (range, slice_len)
         };
         (range, self.step, slice_len)
+    }
+
+    // PySlice_AdjustIndices, keeping the adjusted start rather than a range.
+    /// The index the slice begins at, clamped into `0..=len` for a positive step
+    /// and into `-1..=len-1` for a negative one, together with its length.
+    ///
+    /// Unlike [`Self::adjust_indices`] this stays meaningful for an empty slice,
+    /// where it is still the position a strided view moves to.
+    #[must_use]
+    pub fn adjust_indices_start(&self, len: usize) -> (isize, usize) {
+        let len = len as isize;
+        let clamp = |i: isize| {
+            if i < 0 {
+                let i = i.saturating_add(len);
+                if i < 0 {
+                    if self.step.is_negative() { -1 } else { 0 }
+                } else {
+                    i
+                }
+            } else if i >= len {
+                if self.step.is_negative() {
+                    len - 1
+                } else {
+                    len
+                }
+            } else {
+                i
+            }
+        };
+        let start = clamp(self.start);
+        let stop = clamp(self.stop);
+        let step = self.step.unsigned_abs();
+        let slice_len = if self.step.is_negative() {
+            if stop < start {
+                (start - stop - 1) as usize / step + 1
+            } else {
+                0
+            }
+        } else if start < stop {
+            (stop - start - 1) as usize / step + 1
+        } else {
+            0
+        };
+        (start, slice_len)
     }
 
     #[must_use]

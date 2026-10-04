@@ -2,7 +2,7 @@ pub(super) use ssl_cert::{PySSLCertificate, cert_to_certificate, cert_to_py, obj
 
 // Certificate type for SSL module
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_ssl")]
 pub(crate) mod ssl_cert {
     use crate::{
         common::{ascii, hash::PyHash},
@@ -39,7 +39,7 @@ pub(crate) mod ssl_cert {
             let buflen = buflen as usize;
             let mut buf = Vec::<u8>::with_capacity(buflen + 1);
             let ret = sys::OBJ_obj2txt(
-                buf.as_mut_ptr() as *mut libc::c_char,
+                buf.as_mut_ptr() as *mut core::ffi::c_char,
                 buf.capacity() as _,
                 ptr,
                 no_name,
@@ -67,11 +67,14 @@ pub(crate) mod ssl_cert {
         }
     }
 
-    #[pyclass(with(Comparable, Hashable, Representable))]
+    #[pyclass(
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        with(Comparable, Hashable, Representable)
+    )]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(
-            &self,
+            zelf: &Py<Self>,
             format: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
@@ -80,7 +83,7 @@ pub(crate) mod ssl_cert {
             match format {
                 ENCODING_DER => {
                     // DER encoding
-                    let der = self
+                    let der = zelf
                         .cert
                         .to_der()
                         .map_err(|e| convert_openssl_error(vm, e))?;
@@ -88,7 +91,7 @@ pub(crate) mod ssl_cert {
                 }
                 ENCODING_PEM => {
                     // PEM encoding - returns string
-                    let pem = self
+                    let pem = zelf
                         .cert
                         .to_pem()
                         .map_err(|e| convert_openssl_error(vm, e))?;
@@ -101,8 +104,8 @@ pub(crate) mod ssl_cert {
         }
 
         #[pymethod]
-        fn get_info(&self, vm: &VirtualMachine) -> PyResult {
-            cert_to_dict(vm, &self.cert)
+        fn get_info(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            cert_to_dict(vm, &zelf.cert)
         }
     }
 

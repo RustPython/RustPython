@@ -20,7 +20,8 @@ pub enum CFormatErrorType {
     MissingModuloSign,
     UnsupportedFormatChar(CodePoint),
     IncompleteFormat,
-    IntTooBig,
+    WidthTooBig,
+    PrecisionTooBig,
     // Unimplemented,
 }
 
@@ -35,24 +36,30 @@ pub struct CFormatError {
 
 impl fmt::Display for CFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use CFormatErrorType::*;
         match self.typ {
-            UnmatchedKeyParentheses => write!(f, "incomplete format key"),
-            IncompleteFormat => write!(f, "incomplete format"),
-            UnsupportedFormatChar(c) => write!(
+            CFormatErrorType::UnmatchedKeyParentheses => write!(f, "incomplete format key"),
+            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            CFormatErrorType::UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
                 c,
                 c.to_u32(),
                 self.index
             ),
-            IntTooBig => write!(f, "width/precision too big"),
+            CFormatErrorType::WidthTooBig => write!(f, "width too big"),
+            CFormatErrorType::PrecisionTooBig => write!(f, "precision too big"),
             _ => write!(f, "unexpected error parsing format string"),
         }
     }
 }
 
 pub type CFormatConversion = super::format::FormatConversion;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CFormatContext {
+    Str,
+    Bytes,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
@@ -78,11 +85,9 @@ pub enum CFloatType {
 
 impl CFloatType {
     const fn case(self) -> Case {
-        use CFloatType::*;
-
         match self {
-            ExponentLower | PointDecimalLower | GeneralLower => Case::Lower,
-            ExponentUpper | PointDecimalUpper | GeneralUpper => Case::Upper,
+            Self::ExponentLower | Self::PointDecimalLower | Self::GeneralLower => Case::Lower,
+            Self::ExponentUpper | Self::PointDecimalUpper | Self::GeneralUpper => Case::Upper,
         }
     }
 }
@@ -99,16 +104,25 @@ pub enum CFormatType {
     Float(CFloatType),
     Character(CCharacterType),
     String(CFormatConversion),
+    Bytes,
+    /// Parsed conversion that is not one of the supported specifiers.
+    /// The argument is still consumed, then formatting raises ValueError.
+    Unsupported {
+        ch: CodePoint,
+        index: usize,
+    },
 }
 
 impl CFormatType {
     #[must_use]
-    pub const fn to_char(self) -> char {
+    pub fn to_char(self) -> char {
         match self {
             Self::Number(x) => x as u8 as char,
             Self::Float(x) => x as u8 as char,
             Self::Character(x) => x as u8 as char,
             Self::String(x) => x as u8 as char,
+            Self::Bytes => 'b',
+            Self::Unsupported { ch, .. } => ch.to_char_lossy(),
         }
     }
 }
@@ -297,23 +311,24 @@ impl FromStr for CFormatSpecKeyed<String> {
             return Err((CFormatErrorType::MissingModuloSign, 1));
         }
 
-        Self::parse(&mut chars)
+        Self::parse(&mut chars, CFormatContext::Str)
     }
 }
 
 pub type ParseIter<I> = Peekable<Enumerate<I>>;
 
 impl<T: FormatBuf> CFormatSpecKeyed<T> {
-    pub fn parse<I>(iter: &mut ParseIter<I>) -> Result<Self, ParsingError>
+    pub fn parse<I>(iter: &mut ParseIter<I>, context: CFormatContext) -> Result<Self, ParsingError>
     where
         I: Iterator<Item = T::Char>,
     {
         let mapping_key = parse_spec_mapping_key(iter)?;
         let flags = parse_flags(iter);
-        let min_field_width = parse_quantity(iter)?;
+        let min_field_width =
+            parse_quantity(iter, isize::MAX as usize, CFormatErrorType::WidthTooBig)?;
         let precision = parse_precision(iter)?;
         consume_length(iter);
-        let format_type = parse_format_type(iter)?;
+        let format_type = parse_format_type(iter, context)?;
 
         let spec = CFormatSpec {
             flags,
@@ -418,15 +433,16 @@ impl CFormatSpec {
 
     #[must_use]
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
-        let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
-            self.precision
-        {
-            &bytes[..cmp::min(bytes.len(), precision)]
-        } else {
-            bytes
+        let bytes = match self.precision {
+            Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) => {
+                &bytes[..cmp::min(bytes.len(), precision)]
+            }
+            // A precision written as a bare dot truncates to nothing.
+            Some(CFormatPrecision::Dot) => &bytes[..0],
+            _ => bytes,
         };
         if let Some(CFormatQuantity::Amount(width)) = self.min_field_width {
-            let fill = cmp::max(0, width - bytes.len());
+            let fill = width.saturating_sub(bytes.len());
             let mut v = Vec::with_capacity(bytes.len() + fill);
             if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 v.extend_from_slice(bytes);
@@ -443,16 +459,16 @@ impl CFormatSpec {
 
     #[must_use]
     pub fn format_number(&self, num: &BigInt) -> String {
-        use CNumberType::*;
         let CFormatType::Number(format_type) = self.format_type else {
             unreachable!()
         };
+
         let magnitude = num.abs();
         let prefix = if self.flags.contains(CConversionFlags::ALTERNATE_FORM) {
             match format_type {
-                Octal => "0o",
-                HexLower => "0x",
-                HexUpper => "0X",
+                CNumberType::Octal => "0o",
+                CNumberType::HexLower => "0x",
+                CNumberType::HexUpper => "0X",
                 _ => "",
             }
         } else {
@@ -460,10 +476,12 @@ impl CFormatSpec {
         };
 
         let magnitude_string: String = match format_type {
-            DecimalD | DecimalI | DecimalU => magnitude.to_str_radix(10),
-            Octal => magnitude.to_str_radix(8),
-            HexLower => magnitude.to_str_radix(16),
-            HexUpper => {
+            CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
+                magnitude.to_str_radix(10)
+            }
+            CNumberType::Octal => magnitude.to_str_radix(8),
+            CNumberType::HexLower => magnitude.to_str_radix(16),
+            CNumberType::HexUpper => {
                 let mut result = magnitude.to_str_radix(16);
                 result.make_ascii_uppercase();
                 result
@@ -616,43 +634,51 @@ where
     iter.next_if(|(_, c)| matches!(c.to_char_lossy(), 'h' | 'l' | 'L'));
 }
 
-fn parse_format_type<C, I>(iter: &mut ParseIter<I>) -> Result<CFormatType, ParsingError>
+fn parse_format_type<C, I>(
+    iter: &mut ParseIter<I>,
+    context: CFormatContext,
+) -> Result<CFormatType, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,
 {
-    use CFloatType::*;
-    use CNumberType::*;
     let (index, c) = iter.next().ok_or_else(|| {
         (
             CFormatErrorType::IncompleteFormat,
             iter.peek().map_or(0, |x| x.0),
         )
     })?;
-    let format_type = match c.to_char_lossy() {
-        'd' => CFormatType::Number(DecimalD),
-        'i' => CFormatType::Number(DecimalI),
-        'u' => CFormatType::Number(DecimalU),
-        'o' => CFormatType::Number(Octal),
-        'x' => CFormatType::Number(HexLower),
-        'X' => CFormatType::Number(HexUpper),
-        'e' => CFormatType::Float(ExponentLower),
-        'E' => CFormatType::Float(ExponentUpper),
-        'f' => CFormatType::Float(PointDecimalLower),
-        'F' => CFormatType::Float(PointDecimalUpper),
-        'g' => CFormatType::Float(GeneralLower),
-        'G' => CFormatType::Float(GeneralUpper),
+
+    Ok(match c.to_char_lossy() {
+        'd' => CFormatType::Number(CNumberType::DecimalD),
+        'i' => CFormatType::Number(CNumberType::DecimalI),
+        'u' => CFormatType::Number(CNumberType::DecimalU),
+        'o' => CFormatType::Number(CNumberType::Octal),
+        'x' => CFormatType::Number(CNumberType::HexLower),
+        'X' => CFormatType::Number(CNumberType::HexUpper),
+        'e' => CFormatType::Float(CFloatType::ExponentLower),
+        'E' => CFormatType::Float(CFloatType::ExponentUpper),
+        'f' => CFormatType::Float(CFloatType::PointDecimalLower),
+        'F' => CFormatType::Float(CFloatType::PointDecimalUpper),
+        'g' => CFormatType::Float(CFloatType::GeneralLower),
+        'G' => CFormatType::Float(CFloatType::GeneralUpper),
         'c' => CFormatType::Character(CCharacterType::Character),
         'r' => CFormatType::String(CFormatConversion::Repr),
         's' => CFormatType::String(CFormatConversion::Str),
-        'b' => CFormatType::String(CFormatConversion::Bytes),
         'a' => CFormatType::String(CFormatConversion::Ascii),
-        _ => return Err((CFormatErrorType::UnsupportedFormatChar(c.into()), index)),
-    };
-    Ok(format_type)
+        'b' if context == CFormatContext::Bytes => CFormatType::Bytes,
+        _ => CFormatType::Unsupported {
+            ch: c.into(),
+            index,
+        },
+    })
 }
 
-fn parse_quantity<C, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>
+fn parse_quantity<C, I>(
+    iter: &mut ParseIter<I>,
+    max_value: usize,
+    too_big: CFormatErrorType,
+) -> Result<Option<CFormatQuantity>, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -663,20 +689,21 @@ where
             return Ok(Some(CFormatQuantity::FromValuesTuple));
         }
         if let Some(i) = c.to_char_lossy().to_digit(10) {
-            let mut num = i as i32;
+            let mut num = i as usize;
             iter.next().unwrap();
             while let Some(&(index, c)) = iter.peek() {
                 if let Some(i) = c.to_char_lossy().to_digit(10) {
                     num = num
                         .checked_mul(10)
-                        .and_then(|num| num.checked_add(i as i32))
-                        .ok_or((CFormatErrorType::IntTooBig, index))?;
+                        .and_then(|num| num.checked_add(i as usize))
+                        .filter(|&num| num <= max_value)
+                        .ok_or((too_big, index))?;
                     iter.next().unwrap();
                 } else {
                     break;
                 }
             }
-            return Ok(Some(CFormatQuantity::Amount(num.unsigned_abs() as usize)));
+            return Ok(Some(CFormatQuantity::Amount(num)));
         }
     }
     Ok(None)
@@ -688,7 +715,7 @@ where
     I: Iterator<Item = C>,
 {
     if iter.next_if(|(_, c)| c.eq_char('.')).is_some() {
-        let quantity = parse_quantity(iter)?;
+        let quantity = parse_quantity(iter, i32::MAX as usize, CFormatErrorType::PrecisionTooBig)?;
         let precision = quantity.map_or(CFormatPrecision::Dot, CFormatPrecision::Quantity);
         return Ok(Some(precision));
     }
@@ -779,7 +806,7 @@ impl<S> CFormatStrOrBytes<S> {
         self.parts.iter_mut()
     }
 
-    pub fn parse<I>(iter: &mut ParseIter<I>) -> Result<Self, CFormatError>
+    pub fn parse<I>(iter: &mut ParseIter<I>, context: CFormatContext) -> Result<Self, CFormatError>
     where
         S: FormatBuf,
         I: Iterator<Item = S::Char>,
@@ -803,10 +830,11 @@ impl<S> CFormatStrOrBytes<S> {
                         ));
                     }
 
-                    let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
-                        typ: err.0,
-                        index: err.1,
-                    })?;
+                    let spec =
+                        CFormatSpecKeyed::parse(iter, context).map_err(|err| CFormatError {
+                            typ: err.0,
+                            index: err.1,
+                        })?;
 
                     parts.push((index, CFormatPart::Spec(spec)));
                     if let Some(&(index, _)) = iter.peek() {
@@ -843,7 +871,7 @@ pub type CFormatBytes = CFormatStrOrBytes<Vec<u8>>;
 impl CFormatBytes {
     pub fn parse_from_bytes(bytes: &[u8]) -> Result<Self, CFormatError> {
         let mut iter = bytes.iter().copied().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Bytes)
     }
 }
 
@@ -854,7 +882,7 @@ impl FromStr for CFormatString {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let mut iter = text.chars().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Str)
     }
 }
 
@@ -863,7 +891,7 @@ pub type CFormatWtf8 = CFormatStrOrBytes<Wtf8Buf>;
 impl CFormatWtf8 {
     pub fn parse_from_wtf8(s: &Wtf8) -> Result<Self, CFormatError> {
         let mut iter = s.code_points().enumerate().peekable();
-        Self::parse(&mut iter)
+        Self::parse(&mut iter, CFormatContext::Str)
     }
 }
 
@@ -944,12 +972,17 @@ mod tests {
 
     #[test]
     fn format_parse_type_fail() {
-        assert_eq!(
-            "Hello %n".parse::<CFormatString>(),
-            Err(CFormatError {
-                typ: CFormatErrorType::UnsupportedFormatChar('n'.into()),
-                index: 7
-            })
+        let parsed = "Hello %n".parse::<CFormatString>().unwrap();
+        let spec = parsed.iter().find_map(|(_, part)| match part {
+            CFormatPart::Spec(spec) => Some(&spec.spec),
+            CFormatPart::Literal(_) => None,
+        });
+        assert!(
+            matches!(
+                spec.map(|s| &s.format_type),
+                Some(CFormatType::Unsupported { ch, index: 7 }) if *ch == 'n'
+            ),
+            "{spec:?}"
         );
     }
 
@@ -962,6 +995,40 @@ mod tests {
                 index: 7
             })
         );
+    }
+
+    #[test]
+    fn width_and_precision_have_distinct_limits_and_errors() {
+        let precision = "%.2147483648f".parse::<CFormatSpec>().unwrap_err();
+        assert_eq!(precision.0, CFormatErrorType::PrecisionTooBig);
+        assert_eq!(
+            CFormatError {
+                typ: precision.0,
+                index: precision.1,
+            }
+            .to_string(),
+            "precision too big"
+        );
+
+        let oversized_width = format!("%{}f", isize::MAX as u128 + 1);
+        let width = oversized_width.parse::<CFormatSpec>().unwrap_err();
+        assert_eq!(width.0, CFormatErrorType::WidthTooBig);
+        assert_eq!(
+            CFormatError {
+                typ: width.0,
+                index: width.1,
+            }
+            .to_string(),
+            "width too big"
+        );
+
+        if usize::BITS > 32 {
+            let spec = "%2147483648f".parse::<CFormatSpec>().unwrap();
+            assert_eq!(
+                spec.min_field_width,
+                Some(CFormatQuantity::Amount(2_147_483_648))
+            );
+        }
     }
 
     #[test]

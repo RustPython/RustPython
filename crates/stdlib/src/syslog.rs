@@ -5,15 +5,15 @@ pub(crate) use syslog::module_def;
 #[pymodule(name = "syslog")]
 mod syslog {
     use crate::vm::{
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
-        function::{OptionalArg, OptionalOption},
+        convert::ToPyException,
         utils::ToCString,
     };
     use rustpython_host_env::syslog as host_syslog;
 
     #[pyattr]
-    use libc::{
+    use host_syslog::{
         LOG_ALERT, LOG_AUTH, LOG_CONS, LOG_CRIT, LOG_DAEMON, LOG_DEBUG, LOG_EMERG, LOG_ERR,
         LOG_INFO, LOG_KERN, LOG_LOCAL0, LOG_LOCAL1, LOG_LOCAL2, LOG_LOCAL3, LOG_LOCAL4, LOG_LOCAL5,
         LOG_LOCAL6, LOG_LOCAL7, LOG_LPR, LOG_MAIL, LOG_NDELAY, LOG_NEWS, LOG_NOTICE, LOG_NOWAIT,
@@ -22,7 +22,32 @@ mod syslog {
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
+    use host_syslog::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
+
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_syslog::{LOG_FTP, LOG_INSTALL, LOG_LAUNCHD, LOG_NETINFO, LOG_RAS, LOG_REMOTEAUTH};
+
+    fn ident_to_utf8_cstring(
+        ident: &Py<PyStr>,
+        vm: &VirtualMachine,
+    ) -> PyResult<alloc::ffi::CString> {
+        let utf8 = ident.to_str().ok_or_else(|| {
+            let start = ident
+                .as_wtf8()
+                .code_points()
+                .position(|c| c.to_char().is_none())
+                .unwrap_or(0);
+            vm.new_unicode_encode_error(
+                vm.ctx.new_str("utf-8"),
+                ident.to_owned(),
+                start,
+                start + 1,
+                vm.ctx.new_str("surrogates not allowed"),
+            )
+        })?;
+        alloc::ffi::CString::new(utf8).map_err(|err| err.to_pyexception(vm))
+    }
 
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
         if let Some(argv) = vm.state.config.settings.argv.first()
@@ -42,39 +67,32 @@ mod syslog {
     #[derive(Default, FromArgs)]
     struct OpenLogArgs {
         #[pyarg(any, optional)]
-        ident: OptionalOption<PyStrRef>,
-        #[pyarg(any, optional)]
-        logoption: OptionalArg<i32>,
-        #[pyarg(any, optional)]
-        facility: OptionalArg<i32>,
+        ident: Option<PyStrRef>,
+        #[pyarg(any, default)]
+        logoption: i32,
+        #[pyarg(any, default = ::LOG_USER)]
+        facility: i32,
     }
 
     #[pyfunction]
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let logoption = args.logoption.unwrap_or(0);
-        let facility = args.facility.unwrap_or(LOG_USER);
-        let ident = match args.ident.clone().flatten() {
-            Some(args) => Some(args.to_cstring(vm)?),
-            None => get_argv(vm).map(|argv| argv.to_cstring(vm)).transpose()?,
+        let logoption = args.logoption;
+        let facility = args.facility;
+        let ident = match args.ident.clone() {
+            Some(ident) => Some(ident_to_utf8_cstring(&ident, vm)?),
+            None => get_argv(vm)
+                .map(|argv| ident_to_utf8_cstring(&argv, vm))
+                .transpose()?,
         }
         .map(|ident| ident.into_boxed_c_str());
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            let audit_ident: PyObjectRef = args.ident.flatten().map_or_else(
+        vm.audit("syslog.openlog", || {
+            let audit_ident: PyObjectRef = args.ident.map_or_else(
                 || get_argv(vm).map_or_else(|| vm.ctx.none(), Into::into),
                 Into::into,
             );
-
-            audit.call(
-                (
-                    vm.ctx.new_str("syslog.openlog"),
-                    audit_ident,
-                    logoption,
-                    facility,
-                ),
-                vm,
-            )?;
-        }
+            (audit_ident, logoption, facility)
+        })?;
 
         host_syslog::openlog(ident, logoption, facility);
         Ok(())
@@ -85,22 +103,26 @@ mod syslog {
         #[pyarg(positional)]
         priority: PyObjectRef,
         #[pyarg(positional, optional)]
-        message_object: OptionalOption<PyStrRef>,
+        message: Option<PyStrRef>,
     }
 
     #[pyfunction]
     fn syslog(args: SysLogArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (priority, msg) = match args.message_object.flatten() {
+        let (priority, msg) = match args.message {
             Some(s) => (args.priority.try_into_value(vm)?, s),
             None => (LOG_INFO, args.priority.try_into_value(vm)?),
         };
 
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.syslog"), priority, msg.clone()), vm)?;
-        }
+        vm.audit("syslog.syslog", || (priority, msg.clone()))?;
 
         if !host_syslog::is_open() {
-            openlog(OpenLogArgs::default(), vm)?;
+            openlog(
+                OpenLogArgs {
+                    facility: LOG_USER,
+                    ..OpenLogArgs::default()
+                },
+                vm,
+            )?;
         }
 
         let cmsg = msg.to_cstring(vm)?;
@@ -110,9 +132,7 @@ mod syslog {
 
     #[pyfunction]
     fn closelog(vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.closelog"),), vm)?;
-        }
+        vm.audit("syslog.closelog", || ())?;
 
         host_syslog::closelog();
         Ok(())
@@ -120,9 +140,7 @@ mod syslog {
 
     #[pyfunction]
     fn setlogmask(maskpri: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("syslog.setlogmask"), maskpri), vm)?;
-        }
+        vm.audit("syslog.setlogmask", || (maskpri,))?;
 
         Ok(host_syslog::setlogmask(maskpri))
     }

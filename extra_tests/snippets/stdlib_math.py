@@ -1,3 +1,4 @@
+import itertools
 import math
 
 from testutils import assert_raises, skip_if_unsupported
@@ -101,6 +102,30 @@ with assert_raises(TypeError):
     math.ceil(object())
 with assert_raises(TypeError):
     math.floor(object())
+with assert_raises(TypeError) as cm:
+    math.floor("1.5")
+assert str(cm.exception) == "must be real number, not str"
+with assert_raises(TypeError) as cm:
+    math.ceil(None)
+assert str(cm.exception) == "must be real number, not NoneType"
+
+assert math.floor(-0.5) == -1 and math.ceil(-0.5) == 0
+with assert_raises(OverflowError):
+    math.floor(INF)
+with assert_raises(ValueError):
+    math.ceil(NAN)
+
+
+class FloatFloor(float):
+    def __floor__(self):
+        return "sub floor"
+
+    def __ceil__(self):
+        return "sub ceil"
+
+
+assert math.floor(FloatFloor(1.5)) == "sub floor"
+assert math.ceil(FloatFloor(1.5)) == "sub ceil"
 
 isclose = math.isclose
 
@@ -311,3 +336,25 @@ assert math.fmod(0.0, 3.0) == 0.0
 assert math.fmod(0.0, NINF) == 0.0
 
 assert math.gamma(1) == 1.0
+
+# sumprod compares the two lengths as it goes; it must not drain either
+# argument first.
+assert_raises(ValueError, lambda: math.sumprod(itertools.count(), [1, 2, 3]))
+assert_raises(ValueError, lambda: math.sumprod([1, 2, 3], itertools.count()))
+assert math.sumprod(iter([1, 2, 3]), iter([4, 5, 6])) == 32
+
+# perm/comb reject a k above 2**63 - 1 instead of computing, and perm(n) is factorial(n).
+for f in [
+    lambda: math.perm(2**63),
+    lambda: math.perm(2**64 + 1, 2**63),
+    lambda: math.comb(2**64 + 1, 2**63),
+]:
+    assert_raises(OverflowError, f)
+assert_raises(
+    ValueError,
+    lambda: math.perm(-1),
+    _msg="factorial() not defined for negative values",
+)
+assert math.perm(5) == math.perm(5, None) == 120
+assert math.perm(2**64, 0) == 1
+assert math.comb(2**64, 2**64 - 1) == 2**64

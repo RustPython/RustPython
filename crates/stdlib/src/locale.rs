@@ -10,7 +10,6 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyTypeRef, PyUtf8StrRef},
         convert::ToPyException,
-        function::OptionalArg,
     };
 
     #[cfg(all(
@@ -18,7 +17,7 @@ mod _locale {
         not(any(target_os = "ios", target_os = "android", target_os = "redox"))
     ))]
     #[pyattr]
-    use libc::{
+    use rustpython_host_env::locale::{
         ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_2, ABMON_3,
         ABMON_4, ABMON_5, ABMON_6, ABMON_7, ABMON_8, ABMON_9, ABMON_10, ABMON_11, ABMON_12,
         ALT_DIGITS, AM_STR, CODESET, CRNCYSTR, D_FMT, D_T_FMT, DAY_1, DAY_2, DAY_3, DAY_4, DAY_5,
@@ -29,17 +28,19 @@ mod _locale {
 
     #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
     #[pyattr]
-    use libc::LC_MESSAGES;
+    use rustpython_host_env::locale::LC_MESSAGES;
 
     #[pyattr]
-    use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
+    use rustpython_host_env::locale::{
+        LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME,
+    };
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
-        vm.ctx.new_int(libc::c_char::MAX)
+        vm.ctx.new_int(core::ffi::c_char::MAX)
     }
 
-    fn copy_grouping(group: &[libc::c_char], vm: &VirtualMachine) -> PyListRef {
+    fn copy_grouping(group: &[core::ffi::c_char], vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
         for &value in group {
             let val = vm.ctx.new_int(value);
@@ -78,13 +79,37 @@ mod _locale {
         )
     }
 
+    #[cfg(windows)]
     #[pyfunction]
-    fn strcoll(string1: PyUtf8StrRef, string2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
+    fn strcoll(os1: PyUtf8StrRef, os2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if os1.as_str().contains('\0') || os2.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let w1: Vec<u16> = os1.as_str().encode_utf16().chain([0]).collect();
+        let w2: Vec<u16> = os2.as_str().encode_utf16().chain([0]).collect();
+        Ok(vm.new_pyobj(host_locale::wcscoll(&w1, &w2)))
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn strcoll(os1: PyUtf8StrRef, os2: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        let cstr1 = CString::new(os1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let cstr2 = CString::new(os2.as_str()).map_err(|e| e.to_pyexception(vm))?;
         Ok(vm.new_pyobj(host_locale::strcoll(&cstr1, &cstr2)))
     }
 
+    #[cfg(windows)]
+    #[pyfunction]
+    fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
+        if string.as_str().contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        let wide: Vec<u16> = string.as_str().encode_utf16().chain([0]).collect();
+        let transformed = host_locale::wcsxfrm(&wide);
+        Ok(vm.new_pyobj(String::from_utf16_lossy(&transformed)))
+    }
+
+    #[cfg(not(windows))]
     #[pyfunction]
     fn strxfrm(string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
@@ -92,6 +117,20 @@ mod _locale {
         let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
         let buff = host_locale::strxfrm(&cstr, n1);
         Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn _getdefaultlocale(vm: &VirtualMachine) -> PyObjectRef {
+        let lcid = host_locale::user_default_lcid();
+        let language = host_locale::locale_info(lcid, host_locale::LOCALE_SISO639LANGNAME);
+        let territory = host_locale::locale_info(lcid, host_locale::LOCALE_SISO3166CTRYNAME);
+        let locale = match (language, territory) {
+            (Some(language), Some(territory)) => vm.new_pyobj(format!("{language}_{territory}")),
+            _ => vm.ctx.none(),
+        };
+        let encoding = vm.new_pyobj(format!("cp{}", host_locale::acp()));
+        vm.ctx.new_tuple(vec![locale, encoding]).into()
     }
 
     #[pyfunction]
@@ -140,10 +179,10 @@ mod _locale {
 
     #[derive(FromArgs)]
     struct LocaleArgs {
-        #[pyarg(any)]
+        #[pyarg(positional)]
         category: i32,
-        #[pyarg(any, optional)]
-        locale: OptionalArg<Option<PyUtf8StrRef>>,
+        #[pyarg(positional, optional)]
+        locale: Option<PyUtf8StrRef>,
     }
 
     /// Maximum code page encoding name length on Windows
@@ -181,7 +220,7 @@ mod _locale {
             return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
 
-        let result = match args.locale.flatten() {
+        let result = match args.locale {
             None => host_locale::setlocale(args.category, None),
             Some(locale) => {
                 let locale_str = locale.as_str();
@@ -209,33 +248,28 @@ mod _locale {
         Ok(pystr_from_bytes(vm, &result))
     }
 
-    /// Get the current locale encoding.
+    #[cfg(windows)]
     #[pyfunction]
     fn getencoding() -> String {
-        #[cfg(windows)]
+        let acp = host_locale::acp();
+        format!("cp{acp}")
+    }
+
+    #[cfg(not(windows))]
+    #[pyfunction]
+    fn getencoding() -> String {
+        #[cfg(all(
+            unix,
+            not(any(target_os = "ios", target_os = "android", target_os = "redox"))
+        ))]
         {
-            let acp = host_locale::acp();
-            format!("cp{acp}")
-        }
-        #[cfg(not(windows))]
-        {
-            #[cfg(all(
-                unix,
-                not(any(target_os = "ios", target_os = "android", target_os = "redox"))
-            ))]
+            if let Some(codeset) = host_locale::nl_langinfo_codeset()
+                && let Ok(s) = core::str::from_utf8(&codeset)
+                && !s.is_empty()
             {
-                if let Some(codeset) = host_locale::nl_langinfo_codeset()
-                    && let Ok(s) = core::str::from_utf8(&codeset)
-                    && !s.is_empty()
-                {
-                    return s.to_string();
-                }
-                "UTF-8".to_string()
-            }
-            #[cfg(any(target_os = "ios", target_os = "android", target_os = "redox"))]
-            {
-                "UTF-8".to_string()
+                return s.to_string();
             }
         }
+        "UTF-8".to_string()
     }
 }

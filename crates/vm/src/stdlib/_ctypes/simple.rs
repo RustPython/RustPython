@@ -1,8 +1,7 @@
 use super::_ctypes::CArgObject;
 use super::array::PyCArray;
 use super::base::{
-    CDATA_BUFFER_METHODS, FfiArgValue, PyCData, StgInfo, StgInfoFlags, buffer_to_ffi_value,
-    bytes_to_pyobject,
+    CArgValue, CDATA_BUFFER_METHODS, PyCData, StgInfo, StgInfoFlags, bytes_to_pyobject,
 };
 use super::function::PyCFuncPtr;
 use super::pointer::PyCPointer;
@@ -12,7 +11,8 @@ use crate::function::{Either, FuncArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, set_attrs,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    class::PyClassDef, set_attrs,
 };
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -73,13 +73,24 @@ fn new_simple_type(
     Ok(PyCSimple(PyCData::from_bytes(zeroed_bytes(size), None)))
 }
 
+pub(super) fn bigint_to_i128_wrapping(value: &malachite_bigint::BigInt) -> i128 {
+    let bytes = value.to_signed_bytes_le();
+    let fill = bytes
+        .last()
+        .map_or(0, |byte| if *byte & 0x80 == 0 { 0 } else { u8::MAX });
+    let mut wrapped = [fill; 16];
+    let len = bytes.len().min(wrapped.len());
+    wrapped[..len].copy_from_slice(&bytes[..len]);
+    i128::from_le_bytes(wrapped)
+}
+
 fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResult {
     match _type_ {
         "c" => {
             // c_set: accepts bytes(len=1), bytearray(len=1), or int(0-255)
             if value
                 .downcast_ref_if_exact::<PyBytes>(vm)
-                .is_some_and(|v| v.len() == 1)
+                .is_some_and(|v| v.as_bytes().len() == 1)
                 || value
                     .downcast_ref_if_exact::<PyByteArray>(vm)
                     .is_some_and(|v| v.borrow_buf().len() == 1)
@@ -263,11 +274,11 @@ impl PyCSimpleType {
             let simple_obj: PyObjectRef = simple.into_ref_with_type(vm, cls.clone())?.into();
             // from_param returns CArgObject, not the simple type itself
             let tag = type_str.as_bytes().first().copied().unwrap_or(b'?');
-            let ffi_value = buffer_to_ffi_value(type_str, &buffer_bytes);
             Ok(CArgObject {
                 tag,
-                value: ffi_value,
+                value: CArgValue::typed(tag as char, &buffer_bytes),
                 obj: simple_obj,
+                keep: None,
                 size: 0,
                 offset: 0,
             }
@@ -292,7 +303,7 @@ impl PyCSimpleType {
             // c_char: 1 byte character
             Some("c") => {
                 if let Some(bytes) = value.downcast_ref::<PyBytes>()
-                    && bytes.len() == 1
+                    && bytes.as_bytes().len() == 1
                 {
                     return create_simple_with_value("c", &value);
                 }
@@ -319,8 +330,9 @@ impl PyCSimpleType {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(kept_alive),
                         size: 0,
                         offset: 0,
                     }
@@ -344,8 +356,9 @@ impl PyCSimpleType {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(holder),
                         size: 0,
                         offset: 0,
                     }
@@ -373,8 +386,9 @@ impl PyCSimpleType {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(kept_alive),
                         size: 0,
                         offset: 0,
                     }
@@ -385,8 +399,9 @@ impl PyCSimpleType {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(holder),
                         size: 0,
                         offset: 0,
                     }
@@ -412,8 +427,9 @@ impl PyCSimpleType {
                     };
                     return Ok(CArgObject {
                         tag: b'P',
-                        value: FfiArgValue::pointer(ptr_val),
+                        value: CArgValue::pointer(ptr_val),
                         obj: value.clone(),
+                        keep: None,
                         size: 0,
                         offset: 0,
                     }
@@ -429,8 +445,9 @@ impl PyCSimpleType {
                         };
                         return Ok(CArgObject {
                             tag: b'Z',
-                            value: FfiArgValue::pointer(ptr_val),
+                            value: CArgValue::pointer(ptr_val),
                             obj: value.clone(),
+                            keep: None,
                             size: 0,
                             offset: 0,
                         }
@@ -442,8 +459,9 @@ impl PyCSimpleType {
             Some("O") => {
                 return Ok(CArgObject {
                     tag: b'O',
-                    value: FfiArgValue::pointer(value.get_id()),
+                    value: CArgValue::pointer(value.get_id()),
                     obj: value,
+                    keep: None,
                     size: 0,
                     offset: 0,
                 }
@@ -478,7 +496,7 @@ impl PyCSimpleType {
     }
 
     fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        PyCSimple::repeat(cls, n, vm)
+        Py::<PyCSimple>::repeat(cls, n, vm)
     }
 }
 
@@ -496,7 +514,7 @@ impl AsNumber for PyCSimpleType {
                     .as_bigint()
                     .to_isize()
                     .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                PyCSimple::repeat(cls.to_owned(), n, vm)
+                Py::<PyCSimple>::repeat(cls.to_owned(), n, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -507,7 +525,7 @@ impl AsNumber for PyCSimpleType {
 impl Initializer for PyCSimpleType {
     type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // type_init requires exactly 3 positional arguments: name, bases, dict
         if args.args.len() != 3 {
             return Err(vm.new_type_error(format!(
@@ -716,7 +734,7 @@ fn value_to_bytes_endian(
         "c" => {
             // c_char - single byte (bytes, bytearray, or int 0-255)
             if let Some(bytes) = value.downcast_ref::<PyBytes>()
-                && !bytes.is_empty()
+                && !bytes.as_bytes().is_empty()
             {
                 SimpleStorageValue::Byte(bytes.as_bytes()[0])
             } else if let Some(bytearray) = value.downcast_ref::<PyByteArray>() {
@@ -750,7 +768,7 @@ fn value_to_bytes_endian(
         "b" => {
             // c_byte - signed char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -758,7 +776,7 @@ fn value_to_bytes_endian(
         "B" => {
             // c_ubyte - unsigned char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -766,7 +784,7 @@ fn value_to_bytes_endian(
         "h" => {
             // c_short (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -774,7 +792,7 @@ fn value_to_bytes_endian(
         "H" => {
             // c_ushort (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -782,7 +800,7 @@ fn value_to_bytes_endian(
         "i" => {
             // c_int (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -790,7 +808,7 @@ fn value_to_bytes_endian(
         "I" => {
             // c_uint (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -798,7 +816,7 @@ fn value_to_bytes_endian(
         "l" => {
             // c_long (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -806,7 +824,7 @@ fn value_to_bytes_endian(
         "L" => {
             // c_ulong (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -814,7 +832,7 @@ fn value_to_bytes_endian(
         "q" => {
             // c_longlong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -822,7 +840,7 @@ fn value_to_bytes_endian(
         "Q" => {
             // c_ulonglong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -883,10 +901,7 @@ fn value_to_bytes_endian(
         "P" => {
             // c_void_p - pointer type (platform pointer size)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -896,10 +911,7 @@ fn value_to_bytes_endian(
             // c_char_p - pointer to char (stores pointer value from int)
             // PyBytes case is handled in slot_new/set_value with make_z_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -909,10 +921,7 @@ fn value_to_bytes_endian(
             // c_wchar_p - pointer to wchar_t (stores pointer value from int)
             // PyStr case is handled in slot_new/set_value with make_wchar_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -976,7 +985,7 @@ impl Constructor for PyCSimple {
     type Args = (OptionalArg,);
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let args: Self::Args = args.bind(vm)?;
+        let args: Self::Args = args.bind_for(vm, Self::NAME)?;
         let _type_ = cls
             .type_code(vm)
             .ok_or_else(|| vm.new_type_error("abstract class"))?;
@@ -1043,10 +1052,10 @@ impl Constructor for PyCSimple {
 impl Initializer for PyCSimple {
     type Args = (OptionalArg,);
 
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // If an argument is provided, update the value
         if let Some(value) = args.0.into_option() {
-            Self::set_value(zelf.into(), value, vm)?;
+            Py::<Self>::set_value(zelf.to_owned().into(), value, vm)?;
         }
         Ok(())
     }
@@ -1062,12 +1071,13 @@ impl Representable for PyCSimple {
         // vs subclass of simple type (like class X(c_int): pass)
         let bases = cls.bases.read();
         let is_direct_simple = bases
+            .as_slice()
             .iter()
             .any(|base| base.name().to_string() == "_SimpleCData");
 
         if is_direct_simple {
             // Direct SimpleCData: "typename(repr(value))"
-            let value = Self::value(zelf.to_owned().into(), vm)?;
+            let value = Py::<Self>::value(zelf.to_owned().into(), vm)?;
             let value_repr = value.repr(vm)?.to_string();
             Ok(format!("{type_name}({value_repr})"))
         } else {
@@ -1082,7 +1092,7 @@ impl Representable for PyCSimple {
     flags(BASETYPE),
     with(Constructor, Initializer, AsBuffer, AsNumber, Representable)
 )]
-impl PyCSimple {
+impl Py<PyCSimple> {
     #[pygetset]
     fn _b0_(&self) -> Option<PyObjectRef> {
         self.0.base.read().clone()
@@ -1090,7 +1100,7 @@ impl PyCSimple {
 
     #[pygetset]
     pub(crate) fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let zelf: &Py<Self> = instance
+        let zelf: &Self = instance
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
 
@@ -1159,7 +1169,7 @@ impl PyCSimple {
 
     #[pygetset(setter)]
     fn set_value(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = instance
+        let zelf: PyRef<PyCSimple> = instance
             .clone()
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
@@ -1228,11 +1238,14 @@ impl PyCSimple {
         array_type_from_ctype(cls.into(), n as usize, vm)
     }
 
-    /// Simple_from_outparm - convert output parameter back to Python value
-    /// For direct subclasses of _SimpleCData (e.g., c_int), returns the value.
-    /// For subclasses of those (e.g., class MyInt(c_int)), returns self.
+    // Simple_from_outparm - convert output parameter back to Python value
+    // For direct subclasses of _SimpleCData (e.g., c_int), returns the value.
+    // For subclasses of those (e.g., class MyInt(c_int)), returns self.
     #[pymethod]
-    fn __ctypes_from_outparam__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn __ctypes_from_outparam__(
+        zelf: PyRef<PyCSimple>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         // _ctypes_simple_instance: returns true if NOT a direct subclass of Simple_Type
         // i.e., c_int (direct) -> false, MyInt(c_int) (subclass) -> true
         let is_subclass_of_simple = {
@@ -1240,6 +1253,7 @@ impl PyCSimple {
             let bases = cls.bases.read();
             // If base is NOT _SimpleCData, then it's a subclass of a subclass
             !bases
+                .as_slice()
                 .iter()
                 .any(|base| base.name().to_string() == "_SimpleCData")
         };
@@ -1255,17 +1269,10 @@ impl PyCSimple {
 }
 
 impl PyCSimple {
-    /// Extract the value from this ctypes object as an owned FfiArgValue.
-    /// The value must be kept alive until after the FFI call completes.
-    pub(crate) fn to_ffi_value(
-        &self,
-        ty: rustpython_host_env::ctypes::FfiType,
-        _vm: &VirtualMachine,
-    ) -> Option<FfiArgValue> {
+    /// Snapshot this object's buffer as a simple-typed foreign-call value.
+    pub(crate) fn to_carg_value(&self, code: char) -> CArgValue {
         let buffer = self.0.buffer.read();
-        Some(FfiArgValue::Scalar(
-            rustpython_host_env::ctypes::ffi_value_from_type(&buffer, ty)?,
-        ))
+        CArgValue::typed(code, &buffer)
     }
 }
 
@@ -1282,6 +1289,7 @@ impl AsBuffer for PyCSimple {
         let itemsize = stg_info.size;
         // Simple types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

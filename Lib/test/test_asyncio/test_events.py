@@ -273,7 +273,6 @@ class EventLoopTestsMixin:
         support.gc_collect()
         super().tearDown()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - RuntimeWarning for unawaited coroutine not triggered
     def test_run_until_complete_nesting(self):
         async def coro1():
             await asyncio.sleep(0)
@@ -560,7 +559,6 @@ class EventLoopTestsMixin:
         r.close()
         self.assertEqual(read, data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - signal handler implementation differs
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'No SIGKILL')
     def test_add_signal_handler(self):
         caught = 0
@@ -791,7 +789,6 @@ class EventLoopTestsMixin:
             self.assertEqual(port, expected)
             tr.close()
 
-    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON; Flaky on CI")
     @socket_helper.skip_if_tcp_blackhole
     def test_create_connection_local_addr_skip_different_family(self):
         # See https://github.com/python/cpython/issues/86508
@@ -1289,7 +1286,6 @@ class EventLoopTestsMixin:
         server.close()
         self.loop.run_until_complete(proto.done)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - SSL peer certificate format differs
     @unittest.skipIf(ssl is None, 'No ssl module')
     def test_create_server_ssl_verified(self):
         proto = MyProto(loop=self.loop)

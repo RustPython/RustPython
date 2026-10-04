@@ -1,6 +1,23 @@
 use alloc::vec::Vec;
 use core::{ffi::CStr, ptr};
 
+pub use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
+
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
+pub use libc::LC_MESSAGES;
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "ios", target_os = "android", target_os = "redox"))
+))]
+pub use libc::{
+    ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_2, ABMON_3,
+    ABMON_4, ABMON_5, ABMON_6, ABMON_7, ABMON_8, ABMON_9, ABMON_10, ABMON_11, ABMON_12, ALT_DIGITS,
+    AM_STR, CODESET, CRNCYSTR, D_FMT, D_T_FMT, DAY_1, DAY_2, DAY_3, DAY_4, DAY_5, DAY_6, DAY_7,
+    ERA, ERA_D_FMT, ERA_D_T_FMT, ERA_T_FMT, MON_1, MON_2, MON_3, MON_4, MON_5, MON_6, MON_7, MON_8,
+    MON_9, MON_10, MON_11, MON_12, NOEXPR, PM_STR, RADIXCHAR, T_FMT, T_FMT_AMPM, THOUSEP, YESEXPR,
+};
+
 #[cfg(windows)]
 #[repr(C)]
 struct RawLconv {
@@ -77,6 +94,47 @@ fn copy_grouping(ptr: *const libc::c_char) -> Vec<libc::c_char> {
     out
 }
 
+/// Every byte of a NUL-terminated C string, `CHAR_MAX` included.
+///
+/// `localeconv().grouping` spells a "repeat last group" / "stop" terminator
+/// as `CHAR_MAX`. Stopping at that value drops the distinction; this reader
+/// keeps it, the way a NUL-only C-string walk does.
+///
+/// # Safety
+///
+/// `ptr` must be null or point to a NUL-terminated C string that remains valid
+/// for the duration of the call.
+pub unsafe fn charp2bytes(ptr: *const libc::c_char) -> Vec<u8> {
+    let mut out = Vec::new();
+    if !ptr.is_null() {
+        let mut cur = ptr;
+        unsafe {
+            while *cur != 0 {
+                out.push(*cur as u8);
+                cur = cur.add(1);
+            }
+        }
+    }
+    out
+}
+
+/// Decimal point, thousands separator and grouping of the current locale,
+/// as the raw bytes `localeconv()` reports. Grouping keeps a `CHAR_MAX`
+/// terminator when the C locale spells one.
+pub fn localeconv_numeric() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let lc = unsafe { localeconv() };
+    if lc.is_null() {
+        return (b".".to_vec(), Vec::new(), Vec::new());
+    }
+    unsafe {
+        (
+            charp2bytes((*lc).decimal_point),
+            charp2bytes((*lc).thousands_sep),
+            charp2bytes((*lc).grouping),
+        )
+    }
+}
+
 pub fn localeconv_data() -> LocaleConv {
     let lc = unsafe { localeconv() };
     unsafe {
@@ -130,6 +188,64 @@ pub fn setlocale(category: i32, locale: Option<&CStr>) -> Option<Vec<u8>> {
 #[cfg(windows)]
 pub fn acp() -> u32 {
     unsafe { windows_sys::Win32::Globalization::GetACP() }
+}
+
+#[cfg(windows)]
+pub fn user_default_lcid() -> u32 {
+    unsafe { windows_sys::Win32::Globalization::GetUserDefaultLCID() }
+}
+
+#[cfg(windows)]
+pub const LOCALE_SISO639LANGNAME: u32 = 0x0000_0059;
+#[cfg(windows)]
+pub const LOCALE_SISO3166CTRYNAME: u32 = 0x0000_005A;
+
+/// `GetLocaleInfoW` into a 16-unit buffer, the size `_getdefaultlocale` uses.
+#[cfg(windows)]
+pub fn locale_info(lcid: u32, lctype: u32) -> Option<String> {
+    use windows_sys::Win32::Globalization::GetLocaleInfoW;
+
+    let mut buffer = [0u16; 16];
+    let len = unsafe { GetLocaleInfoW(lcid, lctype, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if len <= 1 {
+        None
+    } else {
+        Some(String::from_utf16_lossy(&buffer[..len as usize - 1]))
+    }
+}
+
+#[cfg(windows)]
+fn wide_cstr(units: &[u16]) -> alloc::borrow::Cow<'_, [u16]> {
+    if units.last() == Some(&0) {
+        alloc::borrow::Cow::Borrowed(units)
+    } else {
+        let mut owned = units.to_vec();
+        owned.push(0);
+        alloc::borrow::Cow::Owned(owned)
+    }
+}
+
+#[cfg(windows)]
+pub fn wcscoll(s1: &[u16], s2: &[u16]) -> i32 {
+    unsafe extern "C" {
+        fn wcscoll(s1: *const u16, s2: *const u16) -> i32;
+    }
+    let s1 = wide_cstr(s1);
+    let s2 = wide_cstr(s2);
+    unsafe { wcscoll(s1.as_ptr(), s2.as_ptr()) }
+}
+
+#[cfg(windows)]
+pub fn wcsxfrm(src: &[u16]) -> Vec<u16> {
+    unsafe extern "C" {
+        fn wcsxfrm(dst: *mut u16, src: *const u16, count: usize) -> usize;
+    }
+    let src = wide_cstr(src);
+    let needed = unsafe { wcsxfrm(core::ptr::null_mut(), src.as_ptr(), 0) };
+    let mut dst = vec![0u16; needed + 1];
+    let written = unsafe { wcsxfrm(dst.as_mut_ptr(), src.as_ptr(), dst.len()) };
+    dst.truncate(written);
+    dst
 }
 
 #[cfg(windows)]

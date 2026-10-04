@@ -67,16 +67,6 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(
-    AsMapping,
-    Iterable,
-    Constructor,
-    AsSequence,
-    Comparable,
-    Hashable,
-    AsNumber,
-    Representable
-))]
 impl PyMappingProxy {
     pub fn from_object(mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if mapping.mapping_unchecked().check()
@@ -93,15 +83,104 @@ impl PyMappingProxy {
         )))
     }
 
-    fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+    fn get_inner(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         match &self.mapping {
-            MappingProxyInner::Class(class) => Ok(key
-                .as_interned_str(vm)
-                .and_then(|key| class.attributes.read().get(key).cloned())),
-            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(&*key, vm).map(Some),
+            MappingProxyInner::Class(class) => Self::class_get(class, key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(key, vm).map(Some),
         }
     }
 
+    fn class_get(
+        class: &Py<PyType>,
+        key: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match class.attributes.as_dict() {
+            Some(dict) => dict.get_item_opt(key, vm),
+            None => Ok(key
+                .as_interned_str(vm)
+                .and_then(|key| class.attributes.get(key))),
+        }
+    }
+
+    pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.get_inner(&key, vm)?
+            .ok_or_else(|| vm.new_key_error(key))
+    }
+
+    fn _contains(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        match &self.mapping {
+            MappingProxyInner::Class(class) => Ok(Self::class_contains(class, key, vm)),
+            MappingProxyInner::Mapping(mapping) => {
+                mapping.obj().sequence_unchecked().contains(key, vm)
+            }
+        }
+    }
+
+    fn class_contains(class: &Py<PyType>, key: &PyObject, vm: &VirtualMachine) -> bool {
+        match class.attributes.as_dict() {
+            Some(dict) => dict.contains_key(key, vm),
+            None => key
+                .as_interned_str(vm)
+                .is_some_and(|key| class.attributes.contains(key)),
+        }
+    }
+
+    pub fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self._contains(key, vm)
+    }
+
+    fn to_object(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(match &self.mapping {
+            MappingProxyInner::Mapping(d) => d.as_ref().to_owned(),
+            MappingProxyInner::Class(c) => Self::class_to_dict(c, vm)?,
+        })
+    }
+
+    fn class_to_dict(class: &Py<PyType>, vm: &VirtualMachine) -> PyResult {
+        if let Some(dict) = class.attributes.as_dict() {
+            return Ok(dict.copy().to_pyobject(vm));
+        }
+        Ok(PyDict::from_attributes(class.attributes.attributes(&vm.ctx), vm)?.to_pyobject(vm))
+    }
+
+    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        let obj = self.to_object(vm)?;
+        obj.length(vm)
+    }
+
+    fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(format!(
+            r#""'|=' is not supported by {}; use '|' instead""#,
+            Self::class(&vm.ctx)
+        )))
+    }
+
+    fn __or__(&self, args: &PyObject, vm: &VirtualMachine) -> PyResult {
+        vm._or(self.copy(vm)?.as_ref(), args)
+    }
+
+    pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
+        match &self.mapping {
+            MappingProxyInner::Mapping(d) => {
+                vm.call_method(d.obj(), identifier!(vm, copy).as_str(), ())
+            }
+            MappingProxyInner::Class(c) => Self::class_to_dict(c, vm),
+        }
+    }
+}
+
+#[pyclass(with(
+    AsMapping,
+    Iterable,
+    Constructor,
+    AsSequence,
+    Comparable,
+    Hashable,
+    AsNumber,
+    Representable
+))]
+impl Py<PyMappingProxy> {
     #[pymethod]
     fn get(
         &self,
@@ -115,35 +194,6 @@ impl PyMappingProxy {
             "get",
             (key, default.unwrap_or_none(vm)),
         )?))
-    }
-
-    pub fn __getitem__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.get_inner(key.clone(), vm)?
-            .ok_or_else(|| vm.new_key_error(key))
-    }
-
-    fn _contains(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        match &self.mapping {
-            MappingProxyInner::Class(class) => Ok(key
-                .as_interned_str(vm)
-                .is_some_and(|key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => {
-                mapping.obj().sequence_unchecked().contains(key, vm)
-            }
-        }
-    }
-
-    pub fn __contains__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self._contains(&key, vm)
-    }
-
-    fn to_object(&self, vm: &VirtualMachine) -> PyResult {
-        Ok(match &self.mapping {
-            MappingProxyInner::Mapping(d) => d.as_ref().to_owned(),
-            MappingProxyInner::Class(c) => {
-                PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm)
-            }
-        })
     }
 
     #[pymethod]
@@ -166,24 +216,16 @@ impl PyMappingProxy {
 
     #[pymethod]
     pub fn copy(&self, vm: &VirtualMachine) -> PyResult {
-        match &self.mapping {
-            MappingProxyInner::Mapping(d) => {
-                vm.call_method(d.obj(), identifier!(vm, copy).as_str(), ())
-            }
-            MappingProxyInner::Class(c) => {
-                Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm))
-            }
-        }
+        self.payload.copy(vm)
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
-    }
-
-    fn __len__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        let obj = self.to_object(vm)?;
-        obj.length(vm)
     }
 
     #[pymethod]
@@ -193,17 +235,6 @@ impl PyMappingProxy {
             identifier!(vm, __reversed__).as_str(),
             (),
         )
-    }
-
-    fn __ior__(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_type_error(format!(
-            r#""'|=' is not supported by {}; use '|' instead""#,
-            Self::class(&vm.ctx)
-        )))
-    }
-
-    fn __or__(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._or(self.copy(vm)?.as_ref(), args.as_ref())
     }
 }
 

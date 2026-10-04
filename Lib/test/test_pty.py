@@ -89,7 +89,6 @@ def write_all(fd, data):
 
 # Marginal testing of pty suite. Cannot do extensive 'do or fail' testing
 # because pty code is not too portable.
-@unittest.skipIf(getattr(tty, "tcgetwinsize", None) is None, "TODO: RUSTPYTHON; `tty.tcgetwinsize` is required for setUp")
 class PtyTest(unittest.TestCase):
     def setUp(self):
         old_sighup = signal.signal(signal.SIGHUP, self.handle_sighup)

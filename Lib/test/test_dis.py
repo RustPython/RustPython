@@ -1106,7 +1106,6 @@ class DisTests(DisTestBase):
     def test_bug_708901(self):
         self.do_disassembly_test(bug708901, dis_bug708901)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_1333982(self):
         # This one is checking bytecodes generated for an `assert` statement,
         # so fails if the tests are run with -O.  Skip this test then.
@@ -1164,7 +1163,6 @@ class DisTests(DisTestBase):
         from test import dis_module
         self.do_disassembly_test(dis_module, dis_module_expected_results)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_str(self):
         self.do_disassembly_test(expr_str, dis_expr_str)
         self.do_disassembly_test(simple_stmt_str, dis_simple_stmt_str)
@@ -1251,7 +1249,6 @@ class DisTests(DisTestBase):
     def test_dis_object(self):
         self.assertRaises(TypeError, dis.dis, object())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_recursive(self):
         def check(expected, **kwargs):
             dis = self.get_disassembly(_h, **kwargs)
@@ -1623,13 +1620,11 @@ class CodeInfoTests(unittest.TestCase):
       (async_def, code_info_async_def)
     ]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_code_info(self):
         self.maxDiff = 1000
         for x, expected in self.test_pairs:
             self.assertRegex(dis.code_info(x), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_show_code(self):
         self.maxDiff = 1000
         for x, expected in self.test_pairs:
@@ -2322,7 +2317,6 @@ class BytecodeTests(InstructionTestCase, DisTestBase):
         actual = actual.strip().partition(" ")[0]  # extract the line no
         self.assertEqual(actual, "350")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_info(self):
         self.maxDiff = 1000
         for x, expected in CodeInfoTests.test_pairs:

@@ -4,7 +4,7 @@ use crate::common::{
     hash::{self, PyHash},
 };
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
@@ -48,13 +48,11 @@ impl Constructor for PyWeak {
         let mut positional = args.args.into_iter();
         let referent = positional
             .next()
-            .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
-        let callback = positional.next();
+            .ok_or_else(|| vm.new_arity_type_error("__new__", 1..=2, 0))?;
+        let callback = positional.next().filter(|callback| !vm.is_none(callback));
         if let Some(_extra) = positional.next() {
             let got = positional.count() + 3;
-            return Err(
-                vm.new_type_error(format!("__new__ expected at most 2 arguments, got {got}"))
-            );
+            return Err(vm.new_arity_type_error("__new__", 1..=2, got));
         }
         let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())
@@ -69,7 +67,7 @@ impl Initializer for PyWeak {
     type Args = WeakNewArgs;
 
     // weakref_tp_init: accepts args but does nothing (all init done in slot_new)
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+    fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
         Ok(())
     }
 }
@@ -85,15 +83,19 @@ impl Initializer for PyWeak {
     ),
     flags(BASETYPE)
 )]
-impl PyWeak {
+impl Py<PyWeak> {
     #[pygetset]
     fn __callback__(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.unwrap_or_none(self.get_callback())
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
     }
 }
 
@@ -148,20 +150,36 @@ impl Comparable for PyWeak {
     }
 }
 
+/// `__name__` when that lookup yields a string. A missing name or a non-string
+/// value is left off the repr.
+fn instance_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<String>> {
+    let found =
+        crate::vm::PyMethod::get_special_ex::<false>(obj, identifier!(vm, __name__), vm, true)?;
+    let Some(crate::vm::PyMethod::Attribute(attr)) = found else {
+        return Ok(None);
+    };
+    Ok(attr
+        .downcast_ref::<crate::builtins::PyStr>()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned))
+}
+
 impl Representable for PyWeak {
     #[inline]
-    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let id = zelf.get_id();
-        Ok(if let Some(o) = zelf.upgrade() {
-            format!(
-                "<weakref at {:#x}; to '{}' at {:#x}>",
-                id,
-                o.class().name(),
-                o.get_id(),
-            )
-        } else {
-            format!("<weakref at {id:#x}; dead>")
-        })
+        let Some(obj) = zelf.upgrade() else {
+            return Ok(format!("<weakref at {id:#x}; dead>"));
+        };
+        let type_name = obj.class().fully_qualified_name(vm)?;
+        let obj_id = obj.get_id();
+        let suffix = match instance_name(&obj, vm)? {
+            Some(name) => format!(" ({name})"),
+            None => String::new(),
+        };
+        Ok(format!(
+            "<weakref at {id:#x}; to '{type_name}' at {obj_id:#x}{suffix}>"
+        ))
     }
 }
 

@@ -53,6 +53,13 @@ MSG = 'Michael Gilfix was here\u1234\r\n'.encode('utf-8')
 VSOCKPORT = 1234
 AIX = platform.system() == "AIX"
 SOLARIS = sys.platform.startswith("sunos")
+# NetBSD, OpenBSD and DragonFly deliver the file descriptors from only one
+# SCM_RIGHTS control message when several are sent in a single sendmsg().
+BSD_COMBINES_SCM_RIGHTS = sys.platform.startswith(
+    ("netbsd", "openbsd", "dragonfly"))
+# OpenBSD and DragonFly fail recvmsg() with EMSGSIZE, instead of setting
+# MSG_CTRUNC, when the ancillary data buffer is too small for a cmsghdr.
+CMSG_TRUNC_RAISES_EMSGSIZE = sys.platform.startswith(("openbsd", "dragonfly"))
 WSL = "microsoft-standard-WSL" in platform.release()
 
 try:
@@ -203,6 +210,25 @@ def _have_socket_hyperv():
     return True
 
 
+def _have_udp_lite():
+    if not hasattr(socket, "IPPROTO_UDPLITE"):
+        return False
+    # Older Android versions block UDPLITE with SELinux.
+    if support.is_android and platform.android_ver().api_level < 29:
+        return False
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDPLITE)
+    except OSError as exc:
+        # Linux 7.1 removed UDP Lite support
+        if exc.errno == errno.EPROTONOSUPPORT:
+            return False
+        raise
+    sock.close()
+
+    return True
+
+
 @contextlib.contextmanager
 def socket_setdefaulttimeout(timeout):
     old_timeout = socket.getdefaulttimeout()
@@ -245,10 +271,7 @@ HAVE_SOCKET_QIPCRTR = _have_socket_qipcrtr()
 
 HAVE_SOCKET_VSOCK = _have_socket_vsock()
 
-# Older Android versions block UDPLITE with SELinux.
-HAVE_SOCKET_UDPLITE = (
-    hasattr(socket, "IPPROTO_UDPLITE")
-    and not (support.is_android and platform.android_ver().api_level < 29))
+HAVE_SOCKET_UDPLITE = _have_udp_lite()
 
 HAVE_SOCKET_BLUETOOTH = _have_socket_bluetooth()
 
@@ -920,7 +943,6 @@ def requireSocket(*args):
 
 class GeneralModuleTests(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; gc.is_tracked not implemented
     @unittest.skipUnless(_socket is not None, 'need _socket module')
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
@@ -984,7 +1006,6 @@ class GeneralModuleTests(unittest.TestCase):
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message format differs
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1181,7 +1202,6 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertIsInstance(_name, str)
             self.assertEqual(name, _name)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u32
     @unittest.skipUnless(hasattr(socket, 'if_indextoname'),
                          'socket.if_indextoname() not available.')
     @support.skip_android_selinux('if_indextoname')
@@ -1249,7 +1269,6 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(swapped & mask, mask)
             self.assertRaises(OverflowError, func, 1<<34)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u16
     def testNtoHErrors(self):
         s_good_values = [0, 1, 2, 0xffff]
         l_good_values = s_good_values + [0xffffffff]
@@ -1281,7 +1300,8 @@ class GeneralModuleTests(unittest.TestCase):
         # protocol, at least for modern Linuxes.
         if (
             sys.platform.startswith(
-                ('linux', 'android', 'freebsd', 'netbsd', 'gnukfreebsd'))
+                ('linux', 'android', 'freebsd', 'dragonfly', 'netbsd',
+                 'gnukfreebsd'))
             or is_apple
         ):
             # avoid the 'echo' service on this platform, as there is an
@@ -1403,6 +1423,7 @@ class GeneralModuleTests(unittest.TestCase):
             except OSError as e:
                 if e.winerror == 10022:
                     self.skipTest('IPv6 might not be supported')
+                raise
 
         f = lambda a: inet_pton(AF_INET6, a)
         assertInvalid = lambda a: self.assertRaises(
@@ -1493,6 +1514,7 @@ class GeneralModuleTests(unittest.TestCase):
             except OSError as e:
                 if e.winerror == 10022:
                     self.skipTest('IPv6 might not be supported')
+                raise
 
         f = lambda a: inet_ntop(AF_INET6, a)
         assertInvalid = lambda a: self.assertRaises(
@@ -1718,6 +1740,23 @@ class GeneralModuleTests(unittest.TestCase):
                                    socket.AI_NUMERICSERV)
             except socket.gaierror:
                 pass
+
+    @unittest.skipUnless(hasattr(socket, 'AI_NUMERICSERV'),
+                         'needs socket.AI_NUMERICSERV')
+    @support.thread_unsafe('setlocale is not thread-safe')
+    @support.run_with_locales('LC_ALL',
+        'uk_UA.KOI8-U', 'uk_UA', 'ja_JP.eucJP', 'ja_JP.SJIS', 'ja_JP',
+        'ko_KR.eucKR', 'zh_CN.GB18030', 'el_GR.ISO8859-7',
+        'de_DE.ISO8859-1', 'ja_JP.UTF-8',
+        '')
+    def test_getaddrinfo_localized_error(self):
+        # gh-93251: the localized gai_strerror() message could fail to be
+        # decoded as UTF-8, so UnicodeDecodeError was raised
+        # instead of gaierror.
+        with self.assertRaises(socket.gaierror) as cm:
+            socket.getaddrinfo("localhost", "http",
+                               flags=socket.AI_NUMERICSERV)
+        str(cm.exception)
 
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_getaddrinfo_int_port_overflow(self):
@@ -2189,7 +2228,6 @@ class GeneralModuleTests(unittest.TestCase):
                 source=_socket)
         enum._test_simple_enum(CheckedAddressInfo, socket.AddressInfo)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'int' but 'Mut' found
     @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),"sendmsg not supported")
     def test_sendmsg_reentrant_ancillary_mutation(self):
 
@@ -2407,14 +2445,12 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: AF_CAN address must be a tuple (interface,) or (interface, addr)
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
@@ -2436,7 +2472,6 @@ class J1939Test(unittest.TestCase):
         super().__init__(*args, **kwargs)
         self.interface = "vcan0"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - J1939 constants not fully implemented
     @unittest.skipUnless(hasattr(socket, "CAN_J1939"),
                          'socket.CAN_J1939 required for this test.')
     def testJ1939Constants(self):
@@ -2478,7 +2513,6 @@ class J1939Test(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - AF_CAN J1939 address format not fully implemented
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_J1939) as s:
@@ -2657,7 +2691,6 @@ class BasicVSOCKTest(unittest.TestCase):
                      'Bluetooth sockets required for this test.')
 class BasicBluetoothTest(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'socket' has no attribute 'BTPROTO_RFCOMM'
     def testBluetoothConstants(self):
         socket.BDADDR_ANY
         socket.BDADDR_LOCAL
@@ -4084,6 +4117,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
+    @unittest.skipIf(BSD_COMBINES_SCM_RIGHTS, "skipping, see gh-125860")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparate(self):
         # Pass two FDs in two separate arrays.  Arrays may be combined
@@ -4096,6 +4130,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
+    @unittest.skipIf(BSD_COMBINES_SCM_RIGHTS, "skipping, see gh-125860")
     def _testFDPassSeparate(self):
         fd0, fd1 = self.newFDs(2)
         self.assertEqual(
@@ -4110,6 +4145,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
+    @unittest.skipIf(BSD_COMBINES_SCM_RIGHTS, "skipping, see gh-125860")
     @requireAttrs(socket, "CMSG_SPACE")
     def testFDPassSeparateMinSpace(self):
         # Pass two FDs in two separate arrays, receiving them into the
@@ -4125,6 +4161,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     @unittest.skipIf(is_apple, "skipping, see issue #12958")
     @unittest.skipIf(SOLARIS, "skipping, see gh-91214")
     @unittest.skipIf(AIX, "skipping, see issue #22397")
+    @unittest.skipIf(BSD_COMBINES_SCM_RIGHTS, "skipping, see gh-125860")
     def _testFDPassSeparateMinSpace(self):
         fd0, fd1 = self.newFDs(2)
         self.assertEqual(
@@ -4249,6 +4286,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
     # (but still too small) buffer sizes.
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTrunc1(self):
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG), 1))
 
@@ -4257,6 +4295,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.createAndSendFDs(1)
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTrunc2Int(self):
         # The cmsghdr structure has at least three members, two of
         # which are ints, so we still shouldn't see any ancillary
@@ -4269,6 +4308,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.createAndSendFDs(1)
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTruncLen0Minus1(self):
         self.checkTruncatedHeader(self.doRecvmsg(self.serv_sock, len(MSG),
                                                  socket.CMSG_LEN(0) - 1))
@@ -4306,6 +4346,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.checkFDs(fds)
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTruncLen0(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(0), maxdata=0)
 
@@ -4314,6 +4355,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.createAndSendFDs(1)
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTruncLen0Plus1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(0) + 1, maxdata=1)
 
@@ -4322,6 +4364,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
         self.createAndSendFDs(2)
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTruncLen1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(SIZEOF_INT),
                                  maxdata=SIZEOF_INT)
@@ -4332,6 +4375,7 @@ class SCMRightsTest(SendrecvmsgServerTimeoutBase):
 
 
     @skipForRefleakHuntinIf(sys.platform == "darwin", "#80931")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testCmsgTruncLen2Minus1(self):
         self.checkTruncatedArray(ancbuf=socket.CMSG_LEN(2 * SIZEOF_INT) - 1,
                                  maxdata=(2 * SIZEOF_INT) - 1)
@@ -4604,6 +4648,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
     # (but still too small) buffer sizes.
 
     @requireAttrs(socket, "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSingleCmsgTrunc1(self):
         self.checkHopLimitTruncatedHeader(ancbufsize=1)
 
@@ -4613,6 +4658,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
         self.sendToServer(MSG)
 
     @requireAttrs(socket, "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSingleCmsgTrunc2Int(self):
         self.checkHopLimitTruncatedHeader(ancbufsize=2 * SIZEOF_INT)
 
@@ -4622,6 +4668,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
         self.sendToServer(MSG)
 
     @requireAttrs(socket, "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSingleCmsgTruncLen0Minus1(self):
         self.checkHopLimitTruncatedHeader(ancbufsize=socket.CMSG_LEN(0) - 1)
 
@@ -4631,6 +4678,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
         self.sendToServer(MSG)
 
     @requireAttrs(socket, "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSingleCmsgTruncInData(self):
         # Test truncation of a control message inside its associated
         # data.  The message may be returned with its data truncated,
@@ -4703,6 +4751,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
 
     @requireAttrs(socket, "CMSG_SPACE", "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT",
                   "IPV6_RECVTCLASS", "IPV6_TCLASS")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSecondCmsgTrunc1(self):
         self.checkTruncatedSecondHeader(socket.CMSG_SPACE(SIZEOF_INT) + 1)
 
@@ -4713,6 +4762,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
 
     @requireAttrs(socket, "CMSG_SPACE", "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT",
                   "IPV6_RECVTCLASS", "IPV6_TCLASS")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSecondCmsgTrunc2Int(self):
         self.checkTruncatedSecondHeader(socket.CMSG_SPACE(SIZEOF_INT) +
                                         2 * SIZEOF_INT)
@@ -4724,6 +4774,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
 
     @requireAttrs(socket, "CMSG_SPACE", "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT",
                   "IPV6_RECVTCLASS", "IPV6_TCLASS")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSecondCmsgTruncLen0Minus1(self):
         self.checkTruncatedSecondHeader(socket.CMSG_SPACE(SIZEOF_INT) +
                                         socket.CMSG_LEN(0) - 1)
@@ -4735,6 +4786,7 @@ class RFC3542AncillaryTest(SendrecvmsgServerTimeoutBase):
 
     @requireAttrs(socket, "CMSG_SPACE", "IPV6_RECVHOPLIMIT", "IPV6_HOPLIMIT",
                   "IPV6_RECVTCLASS", "IPV6_TCLASS")
+    @unittest.skipIf(CMSG_TRUNC_RAISES_EMSGSIZE, "skipping, see gh-154240")
     def testSecondCmsgTruncInData(self):
         # Test truncation of the second of two control messages inside
         # its associated data.
@@ -7006,14 +7058,6 @@ class SendfileUsingSendfileTest(SendfileUsingSendTest):
     def meth_from_sock(self, sock):
         return getattr(sock, "_sendfile_use_sendfile")
 
-    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testCount(self):
-        return super().testCount()
-
-    @unittest.skip("TODO: RUSTPYTHON; os.sendfile count parameter not handled correctly; flaky")
-    def testWithTimeout(self):
-        return super().testWithTimeout()
-
 
 @unittest.skipUnless(HAVE_SOCKET_ALG, 'AF_ALG required')
 class LinuxKernelCryptoAPI(unittest.TestCase):
@@ -7454,6 +7498,62 @@ class FreeThreadingTests(unittest.TestCase):
 
         with threading_helper.start_threads([t1, t2]):
             pass
+
+
+class ReentrantMutationTests(unittest.TestCase):
+    """Regression tests for re-entrant mutation in sendmsg/recvmsg_into.
+
+    These tests verify that mutating sequences during argument parsing
+    via __buffer__ protocol does not cause crashes.
+
+    See: https://github.com/python/cpython/issues/143988
+    """
+
+    @unittest.skipUnless(hasattr(socket.socket, "sendmsg"),
+                         "sendmsg not supported")
+    def test_sendmsg_reentrant_data_mutation(self):
+        seq = []
+
+        class MutBuffer:
+            def __init__(self):
+                self.tripped = False
+
+            def __buffer__(self, flags):
+                if not self.tripped:
+                    self.tripped = True
+                    seq.clear()
+                return memoryview(b'Hello')
+
+        seq = [MutBuffer(), b'World', b'Test']
+
+        left, right = socket.socketpair()
+        with left, right:
+            left.sendmsg(seq)
+            self.assertEqual(right.recv(1024), b'HelloWorldTest')
+
+    @unittest.skipUnless(hasattr(socket.socket, "recvmsg_into"),
+                         "recvmsg_into not supported")
+    def test_recvmsg_into_reentrant_buffer_mutation(self):
+        seq = []
+        buf1 = bytearray(100)
+
+        class MutBuffer:
+            def __init__(self):
+                self.tripped = False
+
+            def __buffer__(self, flags):
+                if not self.tripped:
+                    self.tripped = True
+                    seq.clear()
+                return memoryview(buf1)
+
+        seq = [MutBuffer(), bytearray(100), bytearray(100)]
+
+        left, right = socket.socketpair()
+        with left, right:
+            left.send(b'Hello World!')
+            right.recvmsg_into(seq)
+        self.assertEqual(buf1, b'Hello World!'.ljust(100, b'\x00'))
 
 
 def setUpModule():

@@ -1,5 +1,6 @@
+// spell-checker:ignore CANTCREAT NOHOST NOPERM TEMPFAIL DATAERR NOINPUT NOUSER
+
 use alloc::ffi::CString;
-#[cfg(all(unix, not(target_os = "redox")))]
 use alloc::vec::Vec;
 use core::ffi::CStr;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -10,12 +11,316 @@ use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
+pub use super::posix_unix_like::*;
+
+pub use libc::{c_char, pid_t};
+
+/// `<sysexits.h>`. The `libc` crate does not bind these.
+pub const EX_OK: i32 = 0;
+pub const EX_USAGE: i32 = 64;
+pub const EX_DATAERR: i32 = 65;
+pub const EX_NOINPUT: i32 = 66;
+pub const EX_NOUSER: i32 = 67;
+pub const EX_NOHOST: i32 = 68;
+pub const EX_UNAVAILABLE: i32 = 69;
+pub const EX_SOFTWARE: i32 = 70;
+pub const EX_OSERR: i32 = 71;
+pub const EX_OSFILE: i32 = 72;
+pub const EX_CANTCREAT: i32 = 73;
+pub const EX_IOERR: i32 = 74;
+pub const EX_TEMPFAIL: i32 = 75;
+pub const EX_PROTOCOL: i32 = 76;
+pub const EX_NOPERM: i32 = 77;
+pub const EX_CONFIG: i32 = 78;
+
+/// Remaining `posix` integer names the VM still took from `libc`.
+#[cfg(any(target_os = "android", target_os = "redox", unix))]
+pub use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
+
+#[cfg(target_os = "macos")]
+pub use libc::{
+    COPYFILE_ACL, COPYFILE_DATA, COPYFILE_STAT, COPYFILE_XATTR, PRIO_DARWIN_BG, PRIO_DARWIN_NONUI,
+    PRIO_DARWIN_PROCESS, PRIO_DARWIN_THREAD, TMP_MAX,
+};
+
+#[cfg(target_os = "linux")]
+pub use libc::PIDFD_NONBLOCK;
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    CLONE_FILES, CLONE_FS, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
+    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_SIGHAND, CLONE_SYSVSEM, CLONE_THREAD, CLONE_VM,
+    MFD_HUGE_SHIFT, P_PIDFD, SCHED_BATCH, SCHED_DEADLINE, SCHED_IDLE, SCHED_NORMAL,
+    SCHED_RESET_ON_FORK, SPLICE_F_MORE, SPLICE_F_MOVE, SPLICE_F_NONBLOCK,
+};
+
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "netbsd"))]
+pub use libc::{XATTR_CREATE, XATTR_REPLACE};
+
+#[cfg(any(target_os = "android", target_os = "freebsd", target_os = "linux"))]
+pub use libc::{
+    MFD_ALLOW_SEALING, MFD_CLOEXEC, MFD_HUGE_MASK, MFD_HUGETLB, POSIX_FADV_DONTNEED,
+    POSIX_FADV_NOREUSE, POSIX_FADV_NORMAL, POSIX_FADV_RANDOM, POSIX_FADV_SEQUENTIAL,
+    POSIX_FADV_WILLNEED,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux", target_os = "redox", unix))]
+pub use libc::{RTLD_LAZY, RTLD_NOW, WNOHANG};
+
+#[cfg(any(target_os = "android", target_os = "macos", target_os = "redox", unix))]
+pub use libc::RTLD_GLOBAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    EFD_CLOEXEC, EFD_NONBLOCK, EFD_SEMAPHORE, TFD_CLOEXEC, TFD_NONBLOCK, TFD_TIMER_ABSTIME,
+    TFD_TIMER_CANCEL_ON_SET,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::{GRND_NONBLOCK, GRND_RANDOM};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::SCHED_OTHER;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos"
+))]
+pub use libc::{RTLD_NODELETE, SEEK_DATA, SEEK_HOLE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::RTLD_LOCAL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WUNTRACED;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd"
+))]
+pub use libc::{
+    CLD_CONTINUED, CLD_DUMPED, CLD_EXITED, CLD_KILLED, CLD_STOPPED, CLD_TRAPPED, P_ALL, P_PGID,
+    P_PID, SCHED_FIFO, SCHED_RR,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::{RTLD_NOLOAD, WEXITED, WNOWAIT, WSTOPPED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "redox",
+    unix
+))]
+pub use libc::WCONTINUED;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use libc::RTLD_DEEPBIND;
+
+#[cfg(unix)]
+pub use libc::{UTIME_NOW, UTIME_OMIT};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{SF_MNOWAIT, SF_NOCACHE, SF_NODISKIO, SF_SYNC};
+
+/// `pathconf` / `sysconf` names. The VM enum discriminants still took these
+/// from `libc`.
+#[cfg(unix)]
+pub use libc::{
+    _PC_CHOWN_RESTRICTED, _PC_LINK_MAX, _PC_MAX_CANON, _PC_MAX_INPUT, _PC_NAME_MAX, _PC_NO_TRUNC,
+    _PC_PATH_MAX, _PC_PIPE_BUF, _PC_VDISABLE, _SC_ARG_MAX, _SC_CHILD_MAX, _SC_CLK_TCK,
+    _SC_LOGIN_NAME_MAX, _SC_NGROUPS_MAX, _SC_OPEN_MAX, _SC_PAGE_SIZE, _SC_RE_DUP_MAX,
+    _SC_STREAM_MAX, _SC_TTY_NAME_MAX, _SC_TZNAME_MAX, _SC_VERSION,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::_PC_FILESIZEBITS;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_2_SYMLINKS;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::_PC_ALLOC_SIZE_MIN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::_PC_REC_INCR_XFER_SIZE;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::{_PC_REC_MAX_XFER_SIZE, _PC_REC_MIN_XFER_SIZE, _PC_REC_XFER_ALIGN};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_SYMLINK_MAX;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::{_PC_ASYNC_IO, _PC_PRIO_IO};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "illumos",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox",
+    target_os = "solaris"
+))]
+pub use libc::_PC_SYNC_IO;
+
+#[cfg(any(target_os = "dragonfly", target_os = "openbsd"))]
+pub use libc::_PC_TIMESTAMP_RESOLUTION;
+
+#[cfg(all(unix, not(target_os = "redox")))]
+pub use libc::{
+    _SC_2_C_BIND, _SC_2_C_DEV, _SC_2_CHAR_TERM, _SC_2_FORT_DEV, _SC_2_FORT_RUN, _SC_2_LOCALEDEF,
+    _SC_2_SW_DEV, _SC_2_UPE, _SC_2_VERSION, _SC_AIO_LISTIO_MAX, _SC_AIO_MAX,
+    _SC_AIO_PRIO_DELTA_MAX, _SC_ASYNCHRONOUS_IO, _SC_ATEXIT_MAX, _SC_BC_BASE_MAX, _SC_BC_DIM_MAX,
+    _SC_BC_SCALE_MAX, _SC_BC_STRING_MAX, _SC_COLL_WEIGHTS_MAX, _SC_DELAYTIMER_MAX,
+    _SC_EXPR_NEST_MAX, _SC_FSYNC, _SC_GETGR_R_SIZE_MAX, _SC_GETPW_R_SIZE_MAX, _SC_IOV_MAX,
+    _SC_JOB_CONTROL, _SC_LINE_MAX, _SC_MAPPED_FILES, _SC_MEMLOCK, _SC_MEMLOCK_RANGE,
+    _SC_MEMORY_PROTECTION, _SC_MESSAGE_PASSING, _SC_MQ_OPEN_MAX, _SC_MQ_PRIO_MAX,
+    _SC_NPROCESSORS_CONF, _SC_NPROCESSORS_ONLN, _SC_PHYS_PAGES, _SC_PRIORITIZED_IO,
+    _SC_PRIORITY_SCHEDULING, _SC_REALTIME_SIGNALS, _SC_RTSIG_MAX, _SC_SAVED_IDS, _SC_SEM_NSEMS_MAX,
+    _SC_SEM_VALUE_MAX, _SC_SEMAPHORES, _SC_SHARED_MEMORY_OBJECTS, _SC_SIGQUEUE_MAX,
+    _SC_SYNCHRONIZED_IO, _SC_THREAD_ATTR_STACKADDR, _SC_THREAD_ATTR_STACKSIZE,
+    _SC_THREAD_DESTRUCTOR_ITERATIONS, _SC_THREAD_KEYS_MAX, _SC_THREAD_PRIO_INHERIT,
+    _SC_THREAD_PRIO_PROTECT, _SC_THREAD_PRIORITY_SCHEDULING, _SC_THREAD_PROCESS_SHARED,
+    _SC_THREAD_SAFE_FUNCTIONS, _SC_THREAD_STACK_MIN, _SC_THREAD_THREADS_MAX, _SC_THREADS,
+    _SC_TIMER_MAX, _SC_TIMERS, _SC_XOPEN_CRYPT, _SC_XOPEN_ENH_I18N, _SC_XOPEN_LEGACY,
+    _SC_XOPEN_REALTIME, _SC_XOPEN_REALTIME_THREADS, _SC_XOPEN_SHM, _SC_XOPEN_UNIX,
+    _SC_XOPEN_VERSION, _SC_XOPEN_XCU_VERSION,
+};
+
+#[cfg(any(
+    target_os = "linux",
+    target_vendor = "apple",
+    target_os = "netbsd",
+    target_os = "fuchsia"
+))]
+pub use libc::{
+    _SC_PASS_MAX, _SC_XBS5_ILP32_OFF32, _SC_XBS5_ILP32_OFFBIG, _SC_XBS5_LP64_OFF64,
+    _SC_XBS5_LPBIG_OFFBIG,
+};
+
+#[cfg(target_os = "redox")]
+pub use libc::{_SC_HOST_NAME_MAX, _SC_SYMLOOP_MAX};
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,
     pub release: String,
     pub version: String,
     pub machine: String,
+}
+
+#[derive(Debug)]
+pub struct UnameDecodeError {
+    pub bytes: Vec<u8>,
+    pub error: core::str::Utf8Error,
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -73,6 +378,15 @@ pub enum PosixSpawnFileAction {
     },
 }
 
+#[cfg(all(
+    any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+    not(target_env = "musl")
+))]
+pub struct PosixSpawnScheduler {
+    pub policy: Option<i32>,
+    pub param: libc::sched_param,
+}
+
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 pub struct PosixSpawnConfig<'a> {
     pub path: &'a CStr,
@@ -85,6 +399,11 @@ pub struct PosixSpawnConfig<'a> {
     pub setsid: bool,
     pub setsigmask: Option<&'a [i32]>,
     pub spawnp: bool,
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    pub scheduler: Option<PosixSpawnScheduler>,
 }
 
 pub fn set_inheritable(fd: BorrowedFd<'_>, inheritable: bool) -> std::io::Result<()> {
@@ -134,13 +453,13 @@ pub fn chroot(path: &Path) -> std::io::Result<()> {
     nix::unistd::chroot(path).map_err(std::io::Error::from)
 }
 
-#[cfg(not(target_os = "redox"))]
-pub fn unlinkat(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), 0) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn fchmodat(dirfd: i32, path: &CStr, mode: libc::mode_t, flags: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::fchmodat(dirfd, path.as_ptr(), mode, flags) };
+    if ret == 0 {
         Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
     }
 }
 
@@ -174,53 +493,21 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
-pub fn make_dir(path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(unix)]
-pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Result<()> {
+pub fn link_paths(
+    src_dir_fd: i32,
+    src: &CStr,
+    dst_dir_fd: i32,
+    dst: &CStr,
+    follow_symlinks: bool,
+) -> std::io::Result<()> {
     let flags = if follow_symlinks {
         libc::AT_SYMLINK_FOLLOW
     } else {
         0
     };
-    let ret = unsafe {
-        libc::linkat(
-            libc::AT_FDCWD,
-            src.as_ptr(),
-            libc::AT_FDCWD,
-            dst.as_ptr(),
-            flags,
-        )
-    };
+    let ret = unsafe { libc::linkat(src_dir_fd, src.as_ptr(), dst_dir_fd, dst.as_ptr(), flags) };
     if ret != 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> std::io::Result<()> {
-    let ret = unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) };
-    if ret < 0 {
         Err(std::io::Error::last_os_error())
     } else {
         Ok(())
@@ -321,46 +608,6 @@ pub fn fchown(fd: BorrowedFd<'_>, uid: Option<u32>, gid: Option<u32>) -> std::io
 }
 
 #[cfg(not(windows))]
-pub fn stat_path(
-    path: &OsStr,
-    dir_fd: Option<i32>,
-    follow_symlinks: bool,
-) -> std::io::Result<Option<crate::fileutils::StatStruct>> {
-    use crate::os::ffi::OsStrExt;
-
-    let path = match CString::new(path.as_bytes()) {
-        Ok(path) => path,
-        Err(_) => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
-    };
-
-    let mut stat = core::mem::MaybeUninit::uninit();
-    #[cfg(not(target_os = "redox"))]
-    if let Some(dir_fd) = dir_fd {
-        let flags = if follow_symlinks {
-            0
-        } else {
-            libc::AT_SYMLINK_NOFOLLOW
-        };
-        let ret = unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) };
-        if ret < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        return Ok(Some(unsafe { stat.assume_init() }));
-    }
-
-    let ret = if follow_symlinks {
-        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-    } else {
-        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
-    };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(Some(unsafe { stat.assume_init() }))
-    }
-}
-
-#[cfg(not(windows))]
 pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<crate::fileutils::StatStruct> {
     crate::fileutils::fstat(fd)
 }
@@ -388,6 +635,24 @@ pub fn write_fd(fd: BorrowedFd<'_>, buf: &[u8]) -> std::io::Result<usize> {
     nix::unistd::write(fd, buf).map_err(std::io::Error::from)
 }
 
+pub fn pread(fd: i32, buf: &mut [u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pread(fd, buf.as_mut_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
+}
+
+pub fn pwrite(fd: i32, buf: &[u8], offset: libc::off_t) -> std::io::Result<usize> {
+    let ret = unsafe { libc::pwrite(fd, buf.as_ptr().cast(), buf.len(), offset) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(ret as usize)
+    }
+}
+
 pub fn fchownat(
     dir_fd: BorrowedFd<'_>,
     path: &OsStr,
@@ -410,14 +675,23 @@ pub fn fchownat(
     .map_err(std::io::Error::from)
 }
 
-pub fn uname_info() -> Result<UnameInfo, core::str::Utf8Error> {
+pub fn uname_info() -> Result<UnameInfo, UnameDecodeError> {
+    fn decode(value: &CStr) -> Result<String, UnameDecodeError> {
+        core::str::from_utf8(value.to_bytes())
+            .map(str::to_owned)
+            .map_err(|error| UnameDecodeError {
+                bytes: value.to_bytes().to_vec(),
+                error,
+            })
+    }
+
     let info = rustix::system::uname();
     Ok(UnameInfo {
-        sysname: info.sysname().to_str()?.into(),
-        nodename: info.nodename().to_str()?.into(),
-        release: info.release().to_str()?.into(),
-        version: info.version().to_str()?.into(),
-        machine: info.machine().to_str()?.into(),
+        sysname: decode(info.sysname())?,
+        nodename: decode(info.nodename())?,
+        release: decode(info.release())?,
+        version: decode(info.version())?,
+        machine: decode(info.machine())?,
     })
 }
 
@@ -627,10 +901,7 @@ impl From<std::io::Error> for AccessError {
     }
 }
 
-const F_OK: u8 = 0;
-const R_OK: u8 = 4;
-const W_OK: u8 = 2;
-const X_OK: u8 = 1;
+pub use crate::os::{AccessMode, F_OK, R_OK, W_OK, X_OK};
 
 fn get_permissions(mode: u32) -> Permissions {
     Permissions {
@@ -698,24 +969,24 @@ pub fn getgroups() -> std::io::Result<Vec<u32>> {
 pub fn check_access(path: &Path, mode: u8) -> Result<bool, AccessError> {
     use std::os::unix::fs::MetadataExt;
 
-    if mode & !(R_OK | W_OK | X_OK) != 0 {
+    let Some(mode) = AccessMode::from_bits(mode) else {
         return Err(AccessError::InvalidMode);
-    }
+    };
 
     let metadata = match crate::fs::metadata(path) {
         Ok(m) => m,
         Err(_) => return Ok(false),
     };
 
-    if mode == F_OK {
+    if mode.is_empty() {
         return Ok(true);
     }
 
     let perm = get_right_permission(metadata.mode(), metadata.uid(), metadata.gid())?;
 
-    let r_ok = (mode & R_OK == 0) || perm.is_readable;
-    let w_ok = (mode & W_OK == 0) || perm.is_writable;
-    let x_ok = (mode & X_OK == 0) || perm.is_executable;
+    let r_ok = !mode.contains(&crate::os::AccessFlag::R) || perm.is_readable;
+    let w_ok = !mode.contains(&crate::os::AccessFlag::W) || perm.is_writable;
+    let x_ok = !mode.contains(&crate::os::AccessFlag::X) || perm.is_executable;
 
     Ok(r_ok && w_ok && x_ok)
 }
@@ -849,11 +1120,15 @@ pub fn setpgid_if_needed(pgid_to_set: libc::pid_t) -> nix::Result<()> {
     Ok(())
 }
 
-pub fn setgroups_if_needed(_groups: Option<&[u32]>) -> nix::Result<()> {
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
-    if let Some(groups) = _groups {
-        let groups = groups.iter().copied().map(gid_from_raw).collect::<Vec<_>>();
-        nix::unistd::setgroups(&groups)?;
+pub fn setgroups_if_needed(groups: Option<&[u32]>) -> nix::Result<()> {
+    #[cfg(not(any(target_os = "ios", target_os = "redox")))]
+    if let Some(groups) = groups {
+        // The caller prepares this array before fork.  Call libc directly so
+        // macOS performs the requested operation too, and so the child does
+        // not allocate a second array between fork and exec.
+        let ret =
+            unsafe { libc::setgroups(groups.len() as _, groups.as_ptr().cast::<libc::gid_t>()) };
+        nix::Error::result(ret)?;
     }
     Ok(())
 }
@@ -987,8 +1262,46 @@ pub fn waitpid(pid: libc::pid_t, status: &mut i32, opt: i32) -> std::io::Result<
     }
 }
 
+/// `wait3(2)` is `wait4(-1, ...)`.
+pub fn wait3(options: i32) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    wait4(-1, options)
+}
+
+/// `wait4(2)`. `rusage` is zeroed when `pid == 0` (WNOHANG, no child ready).
+pub fn wait4(
+    pid: libc::pid_t,
+    options: i32,
+) -> std::io::Result<(libc::pid_t, i32, crate::resource::RUsage)> {
+    let mut status = 0;
+    let mut ru = core::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let res = unsafe { libc::wait4(pid, &mut status, options, ru.as_mut_ptr()) };
+    if res == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let ru = if res == 0 {
+        unsafe { core::mem::zeroed() }
+    } else {
+        unsafe { ru.assume_init() }
+    };
+    Ok((res, status, ru.into()))
+}
+
 pub fn kill(pid: i32, sig: i32) -> std::io::Result<()> {
     let ret = unsafe { libc::kill(pid, sig) };
+    if ret == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// `killpg(2)`: signal every process in a process group.
+///
+/// Not `kill(-pgid, sig)`: that spelling reads a negative pid, and `kill`
+/// takes its argument from Python where a caller can already pass one, so the
+/// two are not interchangeable at this layer.
+pub fn killpg(pgid: i32, sig: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::killpg(pgid, sig) };
     if ret == -1 {
         Err(std::io::Error::last_os_error())
     } else {
@@ -1033,12 +1346,73 @@ pub fn setresuid(ruid: u32, euid: u32, suid: u32) -> std::io::Result<()> {
         .map_err(std::io::Error::from)
 }
 
+#[cfg(not(any(target_os = "wasi", target_os = "solaris", target_os = "illumos")))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    let ret = unsafe { libc::login_tty(fd) };
+    if ret < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+pub fn login_tty(fd: i32) -> std::io::Result<()> {
+    if unsafe { libc::setsid() } < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(libc::EPERM) {
+            return Err(err);
+        }
+    }
+    if unsafe { libc::ioctl(fd, libc::TIOCSCTTY, core::ptr::null::<libc::c_char>()) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::dup2(fd, 0) } < 0
+        || unsafe { libc::dup2(fd, 1) } < 0
+        || unsafe { libc::dup2(fd, 2) } < 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+    if fd > 2 {
+        let _ = unsafe { libc::close(fd) };
+    }
+    Ok(())
+}
+
 #[cfg(not(target_os = "redox"))]
 pub fn openpty() -> std::io::Result<(OwnedFd, OwnedFd)> {
     let pty = nix::pty::openpty(None, None).map_err(std::io::Error::from)?;
     set_inheritable(pty.master.as_fd(), false)?;
     set_inheritable(pty.slave.as_fd(), false)?;
     Ok((pty.master, pty.slave))
+}
+
+/// `forkpty(3)`. The child is a session leader with the slave as its
+/// controlling terminal. The parent receives the master fd. The child may
+/// see `master_fd == -1` (Apple's `forkpty`); that is returned as `-1`.
+///
+/// rustix has no `forkpty`. `nix::pty::forkpty` wraps the master in
+/// `OwnedFd`, which panics on Apple's child `-1`, and its `Child` arm
+/// drops the master fd the caller returns as the second item.
+#[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+pub fn forkpty() -> std::io::Result<(pid_t, i32)> {
+    let mut master_fd: libc::c_int = -1;
+    let pid = unsafe {
+        libc::forkpty(
+            &mut master_fd,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        )
+    };
+    if pid < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if pid != 0 && master_fd >= 0 {
+        let fd = unsafe { BorrowedFd::borrow_raw(master_fd) };
+        set_inheritable(fd, false)?;
+    }
+    Ok((pid, master_fd))
 }
 
 pub fn ttyname(fd: BorrowedFd<'_>) -> std::io::Result<OsString> {
@@ -1436,8 +1810,9 @@ fn build_posix_spawn_attrs(
             target_os = "hurd",
         ))]
         {
+            #[allow(clippy::useless_conversion)]
             flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
-                libc::POSIX_SPAWN_SETSID,
+                libc::POSIX_SPAWN_SETSID.into(),
             ));
         }
         #[cfg(not(any(
@@ -1459,6 +1834,32 @@ fn build_posix_spawn_attrs(
         let set = build_sigset(sigs);
         attrp.set_sigmask(&set).map_err(std::io::Error::from)?;
         flags.insert(nix::spawn::PosixSpawnFlags::POSIX_SPAWN_SETSIGMASK);
+    }
+
+    #[cfg(all(
+        any(target_os = "linux", target_os = "freebsd", target_os = "android"),
+        not(target_env = "musl")
+    ))]
+    if let Some(scheduler) = &config.scheduler {
+        // nix does not wrap these yet; the attr type is transparent over
+        // posix_spawnattr_t.
+        let attr_ptr = (&raw mut attrp).cast::<libc::posix_spawnattr_t>();
+        if let Some(policy) = scheduler.policy {
+            let err = unsafe { libc::posix_spawnattr_setschedpolicy(attr_ptr, policy) };
+            if err != 0 {
+                return Err(std::io::Error::from_raw_os_error(err));
+            }
+            flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+                libc::POSIX_SPAWN_SETSCHEDULER,
+            ));
+        }
+        let err = unsafe { libc::posix_spawnattr_setschedparam(attr_ptr, &scheduler.param) };
+        if err != 0 {
+            return Err(std::io::Error::from_raw_os_error(err));
+        }
+        flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
+            libc::POSIX_SPAWN_SETSCHEDPARAM,
+        ));
     }
 
     if !flags.is_empty() {

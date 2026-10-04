@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import warnings
 
 from testutils import assert_raises
 
@@ -158,3 +159,18 @@ def test_getframemodulename():
 test_getframemodulename.__module__ = "awesome_module"
 
 assert test_getframemodulename() == "awesome_module"
+
+# An unimportable $PYTHONBREAKPOINT warns, and the hook has to survive that
+# warning being turned into an exception.
+saved_breakpoint_env = os.environ.get("PYTHONBREAKPOINT")
+os.environ["PYTHONBREAKPOINT"] = "nonexistent_xyz.foo"
+try:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with assert_raises(RuntimeWarning):
+            sys.breakpointhook()
+finally:
+    if saved_breakpoint_env is None:
+        del os.environ["PYTHONBREAKPOINT"]
+    else:
+        os.environ["PYTHONBREAKPOINT"] = saved_breakpoint_env

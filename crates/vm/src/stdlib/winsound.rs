@@ -5,60 +5,20 @@ pub(crate) use winsound::module_def;
 
 #[pymodule]
 mod winsound {
-    use crate::builtins::{PyBytes, PyStr};
-    use crate::convert::{IntoPyException, TryFromBorrowedObject};
-    use crate::host_env::windows::ToWideString;
-    use crate::protocol::PyBuffer;
+    use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
+    use crate::convert::{IntoPyException, ToPyException};
+    use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
-    use rustpython_host_env::winsound::{PlaySoundSource, play_sound};
+    use rustpython_host_env::winsound as host_winsound;
+    use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
 
-    // PlaySound flags
     #[pyattr]
-    const SND_SYNC: u32 = 0x0000;
-    #[pyattr]
-    const SND_ASYNC: u32 = 0x0001;
-    #[pyattr]
-    const SND_NODEFAULT: u32 = 0x0002;
-    #[pyattr]
-    const SND_MEMORY: u32 = 0x0004;
-    #[pyattr]
-    const SND_LOOP: u32 = 0x0008;
-    #[pyattr]
-    const SND_NOSTOP: u32 = 0x0010;
-    #[pyattr]
-    const SND_PURGE: u32 = 0x0040;
-    #[pyattr]
-    const SND_APPLICATION: u32 = 0x0080;
-    #[pyattr]
-    const SND_NOWAIT: u32 = 0x00002000;
-    #[pyattr]
-    const SND_ALIAS: u32 = 0x00010000;
-    #[pyattr]
-    const SND_FILENAME: u32 = 0x00020000;
-    #[pyattr]
-    const SND_SENTRY: u32 = 0x00080000;
-    #[pyattr]
-    const SND_SYSTEM: u32 = 0x00200000;
-
-    // MessageBeep types
-    #[pyattr]
-    const MB_OK: u32 = 0x00000000;
-    #[pyattr]
-    const MB_ICONHAND: u32 = 0x00000010;
-    #[pyattr]
-    const MB_ICONQUESTION: u32 = 0x00000020;
-    #[pyattr]
-    const MB_ICONEXCLAMATION: u32 = 0x00000030;
-    #[pyattr]
-    const MB_ICONASTERISK: u32 = 0x00000040;
-    #[pyattr]
-    const MB_ICONERROR: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONSTOP: u32 = MB_ICONHAND;
-    #[pyattr]
-    const MB_ICONINFORMATION: u32 = MB_ICONASTERISK;
-    #[pyattr]
-    const MB_ICONWARNING: u32 = MB_ICONEXCLAMATION;
+    use host_winsound::{
+        MB_ICONASTERISK, MB_ICONERROR, MB_ICONEXCLAMATION, MB_ICONHAND, MB_ICONINFORMATION,
+        MB_ICONQUESTION, MB_ICONSTOP, MB_ICONWARNING, MB_OK, SND_ALIAS, SND_APPLICATION, SND_ASYNC,
+        SND_FILENAME, SND_LOOP, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP, SND_NOWAIT, SND_PURGE,
+        SND_SENTRY, SND_SYNC, SND_SYSTEM,
+    };
 
     #[derive(FromArgs)]
     struct PlaySoundArgs {
@@ -68,16 +28,14 @@ mod winsound {
         flags: i32,
     }
 
-    fn map_play_err(
-        vm: &VirtualMachine,
-    ) -> impl FnOnce(
-        rustpython_host_env::winsound::PlaySoundError,
-    ) -> crate::builtins::PyBaseExceptionRef
-    + '_ {
-        use rustpython_host_env::winsound::PlaySoundError::*;
+    fn map_play_err(vm: &VirtualMachine) -> impl FnOnce(PlaySoundError) -> PyBaseExceptionRef + '_ {
         |err| match err {
-            MemoryAsyncRejected => vm.new_runtime_error("Cannot play asynchronously from memory"),
-            MemoryFlagWithoutBuffer | CallFailed => vm.new_runtime_error("Failed to play sound"),
+            PlaySoundError::MemoryAsyncRejected => {
+                vm.new_runtime_error("Cannot play asynchronously from memory")
+            }
+            PlaySoundError::MemoryFlagWithoutBuffer | PlaySoundError::CallFailed => {
+                vm.new_runtime_error("Failed to play sound")
+            }
         }
     }
 
@@ -91,7 +49,7 @@ mod winsound {
         }
 
         if flags & SND_MEMORY != 0 {
-            let buffer = PyBuffer::try_from_borrowed_object(vm, &sound)?;
+            let buffer = PyBuffer::from_object(vm, &sound, BufferFlags::SIMPLE)?;
             let buf = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_type_error("a bytes-like object is required, not 'str'"))?;
@@ -107,7 +65,12 @@ mod winsound {
 
         // os.fspath(sound)
         let path = match sound.downcast_ref::<PyStr>() {
-            Some(s) => s.as_wtf8().to_owned(),
+            Some(s) => {
+                let s = s.as_wtf8();
+                let mut buf = Vec::with_capacity(s.len() + 1);
+                buf.extend(s.encode_wide());
+                buf
+            }
             None => {
                 let fspath = vm.get_method_or_type_error(
                     sound.clone(),
@@ -130,27 +93,27 @@ mod winsound {
                     return Err(vm.new_type_error("'sound' must resolve to str, not bytes"));
                 }
 
-                let s: &PyStr = result.downcast_ref().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "expected {}.__fspath__() to return str or bytes, not {}",
-                        sound.class().name(),
-                        result.class().name()
-                    ))
-                })?;
+                let s = result
+                    .downcast_ref::<PyStr>()
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "expected {}.__fspath__() to return str or bytes, not {}",
+                            sound.class().name(),
+                            result.class().name()
+                        ))
+                    })?
+                    .as_wtf8();
 
-                s.as_wtf8().to_owned()
+                let mut buf = Vec::with_capacity(s.len() + 1);
+                buf.extend(s.encode_wide());
+                buf
             }
         };
 
         // Check for embedded null characters
-        if path.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("embedded null character"));
-        }
-
-        let wide = path.to_wide_with_nul();
-        let wide_cstr = widestring::WideCStr::from_slice_truncate(&wide)
-            .map_err(|_| vm.new_value_error("embedded null character"))?;
-        play_sound(PlaySoundSource::Name(wide_cstr), flags).map_err(map_play_err(vm))
+        let wide_cstr =
+            widestring::WideCString::from_vec(path).map_err(|e| e.to_pyexception(vm))?;
+        play_sound(PlaySoundSource::Name(&wide_cstr), flags).map_err(map_play_err(vm))
     }
 
     #[derive(FromArgs)]
@@ -176,7 +139,7 @@ mod winsound {
 
     #[derive(FromArgs)]
     struct MessageBeepArgs {
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         r#type: u32,
     }
 

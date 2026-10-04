@@ -7,8 +7,7 @@ use crate::{
 use core::ffi::{CStr, c_void};
 use core::sync::atomic::AtomicPtr;
 
-/// PyCapsule - a container for C pointers.
-/// In RustPython, this is a minimal implementation for compatibility.
+// In RustPython, this is a minimal implementation for compatibility.
 #[pyclass(module = false, name = "PyCapsule")]
 #[derive(Debug)]
 pub struct PyCapsule {
@@ -76,6 +75,9 @@ impl Representable for PyCapsule {
 
 impl Destructor for PyCapsule {
     fn del(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.pointer().is_null() {
+            return Ok(());
+        }
         if let Some(destructor) = zelf.destructor() {
             unsafe { destructor(zelf.as_object().as_raw().cast_mut()) };
         }

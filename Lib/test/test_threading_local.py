@@ -26,7 +26,6 @@ def target(local, weaklist):
 
 class BaseLocalTest:
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_local_refs(self):
         self._local_refs(20)
         self._local_refs(50)
@@ -227,14 +226,6 @@ class BaseLocalTest:
 
 class ThreadLocalTest(unittest.TestCase, BaseLocalTest):
     _local = _thread._local
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_cycle_collection(self):
-        return super().test_cycle_collection()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by _local
-    def test_arguments(self):
-        return super().test_arguments()
 
 class PyThreadingLocalTest(unittest.TestCase, BaseLocalTest):
     _local = _threading_local.local

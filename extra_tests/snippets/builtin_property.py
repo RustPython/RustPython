@@ -85,3 +85,10 @@ assert p1.__get__(None, object) is p1
 
 p2 = property("a", doc="pdoc")
 # assert p2.__doc__ == 'pdoc'
+
+
+# property() takes at most four arguments, and `name` is not one of them:
+# the name slot is filled by __set_name__ and the __name__ setter instead.
+assert_raises(TypeError, property, None, None, None, None, None)
+assert_raises(TypeError, property, "a", "b", "c", "d", "e")
+assert_raises(TypeError, property, name="x")

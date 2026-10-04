@@ -59,6 +59,7 @@ class WmiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             wmi_exec_query("not select, just in case someone tries something")
 
+    @unittest.skipIf(__import__("sys").platform == "win32", "TODO: RUSTPYTHON; Timeout after 10 minutes")
     @support.requires_resource('cpu')
     def test_wmi_query_overflow(self):
         # Ensure very big queries fail

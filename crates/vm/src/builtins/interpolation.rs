@@ -7,21 +7,22 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::ToPyObject,
-    function::{OptionalArg, PyComparisonValue},
+    function::PyComparisonValue,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use itertools::Itertools;
 use rustpython_common::wtf8::Wtf8Buf;
 
-/// Interpolation object for t-strings (PEP 750).
-///
-/// Represents an interpolated expression within a template string.
 #[pyclass(module = "string.templatelib", name = "Interpolation")]
 #[derive(Debug, Clone)]
 pub struct PyInterpolation {
+    #[pymember(type = "object_ex")]
     pub value: PyObjectRef,
+    #[pymember(type = "object_ex")]
     pub expression: PyStrRef,
+    #[pymember(type = "object_ex")]
     pub conversion: PyObjectRef, // None or 's', 'r', 'a'
+    #[pymember(type = "object_ex")]
     pub format_spec: PyStrRef,
 }
 
@@ -68,8 +69,7 @@ impl Constructor for PyInterpolation {
                 .as_bytes()
                 .iter()
                 .exactly_one()
-                .ok()
-                .is_some_and(|s| matches!(*s, b's' | b'r' | b'a'));
+                .is_ok_and(|s| matches!(*s, b's' | b'r' | b'a'));
             if !has_flag {
                 return Err(vm.new_value_error(
                     "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",
@@ -80,12 +80,8 @@ impl Constructor for PyInterpolation {
             vm.ctx.none()
         };
 
-        let expression = args
-            .expression
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
-        let format_spec = args
-            .format_spec
-            .unwrap_or_else(|| vm.ctx.empty_str.to_owned());
+        let expression = args.expression;
+        let format_spec = args.format_spec;
 
         Ok(Self {
             value: args.value,
@@ -100,16 +96,16 @@ impl Constructor for PyInterpolation {
 pub struct InterpolationArgs {
     #[pyarg(positional)]
     value: PyObjectRef,
-    #[pyarg(any, optional)]
-    expression: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    expression: PyStrRef,
     #[pyarg(
         any,
         optional,
         error_msg = "Interpolation() argument 'conversion' must be str or None"
     )]
     conversion: Option<PyStrRef>,
-    #[pyarg(any, optional)]
-    format_spec: OptionalArg<PyStrRef>,
+    #[pyarg(any, default = "")]
+    format_spec: PyStrRef,
 }
 
 #[pyclass(with(Constructor, Comparable, Hashable, Representable))]
@@ -124,28 +120,12 @@ impl PyInterpolation {
         ])
     }
 
-    #[pygetset]
-    fn value(&self) -> PyObjectRef {
-        self.value.clone()
-    }
-
-    #[pygetset]
-    fn expression(&self) -> PyStrRef {
-        self.expression.clone()
-    }
-
-    #[pygetset]
-    fn conversion(&self) -> PyObjectRef {
-        self.conversion.clone()
-    }
-
-    #[pygetset]
-    fn format_spec(&self) -> PyStrRef {
-        self.format_spec.clone()
-    }
-
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 

@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 assert 3 == eval("1+2")
 
 code = compile("5+3", "x.py", "eval")
@@ -75,3 +77,8 @@ try:
     assert False, "eval with code containing free variables should fail"
 except NameError as e:
     pass
+
+# The source is encoded before it is parsed, so a lone surrogate has to be
+# reported rather than assumed away.
+with assert_raises(UnicodeEncodeError):
+    eval(chr(0xD800))

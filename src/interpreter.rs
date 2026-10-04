@@ -6,6 +6,7 @@ pub trait InterpreterBuilderExt {
     ///
     /// Requires the `stdlib` feature to be enabled.
     #[cfg(feature = "stdlib")]
+    #[must_use]
     fn init_stdlib(self) -> Self;
 }
 
@@ -33,9 +34,18 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
     use rustls::crypto::aws_lc_rs;
     use rustpython_stdlib::ssl::providers::CryptoExt;
 
+    #[cfg(feature = "ssl-rustls-aws-lc-fips")]
+    let (all_cipher_suites, all_kx_groups) = (None, None);
+    #[cfg(not(feature = "ssl-rustls-aws-lc-fips"))]
+    let (all_cipher_suites, all_kx_groups) = (
+        Some(aws_lc_rs::ALL_CIPHER_SUITES),
+        Some(aws_lc_rs::ALL_KX_GROUPS),
+    );
+
     let ext = CryptoExt {
-        all_cipher_suites: Some(aws_lc_rs::ALL_CIPHER_SUITES),
-        all_kx_groups: Some(aws_lc_rs::ALL_KX_GROUPS),
+        all_cipher_suites,
+        default_cipher_suites: Some(aws_lc_rs::DEFAULT_CIPHER_SUITES),
+        all_kx_groups,
         any_supported_key: Some(aws_lc_rs::sign::any_supported_type),
         ticketer: aws_lc_rs::Ticketer::new,
     };
@@ -57,7 +67,23 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
-    let paths = collect_stdlib_paths();
+    let paths: Vec<String> = collect_stdlib_paths()
+        .into_iter()
+        .map(|p| {
+            std::fs::canonicalize(&p)
+                .map(|canonical| {
+                    let s = canonical.to_string_lossy();
+                    #[cfg(windows)]
+                    {
+                        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                            return stripped.to_owned();
+                        }
+                    }
+                    s.into_owned()
+                })
+                .unwrap_or(p)
+        })
+        .collect();
 
     // Set stdlib_dir to the first stdlib path if available
     if let Some(first_path) = paths.first() {

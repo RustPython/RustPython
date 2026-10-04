@@ -27,7 +27,6 @@ class ExecutorShutdownTest:
                           self.executor.submit,
                           pow, 2, 5)
 
-    @unittest.skip('TODO: RUSTPYTHON; hangs')
     def test_interpreter_shutdown(self):
         # Test the atexit hook for shutdown of worker threads and processes
         rc, out, err = assert_python_ok('-c', """if 1:
@@ -50,7 +49,6 @@ class ExecutorShutdownTest:
         self.assertFalse(err)
         self.assertEqual(out.strip(), b"apple")
 
-    @unittest.skip('TODO: RUSTPYTHON; Hangs')
     def test_submit_after_interpreter_shutdown(self):
         # Test the atexit hook for shutdown of worker threads and processes
         rc, out, err = assert_python_ok('-c', """if 1:
@@ -255,11 +253,6 @@ class ThreadPoolShutdownTest(ThreadPoolMixin, ExecutorShutdownTest, BaseTestCase
 
 
 class ProcessPoolShutdownTest(ExecutorShutdownTest):
-    # TODO: RUSTPYTHON - flaky, dict changed size during iteration race condition
-    @unittest.skip("TODO: RUSTPYTHON - flaky race condition on macOS")
-    def test_cancel_futures(self):
-        return super().test_cancel_futures()
-
     def test_processes_terminate(self):
         def acquire_lock(lock):
             lock.acquire()

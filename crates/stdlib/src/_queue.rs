@@ -7,11 +7,11 @@ mod _queue {
     use std::time::Instant;
 
     use crate::vm::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-        function::{PyComparisonValue, TimeoutSeconds},
+        function::TimeoutSeconds,
         protocol::PyNumberMethods,
-        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
+        types::{AsNumber, Constructor, Representable},
     };
 
     type BufInner = VecDeque<PyObjectRef>;
@@ -31,12 +31,23 @@ mod _queue {
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
+    /// `parking_lot`'s `Condvar` doesn't expose a mid-wait signal to us (unlike
+    /// CPython's raw `sem_timedwait`, which reports `EINTR`), so we poll instead.
+    // FIXME: interim stopgap. The signal already interrupts the wait with EINTR
+    // (SA_RESTART cleared via `siginterrupt`), but `parking_lot::Condvar` swallows
+    // it and re-parks, forcing this poll. Replace with a shared interruptible
+    // timed-wait that surfaces EINTR (`poll`/wakeup-fd, portable incl. macOS; or
+    // `sem_timedwait` where available) -- `_thread` lock and `Thread.join` share
+    // this defect. Then this constant and the chunking loop go away.
+    #[cfg(feature = "threading")]
+    const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
+
     #[pyattr]
     #[pyclass(module = "_queue", name = "Empty", base = PyException)]
     #[repr(transparent)]
     pub(crate) struct PyEmptyError(PyException);
 
-    #[pyclass(flags(HAS_WEAKREF))]
+    #[pyclass(flags(HAS_WEAKREF, BASETYPE))]
     impl PyEmptyError {}
 
     /// ## See Also
@@ -63,46 +74,76 @@ mod _queue {
             }
         }
 
-        fn release(&self) {
+        /// Take `mutex`, detaching first so that blocking on it cannot stall a
+        /// stop-the-world request.
+        ///
+        /// A waiter holds this mutex across its `allow_threads` wait, so it can
+        /// still hold it when it is stopped. An attached thread blocking on it
+        /// would then never reach a safepoint, the stop would never complete,
+        /// and the holder would never be resumed to release it.
+        fn lock_count(&self, vm: &VirtualMachine) -> parking_lot::MutexGuard<'_, usize> {
+            vm.allow_threads(|| self.mutex.lock())
+        }
+
+        fn release(&self, vm: &VirtualMachine) {
             {
-                let mut count = self.mutex.lock();
+                let mut count = self.lock_count(vm);
                 *count += 1;
             } // lock dropped. now we can notify a waiting thread
 
             self.cond.notify_one();
         }
 
-        /// Returns `true` if the semaphore was acquired, `false` on timeout.
-        #[must_use]
-        fn acquire(&self, block: bool, deadline: Option<Instant>, vm: &VirtualMachine) -> bool {
-            let mut count = self.mutex.lock();
+        /// `Ok(true)` if acquired, `Ok(false)` on timeout, `Err` if a signal
+        /// handler raised (e.g. `KeyboardInterrupt`) while we were waiting.
+        fn acquire(
+            &self,
+            block: bool,
+            deadline: Option<Instant>,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
             loop {
-                if *count > 0 {
-                    *count -= 1;
-                    return true;
+                // Guard must be dropped before check_signals() below, since a
+                // signal handler may call back into this same queue.
+                {
+                    let mut count = self.lock_count(vm);
+
+                    if *count > 0 {
+                        *count -= 1;
+                        return Ok(true);
+                    }
+
+                    if !block {
+                        return Ok(false);
+                    }
+
+                    let now = Instant::now();
+                    let chunk_deadline = deadline.map_or_else(
+                        || now + SIGNAL_CHECK_INTERVAL,
+                        |dl| dl.min(now + SIGNAL_CHECK_INTERVAL),
+                    );
+
+                    vm.allow_threads(|| self.cond.wait_until(&mut count, chunk_deadline));
+
+                    if *count > 0 {
+                        *count -= 1;
+                        return Ok(true);
+                    }
+
+                    if let Some(dl) = deadline
+                        && Instant::now() >= dl
+                    {
+                        return Ok(false);
+                    }
                 }
 
-                if !block {
-                    return false;
-                }
-
-                match deadline {
-                    Some(dl) => {
-                        let result = vm.allow_threads(|| self.cond.wait_until(&mut count, dl));
-                        if result.timed_out() && *count == 0 {
-                            return false;
-                        }
-                    }
-                    None => {
-                        vm.allow_threads(|| self.cond.wait(&mut count));
-                    }
-                }
+                vm.check_signals()?;
             }
         }
     }
 
     #[pyattr]
-    #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
+    #[pyclass(module = "_queue", name = "SimpleQueue")]
     #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
         buf: Buf,
@@ -121,11 +162,15 @@ mod _queue {
     }
 
     impl PySimpleQueue {
-        fn push(&self, item: PyObjectRef) {
+        #[cfg_attr(
+            not(feature = "threading"),
+            expect(unused_variables, reason = "only the semaphore needs the vm")
+        )]
+        fn push(&self, item: PyObjectRef, vm: &VirtualMachine) {
             self.buf.lock().push_back(item);
 
             #[cfg(feature = "threading")]
-            self.sem.release();
+            self.sem.release(vm);
         }
 
         /// Returns a strong reference from the head of the buffer.
@@ -150,14 +195,20 @@ mod _queue {
     }
 
     #[derive(FromArgs)]
+    struct ItemArg {
+        #[pyarg(any)]
+        item: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
     struct PutArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         item: PyObjectRef,
         #[expect(
             dead_code,
             reason = "Intentional. Provide compatibility with the Queue class"
         )]
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[expect(
             dead_code,
@@ -169,45 +220,45 @@ mod _queue {
 
     #[derive(FromArgs)]
     struct GetArgs {
-        #[pyarg(any, optional, default = true)]
+        #[pyarg(any, default = true)]
         block: bool,
         #[pyarg(any, optional)]
         timeout: Option<TimeoutSeconds>,
     }
 
     #[pyclass(
-        with(Constructor, Comparable, Representable),
+        with(Constructor, Representable),
         flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
     )]
     impl PySimpleQueue {
         #[pymethod]
-        fn empty(&self) -> bool {
-            self.buf.lock().is_empty()
+        fn empty(zelf: &Py<Self>) -> bool {
+            zelf.buf.lock().is_empty()
         }
 
         #[pymethod]
-        fn qsize(&self) -> usize {
-            self.buf.lock().len()
+        fn qsize(zelf: &Py<Self>) -> usize {
+            zelf.buf.lock().len()
         }
 
         #[pymethod]
-        fn put(&self, args: PutArgs) {
+        fn put(zelf: &Py<Self>, args: PutArgs, vm: &VirtualMachine) {
             let PutArgs { item, .. } = args;
-            self.push(item);
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn put_nowait(&self, item: PyObjectRef) {
-            self.push(item);
+        fn put_nowait(zelf: &Py<Self>, ItemArg { item }: ItemArg, vm: &VirtualMachine) {
+            zelf.push(item, vm);
         }
 
         #[pymethod]
-        fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get(zelf: &Py<Self>, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
 
             // Non-blocking: just try once
             if !block {
-                return Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm));
+                return Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm));
             }
 
             #[cfg_attr(
@@ -227,33 +278,33 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(block, deadline, vm) {
+                if !zelf.sem.acquire(block, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pymethod]
-        fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        fn get_nowait(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(false, None, vm) {
+                if !zelf.sem.acquire(false, None, vm)? {
                     return Err(empty_error(vm));
                 }
             }
 
-            Self::get_inner(&mut self.buf.lock()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(&mut zelf.buf.lock()).ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
-            PyGenericAlias::from_args(cls, args, vm)
+        ) -> PyResult<PyGenericAlias> {
+            PyGenericAlias::from_args(cls, object, vm)
         }
     }
 
@@ -275,21 +326,6 @@ mod _queue {
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
             &AS_NUMBER
-        }
-    }
-
-    impl Comparable for PySimpleQueue {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            _vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            Ok(if let Some(res) = op.identical_optimization(zelf, other) {
-                res.into()
-            } else {
-                PyComparisonValue::NotImplemented
-            })
         }
     }
 

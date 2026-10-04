@@ -237,7 +237,9 @@ mod _tokenize {
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens && raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP {
+            let token_type = if extra_tokens
+                && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
+            {
                 TOKEN_OP
             } else {
                 raw_type
@@ -368,6 +370,13 @@ mod _tokenize {
                 .map(|t| match t.kind() {
                     TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => 1,
                     TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => -1,
+                    // `$` inside an f-string interpolation is Unknown, and the
+                    // matching `}` is then also Unknown rather than Rbrace.
+                    TokenKind::Unknown => match &source[t.range()] {
+                        "(" | "[" | "{" => 1,
+                        ")" | "]" | "}" => -1,
+                        _ => 0,
+                    },
                     _ => 0,
                 })
                 .sum();

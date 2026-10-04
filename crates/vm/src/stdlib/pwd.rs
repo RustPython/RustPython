@@ -11,6 +11,7 @@ mod pwd {
         exceptions,
         types::PyStructSequence,
     };
+    use core::hint::cold_path;
     use rustpython_host_env::pwd as host_pwd;
 
     #[cfg(not(target_os = "android"))]
@@ -50,15 +51,16 @@ mod pwd {
 
     #[pyfunction]
     fn getpwnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
-        let pw_name = name.as_str();
-        if pw_name.contains('\0') {
-            return Err(exceptions::cstring_error(vm));
+        if name.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(exceptions::nul_char_error(vm));
         }
-        let user = host_pwd::getpwnam(name.as_str());
+        let name = name.as_str();
+        let user = host_pwd::getpwnam(name);
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwnam(): name not found: {pw_name}"))
+                    .new_str(format!("getpwnam(): name not found: {name}"))
                     .into(),
             )
         })?;
@@ -66,8 +68,8 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwuid(uid: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
-        let uid_t = libc::uid_t::try_from(uid.as_bigint()).ok();
+    fn getpwuid(uidobj: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
+        let uid_t = libc::uid_t::try_from(uidobj.as_bigint()).ok();
         let user = uid_t
             .map(host_pwd::getpwuid)
             .transpose()
@@ -76,7 +78,7 @@ mod pwd {
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwuid(): uid not found: {}", uid.as_bigint()))
+                    .new_str(format!("getpwuid(): uid not found: {}", uidobj.as_bigint()))
                     .into(),
             )
         })?;

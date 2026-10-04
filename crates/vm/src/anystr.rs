@@ -1,34 +1,33 @@
-use crate::{
-    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyIntRef, PyTuple},
-    convert::TryFromBorrowedObject,
-    function::OptionalOption,
-};
-use icu_properties::props::{
-    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
-};
-use num_traits::{cast::ToPrimitive, sign::Signed};
-
 use core::ops::Range;
+
+use num_traits::{cast::ToPrimitive, sign::Signed};
+use rustpython_unicode::case;
+
+use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyIntRef, PyTuple},
+    convert::TryFromBorrowedObject,
+    function::PySsize,
+};
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
-    #[pyarg(any, default)]
+    #[pyarg(any, optional)]
     sep: Option<T>,
     #[pyarg(any, default = -1)]
-    maxsplit: isize,
+    maxsplit: PySsize,
 }
 
 #[derive(FromArgs)]
 pub struct SplitLinesArgs {
-    #[pyarg(any, default = false)]
+    #[pyarg(any, default)]
     pub keepends: bool,
 }
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
     #[pyarg(any, default = 8)]
-    tabsize: isize,
+    tabsize: i32,
 }
 
 impl ExpandTabsArgs {
@@ -50,7 +49,11 @@ pub(crate) struct StartsEndsWithArgs {
 impl StartsEndsWithArgs {
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(self.start, self.end, len))
+            Some(adjust_indices(
+                self.start.as_deref(),
+                self.end.as_deref(),
+                len,
+            ))
         } else {
             None
         };
@@ -76,7 +79,7 @@ impl StartsEndsWithArgs {
     }
 }
 
-fn saturate_to_isize(py_int: PyIntRef) -> isize {
+fn saturate_to_isize(py_int: &Py<PyInt>) -> isize {
     let big = py_int.as_bigint();
     big.to_isize().unwrap_or_else(|| {
         if big.is_negative() {
@@ -89,8 +92,8 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 
 // help get optional string indices
 pub(crate) fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
+    start: Option<&Py<PyInt>>,
+    end: Option<&Py<PyInt>>,
     len: usize,
 ) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
@@ -133,6 +136,11 @@ where
 {
     fn new() -> Self;
     fn with_capacity(capacity: usize) -> Self;
+    /// `with_capacity`, reporting a capacity that cannot be allocated instead
+    /// of aborting the process on it.
+    fn try_with_capacity(capacity: usize) -> Option<Self>
+    where
+        Self: Sized;
     fn push_str(&mut self, s: &S);
 }
 
@@ -148,7 +156,11 @@ pub(crate) trait AnyStr {
     fn as_bytes(&self) -> &[u8];
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: Range<usize>) -> &Self;
-    // FIXME: get_chars is expensive for str
+    /// The characters in `range`, which for a `str` payload means walking to
+    /// both bounds -- the payload does not carry the string's character index.
+    /// `PyStr` therefore converts its own ranges and does not reach the search
+    /// helpers below through this; what remains are the byte strings, where a
+    /// character range is already a byte range.
     fn get_chars(&self, range: Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
     // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.
@@ -188,7 +200,9 @@ pub(crate) trait AnyStr {
             if args.maxsplit < 0 {
                 split(self, pattern, vm)
             } else {
-                splitn(self, pattern, (args.maxsplit + 1) as usize, vm)
+                // Widen before adding: `isize::MAX + 1` overflows, and `sys.maxsize`
+                // is a legitimate maxsplit.
+                splitn(self, pattern, args.maxsplit as usize + 1, vm)
             }
         } else {
             split_whitespace(self, args.maxsplit, vm)
@@ -234,7 +248,7 @@ pub(crate) trait AnyStr {
     #[inline]
     fn py_strip<'a, S, FC, FD>(
         &'a self,
-        chars: OptionalOption<S>,
+        chars: Option<S>,
         func_chars: FC,
         func_default: FD,
     ) -> &'a Self
@@ -243,7 +257,6 @@ pub(crate) trait AnyStr {
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
-        let chars = chars.flatten();
         match chars {
             Some(chars) => {
                 if let Some(chars) = chars.as_ref() {
@@ -282,45 +295,30 @@ pub(crate) trait AnyStr {
         }
     }
 
-    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Self::Container {
-        let mut u = Self::Container::with_capacity(
-            (left + right) * fillchar.bytes_len() + self.bytes_len(),
-        );
+    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Option<Self::Container> {
+        let capacity = left
+            .checked_add(right)?
+            .checked_mul(fillchar.bytes_len())?
+            .checked_add(self.bytes_len())?;
+        let mut u = Self::Container::try_with_capacity(capacity)?;
         u.extend(core::iter::repeat_n(fillchar, left));
         u.push_str(self);
         u.extend(core::iter::repeat_n(fillchar, right));
-        u
+        Some(u)
     }
 
-    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         let marg = width - len;
         let left = marg / 2 + (marg & width & 1);
         self.py_pad(left, marg - left, fillchar)
     }
 
-    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(0, width - len, fillchar)
     }
 
-    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(width - len, 0, fillchar)
-    }
-
-    fn py_join(
-        &self,
-        mut iter: impl core::iter::Iterator<Item = PyResult<impl AnyStrWrapper<Self> + TryFromObject>>,
-    ) -> PyResult<Self::Container> {
-        let mut joined = if let Some(elem) = iter.next() {
-            elem?.as_ref().unwrap().to_container()
-        } else {
-            return Ok(Self::Container::new());
-        };
-        for elem in iter {
-            let elem = elem?;
-            joined.push_str(self);
-            joined.push_str(elem.as_ref().unwrap());
-        }
-        Ok(joined)
     }
 
     fn py_partition<'a, F, S>(
@@ -399,7 +397,7 @@ pub(crate) trait AnyStr {
         elements
     }
 
-    fn py_zfill(&self, width: isize) -> Vec<u8> {
+    fn py_zfill(&self, width: isize) -> Option<Vec<u8>> {
         let width = width.to_usize().unwrap_or(0);
         let char_len = self.elements().count();
         let width = self
@@ -422,6 +420,7 @@ pub(crate) trait AnyStr {
             }
             lower = true;
         }
+
         lower
     }
 
@@ -439,32 +438,29 @@ pub(crate) trait AnyStr {
             }
             upper = true;
         }
+
         upper
     }
 
     // Unified form of CPython functions:
     //  unicode_isupper_impl
     //  unicode_islower_impl
-    fn is_cased<VALID, INVALID>(&self) -> bool
-    where
-        VALID: BinaryProperty,
-        INVALID: BinaryProperty,
-    {
+    fn is_cased(&self, valid: fn(char) -> bool, invalid: fn(char) -> bool) -> bool {
         let mut all_cased = false;
         for c in self
             .as_bytes()
             .utf8_chunks()
             .flat_map(|c| c.valid().chars())
         {
-            if INVALID::for_char(c)
-                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
-            {
+            if invalid(c) || case::is_titlecase(c) {
                 return false;
             }
-            if !all_cased && VALID::for_char(c) {
+
+            if !all_cased && valid(c) {
                 all_cased = true;
             }
         }
+
         all_cased
     }
 }
@@ -484,18 +480,25 @@ where
     F: Fn(T) -> PyResult<bool>,
     M: Fn(&PyObject) -> String,
 {
-    match obj.try_to_value::<T>(vm) {
-        Ok(single) => (predicate)(single),
-        Err(_) => {
-            let tuple: &Py<PyTuple> = obj
-                .try_to_value(vm)
-                .map_err(|_| vm.new_type_error((message)(obj)))?;
-            for obj in tuple {
-                if single_or_tuple_any(obj, predicate, message, vm)? {
-                    return Ok(true);
-                }
+    // _Py_bytes_tailmatch: a tuple is taken apart before anything is converted, and
+    // each item is converted on its own terms, so a tuple of tuples is not an affix.
+    if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+        for item in tuple {
+            if (predicate)(item.try_to_value::<T>(vm)?)? {
+                return Ok(true);
             }
-            Ok(false)
         }
+        return Ok(false);
     }
+
+    // Only the argument simply being the wrong kind of object is reported as such;
+    // whatever the conversion itself raised belongs to the caller.
+    let single = obj.try_to_value::<T>(vm).map_err(|exc| {
+        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            vm.new_type_error((message)(obj))
+        } else {
+            exc
+        }
+    })?;
+    (predicate)(single)
 }

@@ -16,21 +16,26 @@ mod decl {
     use crate::builtins::PyBaseExceptionRef;
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStrRef, PyTypeRef},
-        function::{Either, FuncArgs, OptionalArg},
-        types::{PyStructSequence, struct_sequence_new},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
+        class::PyClassDef,
+        function::{Either, FuncArgs, OptionalArg, OptionalOption},
+        types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
+    };
+    #[cfg(target_os = "wasi")]
+    use crate::{
+        PyRef,
+        builtins::{PyNamespace, PyUtf8StrRef},
     };
     #[cfg(any(unix, windows))]
     use crate::{
         common::wtf8::Wtf8Buf,
         convert::{ToPyException, ToPyObject},
     };
-    #[cfg(not(any(unix, windows)))]
-    use chrono::{
-        DateTime, Datelike, TimeZone, Timelike,
-        naive::{NaiveDate, NaiveDateTime, NaiveTime},
-    };
     use core::time::Duration;
+    #[cfg(not(any(unix, windows)))]
+    use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
+    #[cfg(target_os = "wasi")]
+    use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
     use rustpython_host_env::time::asctime_from_tm;
     use rustpython_host_env::time::{self as host_time};
@@ -60,28 +65,73 @@ mod decl {
     #[pyattr]
     pub const _STRUCT_TM_ITEMS: usize = 11;
 
-    // TODO: implement proper monotonic time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(target_os = "wasi")]
+    fn get_clock_time(id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
+        host_time::clock_gettime(id).map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn clock_getres(id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
+        host_time::clock_getres(id)
+            .map(|d| d.as_secs_f64())
+            .map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    #[pyfunction]
+    fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
+        let (adj, imp, mono, res) = match name.as_str() {
+            "monotonic" | "perf_counter" => (
+                false,
+                "time.clock_gettime(CLOCK_MONOTONIC)",
+                true,
+                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+            ),
+            "time" => (
+                true,
+                "time.clock_gettime(CLOCK_REALTIME)",
+                false,
+                clock_getres(ClockId::CLOCK_REALTIME, vm)?,
+            ),
+            _ => return Err(vm.new_value_error("unknown clock")),
+        };
+
+        Ok(py_namespace!(vm, {
+            "implementation" => vm.new_pyobj(imp),
+            "monotonic" => vm.ctx.new_bool(mono),
+            "adjustable" => vm.ctx.new_bool(adj),
+            "resolution" => vm.ctx.new_float(res),
+        }))
+    }
+
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
-    // TODO: implement proper perf time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
     #[pyfunction]
-    fn sleep(seconds: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
-            audit.call((vm.ctx.new_str("time.sleep"), seconds.clone()), vm)?;
-        }
+    fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = seconds.class().name().to_owned();
-        let dur = seconds.try_into_value::<Duration>(vm).map_err(|e| {
+        let seconds_type_name = object.class().name().to_owned();
+        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
             if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().first().and_then(|arg| arg.str(vm).ok())
+                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
                 && s.as_bytes() == b"negative duration"
             {
                 return vm.new_value_error("sleep length must be non-negative");
@@ -195,7 +245,7 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
-    #[cfg(target_env = "msvc")]
+    #[cfg(windows)]
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn get_tz_info() -> host_time::WindowsTimeZoneInfo {
         host_time::get_tz_info()
@@ -210,8 +260,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        // TODO: RUSTPYTHON; Add support for using the C altzone
-        crate::host_env::time::tz::timezone() - 3600
+        crate::host_env::time::tz::altzone()
     }
 
     #[cfg(target_env = "msvc")]
@@ -275,10 +324,7 @@ mod decl {
     }
 
     #[cfg(not(any(unix, windows)))]
-    fn pyobj_to_date_time(
-        value: Either<f64, i64>,
-        vm: &VirtualMachine,
-    ) -> PyResult<DateTime<chrono::offset::Utc>> {
+    fn pyobj_to_timestamp(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<Timestamp> {
         let secs = match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -288,21 +334,16 @@ mod decl {
             }
             Either::B(int) => int,
         };
-        DateTime::<chrono::offset::Utc>::from_timestamp(secs, 0)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
+        Timestamp::from_second(secs)
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
     #[cfg(not(any(unix, windows)))]
-    impl OptionalArg<Option<Either<f64, i64>>> {
-        /// Construct a localtime from the optional seconds, or get the current local time.
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            Ok(match self {
-                Self::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?
-                    .with_timezone(&chrono::Local)
-                    .naive_local(),
-                Self::Present(None) | Self::Missing => chrono::offset::Local::now().naive_local(),
-            })
-        }
+    fn naive_or_local(secs: Option<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<Zoned> {
+        Ok(match secs {
+            Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system()),
+            None => Zoned::now(),
+        })
     }
 
     #[cfg(any(unix, windows))]
@@ -418,34 +459,34 @@ mod decl {
 
     #[cfg(not(any(unix, windows)))]
     impl OptionalArg<StructTimeData> {
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<DateTime> {
             Ok(match self {
                 Self::Present(t) => t.to_date_time(vm)?,
-                Self::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Missing => Zoned::now().datetime(),
             })
         }
     }
 
-    /// https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
+    // https://docs.python.org/3/library/time.html?highlight=gmtime#time.gmtime
     #[pyfunction]
     fn gmtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
+        secs: OptionalOption<Either<f64, i64>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 gmtime_from_timestamp(ts, vm)
             }
             _ => {
                 let instant = match secs {
-                    OptionalArg::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?.naive_utc(),
-                    OptionalArg::Present(None) | OptionalArg::Missing => {
-                        chrono::offset::Utc::now().naive_utc()
-                    }
+                    Some(secs) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
+                    None => Zoned::now().with_time_zone(TimeZone::UTC),
                 };
                 Ok(StructTimeData::new_utc(vm, instant))
             }
@@ -454,45 +495,46 @@ mod decl {
 
     #[pyfunction]
     fn localtime(
-        secs: OptionalArg<Option<Either<f64, i64>>>,
+        secs: OptionalOption<Either<f64, i64>>,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         cfg_select! {
             any(unix, windows) => {
                 let ts = match secs {
-                    OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                    OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                    Some(value) => pyobj_to_time_t(value, vm)?,
+                    None => current_time_t(),
                 };
                 localtime_from_timestamp(ts, vm)
             }
             _ => {
-                let instant = secs.naive_or_local(vm)?;
-                Ok(StructTimeData::new_local(vm, instant, 0))
+                let instant = naive_or_local(secs, vm)?;
+                StructTimeData::new_local(vm, instant.into(), 0)
             }
         }
     }
 
     #[pyfunction]
-    fn mktime(t: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
+    fn mktime(object: StructTimeData, vm: &VirtualMachine) -> PyResult<f64> {
         #[cfg(unix)]
         {
-            unix_mktime(&t, vm)
+            unix_mktime(&object, vm)
         }
 
         #[cfg(windows)]
         {
-            win_mktime(&t, vm)
+            win_mktime(&object, vm)
         }
 
         #[cfg(not(any(unix, windows)))]
         {
-            let datetime = t.to_date_time(vm)?;
+            let datetime = object.to_date_time(vm)?;
             // mktime interprets struct_time as local time
-            let local_dt = chrono::Local
-                .from_local_datetime(&datetime)
-                .single()
-                .ok_or_else(|| vm.new_overflow_error("mktime argument out of range"))?;
-            let seconds_since_epoch = local_dt.timestamp() as f64;
+            let local_dt = datetime
+                .to_zoned(TimeZone::system())
+                .map_err(|_| vm.new_overflow_error("mktime argument out of range"))?;
+            let seconds_since_epoch = local_dt.timestamp().as_second() as f64;
             Ok(seconds_since_epoch)
         }
     }
@@ -520,18 +562,20 @@ mod decl {
         #[cfg(not(any(unix, windows)))]
         {
             let instant = t.naive_or_local(vm)?;
-            let formatted_time = instant.format(CFMT).to_string();
+            let formatted_time = instant.strftime(CFMT).to_string();
             Ok(vm.ctx.new_str(formatted_time).into())
         }
     }
 
     #[pyfunction]
-    fn ctime(secs: OptionalArg<Option<Either<f64, i64>>>, vm: &VirtualMachine) -> PyResult<String> {
+    fn ctime(secs: OptionalOption<Either<f64, i64>>, vm: &VirtualMachine) -> PyResult<String> {
+        // `[seconds]` has no text signature; None is the same as missing.
+        let secs = secs.flatten();
         #[cfg(any(unix, windows))]
         {
             let ts = match secs {
-                OptionalArg::Present(Some(value)) => pyobj_to_time_t(value, vm)?,
-                OptionalArg::Present(None) | OptionalArg::Missing => current_time_t(),
+                Some(value) => pyobj_to_time_t(value, vm)?,
+                None => current_time_t(),
             };
             let local = localtime_from_timestamp(ts, vm)?;
             let tm = checked_tm_from_struct_time(&local, vm, "asctime")?.tm;
@@ -540,14 +584,14 @@ mod decl {
 
         #[cfg(not(any(unix, windows)))]
         {
-            let instant = secs.naive_or_local(vm)?;
-            Ok(instant.format(CFMT).to_string())
+            let instant = naive_or_local(secs, vm)?;
+            Ok(instant.strftime(CFMT).to_string())
         }
     }
 
     #[cfg(any(unix, windows))]
     fn strftime_crt(
-        format: &PyStrRef,
+        format: &Py<PyStr>,
         checked_tm: host_time::CheckedTm,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -571,8 +615,8 @@ mod decl {
         for codepoint in format.as_wtf8().code_points() {
             if codepoint.to_u32() == 0 {
                 if !ascii.is_empty() {
-                    let part = host_time::strftime_ascii(&ascii, &tm)
-                        .map_err(|_| vm.new_value_error("embedded null character"))?;
+                    let part =
+                        host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                     out.extend(part.chars());
                     ascii.clear();
                 }
@@ -587,22 +631,22 @@ mod decl {
             }
 
             if !ascii.is_empty() {
-                let part = host_time::strftime_ascii(&ascii, &tm)
-                    .map_err(|_| vm.new_value_error("embedded null character"))?;
+                let part =
+                    host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                 out.extend(part.chars());
                 ascii.clear();
             }
             out.push(codepoint);
         }
         if !ascii.is_empty() {
-            let part = host_time::strftime_ascii(&ascii, &tm)
-                .map_err(|_| vm.new_value_error("embedded null character"))?;
+            let part = host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
             out.extend(part.chars());
         }
         Ok(out.to_pyobject(vm))
     }
 
     #[pyfunction]
+    #[cfg_attr(not(any(unix, windows)), expect(clippy::unnecessary_wraps,))]
     fn strftime(format: PyStrRef, t: OptionalArg<StructTimeData>, vm: &VirtualMachine) -> PyResult {
         #[cfg(any(unix, windows))]
         {
@@ -632,7 +676,7 @@ mod decl {
             };
 
             let mut formatted_time = String::new();
-            write!(&mut formatted_time, "{}", instant.format(&fmt_lossy))
+            write!(&mut formatted_time, "{}", instant.strftime(&*fmt_lossy))
                 .unwrap_or_else(|_| formatted_time = format.to_string());
             Ok(vm.ctx.new_str(formatted_time).into())
         }
@@ -744,13 +788,7 @@ mod decl {
 
     impl StructTimeData {
         #[cfg(not(any(unix, windows)))]
-        fn new_inner(
-            vm: &VirtualMachine,
-            tm: NaiveDateTime,
-            isdst: i32,
-            gmtoff: i32,
-            zone: &str,
-        ) -> Self {
+        fn new_inner(vm: &VirtualMachine, tm: Zoned, isdst: i32) -> Self {
             Self {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -758,46 +796,47 @@ mod decl {
                 tm_hour: vm.ctx.new_int(tm.hour()).into(),
                 tm_min: vm.ctx.new_int(tm.minute()).into(),
                 tm_sec: vm.ctx.new_int(tm.second()).into(),
-                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
-                tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
+                tm_wday: vm.ctx.new_int(tm.weekday().to_sunday_zero_offset()).into(),
+                tm_yday: vm.ctx.new_int(tm.day_of_year()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
-                tm_zone: vm.ctx.new_str(zone).into(),
-                tm_gmtoff: vm.ctx.new_int(gmtoff).into(),
+                tm_zone: vm.ctx.new_str(tm.strftime("%Z").to_string()).into(),
+                tm_gmtoff: vm.ctx.new_int(tm.offset().seconds()).into(),
             }
         }
 
         /// Create struct_time for UTC (gmtime)
         #[cfg(not(any(unix, windows)))]
-        fn new_utc(vm: &VirtualMachine, tm: NaiveDateTime) -> Self {
-            Self::new_inner(vm, tm, 0, 0, "UTC")
+        fn new_utc(vm: &VirtualMachine, tm: Zoned) -> Self {
+            Self::new_inner(vm, tm, 0)
         }
 
         /// Create struct_time for local timezone (localtime)
         #[cfg(not(any(unix, windows)))]
-        fn new_local(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
-            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
-            let offset_seconds = local_time.offset().local_minus_utc();
-            let tz_abbr = local_time.format("%Z").to_string();
-            Self::new_inner(vm, tm, isdst, offset_seconds, &tz_abbr)
+        fn new_local(vm: &VirtualMachine, tm: DateTime, isdst: i32) -> PyResult<Self> {
+            tm.to_zoned(TimeZone::system())
+                .map(|tm| Self::new_inner(vm, tm, isdst))
+                .map_err(|_| {
+                    vm.new_overflow_error("timestamp is ambiguous for the system timezone")
+                })
         }
 
         #[cfg(not(any(unix, windows)))]
-        fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid_overflow = || vm.new_overflow_error("mktime argument out of range");
-            let invalid_value = || vm.new_value_error("invalid struct_time parameter");
-
+        fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<DateTime> {
             macro_rules! field {
                 ($field:ident) => {
                     self.$field.clone().try_into_value(vm)?
                 };
             }
-            let dt = NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(field!(tm_year), field!(tm_mon), field!(tm_mday))
-                    .ok_or_else(invalid_value)?,
-                NaiveTime::from_hms_opt(field!(tm_hour), field!(tm_min), field!(tm_sec))
-                    .ok_or_else(invalid_overflow)?,
-            );
-            Ok(dt)
+            DateTime::new(
+                field!(tm_year),
+                field!(tm_mon),
+                field!(tm_mday),
+                field!(tm_hour),
+                field!(tm_min),
+                field!(tm_sec),
+                0,
+            )
+            .map_err(|_| vm.new_overflow_error("mktime argument out of range"))
         }
     }
 
@@ -809,8 +848,12 @@ mod decl {
     impl PyStructTime {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let (seq, _dict): (PyObjectRef, OptionalArg<PyObjectRef>) = args.bind(vm)?;
-            struct_sequence_new(cls, seq, vm)
+            struct_sequence_new(
+                cls,
+                args.bind_for(vm, Self::NAME)?,
+                StructTimeData::OPTIONAL_FIELD_NAMES,
+                vm,
+            )
         }
     }
 
@@ -908,7 +951,7 @@ mod decl {
 }
 
 #[cfg(unix)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     #[allow(unused_imports)]
     use super::decl::{SEC_TO_NS, StructTimeData, US_TO_NS};
@@ -930,7 +973,10 @@ mod platform {
 
     #[cfg(target_os = "solaris")]
     #[pyattr]
-    use libc::CLOCK_HIGHRES;
+    use host_time::CLOCK_HIGHRES;
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    #[pyattr]
+    use host_time::CLOCK_MONOTONIC_RAW;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -939,7 +985,7 @@ mod platform {
         target_os = "wasi",
     )))]
     #[pyattr]
-    use libc::CLOCK_PROCESS_CPUTIME_ID;
+    use host_time::CLOCK_PROCESS_CPUTIME_ID;
     #[cfg(not(any(
         target_os = "illumos",
         target_os = "netbsd",
@@ -948,15 +994,18 @@ mod platform {
         target_os = "redox",
     )))]
     #[pyattr]
-    use libc::CLOCK_THREAD_CPUTIME_ID;
+    use host_time::CLOCK_THREAD_CPUTIME_ID;
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::{CLOCK_BOOTTIME, CLOCK_MONOTONIC_RAW, CLOCK_TAI};
+    use host_time::{CLOCK_BOOTTIME, CLOCK_TAI};
     #[pyattr]
-    use libc::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    use host_time::{CLOCK_MONOTONIC, CLOCK_REALTIME};
+    #[cfg(target_vendor = "apple")]
+    #[pyattr]
+    use host_time::{CLOCK_MONOTONIC_RAW_APPROX, CLOCK_UPTIME_RAW, CLOCK_UPTIME_RAW_APPROX};
     #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "dragonfly"))]
     #[pyattr]
-    use libc::{CLOCK_PROF, CLOCK_UPTIME};
+    use host_time::{CLOCK_PROF, CLOCK_UPTIME};
 
     impl<'a> TryFromBorrowedObject<'a> for ClockId {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
@@ -1026,6 +1075,20 @@ mod platform {
         rustpython_host_env::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))
     }
 
+    // On Apple platforms, `CLOCK_MONOTONIC` keeps advancing while the system is
+    // asleep, unlike CPython's `time.monotonic()`/`time.perf_counter()`, which are
+    // backed by `mach_absolute_time()` (equivalent to `CLOCK_UPTIME_RAW`) and stop
+    // during sleep. Use `CLOCK_UPTIME_RAW` there to match CPython's behavior.
+    #[cfg(target_vendor = "apple")]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_UPTIME_RAW
+    }
+
+    #[cfg(not(target_vendor = "apple"))]
+    fn monotonic_clock_id() -> ClockId {
+        ClockId::CLOCK_MONOTONIC
+    }
+
     #[pyfunction]
     fn clock_gettime(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
         get_clock_time(clk_id, vm).map(|d| d.as_secs_f64())
@@ -1073,11 +1136,19 @@ mod platform {
     #[pyfunction]
     fn get_clock_info(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         let (adj, imp, mono, res) = match name.as_str() {
+            #[cfg(target_vendor = "apple")]
+            "monotonic" | "perf_counter" => (
+                false,
+                "mach_absolute_time()",
+                true,
+                clock_getres(monotonic_clock_id(), vm)?,
+            ),
+            #[cfg(not(target_vendor = "apple"))]
             "monotonic" | "perf_counter" => (
                 false,
                 "time.clock_gettime(CLOCK_MONOTONIC)",
                 true,
-                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
+                clock_getres(monotonic_clock_id(), vm)?,
             ),
             "process_time" => (
                 false,
@@ -1123,11 +1194,11 @@ mod platform {
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+        get_clock_time(monotonic_clock_id(), vm)
     }
 
     #[cfg(not(any(
@@ -1163,24 +1234,15 @@ mod platform {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
-            (|tv: libc::timeval| {
-                let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
-                let u = (tv.tv_usec as i64).checked_mul(US_TO_NS)?;
-                t.checked_add(u)
-            })(tv)
+        let ru = host_resource::getrusage(host_resource::RUSAGE_SELF)
+            .map_err(|e| e.into_pyexception(vm))?;
+        ru.total_cpu_duration()
             .ok_or_else(|| vm.new_overflow_error("timestamp too large to convert to i64"))
-        }
-        let ru = host_resource::getrusage(libc::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
-        let utime = from_timeval(ru.ru_utime, vm)?;
-        let stime = from_timeval(ru.ru_stime, vm)?;
-
-        Ok(Duration::from_nanos((utime + stime) as u64))
     }
 }
 
 #[cfg(windows)]
-#[pymodule(sub)]
+#[pymodule(sub, name = "time")]
 mod platform {
     use super::decl::{MS_TO_NS, SEC_TO_NS, StructTimeData, get_tz_info, time_muldiv};
     use crate::{

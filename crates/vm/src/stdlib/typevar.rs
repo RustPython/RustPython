@@ -2,7 +2,7 @@
 
 pub use typevar::*;
 
-#[pymodule(sub)]
+#[pymodule(sub, name = "_typing")]
 pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -47,20 +47,17 @@ pub(crate) mod typevar {
     ///
     /// Note: CPython's implementation (in typevarobject.c) gets the module from the
     /// frame's function object using PyFunction_GetModule(f->f_funcobj). However,
-    /// RustPython's Frame doesn't store a reference to the function object, so we
+    /// RustPython's FrameObject doesn't store a reference to the function object, so we
     /// get the module name from the frame's globals dictionary instead.
     fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let frame = vm.current_frame()?;
-
-        // In RustPython, we get the module name from frame's globals
-        // This is similar to CPython's sys._getframe().f_globals.get('__name__')
-        frame.globals.get_item("__name__", vm).ok()
+        let globals = crate::frame::current_globals()?;
+        globals.get_item("__name__", vm).ok()
     }
 
     /// Set __module__ attribute for an object based on the caller's module.
     /// This follows CPython's behavior for TypeVar and similar objects.
     fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
+        // Note: CPython gets module from frame->f_funcobj, but RustPython's FrameObject
         // architecture is different - we use globals['__name__'] instead
         let module_value: PyObjectRef = if let Some(module_name) = caller(vm) {
             // Special handling for certain module names
@@ -82,6 +79,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVar {
+        #[pymember(name = "__name__")]
         name: PyObjectRef, // TODO PyStrRef?
         bound: PyMutex<PyObjectRef>,
         evaluate_bound: PyObjectRef,
@@ -89,8 +87,11 @@ pub(crate) mod typevar {
         evaluate_constraints: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
         covariant: bool,
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 
@@ -98,15 +99,10 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
     )]
-    impl TypeVar {
+    impl Py<TypeVar> {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVar"))
-        }
-
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
         }
 
         #[pygetset]
@@ -137,21 +133,6 @@ pub(crate) mod typevar {
                 vm.ctx.none()
             };
             Ok(r)
-        }
-
-        #[pygetset]
-        const fn __covariant__(&self) -> bool {
-            self.covariant
-        }
-
-        #[pygetset]
-        const fn __contravariant__(&self) -> bool {
-            self.contravariant
-        }
-
-        #[pygetset]
-        const fn __infer_variance__(&self) -> bool {
-            self.infer_variance
         }
 
         #[pygetset]
@@ -217,7 +198,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVar>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -242,7 +223,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVar>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -261,13 +242,13 @@ pub(crate) mod typevar {
 
             // Find our index in parameters
             let self_obj: PyObjectRef = zelf.to_owned().into();
-            let param_index = params_tuple.iter().position(|p| p.is(&self_obj));
+            let param_index = params_tuple.as_slice().iter().position(|p| p.is(&self_obj));
 
             if let Some(index) = param_index {
                 // Check if we have enough arguments
-                if args_tuple.len() <= index && zelf.has_default(vm) {
+                if args_tuple.as_slice().len() <= index && zelf.has_default(vm) {
                     // Need to add default value
-                    let mut new_args = args_tuple.iter().cloned().collect::<Vec<PyObjectRef>>();
+                    let mut new_args = args_tuple.as_slice().to_vec();
 
                     // Add default value at the correct position
                     while new_args.len() <= index {
@@ -366,12 +347,10 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVar() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(
+                    vm.new_unexpected_keyword_type_error(Some("typevar"), &invalid_key.to_string())
+                );
             }
 
             // Check for invalid combinations
@@ -460,12 +439,17 @@ pub(crate) mod typevar {
     #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpec {
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
+        #[pymember(name = "__bound__")]
         bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
         covariant: bool,
+        #[pymember(name = "__contravariant__")]
         contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
         infer_variance: bool,
     }
 
@@ -473,19 +457,14 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
     )]
-    impl ParamSpec {
+    impl Py<ParamSpec> {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpec"))
         }
 
         #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
-        }
-
-        #[pygetset]
-        fn args(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn args(zelf: crate::PyRef<ParamSpec>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psa = ParamSpecArgs {
                 __origin__: self_obj,
@@ -494,35 +473,12 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn kwargs(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
+        fn kwargs(zelf: crate::PyRef<ParamSpec>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psk = ParamSpecKwargs {
                 __origin__: self_obj,
             };
             psk.into_ref(&vm.ctx).into()
-        }
-
-        #[pygetset]
-        fn __bound__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            if let Some(bound) = self.bound.clone() {
-                return bound;
-            }
-            vm.ctx.none()
-        }
-
-        #[pygetset]
-        const fn __covariant__(&self) -> bool {
-            self.covariant
-        }
-
-        #[pygetset]
-        const fn __contravariant__(&self) -> bool {
-            self.contravariant
-        }
-
-        #[pygetset]
-        const fn __infer_variance__(&self) -> bool {
-            self.infer_variance
         }
 
         #[pygetset]
@@ -573,7 +529,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<ParamSpec>,
             arg: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
@@ -583,7 +539,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<ParamSpec>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -649,12 +605,11 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "ParamSpec() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("paramspec"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Check for invalid combinations
@@ -693,7 +648,7 @@ pub(crate) mod typevar {
     impl Representable for ParamSpec {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.__name__().str_utf8(vm)?;
+            let name = zelf.name.str_utf8(vm)?;
             Ok(variance_repr(
                 name.as_str(),
                 zelf.infer_variance,
@@ -721,6 +676,7 @@ pub(crate) mod typevar {
     #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
     pub struct TypeVarTuple {
+        #[pymember(name = "__name__")]
         name: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
@@ -730,12 +686,7 @@ pub(crate) mod typevar {
         flags(HAS_DICT, HAS_WEAKREF),
         with(Constructor, Representable, Iterable)
     )]
-    impl TypeVarTuple {
-        #[pygetset]
-        fn __name__(&self) -> PyObjectRef {
-            self.name.clone()
-        }
-
+    impl Py<TypeVarTuple> {
         #[pygetset]
         fn __default__(&self, vm: &VirtualMachine) -> PyResult {
             {
@@ -784,7 +735,7 @@ pub(crate) mod typevar {
         }
 
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of TypeVarTuple"))
         }
 
@@ -795,7 +746,7 @@ pub(crate) mod typevar {
 
         #[pymethod]
         fn __typing_prepare_subst__(
-            zelf: crate::PyRef<Self>,
+            zelf: crate::PyRef<TypeVarTuple>,
             alias: PyObjectRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
@@ -843,12 +794,11 @@ pub(crate) mod typevar {
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
-            if !kwargs.is_empty() {
-                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
-                return Err(vm.new_type_error(format!(
-                    "TypeVarTuple() got unexpected keyword argument(s): {}",
-                    unexpected_keys.join(", ")
-                )));
+            if let Some(invalid_key) = kwargs.keys().next() {
+                return Err(vm.new_unexpected_keyword_type_error(
+                    Some("typevartuple"),
+                    &invalid_key.to_string(),
+                ));
             }
 
             // Handle default value
@@ -895,22 +845,18 @@ pub(crate) mod typevar {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecArgs", module = "typing")]
+    #[pyclass(name = "ParamSpecArgs", module = "typing", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecArgs {
+        #[pymember]
         __origin__: PyObjectRef,
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
-    impl ParamSpecArgs {
+    impl Py<ParamSpecArgs> {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecArgs"))
-        }
-
-        #[pygetset]
-        fn __origin__(&self) -> PyObjectRef {
-            self.__origin__.clone()
         }
     }
 
@@ -926,11 +872,12 @@ pub(crate) mod typevar {
     impl Representable for ParamSpecArgs {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // Check if origin is a ParamSpec
-            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{name}.args", name = name.str(vm)?));
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.args", param_spec.name.str_utf8(vm)?));
             }
-            Ok(format!("{:?}.args", zelf.__origin__))
+            Ok(format!("{}.args", zelf.__origin__.repr(vm)?))
         }
     }
 
@@ -958,22 +905,18 @@ pub(crate) mod typevar {
     }
 
     #[pyattr]
-    #[pyclass(name = "ParamSpecKwargs", module = "typing")]
+    #[pyclass(name = "ParamSpecKwargs", module = "typing", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct ParamSpecKwargs {
+        #[pymember]
         __origin__: PyObjectRef,
     }
 
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
-    impl ParamSpecKwargs {
+    impl Py<ParamSpecKwargs> {
         #[pymethod]
-        fn __mro_entries__(&self, _bases: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn __mro_entries__(&self, _object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("Cannot subclass an instance of ParamSpecKwargs"))
-        }
-
-        #[pygetset]
-        fn __origin__(&self) -> PyObjectRef {
-            self.__origin__.clone()
         }
     }
 
@@ -989,11 +932,12 @@ pub(crate) mod typevar {
     impl Representable for ParamSpecKwargs {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // Check if origin is a ParamSpec
-            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{name}.kwargs", name = name.str(vm)?));
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.kwargs", param_spec.name.str_utf8(vm)?));
             }
-            Ok(format!("{:?}.kwargs", zelf.__origin__))
+            Ok(format!("{}.kwargs", zelf.__origin__.repr(vm)?))
         }
     }
 

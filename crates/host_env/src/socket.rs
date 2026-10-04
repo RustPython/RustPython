@@ -7,9 +7,698 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::{io, os::fd::BorrowedFd};
 
+/// Returns the system's hostname.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hostname() -> std::ffi::OsString {
+    gethostname::gethostname()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::dns_lookup as dns;
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::socket2 as raw;
+
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+fn select_mac_address(addresses: impl IntoIterator<Item = [u8; 6]>) -> Option<[u8; 6]> {
+    let mut first_local = None;
+
+    for address in addresses {
+        if address == [0; 6] {
+            continue;
+        }
+        if address[0] & 0x02 == 0 {
+            return Some(address);
+        }
+        first_local.get_or_insert(address);
+    }
+
+    first_local
+}
+
+/// Returns a universally administered MAC address when available, otherwise
+/// the first locally administered address, or `None` when lookup fails.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+pub fn mac_address() -> Option<[u8; 6]> {
+    let addresses = mac_address::MacAddressIterator::new().ok()?;
+    select_mac_address(addresses.map(|address| address.bytes()))
+}
+
+#[cfg(test)]
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+mod mac_address_tests {
+    use super::select_mac_address;
+
+    #[test]
+    fn prefers_universally_administered_address() {
+        let local = [0x02, 0, 0, 0, 0, 1];
+        let universal = [0x00, 0, 0, 0, 0, 2];
+
+        assert_eq!(select_mac_address([local, universal]), Some(universal));
+    }
+
+    #[test]
+    fn falls_back_to_first_locally_administered_address() {
+        let first = [0x02, 0, 0, 0, 0, 1];
+        let second = [0x06, 0, 0, 0, 0, 2];
+
+        assert_eq!(select_mac_address([first, second]), Some(first));
+    }
+
+    #[test]
+    fn ignores_zero_address() {
+        let universal = [0x00, 0, 0, 0, 0, 1];
+
+        assert_eq!(select_mac_address([[0; 6], universal]), Some(universal));
+        assert_eq!(select_mac_address([[0; 6]]), None);
+    }
+}
+
+#[cfg(unix)]
+pub use libc::{AF_UNIX, SOCK_STREAM, sa_family_t, sockaddr_storage, socklen_t};
+
+/// Integer names the VM published from `libc as c` on unix. Windows already
+/// takes the overlapping set from this module.
+#[cfg(unix)]
+pub use libc::{
+    AF_INET, AF_INET6, AF_UNSPEC, AI_ADDRCONFIG, AI_CANONNAME, AI_NUMERICHOST, AI_NUMERICSERV,
+    AI_PASSIVE, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
+    IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_UDP, MSG_CTRUNC, MSG_DONTROUTE,
+    MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_NAMEREQD, NI_NOFQDN,
+    NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SO_BROADCAST, SO_ERROR,
+    SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SOCK_DGRAM,
+    SOL_SOCKET, SOMAXCONN, TCP_NODELAY,
+};
+
 #[cfg(all(unix, not(target_os = "redox")))]
-pub fn sethostname(hostname: &str) -> io::Result<()> {
-    nix::unistd::sethostname(hostname).map_err(io::Error::from)
+pub use libc::{
+    AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+    IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
+    IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET,
+};
+
+#[cfg(unix)]
+pub use libc::SO_REUSEPORT;
+
+#[cfg(any(unix, target_os = "android"))]
+pub use libc::{
+    EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
+    EAI_SOCKTYPE, EAI_SYSTEM, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF,
+    IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TOS, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
+    IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_EOR, SO_ACCEPTCONN, SO_DEBUG,
+    SO_DONTROUTE, SO_RCVLOWAT, SO_RCVTIMEO, SO_SNDLOWAT, SO_SNDTIMEO,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::IPV6_DONTFRAG;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::{IPV6_CHECKSUM, IPV6_HOPLIMIT};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple",
+))]
+pub use libc::{AI_ALL, AI_V4MAPPED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::EAI_NODATA;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::IPV6_PKTINFO;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+))]
+pub use libc::{IPV6_RECVTCLASS, IPV6_TCLASS};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{
+    AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_vendor = "apple",
+))]
+pub use libc::IPPROTO_ND;
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+pub use libc::{MSG_BCAST, MSG_MCAST};
+
+#[cfg(any(target_os = "netbsd", target_os = "redox", target_vendor = "apple"))]
+pub use libc::NI_MAXSERV;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{
+    AF_ROUTE, AF_SNA, EAI_OVERFLOW, IPPROTO_GRE, IPPROTO_RSVP, IPPROTO_TP, IPV6_RECVPKTINFO,
+    MSG_DONTWAIT, SCM_RIGHTS, TCP_MAXSEG,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "redox"
+))]
+pub use libc::{SOCK_CLOEXEC, SOCK_NONBLOCK};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{TCP_KEEPCNT, TCP_KEEPINTVL};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "redox"
+))]
+pub use libc::TCP_KEEPIDLE;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::{MSG_CMSG_CLOEXEC, MSG_NOSIGNAL};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{
+    AF_SYSTEM, IP_ADD_SOURCE_MEMBERSHIP, IP_BLOCK_SOURCE, IP_DROP_SOURCE_MEMBERSHIP, IP_PKTINFO,
+    IP_RECVTTL, IP_UNBLOCK_SOURCE, IPPROTO_MAX, IPPROTO_SCTP, MSG_NOSIGNAL, PF_SYSTEM,
+    SYSPROTO_CONTROL, TCP_CONNECTION_INFO, TCP_KEEPALIVE,
+};
+
+#[cfg(target_os = "linux")]
+pub use libc::{
+    CAN_BCM, CAN_EFF_FLAG, CAN_EFF_MASK, CAN_ERR_FLAG, CAN_ERR_MASK, CAN_ISOTP, CAN_J1939, CAN_RAW,
+    CAN_RAW_ERR_FILTER, CAN_RAW_FD_FRAMES, CAN_RAW_FILTER, CAN_RAW_JOIN_FILTERS, CAN_RAW_LOOPBACK,
+    CAN_RAW_RECV_OWN_MSGS, CAN_RTR_FLAG, CAN_SFF_MASK, IPPROTO_MPTCP, J1939_IDLE_ADDR,
+    J1939_MAX_UNICAST_ADDR, J1939_NLA_BYTES_ACKED, J1939_NLA_PAD, J1939_NO_ADDR, J1939_NO_NAME,
+    J1939_NO_PGN, J1939_PGN_ADDRESS_CLAIMED, J1939_PGN_ADDRESS_COMMANDED, J1939_PGN_MAX,
+    J1939_PGN_PDU1_MAX, J1939_PGN_REQUEST, SCM_J1939_DEST_ADDR, SCM_J1939_DEST_NAME,
+    SCM_J1939_ERRQUEUE, SCM_J1939_PRIO, SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC,
+    SO_J1939_SEND_PRIO, SOL_CAN_BASE, SOL_CAN_RAW,
+};
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub use libc::SOL_RDS;
+
+#[cfg(target_os = "android")]
+pub use libc::{SOL_ATALK, SOL_AX25, SOL_IPX, SOL_NETROM, SOL_ROSE};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::SO_SETFIB;
+
+#[cfg(target_os = "netbsd")]
+pub use libc::IPPROTO_VRRP;
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
+    ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
+    IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
+    IPV6_RECVPATHMTU, IPV6_RTHDRDSTOPTS, NETLINK_CRYPTO, NETLINK_DNRTMSG, NETLINK_FIREWALL,
+    NETLINK_IP6_FW, NETLINK_NFLOG, NETLINK_ROUTE, NETLINK_USERSOCK, NETLINK_XFRM, SO_PASSSEC,
+    SO_PEERSEC, SOL_ALG,
+};
+
+#[cfg(any(target_os = "android", target_vendor = "apple"))]
+pub use libc::{AI_DEFAULT, AI_MASK, AI_V4MAPPED_CFG};
+
+#[cfg(any(target_os = "freebsd", target_os = "netbsd"))]
+pub use libc::MSG_NOTIFICATION;
+
+#[cfg(any(target_os = "fuchsia", target_os = "linux"))]
+pub use libc::TCP_USER_TIMEOUT;
+
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub use libc::{
+    AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_ECONET, AF_IRDA, AF_LLC, AF_NETBEUI,
+    AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY, AF_TIPC, AF_VSOCK, AF_WANPIPE,
+    AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE, MSG_FASTOPEN, MSG_MORE, PF_CAN, PF_PACKET,
+    PF_RDS, SCM_CREDENTIALS, SO_BINDTODEVICE, SO_MARK, SOL_IP, SOL_TIPC, SOL_UDP, TCP_CORK,
+    TCP_DEFER_ACCEPT, TCP_LINGER2, TCP_QUICKACK, TCP_SYNCNT, TCP_WINDOW_CLAMP,
+};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_vendor = "apple"
+))]
+pub use libc::{IPPROTO_HELLO, IPPROTO_XTP, LOCAL_PEERCRED, MSG_EOF};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub use libc::{IPPROTO_UDPLITE, TCP_CONGESTION};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::AF_KEY;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "redox"
+))]
+pub use libc::SO_DOMAIN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "x86",
+            target_arch = "loongarch64",
+            target_arch = "mips",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "riscv64",
+            target_arch = "s390x",
+            target_arch = "x86_64"
+        )
+    ),
+    target_os = "redox"
+))]
+pub use libc::SO_PRIORITY;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::IPPROTO_MOBILE;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_vendor = "apple"
+))]
+pub use libc::SCM_CREDS;
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple"
+))]
+pub use libc::TCP_FASTOPEN;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "x86",
+            target_arch = "loongarch64",
+            target_arch = "mips",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "riscv64",
+            target_arch = "s390x",
+            target_arch = "x86_64"
+        )
+    ),
+    target_os = "redox"
+))]
+pub use libc::SO_PROTOCOL;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "redox"
+))]
+pub use libc::{SO_PASSCRED, SO_PEERCRED};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::TCP_INFO;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_vendor = "apple"
+))]
+pub use libc::IP_RECVTOS;
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::{IPPROTO_EON, IPPROTO_IPCOMP};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd"
+))]
+pub use libc::IPPROTO_SCTP;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub use libc::AF_BLUETOOTH;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use libc::{AF_ALG, AF_CAN};
+
+// bionic (Android) does not define the CAN/ALG sockaddr structs.
+#[cfg(target_os = "linux")]
+pub use libc::{sockaddr_alg, sockaddr_can};
+
+/// Port numbers some Unix libcs omit. Windows takes `IPPORT_RESERVED` from
+/// WinSock and defines `IPPORT_USERRESERVED` beside the other extras.
+#[cfg(unix)]
+pub const IPPORT_RESERVED: i32 = 1024;
+#[cfg(unix)]
+pub const IPPORT_USERRESERVED: i32 = 5000;
+
+/// Multicast groups as unsigned host-order words. Windows publishes the
+/// same bits as signed C longs (`INADDR_*_GROUP` below).
+#[cfg(unix)]
+pub const INADDR_UNSPEC_GROUP: u32 = 0xe000_0000;
+#[cfg(unix)]
+pub const INADDR_ALLHOSTS_GROUP: u32 = 0xe000_0001;
+#[cfg(unix)]
+pub const INADDR_MAX_LOCAL_GROUP: u32 = 0xe000_00ff;
+
+/// POSIX `<netdb.h>` `NI_MAXSERV`. libc omits it on linux-gnu.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const NI_MAXSERV: i32 = 32;
+
+/// `<netinet/in.h>` join/leave and routing-header type. libc omits them
+/// on linux-gnu.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_JOIN_GROUP: i32 = 20;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_LEAVE_GROUP: i32 = 21;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub const IPV6_RTHDR_TYPE_0: i32 = 0;
+
+// spell-checker:ignore SETTIMER STARTTIMER COUNTEVT AUTOTIMER
+/// `linux/can/bcm.h` opcodes and flags. Not in libc.
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_SETUP: i32 = 1;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_DELETE: i32 = 2;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_READ: i32 = 3;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_SEND: i32 = 4;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_SETUP: i32 = 5;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_DELETE: i32 = 6;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_READ: i32 = 7;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_STATUS: i32 = 8;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_EXPIRED: i32 = 9;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_STATUS: i32 = 10;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_TIMEOUT: i32 = 11;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_CHANGED: i32 = 12;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_SETTIMER: i32 = 0x0001;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_STARTTIMER: i32 = 0x0002;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_COUNTEVT: i32 = 0x0004;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_ANNOUNCE: i32 = 0x0008;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_CP_CAN_ID: i32 = 0x0010;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_FILTER_ID: i32 = 0x0020;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_CHECK_DLC: i32 = 0x0040;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_NO_AUTOTIMER: i32 = 0x0080;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_ANNOUNCE_RESUME: i32 = 0x0100;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_TX_RESET_MULTI_IDX: i32 = 0x0200;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_RX_RTR_FRAME: i32 = 0x0400;
+#[cfg(target_os = "linux")]
+pub const CAN_BCM_CAN_FD_FRAME: i32 = 0x0800;
+
+/// `linux/vm_sockets.h`. libc does not bind the vsock sockopt / cid names.
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_SIZE: u32 = 0;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_MIN_SIZE: u32 = 1;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const SO_VM_SOCKETS_BUFFER_MAX_SIZE: u32 = 2;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_CID_ANY: u32 = 0xffff_ffff;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_PORT_ANY: u32 = 0xffff_ffff;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VMADDR_CID_HOST: u32 = 2;
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub const VM_SOCKETS_INVALID_VERSION: u32 = 0xffff_ffff;
+
+/// `netinet/udplite.h`. libc does not bind the coverage sockopts.
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub const UDPLITE_SEND_CSCOV: i32 = 10;
+#[cfg(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux"
+))]
+pub const UDPLITE_RECV_CSCOV: i32 = 11;
+
+/// `SOL_IP` / `SOL_UDP` when libc does not bind them. Linux takes the
+/// header names; Windows takes WinSock `SOL_IP`. Elsewhere they are the
+/// IANA protocol numbers.
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    windows
+)))]
+pub const SOL_IP: i32 = 0;
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "linux",
+    windows
+)))]
+pub const SOL_UDP: i32 = 17;
+
+/// `SOMAXCONN` when neither libc nor WinSock publishes it.
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple",
+    windows
+)))]
+pub const SOMAXCONN: i32 = 5;
+
+/// Bluetooth wildcard / local addresses. Header strings, not libc names.
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub const BDADDR_ANY: &str = "00:00:00:00:00:00";
+#[cfg(any(
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd"
+))]
+pub const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
+
+/// RFC 3542 IPv6 socket options (`netinet6/in6.h`). Not in libc.
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVHOPLIMIT: i32 = 37;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVRTHDR: i32 = 38;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVHOPOPTS: i32 = 39;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVDSTOPTS: i32 = 40;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_USE_MIN_MTU: i32 = 42;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RECVPATHMTU: i32 = 43;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_PATHMTU: i32 = 44;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_NEXTHOP: i32 = 48;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_HOPOPTS: i32 = 49;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_DSTOPTS: i32 = 50;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDR: i32 = 51;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDRDSTOPTS: i32 = 57;
+#[cfg(target_vendor = "apple")]
+pub const IPV6_RTHDR_TYPE_0: i32 = 0;
+
+/// Darwin `<netdb.h>` `EAI_*` names the libc crate does not re-export.
+#[cfg(target_vendor = "apple")]
+pub const EAI_ADDRFAMILY: i32 = 1;
+#[cfg(target_vendor = "apple")]
+pub const EAI_BADHINTS: i32 = 12;
+#[cfg(target_vendor = "apple")]
+pub const EAI_PROTOCOL: i32 = 13;
+#[cfg(target_vendor = "apple")]
+pub const EAI_MAX: i32 = 15;
+
+/// Set the system's hostname from its filesystem-encoded bytes.
+///
+/// `socketmodule.c socket_sethostname` reads the argument as a buffer and
+/// passes `buf.buf`/`buf.len` straight to the syscall, so a name is not
+/// required to be UTF-8; taking `&[u8]` keeps that true here as well.
+#[cfg(all(unix, not(target_os = "redox")))]
+pub fn sethostname(hostname: &[u8]) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    nix::unistd::sethostname(std::ffi::OsStr::from_bytes(hostname)).map_err(io::Error::from)
 }
 
 #[cfg(unix)]
@@ -435,6 +1124,8 @@ pub fn sendmsg_afalg(
 #[cfg(windows)]
 use core::{ffi::CStr, ptr::NonNull};
 #[cfg(windows)]
+use rustpython_wtf8::Wtf8Buf;
+#[cfg(windows)]
 use std::io;
 #[cfg(windows)]
 use windows_sys::Win32::{
@@ -446,33 +1137,36 @@ use windows_sys::Win32::{
         Ndis::{IF_MAX_STRING_SIZE, NET_LUID_LH},
     },
     Networking::WinSock::{
-        FROM_PROTOCOL_INFO, INVALID_SOCKET, SOCKET, SOCKET_ERROR, WSA_FLAG_OVERLAPPED,
-        WSADuplicateSocketW, WSAGetLastError, WSAIoctl, WSAPROTOCOL_INFOW, WSASocketW,
+        FROM_PROTOCOL_INFO, SOCKET, WSA_FLAG_OVERLAPPED, WSADuplicateSocketW, WSAGetLastError,
+        WSAIoctl, WSAPROTOCOL_INFOW, WSASocketW,
     },
 };
 
 #[cfg(windows)]
 pub use windows_sys::Win32::Networking::WinSock::{
     AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME, AI_NUMERICSERV,
-    AI_V4MAPPED, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE, IP_ADD_MEMBERSHIP,
-    IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
-    IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_CBT,
-    IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS,
-    IPPROTO_ICLFXBM, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IGP,
-    IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_L2TP, IPPROTO_ND,
-    IPPROTO_NONE, IPPROTO_PGM, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_RDP, IPPROTO_ROUTING,
-    IPPROTO_SCTP, IPPROTO_ST, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG,
-    IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
-    IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
-    IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE,
-    MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
-    NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON,
-    RCVALL_SOCKETLEVELONLY, SD_BOTH, SD_RECEIVE, SD_SEND, SIO_KEEPALIVE_VALS,
-    SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_KEEPALIVE, SO_LINGER,
-    SO_OOBINLINE, SO_RCVBUF, SO_REUSEADDR, SO_SNDBUF, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM,
-    SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_SOCKET,
-    SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname,
-    getservbyname, getservbyport, getsockopt, setsockopt,
+    AI_V4MAPPED, FIONBIO, INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
+    INVALID_SOCKET, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF,
+    IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL,
+    IPPORT_RESERVED, IPPROTO_AH, IPPROTO_CBT, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+    IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICLFXBM, IPPROTO_ICMP, IPPROTO_ICMPV6,
+    IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IGP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4,
+    IPPROTO_IPV6, IPPROTO_L2TP, IPPROTO_MAX, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PGM, IPPROTO_PIM,
+    IPPROTO_PUP, IPPROTO_RAW, IPPROTO_RDP, IPPROTO_ROUTING, IPPROTO_SCTP, IPPROTO_ST, IPPROTO_TCP,
+    IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP,
+    IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO,
+    IPV6_RECVRTHDR, IPV6_RECVTCLASS, IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
+    MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL,
+    NI_DGRAM, NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
+    POLLIN, RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH,
+    SD_BOTH as SHUT_RDWR, SD_RECEIVE, SD_RECEIVE as SHUT_RD, SD_SEND, SD_SEND as SHUT_WR,
+    SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SO_ACCEPTCONN, SO_BROADCAST, SO_DEBUG,
+    SO_DONTROUTE, SO_ERROR, SO_KEEPALIVE, SO_LINGER, SO_OOBINLINE, SO_RCVBUF, SO_RCVTIMEO,
+    SO_REUSEADDR, SO_SNDBUF, SO_SNDTIMEO, SO_TYPE, SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM,
+    SOCK_SEQPACKET, SOCK_STREAM, SOCKET_ERROR, SOCKET_ERROR as SOCKET_ERROR_CODE, SOL_IP,
+    SOL_SOCKET, TCP_MAXSEG, TCP_NODELAY, WSAEBADF, WSAECONNABORTED, WSAECONNRESET, WSAEINTR,
+    WSAENOTSOCK, WSAEWOULDBLOCK, getprotobyname, getservbyname, getservbyport, getsockopt,
+    setsockopt,
 };
 
 #[cfg(windows)]
@@ -509,6 +1203,75 @@ pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE 
 pub const AI_NUMERICHOST: i32 = windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as i32;
 #[cfg(windows)]
 pub const FROM_PROTOCOL_INFO_VALUE: i32 = FROM_PROTOCOL_INFO;
+
+/// `winsock2.h` `SOMAXCONN`. windows-sys still exports the Winsock 1.1 value 5.
+#[cfg(windows)]
+pub const SOMAXCONN: i32 = 0x7fff_ffff;
+
+/// Signed C-long readings of option words, plus names the Winsock headers
+/// do not define that the module still carries.
+#[cfg(windows)]
+pub const SOL_TCP: i32 = 6;
+#[cfg(windows)]
+pub const SOL_UDP: i32 = 17;
+#[cfg(windows)]
+pub const SOL_RFCOMM: i32 = 3;
+#[cfg(windows)]
+pub const SO_SNDLOWAT: i32 = 0x1003;
+#[cfg(windows)]
+pub const SO_RCVLOWAT: i32 = 0x1004;
+#[cfg(windows)]
+pub const SO_ORIGINAL_DST: i32 = 12303;
+#[cfg(windows)]
+pub const SO_BTH_ENCRYPT: i32 = 2;
+#[cfg(windows)]
+pub const SO_BTH_MTU: i32 = 0x8000_0007u32 as i32;
+#[cfg(windows)]
+pub const SO_BTH_MTU_MAX: i32 = 0x8000_0008u32 as i32;
+#[cfg(windows)]
+pub const SO_BTH_MTU_MIN: i32 = 0x8000_000au32 as i32;
+#[cfg(windows)]
+pub const TCP_KEEPIDLE: i32 = 3;
+#[cfg(windows)]
+pub const TCP_FASTOPEN: i32 = 15;
+#[cfg(windows)]
+pub const TCP_KEEPCNT: i32 = 16;
+#[cfg(windows)]
+pub const TCP_KEEPINTVL: i32 = 17;
+#[cfg(windows)]
+pub const IPPORT_USERRESERVED: i32 = 5000;
+#[cfg(windows)]
+pub const INADDR_UNSPEC_GROUP: i32 = 0xe000_0000u32 as i32;
+#[cfg(windows)]
+pub const INADDR_ALLHOSTS_GROUP: i32 = 0xe000_0001u32 as i32;
+#[cfg(windows)]
+pub const INADDR_MAX_LOCAL_GROUP: i32 = 0xe000_00ffu32 as i32;
+#[cfg(windows)]
+pub const IP_ADD_SOURCE_MEMBERSHIP: i32 = 15;
+#[cfg(windows)]
+pub const IP_DROP_SOURCE_MEMBERSHIP: i32 = 16;
+#[cfg(windows)]
+pub const IP_BLOCK_SOURCE: i32 = 17;
+#[cfg(windows)]
+pub const IP_UNBLOCK_SOURCE: i32 = 18;
+#[cfg(windows)]
+pub const IP_PKTINFO: i32 = 19;
+#[cfg(windows)]
+pub const IP_RECVTTL: i32 = 21;
+#[cfg(windows)]
+pub const IP_RECVTOS: i32 = 40;
+#[cfg(windows)]
+pub const IP_RECVERR: i32 = 75;
+#[cfg(windows)]
+pub const IPV6_RECVERR: i32 = 75;
+#[cfg(windows)]
+pub const MSG_ERRQUEUE: i32 = 0x1000;
+#[cfg(windows)]
+pub const RCVALL_MAX: i32 = 3;
+#[cfg(windows)]
+pub const BDADDR_ANY: &str = "00:00:00:00:00:00";
+#[cfg(windows)]
+pub const BDADDR_LOCAL: &str = "00:00:00:FF:FF:FF";
 
 #[cfg(windows)]
 pub type RawSocket = SOCKET;
@@ -765,16 +1528,23 @@ pub fn if_indextoname_checked(index: u32) -> io::Result<String> {
     }
 }
 
+/// `PyUnicode_FromWideChar` / `Py_BuildValue("Iu")`: a LUID name is kept as
+/// WTF-8, so an unpaired surrogate is not replaced with U+FFFD.
 #[cfg(windows)]
-pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
-    fn get_name(luid: &NET_LUID_LH) -> io::Result<String> {
+fn if_name_from_wide(buf: &[u16]) -> Wtf8Buf {
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Wtf8Buf::from_wide(&buf[..len])
+}
+
+#[cfg(windows)]
+pub fn if_nameindex() -> io::Result<Vec<(u32, Wtf8Buf)>> {
+    fn get_name(luid: &NET_LUID_LH) -> io::Result<Wtf8Buf> {
         let mut buf = [0u16; IF_MAX_STRING_SIZE as usize + 1];
         let ret = unsafe { ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len()) };
         if ret != 0 {
             return Err(io::Error::from_raw_os_error(ret as i32));
         }
-        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-        Ok(String::from_utf16_lossy(&buf[..len]))
+        Ok(if_name_from_wide(&buf))
     }
 
     struct MibTable {
@@ -814,4 +1584,180 @@ pub fn if_nameindex() -> io::Result<Vec<(u32, String)>> {
         .iter()
         .map(|entry| Ok((entry.InterfaceIndex, get_name(&entry.InterfaceLuid)?)))
         .collect()
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod if_name_from_wide_tests {
+    use super::if_name_from_wide;
+    use rustpython_wtf8::Wtf8Buf;
+
+    #[test]
+    fn keeps_unpaired_surrogate() {
+        let units = [b'e' as u16, 0xD800, 0];
+        let name = if_name_from_wide(&units);
+        assert_eq!(name, Wtf8Buf::from_wide(&[b'e' as u16, 0xD800]));
+        assert_ne!(
+            name.as_bytes(),
+            String::from_utf16_lossy(&[b'e' as u16, 0xD800]).as_bytes()
+        );
+    }
+}
+
+/// `UuidFromStringW`. The status is the RPC code, not `GetLastError`.
+#[cfg(windows)]
+pub fn uuid_from_string_w(wide: &widestring::WideCStr) -> Result<windows_sys::core::GUID, u32> {
+    let mut guid = windows_sys::core::GUID {
+        data1: 0,
+        data2: 0,
+        data3: 0,
+        data4: [0; 8],
+    };
+    let status =
+        unsafe { windows_sys::Win32::System::Rpc::UuidFromStringW(wide.as_ptr(), &mut guid) };
+    if status == windows_sys::Win32::System::Rpc::RPC_S_OK {
+        Ok(guid)
+    } else {
+        Err(status as u32)
+    }
+}
+
+/// `UuidToStringW` / `RpcStringFreeW`.
+#[cfg(windows)]
+pub fn uuid_to_string_w(guid: &windows_sys::core::GUID) -> Result<String, u32> {
+    use windows_sys::Win32::System::Rpc::{RPC_S_OK, RpcStringFreeW, UuidToStringW};
+    let mut raw = core::ptr::null_mut();
+    let status = unsafe { UuidToStringW(guid, &mut raw) };
+    if status != RPC_S_OK {
+        return Err(status as u32);
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *raw.add(len) != 0 {
+            len += 1;
+        }
+    }
+    let text = String::from_utf16_lossy(unsafe { core::slice::from_raw_parts(raw, len) });
+    unsafe { RpcStringFreeW(&mut raw) };
+    Ok(text)
+}
+
+/// Address families the Windows SDK exposes beyond the older MSVC census.
+#[cfg(windows)]
+pub const AF_SNA: i32 = 11;
+#[cfg(windows)]
+pub const AF_IRDA: i32 = 26;
+#[cfg(windows)]
+pub const AF_HYPERV: i32 = windows_sys::Win32::Networking::WinSock::AF_HYPERV as i32;
+#[cfg(windows)]
+pub const AF_BLUETOOTH: i32 = windows_sys::Win32::Devices::Bluetooth::AF_BTH as i32;
+#[cfg(windows)]
+pub const AF_BTH: i32 = AF_BLUETOOTH;
+#[cfg(windows)]
+pub const BTHPROTO_RFCOMM: i32 = windows_sys::Win32::Devices::Bluetooth::BTHPROTO_RFCOMM as i32;
+
+/// `hvsocket.h`: the only protocol an `AF_HYPERV` socket is opened with.
+#[cfg(windows)]
+pub const HV_PROTOCOL_RAW: i32 = 1;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT: i32 = 0x01;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECT_TIMEOUT_MAX: i32 = 300_000;
+#[cfg(windows)]
+pub const HVSOCKET_CONNECTED_SUSPEND: i32 = 0x04;
+#[cfg(windows)]
+pub const HVSOCKET_ADDRESS_FLAG_PASSTHRU: i32 = 0x01;
+#[cfg(windows)]
+pub const HV_GUID_ZERO: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_WILDCARD: &str = "00000000-0000-0000-0000-000000000000";
+#[cfg(windows)]
+pub const HV_GUID_BROADCAST: &str = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
+#[cfg(windows)]
+pub const HV_GUID_CHILDREN: &str = "90DB8B89-0D35-4F79-8CE9-49EA0AC8B7CD";
+#[cfg(windows)]
+pub const HV_GUID_LOOPBACK: &str = "E0E16197-DD56-4A10-9195-5EE7A155A838";
+#[cfg(windows)]
+pub const HV_GUID_PARENT: &str = "A42E7CDA-D03F-480C-9CC2-A4DE20ABB878";
+
+#[cfg(windows)]
+pub const SIO_TCP_SET_ACK_FREQUENCY: i32 =
+    windows_sys::Win32::Networking::WinSock::SIO_TCP_SET_ACK_FREQUENCY as i32;
+
+/// `SOCKADDR_HV` (`hvsocket.h`).
+#[cfg(windows)]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SockaddrHv {
+    pub family: u16,
+    pub reserved: u16,
+    pub vm_id: windows_sys::core::GUID,
+    pub service_id: windows_sys::core::GUID,
+}
+
+#[cfg(windows)]
+pub fn sockaddr_hv(
+    vm_id: windows_sys::core::GUID,
+    service_id: windows_sys::core::GUID,
+) -> SockaddrHv {
+    SockaddrHv {
+        family: AF_HYPERV as u16,
+        reserved: 0,
+        vm_id,
+        service_id,
+    }
+}
+
+/// `SOCKADDR_BTH`.
+#[cfg(windows)]
+pub fn sockaddr_bth_rfcomm(
+    bd_addr: u64,
+    port: u32,
+) -> windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+    windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH {
+        addressFamily: AF_BTH as u16,
+        btAddr: bd_addr,
+        serviceClassId: Default::default(),
+        port,
+    }
+}
+
+#[cfg(windows)]
+pub fn unpack_sockaddr_bth(ptr: *const u8) -> (u64, u32) {
+    let bth = unsafe { &*(ptr.cast::<windows_sys::Win32::Devices::Bluetooth::SOCKADDR_BTH>()) };
+    (bth.btAddr, bth.port)
+}
+
+/// `setbdaddr`: six hex octets separated by `:`.
+#[cfg(windows)]
+pub fn parse_bdaddr(name: &str) -> Option<u64> {
+    let mut parts = name.split(':');
+    let mut value = 0u64;
+    for _ in 0..6 {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 2 {
+            return None;
+        }
+        let octet = u8::from_str_radix(part, 16).ok()?;
+        value = (value << 8) | u64::from(octet);
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(value)
+}
+
+/// `makebdaddr`: `XX:XX:XX:XX:XX:XX`, most significant octet first.
+#[cfg(windows)]
+pub fn format_bdaddr(bdaddr: u64) -> String {
+    let octet = |i: u32| (bdaddr >> (8 * i)) & 0xFF;
+    alloc::format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        octet(5),
+        octet(4),
+        octet(3),
+        octet(2),
+        octet(1),
+        octet(0)
+    )
 }

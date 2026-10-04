@@ -3,13 +3,14 @@
 //! This module implements BaseExceptionGroup and ExceptionGroup with multiple inheritance support.
 
 use crate::builtins::{PyList, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef};
-use crate::function::{ArgIterable, FuncArgs};
+use crate::function::FuncArgs;
+use crate::object::{Traverse, TraverseFn};
 use crate::types::{PyTypeFlags, PyTypeSlots};
 use crate::{
-    AsObject, Context, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use core::fmt::Write;
-use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
+use rustpython_common::wtf8::Wtf8Buf;
 
 use crate::exceptions::types::PyBaseException;
 
@@ -17,16 +18,21 @@ use crate::exceptions::types::PyBaseException;
 fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
     let excs = &ctx.exceptions;
     let exception_group_slots = PyTypeSlots {
-        flags: PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT,
+        flags: crate::types::AtomicPyTypeFlags::from_plain(PyTypeFlags::HEAP_TYPE_WITH_DICT),
         ..Default::default()
     };
+    let mut attrs = crate::builtins::type_::PyAttributes::default();
+    attrs.insert(
+        crate::identifier!(ctx, __module__),
+        ctx.intern_str("builtins").to_object(),
+    );
     PyType::new_heap(
         "ExceptionGroup",
         vec![
             excs.base_exception_group.to_owned(),
             excs.exception_type.to_owned(),
         ],
-        Default::default(),
+        attrs,
         exception_group_slots,
         ctx.types.type_type.to_owned(),
         ctx,
@@ -48,43 +54,67 @@ pub(super) mod types {
     use crate::builtins::PyGenericAlias;
     use crate::types::{Constructor, Initializer};
 
-    #[pyexception(name, base = PyBaseException, ctx = "base_exception_group")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyBaseExceptionGroup(PyBaseException);
+    #[pyexception(name, base = PyBaseException, ctx = "base_exception_group", traverse = "manual")]
+    #[repr(C)]
+    pub struct PyBaseExceptionGroup {
+        base: PyBaseException,
+        #[pymember(name = "message")]
+        msg: PyAtomicRef<PyObject>,
+        #[pymember(name = "exceptions")]
+        excs: PyAtomicRef<PyObject>,
+        excs_str: PyAtomicRef<Option<PyObject>>,
+    }
+
+    impl crate::class::PySubclass for PyBaseExceptionGroup {
+        type Base = PyBaseException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PyBaseExceptionGroup {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PyBaseExceptionGroup")
+                .finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PyBaseExceptionGroup {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.traverse(tracer_fn);
+            tracer_fn(&self.msg);
+            tracer_fn(&self.excs);
+            if let Some(obj) = self.excs_str.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
 
     #[pyexception(with(Constructor, Initializer))]
     impl PyBaseExceptionGroup {
         #[pyclassmethod]
         fn __class_getitem__(
             cls: PyTypeRef,
-            args: PyObjectRef,
+            object: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
-            PyGenericAlias::from_args(cls, args, vm)
+        ) -> PyResult<PyGenericAlias> {
+            PyGenericAlias::from_args(cls, object, vm)
         }
 
         #[pymethod]
-        fn derive(
-            zelf: PyRef<PyBaseException>,
-            excs: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            let message = zelf.get_arg(0).unwrap_or_else(|| vm.ctx.new_str("").into());
-            vm.invoke_exception(
-                vm.ctx.exceptions.base_exception_group.to_owned(),
-                vec![message, excs],
-            )
-            .map(|e| e.into())
+        fn derive(zelf: PyRef<Self>, excs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let message = zelf.msg.to_owned();
+            vm.invoke_exception(vm.ctx.exceptions.base_exception_group, vec![message, excs])
+                .map(|e| e.into())
         }
 
         #[pymethod]
         fn subgroup(
-            zelf: PyRef<PyBaseException>,
-            condition: PyObjectRef,
+            zelf: PyRef<Self>,
+            matcher_value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult {
-            let matcher = get_condition_matcher(&condition, vm)?;
+            let matcher = get_condition_matcher(&matcher_value, vm)?;
 
             // If self matches the condition entirely, return self
             let zelf_obj: PyObjectRef = zelf.clone().into();
@@ -98,8 +128,13 @@ pub(super) mod types {
 
             for exc in exceptions {
                 if is_base_exception_group(&exc, vm) {
-                    // Recursive call for nested groups
-                    let subgroup_result = vm.call_method(&exc, "subgroup", (condition.clone(),))?;
+                    // Recursive call for nested groups. It pushes no Python
+                    // frame, so a deep enough group runs off the native stack
+                    // unless this guard is here.
+                    let subgroup_result = vm
+                        .with_recursion("in exception group subgroup", || {
+                            vm.call_method(&exc, "subgroup", (matcher_value.clone(),))
+                        })?;
                     if !vm.is_none(&subgroup_result) {
                         matching.push(subgroup_result.clone());
                     }
@@ -127,11 +162,11 @@ pub(super) mod types {
 
         #[pymethod]
         fn split(
-            zelf: PyRef<PyBaseException>,
-            condition: PyObjectRef,
+            zelf: PyRef<Self>,
+            matcher_value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
-            let matcher = get_condition_matcher(&condition, vm)?;
+            let matcher = get_condition_matcher(&matcher_value, vm)?;
 
             // If self matches the condition entirely
             let zelf_obj: PyObjectRef = zelf.clone().into();
@@ -145,13 +180,19 @@ pub(super) mod types {
 
             for exc in exceptions {
                 if is_base_exception_group(&exc, vm) {
-                    let result = vm.call_method(&exc, "split", (condition.clone(),))?;
+                    // Same as in subgroup: nothing else bounds this recursion
+                    // against the native stack.
+                    let result = vm.with_recursion("in exception group split", || {
+                        vm.call_method(&exc, "split", (matcher_value.clone(),))
+                    })?;
                     let result_tuple: PyTupleRef = result.try_into_value(vm)?;
                     let match_part = result_tuple
+                        .as_slice()
                         .first()
                         .cloned()
                         .unwrap_or_else(|| vm.ctx.none());
                     let rest_part = result_tuple
+                        .as_slice()
                         .get(1)
                         .cloned()
                         .unwrap_or_else(|| vm.ctx.none());
@@ -184,73 +225,75 @@ pub(super) mod types {
             Ok(vm.ctx.new_tuple(vec![match_group, rest_group]))
         }
 
-        #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let message = zelf.get_arg(0).map(|m| m.str(vm)).transpose()?;
-
+        #[pyslot]
+        fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let zelf: &Py<Self> = zelf
+                .downcast_ref()
+                .expect("slot wrapper checked BaseExceptionGroup");
+            let message = zelf.msg.str(vm)?;
             let num_excs = zelf
-                .get_arg(1)
-                .and_then(|obj| obj.downcast_ref::<PyTuple>().map(|t| t.len()))
-                .unwrap_or(0);
+                .excs
+                .downcast_ref::<PyTuple>()
+                .map_or(0, |t| t.as_slice().len());
 
             let suffix = if num_excs == 1 { "" } else { "s" };
-            let mut result = match message {
-                Some(s) => s.as_wtf8().to_owned(),
-                None => Wtf8Buf::new(),
-            };
-            write!(result, " ({num_excs} sub-exception{suffix})").unwrap();
+            let mut result = message.as_wtf8().to_owned();
+            write!(result, " ({num_excs} sub-exception{suffix})")
+                .expect("formatting into a string buffer cannot fail");
             Ok(vm.ctx.new_str(result))
         }
 
         #[pyslot]
         fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
             let zelf = zelf
-                .downcast_ref::<PyBaseException>()
-                .expect("exception group must be BaseException");
+                .downcast_ref::<PyBaseExceptionGroup>()
+                .expect("exception group must be BaseExceptionGroup");
             let class_name = zelf.class().name().to_owned();
-            let message = zelf.get_arg(0).map(|m| m.repr(vm)).transpose()?;
+            let message = zelf.msg.repr(vm)?;
+
+            let exceptions_str = if let Some(saved) = zelf.excs_str.load_owned() {
+                saved
+                    .downcast::<crate::builtins::PyStr>()
+                    .map_err(|_| vm.new_type_error("__repr__ returned non-string"))?
+            } else {
+                let args = zelf.base.args();
+                let exceptions_obj = if args.as_slice().len() == 2
+                    && args.as_slice()[1].downcast_ref::<PyList>().is_some()
+                {
+                    let list = match zelf.excs.downcast_ref::<PyTuple>() {
+                        Some(tuple) => vm.ctx.new_list(tuple.as_slice().to_vec()),
+                        None => vm.ctx.new_list(vec![]),
+                    };
+                    list.into()
+                } else {
+                    zelf.excs.to_owned()
+                };
+                exceptions_obj.repr(vm)?
+            };
 
             let mut result = Wtf8Buf::new();
             write!(result, "{class_name}(").unwrap();
-            let message_wtf8: &Wtf8 = message
-                .as_ref()
-                .map_or_else(|| "''".as_ref(), |s| s.as_wtf8());
-            result.push_wtf8(message_wtf8);
-            result.push_str(", [");
-            if let Some(exceptions_obj) = zelf.get_arg(1) {
-                let iter: ArgIterable<PyObjectRef> =
-                    ArgIterable::try_from_object(vm, exceptions_obj)?;
-                let mut first = true;
-                for exc in iter.iter(vm)? {
-                    if !first {
-                        result.push_str(", ");
-                    }
-                    first = false;
-                    result.push_wtf8(exc?.repr(vm)?.as_wtf8());
-                }
-            }
-            result.push_str("])");
+            result.push_wtf8(message.as_wtf8());
+            result.push_str(", ");
+            result.push_wtf8(exceptions_str.as_wtf8());
+            result.push_str(")");
 
             Ok(vm.ctx.new_str(result))
         }
     }
 
     impl Constructor for PyBaseExceptionGroup {
-        type Args = crate::function::PosArgs;
+        type Args = FuncArgs;
 
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: Self::Args = args.bind(vm)?;
-            let args = args.into_vec();
-            // Validate exactly 2 positional arguments
-            if args.len() != 2 {
+            if args.args.len() != 2 {
                 return Err(vm.new_type_error(format!(
-                    "BaseExceptionGroup.__new__() takes exactly 2 positional arguments ({} given)",
-                    args.len()
+                    "BaseExceptionGroup.__new__() takes exactly 2 arguments ({} given)",
+                    args.args.len()
                 )));
             }
 
-            // Validate message is str
-            let message = args[0].clone();
+            let message = args.args[0].clone();
             if !message.fast_isinstance(vm.ctx.types.str_type) {
                 return Err(vm.new_type_error(format!(
                     "argument 1 must be str, not {}",
@@ -258,33 +301,29 @@ pub(super) mod types {
                 )));
             }
 
-            // Validate exceptions is a sequence (not set or None)
-            let exceptions_arg = &args[1];
+            let exceptions_arg = &args.args[1];
+            exceptions_arg.try_sequence(vm).map_err(|_| {
+                vm.new_type_error("second argument (exceptions) must be a sequence")
+            })?;
 
-            // Check for set/frozenset (not a sequence - unordered)
-            if exceptions_arg.fast_isinstance(vm.ctx.types.set_type)
-                || exceptions_arg.fast_isinstance(vm.ctx.types.frozenset_type)
-            {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
-
-            // Check for None
-            if exceptions_arg.is(&vm.ctx.none) {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
+            let is_list = exceptions_arg.downcast_ref::<PyList>().is_some();
+            let is_tuple = exceptions_arg.downcast_ref::<PyTuple>().is_some();
+            let excs_str = if !is_list && !is_tuple {
+                Some(exceptions_arg.repr(vm)?.into())
+            } else {
+                None
+            };
 
             let exceptions: Vec<PyObjectRef> = exceptions_arg.try_to_value(vm).map_err(|_| {
                 vm.new_type_error("second argument (exceptions) must be a sequence")
             })?;
 
-            // Validate non-empty
             if exceptions.is_empty() {
                 return Err(
                     vm.new_value_error("second argument (exceptions) must be a non-empty sequence")
                 );
             }
 
-            // Validate all items are BaseException instances
             let mut has_non_exception = false;
             for (i, exc) in exceptions.iter().enumerate() {
                 if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
@@ -292,20 +331,14 @@ pub(super) mod types {
                         "Item {i} of second argument (exceptions) is not an exception"
                     )));
                 }
-                // Check if any exception is not an Exception subclass
-                // With dynamic ExceptionGroup (inherits from both BaseExceptionGroup and Exception),
-                // ExceptionGroup instances are automatically instances of Exception
                 if !exc.fast_isinstance(vm.ctx.exceptions.exception_type) {
                     has_non_exception = true;
                 }
             }
 
-            // Get the dynamic ExceptionGroup type
             let exception_group_type = crate::exception_group::exception_group();
 
-            // Determine the actual class to use
             let actual_cls = if cls.is(exception_group_type) {
-                // ExceptionGroup cannot contain BaseExceptions that are not Exception
                 if has_non_exception {
                     return Err(
                         vm.new_type_error("Cannot nest BaseExceptions in an ExceptionGroup")
@@ -313,14 +346,12 @@ pub(super) mod types {
                 }
                 cls
             } else if cls.is(vm.ctx.exceptions.base_exception_group) {
-                // Auto-convert to ExceptionGroup if all are Exception subclasses
                 if !has_non_exception {
                     exception_group_type.to_owned()
                 } else {
                     cls
                 }
             } else {
-                // User-defined subclass
                 if has_non_exception && cls.fast_issubclass(vm.ctx.exceptions.exception_type) {
                     return Err(vm.new_type_error(format!(
                         "Cannot nest BaseExceptions in '{}'",
@@ -330,11 +361,24 @@ pub(super) mod types {
                 cls
             };
 
-            // Create the exception with (message, exceptions_tuple) as args
-            let exceptions_tuple = vm.ctx.new_tuple(exceptions);
-            let init_args = vec![message, exceptions_tuple.into()];
-            PyBaseException::new(init_args, vm)
-                .into_ref_with_type(vm, actual_cls)
+            // Keep an exact tuple as-is so `.exceptions is original` for tuples.
+            let exceptions_tuple = if exceptions_arg.class().is(vm.ctx.types.tuple_type) {
+                exceptions_arg
+                    .clone()
+                    .downcast::<PyTuple>()
+                    .expect("exact tuple")
+            } else {
+                vm.ctx.new_tuple(exceptions)
+            };
+
+            let payload = Self {
+                base: PyBaseException::new(args.args.clone(), vm),
+                msg: message.into(),
+                excs: PyObjectRef::from(exceptions_tuple).into(),
+                excs_str: excs_str.into(),
+            };
+            payload
+                .into_ref_with_type_lazy_dict(vm, actual_cls)
                 .map(Into::into)
         }
 
@@ -346,22 +390,17 @@ pub(super) mod types {
     impl Initializer for PyBaseExceptionGroup {
         type Args = FuncArgs;
 
-        fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            // BaseExceptionGroup_init: no kwargs allowed
+        fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             if !args.kwargs.is_empty() {
                 return Err(vm.new_type_error(format!(
                     "{} does not take keyword arguments",
                     zelf.class().name()
                 )));
             }
-            // Do NOT call PyBaseException::slot_init here.
-            // slot_new already set args to (message, exceptions_tuple).
-            // Calling base init would overwrite with original args (message, exceptions_list).
-            let _ = (zelf, args, vm);
-            Ok(())
+            PyBaseException::slot_init(zelf, args, vm)
         }
 
-        fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
+        fn init(_zelf: &Py<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is overridden")
         }
     }
@@ -372,16 +411,14 @@ pub(super) mod types {
     }
 
     fn get_exceptions_tuple(
-        exc: &Py<PyBaseException>,
+        exc: &Py<PyBaseExceptionGroup>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        let obj = exc
-            .get_arg(1)
-            .ok_or_else(|| vm.new_type_error("exceptions must be a tuple"))?;
-        let tuple = obj
+        let tuple = exc
+            .excs
             .downcast_ref::<PyTuple>()
             .ok_or_else(|| vm.new_type_error("exceptions must be a tuple"))?;
-        Ok(tuple.to_vec())
+        Ok(tuple.as_slice().to_vec())
     }
 
     enum ConditionMatcher {
@@ -443,8 +480,8 @@ pub(super) mod types {
         }
     }
 
-    fn derive_and_copy_attributes(
-        orig: &Py<PyBaseException>,
+    pub(crate) fn derive_and_copy_attributes(
+        orig: &Py<PyBaseExceptionGroup>,
         excs: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
@@ -458,17 +495,17 @@ pub(super) mod types {
         }
 
         // Copy traceback
-        if let Some(tb) = orig.__traceback__() {
+        if let Some(tb) = orig.base.__traceback__() {
             new_group.set_attr("__traceback__", tb, vm)?;
         }
 
         // Copy context
-        if let Some(ctx) = orig.__context__() {
+        if let Some(ctx) = orig.base.__context__() {
             new_group.set_attr("__context__", ctx, vm)?;
         }
 
         // Copy cause
-        if let Some(cause) = orig.__cause__() {
+        if let Some(cause) = orig.base.__cause__() {
             new_group.set_attr("__cause__", cause, vm)?;
         }
 

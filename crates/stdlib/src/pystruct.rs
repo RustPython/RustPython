@@ -13,10 +13,14 @@ pub(crate) mod _struct {
         AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef},
-        function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
+        common::{
+            lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard},
+            rc::PyRc,
+        },
+        function::{ArgBytesLike, ArgMemoryBuffer, FuncArgs, PosArgs},
         match_class,
         protocol::PyIterReturn,
-        types::{Constructor, IterNext, Iterable, Representable, SelfIter},
+        types::{Constructor, Initializer, IterNext, Iterable, Representable, SelfIter},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
@@ -40,7 +44,7 @@ pub(crate) mod _struct {
                             .code_points()
                             .position(|cp| !cp.to_char().is_some_and(|c| c.is_ascii()))
                             .unwrap_or(0);
-                        return Err(vm.new_unicode_encode_error_real(
+                        return Err(vm.new_unicode_encode_error(
                             vm.ctx.new_str("ascii"),
                             s,
                             start,
@@ -51,9 +55,8 @@ pub(crate) mod _struct {
                     s
                 }
                 b @ PyBytes => {
-                    let ascii_str = ascii::AsciiStr::from_ascii(&b).map_err(|_| {
-                        new_struct_error(vm, "bad char in struct format".to_owned())
-                    })?;
+                    let ascii_str = ascii::AsciiStr::from_ascii(&b)
+                        .map_err(|_| new_struct_error(vm, "bad char in struct format"))?;
                     vm.ctx.new_str(ascii_str)
                 }
                 other =>
@@ -69,6 +72,12 @@ pub(crate) mod _struct {
     impl IntoStructFormatBytes {
         fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
             FormatSpec::parse(self.0.as_bytes(), vm)
+        }
+
+        fn cached_format_spec(&self, vm: &VirtualMachine) -> PyResult<PyRc<FormatSpec>> {
+            vm.state
+                .struct_format_cache
+                .get_or_parse(self.0.as_bytes(), vm)
         }
     }
 
@@ -126,7 +135,7 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn pack(fmt: IntoStructFormatBytes, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        fmt.format_spec(vm)?.pack(args.into_vec(), vm)
+        fmt.cached_format_spec(vm)?.pack(args.into_vec(), vm)
     }
 
     #[pyfunction]
@@ -137,35 +146,35 @@ pub(crate) mod _struct {
         args: PosArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = fmt.cached_format_spec(vm)?;
         let offset = get_buffer_offset(buffer.len(), offset, format_spec.size, true, vm)?;
         buffer.with_ref(|data| format_spec.pack_into(&mut data[offset..], args.into_vec(), vm))
     }
 
     #[pyfunction]
     fn unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
     #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default)]
         offset: isize,
     }
 
     #[pyfunction]
     fn unpack_from(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         args: UpdateFromArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyTupleRef> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         let offset =
             get_buffer_offset(args.buffer.len(), args.offset, format_spec.size, false, vm)?;
         args.buffer
@@ -177,7 +186,7 @@ pub(crate) mod _struct {
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
         #[pytraverse(skip)]
-        format_spec: FormatSpec,
+        format_spec: PyRc<FormatSpec>,
         buffer: ArgBytesLike,
         #[pytraverse(skip)]
         offset: AtomicCell<usize>,
@@ -186,13 +195,13 @@ pub(crate) mod _struct {
     impl UnpackIterator {
         fn with_buffer(
             vm: &VirtualMachine,
-            format_spec: FormatSpec,
+            format_spec: PyRc<FormatSpec>,
             buffer: ArgBytesLike,
         ) -> PyResult<Self> {
             if format_spec.size == 0 {
                 Err(new_struct_error(
                     vm,
-                    "cannot iteratively unpack with a struct of length 0".to_owned(),
+                    "cannot iteratively unpack with a struct of length 0",
                 ))
             } else if !buffer.len().is_multiple_of(format_spec.size) {
                 Err(new_struct_error(
@@ -215,8 +224,8 @@ pub(crate) mod _struct {
     #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl UnpackIterator {
         #[pymethod]
-        fn __length_hint__(&self) -> usize {
-            self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
+        fn __length_hint__(zelf: &Py<Self>) -> usize {
+            zelf.buffer.len().saturating_sub(zelf.offset.load()) / zelf.format_spec.size
         }
     }
     impl SelfIter for UnpackIterator {}
@@ -239,17 +248,27 @@ pub(crate) mod _struct {
 
     #[pyfunction]
     fn iter_unpack(
-        fmt: IntoStructFormatBytes,
+        format: IntoStructFormatBytes,
         buffer: ArgBytesLike,
         vm: &VirtualMachine,
     ) -> PyResult<UnpackIterator> {
-        let format_spec = fmt.format_spec(vm)?;
+        let format_spec = format.cached_format_spec(vm)?;
         UnpackIterator::with_buffer(vm, format_spec, buffer)
     }
 
     #[pyfunction]
-    fn calcsize(fmt: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
-        Ok(fmt.format_spec(vm)?.size)
+    fn calcsize(format: IntoStructFormatBytes, vm: &VirtualMachine) -> PyResult<usize> {
+        Ok(format.cached_format_spec(vm)?.size)
+    }
+
+    /// What a `Struct` is once a format has been read into it. Held apart
+    /// from the object because `__new__` hands out a `Struct` that `__init__`
+    /// has not filled in yet, and `__init__` may be called again on one that
+    /// already holds a format.
+    #[derive(Debug)]
+    struct StructSpec {
+        spec: PyRc<FormatSpec>,
+        format: PyStrRef,
     }
 
     #[pyattr]
@@ -257,89 +276,139 @@ pub(crate) mod _struct {
     #[derive(Debug, PyPayload)]
     struct PyStruct {
         #[pytraverse(skip)]
-        spec: FormatSpec,
-        format: PyStrRef,
+        inner: PyRwLock<Option<StructSpec>>,
     }
 
     impl Constructor for PyStruct {
-        type Args = IntoStructFormatBytes;
+        type Args = FuncArgs;
 
-        fn py_new(_cls: &Py<PyType>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let spec = fmt.format_spec(vm)?;
-            let format = fmt.0;
-            Ok(Self { spec, format })
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self {
+                inner: PyRwLock::new(None),
+            })
         }
     }
 
-    #[pyclass(with(Constructor, Representable))]
+    impl Initializer for PyStruct {
+        type Args = IntoStructFormatBytes;
+
+        fn init(zelf: &Py<Self>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            // The format is read before anything is replaced, so a format that
+            // cannot be read leaves the object as it was.
+            let spec = fmt.format_spec(vm)?;
+            *zelf.inner.write() = Some(StructSpec {
+                spec: PyRc::new(spec),
+                format: fmt.0,
+            });
+            Ok(())
+        }
+    }
+
+    #[pyclass(with(Constructor, Initializer, Representable), flags(BASETYPE))]
     impl PyStruct {
-        #[pygetset]
-        fn format(&self) -> PyStrRef {
-            self.format.clone()
+        /// The format this was initialized with, or an error if `__init__`
+        /// never ran.
+        fn ready(&self, vm: &VirtualMachine) -> PyResult<PyMappedRwLockReadGuard<'_, StructSpec>> {
+            PyRwLockReadGuard::try_map(self.inner.read(), Option::as_ref)
+                .map_err(|_| vm.new_runtime_error("Struct object is not initialized"))
         }
 
         #[pygetset]
-        #[inline]
-        const fn size(&self) -> usize {
-            self.spec.size
+        fn format(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Ok(zelf.ready(vm)?.format.clone())
+        }
+
+        // The size an uninitialized `Struct` reports, which no format has
+        // yet given a value.
+        #[pygetset]
+        fn size(zelf: &Py<Self>) -> isize {
+            zelf.inner
+                .read()
+                .as_ref()
+                .map_or(-1, |inner| inner.spec.size as isize)
         }
 
         #[pymethod]
-        fn pack(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            self.spec.pack(args.into_vec(), vm)
+        fn pack(zelf: &Py<Self>, args: PosArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            zelf.ready(vm)?.spec.pack(args.into_vec(), vm)
         }
 
         #[pymethod]
         fn pack_into(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgMemoryBuffer,
             offset: isize,
             args: PosArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let offset = get_buffer_offset(buffer.len(), offset, self.size(), true, vm)?;
+            let inner = zelf.ready(vm)?;
+            let offset = get_buffer_offset(buffer.len(), offset, inner.spec.size, true, vm)?;
             buffer.with_ref(|data| {
-                self.spec
+                inner
+                    .spec
                     .pack_into(&mut data[offset..], args.into_vec(), vm)
             })
         }
 
         #[pymethod]
-        fn unpack(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            data.with_ref(|buf| self.spec.unpack(buf, vm))
+        fn unpack(
+            zelf: &Py<Self>,
+            buffer: ArgBytesLike,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
+            buffer.with_ref(|buf| inner.spec.unpack(buf, vm))
         }
 
         #[pymethod]
-        fn unpack_from(&self, args: UpdateFromArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let offset = get_buffer_offset(args.buffer.len(), args.offset, self.size(), false, vm)?;
+        fn unpack_from(
+            zelf: &Py<Self>,
+            args: UpdateFromArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let inner = zelf.ready(vm)?;
+            let size = inner.spec.size;
+            let offset = get_buffer_offset(args.buffer.len(), args.offset, size, false, vm)?;
             args.buffer
-                .with_ref(|buf| self.spec.unpack(&buf[offset..][..self.size()], vm))
+                .with_ref(|buf| inner.spec.unpack(&buf[offset..][..size], vm))
         }
 
         #[pymethod]
         fn iter_unpack(
-            &self,
+            zelf: &Py<Self>,
             buffer: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult<UnpackIterator> {
-            UnpackIterator::with_buffer(vm, self.spec.clone(), buffer)
+            let spec = zelf.ready(vm)?.spec.clone();
+            UnpackIterator::with_buffer(vm, spec, buffer)
+        }
+
+        #[pymethod]
+        fn __sizeof__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<usize> {
+            let inner = zelf.ready(vm)?;
+            Ok(core::mem::size_of::<Self>() + inner.spec.codes_sizeof())
         }
     }
 
     impl Representable for PyStruct {
         #[inline]
-        fn repr_wtf8(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            Ok(wtf8_concat!("Struct('", zelf.format.as_wtf8(), "')"))
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            Ok(wtf8_concat!(
+                "Struct('",
+                zelf.ready(vm)?.format.as_wtf8(),
+                "')"
+            ))
         }
     }
 
     // seems weird that this is part of the "public" API, but whatever
-    // TODO: implement a format code->spec cache like CPython does?
     #[pyfunction]
-    const fn _clearcache() {}
+    fn _clearcache(vm: &VirtualMachine) {
+        vm.state.struct_format_cache.clear();
+    }
 
     #[pyattr(name = "error")]
     fn error_type(vm: &VirtualMachine) -> PyTypeRef {
-        struct_error_type(vm).clone()
+        struct_error_type(vm).to_owned()
     }
 }

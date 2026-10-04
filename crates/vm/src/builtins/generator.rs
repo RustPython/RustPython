@@ -4,10 +4,10 @@
 
 use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::{Coro, warn_deprecated_throw_signature},
-    frame::FrameRef,
+    frame::FrameObjectRef,
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -27,82 +27,36 @@ unsafe impl Traverse for PyGenerator {
 }
 
 impl PyPayload for PyGenerator {
+    // Tracked in `make_generator_or_coro`, together with the frame the object
+    // is born owning, so the pair costs one trip through the GC's gen0 list
+    // instead of two.
+    const NEW_REF_UNTRACKED: bool = true;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.generator_type
     }
 }
 
-#[pyclass(
-    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
-    with(Py, IterNext, Iterable, Representable, Destructor)
-)]
 impl PyGenerator {
     pub const fn as_coro(&self) -> &Coro {
         &self.inner
     }
 
     #[must_use]
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
         }
     }
-
-    #[pygetset]
-    fn __name__(&self) -> PyStrRef {
-        self.inner.name()
-    }
-
-    #[pygetset(setter)]
-    fn set___name__(&self, name: PyStrRef) {
-        self.inner.set_name(name)
-    }
-
-    #[pygetset]
-    fn __qualname__(&self) -> PyStrRef {
-        self.inner.qualname()
-    }
-
-    #[pygetset(setter)]
-    fn set___qualname__(&self, qualname: PyStrRef) {
-        self.inner.set_qualname(qualname)
-    }
-
-    #[pygetset]
-    fn gi_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
-        if self.inner.closed() {
-            None
-        } else {
-            Some(self.inner.frame())
-        }
-    }
-
-    #[pygetset]
-    fn gi_running(&self, _vm: &VirtualMachine) -> bool {
-        self.inner.running()
-    }
-
-    #[pygetset]
-    fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
-    }
-
-    #[pygetset]
-    fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
-    }
-
-    #[pygetset]
-    fn gi_suspended(&self, _vm: &VirtualMachine) -> bool {
-        self.inner.suspended()
-    }
-
-    #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
 }
+
+#[pyclass(
+    itemsize = core::mem::size_of::<crate::PyObjectRef>(),
+    flags(DISALLOW_INSTANTIATION, HAS_WEAKREF),
+    with(Py, IterNext, Iterable, Representable, Destructor)
+)]
+impl PyGenerator {}
 
 #[pyclass]
 impl Py<PyGenerator> {
@@ -133,6 +87,64 @@ impl Py<PyGenerator> {
     fn close(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.inner.close(self.as_object(), vm)
     }
+
+    #[pygetset]
+    fn __name__(&self) -> PyStrRef {
+        self.inner.name()
+    }
+
+    #[pygetset(setter)]
+    fn set___name__(&self, name: PyStrRef) {
+        self.inner.set_name(name)
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> PyStrRef {
+        self.inner.qualname()
+    }
+
+    #[pygetset(setter)]
+    fn set___qualname__(&self, qualname: PyStrRef) {
+        self.inner.set_qualname(qualname)
+    }
+
+    #[pygetset]
+    fn gi_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
+        if self.inner.closed() {
+            None
+        } else {
+            self.inner.frame_opt()
+        }
+    }
+
+    #[pygetset]
+    fn gi_running(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.running()
+    }
+
+    #[pygetset]
+    fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
+        self.inner.code()
+    }
+
+    #[pygetset]
+    fn gi_yieldfrom(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        self.inner.frame_opt().and_then(|f| f.yield_from_target())
+    }
+
+    #[pygetset]
+    fn gi_suspended(&self, _vm: &VirtualMachine) -> bool {
+        self.inner.suspended()
+    }
+
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, args, vm)
+    }
 }
 
 impl Representable for PyGenerator {
@@ -155,14 +167,8 @@ impl Destructor for PyGenerator {
         if zelf.inner.closed() || zelf.inner.running() {
             return Ok(());
         }
-        // Generator was never started, just mark as closed
-        if zelf.inner.frame().lasti() == 0 {
-            zelf.inner.closed.store(true);
-            return Ok(());
-        }
-        // Throw GeneratorExit to run finally blocks
         if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
-            vm.run_unraisable(e, None, zelf.as_object().to_owned());
+            crate::coroutine::unraisable_while_closing(zelf.as_object(), &zelf.inner, e, vm);
         }
         Ok(())
     }
@@ -170,10 +176,30 @@ impl Destructor for PyGenerator {
 
 impl Drop for PyGenerator {
     fn drop(&mut self) {
-        self.inner.frame().clear_generator();
+        if let Some(frame) = self.inner.frame_opt() {
+            frame.clear_generator();
+        }
     }
+}
+
+/// Fast, VM-free check mirroring the read-only-state branches of
+/// `<PyGenerator as Destructor>::del`: a generator that's already closed or
+/// currently running needs no `close()`-style cleanup, so its `del` slot is a
+/// documented no-op. Skipping the call avoids attaching to a VM
+/// (`with_vm`) on every generator drop for the common case of a generator
+/// consumed to completion.
+fn generator_del_needed(zelf: &PyObject) -> bool {
+    let zelf: &Py<PyGenerator> = zelf
+        .downcast_ref()
+        .expect("del_needed is only installed on the generator type");
+    !(zelf.inner.closed() || zelf.inner.running())
 }
 
 pub(crate) fn init(ctx: &'static Context) {
     PyGenerator::extend_class(ctx, ctx.types.generator_type);
+    ctx.types
+        .generator_type
+        .slots
+        .del_needed
+        .store(Some(generator_del_needed));
 }

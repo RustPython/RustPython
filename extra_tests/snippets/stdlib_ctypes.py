@@ -1,3 +1,5 @@
+import ctypes
+import itertools
 import os as _os
 import sys as _sys
 import types as _types
@@ -190,6 +192,10 @@ class c_char_p(_SimpleCData):
 
 _check_size(c_char_p, "P")
 
+char_pointer = c_char_p(b"1.3.6.1.5.5.7.3.1")
+char_pointer_array = (c_char_p * 1)(char_pointer)
+assert char_pointer_array[0] == b"1.3.6.1.5.5.7.3.1"
+
 
 class c_void_p(_SimpleCData):
     _type_ = "P"
@@ -344,7 +350,9 @@ if _os.name == "posix":
         # print(libc.srand(i))
         # print(test_byte_array)
 else:
+    import ctypes
     import os
+    from ctypes import wintypes
 
     libc = cdll.msvcrt
     libc.rand()
@@ -356,6 +364,29 @@ else:
     # print("start printf")
     # libc.printf(test_byte_array)
 
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_current_process = kernel32.GetCurrentProcess
+    get_current_process.argtypes = ()
+    get_current_process.restype = ctypes.c_void_p
+
+    def preserve_result(_result, _func, args):
+        return args
+
+    get_current_process.errcheck = preserve_result
+    process_handle = get_current_process()
+    assert isinstance(process_handle, int)
+
+    get_process_id = kernel32.GetProcessId
+    get_process_id.argtypes = (ctypes.c_void_p,)
+    get_process_id.restype = wintypes.DWORD
+    assert get_process_id(process_handle) == os.getpid()
+
+    def replace_result(_result, _func, _args):
+        return "replacement"
+
+    get_current_process.errcheck = replace_result
+    assert get_current_process() == "replacement"
+
     # windows pip support
 
     def get_win_folder_via_ctypes(csidl_name: str) -> str:
@@ -363,8 +394,6 @@ else:
         # There is no 'CSIDL_DOWNLOADS'.
         # Use 'CSIDL_PROFILE' (40) and append the default folder 'Downloads' instead.
         # https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
-
-        import ctypes  # noqa: PLC0415
 
         csidl_const = {
             "CSIDL_APPDATA": 26,
@@ -397,5 +426,36 @@ else:
         return buf.value
 
     # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
+
+# A value wider than the C type is masked down to it instead of failing an
+# unchecked conversion.
+assert ctypes.c_char_p(2**64).value is None
+assert ctypes.c_int(2**64 + 7).value == 7
+buf = (ctypes.c_int * 1)()
+int_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_int))
+int_ptr[0] = 2**64 + 5
+assert int_ptr[0] == 5
+
+# A slice assignment is length-checked against the slice, so the right-hand
+# side must not be drained first.
+array3 = (ctypes.c_int * 3)()
+try:
+    array3[0:3] = itertools.count()
+except ValueError:
+    pass
+else:
+    raise AssertionError("slice assignment accepted an unbounded iterable")
+array3[0:3] = [7, 8, 9]
+assert list(array3) == [7, 8, 9]
+
+
+# An array type carries the size of its buffer, so one too large to allocate
+# must raise instead of aborting.
+try:
+    (ctypes.c_char * (2**60))()
+except MemoryError:
+    pass
+else:
+    raise AssertionError("an unallocatable array was created")
 
 print("done")

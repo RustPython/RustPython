@@ -445,3 +445,264 @@ class FS(frozenset):
 
 assert repr(FS()) == "FS()"
 assert repr(FS([1, 2, 3])) == "FS({1, 2, 3})"
+
+
+class StoredHashKey:
+    def __init__(self, value):
+        self.value = value
+        self.hash_enabled = True
+        self.hash_count = 0
+
+    def __hash__(self):
+        self.hash_count += 1
+        assert self.hash_enabled, "set operation recomputed a stored hash"
+        return self.value
+
+
+for left_type in (set, frozenset):
+    for right_type in (set, frozenset):
+        keys = [StoredHashKey(i) for i in range(3)]
+        small = left_type(keys[:1])
+        equal = right_type(keys[:1])
+        large = right_type(keys[:2])
+        separate = right_type(keys[2:])
+        for key in keys:
+            key.hash_enabled = False
+        assert small == equal
+        assert not (small != equal)
+        assert small < large
+        assert small <= large
+        assert large > small
+        assert large >= small
+        assert small.issubset(large)
+        assert large.issuperset(small)
+        assert small.isdisjoint(separate)
+        assert not small.isdisjoint(large)
+
+
+for set_type in (set, frozenset):
+
+    class IteratorOverride(set_type):
+        def __iter__(self):
+            raise RuntimeError("overridden iterator")
+
+    subclass = IteratorOverride([1, 2])
+    assert set_type([1]).issubset(subclass)
+    assert set_type([1, 2, 3]).issuperset(subclass)
+    assert set_type([1]).intersection(subclass) == {1}
+    assert not subclass.isdisjoint(subclass)
+    empty_subclass = IteratorOverride()
+    assert empty_subclass.isdisjoint(empty_subclass)
+    assert_raises(RuntimeError, set_type([3]).isdisjoint, subclass)
+
+
+# Intersections retain the key from the smaller operand, or RHS on a tie.
+small_key = float("1")
+small = {small_key}
+large = {1, 2}
+assert next(iter(small & large)) is small_key
+assert next(iter(large & small)) is small_key
+assert next(iter({1} & small)) is small_key
+result = large.intersection(small)
+result.clear()
+assert large == {1, 2}
+assert small == {small_key}
+
+
+def clear_during_intersection():
+    live_source.clear()
+    yield 1
+
+
+live_source = {1, 2}
+assert live_source.intersection(clear_during_intersection()) == set()
+
+
+class DirectionalKey:
+    def __init__(self, equal):
+        self.equal = equal
+
+    def __hash__(self):
+        return 17
+
+    def __eq__(self, other):
+        return self.equal
+
+
+small_key = DirectionalKey(False)
+large_key = DirectionalKey(True)
+small = {small_key}
+large = {large_key, 12345}
+equal_size = {large_key}
+assert next(iter(small & large)) is small_key
+assert next(iter(large & small)) is small_key
+assert not small.isdisjoint(large)
+assert not large.isdisjoint(small)
+assert small.issubset(large)
+assert large.issuperset(small)
+assert small == equal_size
+assert equal_size != small
+assert not small.issubset([large_key])
+
+
+def matched_then_error():
+    yield 1
+    raise ValueError("iterator consumed after matching")
+
+
+for set_type in (set, frozenset):
+    assert set_type([1]).intersection(matched_then_error()) == {1}
+    assert set_type([1]).issubset(matched_then_error())
+    assert_raises(ValueError, set_type([1, 2]).intersection, matched_then_error())
+    assert_raises(ValueError, set_type([1, 2]).issubset, matched_then_error())
+    assert_raises(ValueError, set_type().intersection, matched_then_error())
+    assert_raises(TypeError, set_type().intersection, [set()])
+
+key = StoredHashKey(4)
+source = {key}
+key.hash_count = 0
+assert len(source.intersection([key])) == 1
+assert key.hash_count == 1
+dictionary = {key: None}
+key.hash_enabled = False
+assert_raises(AssertionError, source.intersection, dictionary)
+
+
+# Native operations reuse hashes stored when an element enters the collection.
+class RemainingHashKey:
+    blocked = False
+
+    def __init__(self, value):
+        self.value = value
+
+    def __hash__(self):
+        assert not type(self).blocked, "stored key was hashed again"
+        return 7
+
+    def __eq__(self, other):
+        return isinstance(other, RemainingHashKey) and self.value == other.value
+
+
+class NativeSetSource(set):
+    def __iter__(self):
+        raise AssertionError("native set operation called __iter__")
+
+
+class NativeFrozenSetSource(frozenset):
+    def __iter__(self):
+        raise AssertionError("native set operation called __iter__")
+
+
+stored_keys = [RemainingHashKey(1), RemainingHashKey(2)]
+stored_frozen = frozenset(stored_keys)
+stored_frozen_reversed = frozenset(reversed(stored_keys))
+stored_sources = [
+    source_type(stored_keys)
+    for source_type in (set, frozenset, NativeSetSource, NativeFrozenSetSource)
+]
+RemainingHashKey.blocked = True
+stored_hash = hash(stored_frozen)
+assert stored_hash == hash(stored_frozen_reversed)
+assert stored_hash == hash(stored_frozen)
+for stored_source in stored_sources:
+    stored_target = set()
+    assert stored_target.__ior__(stored_source) is stored_target
+    assert len(stored_target) == 2
+    assert {item.value for item in stored_target} == {1, 2}
+    stored_target |= stored_target
+    assert len(stored_target) == 2
+RemainingHashKey.blocked = False
+
+
+# Difference folds and reflected subtraction leave both operands unchanged.
+for left_type in (set, frozenset):
+    for right_type in (set, frozenset):
+        left = left_type([1, 2, 3])
+        right = right_type([2])
+        assert left.difference(right, [3]) == {1}
+        assert right.__rsub__(left) == {1, 3}
+        assert left == {1, 2, 3}
+        assert right == {2}
+
+
+# The temporary set deduplicates input without hashing its keys a second time.
+for set_type in (set, frozenset):
+    present = StoredHashKey(10)
+    added = StoredHashKey(11)
+    source = set_type([present])
+    present.hash_count = 0
+    result = source.symmetric_difference([present, added, added])
+    assert list(result) == [added]
+    assert list(source) == [present]
+    assert (present.hash_count, added.hash_count) == (1, 2)
+    if set_type is set:
+        present.hash_count = added.hash_count = 0
+        source.symmetric_difference_update([present, added, added])
+        assert list(source) == [added]
+        assert (present.hash_count, added.hash_count) == (1, 2)
+
+
+# Streaming removal retains progress if the input iterator later raises.
+source = {0, 1, 2}
+assert_raises(ValueError, source.difference_update, matched_then_error())
+assert source == {0, 2}
+source = {1, 2}
+assert_raises(RuntimeError, source.difference_update, iter(source))
+assert len(source) == 1
+source.difference_update(source)
+assert source == set()
+
+
+# Difference chooses comparison direction by size, retaining left-side keys.
+for left_type in (set, frozenset):
+    left_key = DirectionalKey(False)
+    right_key = DirectionalKey(True)
+    left = left_type([left_key])
+    for right_type in (set, frozenset, NativeSetSource, NativeFrozenSetSource, dict):
+        right = (
+            dict.fromkeys([right_key, *range(32)])
+            if right_type is dict
+            else right_type([right_key, *range(32)])
+        )
+        assert left.difference(right) == set()
+        assert list(left) == [left_key]
+        if right_type is not dict:
+            assert left - right == set()
+            updated = set(left)
+            updated.difference_update(right)
+            assert updated == set()
+    # Later arguments use in-place difference's comparison direction.
+    assert list(left.difference(set(), {right_key})) == [left_key]
+    large_left = left_type([left_key, *range(32)])
+    assert left_key in large_left.difference({right_key})
+
+
+key = StoredHashKey(100)
+source = {key}
+excluded = {key, *range(32)}
+dictionary = dict.fromkeys(excluded)
+key.hash_enabled = False
+assert not source.difference(excluded)
+assert not source.difference(dictionary)
+source.difference_update(excluded)
+assert not source
+
+
+# Removed objects observe the completed intersection, including their mutations.
+intersection_events = []
+
+
+class RemovedFromIntersection:
+    def __del__(self):
+        intersection_events.append(1 in intersection_target)
+        intersection_target.discard(1)
+
+
+for use_operator in (False, True):
+    intersection_target = {1, RemovedFromIntersection()}
+    if use_operator:
+        intersection_target &= {1}
+    else:
+        intersection_target.intersection_update({1})
+    assert not intersection_target
+assert intersection_events == [True, True]

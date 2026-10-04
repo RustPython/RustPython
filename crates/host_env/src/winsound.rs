@@ -12,10 +12,14 @@ unsafe extern "system" {
     fn MessageBeep(uType: u32) -> i32;
 }
 
-/// `SND_ASYNC` flag value from `mmsystem.h`.
-const SND_ASYNC: u32 = 0x0001;
-/// `SND_MEMORY` flag value from `mmsystem.h`.
-const SND_MEMORY: u32 = 0x0004;
+pub use windows_sys::Win32::Media::Audio::{
+    SND_ALIAS, SND_APPLICATION, SND_ASYNC, SND_FILENAME, SND_LOOP, SND_MEMORY, SND_NODEFAULT,
+    SND_NOSTOP, SND_NOWAIT, SND_PURGE, SND_SENTRY, SND_SYNC, SND_SYSTEM,
+};
+pub use windows_sys::Win32::UI::WindowsAndMessaging::{
+    MB_ICONASTERISK, MB_ICONERROR, MB_ICONEXCLAMATION, MB_ICONHAND, MB_ICONINFORMATION,
+    MB_ICONQUESTION, MB_ICONSTOP, MB_ICONWARNING, MB_OK,
+};
 
 /// Source for a `PlaySound` call.
 pub enum PlaySoundSource<'a> {

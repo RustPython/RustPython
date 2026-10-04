@@ -1,4 +1,5 @@
 import annotationlib
+import inspect
 import textwrap
 import types
 import unittest
@@ -673,7 +674,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertEqual(T.__bound__, "global")
         self.assertEqual(U.__bound__, "class")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <class 'int'> is not <class 'float'>
     def test_modified_later(self):
         class X:
             T = int
@@ -683,7 +683,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertIs(X.foo.__type_params__[0].__bound__, float)
         self.assertIs(X.Alias.__value__, float)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global
     def test_binding_uses_global(self):
         ns = run_code("""
             x = "global"
@@ -1076,7 +1075,6 @@ class TypeParamsTypeVarTest(unittest.TestCase):
 
 
 class TypeParamsTypeVarTupleTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot use bound with TypeVarTuple" does not match "invalid syntax (<test string>, line 1)"
     def test_typevartuple_01(self):
         code = """def func1[*A: str](): pass"""
         check_syntax_error(self, code, "cannot use bound with TypeVarTuple")
@@ -1100,7 +1098,6 @@ class TypeParamsTypeVarTupleTest(unittest.TestCase):
 
 
 class TypeParamsTypeVarParamSpecTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot use bound with ParamSpec" does not match "invalid syntax (<test string>, line 1)"
     def test_paramspec_01(self):
         code = """def func1[**A: str](): pass"""
         check_syntax_error(self, code, "cannot use bound with ParamSpec")
@@ -1449,6 +1446,30 @@ class TestEvaluateFunctions(unittest.TestCase):
                 self.assertIs(annotationlib.call_evaluate_function(case, annotationlib.Format.VALUE), int)
                 self.assertIs(annotationlib.call_evaluate_function(case, annotationlib.Format.FORWARDREF), int)
                 self.assertEqual(annotationlib.call_evaluate_function(case, annotationlib.Format.STRING), 'int')
+
+    def test_signature(self):
+        # gh-151665: the ".format" parameter of compiler-generated evaluators
+        # used to break inspect.signature(). It should show up as "format".
+        type Alias = int
+        def f[T: int = int, **P = int, *Ts = int](): pass
+        T, P, Ts = f.__type_params__
+        def g[T: (int, str)](): pass
+        T3, = g.__type_params__
+        cases = [
+            Alias.evaluate_value,
+            T.evaluate_bound,
+            T.evaluate_default,
+            P.evaluate_default,
+            Ts.evaluate_default,
+            T3.evaluate_constraints,
+        ]
+        for case in cases:
+            with self.subTest(case=case):
+                sig = inspect.signature(case)
+                self.assertEqual(str(sig), '(format=1, /)')
+                param, = sig.parameters.values()
+                self.assertEqual(param.name, 'format')
+                self.assertIs(param.kind, inspect.Parameter.POSITIONAL_ONLY)
 
     def test_constraints(self):
         def f[T: (int, str)](): pass

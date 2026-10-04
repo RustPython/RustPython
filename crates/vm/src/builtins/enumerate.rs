@@ -1,25 +1,46 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
-    iter::builtins_reversed,
+    iter::builtins_reversed, locked_rev_next,
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
-    convert::ToPyObject,
-    function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
 use malachite_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::ToPrimitive;
+
+/// Fast-path counter for `enumerate`.
+///
+/// malachite `BigInt` already keeps limb-sized values inline (`Natural::Small`)
+/// and only heap-allocates beyond that, so this enum looks redundant. The
+/// small/large tag is crate-private, so we cannot inspect or bump that limb
+/// ourselves; storing a `BigInt` would still clone it and go through
+/// `+= 1` on every `next()`. Keep a `usize` until it overflows, or when
+/// `start` does not fit in `usize`.
+#[derive(Debug, Clone)]
+enum Counter {
+    Small(usize),
+    Big(BigInt),
+}
+
+impl Counter {
+    fn to_bigint(&self) -> BigInt {
+        match self {
+            Self::Small(n) => BigInt::from(*n),
+            Self::Big(b) => b.clone(),
+        }
+    }
+}
 
 #[pyclass(module = false, name = "enumerate", traverse)]
 #[derive(Debug)]
 pub struct PyEnumerate {
     #[pytraverse(skip)]
-    counter: PyRwLock<BigInt>,
+    counter: PyRwLock<Counter>,
     iterable: PyIter,
 }
 
@@ -34,8 +55,8 @@ impl PyPayload for PyEnumerate {
 pub struct EnumerateArgs {
     #[pyarg(any)]
     iterable: PyIter,
-    #[pyarg(any, optional)]
-    start: OptionalArg<PyIntRef>,
+    #[pyarg(any, default = 0)]
+    start: PyIntRef,
 }
 
 impl Constructor for PyEnumerate {
@@ -46,7 +67,10 @@ impl Constructor for PyEnumerate {
         Self::Args { iterable, start }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let counter = start.map_or_else(BigInt::zero, |start| start.as_bigint().clone());
+        let counter = match start.as_bigint().to_usize() {
+            Some(n) => Counter::Small(n),
+            None => Counter::Big(start.as_bigint().clone()),
+        };
         Ok(Self {
             counter: PyRwLock::new(counter),
             iterable,
@@ -54,21 +78,22 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
-impl PyEnumerate {
-    #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-        PyGenericAlias::from_args(cls, args, vm)
-    }
-}
-
-#[pyclass]
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl Py<PyEnumerate> {
+    #[pyclassmethod]
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
+        PyGenericAlias::from_args(cls, object, vm)
+    }
+
     #[pymethod]
     fn __reduce__(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
             self.class().to_owned(),
-            (self.iterable.clone(), self.counter.read().clone()),
+            (self.iterable.clone(), self.counter.read().to_bigint()),
         )
     }
 }
@@ -79,9 +104,31 @@ impl IterNext for PyEnumerate {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = raise_if_stop!(zelf.iterable.next(vm)?);
         let mut counter = zelf.counter.write();
-        let position = counter.clone();
-        *counter += 1;
-        Ok(PyIterReturn::Return((position, next_obj).to_pyobject(vm)))
+        let position = match &mut *counter {
+            Counter::Small(n) => {
+                let cur = *n;
+                match cur.checked_add(1) {
+                    Some(next_n) => {
+                        *n = next_n;
+                        vm.ctx.new_int(cur)
+                    }
+                    None => {
+                        let cur_int = vm.ctx.new_int(cur);
+                        *counter = Counter::Big(BigInt::from(cur) + 1);
+                        cur_int
+                    }
+                }
+            }
+            Counter::Big(b) => {
+                let position = b.clone();
+                *b += 1;
+                vm.ctx.new_bigint(&position)
+            }
+        };
+        drop(counter);
+        Ok(PyIterReturn::Return(
+            vm.new_tuple((position, next_obj)).into(),
+        ))
     }
 }
 
@@ -98,7 +145,6 @@ impl PyPayload for PyReverseSequenceIterator {
     }
 }
 
-#[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
     pub(crate) const fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
@@ -106,7 +152,10 @@ impl PyReverseSequenceIterator {
             internal: PyMutex::new(PositionIterInternal::new(obj, position)),
         }
     }
+}
 
+#[pyclass(with(IterNext, Iterable))]
+impl Py<PyReverseSequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
         let internal = self.internal.lock();
@@ -120,27 +169,27 @@ impl PyReverseSequenceIterator {
 
     #[pymethod]
     fn __setstate__(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.internal.lock().set_state(state, |_, pos| pos, vm)
+        self.internal.lock().set_state(&state, |_, pos| pos, vm)
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let func = builtins_reversed(vm);
-        self.internal.lock().reduce(
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let func = builtins_reversed(vm)?;
+        Ok(self.internal.lock().reduce(
             func,
             |x| x.clone(),
             |vm| vm.ctx.empty_tuple.clone().into(),
             vm,
-        )
+        ))
     }
 }
 
 impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal
-            .lock()
-            .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm))
+        locked_rev_next(&zelf.internal, |obj, pos| {
+            PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm)
+        })
     }
 }
 

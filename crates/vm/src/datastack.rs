@@ -23,8 +23,9 @@ const MINIMUM_OVERHEAD: usize = 1000 * core::mem::size_of::<usize>();
 /// Alignment for all data stack allocations.
 const ALIGN: usize = 16;
 
-/// Header for a data stack chunk.  The usable data region starts right after
-/// this header (aligned to `ALIGN`).
+/// Header for a data stack chunk.
+///
+/// The usable data region starts right after this header (aligned to [`ALIGN`]).
 #[repr(C)]
 struct DataStackChunk {
     /// Previous chunk in the linked list (NULL for the root chunk).
@@ -60,6 +61,9 @@ pub struct DataStack {
     top: *mut u8,
     /// End of usable space in the current chunk.
     limit: *mut u8,
+    /// Most recently popped full-frame allocation whose localsplus slots were
+    /// cleared before the pop. An exact LIFO reuse can skip zero-filling them.
+    reusable_frame: Option<(*mut u8, usize)>,
 }
 
 impl DataStack {
@@ -72,7 +76,12 @@ impl DataStack {
         // Skip one ALIGN-sized slot in the root chunk so that `pop()` never
         // frees it (`push_chunk` convention).
         let top = unsafe { top.add(ALIGN) };
-        Self { chunk, top, limit }
+        Self {
+            chunk,
+            top,
+            limit,
+            reusable_frame: None,
+        }
     }
 
     /// Check if the current chunk has at least `size` bytes available.
@@ -90,6 +99,26 @@ impl DataStack {
     /// (LIFO order).
     #[inline(always)]
     pub fn push(&mut self, size: usize) -> *mut u8 {
+        self.reusable_frame = None;
+        self.push_inner(size)
+    }
+
+    /// Allocate a full interpreter frame and report whether it exactly reuses
+    /// a just-cleared frame block.
+    #[inline(always)]
+    pub fn push_frame(&mut self, size: usize) -> (*mut u8, bool) {
+        let reusable_frame = self.reusable_frame.take();
+        let ptr = self.push_inner(size);
+        // Exact sizes, not aligned ones: the caller reads "reused" as "every
+        // slot of this frame was cleared by the last one", and two frames whose
+        // sizes differ by less than ALIGN share an aligned size while the
+        // larger one's tail slots were never touched, let alone cleared.
+        let reused = reusable_frame.is_some_and(|(base, old_size)| base == ptr && old_size == size);
+        (ptr, reused)
+    }
+
+    #[inline(always)]
+    fn push_inner(&mut self, size: usize) -> *mut u8 {
         let aligned_size = (size + ALIGN - 1) & !(ALIGN - 1);
         unsafe {
             if self.top.add(aligned_size) <= self.limit {
@@ -137,6 +166,24 @@ impl DataStack {
     /// and all allocations made after it must already have been popped.
     #[inline(always)]
     pub unsafe fn pop(&mut self, base: *mut u8) {
+        self.reusable_frame = None;
+        unsafe { self.pop_inner(base) };
+    }
+
+    /// Pop a full frame whose localsplus slots have already been cleared.
+    ///
+    /// # Safety
+    /// `base` and `size` must describe the most recent allocation returned by
+    /// `push_frame`, every later allocation must already be popped, and all
+    /// localsplus slots in the frame must have been cleared.
+    #[inline(always)]
+    pub unsafe fn pop_frame(&mut self, base: *mut u8, size: usize) {
+        unsafe { self.pop_inner(base) };
+        self.reusable_frame = Some((base, size));
+    }
+
+    #[inline(always)]
+    unsafe fn pop_inner(&mut self, base: *mut u8) {
         debug_assert!(!base.is_null());
         if self.is_in_current_chunk(base) {
             // Common case: base is within the current chunk.

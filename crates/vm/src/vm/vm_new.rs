@@ -6,23 +6,30 @@ use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErr
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
 
+use core::ops::RangeInclusive;
+
 #[cfg(feature = "parser")]
-use rustpython_compiler::{CompileError, ParseError};
+use rustpython_compiler::{CompileError, ParseError, is_blank_python_source};
 
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
-        PyType, PyTypeRef,
+        PyAttributeError, PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef,
+        PyImportError, PyMemoryError, PyModule, PyNameError, PyOSError, PyStopIteration, PyStrRef,
+        PySyntaxError, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
+        code::{IntoCodeObject, PyCode},
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
     exceptions::OSErrorBuilder,
-    function::{IntoPyNativeFn, PyMethodFlags},
+    function::{
+        FuncArgs, IntoPyNativeFn, PyMethodFlags, arity_message, unexpected_keyword_message,
+    },
     scope::Scope,
     set_attrs,
+    types::{Constructor, Initializer},
     vm::VirtualMachine,
 };
 
@@ -37,7 +44,7 @@ macro_rules! define_exception_fn {
                 )]
         pub fn $fn_name(&self, msg: impl Into<Wtf8Buf>) -> $crate::builtins::PyBaseExceptionRef {
             let err = self.ctx.exceptions.$attr.to_owned();
-            self.new_exception_msg(err, msg.into())
+            self.new_simple_exception(err, vec![self.ctx.new_str(msg.into()).into()])
         }
     };
 }
@@ -54,19 +61,10 @@ impl SyntaxErrorInfo {
         Self { msg, narrow_caret }
     }
 
-    fn with_msg(&mut self, msg: &str) {
-        self.msg = msg.into();
-    }
-
-    #[cfg(feature = "parser")]
-    const fn with_narrow_caret(&mut self, narrow_caret: bool) {
-        self.narrow_caret = narrow_caret;
-    }
-
     #[cfg(feature = "parser")]
     #[must_use]
-    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
-        match (*expected, *found) {
+    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
+        match (expected, found) {
             (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
 
             (TokenKind::Lpar, _) => "expected '('",
@@ -94,6 +92,11 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedString,
             )) => "unterminated f-string literal".into(),
 
+            ParseErrorType::TStringError(InterpolatedStringErrorType::UnterminatedString)
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedString,
+            )) => "unterminated t-string literal".into(),
+
             ParseErrorType::FStringError(
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )
@@ -101,20 +104,29 @@ impl SyntaxErrorInfo {
                 InterpolatedStringErrorType::UnterminatedTripleQuotedString,
             )) => "unterminated triple-quoted f-string literal".into(),
 
-            ParseErrorType::FStringError(_)
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(_)) => {
-                // Replace backticks with single quotes to match CPython's error messages
-                format!("invalid syntax: {}", self.msg.replace('`', "'"))
-            }
+            ParseErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )
+            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
+                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+            )) => "unterminated triple-quoted t-string literal".into(),
 
-            ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
+            // ruff already prefixes these with `f-string: ` / `t-string: `, matching CPython.
+            // It quotes braces with backticks where CPython uses single quotes.
+            ParseErrorType::FStringError(_)
+            | ParseErrorType::TStringError(_)
+            | ParseErrorType::Lexical(
+                LexicalErrorType::FStringError(_) | LexicalErrorType::TStringError(_),
+            ) => self.msg.replace('`', "'"),
+
+            ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
 
             ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(expected, found).into()
+                Self::handle_expected_token(*expected, *found).into()
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "invalid syntax".into()
             }
 
@@ -134,17 +146,13 @@ impl SyntaxErrorInfo {
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
 
             ParseErrorType::InvalidStarPatternUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "cannot use starred expression here".into()
             }
 
             ParseErrorType::ExpectedKeywordParam => "named arguments must follow bare *".into(),
 
             ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
-
-            ParseErrorType::DuplicateKeywordArgumentError(arg_name) => {
-                format!("keyword argument repeated: {arg_name}")
-            }
 
             ParseErrorType::UnparenthesizedGeneratorExpression => {
                 "Generator expression must be parenthesized".into()
@@ -174,13 +182,44 @@ impl SyntaxErrorInfo {
                 "arguments cannot follow var-keyword argument".into()
             }
 
+            ParseErrorType::InvalidAnnotatedAssignmentTarget => {
+                "illegal target for annotation".into()
+            }
+
             ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
             | ParseErrorType::SimpleStatementsOnSameLine
             | ParseErrorType::SimpleAndCompoundStatementOnSameLine
             | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
 
+            ParseErrorType::OtherError(s) if s.starts_with("Expected an identifier") => {
+                "invalid syntax".into()
+            }
+
+            // What the parser says when it cannot continue the list it is
+            // recovering; each of these situations is a plain "invalid syntax".
             ParseErrorType::OtherError(s)
-                if s.starts_with("Expected an identifier, but found a keyword") =>
+                if matches!(
+                    s.as_str(),
+                    "Expected a statement"
+                        | "Expected an `elif` or `else` clause, or the end of the `if` statement."
+                        | "Expected an `except` or `finally` clause or the end of the `try` statement."
+                        | "The keyword is not allowed as a variable declaration name"
+                        | "Expected an assignment target"
+                        | "Expected a type parameter or the end of the type parameter list"
+                        | "Expected an import name or a ')'"
+                        | "Expected an import name"
+                        | "Expected an expression or the end of the slice list"
+                        | "Expected an expression or a ']'"
+                        | "Expected an expression or a '}'"
+                        | "Expected an expression or a ')'"
+                        | "Expected an expression"
+                        | "Expected a pattern or the end of the sequence pattern"
+                        | "Expected a mapping pattern or the end of the mapping pattern"
+                        | "Expected a pattern or a ')'"
+                        | "Expected a delete target"
+                        | "Expected a parameter or the end of the parameter list"
+                        | "Expected an expression or the end of the with item list"
+                ) =>
             {
                 "invalid syntax".into()
             }
@@ -262,7 +301,7 @@ impl SyntaxErrorInfo {
             _ => return,
         };
 
-        self.with_msg(&msg);
+        self.msg = msg;
     }
 }
 
@@ -271,6 +310,11 @@ impl VirtualMachine {
     /// Create a new python object
     pub fn new_pyobj(&self, value: impl ToPyObject) -> PyObjectRef {
         value.to_pyobject(self)
+    }
+
+    pub fn new_code(&self, code: impl IntoCodeObject) -> PyRef<PyCode> {
+        let code = code.into_code_object(self);
+        PyRef::new_ref(PyCode::new(code), self.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
@@ -305,17 +349,63 @@ impl VirtualMachine {
             main_module.into(),
             self,
         )?;
+        self.set_main_builtin_importer(&scope.globals)?;
 
         Ok(scope)
+    }
+
+    /// Create `__main__` if it is missing and return it.
+    pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let module = if let Ok(existing) = sys_modules.get_item("__main__", self)
+            && let Ok(module) = existing.downcast::<PyModule>()
+        {
+            module
+        } else {
+            let dict = self.ctx.new_dict();
+            let main_module = self.new_module("__main__", dict, None);
+            sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+            main_module
+        };
+        self.set_main_builtin_importer(&module.dict())?;
+        Ok(module)
+    }
+
+    /// Set `__main__.__loader__` to BuiltinImporter when it is missing or None.
+    pub fn set_main_builtin_importer(
+        &self,
+        module_dict: &Py<crate::builtins::PyDict>,
+    ) -> PyResult<()> {
+        if let Ok(loader) = module_dict.get_item("__loader__", self)
+            && !self.is_none(&loader)
+        {
+            return Ok(());
+        }
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        let Ok(importlib) = sys_modules.get_item("_frozen_importlib", self) else {
+            return Ok(());
+        };
+        let loader = importlib.get_attr("BuiltinImporter", self)?;
+        module_dict.set_item("__loader__", loader, self)?;
+        Ok(())
+    }
+
+    /// `__dict__` of this interpreter's `__main__` module.
+    pub fn main_namespace(&self) -> PyResult<PyDictRef> {
+        let main = self.ensure_main_module()?;
+        Ok(main.dict())
     }
 
     pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let def = self
-            .ctx
-            .new_method_def(name, f, PyMethodFlags::empty(), None);
+        let def = self.ctx.new_method_def(
+            name,
+            f,
+            PyMethodFlags::empty(),
+            crate::function::ItemDoc::NONE,
+        );
         def.build_function(self, None)
     }
 
@@ -328,30 +418,77 @@ impl VirtualMachine {
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let def = self
-            .ctx
-            .new_method_def(name, f, PyMethodFlags::METHOD, None);
+        let def = self.ctx.new_method_def(
+            name,
+            f,
+            PyMethodFlags::METHOD,
+            crate::function::ItemDoc::NONE,
+        );
         def.build_method(class, self)
     }
 
-    /// Instantiate an exception with arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
-    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+    /// Allocate a `BaseException`-layout instance without running `__new__`/`__init__`.
+    ///
+    /// Only valid when `exc_type` uses the `BaseException` payload. Extra-payload
+    /// types (OSError, UnicodeError, ExceptionGroup, SystemExit, ...) must use
+    /// [`new_exception`][Self::new_exception] or
+    /// [`invoke_exception`][Self::invoke_exception].
+    pub fn new_simple_exception(
+        &self,
+        exc_type: PyTypeRef,
+        args: Vec<PyObjectRef>,
+    ) -> PyBaseExceptionRef {
         debug_assert_eq!(
             exc_type.slots.basicsize,
-            core::mem::size_of::<PyBaseException>(),
-            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed. Use vm.new_os_subtype_error() for OSError subtypes.",
+            crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyBaseException>(),
+            "vm.new_simple_exception() requires a BaseException-sized type, got {}",
             exc_type.name()
         );
+        PyBaseException::new(args, self)
+            .into_ref_with_type_lazy_dict(self, exc_type)
+            .expect("vm.new_simple_exception() called with an invalid exception type")
+    }
 
-        PyRef::new_ref(
-            PyBaseException::new(args, self),
-            exc_type,
-            Some(self.ctx.new_dict()),
-        )
+    /// Instantiate an exception with arguments.
+    ///
+    /// `BaseException`-sized types use
+    /// [`new_simple_exception`][Self::new_simple_exception]. Extra-payload types
+    /// run the type constructor so their fields are initialized. User-defined
+    /// types that override `__new__`/`__init__` should still use
+    /// [`invoke_exception`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor].
+    pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
+        if exc_type.slots.basicsize
+            == crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyBaseException>()
+        {
+            self.new_simple_exception(exc_type, args)
+        } else {
+            self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e)
+        }
+    }
+
+    /// Construct a built-in exception type that carries a payload, directly
+    /// (`py_new` + `slot_init`), without routing through `PyType::call`.
+    /// Only valid for a built-in `T` whose exact type is known at compile time.
+    pub fn new_payload_exception<T>(&self, cls: PyTypeRef, args: FuncArgs) -> PyResult<PyRef<T>>
+    where
+        T: Constructor<Args = FuncArgs> + Initializer,
+    {
+        debug_assert_eq!(
+            cls.slots.basicsize,
+            crate::object::SIZEOF_PYOBJECT_HEAD + size_of::<T>(),
+            "vm.new_payload_exception::<{}>() called with mismatched type '{}'",
+            core::any::type_name::<T>(),
+            cls.name()
+        );
+        let obj = T::slot_new(cls, args.clone(), self)?;
+        T::slot_init(&obj, args, self)?;
+        obj.downcast().map_err(|obj| {
+            self.new_type_error(format!(
+                "payload constructor returned '{}'",
+                obj.class().name()
+            ))
+        })
     }
 
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
@@ -365,25 +502,20 @@ impl VirtualMachine {
         errno: Option<i32>,
         msg: impl ToPyObject,
     ) -> PyRef<PyOSError> {
-        debug_assert_eq!(exc_type.slots.basicsize, core::mem::size_of::<PyOSError>());
+        debug_assert_eq!(
+            exc_type.slots.basicsize,
+            crate::object::SIZEOF_PYOBJECT_HEAD + core::mem::size_of::<PyOSError>()
+        );
 
         OSErrorBuilder::with_subtype(exc_type, errno, msg, self).build(self)
     }
 
     /// Instantiate an exception with no arguments.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_empty(&self, exc_type: PyTypeRef) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![])
     }
 
     /// Instantiate an exception with `msg` as the only argument.
-    /// This function should only be used with builtin exception types; if a user-defined exception
-    /// type is passed in, it may not be fully initialized; try using
-    /// [`vm.invoke_exception()`][Self::invoke_exception] or
-    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception_msg(&self, exc_type: PyTypeRef, msg: Wtf8Buf) -> PyBaseExceptionRef {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
@@ -412,7 +544,7 @@ impl VirtualMachine {
     pub fn new_no_attribute_error(&self, obj: PyObjectRef, name: PyStrRef) -> PyBaseExceptionRef {
         let msg = format!(
             "'{}' object has no attribute '{}'",
-            obj.class().name(),
+            obj.class().slot_name(),
             name
         );
         let attribute_error = self.new_attribute_error(msg);
@@ -424,21 +556,49 @@ impl VirtualMachine {
     }
 
     pub fn new_name_error(&self, msg: impl Into<Wtf8Buf>, name: PyStrRef) -> PyBaseExceptionRef {
-        let name_error_type = self.ctx.exceptions.name_error.to_owned();
-        let name_error = self.new_exception_msg(name_error_type, msg.into());
+        let name_error = self
+            .new_payload_exception::<PyNameError>(
+                self.ctx.exceptions.name_error.to_owned(),
+                vec![self.ctx.new_str(msg.into()).into()].into(),
+            )
+            .expect("NameError construction from internal args is infallible");
         set_attrs!(
             name_error.as_object(), self, unwrap,
             "name" => name,
         );
 
-        name_error
+        name_error.upcast()
+    }
+
+    /// The error a call that passed the wrong number of arguments gets. The
+    /// name is the function the call was for; `Self::NAME` is the one a slot
+    /// wants. `_PyArg_CheckPositional`
+    pub fn new_arity_type_error(
+        &self,
+        func_name: &str,
+        arity: RangeInclusive<usize>,
+        num_given: usize,
+    ) -> PyBaseExceptionRef {
+        let too_few = num_given < *arity.start();
+        self.new_type_error(arity_message(Some(func_name), &arity, too_few, num_given))
+    }
+
+    /// The error a call that passed a keyword the function doesn't take gets.
+    /// The name is left off where the parser has none of its own, the way
+    /// `_PyArg_Parser.fname` is NULL. `_PyArg_UnpackKeywords`
+    pub fn new_unexpected_keyword_type_error(
+        &self,
+        func_name: Option<&str>,
+        keyword: &str,
+    ) -> PyBaseExceptionRef {
+        self.new_type_error(unexpected_keyword_message(func_name, keyword))
     }
 
     pub fn new_unsupported_unary_error(&self, a: &PyObject, op: &str) -> PyBaseExceptionRef {
         self.new_type_error(format!(
             "bad operand type for {}: '{}'",
             op,
-            a.class().name()
+            a.class().slot_name()
         ))
     }
 
@@ -451,8 +611,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "unsupported operand type(s) for {}: '{}' and '{}'",
             op,
-            a.class().name(),
-            b.class().name()
+            a.class().slot_name(),
+            b.class().slot_name()
         ))
     }
 
@@ -464,11 +624,11 @@ impl VirtualMachine {
         op: &str,
     ) -> PyBaseExceptionRef {
         self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}', '{}', and '{}'",
+            "unsupported operand type(s) for {}: '{}', '{}', '{}'",
             op,
-            a.class().name(),
-            b.class().name(),
-            c.class().name()
+            a.class().slot_name(),
+            b.class().slot_name(),
+            c.class().slot_name()
         ))
     }
 
@@ -497,7 +657,7 @@ impl VirtualMachine {
         self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
-    pub fn new_unicode_decode_error_real(
+    pub fn new_unicode_decode_error(
         &self,
         encoding: PyStrRef,
         object: PyBytesRef,
@@ -507,30 +667,20 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_decode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_decode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
-
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+        )
+        .expect("UnicodeDecodeError constructor")
     }
 
-    pub fn new_unicode_encode_error_real(
+    pub fn new_unicode_encode_error(
         &self,
         encoding: PyStrRef,
         object: PyStrRef,
@@ -540,33 +690,55 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let start = self.ctx.new_int(start);
         let end = self.ctx.new_int(end);
-        let exc = self.new_exception(
-            self.ctx.exceptions.unicode_encode_error.to_owned(),
+        self.invoke_exception(
+            self.ctx.exceptions.unicode_encode_error,
             vec![
-                encoding.clone().into(),
-                object.clone().into(),
-                start.clone().into(),
-                end.clone().into(),
-                reason.clone().into(),
+                encoding.into(),
+                object.into(),
+                start.into(),
+                end.into(),
+                reason.into(),
             ],
-        );
+        )
+        .expect("UnicodeEncodeError constructor")
+    }
 
-        set_attrs!(
-            exc.as_object(), self, unwrap,
-            "encoding" => encoding,
-            "object" => object,
-            "start" => start,
-            "end" => end,
-            "reason" => reason,
-        );
-
-        exc
+    #[cfg(feature = "parser")]
+    fn source_has_mixed_tabs_and_spaces(source: Option<&str>, error_line: usize) -> bool {
+        source.is_some_and(|source| {
+            let mut has_space_indent = false;
+            let mut has_tab_indent = false;
+            for (i, line) in source.lines().enumerate() {
+                if i + 1 > error_line {
+                    break;
+                }
+                let rest = line.trim_start_matches([' ', '\t']);
+                // Blank and comment-only lines do not participate in indent.
+                if rest.is_empty() || rest.starts_with('#') {
+                    continue;
+                }
+                let indent = &line.as_bytes()[..line.len() - rest.len()];
+                if indent.is_empty() {
+                    continue;
+                }
+                if indent.contains(&b' ') && indent.contains(&b'\t') {
+                    return true;
+                }
+                if indent.contains(&b' ') {
+                    has_space_indent = true;
+                }
+                if indent.contains(&b'\t') {
+                    has_tab_indent = true;
+                }
+            }
+            has_space_indent && has_tab_indent
+        })
     }
 
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
-        self.new_exception(key_error, vec![obj])
+        self.new_simple_exception(key_error, vec![obj])
     }
 
     #[cfg(any(feature = "parser", feature = "compiler"))]
@@ -576,6 +748,16 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        if matches!(
+            error,
+            crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
+                error: crate::compiler::codegen::error::CodegenErrorType::RecursionError,
+                ..
+            })
+        ) {
+            return self.new_recursion_error(error.to_string());
+        }
+
         let incomplete_or_syntax = |allow| -> &'static Py<crate::builtins::PyType> {
             if allow {
                 self.ctx.exceptions.incomplete_input_error
@@ -590,45 +772,17 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::IndentationError,
-                    ),
+                    )
+                    | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
+                location,
                 ..
             }) => {
-                // Detect tab/space mixing to raise TabError instead of IndentationError.
-                // This checks both within a single line and across different lines.
-                let is_tab_error = source.is_some_and(|source| {
-                    let mut has_space_indent = false;
-                    let mut has_tab_indent = false;
-                    for line in source.lines() {
-                        let indent: Vec<u8> = line
-                            .bytes()
-                            .take_while(|&b| b == b' ' || b == b'\t')
-                            .collect();
-                        if indent.is_empty() {
-                            continue;
-                        }
-                        if indent.contains(&b' ') && indent.contains(&b'\t') {
-                            return true;
-                        }
-                        if indent.contains(&b' ') {
-                            has_space_indent = true;
-                        }
-                        if indent.contains(&b'\t') {
-                            has_tab_indent = true;
-                        }
-                    }
-                    has_space_indent && has_tab_indent
-                });
-                if is_tab_error {
+                if Self::source_has_mixed_tabs_and_spaces(source, location.line.get()) {
                     self.ctx.exceptions.tab_error
                 } else {
                     self.ctx.exceptions.indentation_error
                 }
             }
-            #[cfg(feature = "parser")]
-            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                ..
-            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
@@ -645,9 +799,17 @@ impl VirtualMachine {
             }) => incomplete_or_syntax(allow_incomplete),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                is_unclosed_string: true,
+                ..
+            }) => incomplete_or_syntax(allow_incomplete),
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                        )
+                        | ruff_python_parser::LexicalErrorType::TStringError(
                             ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                         ),
                     ),
@@ -659,24 +821,10 @@ impl VirtualMachine {
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::UnclosedStringError,
                     ),
-                raw_location,
                 ..
             }) => {
                 if allow_incomplete {
-                    let mut is_incomplete = false;
-
-                    if let Some(source) = source {
-                        let loc = raw_location.start().to_usize();
-                        let mut iter = source.chars();
-                        if let Some(quote) = iter.nth(loc)
-                            && iter.next() == Some(quote)
-                            && iter.next() == Some(quote)
-                        {
-                            is_incomplete = true;
-                        }
-                    }
-
-                    incomplete_or_syntax(is_incomplete)
+                    incomplete_or_syntax(source.is_some_and(unclosed_string_is_incomplete))
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -687,7 +835,9 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("Expected an indented block after") {
+                if s.starts_with("Expected an indented block after")
+                    || s.starts_with("expected an indented block after")
+                {
                     if allow_incomplete {
                         // Check that all chars in the error are whitespace, if so, the source is
                         // incomplete. Otherwise, we've found code that might violates
@@ -717,11 +867,25 @@ impl VirtualMachine {
                     } else {
                         self.ctx.exceptions.indentation_error
                     }
+                } else if allow_incomplete
+                    && (s == "incomplete input"
+                        || (s == "unexpected EOF while parsing"
+                            && source.is_some_and(|source| {
+                                raw_location.end().to_usize() >= source.len()
+                                    && !source.ends_with('\n')
+                            })))
+                {
+                    self.ctx.exceptions.incomplete_input_error
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
             }
             _ => self.ctx.exceptions.syntax_error,
+        };
+        let syntax_error_type = if allow_incomplete && source.is_some_and(is_blank_python_source) {
+            self.ctx.exceptions.incomplete_input_error
+        } else {
+            syntax_error_type
         }
         .to_owned();
 
@@ -735,10 +899,40 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let statement = source.and_then(|src| get_statement(src, error.location()));
+        // Tokenizer/parser errors attach the current source line. Compiler
+        // errors load that line with ProgramText, which is None when the
+        // filename cannot be opened (compile of a string).
+        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+            self.program_text(error.source_path(), error.python_location().0)
+        } else {
+            source.and_then(|src| get_statement(src, error.location()))
+        };
 
         let mut msg = error.to_string();
-        if let Some(msg) = msg.get_mut(..1) {
+        if !msg.starts_with("Exceeds the limit ")
+            && !msg.starts_with("Did you mean ")
+            && !msg.starts_with("Invalid star expression")
+            && !msg.starts_with("Function parameters cannot be parenthesized")
+            && !msg.starts_with("Lambda expression parameters cannot be parenthesized")
+            && !msg.starts_with("Cannot have two type comments on def")
+            && !msg.starts_with("Variable annotation syntax is")
+            && !msg.starts_with("The '@' operator is")
+            && !msg.starts_with("Async functions are")
+            && !msg.starts_with("Async comprehensions are")
+            && !msg.starts_with("Async for loops are")
+            && !msg.starts_with("Async with statements are")
+            && !msg.starts_with("Exception groups are")
+            && !msg.starts_with("Positional-only parameters are")
+            && !msg.starts_with("Pattern matching is")
+            && !msg.starts_with("Type statement is")
+            && !msg.starts_with("Type parameter lists are")
+            && !msg.starts_with("Type parameter defaults are")
+            && !msg.starts_with("Assignment expressions are")
+            && !msg.starts_with("Await expressions are")
+            && !msg.starts_with("Underscores in numeric literals are")
+            && !msg.starts_with("Missing parentheses")
+            && let Some(msg) = msg.get_mut(..1)
+        {
             msg.make_ascii_lowercase();
         }
 
@@ -753,17 +947,53 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
+            syntax_error_info.msg =
+                String::from("inconsistent use of tabs and spaces in indentation");
+        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            syntax_error_info.msg = String::from("incomplete input");
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
+        let unterminated_triple_quoted_string = msg.starts_with("unterminated triple-quoted");
+        let unexpected_eof_error = msg == "unexpected EOF while parsing";
+        if unterminated_triple_quoted_string
+            && let Some(statement) = statement.as_mut()
+            && statement.ends_with('\n')
+        {
+            // CPython omits the parser-added final newline from SyntaxError.text.
+            statement.pop();
+        }
+        let check_version_suite_error = msg.starts_with("Async functions are")
+            || msg.starts_with("Async for loops are")
+            || msg.starts_with("Async with statements are")
+            || msg.starts_with("Exception groups are")
+            || msg.starts_with("except expressions without parentheses are")
+            || msg.starts_with("Pattern matching is");
+        let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        let unclosed_bracket_error = cfg_select! {
+            feature = "parser" => {
+                matches!(
+                    error,
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        is_unclosed_bracket: true,
+                        ..
+                    })
+                )
+            }
+            _ => false,
+        };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
+        let syntax_error: PyBaseExceptionRef = self
+            .new_payload_exception::<PySyntaxError>(
+                syntax_error_type,
+                vec![self.ctx.new_str(msg).into()].into(),
+            )
+            .expect("SyntaxError construction from internal args is infallible")
+            .upcast();
 
-        let (lineno, offset) = error.python_location();
-        let lineno = self.ctx.new_int(lineno);
-        let offset = self.ctx.new_int(offset);
-
+        let (lineno_raw, offset_raw) = error.python_location();
+        let lineno = self.ctx.new_int(lineno_raw);
+        let offset = self.ctx.new_int(offset_raw);
         set_attrs!(
             syntax_error.as_object(), self, unwrap,
             "lineno" => lineno,
@@ -772,15 +1002,29 @@ impl VirtualMachine {
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
-            let (end_lineno, end_offset) = if narrow_caret {
+            // EOF errors have no source span in CPython.
+            let no_end_offset = unexpected_eof_error
+                || (check_version_suite_error
+                    && statement
+                        .as_deref()
+                        .and_then(|line| line.chars().next())
+                        .is_some_and(|ch| ch.is_ascii_whitespace()));
+            let (end_lineno, end_offset) = if no_end_offset {
+                (end_lineno, -1)
+            } else if unclosed_bracket_error {
+                // The bracket that was never closed is marked where it opened,
+                // and the span stops there.
+                (end_lineno, 0)
+            } else if line_end_binary_operator_error && end_offset == offset_raw {
+                (end_lineno, (end_offset + 1) as isize)
+            } else if narrow_caret {
                 let (l, o) = error.python_location();
-                (l, o + 1)
+                (l, (o + 1) as isize)
             } else {
-                (end_lineno, end_offset)
+                (end_lineno, end_offset as isize)
             };
             let end_lineno = self.ctx.new_int(end_lineno);
             let end_offset = self.ctx.new_int(end_offset);
-
             set_attrs!(
                 syntax_error.as_object(), self, unwrap,
                 "end_lineno" => end_lineno,
@@ -827,32 +1071,39 @@ impl VirtualMachine {
         msg: impl Into<Wtf8Buf>,
         name: impl Into<PyStrRef>,
     ) -> PyBaseExceptionRef {
-        let import_error = self.ctx.exceptions.import_error.to_owned();
-        let exc = self.new_exception_msg(import_error, msg.into());
+        let exc = self
+            .new_payload_exception::<PyImportError>(
+                self.ctx.exceptions.import_error.to_owned(),
+                vec![self.ctx.new_str(msg.into()).into()].into(),
+            )
+            .expect("ImportError construction from internal args is infallible");
         set_attrs!(
             exc.as_object(), self, unwrap,
             "name" => name.into(),
         );
 
-        exc
+        exc.upcast()
+    }
+
+    pub fn new_system_exit(&self, args: FuncArgs) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PySystemExit>(self.ctx.exceptions.system_exit.to_owned(), args)
+            .expect("SystemExit construction from internal args is infallible")
+            .upcast()
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let dict = self.ctx.new_dict();
-        let args = if let Some(value) = value {
-            // manually set `value` attribute like StopIteration.__init__
-            dict.set_item("value", value.clone(), self)
-                .expect("dict.__setitem__ never fails");
-            vec![value]
-        } else {
-            Vec::new()
+        // None (or omitted) is PyErr_SetNone: args stay empty so
+        // format_exception_only prints "StopIteration" not "StopIteration: None".
+        let args: FuncArgs = match value {
+            Some(v) if !self.is_none(&v) => vec![v].into(),
+            _ => Vec::<PyObjectRef>::new().into(),
         };
-
-        PyRef::new_ref(
-            PyBaseException::new(args, self),
+        self.new_payload_exception::<PyStopIteration>(
             self.ctx.exceptions.stop_iteration.to_owned(),
-            Some(dict),
+            args,
         )
+        .expect("StopIteration construction from internal args is infallible")
+        .upcast()
     }
 
     fn new_downcast_error(
@@ -903,17 +1154,33 @@ impl VirtualMachine {
         )
     }
 
+    /// Create a `MemoryError` with no arguments, for reporting a failed allocation.
+    ///
+    /// Served from the MemoryError freelist when a husk is available, so the
+    /// raise itself does not allocate; falls back to a fresh allocation when
+    /// the freelist is empty (#8536).
+    pub fn no_memory_error(&self) -> PyBaseExceptionRef {
+        let exc: PyObjectRef = PyMemoryError::empty(self)
+            .into_ref_with_type_lazy_dict(self, self.ctx.exceptions.memory_error.to_owned())
+            .expect("MemoryError is a static type whose payload size matches PyMemoryError")
+            .into();
+        exc.downcast()
+            .expect("PyMemoryError payload downcasts to PyBaseException")
+    }
+
     define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);
     define_exception_fn!(fn new_eof_error, eof_error, EOFError);
-    define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
+    pub fn new_attribute_error(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PyAttributeError>(
+            self.ctx.exceptions.attribute_error.to_owned(),
+            vec![self.ctx.new_str(msg.into()).into()].into(),
+        )
+        .expect("AttributeError construction from internal args is infallible")
+        .upcast()
+    }
+
     define_exception_fn!(fn new_type_error, type_error, TypeError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
-
-    // TODO: remove & replace with new_unicode_decode_error_real
-    define_exception_fn!(fn new_unicode_decode_error, unicode_decode_error, UnicodeDecodeError);
-
-    // TODO: remove & replace with new_unicode_encode_error_real
-    define_exception_fn!(fn new_unicode_encode_error, unicode_encode_error, UnicodeEncodeError);
 
     define_exception_fn!(fn new_value_error, value_error, ValueError);
 
@@ -931,5 +1198,128 @@ impl VirtualMachine {
     define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
     define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
-    define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
+    pub fn new_unbound_local_error(&self, msg: impl Into<Wtf8Buf>) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PyNameError>(
+            self.ctx.exceptions.unbound_local_error.to_owned(),
+            vec![self.ctx.new_str(msg.into()).into()].into(),
+        )
+        .expect("UnboundLocalError construction from internal args is infallible")
+        .upcast()
+    }
+}
+
+#[cfg(feature = "parser")]
+enum QuotedStringScan {
+    Closed(usize),
+    Unclosed {
+        triple: bool,
+        unescaped_newline: bool,
+    },
+}
+
+/// An unclosed string is incomplete when more input could still finish it.
+/// A non-triple string that already hit an unescaped newline is a hard error.
+#[cfg(feature = "parser")]
+fn unclosed_string_is_incomplete(source: &str) -> bool {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => match scan_quoted_string_for_incomplete(bytes, index) {
+                QuotedStringScan::Closed(end) => index = end,
+                QuotedStringScan::Unclosed {
+                    triple,
+                    unescaped_newline,
+                } => {
+                    // Single-quoted f/t-strings never set E_EOLS.
+                    if !triple && interpolated_string_prefix_at(bytes, index) {
+                        return false;
+                    }
+                    return triple || !unescaped_newline;
+                }
+            },
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+#[cfg(feature = "parser")]
+fn interpolated_string_prefix_at(bytes: &[u8], quote: usize) -> bool {
+    let Some(&prev) = quote.checked_sub(1).and_then(|index| bytes.get(index)) else {
+        return false;
+    };
+    let lower = prev.to_ascii_lowercase();
+    let marker_index = if matches!(lower, b'f' | b't') {
+        if quote >= 2 && bytes[quote - 2].eq_ignore_ascii_case(&b'r') {
+            quote - 2
+        } else {
+            quote - 1
+        }
+    } else if lower == b'r'
+        && quote >= 2
+        && matches!(bytes[quote - 2].to_ascii_lowercase(), b'f' | b't')
+    {
+        quote - 2
+    } else {
+        return false;
+    };
+    marker_index == 0 || !identifier_continue_before(bytes, marker_index)
+}
+
+#[cfg(feature = "parser")]
+fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+    if bytes[index - 1].is_ascii() {
+        return bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphanumeric();
+    }
+    let mut start = index - 1;
+    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
+        start -= 1;
+    }
+    ::core::str::from_utf8(&bytes[start..index])
+        .ok()
+        .and_then(|text| text.chars().next_back())
+        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
+}
+
+#[cfg(feature = "parser")]
+fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> QuotedStringScan {
+    let quote = bytes[quote_index];
+    let triple =
+        bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote);
+    let mut index = quote_index + if triple { 3 } else { 1 };
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        if triple {
+            if bytes.get(index) == Some(&quote)
+                && bytes.get(index + 1) == Some(&quote)
+                && bytes.get(index + 2) == Some(&quote)
+            {
+                return QuotedStringScan::Closed(index + 3);
+            }
+        } else if bytes[index] == quote {
+            return QuotedStringScan::Closed(index + 1);
+        } else if bytes[index] == b'\n' {
+            return QuotedStringScan::Unclosed {
+                triple: false,
+                unescaped_newline: true,
+            };
+        }
+        index += 1;
+    }
+    QuotedStringScan::Unclosed {
+        triple,
+        unescaped_newline: false,
+    }
 }

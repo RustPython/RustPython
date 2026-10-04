@@ -135,7 +135,6 @@ class ThreadedImportTests(unittest.TestCase):
             if verbose:
                 print("OK.")
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @support.bigmemtest(size=50, memuse=76*2**20, dry_run=False)
     def test_parallel_module_init(self, size):
         self.check_parallel_module_init()
@@ -247,7 +246,6 @@ class ThreadedImportTests(unittest.TestCase):
             __import__(TESTFN)
         del sys.modules[TESTFN]
 
-    @unittest.skip("TODO: RUSTPYTHON; hang; Suspected cause of crashes in Windows CI - PermissionError: [WinError 32] Permission denied: \"C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\test_python_0cdrhhs_\\test_python_6340æ\"")
     @support.bigmemtest(size=1, memuse=1.8*2**30, dry_run=False)
     def test_concurrent_futures_circular_import(self, size):
         # Regression test for bpo-43515
@@ -255,7 +253,6 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
     @support.bigmemtest(size=1, memuse=1.8*2**30, dry_run=False)
     def test_multiprocessing_pool_circular_import(self, size):
         # Regression test for bpo-41567
