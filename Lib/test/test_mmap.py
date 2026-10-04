@@ -911,7 +911,7 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m.madvise(mmap.MADV_NORMAL, 0, Number()), None)
         self.assertEqual(m.madvise(mmap.MADV_NORMAL, 0, size), None)
 
-    @unittest.expectedFailureIf(sys.platform in ("linux", "win32"), "TODO: RUSTPYTHON")
+    @unittest.expectedFailureIf(sys.platform == "win32", "TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(mmap.mmap, 'resize'), 'requires mmap.resize')
     def test_resize_up_anonymous_mapping(self):
         """If the mmap is backed by the pagefile ensure a resize up can happen
