@@ -1045,7 +1045,7 @@ This tests assignment-context; there was a bug in Python 2.5 where compiling
 a complex 'if' (one with 'elif') would fail to notice an invalid suite,
 leading to spurious errors.
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1053,7 +1053,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1061,7 +1061,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1071,7 +1071,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1081,7 +1081,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   pass
@@ -2245,7 +2245,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use '_' as a target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as 1+2+4:
     ...     ...
     Traceback (most recent call last):
@@ -2263,7 +2263,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use tuple as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as (a + 1):
     ...     ...
     Traceback (most recent call last):
