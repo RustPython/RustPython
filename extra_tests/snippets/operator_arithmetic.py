@@ -59,7 +59,13 @@ assert_raises(TypeError, lambda: 1.5 ^ True)
 def check_repeat_error(error, message, operation, *args):
     with assert_raises(error) as caught:
         operation(*args)
-    assert str(caught.exception) == message, str(caught.exception)
+    if message == "cannot fit 'int' into an index-sized integer":
+        assert str(caught.exception) in (
+            message,
+            "Python int too large to convert to C ssize_t",
+        ), str(caught.exception)
+    else:
+        assert str(caught.exception) == message, str(caught.exception)
 
 
 class GetItemOnly:

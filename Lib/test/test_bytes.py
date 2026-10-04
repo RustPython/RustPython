@@ -1401,10 +1401,6 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
         self.assertNotEqual(id(s), id(1 * s))
         self.assertNotEqual(id(s), id(s * 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_mod(self):
-        return super().test_mod()
-
 
 class ByteArrayTest(BaseBytesTest, unittest.TestCase):
     type2test = bytearray
@@ -2292,10 +2288,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         with memoryview(a):
             self.assertRaises(BufferError, a.__init__, "x", "ascii")
         self.assertEqual(a, b"")
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_mod(self):
-        return super().test_mod()
 
 
 class AssortedBytesTest(unittest.TestCase):
