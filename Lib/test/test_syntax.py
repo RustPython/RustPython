@@ -326,7 +326,7 @@ SyntaxError: did you forget parentheses around the comprehension target?
 
 # Incorrectly closed strings
 
->>> "The interesting object "The important object" is very important"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> "The interesting object "The important object" is very important"
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Is this intended to be part of the string?
 
