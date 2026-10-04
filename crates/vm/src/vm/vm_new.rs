@@ -1,7 +1,5 @@
 #[cfg(feature = "parser")]
-use ruff_python_ast::token::TokenKind;
-
-use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType};
+use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
@@ -62,22 +60,6 @@ impl SyntaxErrorInfo {
     }
 
     #[cfg(feature = "parser")]
-    #[must_use]
-    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
-        match (expected, found) {
-            (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
-
-            (TokenKind::Lpar, _) => "expected '('",
-
-            (TokenKind::Else, y) if !matches!(y, TokenKind::Colon) => {
-                "expected 'else' after 'if' expression"
-            }
-
-            _ => "invalid syntax",
-        }
-    }
-
-    #[cfg(feature = "parser")]
     fn analyze_compile_error(&mut self, compile_error: &CompileError) {
         let CompileError::Parse(ParseError {
             error, location, ..
@@ -86,222 +68,19 @@ impl SyntaxErrorInfo {
             return;
         };
 
-        let msg = match error {
-            ParseErrorType::FStringError(InterpolatedStringErrorType::UnterminatedString)
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedString,
-            )) => "unterminated f-string literal".into(),
-
-            ParseErrorType::TStringError(InterpolatedStringErrorType::UnterminatedString)
-            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedString,
-            )) => "unterminated t-string literal".into(),
-
-            ParseErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )) => "unterminated triple-quoted f-string literal".into(),
-
-            ParseErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )
-            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )) => "unterminated triple-quoted t-string literal".into(),
-
-            // ruff already prefixes these with `f-string: ` / `t-string: `, matching CPython.
-            // It quotes braces with backticks where CPython uses single quotes.
-            ParseErrorType::FStringError(_)
-            | ParseErrorType::TStringError(_)
-            | ParseErrorType::Lexical(
-                LexicalErrorType::FStringError(_) | LexicalErrorType::TStringError(_),
-            ) => self.msg.replace('`', "'"),
-
-            ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
-
-            ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(*expected, *found).into()
-            }
-
-            ParseErrorType::InvalidStarredExpressionUsage => {
-                self.narrow_caret = true;
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::InvalidDeleteTarget => "invalid syntax".into(),
-
-            ParseErrorType::Lexical(LexicalErrorType::LineContinuationError) => {
-                "unexpected character after line continuation character".into()
-            }
+        match error {
+            ParseErrorType::InvalidStarredExpressionUsage
+            | ParseErrorType::InvalidStarPatternUsage => self.narrow_caret = true,
 
             ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
-                format!(
+                self.msg = format!(
                     "unterminated string literal (detected at line {})",
                     location.line
-                )
+                );
             }
 
-            ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
-
-            ParseErrorType::InvalidStarPatternUsage => {
-                self.narrow_caret = true;
-                "cannot use starred expression here".into()
-            }
-
-            ParseErrorType::ExpectedKeywordParam => "named arguments must follow bare *".into(),
-
-            ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
-
-            ParseErrorType::UnparenthesizedGeneratorExpression => {
-                "Generator expression must be parenthesized".into()
-            }
-
-            ParseErrorType::NonDefaultParamAfterDefaultParam => {
-                "parameter without a default follows parameter with a default".into()
-            }
-
-            ParseErrorType::VarParameterWithDefault => {
-                "var-positional argument cannot have default value".into()
-            }
-
-            ParseErrorType::PositionalAfterKeywordArgument => {
-                "positional argument follows keyword argument".into()
-            }
-
-            ParseErrorType::PositionalAfterKeywordUnpacking => {
-                "positional argument follows keyword argument unpacking".into()
-            }
-
-            ParseErrorType::InvalidArgumentUnpackingOrder => {
-                "iterable argument unpacking follows keyword argument unpacking".into()
-            }
-
-            ParseErrorType::ParamAfterVarKeywordParam => {
-                "arguments cannot follow var-keyword argument".into()
-            }
-
-            ParseErrorType::InvalidAnnotatedAssignmentTarget => {
-                "illegal target for annotation".into()
-            }
-
-            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
-            | ParseErrorType::SimpleStatementsOnSameLine
-            | ParseErrorType::SimpleAndCompoundStatementOnSameLine
-            | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
-
-            ParseErrorType::OtherError(s) if s.starts_with("Expected an identifier") => {
-                "invalid syntax".into()
-            }
-
-            // What the parser says when it cannot continue the list it is
-            // recovering; each of these situations is a plain "invalid syntax".
-            ParseErrorType::OtherError(s)
-                if matches!(
-                    s.as_str(),
-                    "Expected a statement"
-                        | "Expected an `elif` or `else` clause, or the end of the `if` statement."
-                        | "Expected an `except` or `finally` clause or the end of the `try` statement."
-                        | "The keyword is not allowed as a variable declaration name"
-                        | "Expected an assignment target"
-                        | "Expected a type parameter or the end of the type parameter list"
-                        | "Expected an import name or a ')'"
-                        | "Expected an import name"
-                        | "Expected an expression or the end of the slice list"
-                        | "Expected an expression or a ']'"
-                        | "Expected an expression or a '}'"
-                        | "Expected an expression or a ')'"
-                        | "Expected an expression"
-                        | "Expected a pattern or the end of the sequence pattern"
-                        | "Expected a mapping pattern or the end of the mapping pattern"
-                        | "Expected a pattern or a ')'"
-                        | "Expected a delete target"
-                        | "Expected a parameter or the end of the parameter list"
-                        | "Expected an expression or the end of the with item list"
-                ) =>
-            {
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "bytes literal cannot be mixed with non-bytes literals",
-                ) =>
-            {
-                "cannot mix bytes and nonbytes literals".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("positional patterns cannot follow keyword patterns") =>
-            {
-                "positional patterns follow keyword patterns".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("boolean 'not' expression cannot be used here") =>
-            {
-                "'not' after an operator must be parenthesized".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("trailing comma not allowed") =>
-            {
-                "trailing comma not allowed without surrounding parentheses".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "multiple exception types must be parenthesized when using `as`",
-                ) =>
-            {
-                "multiple exception types must be parenthesized when using 'as'".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "position-only parameter separator not allowed as first parameter",
-                ) =>
-            {
-                "at least one argument must precede /".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("only one '/' separator allowed") =>
-            {
-                "/ may appear only once".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("'/' parameter must appear before '*' parameter") =>
-            {
-                "/ must be ahead of *".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("expected `except` or `finally` after `try` block") =>
-            {
-                "expected 'except' or 'finally' block".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("only one '*' parameter allowed") =>
-            {
-                "* argument may appear only once".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    r#"cannot have both 'except' and 'except*' on the same 'try'"#,
-                ) =>
-            {
-                r#"cannot have both 'except' and 'except*' on the same 'try'"#.into()
-            }
-
-            _ => return,
-        };
-
-        self.msg = msg;
+            _ => {}
+        }
     }
 }
 
@@ -835,9 +614,7 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("Expected an indented block after")
-                    || s.starts_with("expected an indented block after")
-                {
+                if s.starts_with("expected an indented block after") {
                     if allow_incomplete {
                         // Check that all chars in the error are whitespace, if so, the source is
                         // incomplete. Otherwise, we've found code that might violates
@@ -908,33 +685,7 @@ impl VirtualMachine {
             source.and_then(|src| get_statement(src, error.location()))
         };
 
-        let mut msg = error.to_string();
-        if !msg.starts_with("Exceeds the limit ")
-            && !msg.starts_with("Did you mean ")
-            && !msg.starts_with("Invalid star expression")
-            && !msg.starts_with("Function parameters cannot be parenthesized")
-            && !msg.starts_with("Lambda expression parameters cannot be parenthesized")
-            && !msg.starts_with("Cannot have two type comments on def")
-            && !msg.starts_with("Variable annotation syntax is")
-            && !msg.starts_with("The '@' operator is")
-            && !msg.starts_with("Async functions are")
-            && !msg.starts_with("Async comprehensions are")
-            && !msg.starts_with("Async for loops are")
-            && !msg.starts_with("Async with statements are")
-            && !msg.starts_with("Exception groups are")
-            && !msg.starts_with("Positional-only parameters are")
-            && !msg.starts_with("Pattern matching is")
-            && !msg.starts_with("Type statement is")
-            && !msg.starts_with("Type parameter lists are")
-            && !msg.starts_with("Type parameter defaults are")
-            && !msg.starts_with("Assignment expressions are")
-            && !msg.starts_with("Await expressions are")
-            && !msg.starts_with("Underscores in numeric literals are")
-            && !msg.starts_with("Missing parentheses")
-            && let Some(msg) = msg.get_mut(..1)
-        {
-            msg.make_ascii_lowercase();
-        }
+        let msg = error.to_string();
 
         cfg_select! {
             feature = "parser" => {

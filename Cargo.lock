@@ -3936,7 +3936,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_ast"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
+source = "git+https://github.com/RustPython/ruff.git?rev=be649be9ba1d41d6913099cfc52b59c5be9b5371#be649be9ba1d41d6913099cfc52b59c5be9b5371"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3957,7 +3957,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
+source = "git+https://github.com/RustPython/ruff.git?rev=be649be9ba1d41d6913099cfc52b59c5be9b5371#be649be9ba1d41d6913099cfc52b59c5be9b5371"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
@@ -3980,7 +3980,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_trivia"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
+source = "git+https://github.com/RustPython/ruff.git?rev=be649be9ba1d41d6913099cfc52b59c5be9b5371#be649be9ba1d41d6913099cfc52b59c5be9b5371"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -3994,7 +3994,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_source_file"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
+source = "git+https://github.com/RustPython/ruff.git?rev=be649be9ba1d41d6913099cfc52b59c5be9b5371#be649be9ba1d41d6913099cfc52b59c5be9b5371"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -4003,7 +4003,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_text_size"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?tag=0.16.10-rustpython#d2f75922771cfd1181470439e991972bbb40b3c5"
+source = "git+https://github.com/RustPython/ruff.git?rev=be649be9ba1d41d6913099cfc52b59c5be9b5371#be649be9ba1d41d6913099cfc52b59c5be9b5371"
 dependencies = [
  "get-size2",
 ]

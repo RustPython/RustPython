@@ -1094,7 +1094,7 @@ fn invalid_number_literal_error(source: &str) -> Option<CpythonDiagnostic> {
 }
 
 fn cpython_indented_block_clause(message: &str) -> Option<&'static str> {
-    let clause = message.strip_prefix("Expected an indented block after ")?;
+    let clause = message.strip_prefix("expected an indented block after ")?;
     Some(match clause {
         "`if` statement" => "'if' statement",
         "`elif` clause" => "'elif' statement",
@@ -4572,7 +4572,7 @@ fn mixed_tstring_literal_error(
     let parser::ParseErrorType::OtherError(message) = &error.error else {
         return None;
     };
-    if !message.eq_ignore_ascii_case("bytes literal cannot be mixed with non-bytes literals") {
+    if message != "cannot mix bytes and nonbytes literals" {
         return None;
     }
 
@@ -7732,11 +7732,11 @@ mod tests {
             ),
             (
                 "t\"x\" b\"y\"",
-                "Cannot mix t-string literals with string or bytes literals",
+                "cannot mix t-string literals with string or bytes literals",
             ),
             (
                 "b\"x\" t\"y\"",
-                "Cannot mix t-string literals with string or bytes literals",
+                "cannot mix t-string literals with string or bytes literals",
             ),
             // The literals ahead of the first t-string already mix, so CPython's first pass
             // raises from `_PyPegen_concatenate_strings` before the t-string rule is reached.
