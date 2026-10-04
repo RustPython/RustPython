@@ -27,7 +27,7 @@ use crate::{
     vm::VirtualMachine,
 };
 use crate::{
-    class::StaticType,
+    class::{PyClassDef, StaticType},
     object::traverse::{MaybeTraverse, Traverse, TraverseFn},
 };
 
@@ -2872,8 +2872,6 @@ where
     T::Base: core::fmt::Debug,
 {
     /// Converts this reference to the base type (ownership transfer).
-    /// # Safety
-    /// T and T::Base must have compatible layouts in size_of::<T::Base>() bytes.
     #[inline]
     #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
@@ -2885,12 +2883,11 @@ where
     }
     #[inline]
     #[must_use]
-    pub fn upcast<U: PyPayload + StaticType>(self) -> PyRef<U>
-    where
-        T: StaticType,
-    {
-        let obj: PyObjectRef = self.into();
-        obj.downcast::<U>().expect("invalid native upcast")
+    pub fn upcast<U: PyPayload + PyClassDef>(self) -> PyRef<U> {
+        self.upcast_ref::<U>();
+        let ptr = self.ptr.cast();
+        core::mem::forget(self);
+        PyRef { ptr }
     }
 }
 
@@ -2898,20 +2895,24 @@ impl<T: crate::class::PySubclass> Py<T> {
     /// Converts `&Py<T>` to `&Py<T::Base>`.
     #[inline]
     pub fn to_base(&self) -> &Py<T::Base> {
-        // SAFETY: T is #[repr(transparent)] over T::Base,
-        // so Py<T> and Py<T::Base> have the same layout.
+        // SAFETY: PySubclass guarantees a valid base prefix with matching
+        // payload offsets and compatible object alignment.
         unsafe { &*(self as *const Self as *const Py<T::Base>) }
     }
 
-    /// Converts `&Py<T>` to `&Py<U>` where U is an ancestor type.
+    /// Converts `&Py<T>` to a compatible native prefix `&Py<U>`.
+    ///
+    /// The allocation must support U's layout, independently of Python MRO.
     #[inline]
-    pub fn upcast_ref<U: PyPayload + StaticType>(&self) -> &Py<U>
-    where
-        T: StaticType,
-    {
-        self.as_object()
-            .downcast_ref::<U>()
-            .expect("invalid native upcast")
+    pub fn upcast_ref<U: PyPayload + PyClassDef>(&self) -> &Py<U> {
+        let obj = self.as_object();
+        assert!(
+            obj.typeid() == U::PAYLOAD_TYPE_ID && obj.supports_native_layout(U::NATIVE_LAYOUT_ID),
+            "invalid native upcast"
+        );
+        // SAFETY: the allocation supports U's native prefix, including its
+        // payload offset and alignment. Python ancestry is not required.
+        unsafe { &*(self as *const Self as *const Py<U>) }
     }
 }
 
@@ -3340,6 +3341,50 @@ mod tests {
                 METHOD.build_bound_method(&vm.ctx, vm.ctx.none(), vm.ctx.types.object_type);
             assert!(method.as_object().downcastable::<PyNativeMethod>());
             assert!(method.as_object().downcastable::<PyNativeFunction>());
+        });
+    }
+
+    #[test]
+    fn native_upcasts_ignore_python_mro() {
+        use crate::exceptions::types::{PyException, PyUnicodeError};
+        use core::panic::AssertUnwindSafe;
+        use std::panic::catch_unwind;
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let class = vm.ctx.new_class(
+                None,
+                "HiddenOSErrorBase",
+                vm.ctx.exceptions.os_error.to_owned(),
+                Default::default(),
+            );
+            let marker: PyObjectRef = vm.ctx.new_int(42).into();
+            let error = vm.new_os_subtype_error(class.clone(), None, marker.clone());
+            // A custom MRO can omit native bases without changing the allocation.
+            *class.mro.write() = vec![class.clone(), vm.ctx.types.object_type.to_owned()];
+            assert!(!error.as_object().downcastable::<PyException>());
+
+            let base = error.upcast_ref::<PyException>();
+            assert!(base.as_object().is(error.as_object()));
+            assert!(base.to_base().get_arg(0).unwrap().is(&marker));
+            let base = error.clone().upcast::<PyException>();
+            assert!(base.as_object().is(error.as_object()));
+            assert!(base.into_base().get_arg(0).unwrap().is(&marker));
+            assert!(error.to_base().to_base().get_arg(0).unwrap().is(&marker));
+            assert!(
+                error
+                    .clone()
+                    .into_base()
+                    .into_base()
+                    .get_arg(0)
+                    .unwrap()
+                    .is(&marker)
+            );
+
+            // Both exception payloads share PAYLOAD_TYPE_ID, but not their layout.
+            assert!(
+                catch_unwind(AssertUnwindSafe(|| error.upcast_ref::<PyUnicodeError>())).is_err()
+            );
+            assert!(catch_unwind(AssertUnwindSafe(|| error.upcast::<PyUnicodeError>())).is_err());
         });
     }
 
