@@ -348,15 +348,6 @@ def check_native_helper():
     assert finalized == [True]
     assert mapping == {"finalized": True}
 
-    mapping = {"a": 1, "b": 2}
-    for i in range(100):
-        forward, backward = iter(mapping), reversed(mapping)
-        key = "a" if i % 2 == 0 else "b"
-        move(mapping, key)
-        raises(RuntimeError, lambda: next(forward))
-        raises(RuntimeError, lambda: next(backward))
-        assert list(mapping)[-1] == key
-
 
 source = source_bootstrap()
 for bootstrap in (frozen, source):

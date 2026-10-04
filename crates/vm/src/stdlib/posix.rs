@@ -1182,35 +1182,43 @@ pub mod module {
         rustpython_host_env::posix::pipe2(flags).map_err(|err| err.into_pyexception(vm))
     }
 
+    const CHMOD_DIR_FD: bool = cfg!(not(target_os = "redox"));
+
     fn _chmod(
         path: OsPath,
-        dir_fd: DirFd<'_, 0>,
+        dir_fd: DirFd<'_, { CHMOD_DIR_FD as usize }>,
         mode: u32,
         follow_symlinks: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        #[cfg(all(
-            unix,
-            not(target_os = "redox"),
-            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
-        ))]
-        if !follow_symlinks {
+        #[cfg(not(target_os = "redox"))]
+        if dir_fd.get_opt().is_some() || !follow_symlinks {
             let err_path = path.clone();
             let c_path = path.into_cstring(vm)?;
+            let flags = if follow_symlinks {
+                0
+            } else {
+                libc::AT_SYMLINK_NOFOLLOW
+            };
             return rustpython_host_env::posix::fchmodat(
-                libc::AT_FDCWD,
+                dir_fd.get().as_raw(),
                 &c_path,
                 mode as libc::mode_t,
-                libc::AT_SYMLINK_NOFOLLOW,
+                flags,
             )
             .map_err(|err| {
                 let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
                     || err.raw_os_error() == Some(libc::ENOTSUP);
-                if enotsup {
-                    vm.new_not_implemented_error(
-                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
-                    )
+                if !follow_symlinks && enotsup {
+                    if dir_fd.get_opt().is_some() {
+                        vm.new_value_error("chmod: cannot use dir_fd and follow_symlinks together")
+                    } else {
+                        vm.new_not_implemented_error(
+                            "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                        )
+                    }
                 } else {
                     OSErrorBuilder::with_filename(&err, err_path, vm)
                 }
@@ -1240,7 +1248,7 @@ pub mod module {
         #[pyarg(any)]
         mode: u32,
         #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, 0>,
+        dir_fd: DirFd<'fd, { CHMOD_DIR_FD as usize }>,
         // CPython writes the platform expression; on posix it is always true.
         #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
         follow_symlinks: bool,
@@ -2194,8 +2202,8 @@ pub mod module {
         vec![
             SupportFunc::new(
                 "chmod",
-                Some(false),
-                Some(false),
+                Some(cfg!(not(target_os = "redox"))),
+                Some(CHMOD_DIR_FD),
                 Some(cfg!(any(
                     target_os = "macos",
                     target_os = "freebsd",

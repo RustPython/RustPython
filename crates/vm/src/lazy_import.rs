@@ -13,13 +13,15 @@ use crate::{
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 
+type PendingChildren = HashMap<String, Option<PyRef<PyLazyImport>>>;
+
 pub(crate) struct LazyImportsState {
     pub(crate) modules: PyRef<PySet>,
     pub(crate) default_callback: OnceCell<PyObjectRef>,
     pub(crate) all: AtomicBool,
     filter: PyMutex<Option<PyObjectRef>>,
     // Removed declarations must be dropped after releasing this lock.
-    pending: PyMutex<HashMap<String, HashMap<String, Option<PyRef<PyLazyImport>>>>>,
+    pending: PyMutex<HashMap<String, PendingChildren>>,
 }
 
 impl LazyImportsState {
@@ -85,7 +87,7 @@ pub(crate) struct PyLazyImport {
     // None is an import, a tuple is an import with fromlist, and a string is one member.
     fromlist: Option<PyObjectRef>,
     // Attribute projections retain the placeholder returned by IMPORT_NAME.
-    source: Option<PyRef<PyLazyImport>>,
+    source: Option<PyRef<Self>>,
     declaration: Option<PyRef<PyCode>>,
     #[pytraverse(skip)]
     instruction: u32,
@@ -159,11 +161,16 @@ impl PyLazyImport {
         let mut name = if root.has_fromlist() {
             root.name.to_string()
         } else {
-            root.name.to_string().split('.').next().unwrap().to_owned()
+            root.name
+                .to_string_lossy()
+                .split('.')
+                .next()
+                .unwrap()
+                .to_owned()
         };
         for attr in attrs {
             name.push('.');
-            name.push_str(&attr.to_string());
+            name.push_str(&attr.to_string_lossy());
         }
         name
     }
@@ -414,12 +421,11 @@ fn raw_imported_module(name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Option
 // Tracking must not invoke module/spec descriptors or convert a flag to bool.
 fn track_module(name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
     let module = raw_imported_module(name, vm)?;
-    let mut loaded = module.as_ref().is_some_and(|module| !vm.is_none(module));
-    if let Some(module) = module.as_ref().and_then(|m| m.downcast_ref::<PyModule>()) {
+    let loaded = if let Some(module) = module.as_ref().and_then(|m| m.downcast_ref::<PyModule>()) {
         let spec = module
             .dict()
             .get_item_opt(vm.ctx.intern_str("__spec__"), vm)?;
-        loaded = match spec {
+        match spec {
             None => true,
             Some(spec) if vm.is_none(&spec) => true,
             Some(spec) if spec.has_inline_values() => {
@@ -430,8 +436,10 @@ fn track_module(name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Option<PyObje
                 initializing.is_none_or(|flag| flag.is(&vm.ctx.false_value))
             }
             Some(_) => false,
-        };
-    }
+        }
+    } else {
+        module.as_ref().is_some_and(|module| !vm.is_none(module))
+    };
     if !loaded {
         vm.state
             .lazy_imports
@@ -727,7 +735,7 @@ fn load_child(source: &Py<PyLazyImport>, name: &Py<PyStr>, vm: &VirtualMachine) 
                 child.declaration = None;
             }
         }
-        child.declaration = source.declaration.clone();
+        child.declaration.clone_from(&source.declaration);
         child.instruction = source.instruction;
         let result = resolve(&child.into_ref(&vm.ctx), vm)?;
         if let Some(module) = result.downcast_ref::<PyModule>()
