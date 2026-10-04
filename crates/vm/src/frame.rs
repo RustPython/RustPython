@@ -6430,7 +6430,11 @@ impl ExecutingFrame<'_> {
                 {
                     let mut vec = list.borrow_vec_mut();
                     if i < vec.len() {
-                        vec[i] = value;
+                        // Unlock before dropping the replaced element; its
+                        // finalizer may access this list.
+                        let old = core::mem::replace(&mut vec[i], value);
+                        drop(vec);
+                        drop(old);
                         return Ok(None);
                     }
                 }
