@@ -1514,9 +1514,7 @@ impl VirtualMachine {
 
                 // No stdio: set to None (embedding use case)
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name: &str, _fd: i32, _write: bool| {
-                    Ok(crate::builtins::PyNone.into_pyobject(self))
-                };
+                let make_stdio = |_name: &str, _fd: i32, _write: bool| Ok(self.ctx.none());
 
                 let set_stdio = |name, fd, write| {
                     let stdio: PyObjectRef = make_stdio(name, fd, write)?;
@@ -3924,6 +3922,26 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "stdio"))]
+    #[test]
+    fn no_stdio_streams_are_none_singleton() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                for name in [
+                    "stdin",
+                    "stdout",
+                    "stderr",
+                    "__stdin__",
+                    "__stdout__",
+                    "__stderr__",
+                ] {
+                    let stream = vm.sys_module.get_attr(name, vm).unwrap();
+                    assert!(vm.is_none(&stream), "sys.{name} must be the None singleton");
+                }
+            });
+    }
 
     #[test]
     fn nested_frozen() {
