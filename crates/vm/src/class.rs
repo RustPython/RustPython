@@ -161,7 +161,7 @@ pub trait StaticType {
     }
 }
 
-pub trait PyClassDef {
+pub trait PyClassDef: 'static {
     const NAME: &'static str;
     const MODULE_NAME: Option<&'static str>;
     const TP_NAME: &'static str;
@@ -175,6 +175,7 @@ pub trait PyClassDef {
     const ATTR_DOCS: &'static [&'static str] = &[];
     const BASICSIZE: usize;
     const ITEMSIZE: usize = 0;
+    const NATIVE_LAYOUT_ID: core::any::TypeId = core::any::TypeId::of::<Self>();
     const UNHASHABLE: bool = false;
     const MEMBERS: &'static [crate::builtins::descriptor::PyMemberSpec] = &[];
 
@@ -427,6 +428,7 @@ pub trait PyClassImpl: PyClassDef {
             flags: crate::types::AtomicPyTypeFlags::from_plain(Self::TP_FLAGS),
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
+            native_layout_id: Some(Self::NATIVE_LAYOUT_ID),
             itemsize: Self::ITEMSIZE,
             doc: {
                 let internal = Self::INTERNAL_DOC;

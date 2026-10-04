@@ -1668,13 +1668,8 @@ impl PyObjectRef {
     /// another downcast can be attempted without unnecessary cloning.
     #[inline]
     pub fn downcast_exact<T: PyPayload>(self, vm: &VirtualMachine) -> Result<PyRefExact<T>, Self> {
-        if self.class().is(T::class(&vm.ctx)) {
-            // TODO: is this always true?
-            assert!(
-                self.downcastable::<T>(),
-                "obj.__class__ is T::class() but payload is not T"
-            );
-            // SAFETY: just asserted that downcastable::<T>()
+        if self.class().is(T::class(&vm.ctx)) && self.downcastable::<T>() {
+            // SAFETY: the class and allocation both match T.
             Ok(unsafe { PyRefExact::new_unchecked(PyRef::from_obj_unchecked(self)) })
         } else {
             Err(self)
@@ -1779,7 +1774,13 @@ impl PyObject {
     #[deprecated(note = "use downcastable instead")]
     #[inline(always)]
     pub fn payload_is<T: PyPayload>(&self) -> bool {
-        self.0.vtable.typeid == T::PAYLOAD_TYPE_ID
+        self.downcastable::<T>()
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn supports_native_layout(&self, layout: core::any::TypeId) -> bool {
+        (self.0.vtable.supports_native_layout)(layout)
     }
 
     /// Force to return payload as T.
@@ -1936,7 +1937,8 @@ impl PyObject {
     pub fn downcast_ref_if_exact<T: PyPayload>(&self, vm: &VirtualMachine) -> Option<&Py<T>> {
         self.class()
             .is(T::class(&vm.ctx))
-            .then(|| unsafe { self.downcast_unchecked_ref::<T>() })
+            .then(|| self.downcast_ref::<T>())
+            .flatten()
     }
 
     /// # Safety
@@ -2875,11 +2877,11 @@ where
     #[inline]
     #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
-        let obj: PyObjectRef = self.into();
-        match obj.downcast() {
-            Ok(base_ref) => base_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
-        }
+        // PySubclass establishes the physical prefix; Python may have changed
+        // the object's class or MRO since this typed reference was constructed.
+        let ptr = self.ptr.cast();
+        core::mem::forget(self);
+        PyRef { ptr }
     }
     #[inline]
     #[must_use]
@@ -2887,12 +2889,8 @@ where
     where
         T: StaticType,
     {
-        debug_assert!(T::static_type().is_subtype(U::static_type()));
         let obj: PyObjectRef = self.into();
-        match obj.downcast::<U>() {
-            Ok(upcast_ref) => upcast_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
-        }
+        obj.downcast::<U>().expect("invalid native upcast")
     }
 }
 
@@ -2900,7 +2898,6 @@ impl<T: crate::class::PySubclass> Py<T> {
     /// Converts `&Py<T>` to `&Py<T::Base>`.
     #[inline]
     pub fn to_base(&self) -> &Py<T::Base> {
-        debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
         // SAFETY: T is #[repr(transparent)] over T::Base,
         // so Py<T> and Py<T::Base> have the same layout.
         unsafe { &*(self as *const Self as *const Py<T::Base>) }
@@ -2912,9 +2909,9 @@ impl<T: crate::class::PySubclass> Py<T> {
     where
         T: StaticType,
     {
-        debug_assert!(T::static_type().is_subtype(U::static_type()));
-        // SAFETY: T is a subtype of U, so Py<T> can be viewed as Py<U>.
-        unsafe { &*(self as *const Self as *const Py<U>) }
+        self.as_object()
+            .downcast_ref::<U>()
+            .expect("invalid native upcast")
     }
 }
 
@@ -3247,6 +3244,104 @@ pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_downcasts_validate_the_allocation() {
+        use crate::{
+            builtins::builtin_func::{PyNativeFunction, PyNativeMethod},
+            class::PyClassImpl,
+            function::{ItemDoc, PyMethodDef, PyMethodFlags},
+        };
+
+        #[pyclass(module = false, name = "AllocationBase")]
+        #[derive(Debug, PyPayload)]
+        struct AllocationBase {
+            value: usize,
+        }
+
+        #[pyclass(flags(BASETYPE))]
+        impl AllocationBase {}
+
+        #[pyclass(module = false, name = "AllocationDerived", base = AllocationBase)]
+        #[derive(Debug)]
+        struct AllocationDerived {
+            base: AllocationBase,
+            value: usize,
+        }
+
+        #[pyclass]
+        impl AllocationDerived {}
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _ = AllocationBase::make_static_type();
+            let derived = AllocationDerived::make_static_type();
+            // A class reference does not enlarge the allocated Rust payload.
+            let base = PyRef::new_ref(AllocationBase { value: 5 }, derived.clone(), None);
+            assert!(!base.as_object().downcastable::<AllocationDerived>());
+            assert!(
+                base.as_object()
+                    .downcast_ref_if_exact::<AllocationDerived>(vm)
+                    .is_none()
+            );
+            assert!(
+                base.as_object()
+                    .to_owned()
+                    .downcast_exact::<AllocationDerived>(vm)
+                    .is_err()
+            );
+            let actual = PyRef::new_ref(
+                AllocationDerived {
+                    base: AllocationBase { value: 5 },
+                    value: 17,
+                },
+                derived,
+                None,
+            );
+            assert_eq!(
+                actual
+                    .as_object()
+                    .downcast_ref::<AllocationDerived>()
+                    .unwrap()
+                    .value,
+                17
+            );
+            assert_eq!(
+                actual
+                    .as_object()
+                    .downcast_ref::<AllocationBase>()
+                    .unwrap()
+                    .value,
+                5
+            );
+
+            static METHOD: PyMethodDef = PyMethodDef::new_const(
+                "identity",
+                |value: PyObjectRef| value,
+                PyMethodFlags::METHOD,
+                ItemDoc::NONE,
+            );
+            let function = METHOD.build_function(&vm.ctx);
+            // CFunction and CMethod share a Python class, but not a Rust layout.
+            assert!(!function.as_object().downcastable::<PyNativeMethod>());
+            assert!(
+                function
+                    .as_object()
+                    .downcast_ref_if_exact::<PyNativeMethod>(vm)
+                    .is_none()
+            );
+            assert!(
+                function
+                    .as_object()
+                    .to_owned()
+                    .downcast_exact::<PyNativeMethod>(vm)
+                    .is_err()
+            );
+            let method =
+                METHOD.build_bound_method(&vm.ctx, vm.ctx.none(), vm.ctx.types.object_type);
+            assert!(method.as_object().downcastable::<PyNativeMethod>());
+            assert!(method.as_object().downcastable::<PyNativeFunction>());
+        });
+    }
 
     #[test]
     fn native_type_basicsize_includes_payload_padding() {

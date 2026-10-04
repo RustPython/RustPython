@@ -24,6 +24,12 @@ pub struct WeakNewArgs {
 }
 
 impl PyPayload for PyWeak {
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        // Proxies are transparent views of the same PyWeak allocation.
+        layout == core::any::TypeId::of::<Self>()
+            || layout == core::any::TypeId::of::<super::PyWeakProxy>()
+    }
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.weakref_type

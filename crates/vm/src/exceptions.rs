@@ -58,6 +58,11 @@ impl PyPayload for PyBaseException {
 
 impl PyPayload for PyMemoryError {
     const PAYLOAD_TYPE_ID: core::any::TypeId = <PyException as PyPayload>::PAYLOAD_TYPE_ID;
+
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        <PyException as PyPayload>::supports_native_layout(layout)
+    }
+
     const HAS_FREELIST: bool = true;
     const MAX_FREELIST: usize = MEMORY_ERROR_FREELIST_SIZE;
 

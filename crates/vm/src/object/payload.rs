@@ -66,6 +66,14 @@ pub(crate) fn cold_downcast_type_error(
 pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     const PAYLOAD_TYPE_ID: core::any::TypeId = core::any::TypeId::of::<Self>();
 
+    #[doc(hidden)]
+    #[must_use]
+    // Describe only native prefixes or transparent views physically present
+    // in Self. Downcasts use this allocation-time contract, not mutable MRO.
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        layout == core::any::TypeId::of::<Self>()
+    }
+
     /// # Safety
     /// This function should only be called if `payload_type_id` matches the type of `obj`.
     #[inline]

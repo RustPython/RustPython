@@ -234,10 +234,29 @@ impl PyNativeFunction {
 }
 
 // PyCMethodObject in CPython
-#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type")]
+#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type", payload = "manual")]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
+}
+
+impl PyPayload for PyNativeMethod {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = PyNativeFunction::PAYLOAD_TYPE_ID;
+
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        layout == core::any::TypeId::of::<Self>()
+            || PyNativeFunction::supports_native_layout(layout)
+    }
+
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        // Both payloads use builtin_function_or_method as their Python class.
+        // The immutable allocation vtable distinguishes the larger CMethod.
+        obj.supports_native_layout(core::any::TypeId::of::<Self>())
+    }
+
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.builtin_function_or_method_type
+    }
 }
 
 // All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.
