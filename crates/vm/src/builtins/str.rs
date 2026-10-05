@@ -15,7 +15,7 @@ use crate::{
         lock::LazyLock,
         str::{PyKindStr, StrData, StrKind},
     },
-    convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
+    convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
@@ -1169,7 +1169,9 @@ impl Py<PyStr> {
         let zelf = zelf.try_into_utf8(vm)?;
         let s = crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?
             .format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
-            .map_err(|err| err.into_pyexception(vm))?;
+            .map_err(|err| {
+                crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+            })?;
         Ok(vm.ctx.new_str(s))
     }
 

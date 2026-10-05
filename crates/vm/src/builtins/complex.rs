@@ -4,7 +4,7 @@ use crate::{
     builtins::PyUtf8StrRef,
     class::{PyClassDef, PyClassImpl},
     common::wtf8::Wtf8Buf,
-    convert::{IntoPyException, ToPyObject, ToPyResult},
+    convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
     stdlib::_warnings,
@@ -571,17 +571,16 @@ impl Py<PyComplex> {
         if format_spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
-        let result = if format_spec.has_locale_format() {
+        let spec = crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
+        let result = if spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_complex_locale(&zelf.as_complex(), &locale)
+            spec.format_complex_locale(&zelf.as_complex(), &locale)
         } else {
-            format_spec.format_complex(&zelf.as_complex())
+            spec.format_complex(&zelf.as_complex())
         };
-        result
-            .map(Wtf8Buf::from_string)
-            .map_err(|err| err.into_pyexception(vm))
+        result.map(Wtf8Buf::from_string).map_err(|err| {
+            crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+        })
     }
 
     #[pyclassmethod]
