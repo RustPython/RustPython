@@ -73,6 +73,15 @@ pub(crate) mod _signal {
         }
     }
 
+    #[cfg(any(unix, windows))]
+    static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
+
+    // Bounded pending-call storage: signal handlers cannot allocate or lock.
+    #[cfg(any(unix, windows))]
+    static WAKEUP_WRITE_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
+    #[cfg(windows)]
+    static WAKEUP_SEND_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
+
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[allow(unused_imports)]
     pub use host_signal::SIG_ERR;
@@ -323,8 +332,6 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        // TODO: implement warn_on_full_buffer
-        let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
         windows => args.fd.0,
         _ => args.fd,
@@ -360,6 +367,7 @@ pub(crate) mod _signal {
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
+        WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
 
         #[cfg(windows)]
         WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
@@ -511,13 +519,88 @@ pub(crate) mod _signal {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
-        host_signal::notify_signal(
-            signum,
-            WAKEUP.load(Ordering::Relaxed),
-            #[cfg(windows)]
-            WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
-            #[cfg(windows)]
-            signal::get_sigint_event(),
+        #[cfg(target_os = "wasi")]
+        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
+
+        #[cfg(any(unix, windows))]
+        {
+            let error = host_signal::notify_signal(
+                signum,
+                WAKEUP.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                signal::get_sigint_event(),
+            );
+            if let Some(error) = error
+                && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+            {
+                let (errors, errno) = match error {
+                    host_signal::WakeupError::Write(errno) => (&WAKEUP_WRITE_ERRORS, errno),
+                    #[cfg(windows)]
+                    host_signal::WakeupError::Send(errno) => (&WAKEUP_SEND_ERRORS, errno),
+                };
+                for pending in errors {
+                    if pending
+                        .compare_exchange(0, errno, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        // The VM may have handled the signal on another thread
+                        // before the failed wakeup write completed.
+                        signal::set_triggered();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(any(unix, windows))]
+    pub(crate) fn wakeup_errors_pending() -> bool {
+        let pending = WAKEUP_WRITE_ERRORS
+            .iter()
+            .any(|error| error.load(Ordering::Relaxed) != 0);
+        #[cfg(windows)]
+        let pending = pending
+            || WAKEUP_SEND_ERRORS
+                .iter()
+                .any(|error| error.load(Ordering::Relaxed) != 0);
+        pending
+    }
+
+    #[cfg(any(unix, windows))]
+    pub(crate) fn report_wakeup_errors(vm: &VirtualMachine) {
+        fn report(
+            errors: &[atomic::AtomicI32],
+            make_error: fn(i32) -> host_signal::WakeupError,
+            operation: &str,
+            vm: &VirtualMachine,
+        ) {
+            for pending in errors {
+                let errno = pending.swap(0, Ordering::Relaxed);
+                if errno != 0 {
+                    vm.run_unraisable(
+                        make_error(errno).into_io_error().into_pyexception(vm),
+                        Some(format!(
+                            "Exception ignored while trying to {operation} to the signal wakeup fd"
+                        )),
+                        vm.ctx.none(),
+                    );
+                }
+            }
+        }
+        report(
+            &WAKEUP_WRITE_ERRORS,
+            host_signal::WakeupError::Write,
+            "write",
+            vm,
+        );
+        #[cfg(windows)]
+        report(
+            &WAKEUP_SEND_ERRORS,
+            host_signal::WakeupError::Send,
+            "send",
+            vm,
         );
     }
 
@@ -526,6 +609,9 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     pub(crate) fn clear_wakeup_fd_after_fork() {
         WAKEUP.store(INVALID_WAKEUP, Ordering::Relaxed);
+        for pending in &WAKEUP_WRITE_ERRORS {
+            pending.store(0, Ordering::Relaxed);
+        }
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

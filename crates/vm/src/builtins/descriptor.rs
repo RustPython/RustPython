@@ -2020,7 +2020,7 @@ impl Callable for PyWrapper {
 
 #[pyclass(
     with(GetDescriptor, Callable, Representable),
-    flags(DISALLOW_INSTANTIATION)
+    flags(DISALLOW_INSTANTIATION, METHOD_DESCRIPTOR)
 )]
 impl Py<PyWrapper> {
     #[pymethod]

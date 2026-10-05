@@ -554,12 +554,16 @@ jobs:
         with:
           openssl: true
 
-      # Keep features in sync with update-caches.yml CARGO_ARGS.
-      - name: build rustpython
-        run: cargo build --locked --release --verbose --features=threading,jit,capi ${{ env.CARGO_ARGS }}
-        env:
-          PYO3_CONFIG_FILE: ${{ github.workspace }}/crates/capi/pyo3-rustpython.config
-          PYO3_NO_PYTHON: "1"
+      - name: Detect available cores
+        id: cores
+        shell: bash
+        run: |
+          cores=$(python -c 'print(__import__("os").process_cpu_count())')
+          echo "cores=${cores}" >> "$GITHUB_OUTPUT"
+
+      - name: Build production RustPython
+        id: build_default
+        run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: Record Windows timestamp compatibility
         if: runner.os == 'Windows'
@@ -589,17 +593,10 @@ jobs:
         run: uv pip install -r requirements.txt && python -m pytest -v
         working-directory: ./extra_tests
 
-      - name: Detect available cores
-        id: cores
-        shell: bash
-        run: |
-          cores=$(python -c 'print(__import__("os").process_cpu_count())')
-          echo "cores=${cores}" >> "$GITHUB_OUTPUT"
-
-      - name: Run CPython tests
+      - name: Run CPython tests (production)
         run: |
           # shellcheck disable=SC2086
-          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS -x test_inspect test_monitoring
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
@@ -671,6 +668,28 @@ jobs:
       - name: Check whats_left is not broken
         shell: bash
         run: python -I scripts/whats_left.py --rustpython target/release/rustpython
+
+      # Run all production checks before rebuilding the same binary with C API.
+      # Keep these features in sync with update-caches.yml CARGO_ARGS.
+      - name: Build RustPython with C API
+        id: build_capi
+        if: ${{ !cancelled() && steps.build_default.outcome == 'success' }}
+        run: cargo build --locked --release --verbose --features=threading,jit,capi ${{ env.CARGO_ARGS }}
+        env:
+          PYO3_CONFIG_FILE: ${{ github.workspace }}/crates/capi/pyo3-rustpython.config
+          PYO3_NO_PYTHON: "1"
+
+      # A failed production check must not suppress this cohort or become green.
+      - name: Run CPython tests (C API)
+        if: ${{ !cancelled() && steps.build_capi.outcome == 'success' }}
+        run: |
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS test_inspect test_monitoring
+        timeout-minutes: ${{ matrix.timeout }}
+        shell: bash
+        env:
+          RUSTPYTHON_SKIP_ENV_POLLUTERS: true
+          CORES: ${{ steps.cores.outputs.cores }}
+          EXTRA_TEST_ARGS: ${{ join(matrix.extra_test_args, ' ') }}
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a

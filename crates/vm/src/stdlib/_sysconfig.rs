@@ -2,7 +2,9 @@ pub(crate) use _sysconfig::module_def;
 
 #[pymodule]
 pub(crate) mod _sysconfig {
-    use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject};
+    #[cfg(windows)]
+    use crate::builtins::PyStrRef;
+    use crate::{PyResult, VirtualMachine, builtins::PyDictRef, convert::ToPyObject};
 
     #[cfg(windows)]
     #[pyfunction]
@@ -17,8 +19,16 @@ pub(crate) mod _sysconfig {
     }
 
     #[pyfunction]
-    fn config_vars(vm: &VirtualMachine) -> PyDictRef {
+    fn config_vars(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let vars = vm.ctx.new_dict();
+
+        #[cfg(windows)]
+        {
+            let source: PyStrRef = vm.sys_module.get_attr("_vpath", vm)?.try_into_value(vm)?;
+            if !source.as_wtf8().is_empty() {
+                vars.set_item("srcdir", source.into(), vm)?;
+            }
+        }
 
         // FIXME: This is an entirely wrong implementation of EXT_SUFFIX.
         // EXT_SUFFIX must be a string starting with "." for pip compatibility
@@ -31,6 +41,6 @@ pub(crate) mod _sysconfig {
             .unwrap();
         vars.set_item("Py_DEBUG", (0).to_pyobject(vm), vm).unwrap();
 
-        vars
+        Ok(vars)
     }
 }

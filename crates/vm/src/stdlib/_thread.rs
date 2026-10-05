@@ -5,10 +5,13 @@ pub(crate) use _thread::after_fork_child;
 
 pub use _thread::get_ident;
 
+#[cfg(feature = "capi")]
+pub(crate) use _thread::apply_thread_stack_size;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
-    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
-    init_main_thread_ident, module_def,
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, cleanup_thread_local_data,
+    get_all_current_frames, init_main_thread_ident, module_def,
 };
 
 #[pymodule]
@@ -833,7 +836,7 @@ pub(crate) mod _thread {
     /// thousand, so a size that holds a Python call chain in release holds
     /// three of its frames here — starting a thread at all needs six. The
     /// value `threading.stack_size()` reports is untouched.
-    fn apply_thread_stack_size(
+    pub(crate) fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
@@ -854,7 +857,7 @@ pub(crate) mod _thread {
 
     /// Clean up thread-local data for the current thread.
     /// This triggers __del__ on objects stored in thread-local variables.
-    fn cleanup_thread_local_data() {
+    pub(crate) fn cleanup_thread_local_data() {
         // Move all guards out before dropping them. A local dict's __del__ may
         // re-enter thread-local access and borrow LOCAL_GUARDS again.
         let guards = LOCAL_GUARDS.take();

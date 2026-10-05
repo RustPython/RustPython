@@ -262,11 +262,21 @@ pub mod sys {
 
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
-    const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
+    fn vpath(vm: &VirtualMachine) -> String {
+        // Capture an absolute source path during sys initialization so a
+        // later chdir cannot change sysconfig's interpretation of it.
+        crate::getpath::source_directory(&vm.state.config.paths)
+            .and_then(|source| std::path::absolute(source).ok())
+            .map(|source| source.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
 
     #[cfg(windows)]
-    #[pyattr(name = "dllhandle")]
-    const DLLHANDLE: usize = 0;
+    #[pyattr]
+    fn dllhandle(_vm: &VirtualMachine) -> usize {
+        crate::host_env::windows::runtime_module_handle()
+            .expect("the running RustPython image must have a module handle")
+    }
 
     #[pyattr]
     fn prefix(vm: &VirtualMachine) -> String {

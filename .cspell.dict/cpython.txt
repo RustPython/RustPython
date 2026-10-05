@@ -211,6 +211,7 @@ prec
 preds
 preinitialized
 pybuilddir
+pycfunction
 pycore
 PYGC
 pyinner

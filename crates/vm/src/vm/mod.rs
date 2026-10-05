@@ -1721,33 +1721,61 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        // During interpreter finalization, sys.unraisablehook may not be available,
-        // but we still need to report exceptions (especially from atexit callbacks).
-        // Write directly to stderr like PyErr_FormatUnraisable.
-        if self.state.finalizing.load(Ordering::Acquire) {
+        self.run_unraisable_with_message(e, msg.map(|msg| self.ctx.new_str(msg)), object);
+    }
+
+    #[cold]
+    pub(crate) fn run_unraisable_with_message(
+        &self,
+        e: PyBaseExceptionRef,
+        msg: Option<PyStrRef>,
+        object: PyObjectRef,
+    ) {
+        let write_original = || {
+            let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
+        };
+        // During finalization the hook may no longer exist.
+        if self.state.finalizing.load(Ordering::Acquire) {
+            write_original();
             return;
         }
-
-        let sys_module = self.import("sys", 0).unwrap();
-        let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
-
-        let exc_type = e.class().to_owned();
-        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
-        let exc_value = e.into();
-        let args = stdlib::sys::UnraisableHookArgsData {
-            exc_type,
-            exc_value,
-            exc_traceback,
-            err_msg: self.new_pyobj(msg),
-            object,
+        let Some(unraisablehook) = self.sys_module.get_attr("unraisablehook", self).ok() else {
+            write_original();
+            return;
         };
-        if let Err(e) = unraisablehook.call((args,), self) {
-            println!("{}", e.as_object().repr(self).unwrap());
+        let args = stdlib::sys::UnraisableHookArgsData {
+            exc_type: e.class().to_owned(),
+            exc_value: e.clone().into(),
+            exc_traceback: e.traceback().to_pyobject(self),
+            err_msg: msg.clone().to_pyobject(self),
+            object: object.clone(),
+        }
+        .to_pyobject(self);
+        if let Err(error) = self.audit("sys.unraisablehook", || {
+            (unraisablehook.clone(), args.clone())
+        }) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in audit hook"),
+                &self.ctx.none(),
+            );
+            return;
+        }
+        if self.is_none(&unraisablehook) {
+            write_original();
+            return;
+        }
+        if let Err(error) = unraisablehook.call((args,), self) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in sys.unraisablehook"),
+                &unraisablehook,
+            );
         }
     }
 
-    /// Write unraisable exception to stderr during finalization.
+    /// Write an unraisable exception when its hook cannot be used.
     /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
     fn write_unraisable_to_stderr(
         &self,
@@ -1785,15 +1813,29 @@ impl VirtualMachine {
             write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
         }
 
-        // Write exception type and message
-        let exc_type_name = e.class().name();
-        let msg = match e.as_object().str(self) {
-            Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
-                format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
+        // Print the existing traceback without importing Python modules;
+        // this path must also work while the interpreter is finalizing.
+        if let Some(traceback) = e.traceback() {
+            if let Some(stderr) = &stderr {
+                let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+            } else {
+                let mut writer = crate::py_io::IoWriter(std::io::stderr());
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
             }
-            _ => format!("{exc_type_name}\n"),
+        }
+        let exc_type_name = e
+            .class()
+            .fully_qualified_name(self)
+            .unwrap_or_else(|_| e.class().name().to_string());
+        let message = match e.as_object().str(self) {
+            Ok(value) if !value.as_wtf8().is_empty() => {
+                format!("{exc_type_name}: {}\n", value.as_wtf8())
+            }
+            Ok(_) => format!("{exc_type_name}\n"),
+            Err(_) => format!("{exc_type_name}: <exception str() failed>\n"),
         };
-        write_to_stderr(&msg, &stderr, self);
+        write_to_stderr(&message, &stderr, self);
 
         // Flush stderr to ensure output is visible
         if let Some(ref stderr) = stderr {

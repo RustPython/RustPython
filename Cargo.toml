@@ -1,7 +1,7 @@
 [package]
 name = "rustpython"
 description = "A python interpreter written in rust."
-include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
+include = ["LICENSE", "Cargo.toml", "capi-exports.def", "src/**/*.rs"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

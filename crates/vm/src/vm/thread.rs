@@ -398,6 +398,9 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
         return;
     }
 
+    // Clear Python thread-local values before detaching, while their
+    // destructors can still run in this native thread's VM context.
+    crate::stdlib::_thread::cleanup_thread_local_data();
     let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
     drop(gilstate_vm);
 

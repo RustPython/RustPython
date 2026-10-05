@@ -3155,11 +3155,10 @@ mod _ssl {
                     *conn_guard = Some(TlsConnection::new(Connection::Server(conn)));
                     *self.state.lock() = TlsState::Handshaking;
                 }
-                Err((error, mut alert)) => {
-                    let mut bytes = Vec::new();
-                    alert
-                        .write_all(&mut bytes)
-                        .map_err(|e| e.into_pyexception(vm))?;
+                Err((error, alert)) => {
+                    let bytes =
+                        rustpython_host_env::ssl::handshake::initial_handshake_alert(&error, alert)
+                            .map_err(|e| e.into_pyexception(vm))?;
                     self.reject_connection(SslError::from_rustls(error).into_py_err(vm), bytes, vm);
                     self.accept_client_hello(vm)?;
                 }

@@ -1,10 +1,14 @@
 // Native fixtures shared by the standard-library tests. This deliberately
 // implements only the fixtures below, not CPython's complete C API test module.
 pub(crate) use _testcapi::module_def;
+mod call_buffer;
 mod heap;
 mod meth;
 #[cfg(feature = "capi")]
 mod monitoring;
+mod runtime;
+#[cfg(feature = "threading")]
+mod threads;
 
 #[pymodule]
 mod _testcapi {
@@ -18,7 +22,11 @@ mod _testcapi {
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
+        super::call_buffer::extend_module(vm, module)?;
         super::meth::extend_module(vm, module)?;
+        super::runtime::extend_module(vm, module)?;
+        #[cfg(feature = "threading")]
+        super::threads::extend_module(vm, module)?;
         #[cfg(feature = "capi")]
         super::monitoring::extend_module(vm, module)?;
         Ok(())

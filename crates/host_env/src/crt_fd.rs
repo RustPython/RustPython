@@ -317,7 +317,10 @@ impl AsRawFd for Borrowed<'_> {
 
 #[inline]
 fn ebadf() -> io::Error {
-    io::Error::from_raw_os_error(c::EBADF)
+    cfg_select! {
+        windows => crate::os::io_error_from_errno(c::EBADF),
+        _ => io::Error::from_raw_os_error(c::EBADF),
+    }
 }
 
 pub fn open(path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {

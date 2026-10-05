@@ -825,31 +825,53 @@ pub fn fchmod(fd: BorrowedFd<'_>, mode: u32) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "redox")]
+#[allow(
+    clippy::useless_conversion,
+    reason = "time_t widths differ across targets"
+)]
 pub fn utimes(
     path: &Path,
-    acc: core::time::Duration,
-    modif: core::time::Duration,
+    acc: crate::os::FileTime,
+    modif: crate::os::FileTime,
 ) -> std::io::Result<()> {
-    let tv = |d: core::time::Duration| libc::timeval {
-        tv_sec: d.as_secs() as _,
-        tv_usec: d.subsec_micros() as _,
+    let tv = |time: crate::os::FileTime| -> std::io::Result<libc::timeval> {
+        Ok(libc::timeval {
+            tv_sec: time
+                .seconds
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+            tv_usec: i64::from(time.nanoseconds / 1_000)
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+        })
     };
-    nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into()).map_err(std::io::Error::from)
+    nix::sys::stat::utimes(path, &tv(acc)?.into(), &tv(modif)?.into()).map_err(std::io::Error::from)
 }
 
 #[cfg(all(any(target_os = "wasi", unix), not(target_os = "redox")))]
+#[allow(
+    clippy::useless_conversion,
+    reason = "time_t and long widths differ across targets"
+)]
 pub fn set_file_times_at(
     dir_fd: i32,
     path: &CStr,
-    access: core::time::Duration,
-    modified: core::time::Duration,
+    access: crate::os::FileTime,
+    modified: crate::os::FileTime,
     follow_symlinks: bool,
 ) -> std::io::Result<()> {
-    let ts = |d: core::time::Duration| libc::timespec {
-        tv_sec: d.as_secs() as _,
-        tv_nsec: d.subsec_nanos() as _,
+    let ts = |time: crate::os::FileTime| -> std::io::Result<libc::timespec> {
+        Ok(libc::timespec {
+            tv_sec: time
+                .seconds
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+            tv_nsec: i64::from(time.nanoseconds)
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+        })
     };
-    let times = [ts(access), ts(modified)];
+    let times = [ts(access)?, ts(modified)?];
     let ret = unsafe {
         libc::utimensat(
             dir_fd,
