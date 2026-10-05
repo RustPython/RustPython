@@ -157,11 +157,11 @@ impl PyDict {
                 let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
                     let hash = Self::hash_or_unhashable(&*key, vm)?;
-                    if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
+                    if !override_existing && dict.contains(vm, &*key, hash)? {
                         continue;
                     }
                     let val = other.get_item(&*key, vm)?;
-                    dict.insert_known_hash(vm, &*key, hash, val)?;
+                    dict.insert(vm, &*key, hash, val)?;
                 }
                 true
             }
@@ -266,10 +266,10 @@ impl PyDict {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
             let hash = Self::hash_or_unhashable(&*key, vm)?;
-            if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
+            if !override_existing && dict.contains(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert_known_hash(vm, &*key, hash, value)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         Ok(())
     }
@@ -286,10 +286,10 @@ impl PyDict {
         while let Some((next, key, value, hash)) = dict_other.entries.next_entry_with_hash(position)
         {
             position = next;
-            if !override_existing && dict.contains_known_hash(vm, &*key, hash)? {
+            if !override_existing && dict.contains(vm, &*key, hash)? {
                 continue;
             }
-            dict.insert_known_hash(vm, &*key, hash, value)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
             return Err(vm.new_runtime_error("dict mutated during update"));
@@ -302,16 +302,13 @@ impl PyDict {
     }
 
     /// Hash `key`, turning a hashing failure into the dict-specific
-    /// "cannot use 'X' as a dict key (...)" wording used by CPython.
+    /// "cannot use 'X' as a dict key (...)" wording.
     ///
-    /// The returned hash is threaded into the `*_known_hash` operations, so the
-    /// key is hashed exactly once. This is why the message is produced here
-    /// rather than around the operation: a `TypeError` from key *comparison*
-    /// (e.g. a colliding key's `__eq__`) is raised by the operation itself and
-    /// must propagate unchanged, and hashing up front also means a `__hash__`
-    /// that fails only intermittently is still reported (the old approach
-    /// re-hashed on the error path, so a hash that succeeded the second time
-    /// escaped unwrapped).
+    /// The returned hash is passed into the inner map, so the key is hashed
+    /// exactly once. A `TypeError` from key comparison (e.g. a colliding key's
+    /// `__eq__`) is raised by the operation itself and must propagate unchanged.
+    /// Hashing up front also means a `__hash__` that fails only intermittently
+    /// is still reported.
     fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
         match key.key_hash(vm) {
             Ok(hash) => Ok(hash),
@@ -340,7 +337,7 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let hash = Self::hash_or_unhashable(key, vm)?;
-        self.entries.insert_known_hash(vm, key, hash, value)
+        self.entries.insert(vm, key, hash, value)
     }
 
     pub(crate) fn inner_delitem<K: DictKey + ?Sized>(
@@ -349,7 +346,7 @@ impl PyDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let hash = Self::hash_or_unhashable(key, vm)?;
-        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+        if self.entries.delete_if_exists(vm, key, hash)? {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_pyobject(vm)))
@@ -370,14 +367,16 @@ impl PyDict {
         let entries = DictContentType::default();
 
         for (key, value) in attrs {
-            entries.insert(vm, key, value)?;
+            let hash = key.key_hash(vm)?;
+            entries.insert(vm, key, hash, value)?;
         }
 
         Ok(Self { entries })
     }
 
     pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
-        self.entries.contains(vm, key).unwrap()
+        let hash = key.key_hash(vm).unwrap();
+        self.entries.contains(vm, key, hash).unwrap()
     }
 
     pub fn size(&self) -> dict_inner::DictSize {
@@ -393,7 +392,8 @@ impl PyDict {
         key: &K,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        self.entries.get(vm, key)
+        let hash = Self::hash_or_unhashable(key, vm)?;
+        self.entries.get(vm, key, hash)
     }
 
     /// Keys of `obj` with their stored hashes, or `None` if it must be iterated
@@ -435,7 +435,7 @@ impl PyDict {
 
     fn __contains__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         let hash = Self::hash_or_unhashable(key, vm)?;
-        self.entries.contains_known_hash(vm, key, hash)
+        self.entries.contains(vm, key, hash)
     }
 
     fn __delitem__(&self, key: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -489,7 +489,8 @@ impl PyDict {
             self.merge_object(dict_obj, vm)?;
         }
         for (key, value) in kwargs {
-            self.entries.insert(vm, &key, value)?;
+            let hash = Self::hash_or_unhashable(&key, vm)?;
+            self.entries.insert(vm, &key, hash, value)?;
         }
         Ok(())
     }
@@ -579,9 +580,7 @@ impl Py<PyDict> {
                         pydict.entries.reserve_for_empty(keys.len());
                     }
                     for (key, hash) in keys {
-                        pydict
-                            .entries
-                            .insert_known_hash(vm, &*key, hash, value.clone())?;
+                        pydict.entries.insert(vm, &*key, hash, value.clone())?;
                     }
                 } else {
                     for key in iterable.iter(vm)? {
@@ -613,7 +612,7 @@ impl Py<PyDict> {
     #[pymethod]
     fn get(&self, args: DictGetArgs, vm: &VirtualMachine) -> PyResult {
         let hash = PyDict::hash_or_unhashable(&*args.key, vm)?;
-        let found = self.entries.get_known_hash(vm, &*args.key, hash)?;
+        let found = self.entries.get(vm, &*args.key, hash)?;
         Ok(found.unwrap_or_else(|| args.default.unwrap_or_else(|| vm.ctx.none())))
     }
 
@@ -744,7 +743,7 @@ impl AsSequence for PyDict {
                 let hash = PyDict::hash_or_unhashable(target, vm)?;
                 PyDict::sequence_downcast(seq)
                     .entries
-                    .contains_known_hash(vm, target, hash)
+                    .contains(vm, target, hash)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
@@ -849,7 +848,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let hash = PyDict::hash_or_unhashable(key, vm)?;
-        let found = self.entries.get_known_hash(vm, key, hash)?;
+        let found = self.entries.get(vm, key, hash)?;
         if let Some(value) = found {
             Ok(value)
         } else if let Some(value) = self.missing_opt(key, vm)? {
@@ -900,7 +899,7 @@ impl Py<PyDict> {
         hash: crate::common::hash::PyHash,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        self.entries.get_known_hash(vm, key, hash)
+        self.entries.get(vm, key, hash)
     }
 
     pub(crate) fn set_item_known_hash(
@@ -910,7 +909,7 @@ impl Py<PyDict> {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        self.entries.insert_known_hash(vm, key, hash, value)
+        self.entries.insert(vm, key, hash, value)
     }
 
     pub(crate) fn del_item_known_hash(
@@ -919,7 +918,7 @@ impl Py<PyDict> {
         hash: crate::common::hash::PyHash,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if self.entries.delete_if_exists_known_hash(vm, key, hash)? {
+        if self.entries.delete_if_exists(vm, key, hash)? {
             Ok(())
         } else {
             Err(vm.new_key_error(key.to_owned()))
@@ -932,7 +931,7 @@ impl Py<PyDict> {
         hash: crate::common::hash::PyHash,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.entries.contains_known_hash(vm, key, hash)
+        self.entries.contains(vm, key, hash)
     }
 
     pub fn get_item_opt<K: DictKey + ?Sized>(
@@ -941,7 +940,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            self.entries.get(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.get(vm, key, hash)
             // Match CPython's exact-dict fast path: __missing__ only participates
             // for dict subclasses through the generic mapping lookup path below.
         } else {
@@ -962,7 +962,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<u16>> {
         if self.exact_dict(vm) {
-            self.entries.hint_for_key(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.hint_for_key(vm, key, hash)
         } else {
             Ok(None)
         }
@@ -993,7 +994,8 @@ impl Py<PyDict> {
             if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
                 return Ok(Some((value, None)));
             }
-            self.entries.get_with_hint(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.get_with_hint(vm, key, hash)
         } else {
             Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
         }
@@ -1011,8 +1013,9 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<u16>> {
         if self.exact_dict(vm) {
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
             self.entries
-                .insert_with_hint(vm, key, usize::from(hint), value)
+                .insert_with_hint(vm, key, hash, usize::from(hint), value)
         } else {
             self.as_object().set_item(key, value, vm)?;
             Ok(None)
@@ -1101,7 +1104,8 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         if self.exact_dict(vm) {
-            self.entries.remove_if_exists(vm, key)
+            let hash = PyDict::hash_or_unhashable(key, vm)?;
+            self.entries.remove_if_exists(vm, key, hash)
         } else {
             let value = self.as_object().get_item(key, vm)?;
             self.as_object().del_item(key, vm)?;
@@ -1136,8 +1140,9 @@ impl PyExact<PyDict> {
         key: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
+        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
         self.entries
-            .move_to_end(vm, &*key)?
+            .move_to_end(vm, &*key, hash)?
             .ok_or_else(|| vm.new_key_error(key))
     }
 
@@ -1151,7 +1156,8 @@ impl PyExact<PyDict> {
     ) -> PyResult<Option<PyObjectRef>> {
         debug_assert!(self.class().is(vm.ctx.types.dict_type));
         debug_assert!(other.class().is(vm.ctx.types.dict_type));
-        self.entries.get_chain(&other.entries, vm, key)
+        let hash = PyDict::hash_or_unhashable(key, vm)?;
+        self.entries.get_chain(&other.entries, vm, key, hash)
     }
 }
 
@@ -1723,10 +1729,11 @@ impl AsSequence for PyDictKeys {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).__len__())),
             contains: atomic_func!(|seq, target, vm| {
+                let hash = PyDict::hash_or_unhashable(target, vm)?;
                 PyDictKeys::sequence_downcast(seq)
                     .dict
                     .entries
-                    .contains(vm, target)
+                    .contains(vm, target, hash)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

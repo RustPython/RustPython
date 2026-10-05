@@ -275,8 +275,10 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let result = self
-            .retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle));
+        let result = self.retry_op_with_frozenset(needle, vm, |needle, vm| {
+            let hash = needle.hash(vm)?;
+            self.content.contains(vm, needle, hash)
+        });
         Self::wrap_unhashable_error(result, needle, vm)
     }
 
@@ -287,7 +289,7 @@ impl PySetInner {
         hash: PyHash,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        self.content.contains_known_hash(vm, needle, hash)
+        self.content.contains(vm, needle, hash)
     }
 
     fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
@@ -375,7 +377,7 @@ impl PySetInner {
             && self.len() >> 2 <= dict._as_dict_inner().len()
         {
             return self.difference_by(
-                |key, hash| dict._as_dict_inner().contains_known_hash(vm, key, hash),
+                |key, hash| dict._as_dict_inner().contains(vm, key, hash),
                 vm,
             );
         }
@@ -412,9 +414,7 @@ impl PySetInner {
         if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
             // the source is already duplicate-free
             for (item, hash) in elements {
-                new_inner
-                    .content
-                    .delete_or_insert_known_hash(vm, &item, hash, ())?;
+                new_inner.content.delete_or_insert(vm, &item, hash, ())?;
             }
             return Ok(new_inner);
         }
@@ -423,9 +423,7 @@ impl PySetInner {
         let other_set = Self::from_iter(other.iter(vm)?, vm)?;
 
         for (item, hash) in other_set.content.keys_with_hashes() {
-            new_inner
-                .content
-                .delete_or_insert_known_hash(vm, &item, hash, ())?;
+            new_inner.content.delete_or_insert(vm, &item, hash, ())?;
         }
 
         Ok(new_inner)
@@ -491,25 +489,32 @@ impl PySetInner {
     }
 
     fn add(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert(vm, item, ());
+        let result = (|| {
+            let hash = item.hash(vm)?;
+            self.content.insert(vm, item, hash, ())
+        })();
         Self::wrap_unhashable_error(result, item, vm)
     }
 
     /// [`Self::add`] with a known hash.
     fn add_known_hash(&self, item: &PyObject, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert_known_hash(vm, item, hash, ());
+        let result = self.content.insert(vm, item, hash, ());
         Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn remove(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let result =
-            self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete(vm, item));
+        let result = self.retry_op_with_frozenset(item, vm, |item, vm| {
+            let hash = item.hash(vm)?;
+            self.content.delete(vm, item, hash)
+        });
         Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let result = self
-            .retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item));
+        let result = self.retry_op_with_frozenset(item, vm, |item, vm| {
+            let hash = item.hash(vm)?;
+            self.content.delete_if_exists(vm, item, hash)
+        });
         Self::wrap_unhashable_error(result, item, vm)
     }
 
@@ -598,12 +603,14 @@ impl PySetInner {
             };
             if let Some(elements) = elements {
                 for (item, hash) in elements {
-                    self.content.delete_if_exists_known_hash(vm, &*item, hash)?;
+                    self.content.delete_if_exists(vm, &*item, hash)?;
                 }
                 continue;
             }
             for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &*item?)?;
+                let item = item?;
+                let hash = item.hash(vm)?;
+                self.content.delete_if_exists(vm, &*item, hash)?;
             }
         }
         Ok(())
@@ -618,16 +625,14 @@ impl PySetInner {
             if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
                 // the source is already duplicate-free
                 for (item, hash) in elements {
-                    self.content
-                        .delete_or_insert_known_hash(vm, &item, hash, ())?;
+                    self.content.delete_or_insert(vm, &item, hash, ())?;
                 }
                 continue;
             }
             // We want to remove duplicates in iterable
             let iterable_set = Self::from_iter(iterable.iter(vm)?, vm)?;
             for (item, hash) in iterable_set.content.keys_with_hashes() {
-                self.content
-                    .delete_or_insert_known_hash(vm, &item, hash, ())?;
+                self.content.delete_or_insert(vm, &item, hash, ())?;
             }
         }
         Ok(())
