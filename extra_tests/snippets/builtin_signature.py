@@ -64,3 +64,12 @@ assert round.__text_signature__ == "($module, /, number, ndigits=None)"
 assert sum.__text_signature__ == "($module, iterable, /, start=0)"
 assert str(inspect.signature(round)) == "(number, ndigits=None)"
 assert str(inspect.signature(sum)) == "(iterable, /, start=0)"
+
+# A keyword-only argument between two positional ones used to put `/` after
+# `*`, which inspect cannot parse. Arguments are ordered like CPython's, so
+# path and mode take keywords. Windows renders follow_symlinks differently.
+if hasattr(os, "chmod"):
+    chmod_signature = os.chmod.__text_signature__
+    assert chmod_signature.startswith("($module, /, path, mode, *, dir_fd=None"), (
+        chmod_signature
+    )

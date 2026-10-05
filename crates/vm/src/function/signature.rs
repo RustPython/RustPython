@@ -242,6 +242,7 @@ struct St {
     emitted: bool,
     po_left: usize,
     var_pos_seen: bool,
+    var_kw_seen: bool,
     star_emitted: bool,
 }
 
@@ -255,6 +256,7 @@ const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> 
             emitted: false,
             po_left: count_po_args(args),
             var_pos_seen: false,
+            var_kw_seen: false,
             star_emitted: false,
         },
         args,
@@ -575,6 +577,12 @@ const fn write_one(buf: &mut [u8], mut st: St, param: Param, fallback: &str) -> 
             st = emit_named(buf, st, "", name, param.default);
             st.po_left -= 1;
             if st.po_left == 0 {
+                // Python rejects `/` after `*` or `**`. The Rust arguments put a
+                // keyword or variadic one before a positional one; reorder them.
+                assert!(
+                    !st.star_emitted && !st.var_pos_seen && !st.var_kw_seen,
+                    "positional-only parameter after `*` or `**`: reorder the Rust arguments"
+                );
                 st = emit_text(buf, st, "/");
             }
             st
@@ -591,7 +599,10 @@ const fn write_one(buf: &mut [u8], mut st: St, param: Param, fallback: &str) -> 
             st.var_pos_seen = true;
             emit_named(buf, st, "*", name, param.default)
         }
-        ParamKind::VarKeyword => emit_named(buf, st, "**", name, param.default),
+        ParamKind::VarKeyword => {
+            st.var_kw_seen = true;
+            emit_named(buf, st, "**", name, param.default)
+        }
     }
 }
 
@@ -631,6 +642,7 @@ mod tests {
                 emitted: false,
                 po_left: 0,
                 var_pos_seen: false,
+                var_kw_seen: false,
                 star_emitted: true,
             },
             Param {
