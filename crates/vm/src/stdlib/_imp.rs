@@ -193,7 +193,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
         import, version,
     };
@@ -212,6 +212,19 @@ mod _imp {
     #[pyfunction]
     const fn extension_suffixes() -> Vec<PyObjectRef> {
         Vec::new()
+    }
+
+    // CPython removes the name from its pending lazy-module registry here.
+    // RustPython currently performs only eager imports, so that registry is empty.
+    #[pyfunction]
+    fn _set_lazy_attributes(
+        _modobj: PyObjectRef,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Even an empty set checks the hash of a str subclass.
+        name.as_object().hash(vm)?;
+        Ok(())
     }
 
     #[pyfunction]
