@@ -337,7 +337,13 @@ mod _pyexpat {
         }
         let result = handler.call(args, vm)?;
         core::ffi::c_long::try_from_object(vm, result)
-            .map(|value| Some(value as i32))
+            .map(|value| {
+                // Expat callbacks convert C long to int. These types have the
+                // same width on Windows, but differ on 64-bit Unix targets.
+                #[allow(clippy::unnecessary_cast)]
+                let value = value as i32;
+                Some(value)
+            })
             .inspect_err(|error| {
                 let _ = error.add_note(
                     vm.ctx
