@@ -1,0 +1,89 @@
+# CPython 3.15 merged GET_YIELD_FROM_ITER into GET_ITER's argument modes.
+# RustPython retains the old opcode and uses one iterator stack slot, without
+# CPython's virtual-iterator index/null slot or GET_ITER inline cache.
+[GetYieldFromIter]
+cpython_name = "GET_ITER"
+cache_entries = 0
+properties.oparg = false
+stack_effect = { popped = "1", pushed = "1" }
+
+[GetIter]
+cache_entries = 0
+stack_effect = { popped = "1", pushed = "1" }
+
+[PopIter]
+stack_effect = { popped = "1", pushed = "0" }
+
+[ForIter]
+stack_effect = { popped = "1", pushed = "2" }
+
+[ForIterList]
+stack_effect = { popped = "1", pushed = "2" }
+
+[ForIterTuple]
+stack_effect = { popped = "1", pushed = "2" }
+
+[ForIterRange]
+stack_effect = { popped = "1", pushed = "2" }
+
+[ForIterGen]
+stack_effect = { popped = "1", pushed = "1" }
+
+[Send]
+stack_effect = { popped = "2", pushed = "2" }
+
+[SendGen]
+stack_effect = { popped = "2", pushed = "1" }
+
+[EndSend]
+stack_effect = { popped = "2", pushed = "1" }
+
+[CleanupThrow]
+stack_effect = { popped = "3", pushed = "2" }
+
+[InstrumentedPopIter]
+stack_effect = { popped = "1", pushed = "0" }
+
+[InstrumentedForIter]
+stack_effect = { popped = "1", pushed = "2" }
+
+[InstrumentedEndFor]
+stack_effect = { popped = "2", pushed = "1" }
+
+[InstrumentedEndSend]
+stack_effect = { popped = "2", pushed = "1" }
+
+# RustPython still quickens LOAD_CONST to these variants. CPython 3.15 removed
+# that family; both variants keep LOAD_CONST's argument, constant and stack flags.
+[LoadConstImmortal]
+cpython_name = "LOAD_CONST"
+deopt = "LoadConst"
+
+[LoadConstMortal]
+cpython_name = "LOAD_CONST"
+deopt = "LoadConst"
+
+# RustPython's super-instructions still consume the following STORE_FAST or
+# POP_TOP, whereas CPython 3.15 leaves a result on the stack.
+[BinaryOpInplaceAddUnicode]
+stack_effect.pushed = "0"
+
+[CallListAppend]
+stack_effect.pushed = "0"
+
+# RustPython invokes __getattribute__ synchronously and pushes its result.
+[LoadAttrGetattributeOverridden]
+stack_effect.pushed = "1"
+
+# RustPython accepts a receiver in self_or_null and uses oparg to count the
+# remaining arguments. CPython's specialization now always consumes four slots.
+[CallIsinstance]
+properties.oparg = true
+stack_effect.popped = "2 + oparg"
+
+# These instructions do not have inline caches in RustPython's bytecode format.
+[CallFunctionEx]
+cache_entries = 0
+
+[Resume]
+cache_entries = 0

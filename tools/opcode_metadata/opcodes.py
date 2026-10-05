@@ -33,10 +33,18 @@ class OpcodeInfo:
 
             for member in family.members:
                 member_name = to_pascal_case(member.name)
-                if member.name == family_name:
+                if member_name == family_name or member_name not in names:
                     continue
 
-                res[family_name].append(member_name)
+                if member_name not in res[family_name]:
+                    res[family_name].append(member_name)
+
+        for opcode in self:
+            if (base := opcode.override.deopt) is not None:
+                if base not in names:
+                    raise ValueError(f"Unknown deoptimization target {base}")
+                if opcode.rust_name not in res[base]:
+                    res[base].append(opcode.rust_name)
 
         return dict(res)
 
@@ -78,7 +86,9 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
         rust_name = opcode.rust_name
         override = override_confs.get(rust_name, SKIP_OVERRIDE)
 
-        cpython_name = opcode.cpython_name
+        cpython_name = override.cpython_name or opcode.cpython_name
+        if override.cpython_name and cpython_name not in analysis.instructions:
+            raise ValueError(f"Unknown CPython instruction {cpython_name}")
 
         kwargs = {}
         if instr := analysis.instructions.get(cpython_name):
@@ -96,6 +106,14 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
                 f"Could not get instruction metadata for {rust_name}"
                 " from CPython or override conf"
             )
+
+        if override.properties:
+            kwargs["properties"] = dataclasses.replace(
+                kwargs.get("properties", SKIP_PROPERTIES), **override.properties
+            )
+        if override.cache_entries is not None:
+            # Instruction.size includes the opcode itself.
+            kwargs["cache_entry"] = override.cache_entries + 1
 
         yield dataclasses.replace(opcode, override=override, **kwargs)
 

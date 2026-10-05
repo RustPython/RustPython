@@ -13,10 +13,16 @@ https://github.com/kornelski/xml-rs
 - Exact source/manifest changes: `patches/amplification.patch`, applicable with
   `patch -p1` from a fresh unpacking of the published archive
 
-The root Cargo manifest overrides `xml` with this directory; its lockfile keeps
-version 1.3.0 and removes the registry source/checksum for that path dependency.
-The local Cargo manifest has an empty workspace table so this dependency can be
-checked separately, without building RustPython.
+The root workspace dependency uses this directory with a version requirement,
+so the accounting changes also apply when RustPython is a path or Git dependency
+of a separate workspace. Its lockfile keeps version 1.3.0 without a registry
+source/checksum. The local Cargo manifest has an empty workspace table so this
+dependency can be checked separately, without building RustPython.
+
+Cargo replaces path dependencies with their version requirements when publishing
+a package to a registry. Before publishing RustPython crates, use a published
+dependency that includes these accounting APIs and semantics; the declared `1.3`
+registry requirement alone does not provide these local changes.
 
 ## Supported accounting
 

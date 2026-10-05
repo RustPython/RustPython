@@ -92,7 +92,9 @@ def main():
 
     # min
     out.write("\n")
-    have_argument = min(opcode.id for opcode in opcodes if opcode.have_argument) - 1
+    # HAVE_ARGUMENT is an inclusive lower bound. Since RustPython retains opcode
+    # numbers when instructions gain arguments, opcode.hasarg is authoritative.
+    have_argument = min(opcode.id for opcode in opcodes if opcode.have_argument)
     out.write(f"HAVE_ARGUMENT = {have_argument}\n")
 
     min_instrumented = min(opcode.id for opcode in opcodes if opcode.is_instrumented)

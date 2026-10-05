@@ -289,7 +289,8 @@ def _resetperms(path):
 # True if TemporaryDirectory._rmtree() can work relative to open directories
 # instead of resolving paths again.
 _rmtree_use_dir_fd = (
-    {_os.chmod, _os.unlink, _os.lstat} <= _os.supports_dir_fd
+    hasattr(_os, 'chmod')  # RustPython: WASI has no chmod syscall.
+    and {_os.chmod, _os.unlink, _os.lstat} <= _os.supports_dir_fd
     and _os.chmod in _os.supports_fd
 )
 

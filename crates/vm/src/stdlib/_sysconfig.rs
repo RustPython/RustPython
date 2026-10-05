@@ -7,11 +7,11 @@ pub(crate) mod _sysconfig {
     #[cfg(windows)]
     #[pyfunction]
     fn get_platform() -> Option<&'static str> {
-        cfg_select! {
-            target_arch = "x86_64" => Some("win-amd64"),
-            target_arch = "aarch64" => Some("win-arm64"),
-            target_arch = "x86" => Some("win32"),
-            target_arch = "arm" => Some("win-arm32"),
+        match std::env::consts::ARCH {
+            "x86_64" => Some("win-amd64"),
+            "aarch64" => Some("win-arm64"),
+            "x86" => Some("win32"),
+            "arm" => Some("win-arm32"),
             _ => None,
         }
     }

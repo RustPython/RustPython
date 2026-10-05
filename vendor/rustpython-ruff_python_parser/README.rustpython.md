@@ -1,8 +1,10 @@
 # RustPython parser backport
 
 This source-only copy of `rustpython-ruff_python_parser` 0.16.5 carries the
-upstream fixes for positive literal patterns in Python 3.15. The workspace's
-`[patch.crates-io]` selects this crate without changing its AST dependencies.
+upstream fixes for positive literal patterns in Python 3.15. The workspace
+dependency uses a path and version so the backports also apply when RustPython
+is a path or Git dependency of a separate workspace. Its AST dependencies are
+unchanged.
 
 ## Source and integrity
 
@@ -46,10 +48,17 @@ and apply each recorded patch from the RustPython root with
 Remove the normalized manifest's `fixtures` and `generate_inline_tests` target
 declarations, and copy the original license from the recorded source revision.
 
+## Registry publication
+
+Cargo replaces path dependencies with their version requirements when publishing
+a package to a registry. Before publishing RustPython crates, replace this local
+copy with a compatible published parser containing both fixes; the declared
+`0.16.5` registry version alone does not contain them.
+
 ## Removing the backport
 
 Once a compatible published RustPython Ruff parser includes both fixes,
-replace this override with that version, remove this directory and its
+replace this path dependency with that version, remove this directory and its
 workspace exclusion, and regenerate the lockfile. RustPython no longer
 suppresses the parser's unary-plus syntax diagnostic; all patterns pass
 through the parser normally. The VM retains its existing policy for which

@@ -579,6 +579,7 @@ impl Interpreter {
         create_subinterpreter_from_parent(parent, config, InterpreterWhence::Stdlib)
     }
 
+    #[cfg(feature = "threading")]
     pub(crate) fn create_subinterpreter_from_vm_with_whence(
         parent: &VirtualMachine,
         config: runtime::InterpreterConfig,

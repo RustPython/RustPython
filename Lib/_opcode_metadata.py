@@ -6,10 +6,6 @@ _specializations = {
     "RESUME": [
         "RESUME_CHECK",
     ],
-    "LOAD_CONST": [
-        "LOAD_CONST_MORTAL",
-        "LOAD_CONST_IMMORTAL",
-    ],
     "TO_BOOL": [
         "TO_BOOL_ALWAYS_TRUE",
         "TO_BOOL_BOOL",
@@ -32,8 +28,8 @@ _specializations = {
         "BINARY_OP_SUBSCR_STR_INT",
         "BINARY_OP_SUBSCR_DICT",
         "BINARY_OP_SUBSCR_GETITEM",
-        "BINARY_OP_EXTEND",
         "BINARY_OP_INPLACE_ADD_UNICODE",
+        "BINARY_OP_EXTEND",
     ],
     "STORE_SUBSCR": [
         "STORE_SUBSCR_DICT",
@@ -120,6 +116,10 @@ _specializations = {
         "CALL_KW_BOUND_METHOD",
         "CALL_KW_PY",
         "CALL_KW_NON_PY",
+    ],
+    "LOAD_CONST": [
+        "LOAD_CONST_IMMORTAL",
+        "LOAD_CONST_MORTAL",
     ],
 }
 
@@ -367,5 +367,5 @@ opmap = {
     'STORE_FAST_MAYBE_NULL': 266,
 }
 
-HAVE_ARGUMENT = 43
+HAVE_ARGUMENT = 16
 MIN_INSTRUMENTED_OPCODE = 234

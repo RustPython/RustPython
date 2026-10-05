@@ -539,7 +539,15 @@ jobs:
         # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
         continue-on-error: true
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # uv provides the exact prerelease pinned in .python-version.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.23"
+          activate-environment: true
+          enable-cache: false
+
+      - name: Verify the CPython reference environment
+        run: python -c "import bz2, ctypes, lzma, pathlib, platform, sqlite3, ssl; expected = pathlib.Path('.python-version').read_text().strip(); actual = platform.python_version(); assert actual == expected, (actual, expected)"
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -551,7 +559,7 @@ jobs:
         run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
-        run: python -m pip install -r requirements.txt && pytest -v
+        run: uv pip install -r requirements.txt && python -m pytest -v
         working-directory: ./extra_tests
 
       - name: Detect available cores
@@ -691,7 +699,12 @@ jobs:
         continue-on-error: true
 
       - name: Clippy
-        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+        run: cargo clippy --locked --keep-going ${{ env.CARGO_ARGS_MOST_FEATS }} --workspace --exclude rustpython-capi --all-targets --bins --examples --tests ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+
+      # Load the C-API crate's RustPython-specific PyO3 configuration.
+      - name: Clippy C API
+        working-directory: crates/capi
+        run: cargo clippy --locked --all-targets -- -Dwarnings
 
   # macOS/Windows clippy uses the same OS-surface filter as cargo check.
   # Force with the run:cross-check label. Check names stay clippy (<os>).
@@ -752,7 +765,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # uv provides the exact prerelease pinned in .python-version.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.23"
+          activate-environment: true
+          enable-cache: false
+
+      - name: Verify the CPython reference environment
+        run: python -c "import bz2, ctypes, lzma, pathlib, platform, sqlite3, ssl; expected = pathlib.Path('.python-version').read_text().strip(); actual = platform.python_version(); assert actual == expected, (actual, expected)"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -918,7 +939,10 @@ jobs:
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
+      # Python hosts Selenium here; the WASM interpreter is the test target.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests

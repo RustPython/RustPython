@@ -6,13 +6,17 @@ import json
 import os
 import pathlib
 import platform
-import pydoc
 import re
 import sys
 import types
 import typing
 import warnings
 from importlib.machinery import EXTENSION_SUFFIXES, ExtensionFileLoader
+
+try:
+    from inspect import _getowndoc
+except ImportError:
+    from pydoc import _getowndoc
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable
@@ -146,7 +150,7 @@ def traverse(
         parts += (obj.__name__,)
 
     if any(f(obj) for f in (inspect.ismodule, inspect.isclass, inspect.isbuiltin)):
-        yield DocEntry(parts, pydoc._getowndoc(obj))
+        yield DocEntry(parts, _getowndoc(obj))
 
     if inspect.isclass(obj):
         # getmembers() shows the class's own metadata for these names (e.g.
@@ -159,7 +163,7 @@ def traverse(
             if isinstance(
                 attr, (types.GetSetDescriptorType, types.MemberDescriptorType)
             ):
-                yield DocEntry(parts + (name,), pydoc._getowndoc(attr))
+                yield DocEntry(parts + (name,), _getowndoc(attr))
 
     for name, attr in inspect.getmembers(obj):
         if name in IGNORED_ATTRS:
@@ -211,7 +215,7 @@ def traverse(
         )
 
         if is_callable or is_func:
-            yield DocEntry(new_parts, pydoc._getowndoc(attr))
+            yield DocEntry(new_parts, _getowndoc(attr))
             # A native type the module exposes only through an instance
             # (e.g. the type of sys.flags).
             if (
@@ -283,7 +287,7 @@ def iter_native_on_python_modules(
             if inspect.isclass(attr):
                 yield from traverse(attr, module, parts)
             else:
-                yield DocEntry(parts, pydoc._getowndoc(attr))
+                yield DocEntry(parts, _getowndoc(attr))
 
 
 def find_doc_entries() -> "Iterable[DocEntry]":
@@ -322,7 +326,7 @@ def find_doc_entries() -> "Iterable[DocEntry]":
             module_names.append(typ.__module__)
         for module_name in module_names:
             parts = (module_name, typ.__name__)
-            yield DocEntry(parts, pydoc._getowndoc(typ))
+            yield DocEntry(parts, _getowndoc(typ))
             yield from traverse(typ, __builtins__, parts)
 
 

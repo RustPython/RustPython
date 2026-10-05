@@ -48,8 +48,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # The benchmarks are linked against libpython through the pyo3 dev-dependency.
+      # CodSpeed measures RustPython and skips CPython reference benchmarks.
+      # Use a stable libpython for the pyo3 dev-dependency and runner tooling.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
 
       - name: Restore the machine main last measured on
         # A recording that cannot be fetched is read as "none yet", which the step
