@@ -12664,12 +12664,9 @@ impl<'warnings> Compiler<'warnings> {
         if end.line == start.line {
             end_column = end_column.max(start_column);
         }
-        start.character_offset = start_column
-            .map(OneIndexed::from_zero_indexed)
-            .unwrap_or(ir::MISSING_COLUMN);
-        end.character_offset = end_column
-            .map(OneIndexed::from_zero_indexed)
-            .unwrap_or(ir::MISSING_COLUMN);
+        start.character_offset =
+            start_column.map_or(ir::MISSING_COLUMN, OneIndexed::from_zero_indexed);
+        end.character_offset = end_column.map_or(ir::MISSING_COLUMN, OneIndexed::from_zero_indexed);
         EmissionSourceRange {
             range: loc_range,
             locations: Some((start, end)),

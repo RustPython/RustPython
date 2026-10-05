@@ -104,6 +104,9 @@ pub struct MonitoringState {
     pub global_events: [u32; TOOL_LIMIT],
     pub local_events: HashMap<(usize, usize), u32>,
     pub callbacks: HashMap<(usize, usize), PyObjectRef>,
+    // Legacy BRANCH callbacks also check whether the source instruction was
+    // disabled. Direct BRANCH_LEFT/RIGHT registrations bypass that check.
+    legacy_branch_callbacks: HashSet<(usize, usize)>,
     /// Per-instruction disabled tools: (code_id, offset, event, tool)
     pub disabled: HashSet<(usize, usize, usize, usize)>,
     /// Cached MISSING sentinel singleton
@@ -121,6 +124,7 @@ impl Default for MonitoringState {
             global_events: [0; TOOL_LIMIT],
             local_events: HashMap::new(),
             callbacks: HashMap::new(),
+            legacy_branch_callbacks: HashSet::new(),
             disabled: HashSet::new(),
             missing: None,
             disable: None,
@@ -652,6 +656,9 @@ fn clear_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
             .local_events
             .retain(|(local_tool, _), _| *local_tool != tool);
         state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
+        state
+            .legacy_branch_callbacks
+            .retain(|(cb_tool, _)| *cb_tool != tool);
         state.disabled.retain(|&(_, _, _, t)| t != tool);
     }
     update_events_mask(vm, &state);
@@ -671,6 +678,9 @@ fn free_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
             .local_events
             .retain(|(local_tool, _), _| *local_tool != tool);
         state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
+        state
+            .legacy_branch_callbacks
+            .retain(|(cb_tool, _)| *cb_tool != tool);
         state.disabled.retain(|&(_, _, _, t)| t != tool);
         state.tool_names[tool] = None;
     }
@@ -703,18 +713,29 @@ fn register_callback(
     let branch_id = MonitoringEvent::Branch as usize;
     let branch_left_id = MonitoringEvent::BranchLeft as usize;
     let branch_right_id = MonitoringEvent::BranchRight as usize;
+    state.legacy_branch_callbacks.remove(&(tool, event_id));
     if !vm.is_none(&func) {
         state.callbacks.insert((tool, event_id), func.clone());
         // BRANCH is a composite event: also register for BRANCH_LEFT/RIGHT
         if event_id == branch_id {
             state.callbacks.insert((tool, branch_left_id), func.clone());
             state.callbacks.insert((tool, branch_right_id), func);
+            state.legacy_branch_callbacks.insert((tool, branch_left_id));
+            state
+                .legacy_branch_callbacks
+                .insert((tool, branch_right_id));
         }
     } else {
         // Also clear BRANCH_LEFT/RIGHT when clearing BRANCH
         if event_id == branch_id {
             state.callbacks.remove(&(tool, branch_left_id));
             state.callbacks.remove(&(tool, branch_right_id));
+            state
+                .legacy_branch_callbacks
+                .remove(&(tool, branch_left_id));
+            state
+                .legacy_branch_callbacks
+                .remove(&(tool, branch_right_id));
         }
     }
     Ok(prev)
@@ -825,11 +846,6 @@ thread_local! {
     /// Re-entrancy guard: prevents monitoring callbacks from triggering
     /// additional monitoring events (which would cause infinite recursion).
     static FIRING: Cell<bool> = const { Cell::new(false) };
-
-    /// Tracks whether a RERAISE event has been fired since the last
-    /// EXCEPTION_HANDLED. Used to suppress duplicate RERAISE from
-    /// cleanup handlers that chain through multiple exception table entries.
-    static RERAISE_PENDING: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Fire an event for all tools that have the event bit set.
@@ -883,6 +899,23 @@ fn fire(
                 continue;
             }
             if let Some(cb) = state.callbacks.get(&(tool, event_id)) {
+                if state.legacy_branch_callbacks.contains(&(tool, event_id)) {
+                    // A legacy BRANCH callback suppresses events whose source
+                    // instruction was already disabled. A conditional's left
+                    // edge lives in NOT_TAKEN, so disabling that edge alone
+                    // does not disable the source conditional instruction.
+                    let source_opcode = code.code.instructions.read_op(offset as usize / 2);
+                    if event_for_opcode(source_opcode, 0).is_some_and(|source_event| {
+                        state.disabled.contains(&(
+                            code_id,
+                            offset as usize,
+                            source_event as usize,
+                            tool,
+                        ))
+                    }) {
+                        continue;
+                    }
+                }
                 cbs.push((tool, cb.clone()));
             }
         }
@@ -1110,29 +1143,19 @@ pub(crate) fn fire_raise(
     )
 }
 
-/// Only fires if no RERAISE has been fired since the last EXCEPTION_HANDLED,
-/// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    if RERAISE_PENDING.with(|f| f.get()) {
-        return Ok(());
-    }
-    RERAISE_PENDING.with(|f| f.set(true));
-    let result = fire(
+    fire(
         vm,
         MonitoringEvent::Reraise,
         code,
         offset,
         &[vm.ctx.new_int(offset).into(), exception.to_owned()],
-    );
-    if result.is_err() {
-        RERAISE_PENDING.with(|f| f.set(false));
-    }
-    result
+    )
 }
 
 pub(crate) fn fire_exception_handled(
@@ -1141,7 +1164,6 @@ pub(crate) fn fire_exception_handled(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
     fire(
         vm,
         MonitoringEvent::ExceptionHandled,
@@ -1157,7 +1179,6 @@ pub(crate) fn fire_py_unwind(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
     fire(
         vm,
         MonitoringEvent::PyUnwind,

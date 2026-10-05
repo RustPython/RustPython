@@ -17,7 +17,7 @@ mod decl {
     use crate::builtins::PyBaseExceptionRef;
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyFloat, PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
@@ -35,6 +35,7 @@ mod decl {
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
     use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
+    use num_traits::ToPrimitive;
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -129,21 +130,48 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = object.class().name().to_owned();
-        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_bytes() == b"negative duration"
-            {
-                return vm.new_value_error("sleep length must be non-negative");
+        let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
+        // _PyTime_FromSecondsObject uses __index__ before __float__ and bounds
+        // the converted value to signed 64-bit nanoseconds.
+        let nanoseconds = if object.number().is_index() {
+            let seconds = object.try_index(vm).map_err(|err| {
+                if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    overflow()
+                } else {
+                    err
+                }
+            })?;
+            seconds
+                .as_bigint()
+                .to_i64()
+                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
+                .ok_or_else(overflow)?
+        } else {
+            // PyFloat_AsDouble bypasses __float__ overrides on float subclasses.
+            let seconds = match object.downcast_ref::<PyFloat>() {
+                Some(float) => float.to_f64(),
+                None => object.try_float(vm)?.to_f64(),
+            };
+            if seconds.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
-            if e.class().is(vm.ctx.exceptions.type_error) {
-                return vm.new_type_error(format!(
-                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
-                ));
+            let nanoseconds = seconds * SEC_TO_NS as f64;
+            // _PyTime_ROUND_TIMEOUT rounds away from zero.
+            let nanoseconds = if nanoseconds >= 0.0 {
+                nanoseconds.ceil()
+            } else {
+                nanoseconds.floor()
+            };
+            let bound = -(i64::MIN as f64);
+            if !(-bound..bound).contains(&nanoseconds) {
+                return Err(overflow());
             }
-            e
-        })?;
+            nanoseconds as i64
+        };
+        if nanoseconds < 0 {
+            return Err(vm.new_value_error("sleep length must be non-negative"));
+        }
+        let dur = Duration::from_nanos(nanoseconds as u64);
 
         #[cfg(unix)]
         {

@@ -4636,64 +4636,70 @@ impl ExecutingFrame<'_> {
 
                 let dict: &Py<PyDict> = unsafe { dict_ref.downcast_unchecked_ref() };
 
-                // Get callable for error messages
-                // Stack: [callable, self_or_null, args_tuple, kwargs_dict]
-                let callable = self.nth_value(idx + 2);
-                let func_str = Self::object_function_str(callable, vm);
-
-                // Fast path: source is an exact dict (not a subclass, which may
-                // override `keys`/`__getitem__`). Iterate its entries natively
-                // instead of going through the mapping protocol, mirroring
-                // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
-                let source = if source.class().is(vm.ctx.types.dict_type) {
-                    let src_dict = source
-                        .downcast_ref::<PyDict>()
-                        .expect("exact dict must have a PyDict payload");
-                    // Preserve stored hashes: copying an exact dict must not call
-                    // a key's __hash__ before the callable receives its arguments.
-                    // Snapshot under one lock before any equality callbacks run.
-                    for (key, value, hash) in src_dict.entries.items_with_hashes() {
-                        if dict.contains_known_hash(&key, hash, vm)? {
-                            let key_str = key.str(vm)?;
-                            return Err(vm.new_type_error(format!(
-                                "{} got multiple values for keyword argument '{}'",
-                                func_str,
-                                key_str.as_wtf8()
-                            )));
+                let merge_result = (|| -> PyResult<Option<PyObjectRef>> {
+                    // Fast path: source is an exact dict (not a subclass, which may
+                    // override `keys`/`__getitem__`). Iterate its entries natively
+                    // instead of going through the mapping protocol, mirroring
+                    // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
+                    if source.class().is(vm.ctx.types.dict_type) {
+                        let src_dict = source
+                            .downcast_ref::<PyDict>()
+                            .expect("exact dict must have a PyDict payload");
+                        // Preserve stored hashes: copying an exact dict must not call
+                        // a key's __hash__ before the callable receives its arguments.
+                        // Snapshot under one lock before any equality callbacks run.
+                        for (key, value, hash) in src_dict.entries.items_with_hashes() {
+                            if dict.contains_known_hash(&key, hash, vm)? {
+                                return Ok(Some(key));
+                            }
+                            dict.set_item_known_hash(&key, hash, value, vm)?;
                         }
-                        dict.set_item_known_hash(&key, hash, value, vm)?;
+                        return Ok(None);
                     }
-                    return Ok(None);
-                } else {
-                    source
-                };
 
-                // Check if source is a mapping
-                if vm
-                    .get_method(source.clone(), vm.ctx.intern_str("keys"))
-                    .is_none()
-                {
-                    return Err(vm.new_type_error(format!(
-                        "Value after ** must be a mapping, not {}",
-                        source.class().fully_qualified_name(vm)?
-                    )));
-                }
+                    // Merge keys, checking for duplicates.
+                    let keys = source.mapping_unchecked().keys(vm)?;
+                    let keys_iter = PyIter::try_from_object(vm, keys)?;
+                    while let PyIterReturn::Return(key) = keys_iter.next(vm)? {
+                        if dict.entries.contains(vm, &*key)? {
+                            return Ok(Some(key));
+                        }
+                        let value = source.get_item(&*key, vm)?;
+                        dict.set_item(&*key, value, vm)?;
+                    }
+                    Ok(None)
+                })();
 
-                // Merge keys, checking for duplicates
-                let keys_iter = vm.call_method(&source, "keys", ())?;
-                for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
-                    if dict.entries.contains(vm, &*key)? {
+                match merge_result {
+                    Ok(Some(key)) => {
+                        // Stack: [callable, self_or_null, args_tuple, kwargs_dict]
+                        let callable = self.nth_value(idx + 2);
+                        let func_str = Self::object_function_str(callable, vm);
                         let key_str = key.str(vm)?;
-                        return Err(vm.new_type_error(format!(
+                        Err(vm.new_type_error(format!(
                             "{} got multiple values for keyword argument '{}'",
                             func_str,
                             key_str.as_wtf8()
-                        )));
+                        )))
                     }
-                    let value = vm.call_method(&source, "__getitem__", (key.clone(),))?;
-                    dict.set_item(&*key, value, vm)?;
+                    Ok(None) => Ok(None),
+                    Err(error) if error.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                        // Only missing keys make this a non-mapping. Preserve callback
+                        // errors, chaining a failed recheck as _PyEval_FormatKwargsError does.
+                        match vm.get_attribute_opt(&source, identifier!(vm, keys)) {
+                            Ok(None) => Err(vm.new_type_error(format!(
+                                "Value after ** must be a mapping, not {}",
+                                source.class().fully_qualified_name(vm)?
+                            ))),
+                            Ok(Some(_)) => Err(error),
+                            Err(lookup_error) => {
+                                lookup_error.set_context(Some(error));
+                                Err(lookup_error)
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
                 }
-                Ok(None)
             }
             Instruction::EndAsyncFor => {
                 // Pops (awaitable, exc) from stack.
@@ -8808,9 +8814,6 @@ impl ExecutingFrame<'_> {
             tuple.as_slice().to_vec()
         } else {
             // Single *arg passed directly; convert to sequence at runtime.
-            // Stack: [callable, self_or_null]
-            let callable = self.nth_value(1);
-            let func_str = Self::object_function_str(callable, vm);
             let not_iterable = args_obj.class().slots().iter.load().is_none()
                 && args_obj
                     .get_class_attr(vm.ctx.intern_str("__getitem__"))
@@ -8818,8 +8821,7 @@ impl ExecutingFrame<'_> {
             args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
                 if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                     vm.new_type_error(format!(
-                        "{} argument after * must be an iterable, not {}",
-                        func_str,
+                        "Value after * must be an iterable, not {}",
                         args_obj.class().slot_name()
                     ))
                 } else {
@@ -8890,7 +8892,12 @@ impl ExecutingFrame<'_> {
             )));
         };
 
-        let keys = PyIter::try_from_object(vm, keys_method?.call((), vm)?)?;
+        let keys = mapping.mapping_unchecked().collect_method_output(
+            identifier!(vm, keys),
+            keys_method?.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             let value = mapping.get_item(&*key, vm)?;
             key_handler(key, value)?;

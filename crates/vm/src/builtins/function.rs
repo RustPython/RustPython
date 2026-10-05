@@ -182,7 +182,7 @@ impl PyFunction {
         globals: PyAnyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
+        let name = PyMutex::new(code.co_name());
         let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals
             .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
@@ -207,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,

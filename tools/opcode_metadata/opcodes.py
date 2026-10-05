@@ -84,6 +84,18 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
         opcode = Opcode.from_str(entry)
 
         rust_name = opcode.rust_name
+        # Shared opcodes must use the target CPython's wire-format IDs. Checking
+        # the original name leaves explicitly retained RustPython-only opcodes
+        # free to use vacant slots, even when their metadata aliases a base op.
+        expected_id = analysis.opmap.get(opcode.cpython_name)
+        if expected_id is not None and opcode.id != expected_id:
+            raise ValueError(
+                f"{rust_name} has opcode ID {opcode.id}; CPython requires {expected_id}"
+            )
+        if expected_id is None and opcode.id in analysis.opmap.values():
+            raise ValueError(
+                f"RustPython-only opcode {rust_name} collides with CPython ID {opcode.id}"
+            )
         override = override_confs.get(rust_name, SKIP_OVERRIDE)
 
         cpython_name = override.cpython_name or opcode.cpython_name

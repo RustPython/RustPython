@@ -127,7 +127,7 @@ pub use libc::MADV_SOFT_OFFLINE;
 #[cfg(target_os = "freebsd")]
 pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
-pub use libc::EOVERFLOW;
+pub use libc::{EBADF, EOVERFLOW};
 
 #[cfg(windows)]
 use crate::windows::{CheckWin32Bool, HandleToOwned};
@@ -459,13 +459,34 @@ pub fn map_anon(size: usize) -> io::Result<MappedFile> {
 }
 
 #[cfg(unix)]
+pub fn duplicate_descriptor(fd: i32) -> io::Result<crt_fd::Owned> {
+    // Python supplies an arbitrary integer, so validate it through fcntl before
+    // constructing a Rust descriptor. Only the successful duplicate is owned.
+    let new_fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if new_fd != -1 {
+        return Ok(unsafe { crt_fd::Owned::from_raw(new_fd) });
+    }
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() != Some(libc::EINVAL) {
+        return Err(err);
+    }
+    // Older kernels may not support F_DUPFD_CLOEXEC.
+    let new_fd = unsafe { libc::dup(fd) };
+    if new_fd == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let new_fd = unsafe { crt_fd::Owned::from_raw(new_fd) };
+    posix::set_inheritable(new_fd.borrow().into(), false)?;
+    Ok(new_fd)
+}
+
+#[cfg(unix)]
 pub fn map_file(
-    fd: crt_fd::Borrowed<'_>,
+    new_fd: crt_fd::Owned,
     offset: i64,
     size: usize,
     access: AccessMode,
 ) -> io::Result<(crt_fd::Owned, MappedFile)> {
-    let new_fd: crt_fd::Owned = posix::dup_noninheritable(fd.into())?.into();
     let mut mmap_opt = MmapOptions::new();
     let mmap_opt = mmap_opt.offset(offset as u64).len(size);
 

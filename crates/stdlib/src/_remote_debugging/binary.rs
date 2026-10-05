@@ -27,7 +27,7 @@ impl From<io::Error> for Error {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
+type Result<T> = core::result::Result<T, Error>;
 
 fn invalid(message: impl Into<String>) -> Error {
     Error::Value(message.into())

@@ -427,17 +427,35 @@ mod mmap {
                 }
             };
 
-            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+            let anonymous = fd == -1 || _flags & host_mmap::MAP_ANONYMOUS != 0;
+            let fd = if fd == -1 {
+                None
+            } else {
+                match host_mmap::duplicate_descriptor(fd) {
+                    Ok(fd) => Some(fd),
+                    // Anonymous mappings ignore the supplied descriptor when
+                    // trackfd=False, including invalid descriptor integers.
+                    Err(err)
+                        if anonymous
+                            && !trackfd
+                            && err.raw_os_error() == Some(host_mmap::EBADF) =>
+                    {
+                        None
+                    }
+                    Err(err) => return Err(err.to_pyexception(vm)),
+                }
+            };
 
             // macOS: Issue #11277: fsync(2) is not enough on OS X - a special, OS X specific
             // fcntl(2) is necessary to force DISKSYNC and get around mmap(2) bug
             #[cfg(target_os = "macos")]
-            if let Ok(fd) = fd {
-                host_mmap::prepare_file_mapping(fd);
+            if let Some(fd) = &fd {
+                host_mmap::prepare_file_mapping(fd.borrow());
             }
 
-            if let Ok(fd) = fd {
-                let file_len = host_mmap::file_len(fd).map_err(|err| err.to_pyexception(vm))?;
+            if let Some(fd) = &fd {
+                let file_len =
+                    host_mmap::file_len(fd.borrow()).map_err(|err| err.to_pyexception(vm))?;
 
                 if map_size == 0 {
                     if file_len == 0 {
@@ -457,7 +475,10 @@ mod mmap {
             }
 
             let (fd, mmap) = || -> std::io::Result<_> {
-                if let Ok(fd) = fd {
+                if anonymous {
+                    let mmap = host_mmap::map_anon(map_size)?;
+                    Ok((fd, mmap))
+                } else if let Some(fd) = fd {
                     let (new_fd, mmap) = host_mmap::map_file(
                         fd,
                         offset,
@@ -471,8 +492,7 @@ mod mmap {
                     )?;
                     Ok((Some(new_fd), mmap))
                 } else {
-                    let mmap = host_mmap::map_anon(map_size)?;
-                    Ok((None, mmap))
+                    unreachable!("non-anonymous mappings have a duplicated descriptor")
                 }
             }()
             .map_err(|e| e.to_pyexception(vm))?;
@@ -481,7 +501,7 @@ mod mmap {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
                 #[cfg(target_os = "linux")]
-                anonymous: fd.is_none(),
+                anonymous,
                 #[cfg(target_os = "linux")]
                 private: flags & MAP_PRIVATE != 0,
                 fd: AtomicCell::new(if trackfd {

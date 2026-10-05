@@ -15,7 +15,8 @@ mod _remote_debugging {
         host_env::fs as host_fs,
         types::{Constructor, PyStructSequence},
     };
-    use std::{fs::File, sync::Arc};
+    use alloc::sync::Arc;
+    use std::fs::File;
 
     #[pyattr]
     const THREAD_STATUS_HAS_GIL: u8 = 1;
@@ -548,8 +549,8 @@ mod _remote_debugging {
             ] {
                 dict.set_item(name, value.to_pyobject(vm), vm)?;
             }
-            let [major, minor, micro] = reader.python_version;
-            dict.set_item("python_version", (major, minor, micro).to_pyobject(vm), vm)?;
+            let python_version: (u8, u8, u8) = reader.python_version.into();
+            dict.set_item("python_version", python_version.to_pyobject(vm), vm)?;
             dict.set_item("mode", reader.mode.to_pyobject(vm), vm)?;
             dict.set_item("capture_features", reader.features.to_pyobject(vm), vm)?;
             for (name, value) in [

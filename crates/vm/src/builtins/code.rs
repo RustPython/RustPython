@@ -395,10 +395,14 @@ pub struct PyCode {
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
     #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
-    #[pymember(name = "co_name", path = "obj_name")]
-    #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
+    // Keep the Python objects as well as the core's interned spellings: code
+    // construction accepts str subclasses with their own equality and hash.
+    #[pymember(name = "co_name")]
+    name: PyStrRef,
+    #[pymember(name = "co_qualname")]
+    qualified_name: PyStrRef,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
     /// merged cell variables.
@@ -565,6 +569,8 @@ impl PyCode {
             i += 1 + unit.op.deoptimize().cache_entries();
         }
         Self {
+            name: code.obj_name.to_owned(),
+            qualified_name: code.qualname.to_owned(),
             code,
             localsplus_names,
             source_path: AtomicPtr::new(sp),
@@ -761,7 +767,7 @@ impl Comparable for PyCode {
             let other = class_or_notimplemented!(Self, other);
             let a = &zelf.code;
             let b = &other.code;
-            let eq = a.obj_name == b.obj_name
+            let eq = vm.bool_eq(zelf.name.as_object(), other.name.as_object())?
                 && a.arg_count == b.arg_count
                 && a.posonlyarg_count == b.posonlyarg_count
                 && a.kwonlyarg_count == b.kwonlyarg_count
@@ -800,7 +806,7 @@ impl Hashable for PyCode {
         let code = &zelf.code;
         // Hash a tuple of key attributes, matching CPython's code_hash
         let tuple = vm.ctx.new_tuple(vec![
-            vm.ctx.new_str(code.obj_name.as_str()).into(),
+            zelf.name.clone().into(),
             vm.ctx.new_int(code.arg_count).into(),
             vm.ctx.new_int(code.posonlyarg_count).into(),
             vm.ctx.new_int(code.kwonlyarg_count).into(),
@@ -984,11 +990,32 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(Self::new_for_vm(vm, code))
+        let mut code = Self::new_for_vm(vm, code);
+        code.preserve_name_subclasses(args.name, args.qualname);
+        Ok(code)
     }
 }
 
 impl PyCode {
+    fn preserve_name_subclasses(&mut self, name: PyStrRef, qualname: PyStrRef) {
+        // Exact strings retain the interned objects initialized by `new`.
+        // Interning a str subclass would discard its identity and behavior.
+        if !name.class().is(super::PyStr::static_type()) {
+            self.name = name;
+        }
+        if !qualname.class().is(super::PyStr::static_type()) {
+            self.qualified_name = qualname;
+        }
+    }
+
+    pub(crate) fn co_name(&self) -> PyStrRef {
+        self.name.clone()
+    }
+
+    pub(crate) fn co_qualname(&self) -> PyStrRef {
+        self.qualified_name.clone()
+    }
+
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
@@ -1414,7 +1441,7 @@ impl Py<PyCode> {
 
         let obj_name = match co_name {
             OptionalArg::Present(obj_name) => obj_name,
-            OptionalArg::Missing => self.code.obj_name.to_owned(),
+            OptionalArg::Missing => self.co_name(),
         };
 
         let names = match co_names {
@@ -1440,7 +1467,7 @@ impl Py<PyCode> {
 
         let qualname = match co_qualname {
             OptionalArg::Present(qualname) => qualname,
-            OptionalArg::Missing => self.code.qualname.to_owned(),
+            OptionalArg::Missing => self.co_qualname(),
         };
 
         // Room for one value is always reserved, even where nothing is pushed.
@@ -1547,7 +1574,9 @@ impl Py<PyCode> {
             exceptiontable,
         };
 
-        Ok(PyCode::new_for_vm(vm, new_code))
+        let mut code = PyCode::new_for_vm(vm, new_code);
+        code.preserve_name_subclasses(obj_name, qualname);
+        Ok(code)
     }
 
     #[pymethod]

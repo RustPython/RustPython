@@ -169,7 +169,12 @@ impl PyDict {
         let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
         let has_keys = match keys_result {
             Ok(keys_method) => {
-                let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+                let keys = other.mapping_unchecked().collect_method_output(
+                    identifier!(vm, keys),
+                    keys_method.call((), vm)?,
+                    vm,
+                )?;
+                let keys = PyIter::try_from_object(vm, keys)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
                     let hash = Self::hash_or_unhashable(&*key, vm)?;
                     if !override_existing && dict.contains(vm, &*key, hash)? {

@@ -15,15 +15,15 @@ impl super::Opcode {
     #[inline]
     pub const fn cache_entries(self) -> usize {
         const CACHE_ENTRIES: [u8; 256] = [
-            0, 0, 0, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0,
-            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3,
-            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 0, 0, 4, 4, 1, 1, 1, 1, 4, 4, 4, 1, 1,
-            3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 3, 3, 1, 1, 0, 0,
+            0, 0, 0, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 5, 5, 3,
+            3, 3, 3, 3, 3, 3, 0, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 0, 0, 0, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 4, 4, 1, 1, 1, 0, 0,
+            1, 0, 4, 4, 4, 1, 1, 3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 3, 3, 1, 1, 0, 0, 0,
         ];
 
         CACHE_ENTRIES[self.as_numeric() as usize] as usize
@@ -174,6 +174,7 @@ impl super::Opcode {
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::BinaryOp),
+            None,
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::Call),
@@ -183,6 +184,8 @@ impl super::Opcode {
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
+            None,
+            None,
             Some(super::Opcode::Call),
             Some(super::Opcode::CallKw),
             Some(super::Opcode::CallKw),
@@ -208,6 +211,9 @@ impl super::Opcode {
             Some(super::Opcode::ForIter),
             Some(super::Opcode::ForIter),
             Some(super::Opcode::ForIter),
+            None,
+            None,
+            None,
             Some(super::Opcode::JumpBackward),
             Some(super::Opcode::JumpBackward),
             Some(super::Opcode::LoadAttr),
@@ -223,14 +229,15 @@ impl super::Opcode {
             Some(super::Opcode::LoadAttr),
             Some(super::Opcode::LoadAttr),
             Some(super::Opcode::LoadAttr),
-            Some(super::Opcode::LoadConst),
-            Some(super::Opcode::LoadConst),
             Some(super::Opcode::LoadGlobal),
             Some(super::Opcode::LoadGlobal),
             Some(super::Opcode::LoadSuperAttr),
             Some(super::Opcode::LoadSuperAttr),
             Some(super::Opcode::Resume),
+            None,
+            None,
             Some(super::Opcode::Send),
+            None,
             Some(super::Opcode::StoreAttr),
             Some(super::Opcode::StoreAttr),
             Some(super::Opcode::StoreAttr),
@@ -246,15 +253,8 @@ impl super::Opcode {
             Some(super::Opcode::UnpackSequence),
             Some(super::Opcode::UnpackSequence),
             None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
+            Some(super::Opcode::LoadConst),
+            Some(super::Opcode::LoadConst),
             None,
             None,
             None,
@@ -299,8 +299,7 @@ impl super::Opcode {
     pub const fn has_arg(self) -> bool {
         matches!(
             self,
-            Self::GetIter
-                | Self::BinaryOp
+            Self::BinaryOp
                 | Self::BuildInterpolation
                 | Self::BuildList
                 | Self::BuildMap
@@ -328,6 +327,7 @@ impl super::Opcode {
                 | Self::ExtendedArg
                 | Self::ForIter
                 | Self::GetAwaitable
+                | Self::GetIter
                 | Self::ImportFrom
                 | Self::ImportName
                 | Self::IsOp
@@ -424,8 +424,6 @@ impl super::Opcode {
                 | Self::LoadAttrProperty
                 | Self::LoadAttrSlot
                 | Self::LoadAttrWithHint
-                | Self::LoadConstImmortal
-                | Self::LoadConstMortal
                 | Self::LoadGlobalBuiltin
                 | Self::LoadGlobalModule
                 | Self::LoadSuperAttrAttr
@@ -435,6 +433,8 @@ impl super::Opcode {
                 | Self::UnpackSequenceList
                 | Self::UnpackSequenceTuple
                 | Self::UnpackSequenceTwoTuple
+                | Self::LoadConstImmortal
+                | Self::LoadConstMortal
                 | Self::InstrumentedForIter
                 | Self::InstrumentedJumpForward
                 | Self::InstrumentedPopJumpIfTrue
@@ -626,10 +626,8 @@ impl super::Opcode {
             Self::FormatWithSpec => (1, 2),
             Self::GetAiter => (1, 1),
             Self::GetAnext => (2, 1),
-            Self::GetIter => (2, 1),
-            Self::Reserved => (0, 0),
             Self::GetLen => (2, 1),
-            Self::GetYieldFromIter => (2, 1),
+            Self::Reserved => (0, 0),
             Self::InterpreterExit => (0, 1),
             Self::LoadBuildClass => (1, 0),
             Self::LoadLocals => (1, 0),
@@ -682,6 +680,7 @@ impl super::Opcode {
             Self::ExtendedArg => (0, 0),
             Self::ForIter => (3, 2),
             Self::GetAwaitable => (1, 1),
+            Self::GetIter => (2, 1),
             Self::ImportFrom => (2, 1),
             Self::ImportName => (1, 2),
             Self::IsOp => (1, 2),
@@ -802,8 +801,6 @@ impl super::Opcode {
             Self::LoadAttrProperty => (0, 1),
             Self::LoadAttrSlot => (1 + (oparg & 1), 1),
             Self::LoadAttrWithHint => (1 + (oparg & 1), 1),
-            Self::LoadConstImmortal => (1, 0),
-            Self::LoadConstMortal => (1, 0),
             Self::LoadGlobalBuiltin => (1 + (oparg & 1), 0),
             Self::LoadGlobalModule => (1 + (oparg & 1), 0),
             Self::LoadSuperAttrAttr => (1, 3),
@@ -824,6 +821,9 @@ impl super::Opcode {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
+            Self::GetYieldFromIter => (2, 1),
+            Self::LoadConstImmortal => (1, 0),
+            Self::LoadConstMortal => (1, 0),
             Self::InstrumentedEndFor => (2, 3),
             Self::InstrumentedPopIter => (0, 2),
             Self::InstrumentedEndSend => (1, 3),

@@ -136,6 +136,18 @@ pub enum ParseErrorType {
     InvalidYieldExpressionUsage,
     /// An invalid usage of a starred expression was found.
     InvalidStarredExpressionUsage,
+    /// An unpacked conditional expression is missing parentheses.
+    InvalidConditionalUnpacking { double_starred: bool },
+    /// Only the else branch of a conditional expression is unpacked.
+    InvalidConditionalBranchUnpacking { double_starred: bool },
+    /// Dictionary unpacking is used in a list or generator comprehension.
+    InvalidComprehensionDictUnpacking { generator: bool },
+    /// An unpacked expression is used as a dictionary key.
+    InvalidDictKeyUnpacking { double_starred: bool },
+    /// An unpacked expression is used as a dictionary value.
+    InvalidDictValueUnpacking { double_starred: bool },
+    /// Dictionary unpacking is used outside a dictionary or call argument.
+    InvalidDictUnpacking,
     /// A star pattern was found outside a sequence pattern.
     InvalidStarPatternUsage,
     /// An underscore was used as a binding target in a match pattern.
@@ -260,6 +272,49 @@ impl std::fmt::Display for ParseErrorType {
             ParseErrorType::InvalidLambdaExpressionUsage => {
                 f.write_str("Lambda expression cannot be used here")
             }
+            ParseErrorType::InvalidConditionalUnpacking { double_starred } => {
+                let kind = if *double_starred {
+                    "double starred"
+                } else {
+                    "starred"
+                };
+                write!(
+                    f,
+                    "invalid {kind} expression. Did you forget to wrap the conditional expression in parentheses?"
+                )
+            }
+            ParseErrorType::InvalidConditionalBranchUnpacking { double_starred } => {
+                if *double_starred {
+                    f.write_str(
+                        "cannot use dict unpacking on only part of a conditional expression",
+                    )
+                } else {
+                    f.write_str("cannot unpack only part of a conditional expression")
+                }
+            }
+            ParseErrorType::InvalidComprehensionDictUnpacking { generator } => {
+                let kind = if *generator {
+                    "generator expression"
+                } else {
+                    "list comprehension"
+                };
+                write!(f, "cannot use dict unpacking in {kind}")
+            }
+            ParseErrorType::InvalidDictKeyUnpacking { double_starred }
+            | ParseErrorType::InvalidDictValueUnpacking { double_starred } => {
+                let kind = if *double_starred {
+                    "dict unpacking"
+                } else {
+                    "a starred expression"
+                };
+                let position = if matches!(self, ParseErrorType::InvalidDictKeyUnpacking { .. }) {
+                    "key"
+                } else {
+                    "value"
+                };
+                write!(f, "cannot use {kind} in a dictionary {position}")
+            }
+            ParseErrorType::InvalidDictUnpacking => f.write_str("cannot use dict unpacking here"),
             ParseErrorType::InvalidStarredExpressionUsage => {
                 f.write_str("Starred expression cannot be used here")
             }
