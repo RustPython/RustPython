@@ -200,7 +200,7 @@ mod _imp {
 
     use super::FrozenError;
 
-    // Keep sys.modules entries present while importlib updates shutdown order.
+    // Private exact-dict relocation primitive for future import-cache ordering.
     #[pyfunction]
     fn _dict_move_to_end(
         modules: PyRefExact<PyDict>,
