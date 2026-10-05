@@ -15,7 +15,7 @@ fn format_size(
             .unwrap_or(0usize)
             .checked_mul(10)
             .and_then(|value| value.checked_add((character as u8 - b'0') as usize))
-            .filter(|value| *value <= isize::MAX as usize)
+            .filter(|value| isize::try_from(*value).is_ok())
             .ok_or_else(|| vm.new_value_error("format field too big"))?;
         value = Some(size);
     }
@@ -38,7 +38,7 @@ fn format_type_name(
                 .strip_prefix(module)
                 .is_some_and(|rest| rest.starts_with('.'))
         {
-            name.replace_range(module.len()..module.len() + 1, ":");
+            name.replace_range(module.len()..=module.len(), ":");
         }
     }
     Ok(vm.ctx.new_str(name))
