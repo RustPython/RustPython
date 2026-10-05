@@ -1441,8 +1441,8 @@ mod tests {
 
     #[test]
     fn stack_effects_match_cpython_opcode_metadata() {
-        assert_eq!(Opcode::ForIter.stack_effect_info(0).popped(), 1);
-        assert_eq!(Opcode::ForIter.stack_effect_info(0).pushed(), 2);
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).popped(), 2);
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).pushed(), 3);
         assert_eq!(Opcode::ForIter.stack_effect(0), 1);
         assert_eq!(Opcode::ForIter.stack_effect_jump(0), 1);
 
@@ -1579,6 +1579,7 @@ mod tests {
 
         pub(super) const fn cache_entries(op: Opcode) -> usize {
             match deoptimize(op) {
+                Opcode::Resume | Opcode::GetIter | Opcode::CallFunctionEx => 1,
                 Opcode::StoreSubscr => 1,
                 Opcode::ToBool => 3,
                 Opcode::BinaryOp => 5,

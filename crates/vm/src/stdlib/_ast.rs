@@ -23,7 +23,8 @@ use node::Node;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
 use rustpython_compiler_core::{
-    LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
+    LineIndex, OneIndexed, PositionEncoding, SourceFile as CompilerSourceFile, SourceFileBuilder,
+    SourceLocation,
 };
 
 #[cfg(feature = "parser")]
@@ -54,6 +55,54 @@ mod statement;
 mod string;
 mod type_ignore;
 mod type_parameters;
+
+/// Source text used while converting between Python and Ruff AST nodes.
+/// Bytecode compilation reserves the end of each synthetic line for absent
+/// columns; real column zero must remain distinguishable from missing columns.
+#[derive(Clone)]
+pub(crate) struct SourceFile {
+    file: CompilerSourceFile,
+    missing_column: Option<usize>,
+}
+
+impl From<CompilerSourceFile> for SourceFile {
+    fn from(file: CompilerSourceFile) -> Self {
+        Self {
+            file,
+            missing_column: None,
+        }
+    }
+}
+
+impl core::ops::Deref for SourceFile {
+    type Target = CompilerSourceFile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.file
+    }
+}
+
+impl SourceFile {
+    fn for_ast_compilation(file: CompilerSourceFile) -> Self {
+        // synthetic_source_from_ast_object adds one space beyond the largest
+        // supplied column. Its newline position cannot collide with a real
+        // AST column, including a valid zero-width range at column zero.
+        let missing_column = file.source_text().lines().next().map(str::len);
+        Self {
+            file,
+            missing_column,
+        }
+    }
+
+    fn ast_column(&self, column: i32) -> Column {
+        let column = if column < 0 {
+            self.missing_column.unwrap_or(0) as u32
+        } else {
+            column as u32
+        };
+        Column(TextSize::new(column))
+    }
+}
 
 /// Return the cached singleton instance for an operator/context node type,
 /// or create a new instance if none exists.
@@ -782,7 +831,7 @@ fn excepthandler_range_from_object_unvalidated(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(start_column.max(0) as u32)),
+            column: source_file.ast_column(start_column),
         },
         end: PySourceLocation {
             row: Row(if end_row > 0 {
@@ -790,7 +839,7 @@ fn excepthandler_range_from_object_unvalidated(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(end_column.max(0) as u32)),
+            column: source_file.ast_column(end_column),
         },
     };
 
@@ -852,7 +901,7 @@ fn range_from_object_impl(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(start_col_val.max(0) as u32)),
+            column: source_file.ast_column(start_col_val),
         },
         end: PySourceLocation {
             row: Row(if end_row_val > 0 {
@@ -860,7 +909,7 @@ fn range_from_object_impl(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(end_col_val.max(0) as u32)),
+            column: source_file.ast_column(end_col_val),
         },
     };
 
@@ -1816,7 +1865,9 @@ pub(crate) fn parse<E: From<CompileError>>(
     dont_imply_dedent: bool,
     mut emit_warning: impl FnMut(usize, char) -> Result<(), E>,
 ) -> Result<PyObjectRef, E> {
-    let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), source.to_owned())
+        .finish()
+        .into();
     let mut options = parser::ParseOptions::from(mode);
     let target_version = target_version.unwrap_or(ast::PythonVersion {
         major: crate::version::MAJOR as u8,
@@ -2066,7 +2117,10 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
     let right = source[split_at + 2..].trim();
 
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
-        let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
+        let source_file: SourceFile =
+            SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned())
+                .finish()
+                .into();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version);
         let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
@@ -2101,7 +2155,10 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             return Err(invalid_func_type().into());
         }
         let call_source = format!("{ARG_PREFIX}{inner})");
-        let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
+        let source_file: SourceFile =
+            SourceFileBuilder::new(filename.to_owned(), call_source.clone())
+                .finish()
+                .into();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
             .with_target_version(target_version);
         let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
@@ -2158,7 +2215,10 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             emit_warning(leading_space + inner_start + offset - ARG_PREFIX.len(), ch)
         })?;
     }
-    let return_source_file = SourceFileBuilder::new(filename.to_owned(), right.to_owned()).finish();
+    let return_source_file: SourceFile =
+        SourceFileBuilder::new(filename.to_owned(), right.to_owned())
+            .finish()
+            .into();
     string::emit_format_spec_warnings(
         &[],
         core::slice::from_ref(&returns),
@@ -2171,7 +2231,9 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         returns,
         runtime_argtypes: None,
     };
-    let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), source.to_owned())
+        .finish()
+        .into();
     Ok(func_type.ast_to_object(vm, &source_file))
 }
 
@@ -2450,7 +2512,9 @@ pub(crate) fn preprocess_ast_object(
 ) -> PyResult<PyObjectRef> {
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), text)
+        .finish()
+        .into();
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
@@ -2516,7 +2580,8 @@ pub(crate) fn preprocess_ast_object(
 #[cfg(feature = "codegen")]
 pub(crate) struct RustModFromObject {
     pub ast: ast::Mod,
-    pub source_file: SourceFile,
+    pub source_file: CompilerSourceFile,
+    pub missing_column: Option<usize>,
 }
 
 #[cfg(feature = "codegen")]
@@ -2533,7 +2598,8 @@ pub(crate) fn rust_mod_from_object(
         return Err(vm.new_type_error("expected an AST"));
     }
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
+    let source_file =
+        SourceFile::for_ast_compilation(SourceFileBuilder::new(filename.to_owned(), text).finish());
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
@@ -2549,7 +2615,11 @@ pub(crate) fn rust_mod_from_object(
             return Err(vm.new_runtime_error("this compiler does not handle FunctionTypes"));
         }
     };
-    Ok(RustModFromObject { ast, source_file })
+    Ok(RustModFromObject {
+        ast,
+        source_file: source_file.file,
+        missing_column: source_file.missing_column,
+    })
 }
 
 #[cfg(feature = "codegen")]
@@ -2564,7 +2634,10 @@ pub(crate) fn compile(
     #[cfg(not(feature = "parser"))]
     let _ = module;
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
+    let source_file = SourceFile::for_ast_compilation(
+        SourceFileBuilder::new(filename.to_owned(), text.clone()).finish(),
+    );
+    opts.ast_missing_column = source_file.missing_column;
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
@@ -2642,7 +2715,9 @@ pub(crate) fn compile(
 
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
-    let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
+    let source_file: SourceFile = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned())
+        .finish()
+        .into();
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     Ok(())

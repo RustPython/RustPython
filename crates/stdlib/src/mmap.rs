@@ -189,9 +189,6 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
-        // only read by the NetBSD mremap expansion check
-        #[cfg(target_os = "netbsd")]
-        flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
         offset: i64,
@@ -414,7 +411,7 @@ mod mmap {
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
             #[cfg_attr(
-                not(any(target_os = "linux", target_os = "netbsd")),
+                not(target_os = "linux"),
                 allow(unused_variables)
             )]
             let (flags, _prot, access) = match access {
@@ -495,8 +492,6 @@ mod mmap {
                 } else {
                     -1
                 }),
-                #[cfg(target_os = "netbsd")]
-                flags,
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -800,6 +795,7 @@ mod mmap {
             Ok(m)
         }
 
+        #[cfg(any(target_os = "linux", windows))]
         fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
                 return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
@@ -1108,32 +1104,6 @@ mod mmap {
             zelf.advance_pos(end_pos - pos);
 
             Ok(result)
-        }
-
-        #[cfg(all(unix, not(target_os = "linux")))]
-        #[pymethod]
-        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            let _mmap = zelf.check_valid(vm)?;
-            zelf.check_resizeable(vm)?;
-
-            let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })?;
-
-            // Linux mremap() refuses to grow a shared anonymous mapping, and NetBSD
-            // mremap() returns a mapping whose grown region is not backed.
-            #[cfg(any(target_os = "linux", target_os = "netbsd"))]
-            if zelf.fd.load() == -1
-                && zelf.flags & host_mmap::MAP_PRIVATE == 0
-                && new_size > zelf.size.load() as isize
-            {
-                return Err(vm.new_value_error("mmap: can't expand a shared anonymous mapping"));
-            }
-
-            // TODO: implement using mremap on Linux
-            #[cfg(not(any(target_os = "linux", target_os = "netbsd")))]
-            let _ = new_size;
-            Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
         #[cfg(target_os = "linux")]

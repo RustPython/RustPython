@@ -242,8 +242,15 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter { .. } | Instruction::GetAiter => {
+                    Instruction::GetIter { .. }
+                    | Instruction::GetYieldFromIter
+                    | Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
+                        if !matches!(opcode, Instruction::GetAiter) {
+                            // The index belongs to the iterator for safe f_lineno
+                            // jumps, even when represented by a NULL at runtime.
+                            next_stack = push_value(next_stack, Kind::Iterator as i64);
+                        }
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }

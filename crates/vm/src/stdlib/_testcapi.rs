@@ -3,6 +3,8 @@
 pub(crate) use _testcapi::module_def;
 mod heap;
 mod meth;
+#[cfg(feature = "capi")]
+mod monitoring;
 
 #[pymodule]
 mod _testcapi {
@@ -16,7 +18,10 @@ mod _testcapi {
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
-        super::meth::extend_module(vm, module)
+        super::meth::extend_module(vm, module)?;
+        #[cfg(feature = "capi")]
+        super::monitoring::extend_module(vm, module)?;
+        Ok(())
     }
 
     #[pyattr]

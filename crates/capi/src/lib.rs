@@ -29,6 +29,7 @@ pub mod memoryobject;
 pub mod methodobject;
 pub mod modsupport;
 pub mod moduleobject;
+pub mod monitoring;
 pub mod object;
 pub mod objimpl;
 pub mod osmodule;

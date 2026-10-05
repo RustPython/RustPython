@@ -911,15 +911,14 @@ newtype_oparg!(
 );
 
 impl ResumeContext {
-    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L84)
-    pub const LOCATION_MASK: u32 = 0x3;
+    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.15.0rc3/Include/internal/pycore_opcode_utils.h#L92)
+    pub const LOCATION_MASK: u32 = 0x7;
 
-    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.14.3/Include/internal/pycore_opcode_utils.h#L85)
-    pub const DEPTH1_MASK: u32 = 0x4;
+    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.15.0rc3/Include/internal/pycore_opcode_utils.h#L93)
+    pub const DEPTH1_MASK: u32 = 0x8;
 
-    // Preserve the native suspension/depth encoding while distinguishing the
-    // eager iterator setup that runs before a generator expression is created.
-    pub const GEN_EXPR_START: u32 = 0x8;
+    // Eager iterator setup before a generator expression is created.
+    pub const GEN_EXPR_START: u32 = 0x4;
 
     #[must_use]
     pub const fn new(location: ResumeLocation, is_exception_depth1: bool) -> Self {
@@ -932,14 +931,11 @@ impl ResumeContext {
         Self::from_u32(location.as_u32() | value)
     }
 
-    /// Resume location is determined by the native entry flag or location mask.
+    /// Resume location is encoded in the low three bits.
     #[must_use]
     pub fn location(&self) -> ResumeLocation {
-        if self.as_u32() & Self::GEN_EXPR_START != 0 {
-            return ResumeLocation::AtGenExprStart;
-        }
-        // SAFETY: The mask should return a value that is in range.
-        unsafe { ResumeLocation::try_from(self.as_u32() & Self::LOCATION_MASK).unwrap_unchecked() }
+        ResumeLocation::try_from(self.as_u32() & Self::LOCATION_MASK)
+            .expect("invalid RESUME location")
     }
 
     /// True if the bit at [`Self::DEPTH1_MASK`] is on.

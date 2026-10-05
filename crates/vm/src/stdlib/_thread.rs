@@ -135,11 +135,26 @@ pub(crate) mod _thread {
                 Err(vm.new_python_finalization_error(
                     "cannot acquire lock at interpreter finalization",
                 ))
-            } else if timeout == -1.0 {
-                vm.allow_threads(|| mu.lock());
-                Ok(true)
             } else {
-                Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
+                // parking_lot waits do not return when an OS signal arrives.
+                // Periodically re-enter the VM so handlers can interrupt both
+                // timed and indefinite acquisitions without extending a timeout.
+                let started = std::time::Instant::now();
+                let timeout = (timeout != -1.0).then(|| Duration::from_secs_f64(timeout));
+                loop {
+                    vm.check_signals()?;
+                    let interval = Duration::from_millis(50);
+                    let wait = match timeout {
+                        Some(timeout) => match timeout.checked_sub(started.elapsed()) {
+                            Some(remaining) if !remaining.is_zero() => remaining.min(interval),
+                            _ => break Ok(false),
+                        },
+                        None => interval,
+                    };
+                    if vm.allow_threads(|| mu.try_lock_for(wait)) {
+                        break Ok(true);
+                    }
+                }
             }
         }};
     }

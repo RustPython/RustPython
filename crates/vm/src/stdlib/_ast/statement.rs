@@ -1,10 +1,10 @@
+use super::SourceFile;
 use super::*;
 use crate::stdlib::_ast::argument::{
     KeywordArguments, PositionalArguments, merge_class_def_args, split_class_def_args,
 };
 use crate::stdlib::_ast::exception::except_handler_from_object_unvalidated_range;
 use crate::stdlib::_ast::type_parameters::type_params_from_field;
-use rustpython_compiler_core::SourceFile;
 
 fn runtime_decorator_expr_list(values: &[Option<ast::Decorator>]) -> Vec<Option<ast::Expr>> {
     values

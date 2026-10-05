@@ -556,7 +556,34 @@ jobs:
 
       # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
-        run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
+        run: cargo build --locked --release --verbose --features=threading,jit,capi ${{ env.CARGO_ARGS }}
+        env:
+          PYO3_CONFIG_FILE: ${{ github.workspace }}/crates/capi/pyo3-rustpython.config
+          PYO3_NO_PYTHON: "1"
+
+      - name: Record Windows timestamp compatibility
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python - <<'PYTIME'
+          import json, subprocess, sys
+          code = """
+          import datetime, json, time
+          rows = []
+          for timestamp in (-1, -2147483649, -11644473600, -11644473601, 2**40):
+              for name in ('localtime', 'gmtime'):
+                  try:
+                      value = getattr(time, name)(timestamp)
+                      result = [list(value), value.tm_zone, value.tm_gmtoff]
+                  except Exception as error:
+                      result = [type(error).__name__, str(error), getattr(error, 'errno', None)]
+                  rows.append([timestamp, name, result])
+          print(json.dumps(rows))
+          """
+          for executable in (sys.executable, 'target/release/rustpython.exe'):
+              result = subprocess.check_output([executable, '-c', code], text=True)
+              print(json.dumps({'executable': executable, 'timestamps': json.loads(result)}))
+          PYTIME
 
       - name: run snippets
         run: uv pip install -r requirements.txt && python -m pytest -v

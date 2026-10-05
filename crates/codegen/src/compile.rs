@@ -68,6 +68,7 @@ const CO_MAXBLOCKS: usize = 21;
 pub enum FBlockType {
     WhileLoop,
     ForLoop,
+    AsyncForLoop,
     TryExcept,
     FinallyTry,
     FinallyEnd,
@@ -173,6 +174,23 @@ enum NameUsage {
     Store,
     Delete,
 }
+/// Source identity and optional independent endpoints for instruction emission.
+/// Missing AST columns and derived spans need not form an ordered TextRange.
+#[derive(Debug, Clone, Copy)]
+struct EmissionSourceRange {
+    range: TextRange,
+    locations: Option<(SourceLocation, SourceLocation)>,
+}
+
+impl From<TextRange> for EmissionSourceRange {
+    fn from(range: TextRange) -> Self {
+        Self {
+            range,
+            locations: None,
+        }
+    }
+}
+
 /// Main structure holding the state of compilation.
 struct Compiler<'a> {
     code_stack: Vec<ir::CodeInfo>,
@@ -180,6 +198,7 @@ struct Compiler<'a> {
     source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
+    current_emission_locations: Option<(SourceLocation, SourceLocation)>,
     future_features: bytecode::CodeFlags,
     future_annotations: bool,
     ctx: CompileContext,
@@ -313,6 +332,8 @@ pub struct CompileOpts {
     pub dont_imply_dedent: bool,
     /// Recursion limit used by compiler tree walks, matching Py_EnterRecursiveCall.
     pub recursion_limit: usize,
+    /// Reserved column in synthetic source for a supplied AST with missing columns.
+    pub ast_missing_column: Option<usize>,
 }
 
 impl Default for CompileOpts {
@@ -325,6 +346,7 @@ impl Default for CompileOpts {
             future_features: bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: 1000,
+            ast_missing_column: None,
         }
     }
 }
@@ -364,7 +386,7 @@ enum ComprehensionLoopControl {
         loop_block: BlockIdx,
         if_cleanup_block: BlockIdx,
         after_block: BlockIdx,
-        backedge_range: TextRange,
+        backedge_range: EmissionSourceRange,
         is_async: bool,
         end_async_for_target: BlockIdx,
     },
@@ -416,14 +438,21 @@ pub fn compile_top_with_syntax_warning_handler<'a>(
     if matches!(mode, Mode::Single)
         && let ruff_python_ast::Mod::Module(module) = &mut ast
     {
-        preprocess::preprocess_statements(
+        preprocess::preprocess_statements_with_ast_source(
             &mut module.body,
             opts.optimize,
             future_annotations,
             false,
+            opts.ast_missing_column.map(|column| (&source_file, column)),
         );
     } else {
-        preprocess::preprocess_mod(&mut ast, opts.optimize, future_annotations, false);
+        preprocess::preprocess_mod_with_ast_source(
+            &mut ast,
+            opts.optimize,
+            future_annotations,
+            false,
+            opts.ast_missing_column.map(|column| (&source_file, column)),
+        );
     }
     match ast {
         ruff_python_ast::Mod::Module(module) => match mode {
@@ -493,14 +522,21 @@ fn compile_codegen_with_syntax_warning_handler<'a>(
     if matches!(mode, Mode::Single)
         && let ruff_python_ast::Mod::Module(module) = &mut ast
     {
-        preprocess::preprocess_statements(
+        preprocess::preprocess_statements_with_ast_source(
             &mut module.body,
             opts.optimize,
             future_annotations,
             false,
+            opts.ast_missing_column.map(|column| (&source_file, column)),
         );
     } else {
-        preprocess::preprocess_mod(&mut ast, opts.optimize, future_annotations, false);
+        preprocess::preprocess_mod_with_ast_source(
+            &mut ast,
+            opts.optimize,
+            future_annotations,
+            false,
+            opts.ast_missing_column.map(|column| (&source_file, column)),
+        );
     }
 
     let mut compiler = Compiler::new_with_syntax_warning_handler(
@@ -1203,6 +1239,7 @@ impl<'warnings> Compiler<'warnings> {
             source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
+            current_emission_locations: None,
             future_features: opts.future_features,
             future_annotations: false,
             ctx: CompileContext {
@@ -2485,17 +2522,27 @@ impl<'warnings> Compiler<'warnings> {
                 // No cleanup needed
             }
 
-            FBlockType::ForLoop => {
-                // When returning from a for-loop, CPython swaps the preserved
-                // value with the iterator and uses POP_TOP for loop cleanup.
+            FBlockType::ForLoop | FBlockType::AsyncForLoop => {
+                let iterator_slots = if info.fb_type == FBlockType::ForLoop {
+                    2
+                } else {
+                    1
+                };
                 if preserve_tos {
                     self.set_unwind_source_range(*loc);
-                    emit!(self, Instruction::Swap { i: 2 });
+                    emit!(
+                        self,
+                        Instruction::Swap {
+                            i: iterator_slots + 1
+                        }
+                    );
                     self.mark_unwind_no_location(*loc);
                 }
-                self.set_unwind_source_range(*loc);
-                emit!(self, Instruction::PopTop);
-                self.mark_unwind_no_location(*loc);
+                for _ in 0..iterator_slots {
+                    self.set_unwind_source_range(*loc);
+                    emit!(self, Instruction::PopTop);
+                    self.mark_unwind_no_location(*loc);
+                }
             }
 
             FBlockType::TryExcept => {
@@ -2600,6 +2647,8 @@ impl<'warnings> Compiler<'warnings> {
                     self.set_unwind_source_range(*loc);
                     emit!(self, Instruction::GetAwaitable { r#where: 2 });
                     self.set_unwind_source_range(*loc);
+                    emit!(self, Instruction::PushNull);
+                    self.set_unwind_source_range(*loc);
                     self.emit_load_const(ConstantData::None);
                     let _ = self.compile_yield_from_sequence(true);
                 }
@@ -2701,7 +2750,12 @@ impl<'warnings> Compiler<'warnings> {
                 *unwind_loc,
             ));
         }
-        if stop_at_loop && matches!(top.fb_type, FBlockType::WhileLoop | FBlockType::ForLoop) {
+        if stop_at_loop
+            && matches!(
+                top.fb_type,
+                FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop
+            )
+        {
             return Ok(Some(top));
         }
 
@@ -4053,7 +4107,7 @@ impl<'warnings> Compiler<'warnings> {
                 ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                     self.compile_expression(value)?;
                     let namei = self.name(attr.as_str());
-                    self.set_source_range(self.update_start_location_to_match_attr(
+                    self.set_emission_source_range(self.update_start_location_to_match_attr(
                         expression.range(),
                         expression.range(),
                         attr.as_str(),
@@ -6444,6 +6498,7 @@ impl<'warnings> Compiler<'warnings> {
             ); // [aexit_func, self_ae, aenter_func, self_an]
             emit!(self, Instruction::Call { argc: 0 }); // [aexit_func, self_ae, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         } else {
@@ -6528,6 +6583,7 @@ impl<'warnings> Compiler<'warnings> {
         self.compile_call_exit_with_nones();
         if is_async {
             emit!(self, Instruction::GetAwaitable { r#where: 2 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -6554,6 +6610,7 @@ impl<'warnings> Compiler<'warnings> {
 
         if is_async {
             emit!(self, Instruction::GetAwaitable { r#where: 2 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -6618,7 +6675,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // codegen_async_for: push fblock BEFORE SETUP_FINALLY
             self.push_fblock_labels(
-                FBlockType::ForLoop,
+                FBlockType::AsyncForLoop,
                 for_label,
                 after_label,
                 FBlockDatum::None,
@@ -6627,6 +6684,7 @@ impl<'warnings> Compiler<'warnings> {
             // SETUP_FINALLY to guard the __anext__ call
             emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
             emit!(self, Instruction::GetAnext);
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             self.use_cpython_label_block(send_block);
             let _ = self.compile_yield_from_sequence(true);
@@ -6665,7 +6723,7 @@ impl<'warnings> Compiler<'warnings> {
             // codegen_async_for() pops the loop fblock before the
             // END_ASYNC_FOR exception block. Sync codegen_for() keeps the
             // fblock through END_FOR/POP_ITER and pops below.
-            self.pop_fblock_label(FBlockType::ForLoop, for_label);
+            self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
         }
 
         self.use_cpython_label_block(else_block);
@@ -8371,7 +8429,7 @@ impl<'warnings> Compiler<'warnings> {
                 ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                     self.maybe_add_static_attribute_to_class(value, attr.as_str());
                     self.compile_expression(value)?;
-                    self.set_source_range(self.update_start_location_to_match_attr(
+                    self.set_emission_source_range(self.update_start_location_to_match_attr(
                         target.range(),
                         target.range(),
                         attr.as_str(),
@@ -8459,7 +8517,7 @@ impl<'warnings> Compiler<'warnings> {
             },
             Attr {
                 idx: bytecode::NameIdx,
-                attr_range: TextRange,
+                attr_range: EmissionSourceRange,
             },
         }
 
@@ -8507,7 +8565,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(target_range);
                 emit!(self, Instruction::Copy { i: 1 });
                 let idx = self.name(attr);
-                self.set_source_range(attr_range);
+                self.set_emission_source_range(attr_range);
                 self.emit_load_attr(idx);
                 AugAssignKind::Attr { idx, attr_range }
             }
@@ -8543,7 +8601,7 @@ impl<'warnings> Compiler<'warnings> {
             }
             AugAssignKind::Attr { idx, attr_range } => {
                 // stack: CONTAINER RESULT
-                self.set_source_range(attr_range);
+                self.set_emission_source_range(attr_range);
                 emit!(self, Instruction::Swap { i: 2 });
                 emit!(self, Instruction::StoreAttr { namei: idx });
             }
@@ -8847,8 +8905,8 @@ impl<'warnings> Compiler<'warnings> {
         );
 
         // fail: CLEANUP_THROW
-        // Stack when exception: [receiver, yielded_value, exc]
-        // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
+        // Stack when exception: [receiver, NULL, yielded_value, exc]
+        // CLEANUP_THROW: [sub_iter, NULL, last_sent_val, exc] -> [None, NULL, value]
         // CPython lets this block fall through to END_SEND during codegen;
         // push_cold_blocks_to_end later inserts the no-interrupt jump after
         // moving the cold fail block behind the warm exit path.
@@ -8856,8 +8914,8 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::CleanupThrow);
 
         // exit: END_SEND
-        // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
-        // END_SEND: [receiver/None, value] -> [value]
+        // Stack: [receiver, NULL, value] (from SEND) or [None, NULL, value] (from CLEANUP_THROW)
+        // END_SEND: [receiver/None, NULL, value] -> [value]
         self.use_cpython_label_block(exit_block);
         emit!(self, Instruction::EndSend);
 
@@ -8956,12 +9014,12 @@ impl<'warnings> Compiler<'warnings> {
                             self.emit_load_zero_super_attr(idx);
                         }
                     }
-                    self.set_source_range(attr_access_range);
+                    self.set_emission_source_range(attr_access_range);
                     emit!(self, Instruction::Nop);
                 } else {
                     // Normal attribute access
                     self.compile_expression(value)?;
-                    self.set_source_range(self.update_start_location_to_match_attr(
+                    self.set_emission_source_range(self.update_start_location_to_match_attr(
                         range,
                         range,
                         attr.as_str(),
@@ -9065,6 +9123,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_expression(value)?;
                 self.set_source_range(range);
                 emit!(self, Instruction::GetAwaitable { r#where: 0 });
+                emit!(self, Instruction::PushNull);
                 self.emit_load_const(ConstantData::None);
                 let _ = self.compile_yield_from_sequence(true);
             }
@@ -9215,7 +9274,7 @@ impl<'warnings> Compiler<'warnings> {
                     ComprehensionType::List,
                     Self::contains_await(elt) || Self::generators_contain_await(generators),
                     *range,
-                    elt.range(),
+                    elt.range().into(),
                     elt.range(),
                 )?;
             }
@@ -9248,7 +9307,7 @@ impl<'warnings> Compiler<'warnings> {
                     ComprehensionType::Set,
                     Self::contains_await(elt) || Self::generators_contain_await(generators),
                     *range,
-                    elt.range(),
+                    elt.range().into(),
                     elt.range(),
                 )?;
             }
@@ -9260,8 +9319,8 @@ impl<'warnings> Compiler<'warnings> {
                 ..
             }) => {
                 let element_range = key.as_deref().map_or_else(
-                    || value.range(),
-                    |key| TextRange::new(key.range().start(), value.range().end()),
+                    || value.range().into(),
+                    |key| self.joined_emission_range(key.range(), value.range()),
                 );
                 self.compile_comprehension(
                     "<dictcomp>",
@@ -9279,7 +9338,7 @@ impl<'warnings> Compiler<'warnings> {
                             compiler.compile_expression(key)?;
                         }
                         compiler.compile_expression(value)?;
-                        compiler.set_source_range(element_range);
+                        compiler.set_emission_source_range(element_range);
                         let i = collection_add_i.to_u32();
                         if key.is_some() {
                             emit!(compiler, Instruction::MapAdd { i });
@@ -9517,6 +9576,8 @@ impl<'warnings> Compiler<'warnings> {
         let symbol_table_cursors = self.current_symbol_table_cursors();
         self.compile_expression(generator_expr)?;
         self.set_symbol_table_cursors(symbol_table_cursors);
+        self.set_source_range(loc);
+        emit!(self, Instruction::PushNull);
 
         let loop_block = self.new_block();
         let cleanup = self.new_block();
@@ -9527,13 +9588,13 @@ impl<'warnings> Compiler<'warnings> {
         match kind {
             BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List => {
                 self.set_source_range(loc);
-                emit!(self, Instruction::ListAppend { i: 2 });
+                emit!(self, Instruction::ListAppend { i: 3 });
                 self.set_source_range(loc);
                 emit!(self, PseudoInstruction::Jump { delta: loop_block });
             }
             BuiltinGeneratorCallKind::Set => {
                 self.set_source_range(loc);
-                emit!(self, Instruction::SetAdd { i: 2 });
+                emit!(self, Instruction::SetAdd { i: 3 });
                 self.set_source_range(loc);
                 emit!(self, PseudoInstruction::Jump { delta: loop_block });
             }
@@ -9616,15 +9677,15 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_method_call_arguments(
         &mut self,
         args: &ast::Arguments,
-        call_range: TextRange,
-        kw_names_range: TextRange,
+        call_range: EmissionSourceRange,
+        kw_names_range: EmissionSourceRange,
     ) -> CompileResult<()> {
         for arg in &args.args {
             self.compile_expression(arg)?;
         }
 
         if args.keywords.is_empty() {
-            self.set_source_range(call_range);
+            self.set_emission_source_range(call_range);
             emit!(
                 self,
                 Instruction::Call {
@@ -9641,11 +9702,11 @@ impl<'warnings> Compiler<'warnings> {
             });
             self.compile_expression(&keyword.value)?;
         }
-        self.set_source_range(kw_names_range);
+        self.set_emission_source_range(kw_names_range);
         self.emit_load_const(ConstantData::Tuple {
             elements: kwarg_names,
         });
-        self.set_source_range(call_range);
+        self.set_emission_source_range(call_range);
         emit!(
             self,
             Instruction::CallKw {
@@ -9706,7 +9767,7 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 }
                 // NOP for line tracking at .method( line
-                self.set_source_range(attr_access_range);
+                self.set_emission_source_range(attr_access_range);
                 emit!(self, Instruction::Nop);
                 // CALL at .method( line (not the full expression line)
                 self.compile_method_call_arguments(args, method_call_range, attr_access_range)?;
@@ -9723,7 +9784,7 @@ impl<'warnings> Compiler<'warnings> {
                     func.range(),
                     attr.as_str(),
                 );
-                self.set_source_range(attr_access_range);
+                self.set_emission_source_range(attr_access_range);
                 self.emit_load_attr_method(idx);
                 self.compile_method_call_arguments(args, method_call_range, attr_access_range)?;
             }
@@ -10090,7 +10151,7 @@ impl<'warnings> Compiler<'warnings> {
             ComprehensionType::Generator,
             element_contains_await,
             range,
-            elt.range(),
+            elt.range().into(),
             elt.range(),
         )
     }
@@ -10669,7 +10730,7 @@ impl<'warnings> Compiler<'warnings> {
         comprehension_type: ComprehensionType,
         element_contains_await: bool,
         comprehension_range: TextRange,
-        element_range: TextRange,
+        element_range: EmissionSourceRange,
         outer_backedge_range: TextRange,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
@@ -10785,6 +10846,7 @@ impl<'warnings> Compiler<'warnings> {
                 except_handler: None,
                 lineno_override: None,
             };
+            let iterator = self.restore_ast_columns(iterator);
             let result = self.current_code_info().insert_genexpr_prefix(iterator);
             unwrap_internal(self, result);
             Some(handler_block)
@@ -10838,6 +10900,11 @@ impl<'warnings> Compiler<'warnings> {
                 // Generator expressions acquire the iterator before creation.
                 if comprehension_type != ComprehensionType::Generator {
                     emit!(self, Instruction::LoadFast { var_num: arg0 });
+                    if generator.is_async {
+                        emit!(self, Instruction::GetAiter);
+                    } else {
+                        emit!(self, Instruction::GetIter { mode: 0 });
+                    }
                 }
             } else {
                 // Evaluate iterated item:
@@ -10856,6 +10923,7 @@ impl<'warnings> Compiler<'warnings> {
                 )?;
                 emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
                 emit!(self, Instruction::GetAnext);
+                emit!(self, Instruction::PushNull);
                 self.emit_load_const(ConstantData::None);
                 self.use_cpython_label_block(send_block);
                 let _ = self.compile_yield_from_sequence(true);
@@ -10871,11 +10939,11 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(saved_range);
                 self.compile_store(&generator.target)?;
             }
-            real_loop_depth += 1;
+            real_loop_depth += if generator.is_async { 1 } else { 2 };
             let backedge_range = if gen_index + 1 == generators.len() {
                 element_range
             } else {
-                outer_backedge_range
+                outer_backedge_range.into()
             };
             loop_labels.push(ComprehensionLoopControl::Iteration {
                 loop_block,
@@ -10906,7 +10974,7 @@ impl<'warnings> Compiler<'warnings> {
                     end_async_for_target,
                 } => {
                     self.use_cpython_label_block(if_cleanup_block);
-                    self.set_source_range(backedge_range);
+                    self.set_emission_source_range(backedge_range);
                     emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
                     if is_async {
@@ -10960,12 +11028,9 @@ impl<'warnings> Compiler<'warnings> {
         self.set_source_range(comprehension_range);
         self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
 
-        // Generator expressions acquire the iterator eagerly in their own frame.
-        if comprehension_type == ComprehensionType::Generator {
-            self.compile_expression(&outermost.iter)?;
-        } else {
-            self.compile_comprehension_iter(outermost)?;
-        }
+        // The callee acquires its iterator; generator expressions do so eagerly
+        // in their preamble before returning the generator object.
+        self.compile_expression(&outermost.iter)?;
         self.symbol_table_stack
             .last_mut()
             .expect("no current symbol table")
@@ -10976,6 +11041,7 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::Call { argc: 0 });
         if is_async_list_set_dict_comprehension {
             emit!(self, Instruction::GetAwaitable { r#where: 0 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -10991,7 +11057,7 @@ impl<'warnings> Compiler<'warnings> {
         init_collection: Option<AnyInstruction>,
         generators: &[ast::Comprehension],
         compile_element: &dyn Fn(&mut Self, usize) -> CompileResult<()>,
-        ranges: (TextRange, TextRange, TextRange),
+        ranges: (TextRange, EmissionSourceRange, TextRange),
         comp_source: ComprehensionSymbolSource,
     ) -> CompileResult<()> {
         let (comprehension_range, element_range, outer_backedge_range) = ranges;
@@ -10999,7 +11065,7 @@ impl<'warnings> Compiler<'warnings> {
         // nested scopes (e.g. lambdas) whose sub_tables sit at the current
         // position in the parent's list. Those must be consumed before we
         // splice in the comprehension's own children.
-        self.compile_comprehension_iter(&generators[0])?;
+        self.compile_expression(&generators[0].iter)?;
         match comp_source {
             ComprehensionSymbolSource::Child => {
                 self.symbol_table_stack
@@ -11208,6 +11274,15 @@ impl<'warnings> Compiler<'warnings> {
 
                 if i > 0 {
                     self.compile_comprehension_iter(generator)?;
+                } else {
+                    let saved_range = self.current_source_range;
+                    self.set_source_range(generator.iter.range());
+                    if generator.is_async {
+                        emit!(self, Instruction::GetAiter);
+                    } else {
+                        emit!(self, Instruction::GetIter { mode: 0 });
+                    }
+                    self.set_source_range(saved_range);
                 }
 
                 self.use_cpython_label_block(loop_block);
@@ -11223,6 +11298,7 @@ impl<'warnings> Compiler<'warnings> {
                     )?;
                     emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
                     emit!(self, Instruction::GetAnext);
+                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.use_cpython_label_block(send_block);
                     let _ = self.compile_yield_from_sequence(true);
@@ -11237,11 +11313,11 @@ impl<'warnings> Compiler<'warnings> {
                     self.compile_store(&generator.target)?;
                 }
 
-                real_loop_depth += 1;
+                real_loop_depth += if generator.is_async { 1 } else { 2 };
                 let backedge_range = if i + 1 == generators.len() {
                     element_range
                 } else {
-                    outer_backedge_range
+                    outer_backedge_range.into()
                 };
                 loop_labels.push(ComprehensionLoopControl::Iteration {
                     loop_block,
@@ -11274,7 +11350,7 @@ impl<'warnings> Compiler<'warnings> {
                         end_async_for_target,
                     } => {
                         self.use_cpython_label_block(if_cleanup_block);
-                        self.set_source_range(backedge_range);
+                        self.set_emission_source_range(backedge_range);
                         emit!(self, PseudoInstruction::Jump { delta: loop_block });
 
                         if is_async {
@@ -11430,7 +11506,19 @@ impl<'warnings> Compiler<'warnings> {
         self.push_emitted_instruction(info);
     }
 
+    fn restore_ast_columns(&self, mut info: ir::InstructionInfo) -> ir::InstructionInfo {
+        if let Some(missing_column) = self.opts.ast_missing_column {
+            for location in [&mut info.location, &mut info.end_location] {
+                if location.character_offset.to_zero_indexed() == missing_column {
+                    location.character_offset = ir::MISSING_COLUMN;
+                }
+            }
+        }
+        info
+    }
+
     fn push_emitted_instruction(&mut self, info: ir::InstructionInfo) {
+        let info = self.restore_ast_columns(info);
         self.current_code_info()
             .addop_to_instr_sequence(info)
             .expect("malformed instruction sequence emission");
@@ -11444,6 +11532,7 @@ impl<'warnings> Compiler<'warnings> {
         info: ir::InstructionInfo,
         target_label: ir::InstructionSequenceLabel,
     ) {
+        let info = self.restore_ast_columns(info);
         self.current_code_info()
             .addop_to_instr_sequence_with_target_label(info, target_label)
             .expect("malformed instruction sequence emission");
@@ -11484,8 +11573,12 @@ impl<'warnings> Compiler<'warnings> {
         );
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
-        let location = source.source_location(range.start(), PositionEncoding::Utf8);
-        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        let (location, end_location) = self.current_emission_locations.unwrap_or_else(|| {
+            (
+                source.source_location(range.start(), PositionEncoding::Utf8),
+                source.source_location(range.end(), PositionEncoding::Utf8),
+            )
+        });
         let except_handler = None;
         self.cpython_cfg_builder_addop(ir::InstructionInfo {
             instr,
@@ -11519,8 +11612,12 @@ impl<'warnings> Compiler<'warnings> {
         );
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
-        let location = source.source_location(range.start(), PositionEncoding::Utf8);
-        let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
+        let (location, end_location) = self.current_emission_locations.unwrap_or_else(|| {
+            (
+                source.source_location(range.start(), PositionEncoding::Utf8),
+                source.source_location(range.end(), PositionEncoding::Utf8),
+            )
+        });
         let target = self
             .current_code_info()
             .block_for_instr_sequence_label(target_label);
@@ -12306,7 +12403,7 @@ impl<'warnings> Compiler<'warnings> {
             let mut found_loop = false;
             for i in (0..code.fblock.len()).rev() {
                 match code.fblock[i].fb_type {
-                    FBlockType::WhileLoop | FBlockType::ForLoop => {
+                    FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop => {
                         found_loop = true;
                         break;
                     }
@@ -12526,6 +12623,12 @@ impl<'warnings> Compiler<'warnings> {
 
     const fn set_source_range(&mut self, range: TextRange) {
         self.current_source_range = range;
+        self.current_emission_locations = None;
+    }
+
+    const fn set_emission_source_range(&mut self, range: EmissionSourceRange) {
+        self.current_source_range = range.range;
+        self.current_emission_locations = range.locations;
     }
 
     fn update_start_location_to_match_attr(
@@ -12533,19 +12636,55 @@ impl<'warnings> Compiler<'warnings> {
         loc_range: TextRange,
         attr_range: TextRange,
         attr: &str,
-    ) -> TextRange {
+    ) -> EmissionSourceRange {
         let source = self.source_file.to_source_code();
-        if source.line_index(loc_range.start()) == source.line_index(attr_range.end()) {
-            return loc_range;
+        let mut start = source.source_location(loc_range.start(), PositionEncoding::Utf8);
+        let mut end = source.source_location(loc_range.end(), PositionEncoding::Utf8);
+        let attr_end = source.source_location(attr_range.end(), PositionEncoding::Utf8);
+        if start.line == attr_end.line {
+            return loc_range.into();
         }
-        let Ok(attr_len) = u32::try_from(attr.chars().count()) else {
-            return TextRange::new(loc_range.start(), loc_range.end());
+        start.line = attr_end.line;
+        let column = |location: SourceLocation| {
+            let column = location.character_offset.to_zero_indexed();
+            (self.opts.ast_missing_column != Some(column)).then_some(column)
         };
-        let attr_len = TextSize::new(attr_len);
-        if attr_len > attr_range.len() {
-            return TextRange::new(loc_range.start(), loc_range.end());
+        let mut end_column = column(end);
+        let start_column =
+            match column(attr_end).and_then(|col| col.checked_sub(attr.chars().count())) {
+                Some(col) => Some(col),
+                None => {
+                    // CPython drops both columns when the attribute's end is
+                    // missing or is shorter than its name (GH-94694).
+                    end_column = None;
+                    None
+                }
+            };
+        end.line = end.line.max(start.line);
+        if end.line == start.line {
+            end_column = end_column.max(start_column);
         }
-        TextRange::new(attr_range.end() - attr_len, loc_range.end())
+        start.character_offset = start_column
+            .map(OneIndexed::from_zero_indexed)
+            .unwrap_or(ir::MISSING_COLUMN);
+        end.character_offset = end_column
+            .map(OneIndexed::from_zero_indexed)
+            .unwrap_or(ir::MISSING_COLUMN);
+        EmissionSourceRange {
+            range: loc_range,
+            locations: Some((start, end)),
+        }
+    }
+
+    fn joined_emission_range(&self, start: TextRange, end: TextRange) -> EmissionSourceRange {
+        let source = self.source_file.to_source_code();
+        EmissionSourceRange {
+            range: start,
+            locations: Some((
+                source.source_location(start.start(), PositionEncoding::Utf8),
+                source.source_location(end.end(), PositionEncoding::Utf8),
+            )),
+        }
     }
 
     fn source_line_start_range(&self, lineno: u32) -> TextRange {
@@ -14708,7 +14847,7 @@ match x:
         // codegen emits the implicit LOAD_CONST/RETURN_VALUE with
         // NO_LOCATION, then flowgraph.c::propagate_line_numbers() propagates
         // the module RESUME location, whose line is 0.
-        assert_eq!(code.linetable.as_ref(), &[0xf2, 0x03, 0x01, 0x01, 0x01]);
+        assert_eq!(code.linetable.as_ref(), &[0xf3, 0x03, 0x01, 0x01, 0x01]);
     }
 
     #[test]
@@ -14726,7 +14865,7 @@ x = 1
         assert_eq!(
             code.linetable.as_ref(),
             &[
-                0xf0, 0x03, 0x01, 0x01, 0x01, 0xd9, 0x00, 0x05, 0xd8, 0x04, 0x05, 0x82, 0x01,
+                0xf1, 0x03, 0x01, 0x01, 0x01, 0xd9, 0x00, 0x05, 0xd8, 0x04, 0x05, 0x82, 0x01,
             ],
         );
     }
@@ -14753,7 +14892,7 @@ def f(x, y, z):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0a, 0x0b, 0xdf, 0x0b, 0x0c, 0xd9, 0x0c, 0x10, 0xdf, 0x0d, 0x0e,
+                0x81, 0x00, 0xdf, 0x0a, 0x0b, 0xdf, 0x0b, 0x0c, 0xd9, 0x0c, 0x10, 0xdf, 0x0d, 0x0e,
                 0xd8, 0x0f, 0x10, 0x90, 0x31, 0x8c, 0x75, 0xd8, 0x17, 0x18, 0x90, 0x08, 0xdf, 0x0f,
                 0x10, 0xd8, 0x14, 0x15, 0x98, 0x01, 0x95, 0x45, 0x92, 0x01, 0xf1, 0x03, 0x00, 0x10,
                 0x11, 0xe7, 0x0d, 0x0e, 0x89, 0x51, 0xd9, 0x13, 0x14, 0xd8, 0x0b, 0x0d, 0x80, 0x49,
@@ -14983,10 +15122,11 @@ def f(support, func, value):
             .expect("missing CPython-style false jump for if/break");
         assert!(
             matches!(
-                ops.get(cond..cond + 5),
+                ops.get(cond..cond + 6),
                 Some([
                     Instruction::PopJumpIfFalse { .. },
                     Instruction::NotTaken,
+                    Instruction::PopTop,
                     Instruction::PopTop,
                     Instruction::JumpForward { .. },
                     Instruction::JumpBackward { .. },
@@ -16683,7 +16823,7 @@ def f(
         // CPython 3.14 codegen_function() computes firstlineno from the
         // FunctionDef before compiling annotations, then passes it to
         // codegen_function_body().
-        assert_eq!(f.linetable.as_ref(), &[0x80, 0x00, 0xe1, 0x03, 0x06]);
+        assert_eq!(f.linetable.as_ref(), &[0x81, 0x00, 0xe1, 0x03, 0x06]);
     }
 
     #[test]
@@ -16699,11 +16839,11 @@ def g():
         // CPython 3.14 codegen_function_annotations() receives LOC(function)
         // and uses it for the annotation closure's BUILD_MAP/RETURN_VALUE and
         // for the parent MAKE_FUNCTION annotate sequence.
-        assert_eq!(g.linetable.as_ref(), &[0x80, 0x00, 0xdf, 0x04, 0x26]);
+        assert_eq!(g.linetable.as_ref(), &[0x81, 0x00, 0xdf, 0x04, 0x26]);
         assert_eq!(
             annotate.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd7, 0x04, 0x26, 0xd1, 0x04, 0x26, 0x94, 0x23, 0x9c, 0x13, 0xd0, 0x0d,
+                0x81, 0x00, 0xd7, 0x04, 0x26, 0xd1, 0x04, 0x26, 0x94, 0x23, 0x9c, 0x13, 0xd0, 0x0d,
                 0x1d, 0xd1, 0x04, 0x26,
             ],
         );
@@ -16719,7 +16859,7 @@ def g():
         assert_eq!(
             annotate.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd7, 0x00, 0x17, 0xd1, 0x00, 0x17, 0x8c, 0x62, 0xd3, 0x00, 0x17
+                0x81, 0x00, 0xd7, 0x00, 0x17, 0xd1, 0x00, 0x17, 0x8c, 0x62, 0xd3, 0x00, 0x17
             ],
         );
     }
@@ -16742,7 +16882,7 @@ Y: str
         assert_eq!(
             annotate.linetable.as_ref(),
             &[
-                0x80, 0x00, 0x87, 0x09, 0x81, 0x09, 0xdf, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
+                0x81, 0x00, 0x87, 0x09, 0x81, 0x09, 0xdf, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
                 0x06, 0xf1, 0x03, 0x00, 0x01, 0x0a, 0xe7, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
                 0x06, 0xf2, 0x05, 0x00, 0x01, 0x0a,
             ]
@@ -17015,7 +17155,7 @@ def f(self, other):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0f, 0x13, 0xd2, 0x0b, 0x1c, 0xd0, 0x04, 0x1c,
+                0x81, 0x00, 0xd8, 0x0f, 0x13, 0xd2, 0x0b, 0x1c, 0xd0, 0x04, 0x1c,
             ]
         );
     }
@@ -17037,7 +17177,7 @@ def f(c):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x10, 0x14, 0x98, 0x01, 0xd7, 0x10, 0x21, 0xd4, 0x10, 0x21, 0x98,
+                0x81, 0x00, 0xd8, 0x10, 0x14, 0x98, 0x01, 0xd7, 0x10, 0x21, 0xd4, 0x10, 0x21, 0x98,
                 0x54, 0xd1, 0x10, 0x21, 0xd4, 0x0b, 0x22, 0xd0, 0x04, 0x22, 0xd1, 0x10, 0x21, 0xd4,
                 0x0b, 0x22, 0xd0, 0x04, 0x22,
             ]
@@ -17059,18 +17199,18 @@ def f(c):
         assert_eq!(
             type_params.linetable.as_ref(),
             &[
-                0xf8, 0x80, 0x00, 0xd0, 0x00, 0x27, 0x90, 0x76, 0x9b, 0x23, 0x93, 0x76, 0xd7, 0x00,
+                0xf8, 0x81, 0x00, 0xd0, 0x00, 0x27, 0x90, 0x76, 0x9b, 0x23, 0x93, 0x76, 0xd7, 0x00,
                 0x27, 0xd1, 0x00, 0x27,
             ],
         );
         assert_eq!(
             bound.linetable.as_ref(),
-            &[0x80, 0x00, 0x9f, 0x23, 0x9e, 0x23]
+            &[0x81, 0x00, 0x9f, 0x23, 0x9e, 0x23]
         );
         assert_eq!(
             alias.linetable.as_ref(),
             &[
-                0xf8, 0x80, 0x00, 0xd7, 0x00, 0x27, 0xd0, 0x00, 0x27, 0xa4, 0x13, 0xa0, 0x51, 0xa5,
+                0xf8, 0x81, 0x00, 0xd7, 0x00, 0x27, 0xd0, 0x00, 0x27, 0xa4, 0x13, 0xa0, 0x51, 0xa5,
                 0x16, 0xd0, 0x00, 0x27,
             ],
         );
@@ -17104,7 +17244,7 @@ def f(c):
         assert_eq!(
             type_params.linetable.as_ref(),
             &[
-                0xf8, 0x80, 0x00, 0x80, 0x0d, 0x84, 0x71, 0x87, 0x0d, 0x81, 0x0d
+                0xf8, 0x81, 0x00, 0x80, 0x0d, 0x84, 0x71, 0x87, 0x0d, 0x81, 0x0d
             ],
         );
     }
@@ -17157,7 +17297,7 @@ def f(c):
         assert_eq!(
             annotate.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd7, 0x00, 0x15, 0xd1, 0x00, 0x15, 0x8c, 0x43, 0xd1, 0x00, 0x15,
+                0x81, 0x00, 0xd7, 0x00, 0x15, 0xd1, 0x00, 0x15, 0x8c, 0x43, 0xd1, 0x00, 0x15,
             ],
         );
     }
@@ -17195,7 +17335,7 @@ def outer():
         assert_eq!(
             type_params.linetable.as_ref(),
             &[
-                0xf8, 0x80, 0x00, 0x8c, 0x41, 0x87, 0x4f, 0x87, 0x4f, 0x80, 0x4f,
+                0xf8, 0x81, 0x00, 0x8c, 0x41, 0x87, 0x4f, 0x87, 0x4f, 0x80, 0x4f,
             ]
         );
     }
@@ -17213,9 +17353,9 @@ def f():
         let wrapper_positions: Vec<_> = f
             .instructions
             .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Resume { .. }))
+            .zip(&f.locations)
+            .filter(|(unit, _)| !matches!(unit.op, Instruction::Resume { .. } | Instruction::Cache))
             .take(4)
-            .zip(f.locations.iter().filter(|_| true).skip(1))
             .map(|(unit, (location, end_location))| {
                 (
                     unit.op,
@@ -17442,7 +17582,7 @@ class C:
         assert_eq!(
             class_code.linetable.as_ref(),
             &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd9, 0x04, 0x09, 0xf7, 0x03, 0x00, 0x01, 0x01, 0x83,
+                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd9, 0x04, 0x09, 0xf7, 0x03, 0x00, 0x01, 0x01, 0x83,
                 0x00,
             ],
         );
@@ -17458,7 +17598,7 @@ class C:
         // the __annotations__ store sequence at LOC(AnnAssign).
         assert_eq!(
             class_code.linetable.as_ref(),
-            &[0x87, 0x00, 0xd8, 0x09, 0x0c, 0x87, 0x48]
+            &[0x87, 0x00, 0x80, 0x00, 0xd8, 0x09, 0x0c, 0x87, 0x48]
         );
     }
 
@@ -17532,11 +17672,11 @@ g = lambda i: {**i}
         // inherits the full dict literal location after compiling its body.
         assert_eq!(
             f.linetable.as_ref(),
-            &[0x80, 0x00, 0x90, 0x23, 0x90, 0x74, 0x91, 0x1b]
+            &[0x81, 0x00, 0x90, 0x23, 0x90, 0x74, 0x91, 0x1b]
         );
         assert_eq!(
             g.linetable.as_ref(),
-            &[0x80, 0x00, 0x88, 0x65, 0x90, 0x11, 0x89, 0x65]
+            &[0x81, 0x00, 0x88, 0x65, 0x90, 0x11, 0x89, 0x65]
         );
     }
 
@@ -18305,7 +18445,7 @@ def f():
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x08, 0x0d, 0x80, 0x41, 0xd8, 0x0a, 0x0b, 0xdf, 0x0d, 0x0e, 0x97,
+                0x81, 0x00, 0xd8, 0x08, 0x0d, 0x80, 0x41, 0xd8, 0x0a, 0x0b, 0xdf, 0x0d, 0x0e, 0x97,
                 0x11, 0x97, 0x51, 0x9f, 0x11, 0x88, 0x5d, 0xe0, 0x0b, 0x0c, 0x80, 0x48, 0xf0, 0x05,
                 0x00, 0x0e, 0x1b, 0xd8, 0x10, 0x14, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x80, 0x48,
             ],
@@ -18372,7 +18512,7 @@ def f(self):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0a, 0x0b, 0xde, 0x0d, 0x0e, 0xd9, 0x10, 0x14, 0x89, 0x41, 0xdd,
+                0x81, 0x00, 0xd8, 0x0a, 0x0b, 0xde, 0x0d, 0x0e, 0xd9, 0x10, 0x14, 0x89, 0x41, 0xdd,
                 0x0d, 0x0e, 0xd8, 0x10, 0x15, 0x88, 0x41, 0xd8, 0x04, 0x08, 0x87, 0x4d, 0x81, 0x4d,
                 0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a,
             ],
@@ -18446,7 +18586,7 @@ def f(self):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x08, 0x0a, 0x80, 0x41, 0xd8, 0x08, 0x0c, 0x80, 0x41, 0xd8, 0x0a,
+                0x81, 0x00, 0xd8, 0x08, 0x0a, 0x80, 0x41, 0xd8, 0x08, 0x0c, 0x80, 0x41, 0xd8, 0x0a,
                 0x0b, 0xdf, 0x0d, 0x13, 0x8f, 0x56, 0x8a, 0x56, 0x95, 0x11, 0x89, 0x56, 0xd8, 0x10,
                 0x11, 0x89, 0x41, 0xf2, 0x03, 0x00, 0x0e, 0x14, 0xe0, 0x04, 0x08, 0x87, 0x4d, 0x81,
                 0x4d, 0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a,
@@ -18521,7 +18661,7 @@ def f(x):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0a, 0x0b, 0xdc, 0x0d, 0x11, 0x8f, 0x57, 0x88, 0x57, 0xd8, 0x10,
+                0x81, 0x00, 0xd8, 0x0a, 0x0b, 0xdc, 0x0d, 0x11, 0x8f, 0x57, 0x88, 0x57, 0xd8, 0x10,
                 0x11, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x88, 0x34, 0x80, 0x4b, 0xf0, 0x05, 0x00, 0x0e,
                 0x15, 0xe0, 0x0b, 0x0c, 0x88, 0x61, 0x88, 0x34, 0x80, 0x4b,
             ],
@@ -18971,11 +19111,11 @@ def or_true(x):
         // keeps the literal range rather than the whole BoolOp range.
         assert_eq!(
             and_false.linetable.as_ref(),
-            &[0x80, 0x00, 0xd8, 0x0b, 0x10, 0xd0, 0x04, 0x16]
+            &[0x81, 0x00, 0xd8, 0x0b, 0x10, 0xd0, 0x04, 0x16]
         );
         assert_eq!(
             or_true.linetable.as_ref(),
-            &[0x80, 0x00, 0xd8, 0x0b, 0x0f, 0xd0, 0x04, 0x14]
+            &[0x81, 0x00, 0xd8, 0x0b, 0x0f, 0xd0, 0x04, 0x14]
         );
     }
 
@@ -18994,7 +19134,7 @@ def f():
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x04, 0x15, 0x90, 0x23, 0xd3, 0x04, 0x15, 0x88, 0x35,
+                0x81, 0x00, 0xd8, 0x04, 0x15, 0x90, 0x23, 0xd3, 0x04, 0x15, 0x88, 0x35,
             ]
         );
     }
@@ -19018,7 +19158,7 @@ def f(a, b):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0b, 0x0c, 0x80, 0x71, 0xd8, 0x0b, 0x0c, 0x82, 0x71,
+                0x81, 0x00, 0xd8, 0x0b, 0x0c, 0x80, 0x71, 0xd8, 0x0b, 0x0c, 0x82, 0x71,
             ]
         );
     }
@@ -19151,14 +19291,14 @@ def f(parameters):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd9, 0x0b, 0x2d, 0xa0, 0x2a, 0xd3, 0x0b, 0x2d, 0xd0, 0x04, 0x2d,
+                0x81, 0x00, 0xd9, 0x0b, 0x2d, 0xa0, 0x2a, 0xd3, 0x0b, 0x2d, 0xd0, 0x04, 0x2d,
             ]
         );
         assert_eq!(
             genexpr.linetable.as_ref(),
             &[
-                0xf8, 0xa1, 0x2a, 0xe9, 0x00, 0x80, 0x00, 0xa1, 0x2a, 0x98, 0x51, 0x94, 0x04, 0x90,
-                0x51, 0x93, 0x07, 0x8d, 0x4c, 0xa3, 0x2a, 0xf9,
+                0xf9, 0xa2, 0x2a, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x2a, 0x98, 0x51, 0x94, 0x04, 0x90,
+                0x51, 0x93, 0x07, 0x8e, 0x4c, 0xa3, 0x2a, 0xf9,
             ]
         );
     }
@@ -19187,8 +19327,8 @@ def explicit():
         assert_eq!(
             implicit.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x25, 0x9c, 0x35, 0xa0, 0x12,
-                0x9b, 0x39, 0xd3, 0x0f, 0x25, 0x8e, 0x34, 0xd0, 0x04, 0x25, 0x88, 0x34, 0xd1, 0x0f,
+                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x25, 0x9c, 0x35, 0xa0, 0x12,
+                0x9b, 0x39, 0xd3, 0x0f, 0x25, 0x8f, 0x34, 0xd0, 0x04, 0x25, 0x88, 0x34, 0xd1, 0x0f,
                 0x25, 0x9c, 0x35, 0xa0, 0x12, 0x9b, 0x39, 0xd3, 0x0f, 0x25, 0xd3, 0x0b, 0x25, 0xd0,
                 0x04, 0x25,
             ]
@@ -19196,14 +19336,14 @@ def explicit():
         assert_eq!(
             implicit_gen.linetable.as_ref(),
             &[
-                0xf8, 0x99, 0x39, 0xe9, 0x00, 0x80, 0x00, 0x99, 0x39, 0x90, 0x61, 0x94, 0x01, 0x9b,
+                0xf9, 0x9a, 0x39, 0xe9, 0x00, 0x81, 0x00, 0x99, 0x39, 0x90, 0x61, 0x95, 0x01, 0x9b,
                 0x39, 0xf9,
             ]
         );
         assert_eq!(
             explicit_gen.linetable.as_ref(),
             &[
-                0xf8, 0x99, 0x49, 0xe9, 0x00, 0x80, 0x00, 0x99, 0x49, 0x90, 0x71, 0x94, 0x11, 0x9b,
+                0xf9, 0x9a, 0x49, 0xe9, 0x00, 0x81, 0x00, 0x99, 0x49, 0x90, 0x71, 0x95, 0x11, 0x9b,
                 0x49, 0xf9,
             ]
         );
@@ -19244,59 +19384,59 @@ def explicit_gen(xs):
         assert_eq!(
             bytes_binop.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdc, 0x0b, 0x10, 0xd1, 0x10, 0x30, 0xa4, 0x55, 0xa8, 0x33, 0xa3, 0x5a,
+                0x81, 0x00, 0xdc, 0x0b, 0x10, 0xd1, 0x10, 0x30, 0xa4, 0x55, 0xa8, 0x33, 0xa3, 0x5a,
                 0xd3, 0x10, 0x30, 0xd3, 0x0b, 0x30, 0xd0, 0x04, 0x30,
             ]
         );
         assert_eq!(
             bytes_gen.linetable.as_ref(),
             &[
-                0xf8, 0xa1, 0x5a, 0xe9, 0x00, 0x80, 0x00, 0xa1, 0x5a, 0xa0, 0x01, 0x90, 0x64, 0x97,
-                0x28, 0x92, 0x28, 0xa3, 0x5a, 0xf9,
+                0xf9, 0xa2, 0x5a, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x5a, 0xa0, 0x01, 0x90, 0x64, 0x97,
+                0x28, 0x93, 0x28, 0xa3, 0x5a, 0xf9,
             ]
         );
         assert_eq!(
             dict_tuple.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x2f, 0xa0, 0x51, 0xa7, 0x57, 0xa1, 0x57,
+                0x81, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x2f, 0xa0, 0x51, 0xa7, 0x57, 0xa1, 0x57,
                 0xa3, 0x59, 0xd3, 0x0f, 0x2f, 0xd3, 0x0b, 0x2f, 0xd0, 0x04, 0x2f,
             ]
         );
         assert_eq!(
             dict_gen.linetable.as_ref(),
             &[
-                0xf8, 0xa1, 0x59, 0xe9, 0x00, 0x80, 0x00, 0xa1, 0x59, 0x99, 0x36, 0x98, 0x41, 0x90,
-                0x11, 0x95, 0x06, 0xa3, 0x59, 0xf9,
+                0xf9, 0xa2, 0x59, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x59, 0x99, 0x36, 0x98, 0x41, 0x90,
+                0x11, 0x96, 0x06, 0xa3, 0x59, 0xf9,
             ]
         );
         assert_eq!(
             plain_tuple_elt.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3, 0x0f,
-                0x26, 0x8e, 0x34, 0xd0, 0x04, 0x26, 0x88, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3,
+                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3, 0x0f,
+                0x26, 0x8f, 0x34, 0xd0, 0x04, 0x26, 0x88, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3,
                 0x0f, 0x26, 0xd3, 0x0b, 0x26, 0xd0, 0x04, 0x26,
             ]
         );
         assert_eq!(
             plain_gen.linetable.as_ref(),
             &[
-                0xf8, 0xa1, 0x32, 0xe9, 0x00, 0x80, 0x00, 0xa1, 0x32, 0x99, 0x34, 0x98, 0x31, 0x90,
-                0x11, 0x95, 0x06, 0xa3, 0x32, 0xf9,
+                0xf9, 0xa2, 0x32, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x32, 0x99, 0x34, 0x98, 0x31, 0x90,
+                0x11, 0x96, 0x06, 0xa3, 0x32, 0xf9,
             ]
         );
         assert_eq!(
             explicit_gen.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3, 0x10,
-                0x27, 0x8e, 0x34, 0xd0, 0x04, 0x28, 0x88, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3,
+                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3, 0x10,
+                0x27, 0x8f, 0x34, 0xd0, 0x04, 0x28, 0x88, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3,
                 0x10, 0x27, 0xd3, 0x0b, 0x28, 0xd0, 0x04, 0x28,
             ]
         );
         assert_eq!(
             explicit_inner.linetable.as_ref(),
             &[
-                0xf8, 0xa1, 0x42, 0xe9, 0x00, 0x80, 0x00, 0xa1, 0x42, 0x99, 0x44, 0x98, 0x41, 0x90,
-                0x21, 0x95, 0x16, 0xa3, 0x42, 0xf9,
+                0xf9, 0xa2, 0x42, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x42, 0x99, 0x44, 0x98, 0x41, 0x90,
+                0x21, 0x96, 0x16, 0xa3, 0x42, 0xf9,
             ]
         );
     }
@@ -19387,15 +19527,15 @@ def boolop(fields):
         assert_eq!(
             simple_gen.linetable.as_ref(),
             &[
-                0xf8, 0x91, 0x75, 0xe9, 0x00, 0x80, 0x00, 0x91, 0x75, 0x90, 0x21, 0xa4, 0x49, 0xa8,
-                0x61, 0xa7, 0x4c, 0x8f, 0x41, 0x8a, 0x41, 0x93, 0x75, 0xf9,
+                0xf9, 0x92, 0x75, 0xe9, 0x00, 0x81, 0x00, 0x91, 0x75, 0x90, 0x21, 0xa4, 0x49, 0xa8,
+                0x61, 0xa7, 0x4c, 0x8f, 0x41, 0x8b, 0x41, 0x93, 0x75, 0xf9,
             ]
         );
         assert_eq!(
             boolop_gen.linetable.as_ref(),
             &[
-                0xf8, 0x91, 0x76, 0xe9, 0x00, 0x80, 0x00, 0x91, 0x76, 0x90, 0x21, 0xa7, 0x16, 0xa5,
-                0x16, 0x8c, 0x41, 0xb0, 0x01, 0xb7, 0x09, 0xb5, 0x09, 0x8f, 0x41, 0x8a, 0x41, 0x93,
+                0xf9, 0x92, 0x76, 0xe9, 0x00, 0x81, 0x00, 0x91, 0x76, 0x90, 0x21, 0xa7, 0x16, 0xa5,
+                0x16, 0x8c, 0x41, 0xb0, 0x01, 0xb7, 0x09, 0xb5, 0x09, 0x8f, 0x41, 0x8b, 0x41, 0x93,
                 0x76, 0xf9,
             ]
         );
@@ -19422,7 +19562,7 @@ def f(self, node):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x10, 0x14, 0x80, 0x44, 0x84, 0x49, 0xf0, 0x02, 0x03, 0x05, 0x1a,
+                0x81, 0x00, 0xd8, 0x10, 0x14, 0x80, 0x44, 0x84, 0x49, 0xf0, 0x02, 0x03, 0x05, 0x1a,
                 0xd8, 0x08, 0x0c, 0x8f, 0x09, 0x89, 0x09, 0x90, 0x24, 0x8c, 0x0f, 0xe0, 0x14, 0x19,
                 0x88, 0x04, 0x8e, 0x09, 0xf8, 0x90, 0x45, 0x88, 0x04, 0x8d, 0x09, 0xfa,
             ]
@@ -19580,7 +19720,7 @@ def f(file):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdc, 0x07, 0x0a, 0x87, 0x7c, 0x81, 0x7c, 0x90, 0x77, 0xd4, 0x07, 0x1e,
+                0x81, 0x00, 0xdc, 0x07, 0x0a, 0x87, 0x7c, 0x81, 0x7c, 0x90, 0x77, 0xd4, 0x07, 0x1e,
                 0xf0, 0x02, 0x05, 0x09, 0x19, 0xdb, 0x0c, 0x15, 0xd8, 0x13, 0x15, 0xd7, 0x13, 0x30,
                 0xd1, 0x13, 0x30, 0xd7, 0x13, 0x32, 0xd2, 0x13, 0x32, 0xd9, 0x17, 0x1c, 0xf0, 0x03,
                 0x00, 0x14, 0x33, 0xf0, 0x08, 0x03, 0x05, 0x39, 0xdc, 0x0f, 0x11, 0x8f, 0x79, 0x89,
@@ -19613,13 +19753,13 @@ def spec(x):
         assert_eq!(
             simple.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0e, 0x12, 0x8f, 0x6a, 0x89, 0x6a, 0x88, 0x5c, 0xd0, 0x04, 0x1a,
+                0x81, 0x00, 0xd8, 0x0e, 0x12, 0x8f, 0x6a, 0x89, 0x6a, 0x88, 0x5c, 0xd0, 0x04, 0x1a,
             ]
         );
         assert_eq!(
             spec.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x0e, 0x0f, 0x88, 0x58, 0x90, 0x22, 0x88, 0x58, 0xd0, 0x04, 0x16,
+                0x81, 0x00, 0xd8, 0x0e, 0x0f, 0x88, 0x58, 0x90, 0x22, 0x88, 0x58, 0xd0, 0x04, 0x16,
             ]
         );
     }
@@ -19737,7 +19877,7 @@ def f(a):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xf0, 0x04, 0x01, 0x09, 0x0c, 0xd8, 0x0c, 0x0d, 0x88, 0x33, 0xf0, 0x00,
+                0x81, 0x00, 0xf0, 0x04, 0x01, 0x09, 0x0c, 0xd8, 0x0c, 0x0d, 0x88, 0x33, 0xf0, 0x00,
                 0x01, 0x0f, 0x0c, 0xf0, 0x03, 0x02, 0x09, 0x0c, 0xf0, 0x03, 0x04, 0x05, 0x06,
             ],
             "CPython parser/codegen represents adjacent f-string literal fragments as Constant ranges spanning the merged fragments"
@@ -19849,22 +19989,22 @@ class E:
         assert_eq!(
             c.linetable.as_ref(),
             &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd8, 0x05, 0x08, 0xf1, 0x02, 0x01, 0x05, 0x0e, 0xf3,
+                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd8, 0x05, 0x08, 0xf1, 0x02, 0x01, 0x05, 0x0e, 0xf3,
                 0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x0e,
             ]
         );
-        assert_eq!(d.linetable.as_ref(), &[0x86, 0x00, 0xe3, 0x04, 0x08]);
+        assert_eq!(d.linetable.as_ref(), &[0x87, 0x00, 0xe3, 0x04, 0x08]);
         assert_eq!(
             e.linetable.as_ref(),
             &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd8, 0x05, 0x08, 0xf7, 0x02, 0x01, 0x05, 0x22, 0xf3,
+                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd8, 0x05, 0x08, 0xf7, 0x02, 0x01, 0x05, 0x22, 0xf3,
                 0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x22,
             ]
         );
         assert_eq!(
             annotate.linetable.as_ref(),
             &[
-                0xf8, 0x80, 0x00, 0xf7, 0x00, 0x01, 0x05, 0x22, 0xf1, 0x00, 0x01, 0x05, 0x22, 0x91,
+                0xf8, 0x81, 0x00, 0xf7, 0x00, 0x01, 0x05, 0x22, 0xf1, 0x00, 0x01, 0x05, 0x22, 0x91,
                 0x73, 0xf0, 0x00, 0x01, 0x05, 0x22, 0xa1, 0x2a, 0xf1, 0x00, 0x01, 0x05, 0x22,
             ]
         );
@@ -20671,8 +20811,8 @@ def f(xs):
                 .iter()
                 .filter(|unit| matches!(unit.op, Instruction::PushNull))
                 .count(),
-            1,
-            "fallback call path should remain for shadowed any()"
+            2,
+            "iterator index and fallback call path should remain for shadowed any()"
         );
         let genexpr_const_count = f
             .constants
@@ -20688,8 +20828,8 @@ def f(xs):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0b, 0x0e, 0x8b, 0x33, 0x89, 0x6f, 0x98, 0x22, 0x8b, 0x6f, 0x8f,
-                0x33, 0x8c, 0x33, 0xd0, 0x04, 0x1d, 0x8a, 0x33, 0xd0, 0x04, 0x1d, 0x88, 0x33, 0x89,
+                0x81, 0x00, 0xdf, 0x0b, 0x0e, 0x8b, 0x33, 0x89, 0x6f, 0x98, 0x22, 0x8b, 0x6f, 0x8f,
+                0x33, 0x8d, 0x33, 0xd0, 0x04, 0x1d, 0x8a, 0x33, 0xd0, 0x04, 0x1d, 0x88, 0x33, 0x89,
                 0x6f, 0x98, 0x22, 0x8b, 0x6f, 0xd3, 0x0b, 0x1d, 0xd0, 0x04, 0x1d,
             ]
         );
@@ -20768,13 +20908,13 @@ def set_f(xs):
                 _ => None,
             })
             .expect("tuple(genexpr) fast path should emit LIST_APPEND");
-        assert_eq!(tuple_list_append, 2);
+        assert_eq!(tuple_list_append, 3);
         assert_eq!(
             tuple_f.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xdf, 0x0b, 0x10, 0x8c, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f, 0x8f,
-                0x35, 0xd0, 0x04, 0x1f, 0x88, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f, 0xd3, 0x0b,
-                0x1f, 0xd0, 0x04, 0x1f,
+                0x81, 0x00, 0xdf, 0x0b, 0x10, 0x8c, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f, 0x8f,
+                0x35, 0x88, 0x35, 0xd0, 0x04, 0x1f, 0x88, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f,
+                0xd3, 0x0b, 0x1f, 0xd0, 0x04, 0x1f
             ]
         );
 
@@ -20808,11 +20948,11 @@ def set_f(xs):
                 .instructions
                 .iter()
                 .any(|unit| matches!(unit.op, Instruction::ListAppend { .. })
-                    && u8::from(unit.arg) == 2)
+                    && u8::from(unit.arg) == 3)
         );
         assert!(
             set_f.instructions.iter().any(
-                |unit| matches!(unit.op, Instruction::SetAdd { .. }) && u8::from(unit.arg) == 2
+                |unit| matches!(unit.op, Instruction::SetAdd { .. }) && u8::from(unit.arg) == 3
             )
         );
     }
@@ -21222,7 +21362,7 @@ def aug_const(x, y):
         assert_eq!(
             aug_const.linetable.as_ref(),
             &[
-                0x80, 0x00, 0xd8, 0x04, 0x05, 0x80, 0x63, 0x87, 0x46, 0x88, 0x61, 0x85, 0x4b, 0x85,
+                0x81, 0x00, 0xd8, 0x04, 0x05, 0x80, 0x63, 0x87, 0x46, 0x88, 0x61, 0x85, 0x4b, 0x85,
                 0x46,
             ]
         );
@@ -21282,7 +21422,7 @@ def f(obj):
             .filter(|op| !matches!(op, Instruction::Cache))
             .collect();
 
-        let has_cpython_shape = ops.windows(7).any(|window| {
+        let has_cpython_shape = ops.windows(8).any(|window| {
             matches!(
                 window,
                 [
@@ -21291,6 +21431,7 @@ def f(obj):
                     Instruction::JumpBackward { .. },
                     Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
                     Instruction::Swap { .. },
+                    Instruction::PopTop,
                     Instruction::PopTop,
                     Instruction::ReturnValue,
                 ]
@@ -28190,14 +28331,20 @@ def bug():
 
         assert!(
             entries.iter().any(|entry| {
-                entry.start <= not_taken_idx
+                entry.start <= alias_store_idx
                     && alias_store_idx < entry.end
                     && entry.target == copy_idx
                     && entry.depth == 1
                     && entry.push_lasti
             }),
-            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so NOT_TAKEN and the alias store stay covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
+            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so the alias store stays covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
             bug.instructions
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|entry| { not_taken_idx < entry.start || not_taken_idx >= entry.end }),
+            "CPython 3.15rc3 leaves synthetic NOT_TAKEN outside the outer cleanup range; entries={entries:?}"
         );
     }
 
@@ -29925,7 +30072,7 @@ def f(xs):
             .collect();
 
         assert!(
-            units.windows(4).any(|window| {
+            units.windows(5).any(|window| {
                 matches!(
                     window[0].op,
                     Instruction::LoadCommonConstant { idx }
@@ -29934,11 +30081,12 @@ def f(xs):
                 ) && matches!(
                     window[1].op,
                     Instruction::Swap { i }
-                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 2
+                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 3
                 ) && matches!(window[2].op, Instruction::PopTop)
-                    && matches!(window[3].op, Instruction::ReturnValue)
+                    && matches!(window[3].op, Instruction::PopTop)
+                    && matches!(window[4].op, Instruction::ReturnValue)
             }),
-            "expected CPython-style LOAD_COMMON_CONSTANT/SWAP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
+            "expected CPython-style LOAD_COMMON_CONSTANT/SWAP 3/POP_TOP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
         );
     }
 
@@ -32321,24 +32469,20 @@ def f():
         let f = find_code(&code, "f").expect("missing function code");
 
         assert!(
-            !f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
-            "constant list iterable should avoid BUILD_LIST before GET_ITER"
+            f.instructions.iter().any(|unit| {
+                matches!(unit.op, Instruction::BuildList { .. }) && u8::from(unit.arg) == 1
+            }),
+            "CPython 3.15rc3 preserves BUILD_LIST before inlined-comprehension setup separates it from GET_ITER"
         );
         assert!(f.constants.iter().any(|constant| matches!(
             constant,
             ConstantData::Tuple { elements }
                 if matches!(
                     elements.as_slice(),
-                    [ConstantData::Tuple { elements: inner }]
-                        if matches!(
-                            inner.as_slice(),
-                            [
-                                ConstantData::Integer { .. },
-                                ConstantData::Integer { .. }
-                            ]
-                        )
+                    [
+                        ConstantData::Integer { .. },
+                        ConstantData::Integer { .. }
+                    ]
                 )
         )));
     }
@@ -32644,10 +32788,17 @@ def f():
         let f = find_code(&code, "f").expect("missing function code");
 
         assert!(
-            !f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::BuildSet { .. })),
-            "constant set iterable should avoid BUILD_SET before GET_ITER"
+            non_cache_instructions(f)
+                .collect::<Vec<_>>()
+                .windows(3)
+                .any(|window| {
+                    matches!(window[0].op, Instruction::BuildSet { .. })
+                        && u8::from(window[0].arg) == 0
+                        && matches!(window[1].op, Instruction::LoadConst { .. })
+                        && matches!(window[2].op, Instruction::SetUpdate { .. })
+                        && u8::from(window[2].arg) == 1
+                }),
+            "CPython 3.15rc3 builds the iterable set from its frozenset constant before inlined-comprehension setup"
         );
         assert!(f.constants.iter().any(|constant| matches!(
             constant,
@@ -32849,13 +33000,20 @@ def g():
             .collect();
 
         assert!(
-            ops.windows(2).any(|window| {
+            ops.windows(6).any(|window| {
                 matches!(
                     window,
-                    [Instruction::BuildTuple { .. }, Instruction::GetIter { .. }]
+                    [
+                        Instruction::BuildList { .. },
+                        Instruction::LoadFastAndClear { .. },
+                        Instruction::Swap { .. },
+                        Instruction::BuildList { .. },
+                        Instruction::Swap { .. },
+                        Instruction::GetIter { .. },
+                    ]
                 )
             }),
-            "expected BUILD_TUPLE before GET_ITER for single-item list iterable in comprehension, got ops={ops:?}"
+            "expected BUILD_LIST before saved-local and result-container setup, then GET_ITER, for single-item list iterable in comprehension, got ops={ops:?}"
         );
     }
 
@@ -32874,9 +33032,9 @@ async def run_list():
         assert_eq!(
             run_list.linetable.as_ref(),
             &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x1e, 0x1f, 0xa0, 0x01, 0x9b, 0x64, 0xa4, 0x41, 0xa0,
-                0x62, 0xa3, 0x45, 0x99, 0x5d, 0xd3, 0x0b, 0x2b, 0x99, 0x5d, 0x98, 0x01, 0x8f, 0x47,
-                0x8a, 0x47, 0x99, 0x5d, 0xd1, 0x0b, 0x2b, 0xd0, 0x04, 0x2b, 0x89, 0x47, 0xf9, 0xd2,
+                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x1e, 0x1f, 0xa0, 0x01, 0x9b, 0x64, 0xa4, 0x41, 0xa0,
+                0x62, 0xa3, 0x45, 0x98, 0x5d, 0xd3, 0x0b, 0x2b, 0x9b, 0x5d, 0x98, 0x01, 0x8f, 0x47,
+                0x8c, 0x47, 0x99, 0x5d, 0xd1, 0x0b, 0x2b, 0xd0, 0x04, 0x2b, 0x89, 0x47, 0xf9, 0xd2,
                 0x0b, 0x2b, 0xf9,
             ],
             "CPython codegen_comprehension_iter() emits GET_ITER at LOC(comp->iter)"
@@ -32934,9 +33092,9 @@ async def run_list():
         assert_eq!(
             run_list.linetable.as_ref(),
             &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x18, 0x19, 0x98, 0x22, 0x9b, 0x05, 0x9c, 0x71, 0xa0,
-                0x15, 0x9b, 0x78, 0xd1, 0x17, 0x28, 0xd4, 0x0b, 0x3a, 0xd1, 0x17, 0x28, 0x90, 0x21,
-                0xb7, 0x27, 0xb2, 0x27, 0xa8, 0x51, 0x8a, 0x41, 0xb1, 0x27, 0x89, 0x41, 0xd1, 0x17,
+                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x18, 0x19, 0x98, 0x22, 0x9b, 0x05, 0x9c, 0x71, 0xa0,
+                0x15, 0x9b, 0x78, 0xd0, 0x17, 0x28, 0xd4, 0x0b, 0x3a, 0xd3, 0x17, 0x28, 0x90, 0x21,
+                0xb7, 0x27, 0xb5, 0x27, 0xa8, 0x51, 0x8a, 0x41, 0xb1, 0x27, 0x89, 0x41, 0xd1, 0x17,
                 0x28, 0xd2, 0x0b, 0x3a, 0xd0, 0x04, 0x3a, 0xb1, 0x27, 0xf9, 0xd3, 0x0b, 0x3a, 0xf9,
             ],
             "CPython codegen_sync_comprehension_generator() emits comprehension backedges at elt_loc"
@@ -33050,9 +33208,10 @@ async def run_list():
         assert_eq!(
             run_list.linetable.as_ref(),
             &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x21, 0x22, 0xa0, 0x42, 0xa8, 0x02, 0xa0, 0x38, 0xa4,
-                0x1b, 0xd7, 0x0b, 0x2d, 0xd3, 0x0b, 0x2d, 0x98, 0x41, 0x90, 0x01, 0x8f, 0x45, 0x88,
-                0x45, 0xd4, 0x0b, 0x2d, 0xd0, 0x04, 0x2d, 0xf9, 0xd2, 0x0b, 0x2d, 0xf9,
+                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x21, 0x22, 0xa0, 0x42, 0xa8, 0x02, 0xa0, 0x38, 0xa3,
+                0x1b, 0xd3, 0x0b, 0x2d, 0xa0, 0x1b, 0xd7, 0x0b, 0x2d, 0xd1, 0x0b, 0x2d, 0x98, 0x41,
+                0x90, 0x01, 0x8f, 0x45, 0x88, 0x45, 0xd4, 0x0b, 0x2d, 0xd0, 0x04, 0x2d, 0xf9, 0xd2,
+                0x0b, 0x2d, 0xf9
             ],
             "CPython codegen_async_comprehension_generator() emits END_ASYNC_FOR at comprehension loc"
         );
@@ -33071,8 +33230,8 @@ async def f(source, buffer):
         assert_eq!(
             f.linetable.as_ref(),
             &[
-                0xe9, 0x00, 0x80, 0x00, 0xd9, 0x18, 0x1e, 0x9c, 0x08, 0xf7, 0x00, 0x01, 0x05, 0x1f,
-                0xf0, 0x00, 0x01, 0x05, 0x1f, 0x89, 0x66, 0x88, 0x62, 0xd8, 0x08, 0x0e, 0x8f, 0x0d,
+                0xe9, 0x00, 0x81, 0x00, 0xd9, 0x18, 0x1e, 0x9c, 0x08, 0xf7, 0x00, 0x01, 0x05, 0x1f,
+                0xf2, 0x00, 0x01, 0x05, 0x1f, 0x89, 0x66, 0x88, 0x62, 0xd8, 0x08, 0x0e, 0x8f, 0x0d,
                 0x89, 0x0d, 0x90, 0x62, 0x95, 0x67, 0xd6, 0x08, 0x1e, 0xf1, 0x03, 0x01, 0x05, 0x1f,
                 0x9a, 0x08, 0xf9,
             ],
@@ -33097,13 +33256,20 @@ def f():
             .collect();
 
         assert!(
-            ops.windows(2).any(|window| {
+            ops.windows(6).any(|window| {
                 matches!(
                     window,
-                    [Instruction::BuildTuple { .. }, Instruction::GetIter { .. }]
+                    [
+                        Instruction::BuildList { .. },
+                        Instruction::LoadFastAndClear { .. },
+                        Instruction::Swap { .. },
+                        Instruction::BuildList { .. },
+                        Instruction::Swap { .. },
+                        Instruction::GetIter { .. },
+                    ]
                 )
             }),
-            "expected BUILD_TUPLE before GET_ITER for nested list iterable in comprehension, got ops={ops:?}"
+            "expected BUILD_LIST before saved-local and result-container setup, then GET_ITER, for nested list iterable in comprehension, got ops={ops:?}"
         );
     }
 
@@ -33121,11 +33287,11 @@ def f():
             .iter()
             .filter(|unit| matches!(unit.op, Instruction::ForIter { .. }))
             .count();
-        let has_map_add_depth_2 = f.instructions.iter().any(|unit| {
+        let has_map_add_depth_3 = f.instructions.iter().any(|unit| {
             matches!(
                 unit.op,
                 Instruction::MapAdd { i }
-                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 2
+                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 3
             )
         });
 
@@ -33135,8 +33301,8 @@ def f():
             f.instructions
         );
         assert!(
-            has_map_add_depth_2,
-            "assignment-idiom dictcomp should use MAP_ADD depth 2, got instructions={:?}",
+            has_map_add_depth_3,
+            "assignment-idiom dictcomp should use MAP_ADD depth 3, got instructions={:?}",
             f.instructions
         );
         assert!(
@@ -33619,15 +33785,22 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
             .filter(|op| !matches!(op, Instruction::Cache))
             .collect();
 
-        let load_name_path = ops.windows(2).any(|window| {
+        let load_name_path = ops.windows(6).any(|window| {
             matches!(
                 window,
-                [Instruction::LoadName { .. }, Instruction::GetIter { .. }]
+                [
+                    Instruction::LoadName { .. },
+                    Instruction::LoadFastAndClear { .. },
+                    Instruction::Swap { .. },
+                    Instruction::BuildSet { .. },
+                    Instruction::Swap { .. },
+                    Instruction::GetIter { .. },
+                ]
             )
         });
         assert!(
             load_name_path,
-            "expected outer iterable to stay a NAME lookup before GET_ITER, got ops={ops:?}"
+            "expected outer iterable to stay a NAME lookup before inlined-comprehension setup and GET_ITER, got ops={ops:?}"
         );
         assert!(
             !ops.windows(2).any(|window| matches!(
@@ -33763,7 +33936,7 @@ def outer():
         // between visiting the value and visiting the target.
         assert_eq!(
             spam.linetable.as_ref(),
-            &[0xf8, 0x80, 0x00, 0xe0, 0x0e, 0x10, 0x88, 0x17, 0x8b, 0x11,]
+            &[0xf8, 0x81, 0x00, 0xe0, 0x0e, 0x10, 0x88, 0x17, 0x8b, 0x11,]
         );
     }
 
@@ -42907,13 +43080,14 @@ def f(pattern, prefix, get_prefix):
             .collect();
 
         assert!(
-            ops.windows(7).any(|window| {
+            ops.windows(8).any(|window| {
                 matches!(
                     window,
                     [
                         Instruction::ToBool,
                         Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
+                        Instruction::PopTop,
                         Instruction::PopTop,
                         Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
                         Instruction::LoadCommonConstant { .. },
@@ -44058,14 +44232,29 @@ async def name_4():
         else {
             panic!("missing GET_AITER in name_4");
         };
-        let prev = &name_4.instructions[get_aiter_pos - 1];
+        let setup = &name_4.instructions[get_aiter_pos - 5..get_aiter_pos];
+        assert!(matches!(
+            setup
+                .iter()
+                .map(|unit| unit.op)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            [
+                Instruction::LoadFastBorrow { .. },
+                Instruction::LoadFastAndClear { .. },
+                Instruction::Swap { .. },
+                Instruction::BuildMap { .. },
+                Instruction::Swap { .. },
+            ]
+        ));
+        let prev = &setup[0];
         assert!(
             matches!(
                 prev.op,
                 Instruction::LoadFastBorrow { var_num }
                     if name_4.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(prev.arg)))))] == "name_5"
             ),
-            "expected async comprehension iterator capture to borrow name_5 before GET_AITER, got {prev:?}"
+            "expected async comprehension iterator capture to borrow name_5 before inlined-comprehension setup and GET_AITER, got {prev:?}"
         );
     }
 

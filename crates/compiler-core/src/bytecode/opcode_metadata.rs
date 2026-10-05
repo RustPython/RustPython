@@ -15,15 +15,15 @@ impl super::Opcode {
     #[inline]
     pub const fn cache_entries(self) -> usize {
         const CACHE_ENTRIES: [u8; 256] = [
-            0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0,
-            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3,
+            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3,
             3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 0, 0, 4, 4, 1, 1, 0, 1, 4, 4, 4, 1, 1,
+            1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 0, 0, 4, 4, 1, 1, 1, 1, 4, 4, 4, 1, 1,
             3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 3, 3, 0, 1, 0, 0,
+            0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 3, 3, 1, 1, 0, 0,
         ];
 
         CACHE_ENTRIES[self.as_numeric() as usize] as usize
@@ -617,30 +617,19 @@ impl super::Opcode {
             Self::CallFunctionEx => (1, 4),
             Self::CheckEgMatch => (2, 2),
             Self::CheckExcMatch => (2, 2),
-            Self::CleanupThrow => (
-                2, // TODO: Differs from CPython `3`
-                3, // TODO: Differs from CPython `4`
-            ),
+            Self::CleanupThrow => (3, 4),
             Self::DeleteSubscr => (0, 2),
             Self::EndFor => (0, 1),
-            Self::EndSend => (
-                1, 2, // TODO: Differs from CPython `3`
-            ),
+            Self::EndSend => (1, 3),
             Self::ExitInitCheck => (0, 1),
             Self::FormatSimple => (1, 1),
             Self::FormatWithSpec => (1, 2),
             Self::GetAiter => (1, 1),
             Self::GetAnext => (2, 1),
-            Self::GetIter => (
-                1, // TODO: Differs from CPython `2`
-                1,
-            ),
+            Self::GetIter => (2, 1),
             Self::Reserved => (0, 0),
             Self::GetLen => (2, 1),
-            Self::GetYieldFromIter => (
-                1, // TODO: Differs from CPython `2`
-                1,
-            ),
+            Self::GetYieldFromIter => (2, 1),
             Self::InterpreterExit => (0, 1),
             Self::LoadBuildClass => (1, 0),
             Self::LoadLocals => (1, 0),
@@ -651,9 +640,7 @@ impl super::Opcode {
             Self::Nop => (0, 0),
             Self::NotTaken => (0, 0),
             Self::PopExcept => (0, 1),
-            Self::PopIter => (
-                0, 1, // TODO: Differs from CPython `2`
-            ),
+            Self::PopIter => (0, 2),
             Self::PopTop => (0, 1),
             Self::PushExcInfo => (2, 1),
             Self::PushNull => (1, 0),
@@ -693,10 +680,7 @@ impl super::Opcode {
             Self::DictUpdate => (1 + (oparg - 1), 2 + (oparg - 1)),
             Self::EndAsyncFor => (0, 2),
             Self::ExtendedArg => (0, 0),
-            Self::ForIter => (
-                2, // TODO: Differs from CPython `3`
-                1, // TODO: Differs from CPython `2`
-            ),
+            Self::ForIter => (3, 2),
             Self::GetAwaitable => (1, 1),
             Self::ImportFrom => (2, 1),
             Self::ImportName => (1, 2),
@@ -732,10 +716,7 @@ impl super::Opcode {
             Self::PopJumpIfTrue => (0, 1),
             Self::RaiseVarargs => (0, oparg),
             Self::Reraise => (oparg, 1 + oparg),
-            Self::Send => (
-                2, // TODO: Differs from CPython `3`
-                2, // TODO: Differs from CPython `3`
-            ),
+            Self::Send => (3, 3),
             Self::SetAdd => (1 + (oparg - 1), 2 + (oparg - 1)),
             Self::SetFunctionAttribute => (1, 2),
             Self::SetUpdate => (1 + (oparg - 1), 2 + (oparg - 1)),
@@ -799,22 +780,10 @@ impl super::Opcode {
             Self::CompareOpStr => (1, 2),
             Self::ContainsOpDict => (1, 2),
             Self::ContainsOpSet => (1, 2),
-            Self::ForIterGen => (
-                1, // TODO: Differs from CPython `2`
-                1, // TODO: Differs from CPython `2`
-            ),
-            Self::ForIterList => (
-                2, // TODO: Differs from CPython `3`
-                1, // TODO: Differs from CPython `2`
-            ),
-            Self::ForIterRange => (
-                2, // TODO: Differs from CPython `3`
-                1, // TODO: Differs from CPython `2`
-            ),
-            Self::ForIterTuple => (
-                2, // TODO: Differs from CPython `3`
-                1, // TODO: Differs from CPython `2`
-            ),
+            Self::ForIterGen => (2, 2),
+            Self::ForIterList => (3, 2),
+            Self::ForIterRange => (3, 2),
+            Self::ForIterTuple => (3, 2),
             Self::JumpBackwardJit => (0, 0),
             Self::JumpBackwardNoJit => (0, 0),
             Self::LoadAttrClass => (1 + (oparg & 1), 1),
@@ -840,10 +809,7 @@ impl super::Opcode {
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
             Self::ResumeCheck => (0, 0),
-            Self::SendGen => (
-                1, // TODO: Differs from CPython `2`
-                2, // TODO: Differs from CPython `3`
-            ),
+            Self::SendGen => (2, 3),
             Self::StoreAttrInstanceValue => (0, 2),
             Self::StoreAttrSlot => (0, 2),
             Self::StoreAttrWithHint => (0, 2),
@@ -858,20 +824,10 @@ impl super::Opcode {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
-            Self::InstrumentedEndFor => (
-                1, // TODO: Differs from CPython `2`
-                2, // TODO: Differs from CPython `3`
-            ),
-            Self::InstrumentedPopIter => (
-                0, 1, // TODO: Differs from CPython `2`
-            ),
-            Self::InstrumentedEndSend => (
-                1, 2, // TODO: Differs from CPython `3`
-            ),
-            Self::InstrumentedForIter => (
-                2, // TODO: Differs from CPython `3`
-                1, // TODO: Differs from CPython `2`
-            ),
+            Self::InstrumentedEndFor => (2, 3),
+            Self::InstrumentedPopIter => (0, 2),
+            Self::InstrumentedEndSend => (1, 3),
+            Self::InstrumentedForIter => (3, 2),
             Self::InstrumentedInstruction => (0, 0),
             Self::InstrumentedJumpForward => (0, 0),
             Self::InstrumentedNotTaken => (0, 0),

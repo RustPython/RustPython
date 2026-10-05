@@ -1019,6 +1019,60 @@ pub mod module {
         }
     }
 
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[derive(FromArgs)]
+    struct MkfifoArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any, default = 0o666)]
+        mode: i32,
+        #[pyarg(named, optional, py_default = "None")]
+        dir_fd: OptionalArg<PyObjectRef>,
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn mkfifo(args: MkfifoArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let c_path = args.path.into_cstring(vm)?;
+        let mode = args.mode as libc::mode_t;
+        // Keep a raw C int: even -1 is valid with an absolute path, for which
+        // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
+        let dir_fd = match args.dir_fd {
+            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+                warn_if_bool_fd(&fd, vm)?;
+                let fd = fd
+                    .try_index_opt(vm)
+                    .unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                            "argument should be integer or None, not {}",
+                            fd.class().name()
+                        )))
+                    })?
+                    .try_to_primitive::<i32>(vm)?;
+                (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
+            }
+            _ => None,
+        };
+        if dir_fd.is_some() && !host_posix::has_mkfifoat() {
+            return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
+        }
+
+        loop {
+            let result = vm.allow_threads(|| {
+                #[cfg(not(target_os = "android"))]
+                if let Some(dir_fd) = dir_fd {
+                    return host_posix::mkfifoat(dir_fd, &c_path, mode);
+                }
+                host_posix::mkfifo(&c_path, mode)
+            });
+            match result {
+                Ok(()) => return Ok(()),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => vm.check_signals()?,
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
     #[cfg(not(target_os = "redox"))]
     const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
 
@@ -2225,6 +2279,13 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
+            #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+            SupportFunc::new(
+                "mkfifo",
+                Some(false),
+                Some(host_posix::has_mkfifoat()),
+                Some(false),
+            ),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("mknod", Some(true), Some(MKNOD_DIR_FD), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),

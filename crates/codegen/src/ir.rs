@@ -33,6 +33,18 @@ struct InstructionLocation {
     lineno_override: Option<i32>,
 }
 
+// SourceLocation uses a nonzero unsigned column, so retain a missing AST
+// endpoint as an out-of-source sentinel until writing signed line-table fields.
+pub(crate) const MISSING_COLUMN: OneIndexed = OneIndexed::MAX;
+
+fn linetable_column(column: OneIndexed) -> i32 {
+    if column == MISSING_COLUMN {
+        -1
+    } else {
+        column.to_zero_indexed() as i32
+    }
+}
+
 pub(crate) const LINE_ONLY_LOCATION_OVERRIDE: i32 = -4;
 pub(crate) const NEXT_LOCATION_OVERRIDE: i32 = -2;
 pub(crate) const NO_LOCATION_OVERRIDE: i32 = -1;
@@ -441,14 +453,14 @@ impl InstructionInfo {
             Some(lineno) => LineTableLocation {
                 line: lineno,
                 end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
+                col: linetable_column(self.location.character_offset),
+                end_col: linetable_column(self.end_location.character_offset),
             },
             None => LineTableLocation {
                 line: self.location.line.get() as i32,
                 end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
+                col: linetable_column(self.location.character_offset),
+                end_col: linetable_column(self.end_location.character_offset),
             },
         }
     }
@@ -839,12 +851,12 @@ fn instruction_info_from_python(
     let col = if col_offset >= 0 {
         OneIndexed::from_zero_indexed(col_offset as usize)
     } else {
-        OneIndexed::MIN
+        MISSING_COLUMN
     };
     let end_col = if end_col_offset >= 0 {
         OneIndexed::from_zero_indexed(end_col_offset as usize)
     } else {
-        OneIndexed::MIN
+        MISSING_COLUMN
     };
     InstructionInfo {
         instr,
@@ -1108,7 +1120,7 @@ fn resolve_unconditional_jumps(instr_sequence: &mut InstructionSequence) {
 /// assemble.c resolve_jump_offsets
 fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) {
     // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
-    const END_SEND_OFFSET: i32 = 5;
+    const END_SEND_OFFSET: i32 = 6;
     for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i];
         let opcode = instr.info.instr.expect_real();
@@ -2479,10 +2491,11 @@ impl Blocks {
                         Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
                     ) => {
                         let effect = instr.stack_effect_info(arg_u32);
-                        debug_assert_eq!(effect.popped(), 2);
                         debug_assert_eq!(effect.pushed(), 1);
                         let tos = ref_stack_pop(&mut refs);
-                        let _ = ref_stack_pop(&mut refs);
+                        for _ in 1..effect.popped() {
+                            let _ = ref_stack_pop(&mut refs);
+                        }
                         push_ref(&mut refs, tos.instr, tos.local)?;
                     }
                     AnyInstruction::Real(Instruction::CheckExcMatch) => {
@@ -3490,6 +3503,9 @@ impl Blocks {
         debug_assert!(dest <= instr_count);
         let num_removed = instr_count - dest;
         self[block_idx].instruction_used = dest;
+        // Late instructions such as NOT_TAKEN reuse these slots after exception
+        // targets have been labelled and must not inherit a removed handler.
+        self[block_idx].instructions[dest..instr_count].fill(InstructionInfo::empty());
         num_removed
     }
 
@@ -7706,6 +7722,87 @@ mod tests {
             seq.label_map_allocation,
             INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE * 2
         );
+    }
+
+    #[test]
+    fn redundant_nop_compaction_clears_vacated_instruction_metadata() {
+        let handler = ExceptHandlerInfo {
+            handler_block: BlockIdx::new(2),
+            preserve_lasti: true,
+        };
+        let mut block = Block::default();
+        for _ in 0..2 {
+            let mut nop = test_instr(Instruction::Nop, 10);
+            nop.lineno_override = Some(NO_LOCATION_OVERRIDE);
+            nop.target = BlockIdx::new(1);
+            nop.except_handler = Some(handler);
+            test_block_push(&mut block, nop);
+        }
+        let mut jump = test_instr(Opcode::PopJumpIfTrue.into(), 10);
+        jump.target = BlockIdx::new(1);
+        jump.except_handler = Some(handler);
+        test_block_push(&mut block, jump);
+        let mut blocks = Blocks::from([block, Block::default(), Block::default()]);
+
+        assert_eq!(blocks.basicblock_remove_redundant_nops(BlockIdx::new(0)), 2);
+        assert_eq!(blocks[0].instructions[0].target, jump.target);
+        assert_eq!(blocks[0].instructions[0].except_handler, Some(handler));
+        for slot in &blocks[0].instructions[1..3] {
+            assert_eq!(slot.target, BlockIdx::NULL);
+            assert_eq!(slot.except_handler, None);
+        }
+
+        blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
+        let not_taken = &blocks[0].instructions[1];
+        assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
+        assert_eq!(not_taken.except_handler, None);
+    }
+
+    #[test]
+    fn with_cleanup_exception_table_excludes_synthetic_not_taken() {
+        use rustpython_compiler_core::{Mode, SourceFileBuilder, bytecode::decode_exception_table};
+
+        let source = "def f(c):\n    with c:\n        x = 1\n    y = 2\n";
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let ast = ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
+            .unwrap()
+            .into_syntax();
+        let module = crate::compile::compile_top(
+            ast,
+            source_file,
+            Mode::Exec,
+            crate::CompileOpts::default(),
+        )
+        .unwrap();
+        let code = module
+            .constants
+            .iter()
+            .find_map(|constant| match constant {
+                ConstantData::Code { code } => Some(code),
+                _ => None,
+            })
+            .expect("missing with function");
+        let entries = decode_exception_table(&code.exceptiontable);
+        let not_taken = code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::NotTaken))
+            .expect("missing with cleanup NOT_TAKEN") as u32;
+
+        // CPython 3.15rc3 Lib/test/test_dis.py's _with fixture has a body
+        // range and two cleanup ranges separated by the synthetic NOT_TAKEN.
+        assert_eq!(entries.len(), 3);
+        assert!(
+            entries
+                .iter()
+                .all(|entry| { not_taken < entry.start || not_taken >= entry.end })
+        );
+        assert_eq!(entries[1].end, not_taken);
+        assert_eq!(entries[2].start, not_taken + 1);
+        assert_eq!(entries[1].target, entries[2].target);
+        assert_eq!(entries[1].depth, 4);
+        assert_eq!(entries[2].depth, 4);
+        assert!(entries[1].push_lasti && entries[2].push_lasti);
     }
 
     #[test]

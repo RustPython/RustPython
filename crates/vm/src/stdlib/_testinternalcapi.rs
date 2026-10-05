@@ -1071,6 +1071,7 @@ mod _testinternalcapi {
         };
         let mut opts = rustpython_codegen::CompileOpts {
             optimize: u8::try_from(optimize).unwrap_or(0),
+            ast_missing_column: converted.missing_column,
             ..rustpython_codegen::CompileOpts::default()
         };
         opts.future_features |= rustpython_codegen::preprocess::future_features(&converted.ast);

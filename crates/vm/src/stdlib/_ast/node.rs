@@ -1,5 +1,5 @@
+use super::SourceFile;
 use crate::{PyObjectRef, PyResult, VirtualMachine, builtins::PyList};
-use rustpython_compiler_core::SourceFile;
 use thin_vec::ThinVec;
 
 pub(crate) trait Node: Sized {

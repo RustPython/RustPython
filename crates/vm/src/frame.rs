@@ -2798,7 +2798,7 @@ pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
 /// delegating to, if the trampoline can resume it in this frame's place.
 ///
 /// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
-/// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
+/// that follows the delegating `YIELD_VALUE`, with the delegate below its NULL index slot on the
 /// stack — and requires the `SEND` to have already specialized to `SendGen`,
 /// so that a `Send` still collecting specialization feedback keeps running
 /// normally. The frame is left untouched; `park_at_send` commits to it.
@@ -2834,10 +2834,14 @@ pub(crate) fn yield_from_delegate(
     {
         return None;
     }
-    let delegate = match iframe.localsplus.stack_last() {
-        Some(Some(top)) => top.as_object(),
-        _ => return None,
-    };
+    let stack = iframe.localsplus.stack_as_slice();
+    let delegate = stack
+        .get(stack.len().checked_sub(2)?)?
+        .as_ref()?
+        .as_object();
+    if stack.last()?.is_some() {
+        return None;
+    }
     // The same guards `SendGen` applies before resuming a generator itself.
     if delegate.downcast_ref_if_exact::<PyGenerator>(vm).is_none()
         && delegate.downcast_ref_if_exact::<PyCoroutine>(vm).is_none()
@@ -3965,16 +3969,16 @@ impl ExecutingFrame<'_> {
         // In RustPython, we check:
         // 1. lasti points to RESUME (after YIELD_VALUE)
         // 2. The previous instruction was YIELD_VALUE with arg >= 1
-        // 3. Stack top is the delegate (receiver)
+        // 3. The delegate is below its NULL index slot
         //
-        // First check if stack is empty - if so, we can't be in yield-from
-        if self.localsplus.stack_is_empty() {
+        // A suspended delegate needs both its receiver and NULL index slots.
+        if self.localsplus.stack_len() < 2 {
             return None;
         }
         let lasti = self.lasti() as usize;
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
-                Instruction::Send { .. } => return Some(self.top_value()),
+                Instruction::Send { .. } => return Some(self.nth_value(1)),
                 Instruction::Resume { .. } | Instruction::InstrumentedResume => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
@@ -3988,8 +3992,8 @@ impl ExecutingFrame<'_> {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
                         if u8::from(prev_unit.arg) >= 1 {
-                            // In yield-from/await context, delegate is on top of stack
-                            return Some(self.top_value());
+                            // In yield-from/await context, delegate is below the NULL index slot
+                            return Some(self.nth_value(1));
                         }
                     }
                 }
@@ -4843,6 +4847,7 @@ impl ExecutingFrame<'_> {
                 let iterated_obj = self.pop_value();
                 let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
                 self.push_value(iter_obj.into());
+                self.push_null();
                 Ok(None)
             }
             Instruction::GetIter { .. } | Instruction::GetYieldFromIter => {
@@ -4878,6 +4883,7 @@ impl ExecutingFrame<'_> {
                     PyIter::try_from_object(vm, iterable)?.into()
                 };
                 self.push_value(iter);
+                self.push_null();
                 Ok(None)
             }
             Instruction::GetLen => {
@@ -5565,8 +5571,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopTop => {
-                // Pop value from stack and ignore.
-                self.pop_stackref();
+                // Discard either an object or a NULL stack slot.
+                self.pop_stackref_opt();
                 Ok(None)
             }
             Instruction::EndFor => {
@@ -5575,7 +5581,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopIter => {
-                // Pop the iterator from stack (end of for loop)
+                // Discard the NULL index slot, then the iterator.
+                self.pop_stackref_opt();
                 self.pop_stackref();
                 Ok(None)
             }
@@ -5880,10 +5887,10 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
-                // (receiver, v -- receiver, retval)
+                // (receiver, NULL, v -- receiver, NULL, retval)
                 self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let receiver = self.nth_value(1);
+                let receiver = self.nth_value(2);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
@@ -5891,7 +5898,7 @@ impl ExecutingFrame<'_> {
                         .builtin_coro(receiver)
                         .is_some_and(|coro| !coro.running() && !coro.closed());
                 let val = self.pop_value();
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 let ret = if can_fast_send {
                     let coro = self.builtin_coro(receiver).unwrap();
                     if vm.is_none(&val) {
@@ -5921,8 +5928,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SendGen => {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                // Stack: [receiver, val] — peek receiver before popping
-                let receiver = self.nth_value(1);
+                // Stack: [receiver, NULL, val] — peek receiver before popping
+                let receiver = self.nth_value(2);
                 let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
@@ -5934,7 +5941,7 @@ impl ExecutingFrame<'_> {
                 let val = self.pop_value();
 
                 if can_fast_send {
-                    let receiver = self.top_value();
+                    let receiver = self.nth_value(1);
                     // Hand an already-suspended generator to the trampoline,
                     // which runs its frame in this same eval loop and re-yields
                     // for this frame — no Rust frame and no instruction per
@@ -5969,7 +5976,7 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
                         self.push_value(value);
@@ -5988,9 +5995,10 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::EndSend => {
-                // Stack: (receiver, value) -> (value)
+                // Stack: (receiver, NULL, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
+                self.pop_stackref_opt(); // discard NULL index
                 self.pop_stackref(); // discard receiver
                 self.push_value(value);
                 Ok(None)
@@ -6007,14 +6015,14 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::CleanupThrow => {
-                // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
-                // If StopIteration: pop all 3, extract value, push (None, value)
-                // Otherwise: pop all 3, return Err(exc) for unwind_blocks to handle
+                // CLEANUP_THROW: (sub_iter, NULL, last_sent_val, exc) -> (None, NULL, value) OR re-raise
+                // If StopIteration: pop all 4, extract value, push (None, NULL, value)
+                // Otherwise: pop all 4, return Err(exc) for unwind_blocks to handle
                 //
-                // Unlike CPython where exception_unwind pops the triple as part of
+                // Unlike CPython where exception_unwind pops the inputs as part of
                 // stack cleanup to handler depth, RustPython pops here explicitly
                 // and lets unwind_blocks find outer handlers.
-                // Compiler sets handler_depth = base + 2 (before exc is pushed).
+                // Compiler sets handler_depth = base + 3 (before exc is pushed).
 
                 // First peek at exc_value (top of stack) without popping
                 let exc = self.top_value();
@@ -6025,18 +6033,21 @@ impl ExecutingFrame<'_> {
                 {
                     // Extract value from StopIteration
                     let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
-                    // Now pop all three
+                    // Now pop all four
                     self.pop_stackref(); // exc
                     self.pop_stackref(); // last_sent_val
+                    self.pop_stackref_opt(); // NULL index
                     self.pop_stackref(); // sub_iter
                     self.push_value(vm.ctx.none());
+                    self.push_null();
                     self.push_value(value);
                     return Ok(None);
                 }
 
-                // Re-raise other exceptions: pop all three and return Err(exc)
+                // Re-raise other exceptions: pop all four and return Err(exc)
                 let exc = self.pop_value(); // exc
                 self.pop_stackref(); // last_sent_val
+                self.pop_stackref_opt(); // NULL index
                 self.pop_stackref(); // sub_iter
 
                 let exc = exc
@@ -7900,7 +7911,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterRange => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
                     if let Some(value) = range_iter.fast_next() {
                         self.push_value(vm.ctx.new_int(value).into());
@@ -7915,7 +7926,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterList => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
                     if let Some(value) = list_iter.fast_next() {
                         self.push_value(value);
@@ -7930,7 +7941,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterTuple => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
                     if let Some(value) = tuple_iter.fast_next() {
                         self.push_value(value);
@@ -7945,7 +7956,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterGen => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if self.specialization_eval_frame_active(vm) {
                     self.execute_for_iter(vm, target)?;
                     return Ok(None);
@@ -8242,10 +8253,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::InstrumentedEndFor => {
-                // Stack: [value, receiver(iter), ...]
+                // Stack: [..., receiver(iter), NULL, value]
                 // PyGen_Check: only fire STOP_ITERATION for generators
                 let is_gen = self
-                    .nth_value(1)
+                    .nth_value(2)
                     .downcast_ref::<crate::builtins::PyGenerator>()
                     .is_some();
                 let value = self.pop_value();
@@ -8257,6 +8268,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedEndSend => {
                 let value = self.pop_value();
+                self.pop_stackref_opt(); // NULL index
                 let receiver = self.pop_value();
                 // PyGen_Check || PyCoro_CheckExact
                 let is_gen_or_coro = receiver
@@ -8345,6 +8357,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopIter => {
                 // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
+                self.pop_stackref_opt(); // NULL index
                 self.pop_stackref();
                 Ok(None)
             }
@@ -9366,7 +9379,7 @@ impl ExecutingFrame<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
         if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some()
@@ -9390,14 +9403,14 @@ impl ExecutingFrame<'_> {
         Ok(())
     }
 
-    /// Advance the iterator on top of stack.
+    /// Advance the iterator below its NULL index slot.
     /// Returns `true` if iteration continued (item pushed), `false` if exhausted (jumped).
     fn execute_for_iter(
         &mut self,
         vm: &VirtualMachine,
         target: bytecode::Label,
     ) -> Result<bool, PyBaseExceptionRef> {
-        let top = self.top_value();
+        let top = self.nth_value(1);
 
         // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
         if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
@@ -9428,10 +9441,7 @@ impl ExecutingFrame<'_> {
                 self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
-            Err(next_error) => {
-                self.pop_stackref();
-                Err(next_error)
-            }
+            Err(next_error) => Err(next_error),
         }
     }
 
@@ -11328,8 +11338,8 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        // Stack: [receiver, val] — receiver is at position 1
-        let receiver = self.nth_value(1);
+        // Stack: [receiver, NULL, val] — receiver is at position 2
+        let receiver = self.nth_value(2);
         let is_exact_gen_or_coro = receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
             || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some();
         if is_exact_gen_or_coro && !self.specialization_eval_frame_active(vm) {
@@ -11595,7 +11605,7 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
 
         let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
             Some(Instruction::ForIterRange)

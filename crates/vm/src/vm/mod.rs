@@ -3138,6 +3138,7 @@ impl VirtualMachine {
             future_features: crate::bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: self.recursion_limit.get(),
+            ast_missing_column: None,
         }
     }
 

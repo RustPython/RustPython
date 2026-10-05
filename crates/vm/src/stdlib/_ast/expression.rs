@@ -1,9 +1,9 @@
+use super::SourceFile;
 use super::*;
 use crate::stdlib::_ast::argument::{
     KeywordArguments, PositionalArguments, merge_function_call_arguments,
     split_function_call_arguments,
 };
-use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ast::Expr {
