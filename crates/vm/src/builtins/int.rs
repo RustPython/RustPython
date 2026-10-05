@@ -6,12 +6,11 @@ use crate::{
     byte::bytes_from_object,
     class::{PyClassDef, PyClassImpl},
     common::{
-        format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int, true_div},
         wtf8::Wtf8Buf,
     },
-    convert::{IntoPyException, ToPyObject, ToPyResult},
+    convert::{ToPyObject, ToPyResult},
     function::{
         ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
         PySsize,
@@ -601,20 +600,19 @@ impl Py<PyInt> {
         if format_spec.is_empty() && !zelf.class().is(vm.ctx.types.int_type) {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
-        if format_spec.is_decimal_int_format() {
+        let spec = crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
+        if spec.is_decimal_int_format() {
             check_int_to_str_digits(zelf.as_bigint(), vm)?;
         }
-        let result = if format_spec.has_locale_format() {
+        let result = if spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_int_locale(zelf.as_bigint(), &locale)
+            spec.format_int_locale(zelf.as_bigint(), &locale)
         } else {
-            format_spec.format_int(zelf.as_bigint())
+            spec.format_int(zelf.as_bigint())
         };
-        result
-            .map(Wtf8Buf::from_string)
-            .map_err(|err| err.into_pyexception(vm))
+        result.map(Wtf8Buf::from_string).map_err(|err| {
+            crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+        })
     }
 
     #[pymethod]

@@ -1,9 +1,8 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
-use crate::common::format::FormatSpec;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
-    convert::{IntoPyException, ToPyObject, ToPyResult},
+    convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg},
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
@@ -124,9 +123,11 @@ impl Py<PyBool> {
         vm: &VirtualMachine,
     ) -> PyResult<String> {
         let new_bool = zelf.try_to_bool(vm)?;
-        FormatSpec::parse(format_spec.as_str())
-            .and_then(|format_spec| format_spec.format_bool(new_bool))
-            .map_err(|err| err.into_pyexception(vm))
+        crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?
+            .format_bool(new_bool)
+            .map_err(|err| {
+                crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+            })
     }
 }
 

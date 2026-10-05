@@ -1,9 +1,6 @@
 use crate::{
-    PyObject, PyResult, VirtualMachine,
-    builtins::PyBaseExceptionRef,
-    convert::{IntoPyException, ToPyException},
-    function::FuncArgs,
-    stdlib::builtins,
+    PyObject, PyResult, VirtualMachine, builtins::PyBaseExceptionRef, convert::ToPyException,
+    function::FuncArgs, stdlib::builtins,
 };
 
 use crate::common::format::*;
@@ -41,63 +38,70 @@ pub(crate) fn get_locale_info() -> LocaleInfo {
     }
 }
 
-impl IntoPyException for FormatSpecError {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        match self {
-            Self::DecimalDigitsTooMany => {
-                vm.new_value_error("Too many decimal digits in format string")
-            }
-            Self::PrecisionTooBig => vm.new_value_error("Precision too big"),
-            Self::PrecisionMissing => vm.new_value_error("Format specifier missing precision"),
-            Self::InvalidFormatSpecifier => vm.new_value_error("Invalid format specifier"),
-            Self::UnspecifiedFormat(c1, c2) => {
-                let msg = format!("Cannot specify '{c1}' with '{c2}'.");
-                vm.new_value_error(msg)
-            }
-            Self::ExclusiveFormat(c1, c2) => {
-                let msg = format!("Cannot specify both '{c1}' and '{c2}'.");
-                vm.new_value_error(msg)
-            }
-            Self::UnknownFormatCode(c, s) => {
-                let msg = format!("Unknown format code '{c}' for object of type '{s}'");
-                vm.new_value_error(msg)
-            }
-            Self::PrecisionNotAllowed => {
-                vm.new_value_error("Precision not allowed in integer format specifier")
-            }
-            Self::NotAllowed(s) => {
-                let msg = format!("{s} not allowed with integer format specifier 'c'");
-                vm.new_value_error(msg)
-            }
-            Self::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
-            Self::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
-            Self::IntTooLargeForCLong => {
-                vm.new_overflow_error("Python int too large to convert to C long")
-            }
-            Self::ZeroPadding => {
-                vm.new_value_error("Zero padding is not allowed in complex format specifier")
-            }
-            Self::AlignmentFlag => {
-                vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
-            }
-            Self::NegativeZeroCoercionNotAllowed(type_name) => {
-                let msg = format!(
-                    "Negative zero coercion (z) not allowed in {type_name} format specifier"
-                );
-                vm.new_value_error(msg)
-            }
-            Self::StringAlignmentFlag => {
-                vm.new_value_error("'=' alignment not allowed in string format specifier")
-            }
-            Self::StringSpecNotAllowed(s) => {
-                let msg = format!("{s} not allowed in string format specifier");
-                vm.new_value_error(msg)
-            }
-            Self::NotImplemented(c, s) => {
-                let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
-                vm.new_value_error(msg)
-            }
+pub(crate) fn parse_format_spec(
+    object: &PyObject,
+    spec: &str,
+    vm: &VirtualMachine,
+) -> PyResult<FormatSpec> {
+    FormatSpec::parse(spec).map_err(|err| format_spec_error(err, object, spec, vm))
+}
+
+pub(crate) fn format_spec_error(
+    err: FormatSpecError,
+    object: &PyObject,
+    spec: &str,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    match err {
+        FormatSpecError::InvalidFormatSpecifier => vm.new_value_error(format!(
+            "Invalid format specifier '{spec}' for object of type '{}'",
+            object.class().name()
+        )),
+        FormatSpecError::DecimalDigitsTooMany => {
+            vm.new_value_error("Too many decimal digits in format string")
         }
+        FormatSpecError::PrecisionTooBig => vm.new_value_error("Precision too big"),
+        FormatSpecError::PrecisionMissing => {
+            vm.new_value_error("Format specifier missing precision")
+        }
+        FormatSpecError::UnspecifiedFormat(c1, c2) => {
+            vm.new_value_error(format!("Cannot specify '{c1}' with '{c2}'."))
+        }
+        FormatSpecError::ExclusiveFormat(c1, c2) => {
+            vm.new_value_error(format!("Cannot specify both '{c1}' and '{c2}'."))
+        }
+        FormatSpecError::UnknownFormatCode(c, s) => vm.new_value_error(format!(
+            "Unknown format code '{c}' for object of type '{s}'"
+        )),
+        FormatSpecError::PrecisionNotAllowed => {
+            vm.new_value_error("Precision not allowed in integer format specifier")
+        }
+        FormatSpecError::NotAllowed(s) => {
+            vm.new_value_error(format!("{s} not allowed with integer format specifier 'c'"))
+        }
+        FormatSpecError::UnableToConvert => vm.new_value_error("Unable to convert int to float"),
+        FormatSpecError::CodeNotInRange => vm.new_overflow_error("%c arg not in range(0x110000)"),
+        FormatSpecError::IntTooLargeForCLong => {
+            vm.new_overflow_error("Python int too large to convert to C long")
+        }
+        FormatSpecError::ZeroPadding => {
+            vm.new_value_error("Zero padding is not allowed in complex format specifier")
+        }
+        FormatSpecError::AlignmentFlag => {
+            vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
+        }
+        FormatSpecError::NegativeZeroCoercionNotAllowed(type_name) => vm.new_value_error(format!(
+            "Negative zero coercion (z) not allowed in {type_name} format specifier"
+        )),
+        FormatSpecError::StringAlignmentFlag => {
+            vm.new_value_error("'=' alignment not allowed in string format specifier")
+        }
+        FormatSpecError::StringSpecNotAllowed(s) => {
+            vm.new_value_error(format!("{s} not allowed in string format specifier"))
+        }
+        FormatSpecError::NotImplemented(c, s) => vm.new_value_error(format!(
+            "Format code '{c}' for object of type '{s}' not implemented yet"
+        )),
     }
 }
 
