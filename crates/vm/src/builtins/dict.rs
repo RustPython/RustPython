@@ -321,11 +321,10 @@ impl PyDict {
             Err(cause) if cause.class().is(vm.ctx.exceptions.type_error) => {
                 let message = cause.as_object().str(vm)?;
                 let key = key.to_pyobject(vm);
-                let err = vm.new_type_error(format!(
-                    "cannot use '{}' as a dict key ({message})",
-                    key.class().fully_qualified_name(vm)
-                ));
-                err.set___cause__(Some(cause));
+                let name = key.class().fully_qualified_name(vm)?;
+                let err =
+                    vm.new_type_error(format!("cannot use '{name}' as a dict key ({message})"));
+                err.set_cause(Some(cause));
                 Err(err)
             }
             Err(other) => Err(other),
