@@ -2482,7 +2482,9 @@ impl<'src> Parser<'src> {
             };
         }
         let mut parsed_expr = self.parse_named_expression_or_higher(
-            ExpressionContext::yield_or_starred_bitwise_or().with_for_excluded(),
+            ExpressionContext::yield_or_starred_bitwise_or()
+                .with_for_excluded()
+                .with_starred_generator_allowed(),
         );
 
         match self.current_token_kind() {
@@ -2934,8 +2936,21 @@ impl<'src> Parser<'src> {
                     context.disallow_starred_expressions(),
                 ),
             StarredExpressionPrecedence::BitwiseOr => {
+                let errors_start = self.errors.len();
                 let value = self.parse_conditional_expression_or_higher();
+                let operand_is_valid = self.errors.len() == errors_start;
                 self.validate_unpacking_precedence(&value, start, false);
+                // Generator elements use `starred_expression` (`* expression`).
+                // Keep a display-precedence error only for an overall parse failure.
+                if operand_is_valid
+                    && context.is_starred_generator_allowed()
+                    && matches!(self.current_token_kind(), TokenKind::Async | TokenKind::For)
+                    && self.errors.len() == errors_start + 1
+                {
+                    let error = self.errors.pop().expect("operand precedence error exists");
+                    self.deferred_starred_generator_errors
+                        .push((errors_start, error));
+                }
                 value
             }
         };
@@ -3391,6 +3406,10 @@ bitflags! {
         /// This flag is set when the `for` keyword, or `async` starting `async for`, should be
         /// excluded from an expression.
         const EXCLUDE_FOR = 1 << 4;
+
+        /// The first element after `(` may become a generator expression. Its starred
+        /// operand can use full expression precedence if a comprehension clause follows.
+        const ALLOW_STARRED_GENERATOR = 1 << 5;
     }
 }
 
@@ -3450,6 +3469,16 @@ impl ExpressionContext {
     /// Returns a new [`ExpressionContext`] which excludes `for` from an expression.
     fn with_for_excluded(self) -> Self {
         ExpressionContext(self.0 | ExpressionContextFlags::EXCLUDE_FOR)
+    }
+
+    /// Allow the first parenthesized starred element to become a generator element.
+    fn with_starred_generator_allowed(self) -> Self {
+        ExpressionContext(self.0 | ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
+    }
+
+    const fn is_starred_generator_allowed(self) -> bool {
+        self.0
+            .contains(ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
     }
 
     /// Returns `true` if the `in` keyword should be excluded from a comparison expression.

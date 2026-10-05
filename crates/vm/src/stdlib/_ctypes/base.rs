@@ -213,7 +213,7 @@ impl StgInfo {
             size,
             align,
             length,
-            proto: None,
+            proto: Some(element_type.clone()),
             flags,
             element_type: Some(element_type),
             element_size,

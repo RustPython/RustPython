@@ -64,6 +64,23 @@ covers the motivating cases. An external differential corpus records complete
 messages and ranges against the pinned reference; no upstream parser or
 RustPython test assertion is changed.
 
+### Local starred-generator operand correction
+
+`patches/rustpython-rc3-starred-generator-operands.patch` is a subsequent local
+RustPython change, not an upstream Ruff commit. Apply it after the local
+diagnostic patch with `git apply --unidiff-zero PATCH_PATH` from the RustPython
+root. It changes `src/parser/expression.rs` and `src/parser/mod.rs`, retaining
+the original upstream provenance and license.
+
+CPython v3.15.0rc3's `genexp` rule accepts `starred_expression` (`* expression`),
+including conditional, boolean, comparison, and lambda operands. The first
+parenthesized element now defers its bitwise-or restriction when a generator
+clause follows. Tuple/group elements and list/set displays retain their existing
+precedence rules. A private deferred diagnostic preserves CPython's invalid-rule
+fallback when another parse error occurs; compile-stage semantic errors do not
+activate that fallback. Parser checkpoints restore the deferred diagnostic
+position. No test or reference assertion is changed.
+
 To reproduce the source, verify the archive checksum, extract the paths above,
 and apply each upstream patch from the RustPython root with
 `git apply --unidiff-zero -p3 --directory=vendor/rustpython-ruff_python_parser PATCH_PATH`.

@@ -82,6 +82,10 @@ pub(crate) struct Parser<'src> {
     /// Stores all the syntax errors found during the parsing.
     errors: Vec<ParseError>,
 
+    /// Display-precedence errors that are valid generator operands, retained for
+    /// the invalid grammar fallback if the overall parse fails.
+    deferred_starred_generator_errors: Vec<(usize, ParseError)>,
+
     /// Stores non-fatal syntax errors found during parsing, such as version-related errors.
     unsupported_syntax_errors: Vec<UnsupportedSyntaxError>,
 
@@ -141,6 +145,7 @@ impl<'src> Parser<'src> {
             options,
             source,
             errors: Vec::new(),
+            deferred_starred_generator_errors: Vec::new(),
             unsupported_syntax_errors: Vec::new(),
             tokens,
             name_interner: NameInterner::default(),
@@ -257,7 +262,15 @@ impl<'src> Parser<'src> {
             "Parser should be at the end of the file."
         );
         // TODO consider re-integrating lexical error handling into the parser?
-        let parse_errors = self.errors;
+        let mut parse_errors = self.errors;
+        if !parse_errors.is_empty()
+            && let Some((0, error)) = self.deferred_starred_generator_errors.into_iter().next()
+        {
+            // CPython retries its invalid grammar rules only after a parse failure.
+            // Preserve encounter order, including nested operands whose ranges begin
+            // after the outer expression's later error. Semantic errors occur later.
+            parse_errors.insert(0, error);
+        }
         let (tokens, lex_errors) = self.tokens.finish();
 
         // Fast path for when there are no lex errors.
@@ -947,6 +960,9 @@ impl<'src> Parser<'src> {
         ParserCheckpoint {
             tokens: self.tokens.checkpoint(),
             errors_position: self.errors.len(),
+            deferred_starred_generator_errors_position: self
+                .deferred_starred_generator_errors
+                .len(),
             unsupported_syntax_errors_position: self.unsupported_syntax_errors.len(),
             current_token_id: self.current_token_id,
             prev_token_end: self.prev_token_end,
@@ -959,6 +975,7 @@ impl<'src> Parser<'src> {
         let ParserCheckpoint {
             tokens,
             errors_position,
+            deferred_starred_generator_errors_position,
             unsupported_syntax_errors_position,
             current_token_id,
             prev_token_end,
@@ -967,6 +984,8 @@ impl<'src> Parser<'src> {
 
         self.tokens.rewind(tokens);
         self.errors.truncate(errors_position);
+        self.deferred_starred_generator_errors
+            .truncate(deferred_starred_generator_errors_position);
         self.unsupported_syntax_errors
             .truncate(unsupported_syntax_errors_position);
         self.current_token_id = current_token_id;
@@ -998,6 +1017,7 @@ impl IpyEscapeContext {
 struct ParserCheckpoint {
     tokens: TokenSourceCheckpoint,
     errors_position: usize,
+    deferred_starred_generator_errors_position: usize,
     unsupported_syntax_errors_position: usize,
     current_token_id: TokenId,
     prev_token_end: TextSize,

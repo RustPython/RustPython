@@ -49,7 +49,7 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     lock::{OnceCell, PyMutex},
-    wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
+    wtf8::{Wtf8Buf, wtf8_concat},
 };
 use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
@@ -8794,9 +8794,7 @@ impl ExecutingFrame<'_> {
         if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
-            let func_str = Self::object_function_str(callable, vm);
-
-            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
+            Self::iterate_mapping_keys(vm, &kw_obj, callable, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 key.downcast_ref::<PyStr>()
@@ -8863,7 +8861,7 @@ impl ExecutingFrame<'_> {
     fn iterate_mapping_keys<F>(
         vm: &VirtualMachine,
         mapping: &PyObject,
-        func_str: &Wtf8,
+        callable: &PyObject,
         mut key_handler: F,
     ) -> PyResult<()>
     where
@@ -8887,7 +8885,7 @@ impl ExecutingFrame<'_> {
         let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!(
                 "{} argument after ** must be a mapping, not {}",
-                func_str,
+                Self::object_function_str(callable, vm),
                 mapping.class().name()
             )));
         };

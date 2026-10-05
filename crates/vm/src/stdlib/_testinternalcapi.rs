@@ -37,9 +37,10 @@ mod _testinternalcapi {
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::{ArgIntoBool, OptionalArg, PyComparisonValue},
+        function::{ArgIntoBool, OptionalArg, PosArgs, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+        stdlib::time::pytime::{self, Round},
         types::{
             AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
             SelfIter,
@@ -70,7 +71,8 @@ mod _testinternalcapi {
     const SIZEOF_PYOBJECT: usize = core::mem::size_of::<crate::PyObject>();
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = 8;
+    #[cfg_attr(target_env = "musl", allow(deprecated))]
+    const SIZEOF_TIME_T: usize = core::mem::size_of::<pytime::TimeT>();
 
     // JUMP_BACKWARD_INITIAL_VALUE + 1
     #[pyattr]
@@ -723,24 +725,119 @@ mod _testinternalcapi {
         }
     }
 
+    fn pytime_args<'a, const N: usize>(
+        args: &'a PosArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a [PyObjectRef; N]> {
+        let values: &[PyObjectRef] = args.as_ref();
+        values.try_into().map_err(|_| {
+            vm.new_type_error(format!(
+                "function takes exactly {} argument{} ({} given)",
+                N,
+                if N == 1 { "" } else { "s" },
+                values.len()
+            ))
+        })
+    }
+
+    // PyArg_ParseTuple's "i" first converts to C long, then checks C int bounds.
+    fn pytime_c_int(object: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+        let value: core::ffi::c_long = object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        num_traits::ToPrimitive::to_i32(&value).ok_or_else(|| {
+            vm.new_overflow_error(if value < 0 {
+                "signed integer is less than minimum"
+            } else {
+                "signed integer is greater than maximum"
+            })
+        })
+    }
+
+    fn pytime_i64(object: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+        object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int64_t"))
+    }
+
+    #[pyfunction(name = "_PyTime_FromSeconds")]
+    fn pytime_from_seconds(args: PosArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [seconds] = pytime_args::<1>(&args, vm)?;
+        Ok(pytime::from_seconds(pytime_c_int(seconds, vm)?))
+    }
+
+    #[pyfunction(name = "_PyTime_FromSecondsObject")]
+    fn pytime_from_seconds_object(args: PosArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::from_seconds_object(object, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsMilliseconds")]
+    fn pytime_as_milliseconds(args: PosArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [ns, round] = pytime_args::<2>(&args, vm)?;
+        let round = pytime_c_int(round, vm)?;
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, 1_000_000))
+    }
+
+    #[pyfunction(name = "_PyTime_AsMicroseconds")]
+    fn pytime_as_microseconds(args: PosArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [ns, round] = pytime_args::<2>(&args, vm)?;
+        let round = pytime_c_int(round, vm)?;
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, 1_000))
+    }
+
     #[pyfunction(name = "_PyTime_AsTimespec")]
-    fn pytime_as_timespec(ns: i64) -> (i64, i64) {
-        let sec = ns.div_euclid(1_000_000_000);
-        let nsec = ns.rem_euclid(1_000_000_000);
-        (sec, nsec)
+    fn pytime_as_timespec(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, vm)?;
+        pytime::as_timespec(pytime_i64(ns, vm)?, false, vm)
     }
 
     #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
-    fn pytime_as_timespec_clamp(ns: i64) -> (i64, i64) {
-        pytime_as_timespec(ns)
+    fn pytime_as_timespec_clamp(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, vm)?;
+        pytime::as_timespec(pytime_i64(ns, vm)?, true, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval")]
+    fn pytime_as_timeval(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::as_timeval(pytime_i64(ns, vm)?, round, false, vm)
     }
 
     #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
-    fn pytime_as_timeval_clamp(ns: i64, _rnd: OptionalArg<i32>) -> (i64, i64) {
-        let us = ns.div_euclid(1000);
-        let sec = us.div_euclid(1_000_000);
-        let usec = us.rem_euclid(1_000_000);
-        (sec, usec)
+    fn pytime_as_timeval_clamp(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::as_timeval(pytime_i64(ns, vm)?, round, true, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTime_t")]
+    fn pytime_object_to_time_t(args: PosArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_time_t(object, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
+    fn pytime_object_to_timespec(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_denominator(object, 1_000_000_000, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimeval")]
+    fn pytime_object_to_timeval(args: PosArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_denominator(object, 1_000_000, round, vm)
     }
 
     #[pyfunction]

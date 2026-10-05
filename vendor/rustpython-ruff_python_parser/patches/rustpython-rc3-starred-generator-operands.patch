@@ -1,0 +1,70 @@
+--- a/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
+@@ -2485 +2485,3 @@
+-            ExpressionContext::yield_or_starred_bitwise_or().with_for_excluded(),
++            ExpressionContext::yield_or_starred_bitwise_or()
++                .with_for_excluded()
++                .with_starred_generator_allowed(),
+@@ -2936,0 +2939 @@
++                let errors_start = self.errors.len();
+@@ -2937,0 +2941 @@
++                let operand_is_valid = self.errors.len() == errors_start;
+@@ -2938,0 +2943,11 @@
++                // Generator elements use `starred_expression` (`* expression`).
++                // Keep a display-precedence error only for an overall parse failure.
++                if operand_is_valid
++                    && context.is_starred_generator_allowed()
++                    && matches!(self.current_token_kind(), TokenKind::Async | TokenKind::For)
++                    && self.errors.len() == errors_start + 1
++                {
++                    let error = self.errors.pop().expect("operand precedence error exists");
++                    self.deferred_starred_generator_errors
++                        .push((errors_start, error));
++                }
+@@ -3393,0 +3409,4 @@
++
++        /// The first element after `(` may become a generator expression. Its starred
++        /// operand can use full expression precedence if a comprehension clause follows.
++        const ALLOW_STARRED_GENERATOR = 1 << 5;
+@@ -3452,0 +3472,10 @@
++    }
++
++    /// Allow the first parenthesized starred element to become a generator element.
++    fn with_starred_generator_allowed(self) -> Self {
++        ExpressionContext(self.0 | ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
++    }
++
++    const fn is_starred_generator_allowed(self) -> bool {
++        self.0
++            .contains(ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
+--- a/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
+@@ -84,0 +85,4 @@
++    /// Display-precedence errors that are valid generator operands, retained for
++    /// the invalid grammar fallback if the overall parse fails.
++    deferred_starred_generator_errors: Vec<(usize, ParseError)>,
++
+@@ -143,0 +148 @@
++            deferred_starred_generator_errors: Vec::new(),
+@@ -260 +265,9 @@
+-        let parse_errors = self.errors;
++        let mut parse_errors = self.errors;
++        if !parse_errors.is_empty()
++            && let Some((0, error)) = self.deferred_starred_generator_errors.into_iter().next()
++        {
++            // CPython retries its invalid grammar rules only after a parse failure.
++            // Preserve encounter order, including nested operands whose ranges begin
++            // after the outer expression's later error. Semantic errors occur later.
++            parse_errors.insert(0, error);
++        }
+@@ -949,0 +963,3 @@
++            deferred_starred_generator_errors_position: self
++                .deferred_starred_generator_errors
++                .len(),
+@@ -961,0 +978 @@
++            deferred_starred_generator_errors_position,
+@@ -969,0 +987,2 @@
++        self.deferred_starred_generator_errors
++            .truncate(deferred_starred_generator_errors_position);
+@@ -1000,0 +1020 @@
++    deferred_starred_generator_errors_position: usize,

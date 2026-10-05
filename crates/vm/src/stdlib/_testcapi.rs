@@ -10,7 +10,7 @@ mod monitoring;
 mod _testcapi {
     use crate::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-        builtins::{PyModule, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyCode, PyInt, PyModule, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef},
         function::{ArgBytesLike, ArgIntoBool, ItemDoc, PosArgs, PyMethodDef, PyMethodFlags},
         types::Constructor,
     };
@@ -84,8 +84,31 @@ mod _testcapi {
     const PY_SSIZE_T_MIN: isize = isize::MIN;
     #[pyattr]
     const PY_SSIZE_T_MAX: isize = isize::MAX;
+    #[pyattr]
+    const FLT_MAX: f64 = f32::MAX as f64;
+    #[pyattr]
+    const FLT_MIN: f64 = f32::MIN_POSITIVE as f64;
+    #[pyattr]
+    const DBL_MAX: f64 = f64::MAX;
+    #[pyattr]
+    const DBL_MIN: f64 = f64::MIN_POSITIVE;
     #[pyattr(name = "nan_msb_is_signaling")]
     const NAN_MSB_IS_SIGNALING: bool = f64::NAN.to_bits() & (1_u64 << 51) == 0;
+
+    #[pyfunction]
+    fn code_offset_to_line(args: PosArgs, vm: &VirtualMachine) -> PyResult<i32> {
+        let [code, offset] = args.as_ref() else {
+            return Err(vm.new_type_error("code_offset_to_line takes 2 arguments"));
+        };
+        let offset: i32 =
+            offset.try_index(vm)?.as_bigint().try_into().map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C int32_t")
+            })?;
+        let code = code
+            .downcast_ref::<PyCode>()
+            .ok_or_else(|| vm.new_type_error("first arg must be a code object"))?;
+        Ok(code.addr2line(offset))
+    }
 
     #[pyfunction]
     fn config_get(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
@@ -115,6 +138,27 @@ mod _testcapi {
             }
         };
         Ok(value)
+    }
+
+    #[pyfunction(name = "PyTime_AsSecondsDouble")]
+    fn pytime_as_seconds_double(args: PosArgs, vm: &VirtualMachine) -> PyResult<f64> {
+        let [object] = args.as_ref() else {
+            return Err(vm.new_type_error(format!(
+                "function takes exactly 1 argument ({} given)",
+                args.as_ref().len()
+            )));
+        };
+        let Some(nanoseconds) = object.downcast_ref::<PyInt>() else {
+            return Err(vm.new_type_error(format!(
+                "expect int, got {}",
+                object.class().fully_qualified_name(vm)?
+            )));
+        };
+        let nanoseconds = nanoseconds
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("int too big to convert"))?;
+        Ok(crate::stdlib::time::pytime::as_seconds_double(nanoseconds))
     }
 
     #[pyfunction]
