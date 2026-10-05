@@ -2338,7 +2338,6 @@ class TestLoadSuperAttr(CheckEvents):
         self.check_events(nonopt_func, recorders=self.RECORDERS, expected=nonopt_expected)
         self.check_events(opt_func, recorders=self.RECORDERS, expected=opt_expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_vs_other_type_call(self):
         code_template = textwrap.dedent("""
             class C:
