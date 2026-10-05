@@ -207,7 +207,10 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
-            if obj.class().is(super::bool_::PyBool::static_type()) {
+            if obj
+                .class()
+                .is(unsafe { super::bool_::PyBool::static_type() })
+            {
                 BorrowedConstant::Boolean {
                     value: !value.is_zero(),
                 }
@@ -702,8 +705,8 @@ impl PyCode {
 
 impl PyPayload for PyCode {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.code_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        ctx.types.code_type.to_owned()
     }
 }
 

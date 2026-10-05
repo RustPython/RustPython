@@ -362,6 +362,7 @@ pub(super) fn is_big_endian(is_swapped: bool) -> bool {
 /// Shared BufferMethods for all ctypes types (PyCArray, PyCSimple, PyCStructure, PyCUnion)
 /// All these types are #[repr(transparent)] wrappers around PyCData
 pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
+    shared_storage: None,
     obj_bytes: |buffer| {
         rustpython_common::lock::PyRwLockReadGuard::map(
             buffer.obj_as::<PyCData>().buffer.read(),
@@ -919,7 +920,7 @@ impl PyCData {
         if let Some(proto_type) = proto.downcast_ref::<PyType>()
             && proto_type
                 .class()
-                .fast_issubclass(super::pointer::PyCPointerType::static_type())
+                .fast_issubclass(unsafe { super::pointer::PyCPointerType::static_type() })
             && let Some(array) = value.downcast_ref::<super::array::PyCArray>()
         {
             let buffer_addr = {
@@ -1080,7 +1081,7 @@ impl PyCData {
         let proto_metaclass = proto_type.class();
 
         // Simple types: return primitive value
-        if proto_metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type()) {
+        if proto_metaclass.fast_issubclass(unsafe { super::simple::PyCSimpleType::static_type() }) {
             // Check for byte swapping
             let needs_swap = base_obj
                 .class()
@@ -1107,9 +1108,11 @@ impl PyCData {
         let ptr = self.buffer.read().as_ptr().wrapping_add(offset) as *mut u8;
         let cdata_obj = unsafe { Self::from_base_obj(ptr, size, base_obj, index) };
 
-        if proto_metaclass.fast_issubclass(super::structure::PyCStructType::static_type())
-            || proto_metaclass.fast_issubclass(super::union::PyCUnionType::static_type())
-            || proto_metaclass.fast_issubclass(super::pointer::PyCPointerType::static_type())
+        if proto_metaclass
+            .fast_issubclass(unsafe { super::structure::PyCStructType::static_type() })
+            || proto_metaclass.fast_issubclass(unsafe { super::union::PyCUnionType::static_type() })
+            || proto_metaclass
+                .fast_issubclass(unsafe { super::pointer::PyCPointerType::static_type() })
         {
             cdata_obj.into_ref_with_type(vm, proto_type).map(Into::into)
         } else {
@@ -2079,7 +2082,7 @@ pub(super) fn is_simple_instance(typ: &Py<PyType>) -> bool {
     // _ctypes_simple_instance
     // Check if the type's metaclass is PyCSimpleType
     let metaclass = typ.class();
-    metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type())
+    metaclass.fast_issubclass(unsafe { super::simple::PyCSimpleType::static_type() })
 }
 
 /// Set or initialize StgInfo on a type

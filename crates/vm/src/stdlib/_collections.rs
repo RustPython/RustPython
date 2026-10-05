@@ -315,7 +315,7 @@ mod _collections {
     }
 
     #[pyclass(
-        flags(BASETYPE, HAS_WEAKREF),
+        flags(BASETYPE, HAS_WEAKREF, SEQUENCE),
         with(
             Constructor,
             Initializer,

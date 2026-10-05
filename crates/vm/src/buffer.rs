@@ -1,7 +1,7 @@
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyType, PyTypeRef},
-    common::{lock::PyRwLock, rc::PyRc, static_cell, str::wchar_t},
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyBaseExceptionRef, PyBytesRef, PyComplex, PyTuple, PyTupleRef, PyTypeRef},
+    common::{lock::PyRwLock, rc::PyRc, str::wchar_t},
     convert::ToPyObject,
     exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoComplex, ArgIntoFloat},
@@ -991,17 +991,15 @@ fn unpack_pascal(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef {
 }
 
 // XXX: are those functions expected to be placed here?
-pub fn struct_error_type(vm: &VirtualMachine) -> &'static Py<PyType> {
-    static_cell! {
-        static INSTANCE: PyTypeRef;
-    }
-    INSTANCE.get_or_init(|| vm.ctx.new_exception_type("struct", "error", None))
+pub fn struct_error_type(vm: &VirtualMachine) -> PyTypeRef {
+    struct StructError;
+    vm.__cached_native::<StructError, _>(|| vm.ctx.new_exception_type("struct", "error", None))
 }
 
 pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
-    vm.new_exception_msg(struct_error_type(vm).to_owned(), msg.into())
+    vm.new_exception_msg(struct_error_type(vm), msg.into())
 }
 
 #[cfg(test)]
@@ -1011,7 +1009,7 @@ mod tests {
 
     #[test]
     fn format_cache_reuses_specs_and_releases_evicted_entries() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+        Interpreter::without_stdlib(Default::default()).enter_raw(|vm| {
             let cache = &vm.state.struct_format_cache;
             let spec = cache.get_or_parse(b"<IH", vm).unwrap();
             assert!(PyRc::ptr_eq(

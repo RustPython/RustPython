@@ -522,10 +522,10 @@ impl PyMemoryView {
         if zelf.desc.ndim() == 0 {
             let a_pos = zelf.desc.offset as usize;
             let b_pos = other.desc.offset as usize;
-            let a_bytes = zelf.buffer.obj_bytes();
+            let a_bytes = zelf.buffer.obj_bytes_unlocked(vm)?;
             let a_val = format_unpack(a_format_spec, &a_bytes[a_pos..a_pos + a_itemsize], vm)?;
             drop(a_bytes);
-            let b_bytes = other.obj_bytes();
+            let b_bytes = other.obj_bytes_unlocked(vm)?;
             let b_val = format_unpack(b_format_spec, &b_bytes[b_pos..b_pos + b_itemsize], vm)?;
             drop(b_bytes);
             return vm.bool_eq(&a_val, &b_val);
@@ -533,8 +533,8 @@ impl PyMemoryView {
 
         // TODO: optimize cmp by format
         let mut ret = Ok(true);
-        let a_bytes = zelf.buffer.obj_bytes();
-        let b_bytes = other.obj_bytes();
+        let a_bytes = zelf.buffer.obj_bytes_unlocked(vm)?;
+        let b_bytes = other.obj_bytes_unlocked(vm)?;
         zelf.desc.zip_eq(&other.desc, false, |a_range, b_range| {
             let a_range = a_range.start as usize..a_range.start as usize + a_itemsize;
             let b_range = b_range.start as usize..b_range.start as usize + b_itemsize;
@@ -650,19 +650,10 @@ impl Py<PyMemoryView> {
             ));
         }
 
-        // copy_buffer reads the source as it stood before the copy began, which an
-        // overlapping assignment depends on and which also keeps the two borrows
-        // below off the same storage.
-        let src = if root_exporter(&src).is(&root_exporter(&dest.buffer)) {
-            let owned = src.to_contiguous(vm);
-            drop(src);
-            owned
-        } else {
-            src
-        };
-
+        // Snapshot mutable sources before locking the destination: independent
+        // XI views can alias, and concurrent A->B/B->A copies must not deadlock.
+        let src_bytes = src.obj_bytes_unlocked(vm)?;
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
-        let src_bytes = src.obj_bytes();
         dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
             let a_range = a_range.start as usize..a_range.end as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
@@ -1273,6 +1264,7 @@ impl TryFromObject for SubscriptNeedle {
 }
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
+    shared_storage: Some(|buffer| buffer.obj_as::<PyMemoryView>().buffer.shared_storage()),
     obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes_mut(),
     // memory_releasebuf / memory_getbuf: a consumer's export of this view is a
@@ -1414,8 +1406,8 @@ impl Hashable for PyMemoryView {
 
 impl PyPayload for PyMemoryView {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.memoryview_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.memoryview_type).to_owned()
     }
 }
 
@@ -1434,12 +1426,12 @@ impl Representable for PyMemoryView {
 pub(crate) fn init(ctx: &'static Context) {
     PyMemoryView::extend_class(ctx, ctx.types.memoryview_type);
     PyMemoryViewIterator::extend_class(ctx, ctx.types.memoryviewiterator_type);
-    let wrapper_type = PyBufferWrapper::init_builtin_type();
+    let wrapper_type = unsafe { PyBufferWrapper::init_builtin_type() };
     // bufferwrapper_as_buffer: bf_releasebuffer and no bf_getbuffer, so the type
     // has `__release_buffer__` but no `__buffer__`.
     wrapper_type.slots.has_release_buffer.store(true);
     PyBufferWrapper::extend_class(ctx, wrapper_type);
-    PyBufferWindow::extend_class(ctx, PyBufferWindow::init_builtin_type());
+    PyBufferWindow::extend_class(ctx, unsafe { PyBufferWindow::init_builtin_type() });
 }
 
 #[pyclass(module = false, name = "_buffer_wrapper", traverse)]
@@ -1458,8 +1450,8 @@ struct PyBufferWrapper {
 }
 
 impl PyPayload for PyBufferWrapper {
-    fn class(_ctx: &Context) -> &'static Py<PyType> {
-        Self::static_type()
+    fn class(_ctx: &Context) -> crate::builtins::PyTypeRef {
+        (unsafe { Self::static_type() }).to_owned()
     }
 }
 
@@ -1467,6 +1459,7 @@ impl PyPayload for PyBufferWrapper {
 impl PyBufferWrapper {}
 
 static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
+    shared_storage: Some(|buffer| buffer.obj_as::<PyBufferWrapper>().view.shared_storage()),
     obj_bytes: |buffer| buffer.obj_as::<PyBufferWrapper>().view.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyBufferWrapper>().view.obj_bytes_mut(),
     retain: |buffer| {
@@ -1511,8 +1504,8 @@ struct PyBufferWindow {
 }
 
 impl PyPayload for PyBufferWindow {
-    fn class(_ctx: &Context) -> &'static Py<PyType> {
-        Self::static_type()
+    fn class(_ctx: &Context) -> crate::builtins::PyTypeRef {
+        (unsafe { Self::static_type() }).to_owned()
     }
 }
 
@@ -1520,34 +1513,12 @@ impl PyPayload for PyBufferWindow {
 impl PyBufferWindow {}
 
 static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
+    shared_storage: None,
     obj_bytes: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes_mut(),
     retain: |_buffer| {},
     release: |_buffer| {},
 };
-
-/// The object that ultimately owns the bytes a buffer reads, seen through the
-/// payloads that only forward to another export: a view, the wrapper holding what
-/// a `__buffer__` returned, and the window handed to `__release_buffer__`.
-///
-/// Two buffers that resolve to the same object address the same storage, so
-/// borrowing one for writing while the other is borrowed for reading would
-/// deadlock on it.
-fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
-    let mut obj = buffer.obj.clone();
-    loop {
-        let next = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
-            view.buffer.obj.clone()
-        } else if let Some(wrapper) = obj.downcast_ref::<PyBufferWrapper>() {
-            wrapper.view.obj.clone()
-        } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
-            window.source.obj.clone()
-        } else {
-            return obj;
-        };
-        obj = next;
-    }
-}
 
 // slot_bf_getbuffer
 pub(crate) fn buffer_from_python_getbuffer(
@@ -1605,7 +1576,7 @@ pub(crate) fn release_buffer_from_python(
 
 // releasebuffer_call_python, for a buffer acquired from a native exporter
 pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
-    crate::vm::thread::try_with_current_vm(|vm| {
+    crate::vm::thread::with_vm(&buffer.obj, |vm| {
         let exporter = buffer.obj.clone();
         let window = PyBufferWindow {
             source: buffer.detached(),
@@ -1633,7 +1604,7 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
 }
 
 fn call_python_release_buffer(exporter: &PyObject, mv: PyRef<PyMemoryView>) {
-    crate::vm::thread::try_with_current_vm(|vm| {
+    crate::vm::thread::with_vm(exporter, |vm| {
         let method = vm.get_special_method(exporter, identifier!(vm, __release_buffer__));
         if let Ok(Some(method)) = method
             && let Err(exc) = method.invoke((mv,), vm)
@@ -1709,8 +1680,8 @@ pub(crate) struct PyMemoryViewIterator {
 }
 
 impl PyPayload for PyMemoryViewIterator {
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.memoryviewiterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.memoryviewiterator_type).to_owned()
     }
 }
 

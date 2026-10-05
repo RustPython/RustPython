@@ -157,7 +157,7 @@ mod _ssl {
     fn ssl_error<T>(vm: &VirtualMachine, message: impl Into<String>) -> PyResult<T> {
         Err(vm
             .new_os_subtype_error(
-                PySSLError::class(&vm.ctx).to_owned(),
+                PySSLError::class(&vm.ctx),
                 Some(SSL_ERROR_SSL),
                 message.into(),
             )
@@ -730,12 +730,8 @@ mod _ssl {
             let bytes_like = ArgBytesLike::try_from_object(vm, buf)?;
             let data = bytes_like.borrow_buf();
             zelf.inner.lock().write(&data).map_err(|err| {
-                vm.new_os_subtype_error(
-                    PySSLError::class(&vm.ctx).to_owned(),
-                    None,
-                    err.to_string(),
-                )
-                .upcast()
+                vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, err.to_string())
+                    .upcast()
             })
         }
 

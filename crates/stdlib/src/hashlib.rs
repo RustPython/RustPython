@@ -244,14 +244,14 @@ pub(crate) mod _hashlib {
             return Ok(algo.to_owned());
         }
         Err(vm.new_exception_msg(
-            UnsupportedDigestmodError::static_type().to_owned(),
+            unsafe { UnsupportedDigestmodError::static_type() }.to_owned(),
             "unsupported digestmod".into(),
         ))
     }
 
     fn unsupported_hash(name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(
-            UnsupportedDigestmodError::static_type().to_owned(),
+            unsafe { UnsupportedDigestmodError::static_type() }.to_owned(),
             format!("unsupported hash type {name}").into(),
         )
     }

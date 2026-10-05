@@ -8,6 +8,7 @@ pub(crate) use _asyncio::module_def;
 pub(crate) mod _asyncio {
     use crate::common::wtf8::{Wtf8Buf, wtf8_concat};
     use crate::contextvars::PyContext;
+    use crate::vm::common::rc::PyRc;
     use crate::{
         common::lock::PyRwLock,
         vm::{
@@ -2458,16 +2459,8 @@ pub(crate) mod _asyncio {
         copy_context: PyObjectRef,
     }
 
-    // `PyObjectRef`/`PyRef<T>` are not `Sync` (they are not meant to be
-    // shared across threads via a plain global), so the caches live in
-    // thread-locals, mirroring the `CONTEXTS` thread-local already used by
-    // `contextvars.rs`. Each thread pays the resolution cost once (or again
-    // after a module reload, detected via the identity check below) rather
-    // than on every task step.
-    thread_local! {
-        static ASYNCIO_CACHE: core::cell::RefCell<Option<AsyncioCache>> = const { core::cell::RefCell::new(None) };
-        static CONTEXTVARS_CACHE: core::cell::RefCell<Option<ContextVarsCache>> = const { core::cell::RefCell::new(None) };
-    }
+    // Cache snapshots belong to the interpreter and are released while its
+    // owner is attached. Callers run outside the native-cache directory lock.
 
     /// Access the cached `_asyncio` module state, refreshing it first if the
     /// module it was built from is no longer the currently-imported one
@@ -2479,10 +2472,10 @@ pub(crate) mod _asyncio {
     ) -> PyResult<R> {
         let asyncio_module = vm.import("_asyncio", 0)?;
 
-        let hit =
-            ASYNCIO_CACHE.with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&asyncio_module)));
-        if hit {
-            return Ok(ASYNCIO_CACHE.with_borrow(|c| f(c.as_ref().unwrap())));
+        if let Some(cache) = vm.__get_native::<AsyncioCache, PyRc<AsyncioCache>>()
+            && cache.module.is(&asyncio_module)
+        {
+            return Ok(f(&cache));
         }
 
         // Slow path: (re)resolve everything and populate the cache.
@@ -2507,7 +2500,7 @@ pub(crate) mod _asyncio {
             current_tasks,
         };
         let result = f(&cache);
-        ASYNCIO_CACHE.with_borrow_mut(|c| *c = Some(cache));
+        vm.__replace_native::<AsyncioCache, _>(PyRc::new(cache));
         Ok(result)
     }
 
@@ -2519,10 +2512,10 @@ pub(crate) mod _asyncio {
     ) -> PyResult<R> {
         let contextvars_module = vm.import("contextvars", 0)?;
 
-        let hit = CONTEXTVARS_CACHE
-            .with_borrow(|c| c.as_ref().is_some_and(|c| c.module.is(&contextvars_module)));
-        if hit {
-            return Ok(CONTEXTVARS_CACHE.with_borrow(|c| f(c.as_ref().unwrap())));
+        if let Some(cache) = vm.__get_native::<ContextVarsCache, PyRc<ContextVarsCache>>()
+            && cache.module.is(&contextvars_module)
+        {
+            return Ok(f(&cache));
         }
 
         let copy_context = vm
@@ -2534,7 +2527,7 @@ pub(crate) mod _asyncio {
             copy_context,
         };
         let result = f(&cache);
-        CONTEXTVARS_CACHE.with_borrow_mut(|c| *c = Some(cache));
+        vm.__replace_native::<ContextVarsCache, _>(PyRc::new(cache));
         Ok(result)
     }
 

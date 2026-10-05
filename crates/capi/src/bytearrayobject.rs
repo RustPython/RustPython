@@ -59,7 +59,9 @@ pub unsafe extern "C" fn PyByteArray_Size(bytearray: *mut PyObject) -> isize {
 pub unsafe extern "C" fn PyByteArray_AsString(bytearray: *mut PyObject) -> *mut c_char {
     with_vm(|vm| {
         let bytearray = unsafe { bytearray.assume_borrowed_and_cast::<PyByteArray>(vm) }?;
-        Ok(bytearray.borrow_buf_mut().as_mut_ptr())
+        // SAFETY: the C caller owns the PyByteArray_AsString lifetime and
+        // synchronization contract; no resizable Rust Vec escapes this API.
+        Ok(unsafe { bytearray.as_mut_ptr_unchecked() })
     })
 }
 

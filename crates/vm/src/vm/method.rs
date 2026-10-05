@@ -26,8 +26,7 @@ impl PyMethod {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
-        // any correct method name is always interned already.
-        let interned_name = vm.ctx.interned_str(name);
+        let interned_name = cls.interned_attr_name(name, vm);
         let mut is_method = false;
 
         let cls_attr = match interned_name.and_then(|name| cls.get_attr(name)) {

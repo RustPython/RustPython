@@ -4,7 +4,6 @@ use crate::pystate::ensure_thread_has_vm_attached;
 use alloc::ffi::CString;
 use core::ffi::{c_char, c_int, c_ulong};
 use core::sync::atomic::{AtomicPtr, Ordering};
-use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::stdlib::sys;
 use rustpython_vm::version::{MAJOR, MICRO, MINOR, RUSTPYTHON_BUILD_INFO, VERSION_HEX};
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
@@ -19,7 +18,7 @@ pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
     get_main_interpreter()
         .as_ref()
         .expect("Interpreter not initialized")
-        .enter(|vm| vm.new_thread())
+        .new_thread()
 }
 
 #[unsafe(no_mangle)]
@@ -40,20 +39,21 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
     let mut interp = get_main_interpreter();
     if interp.is_none() {
         // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
-        unsafe { init_exception_statics(&Context::genesis().exceptions) };
+        unsafe { init_exception_statics(&Context::genesis_unchecked().exceptions) };
         let builder = Interpreter::builder(Default::default());
-        let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
-        *interp = builder
-            .add_native_modules(&defs)
-            .init_hook(|vm| {
-                let state = PyRc::get_mut(&mut vm.state).unwrap();
-                let path = rustpython_pylib::LIB_PATH.to_owned();
+        let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
+        *interp = unsafe {
+            builder
+                .add_native_modules(&defs)
+                .configure_paths(|paths| {
+                    let path = rustpython_pylib::LIB_PATH.to_owned();
 
-                state.config.paths.stdlib_dir = Some(path.clone());
-                state.config.paths.module_search_paths.insert(0, path);
-            })
-            .build()
-            .into();
+                    paths.stdlib_dir = Some(path.clone());
+                    paths.module_search_paths.insert(0, path);
+                })
+                .build()
+                .into()
+        };
         MAIN_INTERP_PTR.store(
             interp.as_ref().unwrap() as *const _ as *mut _,
             Ordering::Release,

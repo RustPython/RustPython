@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenericAlias, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyTupleRef, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -36,8 +36,8 @@ impl PyPayload for PyCoroutine {
     const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.coroutine_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.coroutine_type).to_owned()
     }
 }
 
@@ -202,8 +202,8 @@ unsafe impl Traverse for PyCoroutineWrapper {
 
 impl PyPayload for PyCoroutineWrapper {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.coroutine_wrapper_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.coroutine_wrapper_type).to_owned()
     }
 }
 

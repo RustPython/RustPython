@@ -554,7 +554,7 @@ impl Node for JoinedStr {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprJoinedStr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprJoinedStr::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let values = if let Some(runtime_values) = runtime_values {
@@ -595,7 +595,11 @@ impl Node for JoinedStrPart {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if is_node_instance(vm, &object, pyast::NodeExprFormattedValue::static_type())? {
+        if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeExprFormattedValue::make_class(&vm.ctx),
+        )? {
             Ok(Self::FormattedValue(Node::ast_from_object(
                 vm,
                 source_file,
@@ -649,7 +653,7 @@ impl Node for FormattedValue {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprFormattedValue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprFormattedValue::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
@@ -1064,7 +1068,7 @@ impl Node for TemplateStr {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprTemplateStr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprTemplateStr::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let values = if let Some(runtime_values) = runtime_values {
@@ -1105,7 +1109,11 @@ impl Node for TemplateStrPart {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if is_node_instance(vm, &object, pyast::NodeExprInterpolation::static_type())? {
+        if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeExprInterpolation::make_class(&vm.ctx),
+        )? {
             Ok(Self::Interpolation(Node::ast_from_object(
                 vm,
                 source_file,
@@ -1166,7 +1174,7 @@ impl Node for TStringInterpolation {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprInterpolation::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprInterpolation::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)

@@ -1415,7 +1415,7 @@ mod _ssl {
             if zelf.protocol == SslVersion::TlsServer {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot add PSK client callback to a PROTOCOL_TLS_SERVER context"
                             .to_owned(),
@@ -1450,7 +1450,7 @@ mod _ssl {
             if zelf.protocol == SslVersion::TlsClient {
                 return Err(vm
                     .new_os_subtype_error(
-                        PySSLError::class(&vm.ctx).to_owned(),
+                        PySSLError::class(&vm.ctx),
                         None,
                         "Cannot add PSK server callback to a PROTOCOL_TLS_CLIENT context"
                             .to_owned(),
@@ -1516,11 +1516,7 @@ mod _ssl {
                         "not enough data: cadata does not contain a certificate"
                     };
                     return Err(vm
-                        .new_os_subtype_error(
-                            PySSLError::class(&vm.ctx).to_owned(),
-                            None,
-                            msg.to_owned(),
-                        )
+                        .new_os_subtype_error(PySSLError::class(&vm.ctx), None, msg.to_owned())
                         .upcast());
                 }
 
@@ -2132,8 +2128,7 @@ mod _ssl {
             };
 
             // Convert to PyRef (heap allocation) to avoid use-after-free
-            let py_ref =
-                py_ssl_socket.into_ref_with_type(vm, PySslSocket::class(&vm.ctx).to_owned())?;
+            let py_ref = py_ssl_socket.into_ref_with_type(vm, PySslSocket::class(&vm.ctx))?;
 
             // Check if SNI callback is configured (minimize lock time)
             let has_sni_callback = zelf.sni_callback.lock().is_some();
@@ -2201,8 +2196,7 @@ mod _ssl {
             };
 
             // Convert to PyRef (heap allocation) to avoid use-after-free
-            let py_ref =
-                py_ssl_socket.into_ref_with_type(vm, PySslSocket::class(&vm.ctx).to_owned())?;
+            let py_ref = py_ssl_socket.into_ref_with_type(vm, PySslSocket::class(&vm.ctx))?;
 
             // Check if SNI callback is configured (minimize lock time)
             let has_sni_callback = zelf.sni_callback.lock().is_some();
@@ -2994,7 +2988,7 @@ mod _ssl {
                 let result = vm.allow_threads(|| stream.do_handshake()).map_err(|e| {
                     let exc = convert_ssl_error(vm, e);
                     // If it's a cert verification error, set verify info
-                    if exc.class().is(PySSLCertVerificationError::class(&vm.ctx)) {
+                    if exc.class().is(&PySSLCertVerificationError::class(&vm.ctx)) {
                         set_verify_error_info(&exc, ssl_ptr, vm);
                     }
                     exc
@@ -3057,7 +3051,7 @@ mod _ssl {
                 }
                 let exc = convert_ssl_error(vm, err);
                 // If it's a cert verification error, set verify info
-                if exc.class().is(PySSLCertVerificationError::class(&vm.ctx)) {
+                if exc.class().is(&PySSLCertVerificationError::class(&vm.ctx)) {
                     set_verify_error_info(&exc, ssl_ptr, vm);
                 }
                 // Clean up SNI ex_data before returning error
@@ -3790,7 +3784,7 @@ mod _ssl {
 
     /// Helper function to create SSL error with proper OSError subtype handling
     fn new_ssl_error(vm: &VirtualMachine, msg: impl ToString) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(PySSLError::class(&vm.ctx).to_owned(), None, msg.to_string())
+        vm.new_os_subtype_error(PySSLError::class(&vm.ctx), None, msg.to_string())
             .upcast()
     }
 
@@ -3850,9 +3844,9 @@ mod _ssl {
 
                 // Use SSLCertVerificationError for certificate verification failures
                 let cls = if is_cert_verify_error {
-                    PySSLCertVerificationError::class(&vm.ctx).to_owned()
+                    PySSLCertVerificationError::class(&vm.ctx)
                 } else {
-                    PySSLError::class(&vm.ctx).to_owned()
+                    PySSLError::class(&vm.ctx)
                 };
 
                 // Build message
@@ -3893,7 +3887,7 @@ mod _ssl {
                 )
             }
             None => {
-                let cls = PySSLError::class(&vm.ctx).to_owned();
+                let cls = PySSLError::class(&vm.ctx);
                 vm.new_os_subtype_error(cls, None, "unknown SSL error")
                     .upcast()
             }
@@ -3962,12 +3956,12 @@ mod _ssl {
                     return convert_openssl_error(vm, ssl_err.clone());
                 }
                 (
-                    PySSLError::class(&vm.ctx).to_owned(),
+                    PySSLError::class(&vm.ctx),
                     "A failure in the SSL library occurred",
                 )
             }
             _ => (
-                PySSLError::class(&vm.ctx).to_owned(),
+                PySSLError::class(&vm.ctx),
                 "A failure in the SSL library occurred",
             ),
         };

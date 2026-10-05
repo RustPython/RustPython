@@ -205,7 +205,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// #### Examples
 /// ```rust, ignore
 /// #[extend_class]
-/// fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+/// fn extend_class_with_fields(ctx: &Context, class: &Py<PyType>) {
 ///     class.set_attr(
 ///         identifier!(ctx, _fields),
 ///         ctx.new_tuple(vec![

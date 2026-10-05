@@ -11,10 +11,9 @@
 //!
 //! fn main() -> std::process::ExitCode {
 //!     let builder = InterpreterBuilder::new().init_stdlib();
-//!     // Add a native module using builder.ctx
-//!     let my_mod_def = my_mod::module_def(&builder.ctx);
-//!     let builder = builder
-//!         .add_native_module(my_mod_def)
+//!     // SAFETY: these native callbacks retain no Python references.
+//!     let my_mod_def = my_mod::module_def(unsafe { builder.context() });
+//!     let builder = unsafe { builder.add_native_module(my_mod_def) }
 //!         // Add a frozen module
 //!         .add_frozen_modules(py_freeze!(source = "def foo(): pass", module_name = "other_thing"));
 //!

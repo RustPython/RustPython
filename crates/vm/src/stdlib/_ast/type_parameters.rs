@@ -85,11 +85,23 @@ impl Node for ast::TypeParam {
             ParamSpec,
             TypeVarTuple,
         }
-        let kind = if is_node_instance(vm, &object, pyast::NodeTypeParamTypeVar::static_type())? {
+        let kind = if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeTypeParamTypeVar::make_class(&vm.ctx),
+        )? {
             TypeParamKind::TypeVar
-        } else if is_node_instance(vm, &object, pyast::NodeTypeParamParamSpec::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeTypeParamParamSpec::make_class(&vm.ctx),
+        )? {
             TypeParamKind::ParamSpec
-        } else if is_node_instance(vm, &object, pyast::NodeTypeParamTypeVarTuple::static_type())? {
+        } else if is_node_instance(
+            vm,
+            &object,
+            pyast::NodeTypeParamTypeVarTuple::make_class(&vm.ctx),
+        )? {
             TypeParamKind::TypeVarTuple
         } else {
             return Err(vm.new_type_error(format!(
@@ -148,7 +160,7 @@ impl Node for ast::TypeParamTypeVar {
             default,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeTypeParamTypeVar::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeTypeParamTypeVar::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)
@@ -197,7 +209,7 @@ impl Node for ast::TypeParamParamSpec {
             default,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeTypeParamParamSpec::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeTypeParamParamSpec::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)
@@ -244,10 +256,7 @@ impl Node for ast::TypeParamTypeVarTuple {
             default,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(
-                vm,
-                pyast::NodeTypeParamTypeVarTuple::static_type().to_owned(),
-            )
+            .into_ref_with_type(vm, pyast::NodeTypeParamTypeVarTuple::make_class(&vm.ctx))
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_file), vm)

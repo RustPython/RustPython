@@ -40,8 +40,8 @@ unsafe impl Traverse for FrameLocalsProxy {
 
 impl PyPayload for FrameLocalsProxy {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frame_locals_proxy_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.frame_locals_proxy_type).to_owned()
     }
 }
 
@@ -165,15 +165,18 @@ impl FrameLocalsProxy {
     }
 }
 
-#[pyclass(with(
-    Constructor,
-    AsMapping,
-    AsSequence,
-    AsNumber,
-    Iterable,
-    Comparable,
-    Representable
-))]
+#[pyclass(
+    flags(MAPPING),
+    with(
+        Constructor,
+        AsMapping,
+        AsSequence,
+        AsNumber,
+        Iterable,
+        Comparable,
+        Representable
+    )
+)]
 impl Py<FrameLocalsProxy> {
     #[pymethod]
     fn keys(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {

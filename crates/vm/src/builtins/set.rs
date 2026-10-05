@@ -162,15 +162,15 @@ impl fmt::Debug for PyFrozenSet {
 
 impl PyPayload for PySet {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.set_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.set_type).to_owned()
     }
 }
 
 impl PyPayload for PyFrozenSet {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.frozenset_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.frozenset_type).to_owned()
     }
 }
 
@@ -1670,8 +1670,8 @@ impl fmt::Debug for PySetIterator {
 
 impl PyPayload for PySetIterator {
     #[inline]
-    fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.set_iterator_type
+    fn class(ctx: &Context) -> crate::builtins::PyTypeRef {
+        (ctx.types.set_iterator_type).to_owned()
     }
 }
 

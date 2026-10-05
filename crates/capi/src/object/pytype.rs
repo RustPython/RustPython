@@ -58,7 +58,7 @@ pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_GetFlags(ptr: *mut PyTypeObject) -> c_ulong {
     let ty = unsafe { ptr.assume_borrowed() };
-    ty.slots.flags.load().bits() as u32 as c_ulong
+    ty.effective_flags().bits() as u32 as c_ulong
 }
 
 #[unsafe(no_mangle)]
@@ -227,27 +227,20 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
             |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
         )?;
 
-        let attrs = &class.attributes;
-        let class_static = unsafe { &*((&*class) as *const _) };
+        let attrs = class.attributes();
         for (name, method) in methods {
             attrs.insert(
                 vm.ctx.intern_str(name),
-                method.build_method(class_static, vm).into(),
+                method.build_method(&class, vm).into(),
             );
         }
         for getset in getsets {
             let name = unsafe { getset.name.try_as_str(vm)? };
-            attrs.insert(
-                vm.ctx.intern_str(name),
-                getset.build(class_static, vm)?.into(),
-            );
+            attrs.insert(vm.ctx.intern_str(name), getset.build(&class, vm)?.into());
         }
         for member in members {
             let name = unsafe { member.name.try_as_str(vm)? };
-            attrs.insert(
-                vm.ctx.intern_str(name),
-                member.build(class_static, vm)?.into(),
-            );
+            attrs.insert(vm.ctx.intern_str(name), member.build(&class, vm)?.into());
         }
 
         Ok(class)

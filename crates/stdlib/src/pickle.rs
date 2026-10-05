@@ -742,7 +742,7 @@ mod _pickle {
     }
 
     fn has_override(zelf: &Py<PyUnpickler>, name: &str, vm: &VirtualMachine) -> PyResult<bool> {
-        if !zelf.class().is(PyUnpickler::class(&vm.ctx)) {
+        if !zelf.class().is(&PyUnpickler::class(&vm.ctx)) {
             return Ok(true);
         }
         match zelf.as_object().dict() {
@@ -3706,7 +3706,7 @@ mod _pickle {
         }
         let pers_func = resolve_hook(
             zelf.as_object(),
-            PyPickler::class(&vm.ctx),
+            &PyPickler::class(&vm.ctx),
             "persistent_id",
             vm,
         )?;

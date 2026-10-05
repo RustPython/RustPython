@@ -5,8 +5,8 @@ use rustpython::vm::{
 
 pub fn main() {
     let builder = rustpython::Interpreter::builder(Default::default());
-    let def = rust_py_module::module_def(&builder.ctx);
-    let interp = builder.init_stdlib().add_native_module(def).build();
+    let def = rust_py_module::module_def(unsafe { builder.context() });
+    let interp = unsafe { builder.init_stdlib().add_native_module(def) }.build();
 
     interp.enter(|vm| {
         vm.insert_sys_path(vm.new_pyobj("examples"))

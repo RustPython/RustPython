@@ -2,8 +2,9 @@
 use super::StopTheWorldState;
 use super::{
     Context, PyConfig, PyGlobalState, VirtualMachine,
+    owned::OwnedVm,
     runtime::{self, InterpreterWhence},
-    setting::Settings,
+    setting::{Paths, Settings},
     thread,
 };
 use crate::{
@@ -13,7 +14,8 @@ use crate::{
 use alloc::collections::BTreeMap;
 use core::sync::atomic::Ordering;
 
-type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
+type InitFunc = Box<dyn FnOnce(&VirtualMachine)>;
+type PathConfigFunc = Box<dyn FnOnce(&mut Paths)>;
 
 /// Exit code used when stdout/stderr flush fails during interpreter shutdown.
 /// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
@@ -30,15 +32,16 @@ const EXITCODE_FLUSH_FAILURE: u32 = 120;
 /// use rustpython_vm::Interpreter;
 ///
 /// let builder = Interpreter::builder(Default::default());
-/// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(&builder.ctx))
+/// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(unsafe { builder.context() }))
 /// let interp = builder.build();
 /// ```
 pub struct InterpreterBuilder {
     settings: Settings,
-    pub ctx: PyRc<Context>,
+    ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
+    path_hooks: Vec<PathConfigFunc>,
 }
 
 /// Options for constructing a main or sub-interpreter VM.
@@ -48,6 +51,7 @@ struct InitializeVmOpts<'a> {
     module_defs: Vec<&'static builtins::PyModuleDef>,
     frozen_modules: Vec<(&'static str, FrozenModule)>,
     init_hooks: Vec<InitFunc>,
+    path_hooks: Vec<PathConfigFunc>,
     is_main: bool,
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
@@ -56,9 +60,9 @@ struct InitializeVmOpts<'a> {
 }
 
 /// Shared constructor for main and sub-interpreters.
-fn initialize_vm<F>(opts: InitializeVmOpts<'_>, init: F) -> (VirtualMachine, PyRc<PyGlobalState>)
+fn initialize_vm<F>(opts: InitializeVmOpts<'_>, init: F) -> (OwnedVm, PyRc<PyGlobalState>)
 where
-    F: FnOnce(&mut VirtualMachine),
+    F: FnOnce(&VirtualMachine),
 {
     let InitializeVmOpts {
         settings,
@@ -66,6 +70,7 @@ where
         module_defs,
         frozen_modules,
         init_hooks,
+        path_hooks,
         is_main,
         whence,
         parent_state,
@@ -74,7 +79,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -93,7 +98,10 @@ where
     } else {
         // First top-level interpreter wins. Later seeds are ignored.
         super::init_hash_secret(settings.hash_seed);
-        let paths = getpath::init_path_config(&settings);
+        let mut paths = getpath::init_path_config(&settings);
+        for hook in path_hooks {
+            hook(&mut paths);
+        }
         let config = PyConfig::new(settings, paths);
 
         // Build module_defs map from builtin modules + additional modules
@@ -131,10 +139,14 @@ where
     };
 
     // Per-interpreter ephemeral state (must not be shared across interpreters).
+    #[cfg(all(unix, feature = "threading"))]
+    let publication = super::fork::native_phase();
+    let interpreter_id = runtime::alloc_interpreter_id();
+    let gc = crate::gc_state::GcInterpreterState::new_for_interpreter(&ctx, interpreter_id);
+    let allocation_owner = gc.allocation_scope();
     let codec_registry = CodecsRegistry::new(&ctx);
     let warnings = WarningsState::init_state(&ctx);
 
-    let interpreter_id = runtime::alloc_interpreter_id();
     let runtime_root_id = parent_state.map_or(interpreter_id, |parent| parent.runtime_root_id);
 
     // Process main OS thread identity is process-global; subinterpreters inherit
@@ -148,7 +160,12 @@ where
 
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
-        gc: crate::gc_state::GcInterpreterState::new(&ctx),
+        owners: AtomicUsize::new(0),
+        owner_leases: super::owner_lease::OwnerLeases::default(),
+        teardowns: AtomicUsize::new(0),
+        closed: AtomicBool::new(false),
+        admission_closed: AtomicBool::new(false),
+        gc,
         interpreter_id,
         runtime_root_id,
         whence,
@@ -162,6 +179,10 @@ where
         audit_hooks: PyMutex::default(),
         codec_registry,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        abc_invalidation_counter: AtomicU64::new(0),
+        native_cache: super::native_cache::NativeCache::default(),
+        roots: PyRc::new(super::roots::Roots::new(interpreter_id)),
+        native_types: super::native_types::NativeTypes::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
         finalizing_thread_ident: AtomicCell::new(0),
@@ -174,7 +195,8 @@ where
         switch_interval: AtomicCell::new(0.005),
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
-        type_mutex: PyMutex::default(),
+        type_cache: crate::builtins::type_::TypeCache::default(),
+        type_mutex: crate::common::lock::PyDetachingRwLock::default(),
         #[cfg(feature = "threading")]
         main_thread_ident,
         #[cfg(feature = "threading")]
@@ -197,31 +219,36 @@ where
     });
 
     // Create VM with the global state
-    // Note: Don't clone here - init_hooks need exclusive access to mutate state
-    let mut vm = VirtualMachine::new(ctx, global_state);
+    let vm = OwnedVm::new(VirtualMachine::new(ctx, global_state));
 
-    // Execute initialization hooks (can mutate vm.state)
-    for hook in init_hooks {
-        hook(&mut vm);
-    }
-
-    // Call custom init function (can mutate vm.state)
-    init(&mut vm);
-
-    // Register before `initialize()` runs any Python: it allocates GC-tracked
-    // objects, so a collection on another thread has to be able to stop this
-    // interpreter while that happens. It cannot be registered earlier — the
-    // hooks above take `PyRc::get_mut` on the state, which fails once the
-    // registry holds a weak reference to it.
-    runtime::register_interpreter(&vm.state);
-
-    // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
-    // and `encodings`) before any `enter_vm` scope exists, so attach this
-    // thread for the duration so type cache reads see it as ATTACHED.
+    // Keep the VM address stable and attached throughout user hooks as well as
+    // Python initialization. Unwinding hooks release their locals before this
+    // guard ends; OwnedVm then performs the remaining partial-state teardown.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
-    vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
+    drop(allocation_owner);
+    // Hooks can execute Python and must be visible to GC on other threads.
+    runtime::register_interpreter(&vm.state);
+    #[cfg(all(unix, feature = "threading"))]
+    drop(publication);
+    let initialized = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+        // Runtime hooks receive shared access after attachment.
+        for hook in init_hooks {
+            hook(&vm);
+        }
+
+        // Run custom native initialization under the same shared entry.
+        init(&vm);
+
+        // Imports in initialize() execute Python under the bootstrap guard,
+        // before the first ordinary enter_vm scope.
+        vm.initialize();
+        vm.state.ready.store(true, Ordering::Release);
+    }));
     drop(vm_guard);
+    if let Err(error) = initialized {
+        drop(vm);
+        std::panic::resume_unwind(error);
+    }
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -257,6 +284,7 @@ fn create_subinterpreter_from_parent(
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            path_hooks: Vec::new(),
             is_main: false,
             whence: InterpreterWhence::Stdlib,
             parent_state: Some(&parent.state),
@@ -266,13 +294,23 @@ fn create_subinterpreter_from_parent(
     );
     let interp = Interpreter { global_state, vm };
     // Every interpreter has a `__main__` module once it is initialized.
-    interp.enter(|vm| {
+    interp.enter_raw(|vm| {
         let _ = vm.ensure_main_module();
     });
     Ok(interp)
 }
 
 impl InterpreterBuilder {
+    /// Access the raw type context for defining native modules.
+    ///
+    /// # Safety
+    /// Follow the native ownership contract in [`crate::vm::thread`]. Do not retain
+    /// Python objects through this context outside their attached interpreter.
+    #[must_use]
+    pub unsafe fn context(&self) -> &Context {
+        &self.ctx
+    }
+
     /// Create a new interpreter configuration with default settings.
     #[must_use]
     pub fn new() -> Self {
@@ -282,7 +320,26 @@ impl InterpreterBuilder {
             module_defs: Vec::new(),
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
+            path_hooks: Vec::new(),
         }
+    }
+
+    /// Modify settings immediately, before deriving paths or the hash secret.
+    ///
+    /// Calls to this method and [`Self::settings`] take effect in call order.
+    #[must_use]
+    pub fn configure(mut self, configure: impl FnOnce(&mut Settings)) -> Self {
+        configure(&mut self.settings);
+        self
+    }
+
+    /// Customize paths derived from the final settings during [`Self::build`].
+    ///
+    /// Hooks run in registration order, before runtime objects are created.
+    #[must_use]
+    pub fn configure_paths(mut self, configure: impl FnOnce(&mut Paths) + 'static) -> Self {
+        self.path_hooks.push(Box::new(configure));
+        self
     }
 
     /// Set custom settings for the interpreter.
@@ -302,13 +359,16 @@ impl InterpreterBuilder {
     ///
     /// let builder = Interpreter::builder(Default::default());
     /// // Note: In practice, use module_def from your #[pymodule]
-    /// // let def = mymodule::module_def(&builder.ctx);
+    /// // let def = mymodule::module_def(unsafe { builder.context() });
     /// // let interp = builder.add_native_module(def).build();
     /// let interp = builder.build();
     /// ```
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
+    /// including owner-local access and destruction of all Python references.
     #[must_use]
-    pub fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
-        self.add_native_modules(&[def])
+    pub unsafe fn add_native_module(self, def: &'static builtins::PyModuleDef) -> Self {
+        unsafe { self.add_native_modules(&[def]) }
     }
 
     /// Add multiple native module definitions.
@@ -319,12 +379,15 @@ impl InterpreterBuilder {
     ///
     /// let builder = Interpreter::builder(Default::default());
     /// // In practice, use module_defs from rustpython_stdlib:
-    /// // let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+    /// // let defs = rustpython_stdlib::stdlib_module_defs(unsafe { builder.context() });
     /// // let interp = builder.add_native_modules(&defs).build();
     /// let interp = builder.build();
     /// ```
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
+    /// including owner-local access and destruction of all Python references.
     #[must_use]
-    pub fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
+    pub unsafe fn add_native_modules(mut self, defs: &[&'static builtins::PyModuleDef]) -> Self {
         self.module_defs.extend_from_slice(defs);
         self
     }
@@ -339,16 +402,18 @@ impl InterpreterBuilder {
     /// ```
     /// use rustpython_vm::Interpreter;
     ///
-    /// let interp = Interpreter::builder(Default::default())
-    ///     .init_hook(|vm| {
-    ///         // Custom initialization
-    ///     })
+    /// // SAFETY: this hook retains no Python references.
+    /// let interp = unsafe { Interpreter::builder(Default::default())
+    ///     .init_hook(|_vm| {}) }
     ///     .build();
     /// ```
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
+    /// including owner-local access and destruction of all Python references.
     #[must_use]
-    pub fn init_hook<F>(mut self, init: F) -> Self
+    pub unsafe fn init_hook<F>(mut self, init: F) -> Self
     where
-        F: FnOnce(&mut VirtualMachine) + 'static,
+        F: FnOnce(&VirtualMachine) + 'static,
     {
         self.init_hooks.push(Box::new(init));
         self
@@ -388,6 +453,7 @@ impl InterpreterBuilder {
                 module_defs: self.module_defs,
                 frozen_modules: self.frozen_modules,
                 init_hooks: self.init_hooks,
+                path_hooks: self.path_hooks,
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -423,21 +489,14 @@ impl Default for InterpreterBuilder {
 /// Runs a simple embedded hello world program.
 /// ```
 /// use rustpython_vm::Interpreter;
-/// use rustpython_vm::compiler::Mode;
 /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
 ///     let scope = vm.new_scope_with_builtins();
-///     let source = r#"print("Hello World!")"#;
-///     let code_obj = vm.compile(
-///             source,
-///             Mode::Exec,
-///             "<embedded>",
-///     ).map_err(|err| err.into_pyexception(vm, Some(source))).unwrap();
-///     vm.run_code_obj(code_obj, scope).unwrap();
+///     vm.run_code_string(scope, r#"print("Hello World!")"#, "<embedded>".into()).unwrap();
 /// });
 /// ```
 pub struct Interpreter {
-    pub global_state: PyRc<PyGlobalState>,
-    vm: VirtualMachine,
+    pub(crate) global_state: PyRc<PyGlobalState>,
+    vm: OwnedVm,
 }
 
 impl Interpreter {
@@ -448,7 +507,7 @@ impl Interpreter {
     /// use rustpython_vm::Interpreter;
     ///
     /// let builder = Interpreter::builder(Default::default());
-    /// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(&builder.ctx))
+    /// // In practice, add stdlib: builder.add_native_modules(&stdlib_module_defs(unsafe { builder.context() }))
     /// let interp = builder.build();
     /// ```
     #[must_use]
@@ -462,15 +521,18 @@ impl Interpreter {
     /// try to build one from the source code of `InterpreterBuilder`. It will not be a one-liner but it also will not be too hard.
     #[must_use]
     pub fn without_stdlib(settings: Settings) -> Self {
-        Self::with_init(settings, |_| {})
+        Self::builder(settings).build()
     }
 
-    /// Create with initialize function taking mutable vm reference.
+    /// Create with initialization under an attached, shared VM reference.
     ///
     /// Note: This is a legacy API. To add stdlib, use `Interpreter::builder()` instead.
-    pub fn with_init<F>(settings: Settings, init: F) -> Self
+    /// # Safety
+    /// Native callbacks must obey the raw ownership contract in [`crate::vm::thread`],
+    /// including owner-local access and destruction of all Python references.
+    pub unsafe fn with_init<F>(settings: Settings, init: F) -> Self
     where
-        F: FnOnce(&mut VirtualMachine),
+        F: FnOnce(&VirtualMachine),
     {
         let (vm, global_state) = initialize_vm(
             InitializeVmOpts {
@@ -479,6 +541,7 @@ impl Interpreter {
                 module_defs: Vec::new(),
                 frozen_modules: Vec::new(),
                 init_hooks: Vec::new(),
+                path_hooks: Vec::new(),
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
@@ -574,37 +637,52 @@ impl Interpreter {
         &self,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(&self.vm, config)
+        self.enter_raw(|vm| create_subinterpreter_from_parent(vm, config))
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
-        self.vm.new_thread()
+        self.enter_raw(VirtualMachine::new_thread)
     }
 
-    /// Run a function with the main virtual machine and return a PyResult of the result.
-    ///
-    /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
-    /// `enter` is lightweight and it returns a python object in PyResult.
-    /// You can stop or continue the execution multiple times by calling `enter`.
-    ///
-    /// To finalize the vm once all desired `enter`s are called, calling `finalize` will be helpful.
-    ///
-    /// See also [`Interpreter::run`] for managed way to run the interpreter.
-    pub fn enter<F, R>(&self, f: F) -> R
+    #[cfg(feature = "threading")]
+    pub(super) fn owner_is_valid(&self) -> bool {
+        self.vm.owner_is_valid()
+    }
+
+    // Only the runtime directory uses an exclusively owned, idle anchor.
+    // Entering it while holding that directory's mutex could run Python.
+    #[cfg(feature = "threading")]
+    pub(super) fn new_thread_from_idle(&self) -> Option<thread::ThreadedVirtualMachine> {
+        (self.owner_is_valid() && !self.vm.state.admission_closed.load(Ordering::Acquire))
+            .then(|| self.vm.new_thread())
+    }
+
+    /// Internal entry for the interpreter implementation.
+    pub(crate) fn enter_raw<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    /// Run [`Interpreter::enter`] and call [`VirtualMachine::expect_pyresult`] for the result.
-    ///
-    /// This function is useful when you want to expect a result from the function,
-    /// but also print useful panic information when exception raised.
-    ///
-    /// See also [`Interpreter::enter`] and [`VirtualMachine::expect_pyresult`] for more information.
+    /// Enter this interpreter with its VM attached to the current thread.
+    pub fn enter<R>(&self, f: impl FnOnce(&VirtualMachine) -> R) -> R {
+        self.enter_raw(f)
+    }
+
+    /// Run Python, then finalize the interpreter.
+    pub fn run(self, f: impl FnOnce(&VirtualMachine) -> PyResult<()>) -> u32 {
+        self.run_raw(f)
+    }
+
+    /// Finalize an interpreter after repeated entries.
+    #[must_use]
+    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        self.finalize_raw(exc)
+    }
+
     pub fn enter_and_expect<F, R>(&self, f: F, msg: &str) -> R
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
@@ -623,12 +701,12 @@ impl Interpreter {
     ///
     /// See [`Interpreter::finalize`] for the finalization steps.
     /// See also [`Interpreter::enter`] for pure function call to obtain Python exception.
-    pub fn run<F>(self, f: F) -> u32
+    pub(crate) fn run_raw<F>(self, f: F) -> u32
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
-        let res = self.enter(|vm| f(vm));
-        self.finalize(res.err())
+        let res = self.enter_raw(|vm| f(vm));
+        self.finalize_raw(res.err())
     }
 
     /// Finalize vm and turns an exception to exit code.
@@ -645,8 +723,14 @@ impl Interpreter {
     /// 1. Final stdout/stderr flush.
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
-    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
-        self.enter(|vm| {
+    pub(crate) fn finalize_raw(self, exc: Option<PyBaseExceptionRef>) -> u32 {
+        let finalization = self
+            .global_state
+            .owner_leases
+            .enter_finalization(&self.global_state);
+        // This local must drop before the permit, including on unwind.
+        let interpreter = self;
+        let result = interpreter.enter_raw(|vm| {
             let mut flush_status = vm.flush_std();
 
             // See if any exception leaked out:
@@ -680,6 +764,10 @@ impl Interpreter {
             // blocked.
             #[cfg(feature = "threading")]
             finalize_subinterpreters(vm);
+
+            // Running non-daemon threads may start children while shutdown
+            // joins them. Close native admission only after that join phase.
+            vm.state.admission_closed.store(true, Ordering::Release);
 
             // Remaining daemon threads hang in `_PyThreadState_HangThread` when
             // they next attach (or at the eval-breaker if they are already
@@ -715,9 +803,31 @@ impl Interpreter {
             crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
             crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
 
+            vm.state.roots.close();
+            vm.state.type_cache.close();
+            vm.state.native_cache.close();
+            vm.state.native_types.close();
+            vm.state.gc.collect_force(2);
+
             if vm.flush_std() < 0 && flush_status == 0 {
                 flush_status = -1;
             }
+
+            vm.retire_execution_roots();
+            #[cfg(feature = "threading")]
+            thread::retire_interpreter_thread_roots(vm);
+            // SAFETY: consuming finalization has ended this VM's user entries;
+            // no reference into its execution caches remains in this closure.
+            unsafe { vm.retire_cached_roots() };
+            vm.state.retire_python_roots(&vm.ctx);
+            vm.state.gc.collect_force(2);
+
+            // Python execution has ended. Late native destructors may release
+            // buffers or SQLite statements, but cannot reenter cleared services.
+            thread::native_teardown(&vm.state, || {
+                vm.state.closed.store(true, Ordering::Release);
+                vm.state.close_python_roots();
+            });
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
             let exit_code = if exit_code == 0 && flush_status < 0 {
@@ -729,10 +839,15 @@ impl Interpreter {
             // Daemon threads may still exist, so use the safe `process()`,
             // not `drain_all()`.
             #[cfg(feature = "threading")]
-            crate::object::qsbr::QSBR.process();
+            {
+                crate::object::qsbr::QSBR.process();
+            }
 
             exit_code
-        })
+        });
+        drop(interpreter);
+        drop(finalization);
+        result
     }
 }
 
@@ -2161,6 +2276,75 @@ for _ in range(40):
             );
             let result = scope.globals.get_item("result", vm).unwrap();
             assert!(result.try_to_bool(vm).unwrap());
+        });
+    }
+
+    #[test]
+    fn builder_configuration_precedes_runtime_initialization() {
+        const CHILD: &str = "RUSTPYTHON_TEST_CONFIGURED_HASH_SEED";
+        if crate::host_env::os::var_os(CHILD).is_none() {
+            // A fresh process is needed because the first interpreter fixes the
+            // hash secret for every subsequent interpreter in that process.
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the test harness must restart itself with a fresh process hash secret"
+            )]
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    concat!(
+                        module_path!(),
+                        "::builder_configuration_precedes_runtime_initialization"
+                    )
+                    .strip_prefix("rustpython_vm::")
+                    .unwrap(),
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let interp = Interpreter::builder(Settings {
+            hash_seed: Some(7),
+            ..Settings::default()
+        })
+        .configure_paths(|paths| {
+            assert_eq!(paths.module_search_paths[0], "configured_path");
+            paths.module_search_paths.insert(0, "explicit_path".into());
+            paths.stdlib_dir = Some("explicit_stdlib".into());
+        })
+        .configure(|settings| {
+            settings.hash_seed = Some(8);
+            settings.path_list = vec!["configured_path".into()];
+        })
+        .configure_paths(|paths| {
+            assert_eq!(paths.module_search_paths[0], "explicit_path");
+        })
+        .build();
+
+        interp.enter(|vm| {
+            let expected = crate::common::hash::HashSecret::new(8);
+            assert_eq!(
+                vm.ctx
+                    .new_str("configured hash seed")
+                    .as_object()
+                    .hash(vm)
+                    .unwrap(),
+                expected.hash_str("configured hash seed")
+            );
+            let paths = &vm.state.config.paths;
+            assert_eq!(paths.stdlib_dir.as_deref(), Some("explicit_stdlib"));
+            let sys_path = vm.sys_module.get_attr("path", vm).unwrap();
+            let sys_path: Vec<String> = sys_path.try_into_value(vm).unwrap();
+            assert_eq!(sys_path, paths.module_search_paths);
+            assert_eq!(&sys_path[..2], ["explicit_path", "configured_path"]);
         });
     }
 

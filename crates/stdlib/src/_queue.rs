@@ -54,7 +54,7 @@ mod _queue {
     ///
     /// [`empty_error`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L347-L355).
     fn empty_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_exception_empty(PyEmptyError::class(&vm.ctx).to_owned())
+        vm.new_exception_empty(PyEmptyError::class(&vm.ctx))
     }
 
     #[cfg(feature = "threading")]

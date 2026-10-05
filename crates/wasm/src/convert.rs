@@ -112,7 +112,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
 }
 
 pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
-    if let Some(ref wasm_id) = vm.wasm_id
+    if let Some(wasm_id) = vm.wasm_id.get()
         && py_obj.fast_isinstance(vm.ctx.types.function_type)
     {
         let wasm_vm = WASMVirtualMachine {

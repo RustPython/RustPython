@@ -7,7 +7,6 @@ mod _browser {
     use rustpython_vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
-        class::PyClassImpl,
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg},
         import::import_source,
@@ -178,14 +177,11 @@ mod _browser {
     }
 
     #[pyattr]
-    fn document(_vm: &VirtualMachine) -> PyRef<Document> {
-        PyRef::new_ref(
-            Document {
-                doc: window().document().expect("Document missing from window"),
-            },
-            Document::make_static_type(),
-            None,
-        )
+    fn document(vm: &VirtualMachine) -> PyRef<Document> {
+        Document {
+            doc: window().document().expect("Document missing from window"),
+        }
+        .into_ref(&vm.ctx)
     }
 
     #[pyattr]

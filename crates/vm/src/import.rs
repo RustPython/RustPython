@@ -12,7 +12,7 @@ pub(crate) fn check_pyc_magic_number_bytes(buf: &[u8]) -> bool {
     buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES)
 }
 
-pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
+pub(crate) fn init_importlib_base(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
 
     // importlib_bootstrap needs these and it inlines checks to sys.modules before calling into
@@ -29,8 +29,10 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
         install.call((vm.sys_module.clone(), imp), vm)?;
         Ok(bootstrap)
     })?;
-    vm.import_func = importlib.get_attr(identifier!(vm, __import__), vm)?;
-    vm.importlib = importlib.clone();
+    let _ = vm
+        .import_func
+        .set(importlib.get_attr(identifier!(vm, __import__), vm)?);
+    let _ = vm.importlib.set(importlib.clone());
     Ok(importlib)
 }
 
@@ -181,7 +183,7 @@ fn import_ensure_initialized(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if is_module_initializing(module, vm)? {
-        let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
+        let lock_unlock = vm.importlib().get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((name.to_owned(),), vm)?;
     }
     Ok(())
@@ -445,8 +447,8 @@ pub(crate) fn import_module_level(
             m
         }
         _ => {
-            let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-            find_and_load.call((abs_name.clone(), vm.import_func.clone()), vm)?
+            let find_and_load = vm.importlib().get_attr("_find_and_load", vm)?;
+            find_and_load.call((abs_name.clone(), vm.import_func().to_owned()), vm)?
         }
     };
 
@@ -466,8 +468,8 @@ pub(crate) fn import_module_level(
             .get_attribute_opt(&module, vm.ctx.intern_str("__path__"))?
             .is_some();
         if has_path {
-            let handle_fromlist = vm.importlib.get_attr("_handle_fromlist", vm)?;
-            handle_fromlist.call((module, fromlist, vm.import_func.clone()), vm)
+            let handle_fromlist = vm.importlib().get_attr("_handle_fromlist", vm)?;
+            handle_fromlist.call((module, fromlist, vm.import_func().to_owned()), vm)
         } else {
             Ok(module)
         }
@@ -488,8 +490,8 @@ pub(crate) fn import_module_level(
                     Err(_) if level == 0 => {
                         // For absolute imports (level 0), try importing the
                         // parent. Matches _bootstrap.__import__ behavior.
-                        let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-                        find_and_load.call((to_return, vm.import_func.clone()), vm)
+                        let find_and_load = vm.importlib().get_attr("_find_and_load", vm)?;
+                        find_and_load.call((to_return, vm.import_func().to_owned()), vm)
                     }
                     Err(_) => {
                         // For relative imports (level > 0), raise KeyError
