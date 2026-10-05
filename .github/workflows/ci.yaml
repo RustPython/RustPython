@@ -559,6 +559,7 @@ jobs:
 
       - name: Run CPython tests
         run: |
+          # shellcheck disable=SC2086
           target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
