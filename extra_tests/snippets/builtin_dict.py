@@ -746,6 +746,7 @@ with assert_raises(TypeError):
 with assert_raises(TypeError):
     hash(od.items())
 
+
 # A TypeError raised while *comparing* keys (e.g. from a colliding key's
 # __eq__) must propagate unchanged, not be rewritten as an unhashable-key
 # error. Only genuine hashing failures get the dict-specific "unhashable"
