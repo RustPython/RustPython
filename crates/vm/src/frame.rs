@@ -4661,7 +4661,8 @@ impl ExecutingFrame<'_> {
                     let keys = source.mapping_unchecked().keys(vm)?;
                     let keys_iter = PyIter::try_from_object(vm, keys)?;
                     while let PyIterReturn::Return(key) = keys_iter.next(vm)? {
-                        if dict.entries.contains(vm, &*key)? {
+                        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
+                        if dict.entries.contains(vm, &*key, hash)? {
                             return Ok(Some(key));
                         }
                         let value = source.get_item(&*key, vm)?;

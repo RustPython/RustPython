@@ -1471,14 +1471,14 @@ impl<T: Clone> Dict<T> {
     }
 
     /// Move an existing entry to the end and return its current value without
-    /// making the key temporarily absent. Hashing and equality run unlocked.
+    /// making the key temporarily absent. Equality runs unlocked.
     pub(crate) fn move_to_end<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
         key: &K,
-        hash_value: HashValue,
+        hash: HashValue,
     ) -> PyResult<Option<T>> {
-        self.with_entry_mut(vm, key, hash_value, |inner, entry_index| {
+        self.with_entry_mut(vm, key, hash, |inner, entry_index| {
             let value = inner.entries[entry_index].as_ref().unwrap().value.clone();
             if inner.entries[entry_index + 1..].iter().any(Option::is_some) {
                 // Reserve before taking the entry. No reader can observe an
@@ -1513,11 +1513,11 @@ impl<T: Clone> Dict<T> {
         &self,
         vm: &VirtualMachine,
         key: &K,
-        hash_value: HashValue,
+        hash: HashValue,
         replacement: T,
         matches: impl FnOnce(&T) -> bool,
     ) -> PyResult<bool> {
-        let removed = self.with_entry_mut(vm, key, hash_value, |inner, index| {
+        let removed = self.with_entry_mut(vm, key, hash, |inner, index| {
             let entry = inner.entries[index].as_mut().unwrap();
             matches(&entry.value).then(|| core::mem::replace(&mut entry.value, replacement.clone()))
         })?;

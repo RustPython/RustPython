@@ -81,7 +81,7 @@ impl PyFrozenDict {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let hash = Self::key_hash(key, vm)?;
-        self.dict.entries.get_known_hash(vm, key, hash)
+        self.dict.entries.get(vm, key, hash)
     }
 
     fn insert(
@@ -91,7 +91,7 @@ impl PyFrozenDict {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let hash = Self::key_hash(key, vm)?;
-        dict.entries.insert_known_hash(vm, key, hash, value)
+        dict.entries.insert(vm, key, hash, value)
     }
 
     // This table is unpublished until construction/union/fromkeys finishes. Python callbacks

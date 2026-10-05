@@ -625,9 +625,10 @@ mod _functools {
             let mut tail_names = Vec::new();
             let mut tail_values = Vec::new();
             for (key, value) in kwnames.iter().zip(&args[nargs..]) {
-                if keywords.entries.contains(vm, &**key)? {
+                let hash = PyDict::hash_or_unhashable(&**key, vm)?;
+                if keywords.entries.contains(vm, &**key, hash)? {
                     let merged = merged_keywords.get_or_insert_with(|| keywords.copy());
-                    merged.entries.insert(vm, &**key, value.clone())?;
+                    merged.inner_setitem(&**key, value.clone(), vm)?;
                 } else {
                     tail_names.push(key.clone());
                     tail_values.push(value.clone());

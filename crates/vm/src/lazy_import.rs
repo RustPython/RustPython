@@ -861,10 +861,12 @@ pub(crate) fn try_load_submodule(
             if let Ok(Some(loaded)) = raw_imported_module(&fullname, vm)
                 && !vm.is_none(&loaded)
             {
-                let _ = module
-                    .dict()
-                    .entries
-                    .delete_if(vm, name, |value| Ok(value.is(&loaded)));
+                let _ = PyDict::hash_or_unhashable(name, vm).and_then(|hash| {
+                    module
+                        .dict()
+                        .entries
+                        .delete_if(vm, name, hash, |value| Ok(value.is(&loaded)))
+                });
                 let mut pending = vm.state.lazy_imports.pending.lock();
                 pending
                     .entry(module_name.to_owned())

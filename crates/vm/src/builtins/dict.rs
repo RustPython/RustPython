@@ -329,7 +329,10 @@ impl PyDict {
     /// `__eq__`) is raised by the operation itself and must propagate unchanged.
     /// Hashing up front also means a `__hash__` that fails only intermittently
     /// is still reported.
-    fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
+    pub(crate) fn hash_or_unhashable<K: DictKey + ?Sized>(
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHash> {
         match key.key_hash(vm) {
             Ok(hash) => Ok(hash),
             // Exact `TypeError` only: a `__hash__` raising a *subclass* of
@@ -468,7 +471,7 @@ impl PyDict {
         let mut position = 0;
         while let Some((next, k, v1, hash)) = self.entries.next_entry_with_hash(position) {
             position = next;
-            let found = other.entries.get_known_hash(vm, &*k, hash)?;
+            let found = other.entries.get(vm, &*k, hash)?;
             match found {
                 Some(v2) => {
                     if v1.is(&v2) {
@@ -1968,15 +1971,13 @@ pub(crate) fn dict_fromkeys(
         let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)?;
         if let Some(keys) = PyDict::fromkeys_known_hashes(iterable.as_object(), vm) {
             for (key, hash) in keys {
-                dict.entries
-                    .insert_known_hash(vm, &*key, hash, value.clone())?;
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
             }
         } else {
             for key in iterable.iter(vm)? {
                 let key = key?;
                 let hash = PyFrozenDict::key_hash(&*key, vm)?;
-                dict.entries
-                    .insert_known_hash(vm, &*key, hash, value.clone())?;
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
             }
         }
         let frozen = PyFrozenDict::from_dict(dict).into_ref(&vm.ctx);
@@ -1994,8 +1995,7 @@ pub(crate) fn dict_fromkeys(
                 dict.entries.reserve_for_empty(keys.len());
             }
             for (key, hash) in keys {
-                dict.entries
-                    .insert_known_hash(vm, &*key, hash, value.clone())?;
+                dict.entries.insert(vm, &*key, hash, value.clone())?;
             }
         } else {
             for key in iterable.iter(vm)? {
