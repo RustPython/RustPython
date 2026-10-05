@@ -17,7 +17,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
-    sliceable::{SaturatedSlice, SequenceIndex, SliceableSequenceOp},
+    sliceable::{NameList, SaturatedSlice, SequenceIndex, SliceableSequenceOp},
     sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
@@ -264,7 +264,7 @@ impl PyList {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
+        match SequenceIndex::try_from_borrowed_object::<NameList>(vm, needle)? {
             SequenceIndex::Int(i) => {
                 let vec = self.borrow_vec();
                 let pos = vec
@@ -363,7 +363,7 @@ impl PyList {
     }
 
     fn _setitem(&self, needle: &PyObject, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
+        match SequenceIndex::try_from_borrowed_object::<NameList>(vm, needle)? {
             SequenceIndex::Int(index) => self.assign_item(index, Some(value), vm),
             SequenceIndex::Slice(slice) => {
                 let items = extract_cloned(&value, self, vm)?;
@@ -396,7 +396,7 @@ impl PyList {
     }
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "list")? {
+        match SequenceIndex::try_from_borrowed_object::<NameList>(vm, needle)? {
             SequenceIndex::Int(i) => self.assign_item(i, None, vm),
             SequenceIndex::Slice(slice) => self.assign_slice(slice, None, vm),
         }

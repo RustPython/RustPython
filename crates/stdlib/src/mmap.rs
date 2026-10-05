@@ -18,7 +18,7 @@ mod mmap {
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
-        sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
+        sliceable::{NameMmap, SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
     };
     use core::ops::{Deref, DerefMut};
@@ -1369,7 +1369,7 @@ mod mmap {
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+            match SequenceIndex::try_from_borrowed_object::<NameMmap>(vm, needle)? {
                 SequenceIndex::Int(i) => self.getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
             }
@@ -1381,7 +1381,7 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+            match SequenceIndex::try_from_borrowed_object::<NameMmap>(vm, needle)? {
                 SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
                 SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
             }
