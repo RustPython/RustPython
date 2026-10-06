@@ -143,12 +143,11 @@ impl VirtualMachine {
         F: IntoPyNativeFn<FKind>,
     {
         let def = self.ctx.new_method_def(
+            name,
             f,
-            crate::function::MethodDefSpec::new(
-                name,
-                PyMethodFlags::empty(),
-                crate::function::ItemDoc::NONE,
-            ),
+            PyMethodFlags::empty(),
+            crate::function::ItemDoc::NONE,
+            crate::function::KeywordDispatch::PassToBinder,
         );
         def.build_function(self, None)
     }
@@ -163,12 +162,11 @@ impl VirtualMachine {
         F: IntoPyNativeFn<FKind>,
     {
         let def = self.ctx.new_method_def(
+            name,
             f,
-            crate::function::MethodDefSpec::new(
-                name,
-                PyMethodFlags::METHOD,
-                crate::function::ItemDoc::NONE,
-            ),
+            PyMethodFlags::METHOD,
+            crate::function::ItemDoc::NONE,
+            crate::function::KeywordDispatch::PassToBinder,
         );
         def.build_method(class, self)
     }

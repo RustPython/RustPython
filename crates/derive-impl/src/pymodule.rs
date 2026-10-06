@@ -2,8 +2,8 @@ use crate::error::Diagnostic;
 use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, ModuleItemMeta, SimpleItemMeta,
-    internal_doc_tokens, iter_use_idents, keyword_dispatch_tokens, pyclass_ident_and_attrs,
+    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, internal_doc_tokens,
+    iter_use_idents, keyword_dispatch_tokens, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -672,7 +672,7 @@ impl ModuleItem for FunctionItem {
         let ident = &func.sig().ident;
 
         let item_attr = args.attrs.remove(self.index());
-        let item_meta = FunctionItemMeta::from_attr(ident.clone(), &item_attr)?;
+        let item_meta = SimpleItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.simple_name()?;
         let mut py_names = vec![py_name];
@@ -1084,19 +1084,5 @@ impl ModuleItem for AttributeItem {
             .add_item(ident, py_names, cfgs, tokens, 1);
 
         Ok(())
-    }
-}
-
-struct FunctionItemMeta(ItemMetaInner);
-
-impl ItemMeta for FunctionItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name"];
-
-    fn from_inner(inner: ItemMetaInner) -> Self {
-        Self(inner)
-    }
-
-    fn inner(&self) -> &ItemMetaInner {
-        &self.0
     }
 }

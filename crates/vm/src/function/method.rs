@@ -98,27 +98,6 @@ pub enum KeywordDispatch {
     RejectNonemptyUnqualified,
 }
 
-/// Registration metadata shared by dynamically created native methods.
-#[derive(Clone, Copy, Debug)]
-pub struct MethodDefSpec {
-    pub name: &'static str,
-    pub flags: PyMethodFlags,
-    pub doc: super::ItemDoc,
-    pub keyword_dispatch: KeywordDispatch,
-}
-
-impl MethodDefSpec {
-    #[must_use]
-    pub const fn new(name: &'static str, flags: PyMethodFlags, doc: super::ItemDoc) -> Self {
-        Self {
-            name,
-            flags,
-            doc,
-            keyword_dispatch: KeywordDispatch::PassToBinder,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned

@@ -651,18 +651,15 @@ impl Context {
 
     pub fn new_method_def<F, FKind>(
         &self,
+        name: &'static str,
         f: F,
-        spec: crate::function::MethodDefSpec,
+        flags: PyMethodFlags,
+        doc: ItemDoc,
+        keyword_dispatch: crate::function::KeywordDispatch,
     ) -> PyRef<HeapMethodDef>
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let crate::function::MethodDefSpec {
-            name,
-            flags,
-            doc,
-            keyword_dispatch,
-        } = spec;
         let def = PyMethodDef {
             name,
             func: Box::leak(Box::new(f.into_func())),
