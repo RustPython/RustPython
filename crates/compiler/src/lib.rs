@@ -361,12 +361,27 @@ fn unclosed_string_is_continuable(error: &parser::ParseError, source: &str, mode
             InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
         ) => true,
         LexicalErrorType::UnclosedStringError { .. } => {
+            // Exec mode appends a newline, which only a final `\` can escape.
             let rest = &source[start..];
-            !rest.contains(['\n', '\r']) && (!matches!(mode, Mode::Exec) || rest.ends_with('\\'))
+            !has_unescaped_newline(rest) && (!matches!(mode, Mode::Exec) || rest.ends_with('\\'))
         }
         _ => false,
     };
     at_eof && !(matches!(mode, Mode::Eval) && eval_has_assignment_before(source.as_bytes(), start))
+}
+
+fn has_unescaped_newline(text: &str) -> bool {
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '\n' | '\r' => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn default_parse_diagnostic(
@@ -783,10 +798,54 @@ pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<Compile
     })
 }
 
+fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> {
+    const MAXLEVEL: usize = 200;
+
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    let mut level = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => {
+                index = skip_quoted_string(bytes, index);
+            }
+            b'(' | b'[' | b'{' => {
+                if level >= MAXLEVEL {
+                    return Some(CpythonDiagnostic::new(
+                        "too many nested parentheses".to_owned(),
+                        index,
+                        index + 1,
+                    ));
+                }
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' => {
+                level = level.saturating_sub(1);
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
 /// Source-level errors raised before parsing, as CPython's tokenizer does.
 ///
 /// Checking after the parse would build the tree first, and one nested that
 /// deep exhausts the native stack when it is dropped.
+pub fn pre_parse_source_error(source_file: &SourceFile) -> Result<(), CompileError> {
+    match too_many_nested_parentheses_error(source_file.source_text()) {
+        Some(error) => Err(CompileError::from_source_error(source_file, error)),
+        None => Ok(()),
+    }
+}
+
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
@@ -1246,6 +1305,7 @@ fn _compile_with_syntax_warning_handler<'a>(
         opts.future_features
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
+    pre_parse_source_error(&source_file)?;
     let parsed = parser::parse(barry_source.source(), parser_options);
     if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
         return Err(error);
@@ -1548,6 +1608,7 @@ pub fn _compile_symtable(
         prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
+            pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
@@ -1575,6 +1636,7 @@ pub fn _compile_symtable(
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
+            pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
             if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
