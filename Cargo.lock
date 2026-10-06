@@ -3936,7 +3936,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_ast"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?rev=6b46d0dfc8#6b46d0dfc80389323f325e2df9f3ac4c69bb8428"
+source = "git+https://github.com/RustPython/ruff.git?rev=8b59b85344#8b59b8534415d79b28376a9808fc1b425d04b3ec"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3957,7 +3957,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?rev=6b46d0dfc8#6b46d0dfc80389323f325e2df9f3ac4c69bb8428"
+source = "git+https://github.com/RustPython/ruff.git?rev=8b59b85344#8b59b8534415d79b28376a9808fc1b425d04b3ec"
 dependencies = [
  "bitflags 2.13.1",
  "bstr",
@@ -3981,7 +3981,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_trivia"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?rev=6b46d0dfc8#6b46d0dfc80389323f325e2df9f3ac4c69bb8428"
+source = "git+https://github.com/RustPython/ruff.git?rev=8b59b85344#8b59b8534415d79b28376a9808fc1b425d04b3ec"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -3995,7 +3995,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_source_file"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?rev=6b46d0dfc8#6b46d0dfc80389323f325e2df9f3ac4c69bb8428"
+source = "git+https://github.com/RustPython/ruff.git?rev=8b59b85344#8b59b8534415d79b28376a9808fc1b425d04b3ec"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -4004,7 +4004,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_text_size"
 version = "0.16.10"
-source = "git+https://github.com/RustPython/ruff.git?rev=6b46d0dfc8#6b46d0dfc80389323f325e2df9f3ac4c69bb8428"
+source = "git+https://github.com/RustPython/ruff.git?rev=8b59b85344#8b59b8534415d79b28376a9808fc1b425d04b3ec"
 dependencies = [
  "get-size2",
 ]
