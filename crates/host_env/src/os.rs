@@ -614,7 +614,7 @@ fn filetime_from_timestamp(timestamp: FileTime) -> io::Result<FILETIME> {
     // from 1601. Reject unrepresentable values without wrapping or clamping.
     let intervals = u64::try_from(intervals)
         .ok()
-        .filter(|&value| value <= i64::MAX as u64)
+        .filter(|&value| i64::try_from(value).is_ok())
         .ok_or_else(|| {
             io::Error::from_raw_os_error(
                 windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32,
