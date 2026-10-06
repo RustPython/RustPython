@@ -1,11 +1,12 @@
 use super::{
-    IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
+    IterStatus, PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
     iter::builtins_reversed, locked_rev_next,
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
+    function::ArgIndex,
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
@@ -56,7 +57,7 @@ pub struct EnumerateArgs {
     #[pyarg(any)]
     iterable: PyIter,
     #[pyarg(any, default = 0)]
-    start: PyIntRef,
+    start: ArgIndex,
 }
 
 impl Constructor for PyEnumerate {
@@ -67,6 +68,7 @@ impl Constructor for PyEnumerate {
         Self::Args { iterable, start }: Self::Args,
         _vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        let start = start.into_int_ref();
         let counter = match start.as_bigint().to_usize() {
             Some(n) => Counter::Small(n),
             None => Counter::Big(start.as_bigint().clone()),

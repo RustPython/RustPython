@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
-    int::{PyInt, PyIntRef},
+    int::PyInt,
     iter::{IterStatus, builtins_iter},
 };
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{ArgIndex, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -1871,14 +1871,18 @@ pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl FindArgs {
     fn get_value(self, len: usize) -> (PyStrRef, core::ops::Range<usize>) {
-        let range = adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
+        let range = adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
         (self.sub, range)
     }
 }

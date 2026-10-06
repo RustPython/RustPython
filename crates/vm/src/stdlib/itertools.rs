@@ -5,13 +5,11 @@ mod decl {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
         VirtualMachine,
-        builtins::{
-            PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
-        },
+        builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
         class::PyClassDef,
         common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
-        function::{FuncArgs, NameIterables, PosArgs},
+        function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -1329,7 +1327,7 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        r: PyIntRef,
+        r: ArgIndex,
     }
 
     impl Constructor for PyItertoolsCombinations {
@@ -1342,6 +1340,7 @@ mod decl {
         ) -> PyResult<Self> {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
 
+            let r = r.into_int_ref();
             let r = r.as_bigint();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative"));
@@ -1454,6 +1453,7 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let pool: Vec<_> = iterable.try_to_value(vm)?;
+            let r = r.into_int_ref();
             let r = r.as_bigint();
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative"));
@@ -1800,7 +1800,7 @@ mod decl {
         #[pyarg(any)]
         iterable: PyObjectRef,
         #[pyarg(any)]
-        n: PyIntRef,
+        n: ArgIndex,
         #[pyarg(named, default)]
         strict: bool,
     }
@@ -1817,6 +1817,7 @@ mod decl {
             }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
+            let n = n.into_int_ref();
             let n = n.as_bigint();
             if n.lt(&BigInt::one()) {
                 return Err(vm.new_value_error("n must be at least one"));
