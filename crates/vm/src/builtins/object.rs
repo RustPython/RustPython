@@ -226,16 +226,23 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
         if slot_names_len > 0 {
             let slots = vm.ctx.new_dict();
             for i in 0..slot_names_len {
-                let borrowed_names = slot_names.borrow_vec();
-                // Check if slotnames changed during iteration
-                if borrowed_names.len() != slot_names_len {
+                // Release the list lock before the attribute lookup: a getter
+                // or `__getattr__` may mutate `__slotnames__`.
+                let name = slot_names.borrow_vec()[i].clone();
+                let name = name.downcast::<PyStr>().map_err(|name| {
+                    vm.new_type_error(format!(
+                        "attribute name must be string, not '{}'",
+                        name.class().name()
+                    ))
+                })?;
+                if let Some(value) = vm.get_attribute_opt(obj, &name)? {
+                    slots.set_item(name.as_wtf8(), value, vm)?;
+                }
+                // The list is stored on the class, so it may change while we
+                // iterate over it.
+                if slot_names.borrow_vec().len() != slot_names_len {
                     return Err(vm.new_runtime_error("__slotnames__ changed size during iteration"));
                 }
-                let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
-                let Ok(value) = obj.get_attr(name, vm) else {
-                    continue;
-                };
-                slots.set_item(name.as_wtf8(), value, vm).unwrap();
             }
 
             if !slots.is_empty() {
