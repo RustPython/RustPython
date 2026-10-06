@@ -819,7 +819,7 @@ fn too_many_nested_parentheses_error(source: &str) -> Option<CpythonDiagnostic> 
                     return Some(CpythonDiagnostic::new(
                         "too many nested parentheses".to_owned(),
                         index,
-                        index + 1,
+                        index,
                     ));
                 }
                 level += 1;
@@ -1071,22 +1071,6 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
     let first_start = source_code.source_location(first.range().start(), PositionEncoding::Utf8);
     let first_end = source_code.source_location(first.range().end(), PositionEncoding::Utf8);
 
-    if body.iter().skip(1).any(|stmt| {
-        source_code
-            .source_location(stmt.range().start(), PositionEncoding::Utf8)
-            .line
-            > first_start.line
-    }) {
-        return Some(CompileError::from_source_error(
-            source_file,
-            CpythonDiagnostic::new(
-                "multiple statements found while compiling a single statement".to_owned(),
-                first.range().end().to_usize(),
-                first.range().end().to_usize(),
-            ),
-        ));
-    }
-
     if is_compound_stmt(first)
         && first_start.line == first_end.line
         && !ends_with_line_break(source_file.source_text())
@@ -1101,6 +1085,77 @@ fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Optio
         ));
     }
     None
+}
+
+/// Converts the first parse error. A tokenizer error that follows an earlier syntax error is
+/// only found by the pass over the rest of the source, so it never asks for more input.
+fn first_parse_error(
+    parsed: parser::Parsed<ast::Mod>,
+    source_file: &SourceFile,
+    mode: Mode,
+) -> Result<parser::Parsed<ast::Mod>, CompileError> {
+    let Some((first, rest)) = parsed.errors().split_first() else {
+        return Ok(parsed);
+    };
+    let after_syntax_error = rest.iter().any(|error| {
+        !matches!(error.error, ParseErrorType::Lexical(_))
+            && error.location.start() < first.location.start()
+    });
+    let mut error = CompileError::from_ruff_parse_error(first.clone(), source_file, mode);
+    if after_syntax_error && let CompileError::Parse(error) = &mut error {
+        error.is_unclosed_string = false;
+    }
+    Err(error)
+}
+
+/// Single mode reads only the first statement when it is a simple statement, so any code after
+/// its line is reported as multiple statements, ahead of errors the rest of the source has.
+#[must_use]
+pub fn single_mode_multiple_statements_error(
+    source_file: &SourceFile,
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<CompileError> {
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    if is_compound_stmt(module.body.first()?) {
+        return None;
+    }
+    let tokens = parsed.tokens();
+    let newline_index = tokens
+        .iter()
+        .position(|token| token.kind() == TokenKind::Newline)?;
+    let newline = &tokens[newline_index];
+    if parsed
+        .errors()
+        .iter()
+        .any(|error| error.location.start() < newline.end())
+    {
+        return None;
+    }
+    let mut rest = &source_file.source_text()[newline.end().to_usize()..];
+    loop {
+        rest = rest.trim_start_matches([' ', '\t', '\n', '\r', '\x0c']);
+        match rest.strip_prefix('#') {
+            Some(comment) => rest = comment.find('\n').map_or("", |end| &comment[end..]),
+            None if rest.is_empty() => return None,
+            None => break,
+        }
+    }
+    // The error is at the newline token, which starts at a trailing comment.
+    let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
+        Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
+        _ => newline.start(),
+    }
+    .to_usize();
+    Some(CompileError::from_source_error(
+        source_file,
+        CpythonDiagnostic::new(
+            "multiple statements found while compiling a single statement".to_owned(),
+            position,
+            position,
+        ),
+    ))
 }
 
 fn single_mode_source_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
@@ -1306,12 +1361,16 @@ fn _compile_with_syntax_warning_handler<'a>(
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     pre_parse_source_error(&source_file)?;
-    let parsed = parser::parse(barry_source.source(), parser_options);
-    if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+    let parsed = parser::parse_unchecked(barry_source.source(), parser_options);
+    if matches!(mode, Mode::Single)
+        && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
+    {
         return Err(error);
     }
-    let parsed =
-        parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
+        return Err(error);
+    }
+    let parsed = first_parse_error(parsed, &source_file, mode)?;
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_blank_source_error(&source_file)
     {
@@ -1609,12 +1668,16 @@ pub fn _compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             pre_parse_source_error(&source_file)?;
-            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
-            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+            let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            if matches!(mode, Mode::Single)
+                && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
+            {
                 return Err(error);
             }
-            let ast =
-                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
+                return Err(error);
+            }
+            let ast = first_parse_error(parsed, &source_file, mode)?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
@@ -1637,12 +1700,11 @@ pub fn _compile_symtable(
         }
         Mode::Eval => {
             pre_parse_source_error(&source_file)?;
-            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
-            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+            let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            if let Some(error) = barry_source.diagnostic(parsed.errors().first(), &source_file) {
                 return Err(error);
             }
-            let ast =
-                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            let ast = first_parse_error(parsed, &source_file, mode)?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
