@@ -532,6 +532,12 @@ class TestSysConfig(unittest.TestCase, VirtualEnvironmentMixin):
         self.assertEqual(status, 0)
         self.assertEqual(my_platform, test_platform)
 
+    @unittest.expectedFailureIf(
+        sys.implementation.name == "rustpython"
+        and sys.platform == "win32"
+        and sysconfig._PYTHON_BUILD,
+        "TODO: RUSTPYTHON; assumes CPython's Include/Python.h, pyconfig.h.in and PC/pyconfig.h",
+    )
     @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     @unittest.skipIf(is_wasi, "Incompatible with WASI mapdir and OOT builds")
     @unittest.skipIf(is_apple_mobile,

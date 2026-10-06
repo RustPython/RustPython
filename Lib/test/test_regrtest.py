@@ -959,6 +959,12 @@ class ProgramsTestCase(BaseTestCase):
                                 errors="backslashreplace")
         self.check_output(proc.stdout)
 
+    @unittest.expectedFailureIf(
+        sys.implementation.name == "rustpython"
+        and sys.platform == "win32"
+        and sysconfig.is_python_build(),
+        "TODO: RUSTPYTHON; assumes CPython's Tools/buildbot/test.bat and PCbuild layout",
+    )
     @unittest.skipUnless(sysconfig.is_python_build(),
                          'test.bat script is not installed')
     @unittest.skipUnless(sys.platform == 'win32', 'Windows only')
