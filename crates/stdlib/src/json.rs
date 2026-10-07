@@ -546,7 +546,7 @@ mod _json {
             // `'[' * 50000 + ']' * 50000` overflows the native Rust stack and
             // crashes the process with SIGSEGV. Matches CPython's
             // _Py_EnterRecursiveCall in Modules/_json.c.
-            vm.with_recursion("while decoding a JSON object from a string", || {
+            vm.with_recursion(" while decoding a JSON object from a string", || {
                 let bytes = pystr.as_bytes();
                 let wtf8 = pystr.as_wtf8();
 
@@ -1254,7 +1254,7 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            vm.with_recursion("while encoding a JSON object", || {
+            vm.with_recursion(" while encoding a JSON object", || {
                 if let Some(s) = obj.downcast_ref::<PyStr>() {
                     self.write_str_obj(obj, s, out, vm)
                 } else if vm.is_none(obj) {

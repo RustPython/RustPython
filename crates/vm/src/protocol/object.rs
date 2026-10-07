@@ -327,7 +327,7 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         // Single recursion guard for the entire comparison
         // (do_richcompare in Objects/object.c).
-        vm.with_recursion("in comparison", || self._cmp_inner(other, op, vm))
+        vm.with_recursion(" in comparison", || self._cmp_inner(other, op, vm))
     }
 
     fn _cmp_inner(
@@ -419,7 +419,7 @@ impl PyObject {
     }
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
-        vm.with_recursion("while getting the repr of an object", || {
+        vm.with_recursion(" while getting the repr of an object", || {
             self.class().slots().repr.load().map_or_else(
                 || {
                     Err(vm.new_runtime_error(format!(
@@ -542,7 +542,7 @@ impl PyObject {
         debug_assert!(n >= 2);
 
         for i in 0..n {
-            let result = vm.with_recursion("in __issubclass__", || {
+            let result = vm.with_recursion(" in __issubclass__", || {
                 bases.as_slice()[i].abstract_issubclass(cls, vm)
             })?;
 
@@ -611,7 +611,7 @@ impl PyObject {
         // Check if cls is a tuple
         if let Some(tuple) = cls.downcast_ref::<PyTuple>() {
             for item in tuple {
-                if vm.with_recursion("in __subclasscheck__", || derived.is_subclass(item, vm))? {
+                if vm.with_recursion(" in __subclasscheck__", || derived.is_subclass(item, vm))? {
                     return Ok(true);
                 }
             }
@@ -620,7 +620,7 @@ impl PyObject {
 
         // Check for __subclasscheck__ method using lookup_special
         if let Some(checker) = cls.lookup_special(identifier!(vm, __subclasscheck__), vm)? {
-            let res = vm.with_recursion("in __subclasscheck__", || {
+            let res = vm.with_recursion(" in __subclasscheck__", || {
                 checker.call((derived.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
@@ -698,7 +698,7 @@ impl PyObject {
         // Check if cls is a tuple
         if let Some(tuple) = cls.downcast_ref::<PyTuple>() {
             for item in tuple {
-                if vm.with_recursion("in __instancecheck__", || {
+                if vm.with_recursion(" in __instancecheck__", || {
                     self.object_recursive_isinstance(item, vm)
                 })? {
                     return Ok(true);
@@ -709,7 +709,7 @@ impl PyObject {
 
         // Check for __instancecheck__ method using lookup_special
         if let Some(checker) = cls.lookup_special(identifier!(vm, __instancecheck__), vm)? {
-            let res = vm.with_recursion("in __instancecheck__", || {
+            let res = vm.with_recursion(" in __instancecheck__", || {
                 checker.call((self.to_owned(),), vm)
             })?;
             return res.try_to_bool(vm);
@@ -721,7 +721,7 @@ impl PyObject {
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(hash) = self.class().slots().hash.load() {
-            return vm.with_recursion("while hashing", || hash(self, vm));
+            return vm.with_recursion(" while hashing", || hash(self, vm));
         }
 
         Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().slot_name())))
