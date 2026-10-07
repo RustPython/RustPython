@@ -313,7 +313,7 @@ impl ByteInnerSub {
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
-    sub: ByteInnerSub,
+    sub: PyObjectRef,
     #[pyarg(positional, default)]
     start: Option<ArgIndex>,
     #[pyarg(positional, default)]
@@ -326,12 +326,14 @@ impl ByteInnerFindOptions {
         len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
-        let sub = self.sub.into_vec(vm)?;
         let range = anystr::adjust_indices(
             self.start.as_ref().map(AsRef::as_ref),
             self.end.as_ref().map(AsRef::as_ref),
             len,
         );
+        // The needle is converted after the slice indices, and only here, so
+        // that a caller can guard its buffer while the conversion runs Python.
+        let sub = ByteInnerSub::try_from_object(vm, self.sub)?.into_vec(vm)?;
         Ok((sub, range))
     }
 }

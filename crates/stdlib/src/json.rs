@@ -1323,12 +1323,17 @@ mod _json {
     #[pyfunction]
     fn scanstring(
         s: PyStrRef,
-        end: usize,
+        end: isize,
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<(Wtf8Buf, usize)> {
         flame_guard!("_json::scanstring");
         let wtf8 = s.as_wtf8();
+
+        if end < 0 || end as usize > s.char_len() {
+            return Err(vm.new_value_error("end is out of bounds"));
+        }
+        let end = end as usize;
 
         // Convert char index `end` to byte index
         let byte_idx = if end == 0 {
@@ -1336,17 +1341,7 @@ mod _json {
         } else {
             wtf8.code_point_indices()
                 .nth(end)
-                .map(|(i, _)| i)
-                .ok_or_else(|| {
-                    py_decode_error(
-                        json::DecodeError {
-                            msg: "Unterminated string starting at".to_owned(),
-                            pos: end - 1,
-                        },
-                        s.clone(),
-                        vm,
-                    )
-                })?
+                .map_or(wtf8.len(), |(i, _)| i)
         };
 
         let (result, end_char_idx, _bytes_consumed) =

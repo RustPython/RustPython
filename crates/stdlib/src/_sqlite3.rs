@@ -397,7 +397,7 @@ mod _sqlite3 {
         #[pyarg(named, default = -1)]
         pages: c_int,
         #[pyarg(named, optional)]
-        progress: Option<ArgCallable>,
+        progress: Option<PyObjectRef>,
         #[pyarg(named, optional)]
         name: Option<PyStrRef>,
         #[pyarg(named, default = 0.250)]
@@ -1253,6 +1253,12 @@ mod _sqlite3 {
                 return Err(vm.new_value_error("target cannot be the same connection instance"));
             }
 
+            if let Some(progress) = &progress
+                && !progress.is_callable()
+            {
+                return Err(vm.new_type_error("progress argument must be a callable"));
+            }
+
             let pages = if pages == 0 { -1 } else { pages };
 
             let name_cstring;
@@ -1284,7 +1290,7 @@ mod _sqlite3 {
                 if let Some(progress) = &progress {
                     let remaining = unsafe { sqlite3_backup_remaining(handle) };
                     let pagecount = unsafe { sqlite3_backup_pagecount(handle) };
-                    if let Err(err) = progress.invoke((ret, remaining, pagecount), vm) {
+                    if let Err(err) = progress.call((ret, remaining, pagecount), vm) {
                         unsafe { sqlite3_backup_finish(handle) };
                         return Err(err);
                     }
