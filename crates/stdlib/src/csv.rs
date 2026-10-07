@@ -1246,7 +1246,7 @@ mod _csv {
     fn field_needs_quotes(data: &[u8], dialect: &PyDialect) -> bool {
         data.iter().any(|&byte| {
             byte == dialect.delimiter
-                || dialect.quotechar == Some(byte)
+                || (dialect.doublequote && dialect.quotechar == Some(byte))
                 || matches!(byte, b'\r' | b'\n')
         }) || data_contains_lineterminator_char(data, dialect)
     }

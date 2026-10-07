@@ -253,6 +253,7 @@ bitflagset::bitflagset! {
         const IMMUTABLETYPE = 8;
         const HEAPTYPE = 9;
         const BASETYPE = 10;
+        const HAVE_GC = 14;
         const METHOD_DESCRIPTOR = 17;
         const IS_ABSTRACT = 20;
         // Built-in types that match the subject itself in pattern matching

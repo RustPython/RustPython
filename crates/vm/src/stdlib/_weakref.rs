@@ -52,8 +52,9 @@ mod _weakref {
 
     #[pyfunction]
     fn _remove_dead_weakref(dct: PyDictRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let hash = key.hash(vm)?;
         dct._as_dict_inner()
-            .delete_if(vm, &*key, |wr| {
+            .delete_if(vm, &*key, hash, |wr| {
                 let wr = wr
                     .downcast_ref::<PyWeak>()
                     .ok_or_else(|| vm.new_type_error("not a weakref"))?;

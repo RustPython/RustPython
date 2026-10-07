@@ -1186,7 +1186,7 @@ pub mod module {
         path: OsPath,
         dir_fd: DirFd<'_, 0>,
         mode: u32,
-        follow_symlinks: FollowSymlinks,
+        follow_symlinks: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
@@ -1195,7 +1195,7 @@ pub mod module {
             not(target_os = "redox"),
             not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
         ))]
-        if !follow_symlinks.0 {
+        if !follow_symlinks {
             let err_path = path.clone();
             let c_path = path.into_cstring(vm)?;
             return rustpython_host_env::posix::fchmodat(
@@ -1219,7 +1219,7 @@ pub mod module {
         let err_path = path.clone();
         let body = move || {
             use std::os::unix::fs::PermissionsExt;
-            let meta = fs_metadata(&path, follow_symlinks.0)?;
+            let meta = fs_metadata(&path, follow_symlinks)?;
             let mut permissions = meta.permissions();
             permissions.set_mode(mode);
             fs::set_permissions(&path, permissions)
@@ -1233,18 +1233,32 @@ pub mod module {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[pyfunction]
-    fn chmod(
-        path: OsPathOrFd<'_>,
-        dir_fd: DirFd<'_, 0>,
+    #[derive(FromArgs)]
+    struct ChmodArgs<'fd> {
+        #[pyarg(any)]
+        path: OsPathOrFd<'fd>,
+        #[pyarg(any)]
         mode: u32,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'fd, 0>,
+        // CPython writes the platform expression; on posix it is always true.
+        #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
+        follow_symlinks: bool,
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyfunction]
+    fn chmod(args: ChmodArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
+        let ChmodArgs {
+            path,
+            mode,
+            dir_fd,
+            follow_symlinks,
+        } = args;
         match path {
             OsPathOrFd::Path(path) => {
                 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
-                if !follow_symlinks.0 && dir_fd == Default::default() {
+                if !follow_symlinks && dir_fd == Default::default() {
                     return lchmod(LchmodArgs { path, mode }, vm);
                 }
                 _chmod(path, dir_fd, mode, follow_symlinks, vm)
@@ -1254,14 +1268,28 @@ pub mod module {
     }
 
     #[cfg(target_os = "redox")]
-    #[pyfunction]
-    fn chmod(
+    #[derive(FromArgs)]
+    struct ChmodArgs {
+        #[pyarg(any)]
         path: OsPath,
-        dir_fd: DirFd<0>,
+        #[pyarg(any)]
         mode: u32,
-        follow_symlinks: FollowSymlinks,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
+        #[pyarg(flatten)]
+        dir_fd: DirFd<'static, 0>,
+        // CPython writes the platform expression; on posix it is always true.
+        #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
+        follow_symlinks: bool,
+    }
+
+    #[cfg(target_os = "redox")]
+    #[pyfunction]
+    fn chmod(args: ChmodArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let ChmodArgs {
+            path,
+            mode,
+            dir_fd,
+            follow_symlinks,
+        } = args;
         _chmod(path, dir_fd, mode, follow_symlinks, vm)
     }
 

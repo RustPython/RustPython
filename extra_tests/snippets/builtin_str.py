@@ -1160,3 +1160,25 @@ def test_concat_error_message():
 
 
 test_concat_error_message()
+
+
+def test_subscript_typeerror_message():
+    def message(index):
+        try:
+            "abc"[index]
+        except TypeError as err:
+            return str(err)
+        raise AssertionError("TypeError was not raised")
+
+    assert message("def") == "string indices must be integers, not 'str'"
+    assert message(object()) == "string indices must be integers, not 'object'"
+    assert message(1.5) == "string indices must be integers, not 'float'"
+    assert message(None) == "string indices must be integers, not 'NoneType'"
+
+    Long = type("A" * 250, (), {})
+    assert message(Long()) == "string indices must be integers, not '{}'".format(
+        "A" * 200
+    )
+
+
+test_subscript_typeerror_message()

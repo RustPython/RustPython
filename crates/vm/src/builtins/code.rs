@@ -8,7 +8,7 @@ use crate::convert::ToPyException;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
-    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
+    bytecode::{self, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     frozen,
@@ -263,16 +263,6 @@ impl Constant for Literal {
     }
 }
 
-impl<'a> AsBag for &'a Context {
-    type Bag = PyObjBag<'a>;
-    fn as_bag(self) -> PyObjBag<'a> {
-        PyObjBag(self)
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct PyObjBag<'a>(pub &'a Context);
-
 /// Whether a string constant reads as a name. Those are the ones interned,
 /// the way `all_name_chars` picks them out.
 fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
@@ -280,77 +270,6 @@ fn is_name_chars(value: &crate::common::wtf8::Wtf8) -> bool {
         .as_bytes()
         .iter()
         .all(|&b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
-impl ConstantBag for PyObjBag<'_> {
-    type Constant = Literal;
-
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
-        let ctx = self.0;
-        let obj = match constant {
-            BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
-            BorrowedConstant::Float { value } => ctx.new_float(value).into(),
-            BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
-            BorrowedConstant::Str { value } if is_name_chars(value) => {
-                ctx.intern_str(value).to_object()
-            }
-            BorrowedConstant::Str { value } => ctx.new_str(value).into(),
-            BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
-            BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
-            BorrowedConstant::Code { code } => ctx.new_code(code.map_clone_bag(self)).into(),
-            BorrowedConstant::Tuple { elements } => {
-                let elements = elements
-                    .iter()
-                    .map(|constant| self.make_constant(constant.borrow_constant()).0)
-                    .collect();
-                ctx.new_tuple(elements).into()
-            }
-            BorrowedConstant::Slice { elements } => {
-                let [start, stop, step] = elements;
-                let start_obj = self.make_constant(start.borrow_constant()).0;
-                let stop_obj = self.make_constant(stop.borrow_constant()).0;
-                let step_obj = self.make_constant(step.borrow_constant()).0;
-                // Store as PySlice with Some() for all fields (even None values)
-                // so borrow_obj_constant can reference them.
-                use crate::builtins::PySlice;
-                PySlice {
-                    start: Some(start_obj),
-                    stop: stop_obj,
-                    step: Some(step_obj),
-                }
-                .into_ref(ctx)
-                .into()
-            }
-            BorrowedConstant::Frozenset { elements: _ } => {
-                // Creating a frozenset requires VirtualMachine for element hashing.
-                // PyObjBag only has Context, so we cannot construct PyFrozenSet here.
-                // Frozenset constants from .pyc are handled by PyMarshalBag which has VM access.
-                unimplemented!(
-                    "frozenset constant in PyObjBag::make_constant requires VirtualMachine"
-                )
-            }
-            BorrowedConstant::None => ctx.none(),
-            BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
-        };
-
-        Literal(obj)
-    }
-
-    fn make_name(&self, name: &str) -> &'static PyStrInterned {
-        self.0.intern_str(name)
-    }
-
-    fn make_int(&self, value: BigInt) -> Self::Constant {
-        Literal(self.0.new_int(value).into())
-    }
-
-    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
-        Literal(self.0.new_tuple(elements.map(|lit| lit.0).collect()).into())
-    }
-
-    fn make_code(&self, code: CodeObject) -> Self::Constant {
-        Literal(self.0.new_code(code).into())
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -437,24 +356,24 @@ impl ConstantBag for PyVmBag<'_> {
 pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
-    fn into_code_object(self, ctx: &Context) -> CodeObject;
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject;
 }
 
 impl IntoCodeObject for CodeObject {
-    fn into_code_object(self, _ctx: &Context) -> Self {
+    fn into_code_object(self, _vm: &VirtualMachine) -> Self {
         self
     }
 }
 
 impl IntoCodeObject for bytecode::CodeObject {
-    fn into_code_object(self, ctx: &Context) -> CodeObject {
-        self.map_bag(PyObjBag(ctx))
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject {
+        self.map_bag(PyVmBag(vm))
     }
 }
 
 impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
-    fn into_code_object(self, ctx: &Context) -> CodeObject {
-        self.decode(ctx)
+    fn into_code_object(self, vm: &VirtualMachine) -> CodeObject {
+        self.decode(PyVmBag(vm))
     }
 }
 
@@ -1645,7 +1564,7 @@ impl Py<PyCode> {
 
 impl ToPyObject for CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_code(self).into()
+        vm.new_code(self).into()
     }
 }
 

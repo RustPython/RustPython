@@ -361,7 +361,7 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> (((*x))),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> (((*x))),y = 1, 2 # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
@@ -376,7 +376,7 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> ((*x),y) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> ((*x),y) = 1, 2 # doctest:+ELLIPSIS
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here

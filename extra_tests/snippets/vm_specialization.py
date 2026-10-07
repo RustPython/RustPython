@@ -342,3 +342,33 @@ def module_attribute_custom_dict_key():
 
 
 module_attribute_custom_dict_key()
+
+
+## STORE_SUBSCR_LIST_INT: the replaced element's finalizer can read the list
+
+
+def store_subscr_list_int_finalizer_reads_list():
+    target = [None]
+    seen = []
+
+    class Item:
+        def __init__(self, value):
+            self.value = value
+
+        def __del__(self):
+            seen.append((self.value, len(target), target[0] is self))
+
+    def store(value):
+        target[0] = value
+
+    for i in range(300):
+        store(Item(i))
+    assert any(
+        op.opname == "STORE_SUBSCR_LIST_INT"
+        for op in dis.get_instructions(store, adaptive=True)
+    )
+    store(None)
+    assert seen == [(i, 1, False) for i in range(300)]
+
+
+store_subscr_list_int_finalizer_reads_list()

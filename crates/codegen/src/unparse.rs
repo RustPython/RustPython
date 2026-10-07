@@ -380,18 +380,11 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     UnparseExpr::new(value, self.source)
                 )?;
             }
-            ast::Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                node_index: _,
-                range: _range,
-                ..
-            }) => {
+            ast::Expr::Compare(compare) => {
                 group_if!(precedence::CMP, {
                     let new_lvl = precedence::CMP + 1;
-                    self.unparse_expr(left, new_lvl)?;
-                    for (op, cmp) in ops.iter().zip(comparators) {
+                    self.unparse_expr(compare.first_operand(), new_lvl)?;
+                    for (_, op, cmp) in compare.iter() {
                         self.p(" ")?;
                         self.p(op.as_str())?;
                         self.p(" ")?;
@@ -700,8 +693,8 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.p("f")?;
         let body = fmt::from_fn(|f| {
             value.iter().try_for_each(|part| match part {
-                ast::FStringPart::Literal(lit) => f.write_str(lit),
-                ast::FStringPart::FString(ast::FString { elements, .. }) => {
+                ast::FStringPartRef::Literal(lit) => f.write_str(lit),
+                ast::FStringPartRef::FString(ast::FString { elements, .. }) => {
                     Unparser::new(f, self.source).unparse_fstring_body(elements)
                 }
             })

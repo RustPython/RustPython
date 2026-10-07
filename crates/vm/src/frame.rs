@@ -5587,10 +5587,10 @@ impl ExecutingFrame<'_> {
             Instruction::SetAdd { i } => {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg) - 1);
-                let set: &Py<PySet> = unsafe {
-                    // SAFETY: trust compiler
-                    obj.downcast_unchecked_ref()
-                };
+                // Annotation tracking can load a user-rebound global here.
+                let set = obj.downcast_ref_if_exact::<PySet>(vm).ok_or_else(|| {
+                    vm.new_type_error(format!("'{}' object is not a set", obj.class().name()))
+                })?;
                 set.add(item, vm)?;
                 Ok(None)
             }
@@ -6430,7 +6430,11 @@ impl ExecutingFrame<'_> {
                 {
                     let mut vec = list.borrow_vec_mut();
                     if i < vec.len() {
-                        vec[i] = value;
+                        // Unlock before dropping the replaced element; its
+                        // finalizer may access this list.
+                        let old = core::mem::replace(&mut vec[i], value);
+                        drop(vec);
+                        drop(old);
                         return Ok(None);
                     }
                 }

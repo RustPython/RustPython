@@ -6,8 +6,8 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
     class::{PyClassDef, PyClassImpl},
-    common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
-    convert::{IntoPyException, ToPyObject, ToPyResult},
+    common::{float_ops, hash, wtf8::Wtf8Buf},
+    convert::{ToPyObject, ToPyResult},
     function::{ArgBytesLike, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -291,17 +291,16 @@ impl Py<PyFloat> {
         if format_spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
-        let result = if format_spec.has_locale_format() {
+        let spec = crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
+        let result = if spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
-            format_spec.format_float_locale(zelf.to_f64(), &locale)
+            spec.format_float_locale(zelf.to_f64(), &locale)
         } else {
-            format_spec.format_float(zelf.to_f64())
+            spec.format_float(zelf.to_f64())
         };
-        result
-            .map(Wtf8Buf::from_string)
-            .map_err(|err| err.into_pyexception(vm))
+        result.map(Wtf8Buf::from_string).map_err(|err| {
+            crate::format::format_spec_error(err, zelf.as_object(), format_spec.as_str(), vm)
+        })
     }
 
     #[pystaticmethod]

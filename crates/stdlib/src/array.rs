@@ -33,7 +33,7 @@ pub mod array {
             },
             sequence::{SequenceExt, SequenceMutExt},
             sliceable::{
-                SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
+                NameArray, SaturatedSlice, SequenceIndex, SequenceIndexOp, SliceableSequenceMutOp,
                 SliceableSequenceOp,
             },
             stdlib::_warnings,
@@ -1205,7 +1205,7 @@ pub mod array {
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
+            match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
                 SequenceIndex::Int(i) => self.read().getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.read().getitem_by_slice(slice, vm),
             }
@@ -1221,7 +1221,7 @@ pub mod array {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
+            match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
                 SequenceIndex::Int(i) => {
                     let typecode = zelf.read().typecode();
                     let item = ArrayContentType::item_from_object(typecode, value, vm)?;
@@ -1266,7 +1266,7 @@ pub mod array {
         }
 
         fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
+            match SequenceIndex::try_from_borrowed_object::<NameArray>(vm, needle)? {
                 SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }

@@ -75,6 +75,8 @@ pub(crate) mod type_;
 pub use type_::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
+pub(crate) mod sentinel;
+pub use sentinel::PySentinel;
 pub(crate) mod set;
 pub use set::{PyFrozenSet, PySet};
 pub(crate) mod singletons;

@@ -1514,9 +1514,7 @@ impl VirtualMachine {
 
                 // No stdio: set to None (embedding use case)
                 #[cfg(not(feature = "stdio"))]
-                let make_stdio = |_name: &str, _fd: i32, _write: bool| {
-                    Ok(crate::builtins::PyNone.into_pyobject(self))
-                };
+                let make_stdio = |_name: &str, _fd: i32, _write: bool| Ok(self.ctx.none());
 
                 let set_stdio = |name, fd, write| {
                     let stdio: PyObjectRef = make_stdio(name, fd, write)?;
@@ -2583,6 +2581,33 @@ impl VirtualMachine {
     #[inline(always)]
     pub(crate) fn check_c_stack_overflow(&self) -> bool {
         false
+    }
+
+    /// Enter a native-recursion section equivalent to `Py_EnterRecursiveCall`.
+    pub fn enter_recursive_call(&self, _where: &str) -> PyResult<()> {
+        #[cfg(any(miri, target_env = "musl"))]
+        let counted_too_deep =
+            self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
+        #[cfg(not(any(miri, target_env = "musl")))]
+        let counted_too_deep = false;
+
+        if counted_too_deep || self.check_c_stack_overflow() {
+            return Err(
+                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
+            );
+        }
+
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d + 1);
+
+        Ok(())
+    }
+
+    /// Leave a native-recursion section equivalent to
+    /// `Py_LeaveRecursiveCall`.
+    pub fn leave_recursive_call(&self) {
+        #[cfg(any(miri, target_env = "musl"))]
+        self.native_recursion_depth.update(|d| d.saturating_sub(1));
     }
 
     /// Used to run the body of a (possibly) recursive function. It will raise a
@@ -3897,6 +3922,26 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "stdio"))]
+    #[test]
+    fn no_stdio_streams_are_none_singleton() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                for name in [
+                    "stdin",
+                    "stdout",
+                    "stderr",
+                    "__stdin__",
+                    "__stdout__",
+                    "__stderr__",
+                ] {
+                    let stream = vm.sys_module.get_attr(name, vm).unwrap();
+                    assert!(vm.is_none(&stream), "sys.{name} must be the None singleton");
+                }
+            });
+    }
 
     #[test]
     fn nested_frozen() {
