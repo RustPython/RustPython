@@ -3080,13 +3080,17 @@ impl VirtualMachine {
         self.tracing_depth.get() != 0
     }
 
+    /// `where_` is empty, or a suffix that already includes the leading space.
     #[cold]
     fn new_recursion_depth_error(&self, where_: &str) -> PyBaseExceptionRef {
-        let where_ = where_.trim();
+        debug_assert!(
+            where_.is_empty() || where_.starts_with(' '),
+            "recursion where-clause must be empty or start with a space: {where_:?}"
+        );
         let msg = if where_.is_empty() {
             "maximum recursion depth exceeded".to_string()
         } else {
-            format!("maximum recursion depth exceeded {where_}")
+            format!("maximum recursion depth exceeded{where_}")
         };
         self.new_recursion_error(msg)
     }

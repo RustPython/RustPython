@@ -250,7 +250,7 @@ impl PySequenceIterator {
 impl Py<PySequenceIterator> {
     #[pymethod]
     fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        vm.with_recursion("in __length_hint__", || {
+        vm.with_recursion(" in __length_hint__", || {
             let (obj, position) = {
                 let internal = self.internal.lock();
                 match &internal.status {
