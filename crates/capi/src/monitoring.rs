@@ -131,6 +131,25 @@ mod tests {
 
     #[test]
     fn native_scope_and_disable() {
+        // Monitoring callbacks are interpreter-wide. Other C-API unit tests
+        // execute Python concurrently in the shared main interpreter.
+        const CHILD_MARKER: &str = "RUSTPYTHON_CAPI_MONITORING_TEST_CHILD";
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "monitoring::tests::native_scope_and_disable",
+                    "--nocapture",
+                ])
+                .env(CHILD_MARKER, "1")
+                .status()
+                .unwrap();
+            assert!(
+                status.success(),
+                "isolated monitoring test failed: {status}"
+            );
+            return;
+        }
         Python::attach(|py| {
             let fixture = PyModule::from_code(
                 py,
