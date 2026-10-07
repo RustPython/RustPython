@@ -4,8 +4,7 @@ use crate::util::FfiPtrExt;
 use alloc::borrow::Cow;
 use alloc::ffi::CString;
 use core::ffi::{c_char, c_int, c_void};
-use core::ptr;
-use rustpython_vm::TryFromBorrowedObject;
+use core::ptr::{self, NonNull};
 use rustpython_vm::protocol::{BufferFlags, PyBuffer};
 
 #[repr(C)]
@@ -58,9 +57,8 @@ pub unsafe extern "C" fn PyObject_GetBuffer(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { obj.assume_borrowed() };
-        let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
-        let flags = BufferFlags::from_bits(flags as u32)
-            .ok_or_else(|| vm.new_system_error("invalid buffer flags"))?;
+        let flags = BufferFlags::from_bits_retain(flags as u32);
+        let buffer = PyBuffer::from_object(vm, obj, flags)?;
 
         if flags.contains(BufferFlags::WRITABLE) && buffer.desc.readonly {
             return Err(vm.new_buffer_error("Object is not writable"));
@@ -118,7 +116,14 @@ pub unsafe extern "C" fn PyObject_GetBuffer(
         }
 
         buffer_view.obj = obj.as_raw().cast_mut();
-        buffer_view.buf = buffer.obj_bytes().as_ptr().cast_mut().cast();
+        buffer_view.buf = unsafe {
+            buffer
+                .obj_bytes()
+                .as_ptr()
+                .cast_mut()
+                .offset(buffer.desc.offset)
+        }
+        .cast();
         buffer_view.internal = Box::into_raw(Box::new(BufferInternal { buffer, format })).cast();
 
         unsafe {
@@ -131,7 +136,10 @@ pub unsafe extern "C" fn PyObject_GetBuffer(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyBuffer_Release(view: *mut Py_buffer) {
     let view = unsafe { &mut *view };
-    unsafe { drop(Box::from_raw(view.internal.cast::<BufferInternal>())) };
+    let internal = unsafe {
+        NonNull::new(view.internal.cast::<BufferInternal>()).map(|ptr| Box::from_non_null(ptr))
+    };
+    drop(internal);
     core::mem::take(view);
 }
 
