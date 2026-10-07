@@ -3,6 +3,10 @@ source: crates/ruff_python_parser/src/parser/tests.rs
 expression: error
 ---
 ParseError {
-    error: ExpectedExpression,
+    error: TStringError(
+        ExpressionRequiredBefore(
+            ':',
+        ),
+    ),
     location: 3..4,
 }

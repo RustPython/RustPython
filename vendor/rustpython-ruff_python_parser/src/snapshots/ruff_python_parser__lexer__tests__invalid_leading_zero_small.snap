@@ -13,10 +13,8 @@ expression: "lex_invalid(source, Mode::Module)"
 ```
 [
     LexicalError {
-        error: OtherError(
-            "Invalid decimal integer literal",
-        ),
-        location: 0..3,
+        error: LeadingZerosInDecimalInteger,
+        location: 0..1,
     },
 ]
 ```

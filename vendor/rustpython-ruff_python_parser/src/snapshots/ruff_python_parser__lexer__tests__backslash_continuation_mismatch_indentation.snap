@@ -22,7 +22,7 @@ expression: "lex_invalid(&source, Mode::Module)"
 [
     LexicalError {
         error: IndentationError,
-        location: 15..23,
+        location: 24..24,
     },
 ]
 ```

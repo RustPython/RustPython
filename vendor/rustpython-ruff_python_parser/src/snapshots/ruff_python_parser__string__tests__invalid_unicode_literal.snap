@@ -4,7 +4,11 @@ expression: error
 ---
 ParseError {
     error: Lexical(
-        UnicodeError,
+        UnicodeEscapeError {
+            kind: TruncatedHexByte,
+            start: 0,
+            end: 2,
+        },
     ),
-    location: 4..6,
+    location: 0..9,
 }

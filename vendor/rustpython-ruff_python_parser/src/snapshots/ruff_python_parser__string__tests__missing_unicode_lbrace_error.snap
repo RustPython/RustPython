@@ -4,7 +4,11 @@ expression: error
 ---
 ParseError {
     error: Lexical(
-        MissingUnicodeLbrace,
+        UnicodeEscapeError {
+            kind: MalformedName,
+            start: 0,
+            end: 1,
+        },
     ),
-    location: 3..3,
+    location: 0..5,
 }

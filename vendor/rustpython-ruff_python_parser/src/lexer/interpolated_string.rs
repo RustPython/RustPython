@@ -1,4 +1,5 @@
 use ruff_python_ast::StringFlags;
+use ruff_text_size::TextSize;
 
 use crate::string::InterpolatedStringKind;
 
@@ -18,15 +19,19 @@ pub(crate) struct InterpolatedStringContext {
     /// there can be multiple format specs nested for the same f-string.
     /// For example, `{a:{b:{c}}}` has 3 format specs.
     format_spec_depth: u32,
+
+    /// The start of the f/t-string, including its prefix.
+    start: TextSize,
 }
 
 impl InterpolatedStringContext {
-    pub(crate) const fn new(flags: TokenFlags, nesting: u32) -> Option<Self> {
+    pub(crate) const fn new(flags: TokenFlags, nesting: u32, start: TextSize) -> Option<Self> {
         if flags.is_interpolated_string() {
             Some(Self {
                 flags,
                 nesting,
                 format_spec_depth: 0,
+                start,
             })
         } else {
             None
@@ -49,6 +54,11 @@ impl InterpolatedStringContext {
 
     pub(crate) const fn nesting(&self) -> u32 {
         self.nesting
+    }
+
+    /// Returns the start of the f/t-string, including its prefix.
+    pub(crate) const fn start(&self) -> TextSize {
+        self.start
     }
 
     /// Returns the quote character for the current f-string.
@@ -82,10 +92,22 @@ impl InterpolatedStringContext {
         current_nesting.saturating_sub(self.nesting)
     }
 
+    /// Returns the nesting level immediately outside the current replacement field.
+    #[cfg(feature = "python315-diagnostics")]
+    pub(crate) const fn replacement_field_nesting(&self, current_nesting: u32) -> u32 {
+        self.nesting + self.format_spec_depth - self.is_in_format_spec(current_nesting) as u32
+    }
+
     /// Returns `true` if the lexer is in an f-string expression or t-string interpolation i.e., between
     /// two curly braces.
     pub(crate) const fn is_in_interpolation(&self, current_nesting: u32) -> bool {
         self.open_parentheses_count(current_nesting) > self.format_spec_depth
+    }
+
+    /// Returns `true` if the innermost open bracket is the brace that opens the current
+    /// expression or interpolation.
+    pub(crate) const fn is_at_interpolation_brace(&self, current_nesting: u32) -> bool {
+        self.open_parentheses_count(current_nesting) == self.format_spec_depth + 1
     }
 
     /// Returns `true` if the lexer is in a f-string format spec i.e., after a colon.

@@ -4,7 +4,11 @@ expression: error
 ---
 ParseError {
     error: Lexical(
-        UnicodeError,
+        UnicodeEscapeError {
+            kind: UnknownName,
+            start: 0,
+            end: 10,
+        },
     ),
-    location: 4..11,
+    location: 0..13,
 }

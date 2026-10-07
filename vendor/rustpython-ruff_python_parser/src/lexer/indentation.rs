@@ -6,8 +6,7 @@ use ruff_python_trivia::tab_offset_u32;
 
 /// The column index of an indentation.
 ///
-/// A space increments the column by one. A tab adds up to 2 (if tab size is 2) indices, but just one
-/// if the column isn't even.
+/// A space increments the column by one. A tab advances the column to the next multiple of 8.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
 pub(super) struct Column(u32);
 
@@ -35,7 +34,7 @@ pub(super) struct Indentation {
 }
 
 impl Indentation {
-    const TAB_SIZE: u32 = 2;
+    const TAB_SIZE: u32 = 8;
 
     pub(super) const fn root() -> Self {
         Self {
@@ -69,20 +68,37 @@ impl Indentation {
         }
     }
 
-    pub(super) fn try_compare(self, other: Indentation) -> Result<Ordering, UnexpectedIndentation> {
-        let column_ordering = self.column.cmp(&other.column);
-        let character_ordering = self.character.cmp(&other.character);
+    /// Compares the current indentation `self` with the indentation `other` of a new line by
+    /// column.
+    ///
+    /// A deeper line must also have more characters, and a line at the same column the same
+    /// number of characters; otherwise tabs and spaces are mixed inconsistently. A shallower line
+    /// is checked against the level it dedents to, in [`Indentations::dedent_one`].
+    pub(super) fn try_compare(self, other: Indentation) -> Result<Ordering, IndentationError> {
+        let ordering = self.column.cmp(&other.column);
+        let consistent = match ordering {
+            Ordering::Less => self.character < other.character,
+            Ordering::Equal => self.character == other.character,
+            Ordering::Greater => true,
+        };
 
-        if column_ordering == character_ordering {
-            Ok(column_ordering)
+        if consistent {
+            Ok(ordering)
         } else {
-            Err(UnexpectedIndentation)
+            Err(IndentationError::InconsistentTabs)
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(super) struct UnexpectedIndentation;
+pub(super) enum IndentationError {
+    /// Tabs and spaces are mixed in a way that makes the indentation depend on the tab size.
+    InconsistentTabs,
+    /// A dedent does not match any outer indentation level.
+    UnmatchedDedent,
+    /// Indenting would exceed [`Indentations::MAX_DEPTH`].
+    TooDeep,
+}
 
 /// The indentations stack is used to keep track of the current indentation level
 /// [See Indentation](docs.python.org/3/reference/lexical_analysis.html#indentation).
@@ -92,10 +108,17 @@ pub(super) struct Indentations {
 }
 
 impl Indentations {
-    pub(super) fn indent(&mut self, indent: Indentation) {
+    /// The maximum number of nested indentation levels.
+    const MAX_DEPTH: usize = 99;
+
+    pub(super) fn indent(&mut self, indent: Indentation) -> Result<(), IndentationError> {
         debug_assert_eq!(self.current().try_compare(indent), Ok(Ordering::Less));
 
+        if self.stack.len() >= Self::MAX_DEPTH {
+            return Err(IndentationError::TooDeep);
+        }
         self.stack.push(indent);
+        Ok(())
     }
 
     /// Dedent one level to eventually reach `new_indentation`.
@@ -104,17 +127,20 @@ impl Indentations {
     pub(super) fn dedent_one(
         &mut self,
         new_indentation: Indentation,
-    ) -> Result<Option<Indentation>, UnexpectedIndentation> {
+    ) -> Result<Option<Indentation>, IndentationError> {
         let previous = self.dedent();
+        let current = *self.current();
 
-        match new_indentation.try_compare(*self.current())? {
-            Ordering::Less | Ordering::Equal => Ok(previous),
+        match new_indentation.column.cmp(&current.column) {
+            Ordering::Less => Ok(previous),
+            Ordering::Equal if new_indentation.character == current.character => Ok(previous),
+            Ordering::Equal => Err(IndentationError::InconsistentTabs),
             // ```python
             // if True:
             //     pass
             //   pass <- The indentation is greater than the expected indent of 0.
             // ```
-            Ordering::Greater => Err(UnexpectedIndentation),
+            Ordering::Greater => Err(IndentationError::UnmatchedDedent),
         }
     }
 
@@ -143,7 +169,7 @@ assert_eq_size!(Indentation, u64);
 
 #[cfg(test)]
 mod tests {
-    use super::{Character, Column, Indentation};
+    use super::{Character, Column, Indentation, IndentationError};
     use std::cmp::Ordering;
 
     #[test]
@@ -155,5 +181,22 @@ mod tests {
         let two_tabs = Indentation::new(Column::new(16), Character::new(2));
         assert_eq!(two_tabs.try_compare(tab), Ok(Ordering::Greater));
         assert_eq!(tab.try_compare(two_tabs), Ok(Ordering::Less));
+    }
+
+    #[test]
+    fn indentation_try_compare_mixed_tabs() {
+        let tab = Indentation::new(Column::new(8), Character::new(1));
+        let eight_spaces = Indentation::new(Column::new(8), Character::new(8));
+        let tab_and_space = Indentation::new(Column::new(9), Character::new(2));
+
+        assert_eq!(
+            tab.try_compare(eight_spaces),
+            Err(IndentationError::InconsistentTabs)
+        );
+        assert_eq!(
+            eight_spaces.try_compare(tab_and_space),
+            Err(IndentationError::InconsistentTabs)
+        );
+        assert_eq!(tab.try_compare(tab_and_space), Ok(Ordering::Less));
     }
 }

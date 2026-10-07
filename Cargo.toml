@@ -187,7 +187,7 @@ rustpython-doc = { path = "crates/doc", version = "0.6.1" }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
 # Keep required parser fixes when these crates are used from another workspace.
-ruff_python_parser = { package = "rustpython-ruff_python_parser", path = "vendor/rustpython-ruff_python_parser", version = "0.16.10" }
+ruff_python_parser = { package = "rustpython-ruff_python_parser", path = "vendor/rustpython-ruff_python_parser", version = "0.16.10", features = ["python315-diagnostics"] }
 ruff_python_ast = { package = "rustpython-ruff_python_ast", version = "0.16.10" }
 ruff_text_size = { package = "rustpython-ruff_text_size", version = "0.16.10" }
 ruff_source_file = { package = "rustpython-ruff_source_file", version = "0.16.10" }

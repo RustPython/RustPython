@@ -1,7 +1,7 @@
 [package]
 description = "Unofficial fork for RustPython"
 name = "rustpython-ruff_python_parser"
-version = "0.16.5"
+version = "0.16.10"
 authors = ["Charlie Marsh <charlie.r.marsh@gmail.com>", "RustPython Team"]
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -13,6 +13,10 @@ license = { workspace = true }
 [lib]
 name = "ruff_python_parser"
 
+# Local RustPython compatibility: wording only; independent of grammar target.
+[features]
+python315-diagnostics = []
+
 [dependencies]
 ruff_python_ast = { workspace = true, features = ["get-size"] }
 ruff_python_trivia = { workspace = true }
@@ -22,6 +26,8 @@ bitflags = { workspace = true }
 bstr = { workspace = true }
 drop_bomb = { workspace = true }
 get-size2 = { workspace = true }
+hashbrown = { workspace = true }
+icu_properties = { workspace = true }
 memchr = { workspace = true }
 rustc-hash = { workspace = true }
 static_assertions = { workspace = true }

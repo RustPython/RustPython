@@ -6,5 +6,5 @@ ParseError {
     error: Lexical(
         InvalidByteLiteral,
     ),
-    location: 6..10,
+    location: 0..12,
 }

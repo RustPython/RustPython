@@ -1888,14 +1888,27 @@ pub(crate) fn parse<E: From<CompileError>>(
         && let Some(error) =
             rustpython_compiler::single_mode_multiple_statements_error(&source_file, &parsed)
     {
-        return Err(error);
+        return Err(error.into());
     }
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
     if let Some(lines) = &type_comment_source
         && let Some(error) = invalid_type_comment_syntax_error(&source_file, lines)
     {
-        return Err(error.into());
+        // This parser action runs before a later invalid type-comment token.
+        let earlier_lazy_future = matches!(
+            (&error, parsed.errors().first()),
+            (
+                CompileError::Parse(comment_error),
+                Some(parser::ParseError {
+                    error: parser::ParseErrorType::LazyFutureImport,
+                    location,
+                })
+            ) if location.start() < comment_error.raw_location.start()
+        );
+        if !earlier_lazy_future {
+            return Err(error.into());
+        }
     }
     if let Err(errors) = parsed.as_result() {
         let parse_error = errors[0].clone();

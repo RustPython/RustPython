@@ -7,7 +7,7 @@ use ruff_python_ast::token::TokenKind;
 use ruff_python_ast::{self as ast, AnyStringFlags, AtomicNodeIndex, Expr, StringFlags};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
-use crate::error::{LexicalError, LexicalErrorType};
+use crate::error::{LexicalError, LexicalErrorType, UnicodeEscapeErrorKind};
 
 #[derive(Debug)]
 pub(crate) enum StringType {
@@ -153,34 +153,87 @@ impl<'src> StringParser<'src> {
         self.source.as_bytes()[self.cursor..].first().copied()
     }
 
-    fn parse_unicode_literal(&mut self, literal_number: usize) -> Result<char, LexicalError> {
+    #[inline]
+    fn peek_char(&self) -> Option<char> {
+        self.source[self.cursor..].chars().next()
+    }
+
+    /// Returns the position of the byte at `index` as the unicode escape decoder sees the
+    /// content: every non-ASCII character is replaced by its `\UXXXXXXXX` escape, and a
+    /// backslash that starts a pair before a non-ASCII character or at the end gains `u005c`.
+    fn escape_position(&self, index: usize) -> u32 {
+        let width = |c: char| if c.is_ascii() { 1 } else { 10 };
+        let mut position = 0;
+        let mut chars = self.source.char_indices().peekable();
+        while let Some((offset, c)) = chars.next() {
+            if offset >= index {
+                break;
+            }
+            if c != '\\' {
+                position += width(c);
+                continue;
+            }
+            position += 1;
+            let Some(&(next_offset, next)) = chars.peek() else {
+                position += 5;
+                break;
+            };
+            if !next.is_ascii() {
+                position += 5;
+            }
+            if next_offset >= index {
+                break;
+            }
+            chars.next();
+            position += width(next);
+        }
+        position
+    }
+
+    /// Returns the error for the escape sequence starting at the backslash at `start`, where the
+    /// decoder stopped before the byte at `end`.
+    fn escape_error(&self, kind: UnicodeEscapeErrorKind, start: usize, end: usize) -> LexicalError {
+        let error = if self.flags.is_byte_string() {
+            LexicalErrorType::BytesEscapeError {
+                position: u32::try_from(start).unwrap(),
+            }
+        } else {
+            LexicalErrorType::UnicodeEscapeError {
+                kind,
+                start: self.escape_position(start),
+                end: self.escape_position(end) - 1,
+            }
+        };
+        LexicalError::new(error, self.range)
+    }
+
+    fn parse_unicode_literal(
+        &mut self,
+        literal_number: usize,
+        escape_start: usize,
+    ) -> Result<char, LexicalError> {
+        let kind = match literal_number {
+            2 => UnicodeEscapeErrorKind::TruncatedHexByte,
+            4 => UnicodeEscapeErrorKind::TruncatedShortUnicode,
+            _ => UnicodeEscapeErrorKind::TruncatedLongUnicode,
+        };
         let mut p: u32 = 0u32;
         for i in 1..=literal_number {
-            let start = self.position();
-            match self.next_char() {
-                Some(c) => match c.to_digit(16) {
-                    Some(d) => p += d << ((literal_number - i) * 4),
-                    None => {
-                        return Err(LexicalError::new(
-                            LexicalErrorType::UnicodeError,
-                            TextRange::at(start, TextSize::try_from(c.len_utf8()).unwrap()),
-                        ));
-                    }
-                },
-                None => {
-                    return Err(LexicalError::new(
-                        LexicalErrorType::UnicodeError,
-                        TextRange::empty(self.position()),
-                    ));
-                }
-            }
+            let Some(d) = self.peek_char().and_then(|c| c.to_digit(16)) else {
+                return Err(self.escape_error(kind, escape_start, self.cursor));
+            };
+            self.cursor += 1;
+            p += d << ((literal_number - i) * 4);
         }
         match p {
             0xD800..=0xDFFF => Ok(std::char::REPLACEMENT_CHARACTER),
-            _ => std::char::from_u32(p).ok_or(LexicalError::new(
-                LexicalErrorType::UnicodeError,
-                TextRange::empty(self.position()),
-            )),
+            _ => std::char::from_u32(p).ok_or_else(|| {
+                self.escape_error(
+                    UnicodeEscapeErrorKind::IllegalCharacter,
+                    escape_start,
+                    self.cursor,
+                )
+            }),
         }
     }
 
@@ -203,41 +256,45 @@ impl<'src> StringParser<'src> {
         char::from_u32(value).unwrap()
     }
 
-    fn parse_unicode_name(&mut self) -> Result<char, LexicalError> {
-        let start_pos = self.position();
-        let Some('{') = self.next_char() else {
-            return Err(LexicalError::new(
-                LexicalErrorType::MissingUnicodeLbrace,
-                TextRange::empty(start_pos),
+    fn parse_unicode_name(&mut self, escape_start: usize) -> Result<char, LexicalError> {
+        if self.peek_char() != Some('{') {
+            return Err(self.escape_error(
+                UnicodeEscapeErrorKind::MalformedName,
+                escape_start,
+                self.cursor,
             ));
-        };
-
-        let start_pos = self.position();
+        }
+        self.cursor += 1;
         let Some(close_idx) = self.source[self.cursor..].find('}') else {
-            return Err(LexicalError::new(
-                LexicalErrorType::MissingUnicodeRbrace,
-                TextRange::empty(self.compute_position(self.source.len())),
+            return Err(self.escape_error(
+                UnicodeEscapeErrorKind::MalformedName,
+                escape_start,
+                self.source.len(),
             ));
         };
+        if close_idx == 0 {
+            return Err(self.escape_error(
+                UnicodeEscapeErrorKind::MalformedName,
+                escape_start,
+                self.cursor,
+            ));
+        }
 
         let name_and_ending = self.skip_bytes(close_idx + 1);
         let name = &name_and_ending[..name_and_ending.len() - 1];
 
         unicode_names2::character(name).ok_or_else(|| {
-            LexicalError::new(
-                LexicalErrorType::UnicodeError,
-                // The cursor is right after the `}` character, so we subtract 1 to get the correct
-                // range of the unicode name.
-                TextRange::new(
-                    start_pos,
-                    self.compute_position(self.cursor - '}'.len_utf8()),
-                ),
+            self.escape_error(
+                UnicodeEscapeErrorKind::UnknownName,
+                escape_start,
+                self.cursor,
             )
         })
     }
 
     /// Parse an escaped character, returning the new character.
     fn parse_escaped_char(&mut self) -> Result<Option<EscapedChar>, LexicalError> {
+        let escape_start = self.cursor - 1;
         let Some(first_char) = self.next_char() else {
             // TODO: check when this error case happens
             return Err(LexicalError::new(
@@ -258,10 +315,10 @@ impl<'src> StringParser<'src> {
             't' => '\t',
             'v' => '\x0b',
             o @ '0'..='7' => self.parse_octet(o as u8),
-            'x' => self.parse_unicode_literal(2)?,
-            'u' if !self.flags.is_byte_string() => self.parse_unicode_literal(4)?,
-            'U' if !self.flags.is_byte_string() => self.parse_unicode_literal(8)?,
-            'N' if !self.flags.is_byte_string() => self.parse_unicode_name()?,
+            'x' => self.parse_unicode_literal(2, escape_start)?,
+            'u' if !self.flags.is_byte_string() => self.parse_unicode_literal(4, escape_start)?,
+            'U' if !self.flags.is_byte_string() => self.parse_unicode_literal(8, escape_start)?,
+            'N' if !self.flags.is_byte_string() => self.parse_unicode_name(escape_start)?,
             // Special cases where the escape sequence is not a single character
             '\n' => return Ok(None),
             '\r' => {
@@ -374,14 +431,10 @@ impl<'src> StringParser<'src> {
     }
 
     fn parse_bytes(mut self) -> Result<StringType, LexicalError> {
-        if let Some(index) = self.source.as_bytes().find_non_ascii_byte() {
-            let ch = self.source.chars().nth(index).unwrap();
+        if self.source.as_bytes().find_non_ascii_byte().is_some() {
             return Err(LexicalError::new(
                 LexicalErrorType::InvalidByteLiteral,
-                TextRange::at(
-                    self.compute_position(index),
-                    TextSize::try_from(ch.len_utf8()).unwrap(),
-                ),
+                self.range,
             ));
         }
 
@@ -589,7 +642,11 @@ mod tests {
 
     #[test]
     fn parse_fstring_nested_spec_grows_stack() {
-        assert!(parse_suite(&nested_format_spec('f', 200)).is_ok());
+        let error = parse_suite(&nested_format_spec('f', 200)).unwrap_err();
+        assert_eq!(
+            error.error,
+            ParseErrorType::Lexical(LexicalErrorType::TooDeeplyNestedBrackets)
+        );
     }
 
     #[test]
@@ -641,7 +698,7 @@ mod tests {
     fn test_parse_invalid_fstring() {
         use InterpolatedStringErrorType::{InvalidConversionFlag, LambdaWithoutParentheses};
 
-        assert_eq!(parse_fstring_error(r#"f"{5!x}""#), InvalidConversionFlag);
+        assert_eq!(parse_fstring_error(r#"f"{5!1}""#), InvalidConversionFlag);
         assert_eq!(
             parse_fstring_error("f'{lambda x:{x}}'"),
             LambdaWithoutParentheses
@@ -706,7 +763,11 @@ mod tests {
 
     #[test]
     fn parse_tstring_nested_spec_grows_stack() {
-        assert!(parse_suite(&nested_format_spec('t', 200)).is_ok());
+        let error = parse_suite(&nested_format_spec('t', 200)).unwrap_err();
+        assert_eq!(
+            error.error,
+            ParseErrorType::Lexical(LexicalErrorType::TooDeeplyNestedBrackets)
+        );
     }
 
     #[test]
@@ -758,7 +819,7 @@ mod tests {
     fn test_parse_invalid_tstring() {
         use InterpolatedStringErrorType::{InvalidConversionFlag, LambdaWithoutParentheses};
 
-        assert_eq!(parse_tstring_error(r#"t"{5!x}""#), InvalidConversionFlag);
+        assert_eq!(parse_tstring_error(r#"t"{5!1}""#), InvalidConversionFlag);
         assert_eq!(
             parse_tstring_error("t'{lambda x:{x}}'"),
             LambdaWithoutParentheses

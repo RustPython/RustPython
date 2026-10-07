@@ -1,0 +1,130 @@
+--- a/vendor/rustpython-ruff_python_parser/src/error.rs
++++ b/vendor/rustpython-ruff_python_parser/src/error.rs
+@@ -2,7 +2,7 @@
+ 
+ use ruff_python_ast::token::TokenKind;
+ use ruff_python_ast::{ConstantValue, Expr, PythonVersion};
+-use ruff_text_size::{Ranged, TextRange};
++use ruff_text_size::{Ranged, TextRange, TextSize};
+ 
+ use crate::string::InterpolatedStringKind;
+ 
+@@ -200,6 +200,14 @@
+     /// An unexpected error occurred.
+     OtherError(String),
+ 
++    /// A missing-comma hint whose concatenated literal is displayed on its final line.
++    /// The original expression range controls error precedence; `diagnostic_start` can be
++    /// after the displayed range's end, which a `TextRange` cannot represent.
++    MissingCommaAfterConcatenatedLiteral {
++        expression_range: TextRange,
++        diagnostic_start: TextSize,
++    },
++
+     /// An error specific to stringified annotations occurred.
+     StringAnnotationError(&'static str),
+ 
+@@ -523,6 +531,9 @@
+     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+         match self {
+             ParseErrorType::OtherError(msg) => f.write_str(msg),
++            ParseErrorType::MissingCommaAfterConcatenatedLiteral { .. } => {
++                f.write_str("invalid syntax. Perhaps you forgot a comma?")
++            }
+             ParseErrorType::ExpectedIndentedBlock {
+                 clause: BlockClause::StandaloneCase,
+                 ..
+--- a/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
+@@ -451,10 +451,63 @@
+             return;
+         };
+         let range = TextRange::new(first.start(), second_end);
++        #[cfg(feature = "python315-diagnostics")]
++        if let Some((diagnostic_start, end)) = self.concatenated_literal_comma_range(first) {
++            self.add_error(
++                ParseErrorType::MissingCommaAfterConcatenatedLiteral {
++                    expression_range: range,
++                    diagnostic_start,
++                },
++                TextRange::new(diagnostic_start.min(end), end),
++            );
++            return;
++        }
+         self.add_error(
+             ParseErrorType::OtherError("invalid syntax. Perhaps you forgot a comma?".to_string()),
+             range,
+         );
++    }
++
++    /// Points a multiline concatenation's missing-comma hint at its final literal line,
++    /// retaining the first literal's column, as CPython does.
++    #[cfg(feature = "python315-diagnostics")]
++    fn concatenated_literal_comma_range(&self, first: &ParsedExpr) -> Option<(TextSize, TextSize)> {
++        let last = match &first.expr {
++            Expr::StringLiteral(string) if string.value.is_implicit_concatenated() => {
++                string.value.iter().next_back()?.range()
++            }
++            Expr::BytesLiteral(bytes) if bytes.value.is_implicit_concatenated() => {
++                bytes.value.iter().next_back()?.range()
++            }
++            Expr::FString(string) if string.value.is_implicit_concatenated() => {
++                string.value.iter().next_back()?.range()
++            }
++            Expr::TString(string) if string.value.is_implicit_concatenated() => {
++                string.value.iter().next_back()?.range()
++            }
++            _ => return None,
++        };
++        let first_start = first.start().to_usize();
++        let end = last.end().to_usize();
++        let line_start = |offset| {
++            self.source[..offset]
++                .rfind(['\n', '\r'])
++                .map_or(0, |i| i + 1)
++        };
++        let first_line = line_start(first_start);
++        let last_line = line_start(end);
++        if first_line == last_line {
++            return None;
++        }
++        let line_end = self.source[end..]
++            .find(['\n', '\r'])
++            .map_or(self.source.len(), |i| end + i);
++        let mut start = (last_line + first_start - first_line).min(line_end);
++        // Keep the projected byte column at a valid character boundary.
++        while !self.source.is_char_boundary(start) {
++            start -= 1;
++        }
++        Some((TextSize::try_from(start).unwrap(), last.end()))
+     }
+ 
+     /// Reports the Python 2 `print` or `exec` statement named `keyword` that starts at `start`
+--- a/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
+@@ -2175,11 +2175,20 @@
+ #[cfg(feature = "python315-diagnostics")]
+ impl ReplacementFieldHint {
+     fn new(first: Option<&ParseError>) -> Self {
+-        let range = first.and_then(|error| {
+-            matches!(&error.error, ParseErrorType::OtherError(message) if matches!(message.as_str(),
+-                "invalid syntax. Perhaps you forgot a comma?" |
+-                "invalid syntax. Is this intended to be part of the string?"))
+-            .then_some(error.location)
++        let range = first.and_then(|error| match &error.error {
++            ParseErrorType::MissingCommaAfterConcatenatedLiteral {
++                expression_range, ..
++            } => Some(*expression_range),
++            ParseErrorType::OtherError(message)
++                if matches!(
++                    message.as_str(),
++                    "invalid syntax. Perhaps you forgot a comma?"
++                        | "invalid syntax. Is this intended to be part of the string?"
++                ) =>
++            {
++                Some(error.location)
++            }
++            _ => None,
+         });
+         Self {
+             range,

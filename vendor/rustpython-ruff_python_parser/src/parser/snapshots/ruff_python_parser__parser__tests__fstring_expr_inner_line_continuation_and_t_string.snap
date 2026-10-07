@@ -6,5 +6,5 @@ ParseError {
     error: Lexical(
         LineContinuationError,
     ),
-    location: 3..4,
+    location: 4..4,
 }

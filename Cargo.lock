@@ -3967,8 +3967,6 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c9729e35cac02839c7a67aaccfea3eba32032f7aeacca2e82ad79e8d7b7fd95"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",

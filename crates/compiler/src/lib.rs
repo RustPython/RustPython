@@ -388,6 +388,19 @@ fn default_parse_diagnostic(
     error: parser::ParseError,
     source_file: &SourceFile,
 ) -> NormalizedParseDiagnostic {
+    if let parser::ParseErrorType::MissingCommaAfterConcatenatedLiteral {
+        diagnostic_start, ..
+    } = &error.error
+    {
+        // Concatenation hints can have empty or reversed CPython diagnostic ranges.
+        let (location, end_location) =
+            source_locations(source_file, *diagnostic_start, error.location.end());
+        return NormalizedParseDiagnostic::new(error.error, location, end_location);
+    }
+    if matches!(error.error, parser::ParseErrorType::EmptyImportNames) {
+        let location = source_location(source_file, error.location.start());
+        return NormalizedParseDiagnostic::new(error.error, location, location);
+    }
     let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
     NormalizedParseDiagnostic::new(error.error, loc, end_loc)
 }
@@ -1195,15 +1208,16 @@ pub fn single_mode_multiple_statements_error(
     let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
         Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
         _ => newline.start(),
-    }
-    .to_usize();
-    Some(CompileError::from_source_error(
+    };
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: parser::ParseErrorType::OtherError(
+                "multiple statements found while compiling a single statement".to_owned(),
+            ),
+            location: ruff_text_size::TextRange::new(position, position + TextSize::new(1)),
+        },
         source_file,
-        CpythonDiagnostic::new(
-            "multiple statements found while compiling a single statement".to_owned(),
-            position,
-            position,
-        ),
+        Mode::Single,
     ))
 }
 

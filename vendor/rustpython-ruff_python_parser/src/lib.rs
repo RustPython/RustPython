@@ -64,8 +64,9 @@
 //! [lexer]: crate::lexer
 
 pub use crate::error::{
-    InterpolatedStringErrorType, LexicalErrorType, ParseError, ParseErrorType,
-    UnsupportedSyntaxError, UnsupportedSyntaxErrorKind,
+    BlockClause, ExpressionKind, InterpolatedStringErrorType, LexicalErrorType, NumberLiteralKind,
+    ParseError, ParseErrorType, UnicodeEscapeErrorKind, UnsupportedSyntaxError,
+    UnsupportedSyntaxErrorKind,
 };
 pub use crate::parser::ParseOptions;
 

@@ -1,8 +1,8 @@
 use std::fmt::{self, Display};
 
-use ruff_python_ast::PythonVersion;
 use ruff_python_ast::token::TokenKind;
-use ruff_text_size::{Ranged, TextRange};
+use ruff_python_ast::{ConstantValue, Expr, PythonVersion};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 
 use crate::string::InterpolatedStringKind;
 
@@ -55,35 +55,88 @@ impl ParseError {
     }
 }
 
+/// The reason an escape sequence in a string literal cannot be decoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
+pub enum UnicodeEscapeErrorKind {
+    /// `\x` is not followed by two hexadecimal digits.
+    TruncatedHexByte,
+    /// `\u` is not followed by four hexadecimal digits.
+    TruncatedShortUnicode,
+    /// `\U` is not followed by eight hexadecimal digits.
+    TruncatedLongUnicode,
+    /// `\U` names a code point above `U+10FFFF`.
+    IllegalCharacter,
+    /// `\N` is not followed by a non-empty name in braces.
+    MalformedName,
+    /// `\N{...}` names no Unicode character.
+    UnknownName,
+}
+
+impl Display for UnicodeEscapeErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::TruncatedHexByte => "truncated \\xXX escape",
+            Self::TruncatedShortUnicode => "truncated \\uXXXX escape",
+            Self::TruncatedLongUnicode => "truncated \\UXXXXXXXX escape",
+            Self::IllegalCharacter => "illegal Unicode character",
+            Self::MalformedName => "malformed \\N character escape",
+            Self::UnknownName => "unknown Unicode character name",
+        })
+    }
+}
+
 /// Represents the different types of errors that can occur during parsing of an f-string or t-string.
 #[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
 pub enum InterpolatedStringErrorType {
     /// Expected a right brace after an opened left brace.
     UnclosedLbrace,
+    /// Expected a right brace for a replacement field opened on an earlier line.
+    UnclosedLbraceOnLine { opening_line: u32 },
     /// An invalid conversion flag was encountered.
     InvalidConversionFlag,
     /// A single right brace was encountered.
     SingleRbrace,
-    /// Unterminated string.
-    UnterminatedString,
-    /// Unterminated triple-quoted string.
-    UnterminatedTripleQuotedString,
+    /// Unterminated string, detected at the given one-based line.
+    UnterminatedString { detected_line: u32 },
+    /// Unterminated triple-quoted string, detected at the given one-based line.
+    UnterminatedTripleQuotedString { detected_line: u32 },
     /// A lambda expression without parentheses was encountered.
     LambdaWithoutParentheses,
     /// Conversion flag does not immediately follow exclamation.
     ConversionFlagNotImmediatelyAfterExclamation,
     /// Newline inside of a format spec for a single quoted f- or t-string.
     NewlineInFormatSpec,
+    /// A replacement field has no expression before the given separator.
+    ExpressionRequiredBefore(char),
+    /// A replacement field does not start with an expression.
+    ExpectedExpressionAfterLbrace,
+    /// The expression of a replacement field is not followed by `=`, `!`, `:` or `}`.
+    ExpectedSeparatorAfterExpression,
+    /// The `=` of a replacement field is not followed by `!`, `:` or `}`.
+    ExpectedSeparatorAfterDebug,
+    /// The conversion of a replacement field is not followed by `:` or `}`.
+    ExpectedSeparatorAfterConversion,
+    /// The format spec of a replacement field is not followed by `}`.
+    UnclosedFormatSpec,
+    /// A `!` is directly followed by `:` or `}`.
+    MissingConversionFlag,
+    /// A closing bracket closes the brace that opens a replacement field.
+    UnmatchedBracket(char),
 }
 
 impl std::fmt::Display for InterpolatedStringErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::UnclosedLbrace => write!(f, "expecting `}}`"),
+            Self::UnclosedLbrace => f.write_str("expecting '}'"),
+            Self::UnclosedLbraceOnLine { opening_line } => {
+                write!(f, "expecting '}}' to close '{{' on line {opening_line}")
+            }
             Self::InvalidConversionFlag => write!(f, "invalid conversion character"),
-            Self::SingleRbrace => write!(f, "single `}}` is not allowed"),
-            Self::UnterminatedString => write!(f, "unterminated string"),
-            Self::UnterminatedTripleQuotedString => write!(f, "unterminated triple-quoted string"),
+            Self::SingleRbrace => f.write_str("single '}' is not allowed"),
+            Self::UnterminatedString { .. } => write!(f, "unterminated string"),
+            Self::UnterminatedTripleQuotedString { .. } => {
+                write!(f, "unterminated triple-quoted string")
+            }
             Self::LambdaWithoutParentheses => {
                 write!(f, "lambda expressions are not allowed without parentheses")
             }
@@ -97,7 +150,47 @@ impl std::fmt::Display for InterpolatedStringErrorType {
                     "newlines are not allowed in format specifiers when using single quotes"
                 )
             }
+            Self::ExpressionRequiredBefore(separator) => {
+                write!(f, "valid expression required before '{separator}'")
+            }
+            Self::ExpectedExpressionAfterLbrace => {
+                f.write_str("expecting a valid expression after '{'")
+            }
+            Self::ExpectedSeparatorAfterExpression => {
+                f.write_str("expecting '=', or '!', or ':', or '}'")
+            }
+            Self::ExpectedSeparatorAfterDebug => f.write_str("expecting '!', or ':', or '}'"),
+            Self::ExpectedSeparatorAfterConversion => f.write_str("expecting ':' or '}'"),
+            Self::UnclosedFormatSpec => f.write_str("expecting '}', or format specs"),
+            Self::MissingConversionFlag => f.write_str("missing conversion character"),
+            Self::UnmatchedBracket(closing) => write!(f, "unmatched '{closing}'"),
         }
+    }
+}
+
+fn write_interpolated_string_error(
+    f: &mut std::fmt::Formatter,
+    kind: InterpolatedStringKind,
+    error: &InterpolatedStringErrorType,
+) -> std::fmt::Result {
+    match error {
+        InterpolatedStringErrorType::UnterminatedString { detected_line } => {
+            write!(
+                f,
+                "unterminated {kind} literal (detected at line {detected_line})"
+            )
+        }
+        InterpolatedStringErrorType::UnterminatedTripleQuotedString { detected_line } => {
+            write!(
+                f,
+                "unterminated triple-quoted {kind} literal (detected at line {detected_line})"
+            )
+        }
+        InterpolatedStringErrorType::NewlineInFormatSpec => write!(
+            f,
+            "{kind}: newlines are not allowed in format specifiers for single quoted {kind}s"
+        ),
+        _ => write!(f, "{kind}: {error}"),
     }
 }
 
@@ -107,8 +200,27 @@ pub enum ParseErrorType {
     /// An unexpected error occurred.
     OtherError(String),
 
+    /// A missing-comma hint whose concatenated literal is displayed on its final line.
+    /// The original expression range controls error precedence; `diagnostic_start` can be
+    /// after the displayed range's end, which a `TextRange` cannot represent.
+    MissingCommaAfterConcatenatedLiteral {
+        expression_range: TextRange,
+        diagnostic_start: TextSize,
+    },
+
     /// An error specific to stringified annotations occurred.
     StringAnnotationError(&'static str),
+
+    /// A `raise from` statement has no exception expression.
+    MissingRaiseException,
+    /// A `raise` statement ends immediately after `from`.
+    MissingRaiseCause,
+    /// An unparenthesized `with` item list ends with a comma.
+    TrailingCommaInWith,
+    /// `lazy` follows the module name instead of preceding `from`.
+    MisplacedLazyImport,
+    /// An absolute future import is marked lazy.
+    LazyFutureImport,
 
     /// An empty slice was found during parsing, e.g `data[]`.
     EmptySlice,
@@ -152,6 +264,8 @@ pub enum ParseErrorType {
     InvalidStarPatternUsage,
     /// An underscore was used as a binding target in a match pattern.
     InvalidMatchPatternTarget,
+    /// A complete case clause was found outside a match statement.
+    CaseOutsideMatch,
 
     /// A parameter was found after a vararg.
     ParamAfterVarKeywordParam,
@@ -159,17 +273,40 @@ pub enum ParseErrorType {
     NonDefaultParamAfterDefaultParam,
     /// A default value was found for a `*` or `**` parameter.
     VarParameterWithDefault,
+    /// A default value was found for a `**` parameter.
+    VarKeywordParameterWithDefault,
+    /// A dictionary key after the first item is not followed by a `:`. The error range is the
+    /// last character of the key.
+    ExpectedColonAfterDictionaryKey,
 
-    /// An invalid expression was found in the assignment target.
-    InvalidAssignmentTarget,
+    /// An invalid expression was found in the assignment target. `maybe_comparison` is set when
+    /// the `=` after it may have been meant as `==`.
+    InvalidAssignmentTarget {
+        kind: ExpressionKind,
+        maybe_comparison: bool,
+    },
+    /// A named expression is used in an assertion without its required parentheses.
+    NamedExpressionWithoutParentheses,
+    /// A mapping pattern contains an entry after its double-star rest pattern.
+    MappingRestPatternNotLast,
+    /// A name is assigned to where `==` or `:=` may have been meant.
+    AssignmentInsteadOfComparison,
+    /// A `yield` expression is assigned to.
+    AssignmentToYield,
     /// An invalid expression was found in the named assignment target.
-    InvalidNamedAssignmentTarget,
+    InvalidNamedAssignmentTarget(ExpressionKind),
     /// An invalid expression was found in the annotated assignment target.
     InvalidAnnotatedAssignmentTarget,
     /// An invalid expression was found in the augmented assignment target.
-    InvalidAugmentedAssignmentTarget,
+    InvalidAugmentedAssignmentTarget(ExpressionKind),
     /// An invalid expression was found in the delete target.
-    InvalidDeleteTarget,
+    InvalidDeleteTarget(ExpressionKind),
+    /// An invalid expression was found after `as` in an import.
+    InvalidImportTarget(ExpressionKind),
+    /// An invalid expression was found after `as` in a pattern.
+    InvalidPatternTarget(ExpressionKind),
+    /// An invalid expression was found after `as` in an `except` or `except*` clause.
+    InvalidExceptTarget { kind: ExpressionKind, star: bool },
 
     /// A positional argument was found after a keyword argument.
     PositionalAfterKeywordArgument,
@@ -193,12 +330,17 @@ pub enum ParseErrorType {
     ExpectedImaginaryNumber,
     /// Expected an expression at the current parser location.
     ExpectedExpression,
+    /// Expected an identifier at the current parser location.
+    ExpectedIdentifier,
     /// The parser expected a specific token that was not found.
     ExpectedToken {
         expected: TokenKind,
         found: TokenKind,
     },
 
+    /// A compound statement header is not followed by an indented block. `line` is the line of
+    /// the header's keyword.
+    ExpectedIndentedBlock { clause: BlockClause, line: u32 },
     /// An unexpected indentation was found during parsing.
     UnexpectedIndentation,
     /// The statement being parsed cannot be `async`.
@@ -214,6 +356,161 @@ pub enum ParseErrorType {
     TStringError(InterpolatedStringErrorType),
     /// Parser encountered an error during lexing.
     Lexical(LexicalErrorType),
+}
+
+/// The kind of an expression, as syntax errors name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, get_size2::GetSize)]
+pub enum ExpressionKind {
+    Attribute,
+    Subscript,
+    Starred,
+    Name,
+    List,
+    Tuple,
+    Lambda,
+    FunctionCall,
+    Expression,
+    GeneratorExpression,
+    YieldExpression,
+    AwaitExpression,
+    ListComprehension,
+    SetComprehension,
+    DictComprehension,
+    DictLiteral,
+    SetDisplay,
+    FStringExpression,
+    TStringExpression,
+    None,
+    False,
+    True,
+    Ellipsis,
+    Literal,
+    Comparison,
+    ConditionalExpression,
+    NamedExpression,
+}
+
+impl ExpressionKind {
+    pub fn of(expr: &Expr) -> Self {
+        match expr {
+            Expr::Attribute(_) => Self::Attribute,
+            Expr::Subscript(_) => Self::Subscript,
+            Expr::Starred(_) => Self::Starred,
+            Expr::Name(_) => Self::Name,
+            Expr::List(_) => Self::List,
+            Expr::Tuple(_) => Self::Tuple,
+            Expr::Lambda(_) => Self::Lambda,
+            Expr::Call(_) => Self::FunctionCall,
+            Expr::BoolOp(_)
+            | Expr::BinOp(_)
+            | Expr::UnaryOp(_)
+            | Expr::Slice(_)
+            | Expr::IpyEscapeCommand(_) => Self::Expression,
+            Expr::Generator(_) => Self::GeneratorExpression,
+            Expr::Yield(_) | Expr::YieldFrom(_) => Self::YieldExpression,
+            Expr::Await(_) => Self::AwaitExpression,
+            Expr::ListComp(_) => Self::ListComprehension,
+            Expr::SetComp(_) => Self::SetComprehension,
+            Expr::DictComp(_) => Self::DictComprehension,
+            Expr::Dict(_) => Self::DictLiteral,
+            Expr::Set(_) => Self::SetDisplay,
+            Expr::FString(_) => Self::FStringExpression,
+            Expr::TString(_) => Self::TStringExpression,
+            Expr::NoneLiteral(_) => Self::None,
+            Expr::BooleanLiteral(literal) if literal.value => Self::True,
+            Expr::BooleanLiteral(_) => Self::False,
+            Expr::EllipsisLiteral(_) => Self::Ellipsis,
+            Expr::StringLiteral(_) | Expr::BytesLiteral(_) | Expr::NumberLiteral(_) => {
+                Self::Literal
+            }
+            Expr::Compare(_) => Self::Comparison,
+            Expr::If(_) => Self::ConditionalExpression,
+            Expr::Named(_) => Self::NamedExpression,
+            Expr::Constant(constant) => match constant.value {
+                ConstantValue::None => Self::None,
+                ConstantValue::Boolean(true) => Self::True,
+                ConstantValue::Boolean(false) => Self::False,
+                ConstantValue::Ellipsis => Self::Ellipsis,
+                _ => Self::Literal,
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for ExpressionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Attribute => "attribute",
+            Self::Subscript => "subscript",
+            Self::Starred => "starred",
+            Self::Name => "name",
+            Self::List => "list",
+            Self::Tuple => "tuple",
+            Self::Lambda => "lambda",
+            Self::FunctionCall => "function call",
+            Self::Expression => "expression",
+            Self::GeneratorExpression => "generator expression",
+            Self::YieldExpression => "yield expression",
+            Self::AwaitExpression => "await expression",
+            Self::ListComprehension => "list comprehension",
+            Self::SetComprehension => "set comprehension",
+            Self::DictComprehension => "dict comprehension",
+            Self::DictLiteral => "dict literal",
+            Self::SetDisplay => "set display",
+            Self::FStringExpression => "f-string expression",
+            Self::TStringExpression => "t-string expression",
+            Self::None => "None",
+            Self::False => "False",
+            Self::True => "True",
+            Self::Ellipsis => "ellipsis",
+            Self::Literal => "literal",
+            Self::Comparison => "comparison",
+            Self::ConditionalExpression => "conditional expression",
+            Self::NamedExpression => "named expression",
+        })
+    }
+}
+
+/// The compound statement clause whose header precedes an indented block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, get_size2::GetSize)]
+pub enum BlockClause {
+    If,
+    Elif,
+    Else,
+    For,
+    With,
+    While,
+    Try,
+    Except,
+    ExceptStar,
+    Finally,
+    Match,
+    Case,
+    /// A standalone case uses the generic invalid-block diagnostic.
+    StandaloneCase,
+    Class,
+    FunctionDef,
+}
+
+impl std::fmt::Display for BlockClause {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::If => "'if' statement",
+            Self::Elif => "'elif' statement",
+            Self::Else => "'else' statement",
+            Self::For => "'for' statement",
+            Self::With => "'with' statement",
+            Self::While => "'while' statement",
+            Self::Try => "'try' statement",
+            Self::Except => "'except' statement",
+            Self::ExceptStar => "'except*' statement",
+            Self::Finally => "'finally' statement",
+            Self::Match => "'match' statement",
+            Self::Case | Self::StandaloneCase => "'case' statement",
+            Self::Class => "class definition",
+            Self::FunctionDef => "function definition",
+        })
+    }
 }
 
 impl ParseErrorType {
@@ -234,43 +531,57 @@ impl std::fmt::Display for ParseErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             ParseErrorType::OtherError(msg) => f.write_str(msg),
+            ParseErrorType::MissingCommaAfterConcatenatedLiteral { .. } => {
+                f.write_str("invalid syntax. Perhaps you forgot a comma?")
+            }
+            ParseErrorType::ExpectedIndentedBlock {
+                clause: BlockClause::StandaloneCase,
+                ..
+            } => f.write_str("expected an indented block"),
+            ParseErrorType::ExpectedIndentedBlock { clause, line } => {
+                write!(
+                    f,
+                    "expected an indented block after {clause} on line {line}"
+                )
+            }
             ParseErrorType::StringAnnotationError(msg) => f.write_str(msg),
-            ParseErrorType::ExpectedToken { found, expected } => {
-                write!(f, "Expected {expected}, found {found}")
-            }
+            ParseErrorType::ExpectedToken { found, expected } => match (*expected, *found) {
+                (TokenKind::Colon, TokenKind::Newline) => f.write_str("expected ':'"),
+                (TokenKind::Lpar, _) => f.write_str("expected '('"),
+                (TokenKind::Else, found) if found != TokenKind::Colon => {
+                    f.write_str("expected 'else' after 'if' expression")
+                }
+                _ => f.write_str("invalid syntax"),
+            },
             ParseErrorType::Lexical(lex_error) => write!(f, "{lex_error}"),
-            ParseErrorType::SimpleStatementsOnSameLine => {
-                f.write_str("Simple statements must be separated by newlines or semicolons")
-            }
-            ParseErrorType::SimpleAndCompoundStatementOnSameLine => f.write_str(
-                "Compound statements are not allowed on the same line as simple statements",
-            ),
+            ParseErrorType::SimpleStatementsOnSameLine => f.write_str("invalid syntax"),
+            ParseErrorType::SimpleAndCompoundStatementOnSameLine => f.write_str("invalid syntax"),
             ParseErrorType::UnexpectedTokenAfterAsync(kind) => {
                 write!(
                     f,
-                    "Expected `def`, `with` or `for` to follow `async`, found {kind}",
+                    "expected `def`, `with` or `for` to follow `async`, found {kind}",
                 )
             }
             ParseErrorType::InvalidArgumentUnpackingOrder => {
-                f.write_str("Iterable argument unpacking cannot follow keyword argument unpacking")
+                f.write_str("iterable argument unpacking follows keyword argument unpacking")
             }
             ParseErrorType::IterableUnpackingInComprehension => {
-                f.write_str("Iterable unpacking cannot be used in a comprehension")
+                f.write_str("iterable unpacking cannot be used in a comprehension")
             }
             ParseErrorType::UnparenthesizedNamedExpression => {
-                f.write_str("Unparenthesized named expression cannot be used here")
+                f.write_str("unparenthesized named expression cannot be used here")
             }
             ParseErrorType::UnparenthesizedTupleExpression => {
-                f.write_str("Unparenthesized tuple expression cannot be used here")
+                f.write_str("unparenthesized tuple expression cannot be used here")
             }
             ParseErrorType::UnparenthesizedGeneratorExpression => {
-                f.write_str("Unparenthesized generator expression cannot be used here")
+                f.write_str("Generator expression must be parenthesized")
             }
             ParseErrorType::InvalidYieldExpressionUsage => {
-                f.write_str("Yield expression cannot be used here")
+                f.write_str("yield expression cannot be used here")
             }
             ParseErrorType::InvalidLambdaExpressionUsage => {
-                f.write_str("Lambda expression cannot be used here")
+                f.write_str("lambda expression cannot be used here")
             }
             ParseErrorType::InvalidConditionalUnpacking { double_starred } => {
                 let kind = if *double_starred {
@@ -315,76 +626,149 @@ impl std::fmt::Display for ParseErrorType {
                 write!(f, "cannot use {kind} in a dictionary {position}")
             }
             ParseErrorType::InvalidDictUnpacking => f.write_str("cannot use dict unpacking here"),
-            ParseErrorType::InvalidStarredExpressionUsage => {
-                f.write_str("Starred expression cannot be used here")
-            }
+            ParseErrorType::InvalidStarredExpressionUsage => f.write_str("invalid syntax"),
             ParseErrorType::PositionalAfterKeywordArgument => {
-                f.write_str("Positional argument cannot follow keyword argument")
+                f.write_str("positional argument follows keyword argument")
             }
             ParseErrorType::PositionalAfterKeywordUnpacking => {
-                f.write_str("Positional argument cannot follow keyword argument unpacking")
+                f.write_str("positional argument follows keyword argument unpacking")
             }
-            ParseErrorType::EmptySlice => f.write_str("Expected index or slice expression"),
+            ParseErrorType::MissingRaiseException => {
+                f.write_str("did you forget an expression between 'raise' and 'from'?")
+            }
+            ParseErrorType::MissingRaiseCause => {
+                f.write_str("did you forget an expression after 'from'?")
+            }
+            ParseErrorType::TrailingCommaInWith => {
+                f.write_str("the last 'with' item has a trailing comma")
+            }
+            ParseErrorType::MisplacedLazyImport => {
+                f.write_str("use 'lazy from ... ' instead of 'from ... lazy import'")
+            }
+            ParseErrorType::LazyFutureImport => {
+                f.write_str("lazy from __future__ import is not allowed")
+            }
+            ParseErrorType::EmptySlice => f.write_str("expected index or slice expression"),
             ParseErrorType::EmptyGlobalNames => {
-                f.write_str("Global statement must have at least one name")
+                f.write_str("global statement must have at least one name")
             }
             ParseErrorType::EmptyNonlocalNames => {
-                f.write_str("Nonlocal statement must have at least one name")
+                f.write_str("nonlocal statement must have at least one name")
             }
             ParseErrorType::EmptyDeleteTargets => {
-                f.write_str("Delete statement must have at least one target")
+                f.write_str("delete statement must have at least one target")
             }
             ParseErrorType::EmptyImportNames => {
-                f.write_str("Expected one or more symbol names after import")
+                f.write_str("Expected one or more names after 'import'")
             }
             ParseErrorType::EmptyTypeParams => f.write_str("Type parameter list cannot be empty"),
             ParseErrorType::ParamAfterVarKeywordParam => {
-                f.write_str("Parameter cannot follow var-keyword parameter")
+                f.write_str(if cfg!(feature = "python315-diagnostics") {
+                    "parameters cannot follow var-keyword parameter"
+                } else {
+                    "arguments cannot follow var-keyword argument"
+                })
             }
             ParseErrorType::NonDefaultParamAfterDefaultParam => {
-                f.write_str("Parameter without a default cannot follow a parameter with a default")
+                f.write_str("parameter without a default follows parameter with a default")
             }
             ParseErrorType::ExpectedKeywordParam => {
-                f.write_str("Expected one or more keyword parameter after `*` separator")
+                f.write_str(if cfg!(feature = "python315-diagnostics") {
+                    "named parameters must follow bare *"
+                } else {
+                    "named arguments must follow bare *"
+                })
+            }
+            ParseErrorType::VarKeywordParameterWithDefault => {
+                f.write_str(if cfg!(feature = "python315-diagnostics") {
+                    "var-keyword parameter cannot have default value"
+                } else {
+                    "var-keyword argument cannot have default value"
+                })
+            }
+            ParseErrorType::ExpectedColonAfterDictionaryKey => {
+                f.write_str("':' expected after dictionary key")
             }
             ParseErrorType::VarParameterWithDefault => {
-                f.write_str("Parameter with `*` or `**` cannot have default value")
+                f.write_str(if cfg!(feature = "python315-diagnostics") {
+                    "var-positional parameter cannot have default value"
+                } else {
+                    "var-positional argument cannot have default value"
+                })
             }
             ParseErrorType::InvalidStarPatternUsage => {
-                f.write_str("Star pattern cannot be used here")
+                f.write_str("cannot use starred expression here")
             }
             ParseErrorType::InvalidMatchPatternTarget => f.write_str("cannot use '_' as a target"),
+            ParseErrorType::CaseOutsideMatch => {
+                f.write_str("case statement must be inside match statement")
+            }
             ParseErrorType::ExpectedRealNumber => {
-                f.write_str("Expected a real number in complex literal pattern")
+                f.write_str("expected a real number in complex literal pattern")
             }
             ParseErrorType::ExpectedImaginaryNumber => {
-                f.write_str("Expected an imaginary number in complex literal pattern")
+                f.write_str("expected an imaginary number in complex literal pattern")
             }
-            ParseErrorType::ExpectedExpression => f.write_str("Expected an expression"),
-            ParseErrorType::UnexpectedIndentation => f.write_str("Unexpected indentation"),
-            ParseErrorType::InvalidAssignmentTarget => f.write_str("Invalid assignment target"),
+            ParseErrorType::ExpectedExpression | ParseErrorType::ExpectedIdentifier => {
+                f.write_str("invalid syntax")
+            }
+            ParseErrorType::UnexpectedIndentation => f.write_str("unexpected indent"),
+            ParseErrorType::InvalidAssignmentTarget {
+                kind,
+                maybe_comparison: false,
+            } => write!(f, "cannot assign to {kind}"),
+            ParseErrorType::InvalidAssignmentTarget {
+                kind,
+                maybe_comparison: true,
+            } => write!(
+                f,
+                "cannot assign to {kind} here. Maybe you meant '==' instead of '='?"
+            ),
+            ParseErrorType::NamedExpressionWithoutParentheses => {
+                f.write_str("cannot use named expression without parentheses here")
+            }
+            ParseErrorType::MappingRestPatternNotLast => f.write_str(
+                "double star pattern must be the last (right-most) subpattern in the mapping pattern",
+            ),
+            ParseErrorType::AssignmentInsteadOfComparison => {
+                f.write_str("invalid syntax. Maybe you meant '==' or ':=' instead of '='?")
+            }
+            ParseErrorType::AssignmentToYield => {
+                f.write_str("assignment to yield expression not possible")
+            }
             ParseErrorType::InvalidAnnotatedAssignmentTarget => {
-                f.write_str("Invalid annotated assignment target")
+                f.write_str("illegal target for annotation")
             }
-            ParseErrorType::InvalidNamedAssignmentTarget => {
-                f.write_str("Assignment expression target must be an identifier")
+            ParseErrorType::InvalidNamedAssignmentTarget(kind) => {
+                write!(f, "cannot use assignment expressions with {kind}")
             }
-            ParseErrorType::InvalidAugmentedAssignmentTarget => {
-                f.write_str("Invalid augmented assignment target")
+            ParseErrorType::InvalidAugmentedAssignmentTarget(kind) => {
+                write!(
+                    f,
+                    "'{kind}' is an illegal expression for augmented assignment"
+                )
             }
-            ParseErrorType::InvalidDeleteTarget => f.write_str("Invalid delete target"),
+            ParseErrorType::InvalidDeleteTarget(kind) => write!(f, "cannot delete {kind}"),
+            ParseErrorType::InvalidImportTarget(kind) => {
+                write!(f, "cannot use {kind} as import target")
+            }
+            ParseErrorType::InvalidPatternTarget(kind) => {
+                write!(f, "cannot use {kind} as pattern target")
+            }
+            ParseErrorType::InvalidExceptTarget { kind, star } => {
+                let clause = if *star { "except*" } else { "except" };
+                write!(f, "cannot use {clause} statement with {kind}")
+            }
             ParseErrorType::UnexpectedIpythonEscapeCommand => {
                 f.write_str("IPython escape commands are only allowed in `Mode::Ipython`")
             }
-            ParseErrorType::FStringError(fstring_error) => {
-                write!(f, "f-string: {fstring_error}")
+            ParseErrorType::FStringError(error) => {
+                write_interpolated_string_error(f, InterpolatedStringKind::FString, error)
             }
-            ParseErrorType::TStringError(tstring_error) => {
-                write!(f, "t-string: {tstring_error}")
+            ParseErrorType::TStringError(error) => {
+                write_interpolated_string_error(f, InterpolatedStringKind::TString, error)
             }
-            ParseErrorType::UnexpectedExpressionToken => {
-                write!(f, "Unexpected token at the end of an expression")
-            }
+            ParseErrorType::UnexpectedExpressionToken => f.write_str("invalid syntax"),
         }
     }
 }
@@ -453,16 +837,30 @@ pub enum LexicalErrorType {
     // to use the `UnicodeError` variant instead.
     #[doc(hidden)]
     StringError,
-    /// A string literal without the closing quote.
-    UnclosedStringError,
-    /// Decoding of a unicode escape sequence in a string literal failed.
-    UnicodeError,
-    /// Missing the `{` for unicode escape sequence.
-    MissingUnicodeLbrace,
-    /// Missing the `}` for unicode escape sequence.
-    MissingUnicodeRbrace,
-    /// The indentation is not consistent.
+    /// A string literal without the closing quote, detected at the given one-based line.
+    UnclosedStringError {
+        triple_quoted: bool,
+        /// The literal contains a backslash followed by its quote character.
+        escaped_end_quote: bool,
+        detected_line: u32,
+    },
+    /// An escape sequence in a string literal cannot be decoded. `start` and `end` are the
+    /// inclusive positions of the escape sequence in the string content, where a non-ASCII
+    /// character counts as its ten-character `\U` escape.
+    UnicodeEscapeError {
+        kind: UnicodeEscapeErrorKind,
+        start: u32,
+        end: u32,
+    },
+    /// A `\x` escape in a bytes literal at the given position of its content is not followed by
+    /// two hexadecimal digits.
+    BytesEscapeError { position: u32 },
+    /// A dedent does not match any outer indentation level.
     IndentationError,
+    /// Tabs and spaces are mixed in a way that makes the indentation depend on the tab size.
+    TabError,
+    /// The indentation is nested too deeply.
+    TooDeepIndentation,
     /// An unrecognized token was encountered.
     UnrecognizedToken { tok: char },
     /// An f-string error containing the [`InterpolatedStringErrorType`].
@@ -475,13 +873,136 @@ pub enum LexicalErrorType {
     LineContinuationError,
     /// An unexpected end of file was encountered.
     Eof,
+    /// A closing bracket without an opening bracket.
+    UnmatchedBracket { closing: char },
+    /// A closing bracket that does not match the innermost opening bracket. `opening_line` is the
+    /// line of the opening bracket if it is on another line.
+    MismatchedBracket {
+        closing: char,
+        opening: char,
+        opening_line: Option<u32>,
+    },
+    /// An opening bracket that is not closed by the end of the source.
+    ///
+    /// `incomplete` is whether more input could still close it: the parser read to the end of the
+    /// source with the bracket open. Otherwise, the error is reported in place of an earlier syntax
+    /// error.
+    UnclosedBracket { opening: char, incomplete: bool },
+    /// Brackets are nested too deeply.
+    TooDeeplyNestedBrackets,
+    /// A malformed number literal, or one directly followed by a name.
+    InvalidNumberLiteral { kind: NumberLiteralKind },
+    /// A digit that is not valid in the octal or binary literal it appears in.
+    InvalidDigit {
+        digit: char,
+        kind: NumberLiteralKind,
+    },
+    /// A decimal integer literal with leading zeros.
+    LeadingZerosInDecimalInteger,
+    /// A string prefix that combines incompatible prefixes, such as `ub`.
+    IncompatibleStringPrefixes { first: char, second: char },
     /// An unexpected error occurred.
     OtherError(Box<str>),
 }
 
 impl std::error::Error for LexicalErrorType {}
 
+/// The kind of a number literal, as named in error messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, get_size2::GetSize)]
+pub enum NumberLiteralKind {
+    Decimal,
+    Hexadecimal,
+    Octal,
+    Binary,
+    Imaginary,
+}
+
+impl std::fmt::Display for NumberLiteralKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Decimal => "decimal",
+            Self::Hexadecimal => "hexadecimal",
+            Self::Octal => "octal",
+            Self::Binary => "binary",
+            Self::Imaginary => "imaginary",
+        })
+    }
+}
+
+/// Whether `c` is printable: not a control, format, surrogate, private use, unassigned or
+/// separator character, other than the ASCII space.
+fn is_printable(c: char) -> bool {
+    use icu_properties::props::{EnumeratedProperty, GeneralCategory};
+
+    c == ' '
+        || !matches!(
+            GeneralCategory::for_char(c),
+            GeneralCategory::SpaceSeparator
+                | GeneralCategory::LineSeparator
+                | GeneralCategory::ParagraphSeparator
+                | GeneralCategory::Control
+                | GeneralCategory::Format
+                | GeneralCategory::Surrogate
+                | GeneralCategory::PrivateUse
+                | GeneralCategory::Unassigned
+        )
+}
+
 impl LexicalErrorType {
+    /// Returns `true` if the error reports a string literal without its closing quotes.
+    pub(crate) fn is_unclosed_string_error(&self) -> bool {
+        matches!(
+            self,
+            Self::UnclosedStringError { .. }
+                | Self::FStringError(
+                    InterpolatedStringErrorType::UnclosedLbrace
+                        | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                )
+                | Self::TStringError(
+                    InterpolatedStringErrorType::UnclosedLbrace
+                        | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                )
+        )
+    }
+
+    /// Returns `true` if the error stops tokenization, as opposed to an error found while
+    /// decoding the content of a token.
+    pub fn is_tokenizer_error(&self) -> bool {
+        match self {
+            Self::StringError
+            | Self::UnicodeEscapeError { .. }
+            | Self::BytesEscapeError { .. }
+            | Self::InvalidByteLiteral
+            | Self::OtherError(_) => false,
+            // An ASCII punctuation character is a token that the parser rejects.
+            Self::UnrecognizedToken { tok } => !tok.is_ascii() || !is_printable(*tok),
+            Self::FStringError(error) | Self::TStringError(error) => matches!(
+                error,
+                InterpolatedStringErrorType::UnterminatedString { .. }
+                    | InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. }
+                    | InterpolatedStringErrorType::SingleRbrace
+                    | InterpolatedStringErrorType::NewlineInFormatSpec
+                    | InterpolatedStringErrorType::UnclosedLbrace
+                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                    | InterpolatedStringErrorType::UnmatchedBracket(_)
+            ),
+            Self::UnclosedStringError { .. }
+            | Self::IndentationError
+            | Self::TabError
+            | Self::TooDeepIndentation
+            | Self::LineContinuationError
+            | Self::Eof
+            | Self::UnmatchedBracket { .. }
+            | Self::MismatchedBracket { .. }
+            | Self::UnclosedBracket { .. }
+            | Self::TooDeeplyNestedBrackets
+            | Self::InvalidNumberLiteral { .. }
+            | Self::InvalidDigit { .. }
+            | Self::LeadingZerosInDecimalInteger
+            | Self::IncompatibleStringPrefixes { .. } => true,
+        }
+    }
+
     pub(crate) fn from_interpolated_string_error(
         error: InterpolatedStringErrorType,
         string_kind: InterpolatedStringKind,
@@ -496,32 +1017,92 @@ impl LexicalErrorType {
 impl std::fmt::Display for LexicalErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::StringError => write!(f, "Got unexpected string"),
-            Self::FStringError(error) => write!(f, "f-string: {error}"),
-            Self::TStringError(error) => write!(f, "t-string: {error}"),
+            Self::StringError => write!(f, "got unexpected string"),
+            Self::FStringError(error) => {
+                write_interpolated_string_error(f, InterpolatedStringKind::FString, error)
+            }
+            Self::TStringError(error) => {
+                write_interpolated_string_error(f, InterpolatedStringKind::TString, error)
+            }
             Self::InvalidByteLiteral => {
                 write!(f, "bytes can only contain ASCII literal characters")
             }
-            Self::UnicodeError => write!(f, "Got unexpected unicode"),
+            Self::UnicodeEscapeError { kind, start, end } => write!(
+                f,
+                "(unicode error) 'unicodeescape' codec can't decode bytes in position {start}-{end}: {kind}"
+            ),
+            Self::BytesEscapeError { position } => {
+                write!(f, "(value error) invalid \\x escape at position {position}")
+            }
             Self::IndentationError => {
                 write!(f, "unindent does not match any outer indentation level")
             }
-            Self::UnrecognizedToken { tok } => {
-                write!(f, "Got unexpected token {tok}")
+            Self::TabError => write!(f, "inconsistent use of tabs and spaces in indentation"),
+            Self::TooDeepIndentation => write!(f, "too many levels of indentation"),
+            Self::UnrecognizedToken { tok } if !is_printable(*tok) => {
+                write!(
+                    f,
+                    "invalid non-printable character U+{:04X}",
+                    u32::from(*tok)
+                )
+            }
+            Self::UnrecognizedToken { tok } if !tok.is_ascii() => {
+                write!(f, "invalid character '{tok}' (U+{:04X})", u32::from(*tok))
+            }
+            Self::UnrecognizedToken { .. } => f.write_str("invalid syntax"),
+            Self::InvalidNumberLiteral { kind } => write!(f, "invalid {kind} literal"),
+            Self::InvalidDigit { digit, kind } => {
+                write!(f, "invalid digit '{digit}' in {kind} literal")
+            }
+            Self::LeadingZerosInDecimalInteger => f.write_str(
+                "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers",
+            ),
+            Self::IncompatibleStringPrefixes { first, second } => {
+                write!(f, "'{first}' and '{second}' prefixes are incompatible")
             }
             Self::LineContinuationError => {
-                write!(f, "Expected a newline after line continuation character")
+                write!(f, "unexpected character after line continuation character")
             }
             Self::Eof => write!(f, "unexpected EOF while parsing"),
+            Self::UnmatchedBracket { closing } => write!(f, "unmatched '{closing}'"),
+            Self::MismatchedBracket {
+                closing,
+                opening,
+                opening_line,
+            } => {
+                write!(
+                    f,
+                    "closing parenthesis '{closing}' does not match opening parenthesis '{opening}'"
+                )?;
+                if let Some(line) = opening_line {
+                    write!(f, " on line {line}")?;
+                }
+                Ok(())
+            }
+            Self::UnclosedBracket { opening, .. } => write!(f, "'{opening}' was never closed"),
+            Self::TooDeeplyNestedBrackets => f.write_str("too many nested parentheses"),
             Self::OtherError(msg) => write!(f, "{msg}"),
-            Self::UnclosedStringError => {
-                write!(f, "missing closing quote in string literal")
-            }
-            Self::MissingUnicodeLbrace => {
-                write!(f, "Missing `{{` in Unicode escape sequence")
-            }
-            Self::MissingUnicodeRbrace => {
-                write!(f, "Missing `}}` in Unicode escape sequence")
+            Self::UnclosedStringError {
+                triple_quoted: true,
+                detected_line,
+                ..
+            } => write!(
+                f,
+                "unterminated triple-quoted string literal (detected at line {detected_line})"
+            ),
+            Self::UnclosedStringError {
+                escaped_end_quote,
+                detected_line,
+                ..
+            } => {
+                write!(
+                    f,
+                    "unterminated string literal (detected at line {detected_line})"
+                )?;
+                if *escaped_end_quote {
+                    f.write_str("; perhaps you escaped the end quote?")?;
+                }
+                Ok(())
             }
         }
     }
@@ -1019,35 +1600,35 @@ pub enum UnsupportedSyntaxErrorKind {
 impl Display for UnsupportedSyntaxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match self.kind {
-            UnsupportedSyntaxErrorKind::Match => "Cannot use `match` statement",
-            UnsupportedSyntaxErrorKind::Walrus => "Cannot use named assignment expression (`:=`)",
-            UnsupportedSyntaxErrorKind::ExceptStar => "Cannot use `except*`",
+            UnsupportedSyntaxErrorKind::Match => "cannot use `match` statement",
+            UnsupportedSyntaxErrorKind::Walrus => "cannot use named assignment expression (`:=`)",
+            UnsupportedSyntaxErrorKind::ExceptStar => "cannot use `except*`",
             UnsupportedSyntaxErrorKind::UnparenthesizedNamedExpr(
                 UnparenthesizedNamedExprKind::SequenceIndex,
-            ) => "Cannot use unparenthesized assignment expression in a sequence index",
+            ) => "cannot use unparenthesized assignment expression in a sequence index",
             UnsupportedSyntaxErrorKind::UnparenthesizedNamedExpr(
                 UnparenthesizedNamedExprKind::SetLiteral,
-            ) => "Cannot use unparenthesized assignment expression as an element in a set literal",
+            ) => "cannot use unparenthesized assignment expression as an element in a set literal",
             UnsupportedSyntaxErrorKind::UnparenthesizedNamedExpr(
                 UnparenthesizedNamedExprKind::SetComprehension,
             ) => {
-                "Cannot use unparenthesized assignment expression as an element in a set comprehension"
+                "cannot use unparenthesized assignment expression as an element in a set comprehension"
             }
             UnsupportedSyntaxErrorKind::ParenthesizedKeywordArgumentName => {
-                "Cannot use parenthesized keyword argument name"
+                "cannot use parenthesized keyword argument name"
             }
             UnsupportedSyntaxErrorKind::StarTuple(StarTupleKind::Return) => {
-                "Cannot use iterable unpacking in return statements"
+                "cannot use iterable unpacking in return statements"
             }
             UnsupportedSyntaxErrorKind::StarTuple(StarTupleKind::Yield) => {
-                "Cannot use iterable unpacking in yield expressions"
+                "cannot use iterable unpacking in yield expressions"
             }
             UnsupportedSyntaxErrorKind::RelaxedDecorator(relaxed_decorator_error) => {
                 return match relaxed_decorator_error {
                     RelaxedDecoratorError::CallExpression => {
                         write!(
                             f,
-                            "Cannot use a call expression in a decorator on Python {} \
+                            "cannot use a call expression in a decorator on Python {} \
                             unless it is the top-level expression or it occurs \
                             in the argument list of a top-level call expression \
                             (relaxed decorator syntax was {changed})",
@@ -1057,7 +1638,7 @@ impl Display for UnsupportedSyntaxError {
                     }
                     RelaxedDecoratorError::Other(description) => write!(
                         f,
-                        "Cannot use {description} outside function call arguments in a decorator on Python {} \
+                        "cannot use {description} outside function call arguments in a decorator on Python {} \
                         (syntax was {changed})",
                         self.target_version,
                         changed = self.kind.changed_version(),
@@ -1065,54 +1646,54 @@ impl Display for UnsupportedSyntaxError {
                 };
             }
             UnsupportedSyntaxErrorKind::PositionalOnlyParameter => {
-                "Cannot use positional-only parameter separator"
+                "cannot use positional-only parameter separator"
             }
-            UnsupportedSyntaxErrorKind::TypeParameterList => "Cannot use type parameter lists",
-            UnsupportedSyntaxErrorKind::LazyImportStatement => "Cannot use `lazy` import statement",
-            UnsupportedSyntaxErrorKind::TypeAliasStatement => "Cannot use `type` alias statement",
+            UnsupportedSyntaxErrorKind::TypeParameterList => "cannot use type parameter lists",
+            UnsupportedSyntaxErrorKind::LazyImportStatement => "cannot use `lazy` import statement",
+            UnsupportedSyntaxErrorKind::TypeAliasStatement => "cannot use `type` alias statement",
             UnsupportedSyntaxErrorKind::TypeParamDefault => {
-                "Cannot set default type for a type parameter"
+                "cannot set default type for a type parameter"
             }
             UnsupportedSyntaxErrorKind::Pep701FString(FStringKind::Backslash) => {
-                "Cannot use an escape sequence (backslash) in f-strings"
+                "cannot use an escape sequence (backslash) in f-strings"
             }
             UnsupportedSyntaxErrorKind::Pep701FString(FStringKind::Comment) => {
-                "Cannot use comments in f-strings"
+                "cannot use comments in f-strings"
             }
             UnsupportedSyntaxErrorKind::Pep701FString(FStringKind::LineBreak) => {
-                "Cannot use line breaks in non-triple-quoted f-string replacement fields"
+                "cannot use line breaks in non-triple-quoted f-string replacement fields"
             }
             UnsupportedSyntaxErrorKind::Pep701FString(FStringKind::NestedQuote) => {
-                "Cannot reuse outer quote character in f-strings"
+                "cannot reuse outer quote character in f-strings"
             }
             UnsupportedSyntaxErrorKind::ParenthesizedContextManager => {
-                "Cannot use parentheses within a `with` statement"
+                "cannot use parentheses within a `with` statement"
             }
             UnsupportedSyntaxErrorKind::StarExpressionInIndex => {
-                "Cannot use star expression in index"
+                "cannot use star expression in index"
             }
-            UnsupportedSyntaxErrorKind::StarAnnotation => "Cannot use star annotation",
+            UnsupportedSyntaxErrorKind::StarAnnotation => "cannot use star annotation",
             UnsupportedSyntaxErrorKind::UnpackingInComprehension(
                 ComprehensionUnpackingKind::IterableInList,
-            ) => "Cannot use iterable unpacking in a list comprehension",
+            ) => "cannot use iterable unpacking in a list comprehension",
             UnsupportedSyntaxErrorKind::UnpackingInComprehension(
                 ComprehensionUnpackingKind::IterableInSet,
-            ) => "Cannot use iterable unpacking in a set comprehension",
+            ) => "cannot use iterable unpacking in a set comprehension",
             UnsupportedSyntaxErrorKind::UnpackingInComprehension(
                 ComprehensionUnpackingKind::IterableInGenerator,
-            ) => "Cannot use iterable unpacking in a generator expression",
+            ) => "cannot use iterable unpacking in a generator expression",
             UnsupportedSyntaxErrorKind::UnpackingInComprehension(
                 ComprehensionUnpackingKind::DictInDict,
-            ) => "Cannot use dictionary unpacking in a dict comprehension",
+            ) => "cannot use dictionary unpacking in a dict comprehension",
             UnsupportedSyntaxErrorKind::UnparenthesizedUnpackInFor => {
-                "Cannot use iterable unpacking in `for` statements"
+                "cannot use iterable unpacking in `for` statements"
             }
             UnsupportedSyntaxErrorKind::UnparenthesizedExceptionTypes => {
-                "Multiple exception types must be parenthesized"
+                "multiple exception types must be parenthesized"
             }
-            UnsupportedSyntaxErrorKind::TemplateStrings => "Cannot use t-strings",
+            UnsupportedSyntaxErrorKind::TemplateStrings => "cannot use t-strings",
             UnsupportedSyntaxErrorKind::UnaryPlusMatchPattern => {
-                "Unary '+' is not allowed in a literal pattern"
+                "unary '+' is not allowed in a literal pattern"
             }
         };
 

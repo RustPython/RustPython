@@ -52,6 +52,13 @@ impl<'src> TokenSource<'src> {
         self.lexer.current_flags()
     }
 
+    /// Returns `true` if the lexer found an error that stops tokenization in `range`.
+    pub(crate) fn has_tokenizer_error_in(&self, range: TextRange) -> bool {
+        self.lexer.errors().iter().any(|error| {
+            range.contains_inclusive(error.location().start()) && error.error().is_tokenizer_error()
+        })
+    }
+
     /// Calls the underlying [`re_lex_logical_token`] method on the lexer with the new lexer
     /// position and updates the token vector accordingly.
     ///
@@ -201,6 +208,11 @@ impl<'src> TokenSource<'src> {
 
         self.lexer.rewind(lexer_checkpoint);
         self.tokens.truncate(tokens_position);
+    }
+
+    /// Returns the tokens bumped so far, including the trivia tokens.
+    pub(crate) fn bumped(&self) -> &[Token] {
+        &self.tokens
     }
 
     /// Returns a slice of [`Token`] that are within the given `range`.

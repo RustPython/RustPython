@@ -757,7 +757,12 @@ mod escape_warnings {
     }
 
     enum ParserWarning {
-        Escape(InvalidEscape),
+        Escape(InvalidEscape, Option<usize>),
+        Numeric {
+            offset: usize,
+            last_offset: usize,
+            message: String,
+        },
         Syntax {
             offset: usize,
             message: String,
@@ -768,8 +773,8 @@ mod escape_warnings {
     impl ParserWarning {
         fn offset(&self) -> usize {
             match self {
-                Self::Escape(escape) => escape.offset(),
-                Self::Syntax { offset, .. } => *offset,
+                Self::Escape(escape, _) => escape.offset(),
+                Self::Numeric { offset, .. } | Self::Syntax { offset, .. } => *offset,
             }
         }
     }
@@ -1243,16 +1248,24 @@ mod escape_warnings {
 
     fn collect_quoted_literal_warning(
         source: &str,
-        quote_index: usize,
+        literal_start: usize,
         end: usize,
         is_bytes: bool,
         warnings: &mut Vec<ParserWarning>,
     ) {
         if let Some((start, content_end)) =
-            content_bounds(source, text_range_from_bounds(quote_index, end))
+            content_bounds(source, text_range_from_bounds(literal_start, end))
             && let Some(escape) = first_invalid_escape(source, start, content_end, is_bytes)
         {
-            warnings.push(ParserWarning::Escape(escape));
+            let before_escape = &source[start..escape.offset()];
+            // string_parser.c counts leading quotes from the token start.
+            // A bytes prefix contributes none to its first-line error range.
+            // Keep the actual escape offset for warning order and deduplication.
+            let error_column = (is_bytes && !before_escape.contains(['\r', '\n'])).then(|| {
+                let (_, column) = line_offset_at(source, escape.offset());
+                column.saturating_sub(start - literal_start)
+            });
+            warnings.push(ParserWarning::Escape(escape, error_column));
         }
     }
 
@@ -1266,7 +1279,7 @@ mod escape_warnings {
             return;
         }
         if let Some(escape) = first_invalid_escape(source, start, end, false) {
-            warnings.push(ParserWarning::Escape(escape));
+            warnings.push(ParserWarning::Escape(escape, None));
             return;
         }
         // In CPython, _PyTokenizer_warn_invalid_escape_sequence handles
@@ -1282,10 +1295,13 @@ mod escape_warnings {
             && let Some(&after) = source.as_bytes().get(end)
             && (after == b'{' || after == b'}')
         {
-            warnings.push(ParserWarning::Escape(InvalidEscape::Char {
-                ch: after as char,
-                offset: end - 1,
-            }));
+            warnings.push(ParserWarning::Escape(
+                InvalidEscape::Char {
+                    ch: after as char,
+                    offset: end - 1,
+                },
+                None,
+            ));
         }
     }
 
@@ -1426,7 +1442,12 @@ mod escape_warnings {
                                 }
                             } else if !is_raw {
                                 collect_quoted_literal_warning(
-                                    source, index, quote_end, is_bytes, warnings,
+                                    // Non-raw ordinary prefixes are one-byte b/u.
+                                    source,
+                                    index - 1,
+                                    quote_end,
+                                    is_bytes,
+                                    warnings,
                                 );
                             }
                         }
@@ -1503,10 +1524,10 @@ mod escape_warnings {
                         continue;
                     };
                     if end > index && numeric_keyword_suffix(&bytes[end..]) {
-                        warnings.push(ParserWarning::Syntax {
+                        warnings.push(ParserWarning::Numeric {
                             offset: index,
+                            last_offset: end - 1,
                             message: format!("invalid {kind} literal"),
-                            end_offset: None,
                         });
                     }
                     index = end.max(index + 1);
@@ -1529,11 +1550,13 @@ mod escape_warnings {
         /// Check a quoted string/bytes literal for invalid escapes.
         /// The range must include the prefix and quote delimiters.
         fn check_quoted_literal(&mut self, range: TextRange, is_bytes: bool) {
-            if let Some((start, end)) = content_bounds(self.source, range)
-                && let Some(escape) = first_invalid_escape(self.source, start, end, is_bytes)
-            {
-                self.warnings.push(ParserWarning::Escape(escape));
-            }
+            collect_quoted_literal_warning(
+                self.source,
+                range.start().to_usize(),
+                range.end().to_usize(),
+                is_bytes,
+                self.warnings,
+            );
         }
 
         /// Check an f-string literal element for invalid escapes.
@@ -1784,13 +1807,25 @@ mod escape_warnings {
                     let end = parsed
                         .errors()
                         .iter()
+                        // An unclosed-bracket diagnostic points back to its
+                        // opening token, not where parsing stopped. Other
+                        // errors retain that boundary; otherwise it was EOF.
+                        .filter(|error| {
+                            !matches!(
+                                error.error,
+                                ruff_python_parser::ParseErrorType::Lexical(
+                                    ruff_python_parser::LexicalErrorType::UnclosedBracket { .. }
+                                )
+                            )
+                        })
                         .min_by_key(|error| error.location.start())
                         .map_or(source.len(), |error| {
-                            // A following simple statement was never parsed,
-                            // so its string token was not decoded by CPython.
+                            // Tokens after a complete statement or eval
+                            // expression were not decoded by CPython.
                             if matches!(
                                 error.error,
                                 ruff_python_parser::ParseErrorType::SimpleStatementsOnSameLine
+                                    | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken
                             ) {
                                 error.location.start().to_usize()
                             } else {
@@ -1815,15 +1850,48 @@ mod escape_warnings {
             let mut considered_escapes = Vec::new();
             for warning in warnings {
                 match warning {
-                    ParserWarning::Escape(escape) => {
+                    ParserWarning::Escape(escape, error_column) => {
                         let offset = escape.offset();
                         if considered_escapes.last() == Some(&offset) {
                             continue;
                         }
                         considered_escapes.push(offset);
                         if emitted_escapes.binary_search(&offset).is_err() {
-                            warn_invalid_escape_sequence(source, escape, filename, module, self)?;
+                            warn_invalid_escape_sequence(source, escape, filename, module, self)
+                                .map_err(|mut error| {
+                                    if let Some(column) = error_column {
+                                        error.offset = column;
+                                        if let Some(replacement) = &mut error.replacement {
+                                            replacement.end_offset = column + 2;
+                                        }
+                                    }
+                                    error
+                                })?;
                         }
+                    }
+                    ParserWarning::Numeric {
+                        last_offset,
+                        message,
+                        ..
+                    } => {
+                        warn_syntax_at_offset(
+                            source,
+                            filename,
+                            module,
+                            last_offset,
+                            message.clone(),
+                            self,
+                        )
+                        .map_err(|mut error| {
+                            // Tokenizer numeric warnings become a zero-width
+                            // error at the literal's last character, in character
+                            // columns rather than grammar-action byte columns.
+                            error.replacement = Some(SyntaxErrorReplacement {
+                                message,
+                                end_offset: error.offset,
+                            });
+                            error
+                        })?;
                     }
                     ParserWarning::Syntax {
                         offset,
