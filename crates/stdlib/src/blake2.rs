@@ -149,7 +149,7 @@ mod _blake2 {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: BlakeHashArgs = args.bind(vm)?;
+            let args: BlakeHashArgs = args.bind_for(vm, "blake2b")?;
             Ok(Self {
                 inner: local_blake2b(args, vm)?,
             }
@@ -246,7 +246,7 @@ mod _blake2 {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let args: BlakeHashArgs = args.bind(vm)?;
+            let args: BlakeHashArgs = args.bind_for(vm, "blake2s")?;
             Ok(Self {
                 inner: local_blake2s(args, vm)?,
             }
