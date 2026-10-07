@@ -419,7 +419,7 @@ impl Constructor for PyStr {
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // A call with keyword arguments is parsed by unicode_new, which counts
-        // every argument and rejects one given both by name and by position.
+        // every argument.
         if !func_args.kwargs.is_empty() {
             let total = func_args.args.len() + func_args.kwargs.len();
             if total > 3 {
@@ -431,18 +431,6 @@ impl Constructor for PyStr {
                 return Err(vm.new_type_error(format!(
                     "str() takes at most 3 {keyword}arguments ({total} given)"
                 )));
-            }
-            for (i, name) in ["object", "encoding", "errors"]
-                .into_iter()
-                .enumerate()
-                .take(func_args.args.len())
-            {
-                if func_args.kwargs.contains_key(name) {
-                    return Err(vm.new_type_error(format!(
-                        "argument for str() given by name ('{name}') and position ({})",
-                        i + 1
-                    )));
-                }
             }
         }
 
