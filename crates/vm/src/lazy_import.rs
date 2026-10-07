@@ -555,7 +555,7 @@ fn resolve_impl(
         exc.as_object().set_attr("name", root.name.clone(), vm)?;
         return Err(exc);
     }
-    vm.with_recursion("while resolving a lazy import", || {
+    vm.with_recursion(" while resolving a lazy import", || {
         let identity = deferred.as_object().get_id();
         vm.lazy_imports_resolving.borrow_mut().insert(identity);
         let _resolving = ResolvingGuard { vm, identity };
@@ -726,7 +726,7 @@ pub(crate) fn resolved_dict_item(
 }
 
 fn load_child(source: &Py<PyLazyImport>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-    vm.with_recursion("while resolving a lazy import", || {
+    vm.with_recursion(" while resolving a lazy import", || {
         let mut child = PyLazyImport::new(source.builtins.clone(), name.to_owned(), None);
         child.declaration = None;
         if let Some(name) = name.to_str() {
