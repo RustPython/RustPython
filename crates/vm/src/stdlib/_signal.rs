@@ -183,9 +183,16 @@ pub(crate) mod _signal {
                 let Some(handler) = (unsafe { host_signal::probe_handler(signum) }) else {
                     continue;
                 };
-                let py_handler = if handler == SIG_DFL {
+                let (is_default, is_ignored) = cfg_select! {
+                    target_os = "wasi" => (
+                        handler == host_signal::Handler::Default,
+                        handler == host_signal::Handler::Ignore,
+                    ),
+                    _ => (handler == SIG_DFL, handler == SIG_IGN),
+                };
+                let py_handler = if is_default {
                     Some(sig_dfl.clone())
-                } else if handler == SIG_IGN {
+                } else if is_ignored {
                     Some(sig_ign.clone())
                 } else {
                     None
@@ -231,15 +238,29 @@ pub(crate) mod _signal {
         }
 
         let sig_handler = if handler.is_callable() {
-            run_signal as *const () as sighandler_t
+            let callback = run_signal as *const () as sighandler_t;
+            cfg_select! {
+                target_os = "wasi" => host_signal::Handler::Custom(callback),
+                _ => callback,
+            }
         } else {
             const MSG: &str =
                 "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object";
 
-            usize::try_from_borrowed_object(vm, &handler)
+            let disposition = usize::try_from_borrowed_object(vm, &handler)
                 .ok()
                 .filter(|&v| matches!(v, SIG_DFL | SIG_IGN))
-                .ok_or_else(|| vm.new_type_error(MSG))?
+                .ok_or_else(|| vm.new_type_error(MSG))?;
+            cfg_select! {
+                target_os = "wasi" => {
+                    if disposition == SIG_DFL {
+                        host_signal::Handler::Default
+                    } else {
+                        host_signal::Handler::Ignore
+                    }
+                },
+                _ => disposition,
+            }
         };
 
         signal::check_signals(vm)?;
