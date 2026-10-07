@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
 use crate::util::FfiPtrExt;
+use alloc::borrow::Cow;
 use alloc::ffi::CString;
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr;
@@ -146,73 +147,63 @@ pub unsafe extern "C" fn PyBuffer_GetPointer(
     view: *const Py_buffer,
     indices: *const isize,
 ) -> *mut c_void {
-    let view = unsafe { &*view };
-    let ndim: usize = match view.ndim.try_into() {
-        Ok(v) => v,
-        Err(_) => return ptr::null_mut(),
-    };
-    let idx = unsafe { core::slice::from_raw_parts(indices, ndim) };
-    let synthetic_strides = if !view.strides.is_null() {
-        None
-    } else if !view.shape.is_null() {
-        let shape = unsafe { core::slice::from_raw_parts(view.shape, ndim) };
-        let mut strides = vec![0; shape.len()];
-        let mut stride = view.itemsize;
-        for (ix, dim) in shape.iter().copied().enumerate().rev() {
-            strides[ix] = stride;
-            stride = match stride.checked_mul(dim) {
-                Some(v) => v,
-                None => return ptr::null_mut(),
-            };
-        }
-        Some(strides)
-    } else {
-        let i0 = unsafe { *indices };
-        let delta = match i0.checked_mul(view.itemsize) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        let base = view.buf.cast::<u8>();
-        if base.is_null() {
-            return ptr::null_mut();
-        }
-        return unsafe { base.offset(delta).cast() };
-    };
-    let strides: &[isize] = if let Some(strides) = synthetic_strides.as_deref() {
-        strides
-    } else {
-        unsafe { core::slice::from_raw_parts(view.strides, ndim) }
-    };
+    with_vm(|vm| {
+        let view = unsafe { &*view };
 
-    let suboffsets = if view.suboffsets.is_null() {
-        None
-    } else {
-        Some(unsafe { core::slice::from_raw_parts(view.suboffsets, ndim) })
-    };
+        if view.strides.is_null() && view.shape.is_null() {
+            let i0 = unsafe { *indices };
+            let delta = i0
+                .checked_mul(view.itemsize)
+                .ok_or_else(|| vm.new_system_error("index * itemsize overflow"))?;
+            return unsafe { Ok(view.buf.cast::<u8>().offset(delta).cast()) };
+        }
 
-    let mut ptr_u8 = view.buf.cast::<u8>();
-    if ptr_u8.is_null() {
-        return ptr::null_mut();
-    }
-    for (dim, index) in idx.iter().copied().enumerate() {
-        let delta = match index.checked_mul(strides[dim]) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        ptr_u8 = unsafe { ptr_u8.offset(delta) };
-        if let Some(suboffsets) = suboffsets {
-            let suboffset = suboffsets[dim];
-            if suboffset >= 0 {
-                let inner = unsafe { core::ptr::read_unaligned(ptr_u8.cast::<*mut u8>()) };
-                if inner.is_null() {
-                    return ptr::null_mut();
+        let ndim: usize = view
+            .ndim
+            .try_into()
+            .map_err(|_| vm.new_system_error("view.ndim does not fit usize"))?;
+
+        let idx = unsafe { core::slice::from_raw_parts(indices, ndim) };
+
+        let strides: Cow<'_, _> = unsafe { view.strides.as_ref() }.map_or_else(
+            || {
+                let shape = unsafe { core::slice::from_raw_parts(view.shape, ndim) };
+                let mut strides = vec![0; shape.len()];
+                let mut stride = view.itemsize;
+                for (ix, dim) in shape.iter().copied().enumerate().rev() {
+                    strides[ix] = stride;
+                    stride = stride
+                        .checked_mul(dim)
+                        .ok_or_else(|| vm.new_system_error("stride overflow"))?;
                 }
-                ptr_u8 = unsafe { inner.offset(suboffset) };
+                Ok(strides.into())
+            },
+            |strides| unsafe { Ok(core::slice::from_raw_parts(strides, ndim).into()) },
+        )?;
+
+        let suboffsets = unsafe {
+            view.suboffsets
+                .as_ref()
+                .map(|suboffsets| core::slice::from_raw_parts(suboffsets, ndim))
+        };
+
+        let mut ptr_u8 = view.buf.cast::<u8>();
+        for (dim, index) in idx.iter().enumerate() {
+            let delta = index
+                .checked_mul(strides[dim])
+                .ok_or_else(|| vm.new_system_error("index * stride overflow"))?;
+            ptr_u8 = unsafe { ptr_u8.offset(delta) };
+            if let Some(suboffsets) = suboffsets {
+                let suboffset = suboffsets[dim];
+                if suboffset >= 0 {
+                    let inner = unsafe { core::ptr::read_unaligned(ptr_u8.cast::<*mut u8>()) };
+                    ptr_u8 = unsafe { inner.offset(suboffset) };
+                }
             }
         }
-    }
 
-    ptr_u8.cast()
+        Ok(ptr_u8.cast())
+    })
 }
 
 #[unsafe(no_mangle)]
