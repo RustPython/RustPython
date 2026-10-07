@@ -897,7 +897,6 @@ class MmapTests(unittest.TestCase):
                     match = closed_mmap_repr_pat.match(repr(mm))
                     self.assertIsNotNone(match)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(mmap.mmap, 'madvise'), 'needs madvise')
     def test_madvise(self):
         size = 2 * PAGESIZE
@@ -1039,7 +1038,6 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m1[:data_length], data)
         self.assertEqual(m2[:data_length], data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap_closed_by_int_scenarios(self):
         """
         gh-103987: Test that mmap objects raise ValueError

@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, ArgIndex},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -330,9 +330,9 @@ mod mmap {
         option: core::ffi::c_int,
         // None means 0.
         #[pyarg(positional, default, py_default = "0")]
-        start: Option<PyIntRef>,
+        start: Option<ArgIndex>,
         #[pyarg(positional, optional)]
-        length: Option<PyIntRef>,
+        length: Option<ArgIndex>,
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
@@ -345,7 +345,8 @@ mod mmap {
             let start = self
                 .start
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .ok()
                         .filter(|s| *s < len)
                         .ok_or_else(|| vm.new_value_error("madvise start out of bounds"))
@@ -355,7 +356,8 @@ mod mmap {
             let length = self
                 .length
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .map_err(|_| vm.new_value_error("madvise length invalid"))
                 })
                 .transpose()?
@@ -920,9 +922,9 @@ mod mmap {
         #[pymethod(name = "move")]
         fn move_(
             zelf: &Py<Self>,
-            dest: PyIntRef,
-            src: PyIntRef,
-            count: PyIntRef,
+            dest: ArgIndex,
+            src: ArgIndex,
+            count: ArgIndex,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
@@ -948,7 +950,7 @@ mod mmap {
             }
 
             let size = zelf.__len__();
-            let (dest, src, cnt) = args(&dest, &src, &count, size, vm)
+            let (dest, src, cnt) = args(dest.as_ref(), src.as_ref(), count.as_ref(), size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;

@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
-    function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -315,9 +315,9 @@ pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
     sub: ByteInnerSub,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl ByteInnerFindOptions {
@@ -327,7 +327,11 @@ impl ByteInnerFindOptions {
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
         let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
+        let range = anystr::adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
         Ok((sub, range))
     }
 }
