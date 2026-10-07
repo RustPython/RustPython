@@ -2867,6 +2867,39 @@ pub fn open_library_with_mode(
     libcache().write().open_library_with_mode(name, mode)
 }
 
+#[cfg(unix)]
+pub fn open_library_with_mode_raw(
+    name: impl AsRef<OsStr>,
+    mode: i32,
+) -> Result<*mut c_void, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = std::ffi::CString::new(name.as_ref().as_bytes())
+        .map_err(|_| "library path contains NUL byte".to_owned())?;
+    let handle = unsafe { libc::dlopen(name.as_ptr(), mode) };
+    if handle.is_null() {
+        let err = unsafe { libc::dlerror() };
+        if err.is_null() {
+            Err("dlopen() error".to_owned())
+        } else {
+            let msg = unsafe { std::ffi::CStr::from_ptr(err) }
+                .to_string_lossy()
+                .into_owned();
+            Err(msg)
+        }
+    } else {
+        Ok(handle)
+    }
+}
+
+#[cfg(not(unix))]
+pub fn open_library_with_mode_raw(
+    _name: impl AsRef<std::ffi::OsStr>,
+    _mode: i32,
+) -> Result<*mut c_void, String> {
+    Err("dlopen() error".to_owned())
+}
+
 #[cfg(not(unix))]
 pub fn open_library_with_mode(
     _name: impl AsRef<std::ffi::OsStr>,
