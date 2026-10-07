@@ -73,7 +73,6 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(any(unix, windows))]
     static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
 
     // Bounded pending-call storage: signal handlers cannot allocate or lock.
