@@ -866,7 +866,8 @@ fn expr_dict_comp_from_object_with_range(
             "DictComp",
         )?),
         value: get_required_node_field(vm, source_file, object, "value", "DictComp")?,
-        generators: get_node_list_field(vm, source_file, object, "generators", "DictComp")?,
+        generators: get_node_list_field(vm, source_file, object, "generators", "DictComp")?
+            .into_boxed_slice(),
         range,
     })
 }
@@ -888,8 +889,12 @@ impl Node for ast::ExprDictComp {
             .unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("generators", generators.ast_to_object(vm, source_file), vm)
-            .unwrap();
+        dict.set_item(
+            "generators",
+            BoxedSlice(generators).ast_to_object(vm, source_file),
+            vm,
+        )
+        .unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }
@@ -1082,14 +1087,17 @@ fn expr_compare_from_object_with_range(
     object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprCompare> {
+    let left: ast::Expr = get_required_node_field(vm, source_file, object, "left", "Compare")?;
     let comparators: Vec<Option<ast::Expr>> =
         get_node_list_field(vm, source_file, object, "comparators", "Compare")?;
     let (runtime_comparators, comparators) = runtime_expr_boxed_slice_from_values(comparators);
+    let mut operands = Vec::with_capacity(comparators.len() + 1);
+    operands.push(left);
+    operands.extend(comparators);
     Ok(ast::ExprCompare {
         node_index: Default::default(),
-        left: get_required_node_field(vm, source_file, object, "left", "Compare")?,
         ops: get_node_boxed_slice_field(vm, source_file, object, "ops", "Compare")?,
-        comparators,
+        operands: operands.into_boxed_slice(),
         range,
         runtime_comparators,
     })
@@ -1099,9 +1107,8 @@ impl Node for ast::ExprCompare {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
-            left,
             ops,
-            comparators,
+            operands,
             range,
             runtime_comparators,
         } = self;
@@ -1109,10 +1116,13 @@ impl Node for ast::ExprCompare {
             .into_ref_with_type(vm, pyast::NodeExprCompare::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
+        let mut operands = operands.into_vec().into_iter();
+        let left = operands.next().expect("A comparison has a left operand");
         dict.set_item("left", left.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item("ops", BoxedSlice(ops).ast_to_object(vm, source_file), vm)
             .unwrap();
+        let comparators: Box<[ast::Expr]> = operands.collect();
         let comparators = runtime_comparators.map_or_else(
             || BoxedSlice(comparators).ast_to_object(vm, source_file),
             |values| values.ast_to_object(vm, source_file),

@@ -1,7 +1,5 @@
 #[cfg(feature = "parser")]
-use ruff_python_ast::token::TokenKind;
-
-use ruff_python_parser::{InterpolatedStringErrorType, LexicalErrorType, ParseErrorType};
+use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 
 use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_compiler_core::SourceLocation;
@@ -9,7 +7,7 @@ use rustpython_compiler_core::SourceLocation;
 use core::ops::RangeInclusive;
 
 #[cfg(feature = "parser")]
-use rustpython_compiler::{CompileError, ParseError, is_blank_python_source};
+use rustpython_compiler::is_blank_python_source;
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -47,262 +45,6 @@ macro_rules! define_exception_fn {
             self.new_simple_exception(err, vec![self.ctx.new_str(msg.into()).into()])
         }
     };
-}
-
-#[derive(Clone, Debug)]
-struct SyntaxErrorInfo {
-    msg: String,
-    narrow_caret: bool,
-}
-
-impl SyntaxErrorInfo {
-    #[must_use]
-    const fn new(msg: String, narrow_caret: bool) -> Self {
-        Self { msg, narrow_caret }
-    }
-
-    #[cfg(feature = "parser")]
-    #[must_use]
-    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
-        match (expected, found) {
-            (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
-
-            (TokenKind::Lpar, _) => "expected '('",
-
-            (TokenKind::Else, y) if !matches!(y, TokenKind::Colon) => {
-                "expected 'else' after 'if' expression"
-            }
-
-            _ => "invalid syntax",
-        }
-    }
-
-    #[cfg(feature = "parser")]
-    fn analyze_compile_error(&mut self, compile_error: &CompileError) {
-        let CompileError::Parse(ParseError {
-            error, location, ..
-        }) = compile_error
-        else {
-            return;
-        };
-
-        let msg = match error {
-            ParseErrorType::FStringError(InterpolatedStringErrorType::UnterminatedString)
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedString,
-            )) => "unterminated f-string literal".into(),
-
-            ParseErrorType::TStringError(InterpolatedStringErrorType::UnterminatedString)
-            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedString,
-            )) => "unterminated t-string literal".into(),
-
-            ParseErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )
-            | ParseErrorType::Lexical(LexicalErrorType::FStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )) => "unterminated triple-quoted f-string literal".into(),
-
-            ParseErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )
-            | ParseErrorType::Lexical(LexicalErrorType::TStringError(
-                InterpolatedStringErrorType::UnterminatedTripleQuotedString,
-            )) => "unterminated triple-quoted t-string literal".into(),
-
-            // ruff already prefixes these with `f-string: ` / `t-string: `, matching CPython.
-            // It quotes braces with backticks where CPython uses single quotes.
-            ParseErrorType::FStringError(_)
-            | ParseErrorType::TStringError(_)
-            | ParseErrorType::Lexical(
-                LexicalErrorType::FStringError(_) | LexicalErrorType::TStringError(_),
-            ) => self.msg.replace('`', "'"),
-
-            ParseErrorType::UnexpectedExpressionToken => "invalid syntax".into(),
-
-            ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(*expected, *found).into()
-            }
-
-            ParseErrorType::InvalidStarredExpressionUsage => {
-                self.narrow_caret = true;
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::InvalidDeleteTarget => "invalid syntax".into(),
-
-            ParseErrorType::Lexical(LexicalErrorType::LineContinuationError) => {
-                "unexpected character after line continuation character".into()
-            }
-
-            ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError) => {
-                format!(
-                    "unterminated string literal (detected at line {})",
-                    location.line
-                )
-            }
-
-            ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
-
-            ParseErrorType::InvalidStarPatternUsage => {
-                self.narrow_caret = true;
-                "cannot use starred expression here".into()
-            }
-
-            ParseErrorType::ExpectedKeywordParam => "named arguments must follow bare *".into(),
-
-            ParseErrorType::EmptyImportNames => "Expected one or more names after 'import'".into(),
-
-            ParseErrorType::UnparenthesizedGeneratorExpression => {
-                "Generator expression must be parenthesized".into()
-            }
-
-            ParseErrorType::NonDefaultParamAfterDefaultParam => {
-                "parameter without a default follows parameter with a default".into()
-            }
-
-            ParseErrorType::VarParameterWithDefault => {
-                "var-positional argument cannot have default value".into()
-            }
-
-            ParseErrorType::PositionalAfterKeywordArgument => {
-                "positional argument follows keyword argument".into()
-            }
-
-            ParseErrorType::PositionalAfterKeywordUnpacking => {
-                "positional argument follows keyword argument unpacking".into()
-            }
-
-            ParseErrorType::InvalidArgumentUnpackingOrder => {
-                "iterable argument unpacking follows keyword argument unpacking".into()
-            }
-
-            ParseErrorType::ParamAfterVarKeywordParam => {
-                "arguments cannot follow var-keyword argument".into()
-            }
-
-            ParseErrorType::InvalidAnnotatedAssignmentTarget => {
-                "illegal target for annotation".into()
-            }
-
-            ParseErrorType::Lexical(LexicalErrorType::UnrecognizedToken { .. })
-            | ParseErrorType::SimpleStatementsOnSameLine
-            | ParseErrorType::SimpleAndCompoundStatementOnSameLine
-            | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
-
-            ParseErrorType::OtherError(s) if s.starts_with("Expected an identifier") => {
-                "invalid syntax".into()
-            }
-
-            // What the parser says when it cannot continue the list it is
-            // recovering; each of these situations is a plain "invalid syntax".
-            ParseErrorType::OtherError(s)
-                if matches!(
-                    s.as_str(),
-                    "Expected a statement"
-                        | "Expected an `elif` or `else` clause, or the end of the `if` statement."
-                        | "Expected an `except` or `finally` clause or the end of the `try` statement."
-                        | "The keyword is not allowed as a variable declaration name"
-                        | "Expected an assignment target"
-                        | "Expected a type parameter or the end of the type parameter list"
-                        | "Expected an import name or a ')'"
-                        | "Expected an import name"
-                        | "Expected an expression or the end of the slice list"
-                        | "Expected an expression or a ']'"
-                        | "Expected an expression or a '}'"
-                        | "Expected an expression or a ')'"
-                        | "Expected an expression"
-                        | "Expected a pattern or the end of the sequence pattern"
-                        | "Expected a mapping pattern or the end of the mapping pattern"
-                        | "Expected a pattern or a ')'"
-                        | "Expected a delete target"
-                        | "Expected a parameter or the end of the parameter list"
-                        | "Expected an expression or the end of the with item list"
-                ) =>
-            {
-                "invalid syntax".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "bytes literal cannot be mixed with non-bytes literals",
-                ) =>
-            {
-                "cannot mix bytes and nonbytes literals".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("positional patterns cannot follow keyword patterns") =>
-            {
-                "positional patterns follow keyword patterns".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("boolean 'not' expression cannot be used here") =>
-            {
-                "'not' after an operator must be parenthesized".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("trailing comma not allowed") =>
-            {
-                "trailing comma not allowed without surrounding parentheses".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "multiple exception types must be parenthesized when using `as`",
-                ) =>
-            {
-                "multiple exception types must be parenthesized when using 'as'".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    "position-only parameter separator not allowed as first parameter",
-                ) =>
-            {
-                "at least one argument must precede /".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("only one '/' separator allowed") =>
-            {
-                "/ may appear only once".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("'/' parameter must appear before '*' parameter") =>
-            {
-                "/ must be ahead of *".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("expected `except` or `finally` after `try` block") =>
-            {
-                "expected 'except' or 'finally' block".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case("only one '*' parameter allowed") =>
-            {
-                "* argument may appear only once".into()
-            }
-
-            ParseErrorType::OtherError(s)
-                if s.eq_ignore_ascii_case(
-                    r#"cannot have both 'except' and 'except*' on the same 'try'"#,
-                ) =>
-            {
-                r#"cannot have both 'except' and 'except*' on the same 'try'"#.into()
-            }
-
-            _ => return,
-        };
-
-        self.msg = msg;
-    }
 }
 
 /// Collection of object creation helpers
@@ -703,38 +445,6 @@ impl VirtualMachine {
         .expect("UnicodeEncodeError constructor")
     }
 
-    #[cfg(feature = "parser")]
-    fn source_has_mixed_tabs_and_spaces(source: Option<&str>, error_line: usize) -> bool {
-        source.is_some_and(|source| {
-            let mut has_space_indent = false;
-            let mut has_tab_indent = false;
-            for (i, line) in source.lines().enumerate() {
-                if i + 1 > error_line {
-                    break;
-                }
-                let rest = line.trim_start_matches([' ', '\t']);
-                // Blank and comment-only lines do not participate in indent.
-                if rest.is_empty() || rest.starts_with('#') {
-                    continue;
-                }
-                let indent = &line.as_bytes()[..line.len() - rest.len()];
-                if indent.is_empty() {
-                    continue;
-                }
-                if indent.contains(&b' ') && indent.contains(&b'\t') {
-                    return true;
-                }
-                if indent.contains(&b' ') {
-                    has_space_indent = true;
-                }
-                if indent.contains(&b'\t') {
-                    has_tab_indent = true;
-                }
-            }
-            has_space_indent && has_tab_indent
-        })
-    }
-
     // TODO: don't take ownership should make the success path faster
     pub fn new_key_error(&self, obj: PyObjectRef) -> PyBaseExceptionRef {
         let key_error = self.ctx.exceptions.key_error.to_owned();
@@ -769,25 +479,27 @@ impl VirtualMachine {
         let syntax_error_type = match &error {
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::IndentationError,
-                    )
-                    | ruff_python_parser::ParseErrorType::UnexpectedIndentation,
-                location,
+                error: ParseErrorType::Lexical(LexicalErrorType::TabError),
                 ..
-            }) => {
-                if Self::source_has_mixed_tabs_and_spaces(source, location.line.get()) {
-                    self.ctx.exceptions.tab_error
-                } else {
-                    self.ctx.exceptions.indentation_error
-                }
-            }
+            }) => self.ctx.exceptions.tab_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ParseErrorType::Lexical(
+                        LexicalErrorType::IndentationError | LexicalErrorType::TooDeepIndentation,
+                    )
+                    | ParseErrorType::UnexpectedIndentation,
+                ..
+            }) => self.ctx.exceptions.indentation_error,
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::Eof,
+                        ruff_python_parser::LexicalErrorType::Eof
+                        | ruff_python_parser::LexicalErrorType::UnclosedBracket {
+                            incomplete: true,
+                            ..
+                        },
                     ),
                 ..
             }) => incomplete_or_syntax(allow_incomplete),
@@ -807,26 +519,31 @@ impl VirtualMachine {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
                         ruff_python_parser::LexicalErrorType::FStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                         )
                         | ruff_python_parser::LexicalErrorType::TStringError(
-                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString,
+                            ruff_python_parser::InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                         ),
                     ),
                 ..
             }) => incomplete_or_syntax(allow_incomplete),
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                error:
-                    ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::LexicalErrorType::UnclosedStringError,
-                    ),
+                error: ruff_python_parser::ParseErrorType::ExpectedIndentedBlock { .. },
+                raw_location,
                 ..
             }) => {
-                if allow_incomplete {
-                    incomplete_or_syntax(source.is_some_and(unclosed_string_is_incomplete))
+                // The block can still follow when the error is found at whitespace, that is, at
+                // the end of the input.
+                let at_end = source.is_some_and(|source| {
+                    source
+                        .get(raw_location.start().to_usize()..raw_location.end().to_usize())
+                        .is_some_and(|text| text.chars().all(|c| c.is_ascii_whitespace()))
+                });
+                if allow_incomplete && at_end {
+                    self.ctx.exceptions.incomplete_input_error
                 } else {
-                    self.ctx.exceptions.syntax_error
+                    self.ctx.exceptions.indentation_error
                 }
             }
             #[cfg(feature = "parser")]
@@ -835,39 +552,7 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("Expected an indented block after")
-                    || s.starts_with("expected an indented block after")
-                {
-                    if allow_incomplete {
-                        // Check that all chars in the error are whitespace, if so, the source is
-                        // incomplete. Otherwise, we've found code that might violates
-                        // indentation rules.
-                        let mut is_incomplete = true;
-                        if let Some(source) = source {
-                            let start = raw_location.start().to_usize();
-                            let end = raw_location.end().to_usize();
-                            let mut iter = source.chars();
-                            iter.nth(start);
-                            for _ in start..end {
-                                if let Some(c) = iter.next() {
-                                    if !c.is_ascii_whitespace() {
-                                        is_incomplete = false;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        if is_incomplete {
-                            self.ctx.exceptions.incomplete_input_error
-                        } else {
-                            self.ctx.exceptions.indentation_error // not syntax_error
-                        }
-                    } else {
-                        self.ctx.exceptions.indentation_error
-                    }
-                } else if allow_incomplete
+                if allow_incomplete
                     && (s == "incomplete input"
                         || (s == "unexpected EOF while parsing"
                             && source.is_some_and(|source| {
@@ -908,52 +593,12 @@ impl VirtualMachine {
             source.and_then(|src| get_statement(src, error.location()))
         };
 
-        let mut msg = error.to_string();
-        if !msg.starts_with("Exceeds the limit ")
-            && !msg.starts_with("Did you mean ")
-            && !msg.starts_with("Invalid star expression")
-            && !msg.starts_with("Function parameters cannot be parenthesized")
-            && !msg.starts_with("Lambda expression parameters cannot be parenthesized")
-            && !msg.starts_with("Cannot have two type comments on def")
-            && !msg.starts_with("Variable annotation syntax is")
-            && !msg.starts_with("The '@' operator is")
-            && !msg.starts_with("Async functions are")
-            && !msg.starts_with("Async comprehensions are")
-            && !msg.starts_with("Async for loops are")
-            && !msg.starts_with("Async with statements are")
-            && !msg.starts_with("Exception groups are")
-            && !msg.starts_with("Positional-only parameters are")
-            && !msg.starts_with("Pattern matching is")
-            && !msg.starts_with("Type statement is")
-            && !msg.starts_with("Type parameter lists are")
-            && !msg.starts_with("Type parameter defaults are")
-            && !msg.starts_with("Assignment expressions are")
-            && !msg.starts_with("Await expressions are")
-            && !msg.starts_with("Underscores in numeric literals are")
-            && !msg.starts_with("Missing parentheses")
-            && let Some(msg) = msg.get_mut(..1)
-        {
-            msg.make_ascii_lowercase();
-        }
-
-        cfg_select! {
-            feature = "parser" => {
-                let mut syntax_error_info = SyntaxErrorInfo::new(msg, false);
-                syntax_error_info.analyze_compile_error(error);
-            }
-            _ => {
-                let syntax_error_info = SyntaxErrorInfo::new(msg, false);
-            }
+        let msg = if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            String::from("incomplete input")
+        } else {
+            error.to_string()
         };
 
-        if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.msg =
-                String::from("inconsistent use of tabs and spaces in indentation");
-        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
-            syntax_error_info.msg = String::from("incomplete input");
-        }
-
-        let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
         let unterminated_triple_quoted_string = msg.starts_with("unterminated triple-quoted");
         let unexpected_eof_error = msg == "unexpected EOF while parsing";
         if unterminated_triple_quoted_string
@@ -970,6 +615,50 @@ impl VirtualMachine {
             || msg.starts_with("except expressions without parentheses are")
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        // Tokenizer errors other than unexpected EOF end where the tokenizer stopped, which is
+        // reported as end offset 0 or -1, or where they start.
+        let tokenizer_end_offset = cfg_select! {
+            feature = "parser" => {
+                match error {
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(
+                            LexicalErrorType::TabError
+                            | LexicalErrorType::TooDeepIndentation
+                            | LexicalErrorType::LineContinuationError
+                            | LexicalErrorType::UnclosedBracket { .. },
+                        ),
+                        ..
+                    }) => Some(0),
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                            | ParseErrorType::UnexpectedIndentation,
+                        ..
+                    }) => Some(-1),
+                    // The span runs from the last character of the key to the end of the line.
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::ExpectedColonAfterDictionaryKey,
+                        ..
+                    }) => Some(0),
+                    // Other tokenizer errors end where they start, except those reported
+                    // over a range.
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        error: ParseErrorType::Lexical(lexical),
+                        ..
+                    }) if lexical.is_tokenizer_error()
+                        && !matches!(
+                            lexical,
+                            LexicalErrorType::Eof
+                                | LexicalErrorType::LeadingZerosInDecimalInteger
+                                | LexicalErrorType::IncompatibleStringPrefixes { .. }
+                        ) =>
+                    {
+                        Some(error.python_location().1 as isize)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         let unclosed_bracket_error = cfg_select! {
             feature = "parser" => {
                 matches!(
@@ -1011,15 +700,14 @@ impl VirtualMachine {
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
             let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
+            } else if let Some(end_offset) = tokenizer_end_offset {
+                (end_lineno, end_offset)
             } else if unclosed_bracket_error {
                 // The bracket that was never closed is marked where it opened,
                 // and the span stops there.
                 (end_lineno, 0)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
-            } else if narrow_caret {
-                let (l, o) = error.python_location();
-                (l, (o + 1) as isize)
             } else {
                 (end_lineno, end_offset as isize)
             };
@@ -1205,121 +893,5 @@ impl VirtualMachine {
         )
         .expect("UnboundLocalError construction from internal args is infallible")
         .upcast()
-    }
-}
-
-#[cfg(feature = "parser")]
-enum QuotedStringScan {
-    Closed(usize),
-    Unclosed {
-        triple: bool,
-        unescaped_newline: bool,
-    },
-}
-
-/// An unclosed string is incomplete when more input could still finish it.
-/// A non-triple string that already hit an unescaped newline is a hard error.
-#[cfg(feature = "parser")]
-fn unclosed_string_is_incomplete(source: &str) -> bool {
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => match scan_quoted_string_for_incomplete(bytes, index) {
-                QuotedStringScan::Closed(end) => index = end,
-                QuotedStringScan::Unclosed {
-                    triple,
-                    unescaped_newline,
-                } => {
-                    // Single-quoted f/t-strings never set E_EOLS.
-                    if !triple && interpolated_string_prefix_at(bytes, index) {
-                        return false;
-                    }
-                    return triple || !unescaped_newline;
-                }
-            },
-            _ => index += 1,
-        }
-    }
-    false
-}
-
-#[cfg(feature = "parser")]
-fn interpolated_string_prefix_at(bytes: &[u8], quote: usize) -> bool {
-    let Some(&prev) = quote.checked_sub(1).and_then(|index| bytes.get(index)) else {
-        return false;
-    };
-    let lower = prev.to_ascii_lowercase();
-    let marker_index = if matches!(lower, b'f' | b't') {
-        if quote >= 2 && bytes[quote - 2].eq_ignore_ascii_case(&b'r') {
-            quote - 2
-        } else {
-            quote - 1
-        }
-    } else if lower == b'r'
-        && quote >= 2
-        && matches!(bytes[quote - 2].to_ascii_lowercase(), b'f' | b't')
-    {
-        quote - 2
-    } else {
-        return false;
-    };
-    marker_index == 0 || !identifier_continue_before(bytes, marker_index)
-}
-
-#[cfg(feature = "parser")]
-fn identifier_continue_before(bytes: &[u8], index: usize) -> bool {
-    if index == 0 {
-        return false;
-    }
-    if bytes[index - 1].is_ascii() {
-        return bytes[index - 1] == b'_' || bytes[index - 1].is_ascii_alphanumeric();
-    }
-    let mut start = index - 1;
-    while start > 0 && bytes[start] & 0b1100_0000 == 0b1000_0000 {
-        start -= 1;
-    }
-    ::core::str::from_utf8(&bytes[start..index])
-        .ok()
-        .and_then(|text| text.chars().next_back())
-        .is_some_and(|ch| ch == '_' || ch.is_alphanumeric())
-}
-
-#[cfg(feature = "parser")]
-fn scan_quoted_string_for_incomplete(bytes: &[u8], quote_index: usize) -> QuotedStringScan {
-    let quote = bytes[quote_index];
-    let triple =
-        bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote);
-    let mut index = quote_index + if triple { 3 } else { 1 };
-    while index < bytes.len() {
-        if bytes[index] == b'\\' {
-            index = (index + 2).min(bytes.len());
-            continue;
-        }
-        if triple {
-            if bytes.get(index) == Some(&quote)
-                && bytes.get(index + 1) == Some(&quote)
-                && bytes.get(index + 2) == Some(&quote)
-            {
-                return QuotedStringScan::Closed(index + 3);
-            }
-        } else if bytes[index] == quote {
-            return QuotedStringScan::Closed(index + 1);
-        } else if bytes[index] == b'\n' {
-            return QuotedStringScan::Unclosed {
-                triple: false,
-                unescaped_newline: true,
-            };
-        }
-        index += 1;
-    }
-    QuotedStringScan::Unclosed {
-        triple,
-        unescaped_newline: false,
     }
 }
