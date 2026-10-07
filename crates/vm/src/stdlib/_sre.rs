@@ -332,14 +332,26 @@ mod _sre {
         default: OptionalArg<PyObjectRef>,
     }
 
+    /// A position in the searched string, taken as a Py_ssize_t; a negative
+    /// one means the start of the string.
+    #[derive(Clone, Copy, Default)]
+    struct StringPos(usize);
+
+    impl TryFromObject for StringPos {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let pos: isize = obj.try_into_value(vm)?;
+            Ok(Self(pos.max(0) as usize))
+        }
+    }
+
     #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
         #[pyarg(any, default)]
-        pos: usize,
+        pos: StringPos,
         // Platform ssize maximum, shown as sys.maxsize.
-        #[pyarg(any, default = sys::MAXSIZE as usize, py_default = "sys.maxsize")]
-        endpos: usize,
+        #[pyarg(any, default = StringPos(sys::MAXSIZE as usize), py_default = "sys.maxsize")]
+        endpos: StringPos,
     }
 
     #[derive(FromArgs)]
@@ -533,7 +545,7 @@ mod _sre {
                 endpos,
             } = string_args;
             with_sre_str!(zelf, &string.clone(), vm, |x| {
-                let req = x.create_request(&zelf, pos, endpos);
+                let req = x.create_request(&zelf, pos.0, endpos.0);
                 let mut state = State::default();
                 Ok(state
                     .py_match(&req)
@@ -548,7 +560,7 @@ mod _sre {
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(zelf, &string_args.string.clone(), vm, |x| {
-                let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
+                let mut req = x.create_request(&zelf, string_args.pos.0, string_args.endpos.0);
                 req.match_all = true;
                 let mut state = State::default();
                 Ok(state.py_match(&req).then(|| {
@@ -564,7 +576,7 @@ mod _sre {
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(zelf, &string_args.string.clone(), vm, |x| {
-                let req = x.create_request(&zelf, string_args.pos, string_args.endpos);
+                let req = x.create_request(&zelf, string_args.pos.0, string_args.endpos.0);
                 let mut state = State::default();
                 Ok(state.search(req).then(|| {
                     Match::new(&mut state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
@@ -579,7 +591,7 @@ mod _sre {
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
             with_sre_str!(zelf, &string_args.string, vm, |s| {
-                let req = s.create_request(&zelf, string_args.pos, string_args.endpos);
+                let req = s.create_request(&zelf, string_args.pos.0, string_args.endpos.0);
                 let state = State::default();
                 let mut match_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
@@ -627,8 +639,8 @@ mod _sre {
             let scanner = SreScanner {
                 pattern: zelf,
                 string: string_args.string,
-                start: AtomicCell::new(string_args.pos),
-                end: string_args.endpos,
+                start: AtomicCell::new(string_args.pos.0),
+                end: string_args.endpos.0,
                 must_advance: AtomicCell::new(false),
             }
             .into_ref(&vm.ctx);
@@ -647,8 +659,8 @@ mod _sre {
             SreScanner {
                 pattern: zelf,
                 string: string_args.string,
-                start: AtomicCell::new(string_args.pos),
-                end: string_args.endpos,
+                start: AtomicCell::new(string_args.pos.0),
+                end: string_args.endpos.0,
                 must_advance: AtomicCell::new(false),
             }
             .into_ref(&vm.ctx)
