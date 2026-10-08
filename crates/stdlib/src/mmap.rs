@@ -427,7 +427,7 @@ mod mmap {
                 }
             };
 
-            let anonymous = fd == -1 || _flags & host_mmap::MAP_ANONYMOUS != 0;
+            let anonymous = fd == -1 || flags & host_mmap::MAP_ANONYMOUS != 0;
             let fd = if fd == -1 {
                 None
             } else {
