@@ -799,6 +799,10 @@ mod mmap {
             &self,
             vm: &VirtualMachine,
         ) -> PyResult<PyMutexGuard<'_, Option<MmapObj>>> {
+            // Borrowed buffers can hold the data lock across blocking I/O.
+            if self.exports.load() > 0 {
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
+            }
             let mmap = self.check_valid(vm)?;
             if self.exports.load() > 0 {
                 drop(mmap);
@@ -826,6 +830,10 @@ mod mmap {
 
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Reject an existing export without waiting for its borrowed-data guard.
+            if zelf.exports.load() > 0 {
+                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
+            }
             let mut mmap = zelf.mmap.lock();
             if Self::closed(zelf) {
                 return Ok(());
@@ -1503,6 +1511,79 @@ mod mmap {
                 }
                 Ok(())
             }
+        }
+    }
+
+    #[cfg(test)]
+    #[cfg(feature = "threading")]
+    mod tests {
+        use super::*;
+        use core::time::Duration;
+        use std::{sync::mpsc, thread};
+
+        fn rejects_borrowed_buffer(resize: bool) {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder
+                .add_native_modules(&defs)
+                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .build();
+            interp.enter(|vm| {
+                let module = vm.import("mmap", 0).unwrap();
+                let mapped = module
+                    .get_attr("mmap", vm)
+                    .unwrap()
+                    .call((-1, 1), vm)
+                    .unwrap()
+                    .downcast::<PyMmap>()
+                    .unwrap();
+                let buffer = PyMmap::as_buffer(&mapped, vm).unwrap();
+                thread::scope(|scope| {
+                    let (ready_tx, ready_rx) = mpsc::channel();
+                    let (done_tx, done_rx) = mpsc::channel();
+                    let buffer = &buffer;
+                    let borrower = scope.spawn(move || {
+                        // A native I/O operation can keep this guard while detached.
+                        let bytes = buffer.as_contiguous().unwrap();
+                        assert!(bytes.is_locked());
+                        ready_tx.send(()).unwrap();
+                        // Release even on a regression, so the test fails rather than hangs.
+                        let rejected_before_release =
+                            done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+                        drop(bytes);
+                        rejected_before_release
+                    });
+                    ready_rx.recv().unwrap();
+                    let result = if resize {
+                        mapped.check_resizeable(vm).map(drop)
+                    } else {
+                        PyMmap::close(&mapped, vm)
+                    };
+                    let _ = done_tx.send(());
+                    assert!(
+                        borrower.join().unwrap(),
+                        "export rejection waited for the borrowed buffer"
+                    );
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .class()
+                            .is(vm.ctx.exceptions.buffer_error)
+                    );
+                });
+                drop(buffer);
+                PyMmap::close(&mapped, vm).unwrap();
+            });
+        }
+
+        #[test]
+        fn close_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(false);
+        }
+
+        #[test]
+        fn resize_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(true);
         }
     }
 
