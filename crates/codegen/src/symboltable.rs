@@ -2207,11 +2207,9 @@ impl SymbolTableBuilder {
                 Expr::BoolOp(ExprBoolOp { values, .. }) => {
                     self.scan_expressions(values, context)?;
                 }
-                Expr::Compare(ExprCompare {
-                    left, comparators, ..
-                }) => {
-                    self.scan_expression(left, context)?;
-                    self.scan_expressions(comparators, context)?;
+                Expr::Compare(compare) => {
+                    self.scan_expression(compare.first_operand(), context)?;
+                    self.scan_expressions(compare.comparators(), context)?;
                 }
                 Expr::Subscript(ExprSubscript { value, slice, .. }) => {
                     self.scan_expression(value, ExpressionContext::Load)?;

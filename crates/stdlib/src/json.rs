@@ -546,7 +546,7 @@ mod _json {
             // `'[' * 50000 + ']' * 50000` overflows the native Rust stack and
             // crashes the process with SIGSEGV. Matches CPython's
             // _Py_EnterRecursiveCall in Modules/_json.c.
-            vm.with_recursion("while decoding a JSON object from a string", || {
+            vm.with_recursion(" while decoding a JSON object from a string", || {
                 let bytes = pystr.as_bytes();
                 let wtf8 = pystr.as_wtf8();
 
@@ -1254,7 +1254,7 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            vm.with_recursion("while encoding a JSON object", || {
+            vm.with_recursion(" while encoding a JSON object", || {
                 if let Some(s) = obj.downcast_ref::<PyStr>() {
                     self.write_str_obj(obj, s, out, vm)
                 } else if vm.is_none(obj) {
@@ -1323,12 +1323,17 @@ mod _json {
     #[pyfunction]
     fn scanstring(
         s: PyStrRef,
-        end: usize,
+        end: isize,
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<(Wtf8Buf, usize)> {
         flame_guard!("_json::scanstring");
         let wtf8 = s.as_wtf8();
+
+        if end < 0 || end as usize > s.char_len() {
+            return Err(vm.new_value_error("end is out of bounds"));
+        }
+        let end = end as usize;
 
         // Convert char index `end` to byte index
         let byte_idx = if end == 0 {
@@ -1336,17 +1341,7 @@ mod _json {
         } else {
             wtf8.code_point_indices()
                 .nth(end)
-                .map(|(i, _)| i)
-                .ok_or_else(|| {
-                    py_decode_error(
-                        json::DecodeError {
-                            msg: "Unterminated string starting at".to_owned(),
-                            pos: end - 1,
-                        },
-                        s.clone(),
-                        vm,
-                    )
-                })?
+                .map_or(wtf8.len(), |(i, _)| i)
         };
 
         let (result, end_char_idx, _bytes_consumed) =

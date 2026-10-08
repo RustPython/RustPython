@@ -227,7 +227,7 @@ impl SharedValue {
                 t.as_slice()
                     .iter()
                     .map(|item| {
-                        vm.with_recursion("while sharing a tuple", || {
+                        vm.with_recursion(" while sharing a tuple", || {
                             Self::from_object(item, fallback, vm)
                         })
                     })

@@ -22,7 +22,7 @@ use crate::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PyNumberMethods, PySequenceMethods,
     },
-    sliceable::{SequenceIndex, SliceableSequenceOp},
+    sliceable::{NameByte, SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
         IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
@@ -165,7 +165,7 @@ impl PyBytes {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
+        match SequenceIndex::try_from_borrowed_object::<NameByte>(vm, needle)? {
             SequenceIndex::Int(i) => self
                 .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_int(x).into()),

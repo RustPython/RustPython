@@ -1,8 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
-    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, infer_native_call_flags,
-    internal_doc_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, internal_doc_tokens,
+    pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -649,9 +649,7 @@ fn generate_class_def(
     let subclass_impl = if !is_pystruct && is_repr_transparent {
         base.as_ref().map(|typ| {
             quote! {
-                // SAFETY: the transparent base field has the same layout as Self;
-                // pyclass also checks the object payload offsets and alignment.
-                unsafe impl ::rustpython_vm::class::PySubclass for #ident {
+                impl ::rustpython_vm::class::PySubclass for #ident {
                     type Base = #typ;
 
                     #[inline]
@@ -1326,9 +1324,6 @@ where
                 _ => None,
             }
         };
-        let drop_first_typed = usize::from(implicit_self.is_some());
-        let call_flags = infer_native_call_flags(func.sig(), drop_first_typed);
-
         // Add #[allow(non_snake_case)] for setter methods like set___name__
         let method_name = ident.to_string();
         if method_name.starts_with("set_") && method_name.contains("__") {
@@ -1360,7 +1355,6 @@ where
             raw,
             coexist,
             attr_name: self.inner.attr_name,
-            call_flags,
         });
         Ok(())
     }
@@ -1557,7 +1551,6 @@ struct MethodNurseryItem {
     doc: TokenStream,
     doc_body_pending: TokenStream,
     attr_name: AttrName,
-    call_flags: TokenStream,
 }
 
 impl MethodNursery {
@@ -1597,7 +1590,6 @@ impl ToTokens for MethodNursery {
                 }
                 _ => unreachable!(),
             };
-            let call_flags = &item.call_flags;
             let coexist_flags = if item.coexist {
                 quote! { | rustpython_vm::function::PyMethodFlags::COEXIST.bits() }
             } else {
@@ -1605,7 +1597,7 @@ impl ToTokens for MethodNursery {
             };
             let flags = quote! {
                 rustpython_vm::function::PyMethodFlags::from_bits_retain(
-                    (#binding_flags).bits() | (#call_flags).bits() #coexist_flags
+                    (#binding_flags).bits() #coexist_flags
                 )
             };
             // TODO: intern

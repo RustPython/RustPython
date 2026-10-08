@@ -3322,7 +3322,7 @@ mod tests {
                 ItemDoc::NONE,
             );
             let function = METHOD.build_function(&vm.ctx);
-            // CFunction and CMethod share a Python class, but not a Rust layout.
+            // CFunction and CMethod have distinct Python classes and Rust layouts.
             assert!(!function.as_object().downcastable::<PyNativeMethod>());
             assert!(
                 function

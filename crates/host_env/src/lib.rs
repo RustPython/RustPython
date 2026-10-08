@@ -74,7 +74,7 @@ pub mod pwd;
 pub mod resource;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "android")))]
 pub mod shm;
-#[cfg(any(unix, windows))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod signal;
 pub mod time;
 

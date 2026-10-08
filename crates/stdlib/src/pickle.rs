@@ -18,6 +18,7 @@ mod _pickle {
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
     };
+    use alloc::collections::TryReserveError;
     use core::sync::atomic::{AtomicI32, Ordering};
     use malachite_bigint::BigInt;
     use num_traits::{ToPrimitive, Zero};
@@ -407,17 +408,26 @@ mod _pickle {
     impl UnpicklerMemoProxy {
         #[pymethod]
         fn clear(zelf: &Py<Self>) {
-            zelf.unpickler.memo.write().clear();
+            let old_memo = core::mem::take(&mut *zelf.unpickler.memo.write());
+            drop(old_memo);
         }
 
         #[pymethod]
         fn copy(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let mut snapshot = Vec::new();
+            let copied = {
+                let memo = zelf.unpickler.memo.read();
+                snapshot.try_reserve_exact(memo.len()).map(|()| {
+                    snapshot.extend(memo.iter().map(|(&index, obj)| (index, obj.clone())));
+                })
+            };
+            copied.map_err(|_| vm.no_memory_error())?;
+            // CPython inserts present memo indices in ascending order.
+            snapshot.sort_unstable_by_key(|(index, _)| *index);
             let dict = vm.ctx.new_dict();
-            for (i, entry) in zelf.unpickler.memo.read().iter().enumerate() {
-                if let Some(obj) = entry {
-                    let key: PyObjectRef = vm.ctx.new_int(i).into();
-                    dict.set_item(&*key, obj.clone(), vm)?;
-                }
+            for (i, obj) in snapshot {
+                let key: PyObjectRef = vm.ctx.new_int(i).into();
+                dict.set_item(&*key, obj, vm)?;
             }
             Ok(dict.into())
         }
@@ -439,6 +449,10 @@ mod _pickle {
     }
 
     // Unpickler
+
+    // PUT indices need not be contiguous. A sparse table also keeps MEMOIZE's
+    // index equal to the number of entries rather than the largest index.
+    type UnpicklerMemo = HashMap<usize, PyObjectRef>;
 
     #[derive(Debug)]
     pub(super) struct UnpicklerConfig {
@@ -468,7 +482,7 @@ mod _pickle {
     #[derive(Debug, PyPayload)]
     pub(super) struct PyUnpickler {
         read_state: PyMutex<ReadState>,
-        memo: PyRwLock<Vec<Option<PyObjectRef>>>,
+        memo: PyRwLock<UnpicklerMemo>,
         config: PyRwLock<UnpicklerConfig>,
     }
 
@@ -495,7 +509,7 @@ mod _pickle {
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self {
                 read_state: PyMutex::new(ReadState::default()),
-                memo: PyRwLock::new(Vec::new()),
+                memo: PyRwLock::new(UnpicklerMemo::new()),
                 config: PyRwLock::new(UnpicklerConfig::default()),
             })
         }
@@ -548,7 +562,7 @@ mod _pickle {
                 peek,
                 ..ReadState::default()
             };
-            zelf.memo.write().clear();
+            let old_memo = core::mem::take(&mut *zelf.memo.write());
             *zelf.config.write() = UnpicklerConfig {
                 initialized: true,
                 proto: 0,
@@ -557,6 +571,8 @@ mod _pickle {
                 errors,
                 buffers,
             };
+            drop(state);
+            drop(old_memo);
             Ok(())
         }
     }
@@ -605,21 +621,21 @@ mod _pickle {
                 }
             };
             let new_memo = if let Some(proxy) = value.downcast_ref::<UnpicklerMemoProxy>() {
-                proxy.unpickler.memo.read().clone()
+                let snapshot = copy_memo(&proxy.unpickler.memo.read());
+                snapshot.map_err(|_| vm.no_memory_error())?
             } else if let Some(dict) = value.downcast_ref::<PyDict>() {
-                let mut memo: Vec<Option<PyObjectRef>> = Vec::new();
+                let mut memo = UnpicklerMemo::new();
+                memo.try_reserve(dict.__len__())
+                    .map_err(|_| vm.no_memory_error())?;
                 for (key, val) in dict {
                     let idx = key
                         .downcast_ref::<PyInt>()
                         .ok_or_else(|| vm.new_type_error("memo key must be integers"))?;
-                    let idx = idx
-                        .as_bigint()
-                        .to_usize()
-                        .ok_or_else(|| vm.new_value_error("memo key must be positive integers."))?;
-                    if memo.len() <= idx {
-                        memo.resize(idx + 1, None);
+                    let idx = idx.try_to_primitive::<isize>(vm)?;
+                    if idx < 0 {
+                        return Err(vm.new_value_error("memo key must be positive integers."));
                     }
-                    memo[idx] = Some(val);
+                    memo_insert(&mut memo, idx as usize, &val).map_err(|_| vm.no_memory_error())?;
                 }
                 memo
             } else {
@@ -628,7 +644,8 @@ mod _pickle {
                     value.class().name()
                 )));
             };
-            *zelf.memo.write() = new_memo;
+            let old_memo = core::mem::replace(&mut *zelf.memo.write(), new_memo);
+            drop(old_memo);
             Ok(())
         }
     }
@@ -1253,13 +1270,13 @@ mod _pickle {
                 Some(BINPUT) => {
                     let i = st.read_n(1, vm)?[0] as usize;
                     let value = top!();
-                    memo_put(zelf, i, value);
+                    memo_put(zelf, Some(i), value, vm)?;
                 }
                 Some(LONG_BINPUT) => {
                     let arr: [u8; 4] = st.read_n(4, vm)?.try_into().unwrap();
                     let i = u32::from_le_bytes(arr) as usize;
                     let value = top!();
-                    memo_put(zelf, i, value);
+                    memo_put(zelf, Some(i), value, vm)?;
                 }
                 Some(PUT) => {
                     let line = st.read_line(vm)?;
@@ -1269,12 +1286,11 @@ mod _pickle {
                     let body = &line[..line.len() - 1];
                     let idx = parse_memo_index(body, vm)?;
                     let value = top!();
-                    memo_put(zelf, idx, value);
+                    memo_put(zelf, Some(idx), value, vm)?;
                 }
                 Some(MEMOIZE) => {
                     let value = top!();
-                    let idx = zelf.memo.read().len();
-                    memo_put(zelf, idx, value);
+                    memo_put(zelf, None, value, vm)?;
                 }
                 Some(PERSID) => {
                     let line = st.read_line(vm)?;
@@ -1503,19 +1519,43 @@ mod _pickle {
     }
 
     fn memo_get(zelf: &Py<PyUnpickler>, idx: usize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        zelf.memo
-            .read()
-            .get(idx)
-            .and_then(|o| o.clone())
+        let value = zelf.memo.read().get(&idx).cloned();
+        value
             .ok_or_else(|| new_unpickling_error(vm, format!("Memo value not found at index {idx}")))
     }
 
-    fn memo_put(zelf: &Py<PyUnpickler>, idx: usize, value: PyObjectRef) {
-        let mut memo = zelf.memo.write();
-        if memo.len() <= idx {
-            memo.resize(idx + 1, None);
+    fn copy_memo(memo: &UnpicklerMemo) -> Result<UnpicklerMemo, TryReserveError> {
+        let mut copy = UnpicklerMemo::new();
+        copy.try_reserve(memo.len())?;
+        copy.extend(memo.iter().map(|(&idx, obj)| (idx, obj.clone())));
+        Ok(copy)
+    }
+
+    fn memo_insert(
+        memo: &mut UnpicklerMemo,
+        idx: usize,
+        value: &PyObjectRef,
+    ) -> Result<Option<PyObjectRef>, TryReserveError> {
+        if !memo.contains_key(&idx) {
+            memo.try_reserve(1)?;
         }
-        memo[idx] = Some(value);
+        Ok(memo.insert(idx, value.clone()))
+    }
+
+    fn memo_put(
+        zelf: &Py<PyUnpickler>,
+        idx: Option<usize>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let old_value = {
+            let mut memo = zelf.memo.write();
+            let idx = idx.unwrap_or_else(|| memo.len());
+            memo_insert(&mut memo, idx, &value)
+        };
+        // Releasing an entry can call a finalizer that accesses the memo.
+        drop(old_value.map_err(|_| vm.no_memory_error())?);
+        Ok(())
     }
 
     fn instantiate(
@@ -1699,7 +1739,7 @@ mod _pickle {
                 buf: data,
                 ..ReadState::default()
             }),
-            memo: PyRwLock::new(Vec::new()),
+            memo: PyRwLock::new(UnpicklerMemo::new()),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
@@ -1745,7 +1785,7 @@ mod _pickle {
                 peek,
                 ..ReadState::default()
             }),
-            memo: PyRwLock::new(Vec::new()),
+            memo: PyRwLock::new(UnpicklerMemo::new()),
             config: PyRwLock::new(config),
         }
         .into_ref(&vm.ctx);
@@ -2856,7 +2896,7 @@ mod _pickle {
 
     impl SaveCtx<'_> {
         fn save(&mut self, obj: &PyObject, pers_save: bool, vm: &VirtualMachine) -> PyResult<()> {
-            vm.with_recursion("while pickling an object", || {
+            vm.with_recursion(" while pickling an object", || {
                 self.save_inner(obj, pers_save, vm)
             })
         }

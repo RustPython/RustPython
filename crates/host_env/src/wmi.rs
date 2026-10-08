@@ -7,7 +7,7 @@
 
 use core::ffi::c_void;
 use core::ptr::{NonNull, null, null_mut};
-use widestring::WideCString;
+use widestring::{WideCStr, WideCString};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_BROKEN_PIPE, ERROR_INVALID_NAME, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY,
     GetLastError, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
@@ -19,7 +19,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::w;
 
-use crate::ctypes::wcslen;
+use crate::windows::{sys_alloc_string_len, sys_free_string};
 
 pub const BUFFER_SIZE: usize = 8192;
 
@@ -122,21 +122,20 @@ fn alloc_bstr(wide: &[u16]) -> *mut u16 {
         .iter()
         .position(|&unit| unit == 0)
         .unwrap_or(wide.len());
-    crate::ctypes::sys_alloc_string_len(&wide[..len]).unwrap_or(null_mut())
+    sys_alloc_string_len(&wide[..len]).unwrap_or(null_mut())
 }
 
 fn alloc_bstr_ptr(ptr: *const u16) -> *mut u16 {
     let Some(ptr) = NonNull::new(ptr.cast_mut()) else {
         return null_mut();
     };
-    let len = unsafe { crate::ctypes::wcslen(ptr) };
-    crate::ctypes::sys_alloc_string_len(unsafe { core::slice::from_raw_parts(ptr.as_ptr(), len) })
-        .unwrap_or(null_mut())
+    let wide = unsafe { WideCStr::from_ptr_str(ptr.as_ptr()) };
+    sys_alloc_string_len(wide.as_slice()).unwrap_or(null_mut())
 }
 
 fn free_bstr(bstr: *mut u16) {
     if !bstr.is_null() {
-        crate::ctypes::sys_free_string(bstr);
+        sys_free_string(bstr);
     }
 }
 
@@ -478,9 +477,9 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
             }
 
             if succeeded(hr) && (flavor & WBEM_FLAVOR_MASK_ORIGIN) != WBEM_FLAVOR_ORIGIN_SYSTEM {
-                let Some(cb_str1) = NonNull::new(prop_name)
-                    .map(|prop_name| (unsafe { wcslen(prop_name) } * 2) as u32)
-                else {
+                let Some(cb_str1) = NonNull::new(prop_name).map(|prop_name| {
+                    (unsafe { WideCStr::from_ptr_str(prop_name.as_ptr()) }.len() * 2) as u32
+                }) else {
                     free_bstr(prop_name);
                     break;
                 };
@@ -490,7 +489,9 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
                     VariantToString(&prop_value, prop_str.as_mut_ptr(), BUFFER_SIZE as u32)
                 };
                 let cb_str2 = NonNull::new(prop_str.as_ptr().cast_mut())
-                    .map(|prop_str| (unsafe { wcslen(prop_str) } * 2) as u32)
+                    .map(|prop_str| {
+                        (unsafe { WideCStr::from_ptr_str(prop_str.as_ptr()) }.len() * 2) as u32
+                    })
                     .expect("prop_str is never null");
 
                 if succeeded(hr)

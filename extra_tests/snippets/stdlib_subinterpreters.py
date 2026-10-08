@@ -117,3 +117,50 @@ if __name__ == '__main__':
         encoding="utf-8",
     )
     subprocess.run([sys.executable, str(script)], check=True, timeout=30)
+
+
+# Releasing queued buffers can run a finalizer which reenters the channel API.
+subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        """
+import _interpchannels as channels
+import _interpreters
+import sys
+
+released = []
+
+class Exporter(bytearray):
+    def __del__(self):
+        channels.list_all()
+        released.append(True)
+
+for operation in ("destroy", "close", "drop", "timeout"):
+    # CPython 3.14.6 also deadlocks when close/drop releases a reentrant exporter.
+    if sys.implementation.name == "cpython" and operation in ("close", "drop"):
+        continue
+    channel = channels.create(3)
+    released.clear()
+    if operation == "timeout":
+        try:
+            channels.send_buffer(channel, Exporter(b"data"), timeout=0)
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("send must time out without a receiver")
+    else:
+        channels.send_buffer(channel, Exporter(b"data"), blocking=False)
+        assert not released
+        if operation == "destroy":
+            channels.destroy(channel)
+        elif operation == "close":
+            channels.close(channel, force=True)
+        else:
+            del channel
+    assert released == [True], operation
+""",
+    ],
+    check=True,
+    timeout=30,
+)

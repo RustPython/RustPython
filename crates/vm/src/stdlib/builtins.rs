@@ -1163,10 +1163,9 @@ mod builtins {
                 ))
             })?;
         match ndigits {
-            Some(obj) => {
-                let ndigits = obj.try_index(vm)?;
-                meth.invoke((ndigits,), vm)
-            }
+            // Like CPython, pass ndigits through as-is; the __round__ implementation
+            // decides what it accepts (float and int apply __index__ themselves).
+            Some(obj) => meth.invoke((obj,), vm),
             None => {
                 // without a parameter, the result type is coerced to int
                 meth.invoke((), vm)
@@ -1479,6 +1478,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "object" => ctx.types.object_type.to_owned(),
         "property" => ctx.types.property_type.to_owned(),
         "range" => ctx.types.range_type.to_owned(),
+        "sentinel" => ctx.types.sentinel_type.to_owned(),
         "set" => ctx.types.set_type.to_owned(),
         "slice" => ctx.types.slice_type.to_owned(),
         "staticmethod" => ctx.types.staticmethod_type.to_owned(),

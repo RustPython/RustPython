@@ -19,7 +19,9 @@ pub use argument::{
     NameKeywords, NameKwargs, NameKwds, NameKws, NameObjs, NameOthers, OptionalArg,
     OptionalArgDefault, OptionalOption, PosArgs, PositionalIterable,
 };
-pub(crate) use argument::{arity_message, unexpected_keyword_message};
+pub(crate) use argument::{
+    arity_message, given_by_name_and_position_message, unexpected_keyword_message,
+};
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{
     ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,

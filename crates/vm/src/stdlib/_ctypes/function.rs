@@ -509,7 +509,10 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
         return true;
     }
 
-    // PyCFuncPtrTypeObject_Check - TODO
+    // PyCFuncPtrTypeObject_Check
+    if ctype.class().fast_issubclass(PyCFuncPtrType::static_type()) {
+        return true;
+    }
 
     // simple pointer types via StgInfo.proto (c_void_p, c_char_p, etc.)
     if let Ok(type_attr) = ctype.get_attr("_type_", vm)
@@ -562,6 +565,9 @@ pub(super) fn cast_impl(
         // Simple type (c_void_p, c_char_p, etc.) → value from buffer
         let buffer = simple.0.buffer.read();
         rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
+    } else if let Some(funcptr) = obj.downcast_ref::<PyCFuncPtr>() {
+        // A function pointer stores the executable address in its buffer.
+        funcptr.get_func_ptr()
     } else if let Some(cdata) = obj.downcast_ref::<PyCData>() {
         // Array, Structure, Union → buffer address (b_ptr)
         cdata.buffer.read().as_ptr() as usize

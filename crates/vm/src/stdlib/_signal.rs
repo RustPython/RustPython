@@ -13,7 +13,7 @@ pub(crate) mod _signal {
     use core::sync::atomic::{self, Ordering};
 
     cfg_select! {
-        any(unix, windows) => {
+        any(unix, windows, target_os = "wasi") => {
             use crate::convert::{IntoPyException, TryFromBorrowedObject};
             use rustpython_host_env::signal as host_signal;
         }
@@ -73,11 +73,11 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[allow(unused_imports)]
     pub use host_signal::SIG_ERR;
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyattr]
     pub use host_signal::{SIG_DFL, SIG_IGN};
 
@@ -86,22 +86,22 @@ pub(crate) mod _signal {
     #[pyattr]
     use host_signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     #[pyattr]
     pub const SIG_DFL: sighandler_t = 0;
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     #[pyattr]
     pub const SIG_IGN: sighandler_t = 1;
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     #[allow(dead_code)]
     pub const SIG_ERR: sighandler_t = -1 as _;
 
     #[pyattr]
     use crate::signal::NSIG;
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyattr]
     pub use host_signal::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
@@ -160,7 +160,7 @@ pub(crate) mod _signal {
     const _: () = assert!(SignalNum::VALID_RANGE.start.is_positive());
     const _: () = assert!(SignalNum::VALID_RANGE.end.is_positive());
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     pub(super) fn init_signal_handlers(
         module: &Py<crate::builtins::PyModule>,
         vm: &VirtualMachine,
@@ -199,7 +199,7 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     #[pyfunction]
     pub fn signal(
         _signalnum: i32,
@@ -209,7 +209,7 @@ pub(crate) mod _signal {
         Err(vm.new_not_implemented_error("signal is not implemented on this platform"))
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyfunction]
     pub fn signal(
         signalnum: SignalNum,
@@ -401,7 +401,7 @@ pub(crate) mod _signal {
         host_signal::siginterrupt(signalnum.into(), flag).map_err(|_| vm.new_last_errno_error())
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
         let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
@@ -506,7 +506,7 @@ pub(crate) mod _signal {
         sigset_to_pyset(old_mask, vm)
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(unix, windows, target_os = "wasi"))]
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
@@ -535,7 +535,7 @@ pub(crate) mod _signal {
     ) -> PyResult<()> {
         __module_exec(vm, module);
 
-        #[cfg(any(unix, windows))]
+        #[cfg(any(unix, windows, target_os = "wasi"))]
         init_signal_handlers(module, vm);
 
         Ok(())

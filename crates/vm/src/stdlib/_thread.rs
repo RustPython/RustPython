@@ -27,8 +27,8 @@ pub(crate) mod _thread {
         convert::ToPyException,
         frame::FrameObjectRef,
         function::{
-            ArgCallable, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs, NameExcInfo,
-            OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
+            ArgCallable, ArgIndex, ArgumentError, DefaultRepr, FromArgs, FuncArgs, KwArgs,
+            NameExcInfo, OptionalArg, Param, ParamKind, PosArgs, PySetterValue, TimeoutSeconds,
         },
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, PyStructSequence, Representable, SetAttr},
@@ -847,7 +847,7 @@ pub(crate) mod _thread {
     #[derive(FromArgs)]
     struct StackSizeArgs {
         #[pyarg(positional, default = 0)]
-        size: PyIntRef,
+        size: ArgIndex,
     }
 
     #[pyfunction]
@@ -855,7 +855,7 @@ pub(crate) mod _thread {
         const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
         let StackSizeArgs { size } = args;
 
-        let Ok(size) = size.try_to_primitive(vm) else {
+        let Ok(size) = size.as_ref().try_to_primitive(vm) else {
             return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
         };
 

@@ -326,7 +326,7 @@ SyntaxError: did you forget parentheses around the comprehension target?
 
 # Incorrectly closed strings
 
->>> "The interesting object "The important object" is very important"  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> "The interesting object "The important object" is very important"
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Is this intended to be part of the string?
 
@@ -423,7 +423,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> def foo(/,a,b=,c):  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> def foo(/,a,b=,c):
 ...    pass
 Traceback (most recent call last):
 SyntaxError: at least one argument must precede /
@@ -1045,7 +1045,7 @@ This tests assignment-context; there was a bug in Python 2.5 where compiling
 a complex 'if' (one with 'elif') would fail to notice an invalid suite,
 leading to spurious errors.
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1053,7 +1053,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1061,7 +1061,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   x() = 1
    ... elif 1:
    ...   pass
@@ -1071,7 +1071,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   x() = 1
@@ -1081,7 +1081,7 @@ leading to spurious errors.
      ...
    SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
-   >>> if 1:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> if 1:
    ...   pass
    ... elif 1:
    ...   pass
@@ -1185,7 +1185,7 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1195,12 +1195,12 @@ Missing ':' before suites:
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
 
-   >>> with (blech, block as something, bluch)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> with (blech, block as something, bluch)
    ...   pass
    Traceback (most recent call last):
    SyntaxError: expected ':'
@@ -1464,7 +1464,7 @@ Ensure that early = are not matched by the parser as invalid comparisons
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
-   >>> dict(x=34, (x for x in range 10), 1); x $ y  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+   >>> dict(x=34, (x for x in range 10), 1); x $ y
    Traceback (most recent call last):
    SyntaxError: invalid syntax
 
@@ -2077,7 +2077,7 @@ SyntaxError: cannot use literal as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (b as c.d)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (b as c.d)
 Traceback (most recent call last):
 SyntaxError: cannot use attribute as import target
 
@@ -2085,18 +2085,18 @@ SyntaxError: cannot use attribute as import target
 Traceback (most recent call last):
 SyntaxError: cannot use literal as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as f())
 Traceback (most recent call last):
 SyntaxError: cannot use function call as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b as [],
 ... )
 Traceback (most recent call last):
 SyntaxError: cannot use list as import target
 
->>> from a import (  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import (
 ...   b,
 ...   c as ()
 ... )
@@ -2233,7 +2233,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
-    >>> import ä £  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> import ä £
     Traceback (most recent call last):
     SyntaxError: invalid character '£' (U+00A3)
 
@@ -2245,7 +2245,7 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use '_' as a target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as 1+2+4:
     ...     ...
     Traceback (most recent call last):
@@ -2263,13 +2263,13 @@ Corner-cases that used to crash:
     Traceback (most recent call last):
     SyntaxError: cannot use tuple as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as (a + 1):
     ...     ...
     Traceback (most recent call last):
     SyntaxError: cannot use expression as pattern target
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case (32 as x) | (42 as a()):
     ...     ...
     Traceback (most recent call last):
@@ -2375,7 +2375,7 @@ A[*(1:2)]
 
 A[*:] and A[:*]
 
-    >>> A[*:]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*:]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression
@@ -2386,7 +2386,7 @@ A[*:] and A[:*]
 
 A[*]
 
-    >>> A[*]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> A[*]
     Traceback (most recent call last):
         ...
     SyntaxError: Invalid star expression

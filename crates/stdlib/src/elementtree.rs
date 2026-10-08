@@ -29,7 +29,7 @@ pub(crate) mod _elementtree {
         builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
         function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
-        sliceable::{SequenceIndex, SliceableSequenceOp},
+        sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
         types::{
             AsMapping, AsNumber, AsSequence, Constructor, DefaultConstructor, Initializer,
             IterNext, Iterable, Representable, SelfIter,
@@ -1028,7 +1028,7 @@ pub(crate) mod _elementtree {
     }
 
     fn sequence_index(vm: &VirtualMachine, needle: &PyObject) -> PyResult<SequenceIndex> {
-        SequenceIndex::try_from_borrowed_object(vm, needle, "element")
+        SequenceIndex::try_from_borrowed_object::<NameElement>(vm, needle)
             .map_err(|_| vm.new_type_error("element indices must be integers"))
     }
 

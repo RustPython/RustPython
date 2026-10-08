@@ -65,8 +65,7 @@ pub(super) mod types {
         excs_str: PyAtomicRef<Option<PyObject>>,
     }
 
-    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
-    unsafe impl crate::class::PySubclass for PyBaseExceptionGroup {
+    impl crate::class::PySubclass for PyBaseExceptionGroup {
         type Base = PyBaseException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -133,7 +132,7 @@ pub(super) mod types {
                     // frame, so a deep enough group runs off the native stack
                     // unless this guard is here.
                     let subgroup_result = vm
-                        .with_recursion("in exception group subgroup", || {
+                        .with_recursion(" in exception group subgroup", || {
                             vm.call_method(&exc, "subgroup", (matcher_value.clone(),))
                         })?;
                     if !vm.is_none(&subgroup_result) {
@@ -183,7 +182,7 @@ pub(super) mod types {
                 if is_base_exception_group(&exc, vm) {
                     // Same as in subgroup: nothing else bounds this recursion
                     // against the native stack.
-                    let result = vm.with_recursion("in exception group split", || {
+                    let result = vm.with_recursion(" in exception group split", || {
                         vm.call_method(&exc, "split", (matcher_value.clone(),))
                     })?;
                     let result_tuple: PyTupleRef = result.try_into_value(vm)?;

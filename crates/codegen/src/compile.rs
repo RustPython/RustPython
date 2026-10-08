@@ -8604,14 +8604,15 @@ impl<'warnings> Compiler<'warnings> {
                 self.use_cpython_label_block(end);
                 Ok(())
             }
-            ast::Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                ..
-            }) if ops.len() > 1 => {
+            ast::Expr::Compare(compare) if compare.ops.len() > 1 => {
                 self.set_source_range(expression.range());
-                self.compile_jump_if_compare(left, ops, comparators, condition, target_block)
+                self.compile_jump_if_compare(
+                    compare.first_operand(),
+                    &compare.ops,
+                    compare.comparators(),
+                    condition,
+                    target_block,
+                )
             }
             _ => {
                 // Fall back case which always will work!
@@ -8940,13 +8941,8 @@ impl<'warnings> Compiler<'warnings> {
                     self.emit_load_attr(idx);
                 }
             }
-            ast::Expr::Compare(ast::ExprCompare {
-                left,
-                ops,
-                comparators,
-                ..
-            }) => {
-                self.compile_compare(left, ops, comparators)?;
+            ast::Expr::Compare(compare) => {
+                self.compile_compare(compare.first_operand(), &compare.ops, compare.comparators())?;
             }
             ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
                 self.emit_load_const(ast_constant_value_to_constant_data(value.clone()));
@@ -12521,7 +12517,11 @@ impl<'warnings> Compiler<'warnings> {
                     ast::Expr::Await(_) => self.found = true,
                     ast::Expr::ListComp(ast::ExprListComp { generators, .. })
                     | ast::Expr::SetComp(ast::ExprSetComp { generators, .. })
-                    | ast::Expr::DictComp(ast::ExprDictComp { generators, .. })
+                        if generators.iter().any(|generator| generator.is_async) =>
+                    {
+                        self.found = true
+                    }
+                    ast::Expr::DictComp(ast::ExprDictComp { generators, .. })
                         if generators.iter().any(|generator| generator.is_async) =>
                     {
                         self.found = true
@@ -12556,16 +12556,16 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_expr_fstring(&mut self, fstring: &ast::ExprFString) -> CompileResult<()> {
         let fstring_range = fstring.range;
-        let fstring = fstring.value.as_slice();
-        if self.count_fstring_parts(fstring) > STACK_USE_GUIDELINE {
-            return self.compile_fstring_parts_joined(fstring, fstring_range);
+        let value = &fstring.value;
+        if self.count_fstring_parts(value) > STACK_USE_GUIDELINE {
+            return self.compile_fstring_parts_joined(value, fstring_range);
         }
 
         let mut element_count = 0;
         let mut pending_literal = None;
         let mut pending_literal_range = None;
         let mut pending_literal_no_location = false;
-        for part in fstring {
+        for part in value {
             self.compile_fstring_part_into(
                 part,
                 &mut pending_literal,
@@ -12629,7 +12629,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_fstring_parts_joined(
         &mut self,
-        fstring: &[ast::FStringPart],
+        fstring: &ast::FStringValue,
         fstring_range: TextRange,
     ) -> CompileResult<()> {
         self.set_source_range(fstring_range);
@@ -12666,7 +12666,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_fstring_part_into(
         &mut self,
-        part: &ast::FStringPart,
+        part: ast::FStringPartRef<'_>,
         pending_literal: &mut Option<Wtf8Buf>,
         pending_literal_range: &mut Option<TextRange>,
         pending_literal_no_location: &mut bool,
@@ -12674,7 +12674,7 @@ impl<'warnings> Compiler<'warnings> {
         join_append_range: Option<TextRange>,
     ) -> CompileResult<()> {
         match part {
-            ast::FStringPart::Literal(string) => {
+            ast::FStringPartRef::Literal(string) => {
                 let value = string_literal_part_value(&self.source_file, string);
                 if pending_literal.is_none() {
                     *pending_literal_range = Some(string.range);
@@ -12687,7 +12687,7 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 Ok(())
             }
-            ast::FStringPart::FString(fstring) => self.compile_fstring_elements_into(
+            ast::FStringPartRef::FString(fstring) => self.compile_fstring_elements_into(
                 fstring.flags,
                 &fstring.elements,
                 pending_literal,
@@ -12801,7 +12801,7 @@ impl<'warnings> Compiler<'warnings> {
         }
     }
 
-    fn count_fstring_parts(&self, fstring: &[ast::FStringPart]) -> u32 {
+    fn count_fstring_parts(&self, fstring: &ast::FStringValue) -> u32 {
         let mut element_count = 0;
         let mut pending_literal = None;
         for part in fstring {
@@ -12813,12 +12813,12 @@ impl<'warnings> Compiler<'warnings> {
 
     fn count_fstring_part_into(
         &self,
-        part: &ast::FStringPart,
+        part: ast::FStringPartRef<'_>,
         pending_literal: &mut Option<Wtf8Buf>,
         element_count: &mut u32,
     ) {
         match part {
-            ast::FStringPart::Literal(string) => {
+            ast::FStringPartRef::Literal(string) => {
                 let value = string_literal_part_value(&self.source_file, string);
                 if let Some(pending) = pending_literal.as_mut() {
                     pending.push_wtf8(value.as_ref());
@@ -12826,7 +12826,7 @@ impl<'warnings> Compiler<'warnings> {
                     *pending_literal = Some(value);
                 }
             }
-            ast::FStringPart::FString(fstring) => self.count_fstring_elements_into(
+            ast::FStringPartRef::FString(fstring) => self.count_fstring_elements_into(
                 fstring.flags,
                 &fstring.elements,
                 pending_literal,
@@ -13972,7 +13972,7 @@ mod tests {
             arguments: ast::Arguments {
                 node_index: ast::AtomicNodeIndex::NONE,
                 range: TextRange::default(),
-                args: Box::default(),
+                args: Default::default(),
                 keywords: Default::default(),
                 runtime_args: None,
                 runtime_bases: None,
@@ -14120,7 +14120,7 @@ mod tests {
             arguments: ast::Arguments {
                 node_index: ast::AtomicNodeIndex::NONE,
                 range: TextRange::default(),
-                args: Box::default(),
+                args: Default::default(),
                 keywords: Default::default(),
                 runtime_args: None,
                 runtime_bases: None,
@@ -14196,12 +14196,14 @@ mod tests {
         let message = first_ast_constant_warning(ast::Expr::Compare(ast::ExprCompare {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
-            left: Box::new(left),
             ops: Box::new([ast::CmpOp::Is]),
-            comparators: Box::new([ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
-                node_index: ast::AtomicNodeIndex::NONE,
-                range: TextRange::default(),
-            })]),
+            operands: Box::new([
+                left,
+                ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
+                    node_index: ast::AtomicNodeIndex::NONE,
+                    range: TextRange::default(),
+                }),
+            ]),
             runtime_comparators: None,
         }));
         assert!(

@@ -1,4 +1,5 @@
 import ctypes
+import gc
 import itertools
 import os as _os
 import sys as _sys
@@ -457,5 +458,15 @@ except MemoryError:
     pass
 else:
     raise AssertionError("an unallocatable array was created")
+
+# A function-pointer cast retains the callback and its executable address.
+Unary = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int)
+callback = Unary(lambda value: value + 1)
+address = ctypes.cast(callback, ctypes.c_void_p)
+roundtrip = ctypes.cast(address, Unary)
+assert roundtrip._objects[id(callback)] is callback
+del callback, address
+gc.collect()
+assert roundtrip(41) == 42
 
 print("done")

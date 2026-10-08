@@ -897,7 +897,6 @@ class MmapTests(unittest.TestCase):
                     match = closed_mmap_repr_pat.match(repr(mm))
                     self.assertIsNotNone(match)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(mmap.mmap, 'madvise'), 'needs madvise')
     def test_madvise(self):
         size = 2 * PAGESIZE
@@ -925,7 +924,6 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m.madvise(mmap.MADV_NORMAL, 0, Number()), None)
         self.assertEqual(m.madvise(mmap.MADV_NORMAL, 0, size), None)
 
-    @unittest.expectedFailureIf(sys.platform in ("linux", "win32"), "TODO: RUSTPYTHON")
     def test_resize_up_anonymous_mapping(self):
         """If the mmap is backed by the pagefile ensure a resize up can happen
         and that the original data is still in place
@@ -1039,7 +1037,6 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m1[:data_length], data)
         self.assertEqual(m2[:data_length], data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap_closed_by_int_scenarios(self):
         """
         gh-103987: Test that mmap objects raise ValueError
