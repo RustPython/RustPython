@@ -375,9 +375,9 @@ pub trait PyClassImpl: PyClassDef {
                 && object_new.is_some_and(|obj_new| fn_addr(slot_new) == fn_addr(obj_new));
 
             if !is_inherited_from_object {
-                let bound_new =
-                    ctx.slot_new_wrapper
-                        .build_bound_method(ctx, class.to_owned().into(), class);
+                let bound_new = ctx
+                    .slot_new_wrapper
+                    .build_bound_function(ctx, class.to_owned().into());
                 class.set_attr(identifier!(ctx, __new__), bound_new.into());
             }
         }

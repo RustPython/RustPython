@@ -1,7 +1,7 @@
 use super::{PyStr, PyStrInterned, PyTuple, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
+    builtins::{PyTypeRef, builtin_func::PyNativeFunction, type_},
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
@@ -124,8 +124,8 @@ impl Callable for PyMethodDescriptor {
 }
 
 impl PyMethodDescriptor {
-    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeFunction> {
+        self.method.build_bound_function(ctx, obj)
     }
 }
 
@@ -195,8 +195,8 @@ impl PyClassMethodDescriptor {
         }
     }
 
-    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.method.build_bound_method(ctx, obj, self.common.typ)
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeFunction> {
+        self.method.build_bound_function(ctx, obj)
     }
 }
 

@@ -654,7 +654,12 @@ assert repr(my_repr_func).startswith("<function my_repr_func at 0x")
 
 
 # https://github.com/RustPython/RustPython/issues/3100
+assert types.BuiltinMethodType is types.BuiltinFunctionType
 assert issubclass(types.BuiltinMethodType, types.BuiltinFunctionType)
+assert type(len) is types.BuiltinFunctionType
+assert type([].append) is types.BuiltinFunctionType
+assert type([].append).__name__ == "builtin_function_or_method"
+assert type(len).__name__ == "builtin_function_or_method"
 
 assert type.__dict__["__dict__"].__objclass__ is type
 assert (

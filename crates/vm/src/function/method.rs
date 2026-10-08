@@ -249,7 +249,7 @@ impl PyMethodDef {
     ) -> PyRef<PyNativeMethod> {
         PyRef::new_ref(
             self.to_bound_method(obj, class),
-            ctx.types.builtin_function_or_method_type.to_owned(),
+            ctx.types.builtin_method_type.to_owned(),
             None,
         )
     }
@@ -267,18 +267,10 @@ impl PyMethodDef {
         &'static self,
         ctx: &Context,
         class: &'static Py<PyType>,
-    ) -> PyRef<PyNativeMethod> {
+    ) -> PyRef<PyNativeFunction> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
-        // Set zelf to the class (m_self = type for static methods).
-        // Callable::call skips prepending when STATIC flag is set.
-        let func = PyNativeFunction {
-            zelf: Some(class.to_owned().into()),
-            value: self,
-            module_object: None,
-            module: crate::object::PyAtomicRef::new_empty(),
-            _method_def_owner: None,
-        };
-        PyNativeMethod { func, class }.into_ref(ctx)
+        // m_self is the type; STATIC skips prepending it on call.
+        self.build_bound_function(ctx, class.to_owned().into())
     }
 
     /// Concatenate method groups. A pending body is copied from `docs`, then cleared.

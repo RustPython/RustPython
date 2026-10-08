@@ -121,7 +121,7 @@ impl TypeZoo {
         let weakref_type = weakref::PyWeak::init_manually(hierarchy.weakref_type);
         let int_type = int::PyInt::init_builtin_type();
 
-        // builtin_function_or_method and builtin_method share the same type (CPython behavior)
+        // `builtin_method` is a subclass and is initialized once this base exists.
         let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
 
         let types = Self {
@@ -164,7 +164,7 @@ impl TypeZoo {
             anext_awaitable: asyncgenerator::PyAnextAwaitable::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
             builtin_function_or_method_type,
-            builtin_method_type: builtin_function_or_method_type,
+            builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),
