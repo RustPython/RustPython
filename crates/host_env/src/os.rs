@@ -518,7 +518,11 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
 }
 
 pub fn exit(code: i32) -> ! {
-    std::process::exit(code)
+    // These callers require immediate termination without C exit handlers.
+    cfg_select! {
+        any(unix, windows, target_os = "wasi") => unsafe { libc::_exit(code) },
+        _ => std::process::exit(code),
+    }
 }
 
 /// Wrapper around the C `abort()` call: terminates the process abnormally.
