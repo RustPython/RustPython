@@ -73,19 +73,19 @@ pub unsafe extern "C" fn PyObject_GetBuffer(
             .transpose()?;
 
         let shape = if flags.contains(BufferFlags::ND) {
-            buffer.desc.shape.as_ptr().cast_mut()
+            buffer.desc.shape().as_ptr().cast_mut()
         } else {
             ptr::null_mut()
         };
 
         let strides = if flags.contains(BufferFlags::STRIDES) {
-            buffer.desc.strides.as_ptr().cast_mut()
+            buffer.desc.strides().as_ptr().cast_mut()
         } else {
             ptr::null_mut()
         };
 
         let suboffsets = if flags.contains(BufferFlags::INDIRECT) {
-            buffer.desc.suboffsets.as_ptr().cast_mut()
+            buffer.desc.suboffsets().as_ptr().cast_mut()
         } else {
             ptr::null_mut()
         };

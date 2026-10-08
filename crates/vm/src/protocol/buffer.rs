@@ -403,12 +403,10 @@ pub struct BufferDescriptor {
     pub readonly: bool,
     pub itemsize: usize,
     pub format: Cow<'static, str>,
-    /// Number of elements for each dimension.
-    pub shape: Box<[isize]>,
-    /// Strides for each dimension.
-    pub strides: Box<[isize]>,
-    /// Suboffsets for each dimension (`-1` means no indirection).
-    pub suboffsets: Box<[isize]>,
+    /// Number of dimensions.
+    ndim: usize,
+    /// Shape, strides and suboffsets packed as 3 contiguous slices of length `ndim`.
+    dims: Box<[isize]>,
     // TODO: flags
 }
 
@@ -422,25 +420,79 @@ impl BufferDescriptor {
         format: Cow<'static, str>,
         dim_desc: Vec<(usize, isize, isize)>,
     ) -> Self {
-        let shape: Box<[isize]> = dim_desc
-            .iter()
-            .map(|(shape, _, _)| *shape as isize)
-            .collect();
-        let strides: Box<[isize]> = dim_desc.iter().map(|(_, stride, _)| *stride).collect();
-        let suboffsets: Box<[isize]> = dim_desc
-            .iter()
-            .map(|(_, _, suboffset)| if *suboffset == 0 { -1 } else { *suboffset })
-            .collect();
+        let ndim = dim_desc.len();
+        let mut dims = Vec::with_capacity(ndim * 3);
+        dims.extend(dim_desc.iter().map(|(shape, _, _)| *shape as isize));
+        dims.extend(dim_desc.iter().map(|(_, stride, _)| *stride));
+        dims.extend(
+            dim_desc
+                .iter()
+                .map(|(_, _, suboffset)| if *suboffset == 0 { -1 } else { *suboffset }),
+        );
         Self {
             len,
             offset,
             readonly,
             itemsize,
             format,
-            shape,
-            strides,
-            suboffsets,
+            ndim,
+            dims: dims.into_boxed_slice(),
         }
+    }
+
+    #[must_use]
+    pub fn shape(&self) -> &[isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &self.dims[..self.ndim]
+    }
+
+    #[must_use]
+    pub fn strides(&self) -> &[isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &self.dims[self.ndim..self.ndim * 2]
+    }
+
+    #[must_use]
+    pub fn suboffsets(&self) -> &[isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &self.dims[self.ndim * 2..]
+    }
+
+    pub fn shape_mut(&mut self) -> &mut [isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &mut self.dims[..self.ndim]
+    }
+
+    pub fn strides_mut(&mut self) -> &mut [isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &mut self.dims[self.ndim..self.ndim * 2]
+    }
+
+    pub fn suboffsets_mut(&mut self) -> &mut [isize] {
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        &mut self.dims[self.ndim * 2..]
+    }
+
+    pub fn set_dimensions(
+        &mut self,
+        shape: Box<[isize]>,
+        strides: Box<[isize]>,
+        suboffsets: Box<[isize]>,
+    ) {
+        let ndim = shape.len();
+        debug_assert_eq!(strides.len(), ndim);
+        debug_assert_eq!(suboffsets.len(), ndim);
+
+        let shape = Vec::from(shape);
+        let strides = Vec::from(strides);
+        let suboffsets = Vec::from(suboffsets);
+        let mut dims = Vec::with_capacity(ndim * 3);
+        dims.extend(shape);
+        dims.extend(strides);
+        dims.extend(suboffsets);
+
+        self.ndim = ndim;
+        self.dims = dims.into_boxed_slice();
     }
 
     #[must_use]
@@ -493,16 +545,19 @@ impl BufferDescriptor {
             // A request this flat is refused unless the layout is C-contiguous, so
             // one dimension addresses the same bytes.
             let shape = desc.len.checked_div(desc.itemsize).unwrap_or(0);
-            desc.shape = Box::new([shape as isize]);
-            desc.strides = Box::new([desc.itemsize as isize]);
-            desc.suboffsets = Box::new([-1]);
+            desc.set_dimensions(
+                Box::new([shape as isize]),
+                Box::new([desc.itemsize as isize]),
+                Box::new([-1]),
+            );
         } else if !flags.contains(BufferFlags::STRIDES) {
             // Shape survives but strides do not, which means C order.
             let mut stride = desc.itemsize as isize;
             for i in (0..desc.ndim()).rev() {
-                desc.strides[i] = stride;
-                desc.suboffsets[i] = -1;
-                stride *= desc.shape[i];
+                let dim_shape = desc.shape()[i];
+                desc.strides_mut()[i] = stride;
+                desc.suboffsets_mut()[i] = -1;
+                stride *= dim_shape;
             }
         }
         desc
@@ -525,8 +580,8 @@ impl BufferDescriptor {
             debug_assert_eq!(self.itemsize, self.len);
         } else {
             let mut shape_product = 1;
-            let has_zero_dim = self.shape.contains(&0);
-            for (&shape, &stride) in self.shape.iter().zip(self.strides.iter()) {
+            let has_zero_dim = self.shape().contains(&0);
+            for (&shape, &stride) in self.shape().iter().zip(self.strides().iter()) {
                 shape_product *= shape as usize;
                 // For empty arrays (any dimension is 0), strides can be 0
                 if !has_zero_dim {
@@ -540,7 +595,8 @@ impl BufferDescriptor {
 
     #[must_use]
     pub fn ndim(&self) -> usize {
-        self.shape.len()
+        debug_assert_eq!(self.dims.len(), self.ndim * 3);
+        self.ndim
     }
 
     /// Whether the elements are laid out in row-major order. _IsCContiguous
@@ -550,7 +606,7 @@ impl BufferDescriptor {
             return true;
         }
         let mut sd = self.itemsize;
-        for (&shape, &stride) in self.shape.iter().zip(self.strides.iter()).rev() {
+        for (&shape, &stride) in self.shape().iter().zip(self.strides().iter()).rev() {
             if shape > 1 && stride != sd as isize {
                 return false;
             }
@@ -568,7 +624,7 @@ impl BufferDescriptor {
             return true;
         }
         let mut sd = self.itemsize;
-        for (&shape, &stride) in self.shape.iter().zip(self.strides.iter()) {
+        for (&shape, &stride) in self.shape().iter().zip(self.strides().iter()) {
             if shape > 1 && stride != sd as isize {
                 return false;
             }
@@ -599,17 +655,23 @@ impl BufferDescriptor {
         let mut stride = self.itemsize as isize;
         for i in (0..self.ndim()).rev() {
             strides[i] = stride;
-            stride *= self.shape[i];
+            stride *= self.shape()[i];
         }
+        let shape = self.shape().to_vec().into_boxed_slice();
         Self {
             len: self.len,
             offset: 0,
             readonly: self.readonly,
             itemsize: self.itemsize,
             format: self.format.clone(),
-            shape: self.shape.clone(),
-            strides: strides.into_boxed_slice(),
-            suboffsets: vec![-1; self.ndim()].into_boxed_slice(),
+            ndim: self.ndim,
+            dims: {
+                let mut dims = Vec::with_capacity(self.ndim * 3);
+                dims.extend(shape.iter().copied());
+                dims.extend(strides.iter().copied());
+                dims.extend(vec![-1; self.ndim]);
+                dims.into_boxed_slice()
+            },
         }
     }
 
@@ -617,7 +679,7 @@ impl BufferDescriptor {
     /// stepping, the layout `PyBUF_INDIRECT` describes.
     #[must_use]
     pub fn has_suboffsets(&self) -> bool {
-        self.suboffsets.iter().any(|&suboffset| suboffset != -1)
+        self.suboffsets().iter().any(|&suboffset| suboffset != -1)
     }
 
     /// this function do not check the bound
@@ -626,12 +688,12 @@ impl BufferDescriptor {
     pub fn fast_position(&self, indices: &[usize]) -> isize {
         let mut pos = self.offset;
         for (dim, i) in indices.iter().copied().enumerate() {
-            let suboffset = if self.suboffsets[dim] == -1 {
+            let suboffset = if self.suboffsets()[dim] == -1 {
                 0
             } else {
-                self.suboffsets[dim]
+                self.suboffsets()[dim]
             };
-            pos += i as isize * self.strides[dim] + suboffset;
+            pos += i as isize * self.strides()[dim] + suboffset;
         }
         pos
     }
@@ -643,10 +705,10 @@ impl BufferDescriptor {
             .iter()
             .copied()
             .zip_eq(
-                self.shape
+                self.shape()
                     .iter()
-                    .zip(self.strides.iter())
-                    .zip(self.suboffsets.iter())
+                    .zip(self.strides().iter())
+                    .zip(self.suboffsets().iter())
                     .map(|((&shape, &stride), &suboffset)| {
                         (
                             shape as usize,
@@ -707,7 +769,7 @@ impl BufferDescriptor {
             let pos = self.offset
                 + indices
                     .iter()
-                    .zip_eq(self.strides.iter().zip(self.suboffsets.iter()))
+                    .zip_eq(self.strides().iter().zip(self.suboffsets().iter()))
                     .map(|(&i, (&stride, &suboffset))| {
                         i as isize * stride + if suboffset == -1 { 0 } else { suboffset }
                     })
@@ -717,7 +779,7 @@ impl BufferDescriptor {
             let mut dim = 0;
             loop {
                 indices[dim] += 1;
-                if (indices[dim] as isize) < self.shape[dim] {
+                if (indices[dim] as isize) < self.shape()[dim] {
                     break;
                 }
                 indices[dim] = 0;
@@ -733,12 +795,12 @@ impl BufferDescriptor {
     where
         F: FnMut(Range<isize>),
     {
-        let shape = self.shape[dim] as usize;
-        let stride = self.strides[dim];
-        let suboffset = if self.suboffsets[dim] == -1 {
+        let shape = self.shape()[dim] as usize;
+        let stride = self.strides()[dim];
+        let suboffset = if self.suboffsets()[dim] == -1 {
             0
         } else {
-            self.suboffsets[dim]
+            self.suboffsets()[dim]
         };
         if dim + 1 == self.ndim() {
             if CONTIGUOUS {
@@ -794,19 +856,19 @@ impl BufferDescriptor {
     ) where
         F: FnMut(Range<isize>, Range<isize>) -> bool,
     {
-        let shape = self.shape[dim] as usize;
-        let a_stride = self.strides[dim];
-        let a_suboffset = if self.suboffsets[dim] == -1 {
+        let shape = self.shape()[dim] as usize;
+        let a_stride = self.strides()[dim];
+        let a_suboffset = if self.suboffsets()[dim] == -1 {
             0
         } else {
-            self.suboffsets[dim]
+            self.suboffsets()[dim]
         };
-        let b_shape = other.shape[dim] as usize;
-        let b_stride = other.strides[dim];
-        let b_suboffset = if other.suboffsets[dim] == -1 {
+        let b_shape = other.shape()[dim] as usize;
+        let b_stride = other.strides()[dim];
+        let b_suboffset = if other.suboffsets()[dim] == -1 {
             0
         } else {
-            other.suboffsets[dim]
+            other.suboffsets()[dim]
         };
         debug_assert_eq!(shape, b_shape);
         if dim + 1 == self.ndim() {
@@ -850,12 +912,12 @@ impl BufferDescriptor {
     #[must_use]
     fn is_last_dim_contiguous(&self) -> bool {
         let i = self.ndim() - 1;
-        self.suboffsets[i] == -1 && self.strides[i] == self.itemsize as isize
+        self.suboffsets()[i] == -1 && self.strides()[i] == self.itemsize as isize
     }
 
     #[must_use]
     pub fn is_zero_in_shape(&self) -> bool {
-        self.shape.contains(&0)
+        self.shape().contains(&0)
     }
 
     // TODO: support column-major order
