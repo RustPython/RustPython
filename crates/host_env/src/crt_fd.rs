@@ -351,6 +351,13 @@ pub fn close(fd: Owned) -> io::Result<()> {
     _close(fd.into_raw())
 }
 
+pub fn closerange(fd_low: Raw, fd_high: Raw) {
+    for fd in fd_low..fd_high {
+        // The range can contain closed descriptors, so it cannot use Owned.
+        let _ = _close(fd);
+    }
+}
+
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
     let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
     // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.

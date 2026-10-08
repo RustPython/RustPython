@@ -275,11 +275,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn closerange(fd_low: i32, fd_high: i32) {
-        for fileno in fd_low..fd_high {
-            if let Ok(fd) = unsafe { crt_fd::Owned::try_from_raw(fileno) } {
-                drop(fd);
-            }
-        }
+        crt_fd::closerange(fd_low, fd_high);
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
