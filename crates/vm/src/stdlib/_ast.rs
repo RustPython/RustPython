@@ -1820,7 +1820,7 @@ pub(crate) fn parse<E: From<CompileError>>(
         && let Some(error) =
             rustpython_compiler::single_mode_multiple_statements_error(&source_file, &parsed)
     {
-        return Err(error);
+        return Err(error.into());
     }
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));

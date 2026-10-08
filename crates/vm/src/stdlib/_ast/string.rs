@@ -395,8 +395,8 @@ pub(super) fn emit_format_spec_warnings<E>(
             if let ast::Expr::FString(fstring) = expr {
                 // Conversion checked all enclosing specs before converting their
                 // expressions, including across concatenated f-string parts.
-                for part in fstring.value.as_slice() {
-                    if let ast::FStringPart::FString(part) = part {
+                for part in &fstring.value {
+                    if let ast::FStringPartRef::FString(part) = part {
                         self.visit_format_specs(&part.elements, part.flags.prefix().is_raw());
                     }
                 }
