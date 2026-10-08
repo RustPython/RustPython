@@ -153,6 +153,8 @@ pub fn close(_fd: Owned) -> io::Result<()> {
     Err(ebadf())
 }
 
+pub fn closerange(_fd_low: Raw, _fd_high: Raw) {}
+
 pub fn ftruncate(_fd: Borrowed<'_>, _len: Offset) -> io::Result<()> {
     Err(ebadf())
 }
