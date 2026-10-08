@@ -17,6 +17,32 @@ env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env,doc
 
 jobs:
+  manager-coverage-regression:
+    name: Verify manager XML-RPC under coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Leave room for the instrumented build and the normal 600-second test limit.
+    timeout-minutes: 30
+    if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-llvm-cov
+
+      # Keep this strict check independent of the full coverage collection below.
+      - name: Run the canonical manager XML-RPC regression
+        run: >-
+          cargo llvm-cov --no-report run --locked --
+          -m test -v -u all --timeout 600 --match '*test_remote'
+          test_multiprocessing_forkserver.test_manager
+
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
   # This is done using cargo-llvm-cov, which is a wrapper around llvm-cov.
   codecov:
