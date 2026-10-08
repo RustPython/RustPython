@@ -23,6 +23,7 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
 
         let mut exec = None;
         let mut create = None;
+        let mut doc = None;
 
         for slot in PySlot::iter(slots) {
             match slot.as_kind(vm)? {
@@ -33,12 +34,23 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
                             return Err(vm.new_system_error("Multiple module exec slots found"));
                         }
                     }
-                    PySlotModule::Name { .. }
-                    | PySlotModule::Doc { .. }
-                    | PySlotModule::Methods(_)
-                    | PySlotModule::Abi { .. }
-                    | PySlotModule::MultipleInterpreters { .. }
-                    | PySlotModule::Gil { .. } => {}
+                    PySlotModule::Name(_) => {}
+                    PySlotModule::Doc(doc_str) => doc = Some(vm.ctx.intern_str(doc_str)),
+                    PySlotModule::Methods(_) => {
+                        return Err(vm.new_not_implemented_error(
+                            "Method slots on mudules is not yet implemented",
+                        ));
+                    }
+                    PySlotModule::MultipleInterpreters(_) => {}
+                    PySlotModule::Abi(abi) => abi.is_supported(vm, name.to_str())?,
+                    PySlotModule::Gil { gil_used } => {
+                        if gil_used {
+                            return Err(vm.new_import_error(
+                                "Module requires GIL, but RustPython does not have a GIL",
+                                name.into_pyref(),
+                            ));
+                        }
+                    }
                 },
                 kind @ PySlotKind::Type(_) => {
                     return Err(vm.new_system_error(format!(
@@ -49,7 +61,7 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
             }
         }
 
-        let def = PyModuleDef::from_slots(vm.ctx.intern_str(name), None, create, exec);
+        let def = PyModuleDef::from_slots(vm.ctx.intern_str(name), doc, create, exec);
 
         def.create_module_owned(vm)
     })
