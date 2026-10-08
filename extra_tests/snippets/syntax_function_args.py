@@ -82,6 +82,9 @@ values = [1, 2]
 values.sort(reverse=True)
 assert values == [2, 1]
 
+# Definitions built without the macros infer their calling convention too.
+assert int.__new__(int, "11", base=2) == 3
+
 def sum(x, y):
     return x+y
 

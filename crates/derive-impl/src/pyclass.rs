@@ -2,7 +2,7 @@ use super::Diagnostic;
 use crate::util::{
     ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
     ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, internal_doc_tokens,
-    keyword_dispatch_tokens, pyclass_ident_and_attrs, pyexception_ident_and_attrs,
+    pyclass_ident_and_attrs, pyexception_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
@@ -1307,12 +1307,6 @@ where
                 _ => None,
             }
         };
-        let keyword_dispatch = keyword_dispatch_tokens(
-            func.sig(),
-            implicit_self,
-            args.context.self_ty_subst.as_ref(),
-        );
-
         // Add #[allow(non_snake_case)] for setter methods like set___name__
         let method_name = ident.to_string();
         if method_name.starts_with("set_") && method_name.contains("__") {
@@ -1342,7 +1336,6 @@ where
             doc,
             doc_body_pending,
             raw,
-            keyword_dispatch,
             coexist,
             attr_name: self.inner.attr_name,
         });
@@ -1537,7 +1530,6 @@ struct MethodNurseryItem {
     cfgs: Vec<Attribute>,
     ident: Ident,
     raw: bool,
-    keyword_dispatch: TokenStream,
     coexist: bool,
     doc: TokenStream,
     doc_body_pending: TokenStream,
@@ -1569,7 +1561,6 @@ impl ToTokens for MethodNursery {
             let cfgs = &item.cfgs;
             let doc = &item.doc;
             let doc_body_pending = &item.doc_body_pending;
-            let keyword_dispatch = &item.keyword_dispatch;
             let binding_flags = match &item.attr_name {
                 AttrName::Method => {
                     quote! { rustpython_vm::function::PyMethodFlags::METHOD }
@@ -1612,7 +1603,7 @@ impl ToTokens for MethodNursery {
                         Self::#ident,
                         #flags,
                         #doc,
-                    ).with_keyword_dispatch(#keyword_dispatch);
+                    );
                     ::rustpython_vm::__cfg_doc!({
                         def.doc_body_pending = #doc_body_pending;
                     } else {});

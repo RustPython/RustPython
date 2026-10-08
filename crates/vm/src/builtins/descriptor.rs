@@ -6,8 +6,7 @@ use crate::{
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
     function::{
-        Callee, FuncArgs, ItemDoc, KeywordDispatch, PyMethodDef, PyMethodFlags, PySetterValue,
-        PySsize, plain_doc,
+        Callee, FuncArgs, ItemDoc, PyMethodDef, PyMethodFlags, PySetterValue, PySsize, plain_doc,
     },
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
@@ -114,8 +113,7 @@ impl Callable for PyMethodDescriptor {
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         method_descr_check_self(zelf, args.args.first().map(|obj| &**obj), vm)?;
-        if !args.kwargs.is_empty() && zelf.method.keyword_dispatch != KeywordDispatch::PassToBinder
-        {
+        if !args.kwargs.is_empty() && !zelf.method.flags.contains(PyMethodFlags::KEYWORDS) {
             return Err(method_descr_no_keywords_error(zelf, vm));
         }
         (zelf.method.func)(
@@ -1612,7 +1610,7 @@ fn vectorcall_method_descriptor(
         vm,
     )?;
     if kwnames.is_some_and(|names| !names.is_empty())
-        && zelf.method.keyword_dispatch != KeywordDispatch::PassToBinder
+        && !zelf.method.flags.contains(PyMethodFlags::KEYWORDS)
     {
         return Err(method_descr_no_keywords_error(zelf, vm));
     }

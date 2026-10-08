@@ -147,7 +147,6 @@ impl VirtualMachine {
             f,
             PyMethodFlags::empty(),
             crate::function::ItemDoc::NONE,
-            crate::function::KeywordDispatch::PassToBinder,
         );
         def.build_function(self, None)
     }
@@ -166,7 +165,6 @@ impl VirtualMachine {
             f,
             PyMethodFlags::METHOD,
             crate::function::ItemDoc::NONE,
-            crate::function::KeywordDispatch::PassToBinder,
         );
         def.build_method(class, self)
     }

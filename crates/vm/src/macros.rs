@@ -249,7 +249,6 @@ macro_rules! named_function {
                 [<$module _ $func>],
                 ::rustpython_vm::function::PyMethodFlags::empty(),
                 ::rustpython_vm::function::ItemDoc::NONE,
-                ::rustpython_vm::function::KeywordDispatch::PassToBinder,
             )
             .to_function()
             .with_module(ctx.intern_str(stringify!($module)).into())

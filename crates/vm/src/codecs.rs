@@ -177,7 +177,6 @@ impl CodecsRegistry {
                         name: $name,
                         func: crate::function::static_func($func),
                         flags: crate::function::PyMethodFlags::O,
-                        keyword_dispatch: crate::function::KeywordDispatch::PassToBinder,
                         #[cfg(feature = "doc")]
                         doc_off: DOC.offset,
                         #[cfg(feature = "doc")]

@@ -5,9 +5,7 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int};
 use core::fmt::Debug;
-use rustpython_vm::function::{
-    FuncArgs, HeapMethodDef, ItemDoc, KeywordDispatch, PosArgs, PyMethodFlags,
-};
+use rustpython_vm::function::{FuncArgs, HeapMethodDef, ItemDoc, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
@@ -82,13 +80,6 @@ pub(crate) fn build_method_def(
 
     let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
         .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
-    let keyword_dispatch = if flags.contains(PyMethodFlags::KEYWORDS) {
-        KeywordDispatch::PassToBinder
-    } else if flags.contains(PyMethodFlags::VARARGS) {
-        KeywordDispatch::RejectNonemptyUnqualified
-    } else {
-        KeywordDispatch::RejectNonempty
-    };
     let has_self = has_self && !flags.contains(PyMethodFlags::STATIC);
 
     let method = ml.ml_meth;
@@ -111,38 +102,38 @@ pub(crate) fn build_method_def(
                     let f = method.PyCFunction;
                     f(zelf.as_raw().cast_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |vm: &VirtualMachine| unsafe {
                     let f = method.PyCFunction;
                     f(core::ptr::null_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         PyMethodFlags::VARARGS => {
             let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
                 call_function(vm, method, flags, Some(args))
             };
-            Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::VARARGS | PyMethodFlags::KEYWORDS => {
             let callable = move | args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_function_with_keywords(vm, method, flags, args)
             };
-            Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS => {
             let callable = move |args: FuncArgs, vm: &VirtualMachine| unsafe {
                 call_fast_function_with_keywords(vm, method, flags, args)
             };
-            Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::FASTCALL => {
             let callable = move |args: PosArgs, vm: &VirtualMachine| unsafe {
                 call_fast_function(vm, method, flags, args)
             };
-            Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+            Ok(vm.ctx.new_method_def(name, callable, flags, doc))
         },
         PyMethodFlags::O => {
             let f = unsafe { method.PyCFunction };
@@ -150,12 +141,12 @@ pub(crate) fn build_method_def(
                 let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
                     unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
                     unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
                 };
-                Ok(vm.ctx.new_method_def(name, callable, flags, doc, keyword_dispatch))
+                Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
         },
         _ => {

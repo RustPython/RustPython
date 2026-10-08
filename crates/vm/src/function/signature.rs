@@ -210,38 +210,6 @@ const fn count_param(
     }
 }
 
-/// Determine keyword dispatch from each argument's binding metadata.
-///
-/// Inspect arguments separately: a tuple's `PARAMS` can erase leaf metadata.
-#[must_use]
-pub const fn keyword_dispatch(args: &[SigArg]) -> super::KeywordDispatch {
-    let mut i = 0;
-    while i < args.len() {
-        if let Some(params) = args[i].params
-            && params_accept_keywords(params)
-        {
-            return super::KeywordDispatch::PassToBinder;
-        }
-        i += 1;
-    }
-    super::KeywordDispatch::RejectNonempty
-}
-
-const fn params_accept_keywords(params: &[Param]) -> bool {
-    let mut i = 0;
-    while i < params.len() {
-        match params[i].kind {
-            ParamKind::PositionalOrKeyword | ParamKind::KeywordOnly | ParamKind::VarKeyword => {
-                return true;
-            }
-            ParamKind::Flatten(Some(inner)) if params_accept_keywords(inner) => return true,
-            _ => {}
-        }
-        i += 1;
-    }
-    false
-}
-
 const fn name_eq(name: &str, bytes: &[u8]) -> bool {
     let got = name.as_bytes();
     if got.len() != bytes.len() {

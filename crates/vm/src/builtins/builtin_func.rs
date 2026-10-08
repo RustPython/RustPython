@@ -4,10 +4,7 @@ use crate::{
     class::PyClassImpl,
     common::wtf8::Wtf8,
     convert::TryFromObject,
-    function::{
-        Callee, FuncArgs, KeywordDispatch, PyComparisonValue, PyMethodDef, PyMethodFlags,
-        PyNativeFn,
-    },
+    function::{Callee, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
     types::{Callable, Comparable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
@@ -90,7 +87,7 @@ impl Callable for PyNativeFunction {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if !args.kwargs.is_empty() && zelf.value.keyword_dispatch != KeywordDispatch::PassToBinder {
+        if !args.kwargs.is_empty() && !zelf.value.flags.contains(PyMethodFlags::KEYWORDS) {
             return Err(native_no_keywords_error(zelf, vm)?);
         }
         let mut callee = Callee::named(zelf.value.name);
@@ -279,7 +276,7 @@ fn vectorcall_native_function(
     let zelf: &Py<PyNativeFunction> = zelf_obj.downcast_ref().unwrap();
 
     if kwnames.is_some_and(|names| !names.is_empty())
-        && zelf.value.keyword_dispatch != KeywordDispatch::PassToBinder
+        && !zelf.value.flags.contains(PyMethodFlags::KEYWORDS)
     {
         return Err(native_no_keywords_error(zelf, vm)?);
     }
@@ -309,7 +306,7 @@ fn native_no_keywords_error(
     zelf: &Py<PyNativeFunction>,
     vm: &VirtualMachine,
 ) -> PyResult<crate::exceptions::types::PyBaseExceptionRef> {
-    if zelf.value.keyword_dispatch == KeywordDispatch::RejectNonemptyUnqualified {
+    if zelf.value.flags.contains(PyMethodFlags::VARARGS) {
         return Ok(vm.new_type_error(format!("{}() takes no keyword arguments", zelf.value.name)));
     }
     let qualname = PyNativeFunction::__qualname__(NativeFunctionOrMethod(zelf.to_owned()), vm)?;

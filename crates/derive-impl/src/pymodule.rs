@@ -3,7 +3,7 @@ use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, internal_doc_tokens,
-    iter_use_idents, keyword_dispatch_tokens, pyclass_ident_and_attrs,
+    iter_use_idents, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -536,7 +536,6 @@ struct FunctionNurseryItem {
     ident: Ident,
     /// One internal doc per [`py_names`](Self::py_names) entry.
     docs: Vec<TokenStream>,
-    keyword_dispatch: TokenStream,
 }
 
 impl FunctionNursery {
@@ -566,7 +565,6 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let keyword_dispatch = &item.keyword_dispatch;
             for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
                 inner_tokens.extend(quote![
                     #cfgs
@@ -575,7 +573,7 @@ impl ToTokens for ValidatedFunctionNursery {
                         #ident,
                         rustpython_vm::function::PyMethodFlags::empty(),
                         #doc,
-                    ).with_keyword_dispatch(#keyword_dispatch),
+                    ),
                 ]);
             }
         }
@@ -711,14 +709,12 @@ impl ModuleItem for FunctionItem {
                 internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
             })
             .collect();
-        let keyword_dispatch = keyword_dispatch_tokens(func.sig(), None, None);
 
         args.context.function_items.add_item(FunctionNurseryItem {
             ident: ident.to_owned(),
             py_names,
             cfgs: args.cfgs.to_vec(),
             docs,
-            keyword_dispatch,
         });
         Ok(())
     }

@@ -75,7 +75,6 @@ macro_rules! define_methods {
             name: $name,
             func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
-            keyword_dispatch: $crate::function::KeywordDispatch::PassToBinder,
             #[cfg(feature = "doc")]
             doc_off: 0,
             #[cfg(feature = "doc")]
@@ -87,23 +86,11 @@ macro_rules! define_methods {
     };
 }
 
-/// Keyword acceptance is independent of the flags inferred from a Rust signature.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
-pub enum KeywordDispatch {
-    #[default]
-    PassToBinder,
-    RejectNonempty,
-    /// CPython's legacy METH_VARARGS function reports only ml_name.
-    RejectNonemptyUnqualified,
-}
-
 #[derive(Clone)]
 pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
     pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
-    pub keyword_dispatch: KeywordDispatch,
     /// Start of the database body. Read only when `doc_len != 0`.
     /// Absent when the `doc` feature is off, as are `doc_len` and `doc_body_pending`.
     #[cfg(feature = "doc")]
@@ -128,12 +115,6 @@ pub struct PyMethodDef {
 }
 
 impl PyMethodDef {
-    #[must_use]
-    pub const fn with_keyword_dispatch(mut self, policy: KeywordDispatch) -> Self {
-        self.keyword_dispatch = policy;
-        self
-    }
-
     #[must_use]
     pub fn item_doc(&self) -> super::ItemDoc {
         super::ItemDoc {
@@ -160,7 +141,6 @@ impl PyMethodDef {
             name,
             func: super::static_func(func),
             flags: flags.with_call_convention(F::ARGS),
-            keyword_dispatch: KeywordDispatch::PassToBinder,
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]
@@ -182,7 +162,6 @@ impl PyMethodDef {
             name,
             func: super::static_raw_func(func),
             flags: flags.with_call_convention(&[SigArg::from_arg::<FuncArgs>("args")]),
-            keyword_dispatch: KeywordDispatch::PassToBinder,
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]
@@ -344,7 +323,6 @@ impl PyMethodDef {
             name: "",
             func: &|_, _, _| unreachable!(),
             flags: PyMethodFlags::empty(),
-            keyword_dispatch: KeywordDispatch::PassToBinder,
             #[cfg(feature = "doc")]
             doc_off: 0,
             #[cfg(feature = "doc")]
@@ -375,7 +353,6 @@ impl PyMethodDef {
             name: self.name,
             func: self.func,
             flags: self.flags,
-            keyword_dispatch: self.keyword_dispatch,
             #[cfg(feature = "doc")]
             doc_off: self.doc_off,
             #[cfg(feature = "doc")]
@@ -398,7 +375,6 @@ impl core::fmt::Debug for PyMethodDef {
                 }),
             )
             .field("flags", &self.flags)
-            .field("keyword_dispatch", &self.keyword_dispatch)
             .field("doc", &self.doc)
             .finish()
     }

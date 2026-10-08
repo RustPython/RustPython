@@ -655,7 +655,6 @@ impl Context {
         f: F,
         flags: PyMethodFlags,
         doc: ItemDoc,
-        keyword_dispatch: crate::function::KeywordDispatch,
     ) -> PyRef<HeapMethodDef>
     where
         F: IntoPyNativeFn<FKind>,
@@ -664,7 +663,6 @@ impl Context {
             name,
             func: Box::leak(Box::new(f.into_func())),
             flags: flags.with_call_convention(F::ARGS),
-            keyword_dispatch,
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]

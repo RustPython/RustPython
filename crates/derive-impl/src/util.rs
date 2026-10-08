@@ -936,19 +936,3 @@ pub(crate) fn internal_doc_tokens(
         }
     }
 }
-
-pub(crate) fn keyword_dispatch_tokens(
-    sig: &Signature,
-    implicit_self: Option<&str>,
-    self_ty: Option<&Type>,
-) -> TokenStream {
-    let args = args_const(&sig_pieces(sig, implicit_self, self_ty, None));
-    quote! {
-        {
-            #args
-            const POLICY: ::rustpython_vm::function::KeywordDispatch =
-                ::rustpython_vm::function::keyword_dispatch(ARGS);
-            POLICY
-        }
-    }
-}
