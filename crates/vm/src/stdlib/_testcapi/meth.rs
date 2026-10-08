@@ -142,12 +142,7 @@ fn extend_class(ctx: &Context, class: &'static Py<PyType>, methods: &'static [Py
     for method in methods {
         let value = if method.flags.contains(PyMethodFlags::STATIC) {
             let function = method.build_staticmethod(ctx, class);
-            drop(
-                function
-                    .func
-                    .module
-                    .store(Some(ctx.new_str("builtins").into())),
-            );
+            drop(function.module.store(Some(ctx.new_str("builtins").into())));
             PyStaticMethod::new(function.into()).into_ref(ctx).into()
         } else {
             method.to_proper_method(class, ctx)
