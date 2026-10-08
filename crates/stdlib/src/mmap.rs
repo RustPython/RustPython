@@ -410,10 +410,7 @@ mod mmap {
             }
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
-            #[cfg_attr(
-                not(target_os = "linux"),
-                allow(unused_variables)
-            )]
+            #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
             let (flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
