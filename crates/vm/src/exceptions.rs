@@ -1750,7 +1750,8 @@ pub(super) mod types {
         code: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PySystemExit {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PySystemExit {
         type Base = PyBaseException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -1830,7 +1831,8 @@ pub(super) mod types {
         value: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyStopIteration {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyStopIteration {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -1925,7 +1927,8 @@ pub(super) mod types {
         obj: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyAttributeError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyAttributeError {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -2051,7 +2054,8 @@ pub(super) mod types {
         name_from: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyImportError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyImportError {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -2263,7 +2267,8 @@ pub(super) mod types {
         name: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyNameError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyNameError {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -2357,7 +2362,8 @@ pub(super) mod types {
         written: AtomicCell<isize>,
     }
 
-    impl crate::class::PySubclass for PyOSError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyOSError {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -2927,7 +2933,8 @@ pub(super) mod types {
         metadata: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PySyntaxError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PySyntaxError {
         type Base = PyException;
         fn as_base(&self) -> &Self::Base {
             &self.base
@@ -3230,7 +3237,8 @@ pub(super) mod types {
         reason: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyUnicodeError {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyUnicodeError {
         type Base = PyValueError;
         fn as_base(&self) -> &Self::Base {
             &self.base
