@@ -8,14 +8,16 @@ use lock_api::{
 
 cfg_select! {
     feature = "threading" => {
+        pub use core::cell::LazyCell;
         pub use detaching::{BlockingWaitHook, set_blocking_wait_hook, set_world_stopped};
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
         pub use std::sync::OnceLock as OnceCell;
-        pub use core::cell::LazyCell;
     }
     _ => {
         mod cell_lock;
-        pub use cell_lock::{RawCellMutex as RawMutex, RawCellRwLock as RawRwLock, SingleThreadId as RawThreadId};
+        pub use cell_lock::{
+            RawCellMutex as RawMutex, RawCellRwLock as RawRwLock, SingleThreadId as RawThreadId,
+        };
 
         pub use core::cell::{LazyCell, OnceCell};
     }
@@ -37,13 +39,19 @@ cfg_select! {
         unsafe impl<T, F> Sync for LazyLock<T, F> {}
 
         impl<T, F: FnOnce() -> T> LazyLock<T, F> {
-            pub const fn new(f: F) -> Self { Self(core::cell::LazyCell::new(f)) }
-            pub fn force(this: &Self) -> &T { core::cell::LazyCell::force(&this.0) }
+            pub const fn new(f: F) -> Self {
+                Self(core::cell::LazyCell::new(f))
+            }
+            pub fn force(this: &Self) -> &T {
+                core::cell::LazyCell::force(&this.0)
+            }
         }
 
         impl<T, F: FnOnce() -> T> core::ops::Deref for LazyLock<T, F> {
             type Target = T;
-            fn deref(&self) -> &T { &self.0 }
+            fn deref(&self) -> &T {
+                &self.0
+            }
         }
     }
 }

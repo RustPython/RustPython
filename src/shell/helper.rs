@@ -149,8 +149,8 @@ impl<'vm> ShellHelper<'vm> {
 cfg_select! {
     not(target_arch = "wasm32") => {
         use rustyline::{
-            completion::Completer, highlight::Highlighter, hint::Hinter, validate::Validator, Context,
-            Helper,
+            Context, Helper, completion::Completer, highlight::Highlighter, hint::Hinter,
+            validate::Validator,
         };
         impl Completer for ShellHelper<'_> {
             type Candidate = String;

@@ -162,14 +162,16 @@ fn get_version(cpy_version: &str) -> (String, String) {
     // Windows: include MSC v. for compatibility with ctypes.util.find_library
     // MSC v.1929 = VS 2019, version 14+ makes find_msvcrt() return None
     let msc_info = cfg_select! {
-        windows => {{
-            // Include both RustPython identifier and MSC v. for compatibility
-            if cfg!(target_pointer_width = "64") {
-                " MSC v.1929 64 bit (AMD64)"
-            } else {
-                " MSC v.1929 32 bit (Intel)"
+        windows => {
+            {
+                // Include both RustPython identifier and MSC v. for compatibility
+                if cfg!(target_pointer_width = "64") {
+                    " MSC v.1929 64 bit (AMD64)"
+                } else {
+                    " MSC v.1929 32 bit (Intel)"
+                }
             }
-        }},
+        }
         _ => "",
     };
 

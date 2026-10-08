@@ -621,16 +621,18 @@ impl VirtualMachine {
             feature = "parser" => {
                 match error {
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(
-                            LexicalErrorType::TabError
-                            | LexicalErrorType::TooDeepIndentation
-                            | LexicalErrorType::LineContinuationError
-                            | LexicalErrorType::UnclosedBracket { .. },
-                        ),
+                        error:
+                            ParseErrorType::Lexical(
+                                LexicalErrorType::TabError
+                                | LexicalErrorType::TooDeepIndentation
+                                | LexicalErrorType::LineContinuationError
+                                | LexicalErrorType::UnclosedBracket { .. },
+                            ),
                         ..
                     }) => Some(0),
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                        error:
+                            ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),

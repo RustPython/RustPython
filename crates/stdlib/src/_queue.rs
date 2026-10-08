@@ -21,7 +21,7 @@ mod _queue {
             use parking_lot::{Condvar, Mutex, MutexGuard};
 
             type Buf = Mutex<BufInner>;
-        },
+        }
         _ => {
             use crate::common::lock::PyMutex;
 

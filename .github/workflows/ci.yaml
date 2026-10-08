@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc
-  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc,ucd_3_2_0
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc,ucd_3_2_0
   CARGO_ARGS_MOST_FEATS: --features capi,encodings,jit,sqlite,threading
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
@@ -1072,7 +1072,7 @@ jobs:
 
       - name: build rustpython
         if: env.RUN_WASM_WASI == 'true'
-        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc --verbose
+        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0 --verbose
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
         run: |

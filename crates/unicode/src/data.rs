@@ -19,20 +19,45 @@ use icu_properties::props::{
 };
 use rustpython_wtf8::CodePoint;
 
+// Latest Unicode
 include!(concat!(env!("OUT_DIR"), "/generated/algo_names.rs"));
 include!(concat!(env!("OUT_DIR"), "/generated/name_lookups.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+
+// Unicode 3.2.0
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/bidi_class_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/binary_props_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(
     env!("OUT_DIR"),
     "/generated/combining_class_3_2.rs"
 ));
-include!(concat!(env!("OUT_DIR"), "/generated/decomp.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/eaw_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/gen_cat_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/membership_3_2.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated/numeric_value_3_2.rs"));
+#[cfg(feature = "ucd_3_2_0")]
 include!(concat!(env!("OUT_DIR"), "/generated/num_type_3_2.rs"));
+
+#[cfg(not(feature = "ucd_3_2_0"))]
+const BIDI_CLASS_DIFF: &[(u32, u32, BidiClass)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const BIDI_MIRRORED: &[(u32, u32)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const COMBINING_CLASS: &[(u32, u32, CanonicalCombiningClass)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const EAST_ASIAN_WIDTH: &[(u32, u32, EastAsianWidth)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const GENERAL_CATEGORY: &[(u32, u32, GeneralCategory)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const MEMBERSHIP_3_2: &[(u32, u32)] = &[];
+#[cfg(not(feature = "ucd_3_2_0"))]
+const NUMERIC_TYPE_DIFF: &[(u32, u32, NumericType)] = &[];
 
 #[derive(Clone, Copy)]
 enum DecompositionType {
@@ -511,12 +536,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn ucd_3_2_0_view_differs_from_modern() {
         let legacy = Ucd::new(false);
         assert_eq!(legacy.unidata_version(), "3.2.0");
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn name_aliases_resolve_and_do_not_replace_the_official_name() {
         assert_eq!(
             lookup_character("LATIN CAPITAL LETTER GHA"),
@@ -534,6 +561,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ucd_3_2_0")]
     fn named_sequences_resolve_only_on_the_modern_view() {
         assert_eq!(
             lookup_name("LATIN SMALL LETTER R WITH TILDE"),
