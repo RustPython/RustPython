@@ -356,7 +356,7 @@ mod _imp {
         }
         .map_err(|err| {
             vm.new_import_error(
-                format!("cannot load dynamic module '{}': {err}", origin_str),
+                format!("cannot load dynamic module '{origin_str}': {err}"),
                 name.clone().into_wtf8(),
             )
         })?;
@@ -375,33 +375,27 @@ mod _imp {
             .map_err(|_| {
                 vm.new_import_error(
                     format!(
-                        "dynamic module does not define module export function (PyModExport_{})",
-                        short_name
+                        "dynamic module does not define module export function (PyModExport_{short_name})",
                     ),
                     name.clone().into_wtf8(),
                 )
             })?;
 
-        type ModExportFn = unsafe extern "C" fn() -> *mut c_void;
-
         unsafe extern "C" {
             #[allow(improper_ctypes)]
+            /// This function is defined in the rustpython-capi crate.
             fn PyModule_FromSlotsAndSpec(slots: *mut c_void, spec: *mut PyObject) -> *mut PyObject;
         }
 
-        let export_fn: ModExportFn = unsafe { core::mem::transmute(export_fn_addr as *const ()) };
-        let slots = unsafe { export_fn() };
-        let module_ptr =
-            unsafe { PyModule_FromSlotsAndSpec(slots, args.spec.as_object().as_raw().cast_mut()) };
-        let module_ptr = NonNull::new(module_ptr).ok_or_else(|| {
-            vm.take_raised_exception().unwrap_or_else(|| {
-                vm.new_system_error(
-                    "dynamic module create slot failed without setting an exception",
-                )
-            })
-        })?;
-        let module = unsafe { PyObjectRef::from_raw(module_ptr) };
-        Ok(module.try_downcast::<PyModule>(vm)?.into())
+        let export_fn: unsafe extern "C" fn() -> *mut c_void =
+            unsafe { core::mem::transmute(export_fn_addr) };
+        let module_ptr = unsafe {
+            PyModule_FromSlotsAndSpec(export_fn(), args.spec.as_object().as_raw().cast_mut())
+        };
+        NonNull::new(module_ptr).map_or_else(
+            || Err(vm.take_raised_exception().unwrap()),
+            |ptr| unsafe { Ok(PyObjectRef::from_raw(ptr)) },
+        )
     }
 
     #[pyfunction]

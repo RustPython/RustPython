@@ -3,6 +3,7 @@ use core::ffi::{
     CStr, c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint,
     c_ulong, c_ulonglong, c_ushort, c_void,
 };
+use alloc::ffi::CString;
 use core::ptr::NonNull;
 #[cfg(all(
     any(
@@ -400,7 +401,7 @@ pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
 
 #[cfg(target_os = "macos")]
 pub fn dyld_shared_cache_contains_path(path: &str) -> Result<bool, alloc::ffi::NulError> {
-    let c_path = alloc::ffi::CString::new(path)?;
+    let c_path = CString::new(path)?;
 
     unsafe extern "C" {
         fn _dyld_shared_cache_contains_path(path: *const c_char) -> bool;
@@ -2874,7 +2875,7 @@ pub fn open_library_with_mode_raw(
 ) -> Result<*mut c_void, String> {
     use std::os::unix::ffi::OsStrExt;
 
-    let name = std::ffi::CString::new(name.as_ref().as_bytes())
+    let name = CString::new(name.as_ref().as_bytes())
         .map_err(|_| "library path contains NUL byte".to_owned())?;
     let handle = unsafe { libc::dlopen(name.as_ptr(), mode) };
     if handle.is_null() {
@@ -2882,7 +2883,7 @@ pub fn open_library_with_mode_raw(
         if err.is_null() {
             Err("dlopen() error".to_owned())
         } else {
-            let msg = unsafe { std::ffi::CStr::from_ptr(err) }
+            let msg = unsafe { CStr::from_ptr(err) }
                 .to_string_lossy()
                 .into_owned();
             Err(msg)
@@ -2971,7 +2972,7 @@ fn lookup_raw_windows_symbol(
     let name = if let Ok(name) = CStr::from_bytes_with_nul(symbol_name) {
         name
     } else {
-        owned = alloc::ffi::CString::new(symbol_name)
+        owned = CString::new(symbol_name)
             .map_err(|err| LookupSymbolError::Load(err.to_string()))?;
         owned.as_c_str()
     };
