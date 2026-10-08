@@ -92,6 +92,11 @@ required-features = [
 [profile.dev.package."*"]
 opt-level = 3
 
+# Unoptimized opcode dispatch leaves oversized native frames active during
+# imports and callbacks. Keep the evaluator compact without changing dev guards.
+[profile.dev.package.rustpython-vm]
+opt-level = 3
+
 [profile.test]
 opt-level = 3
 # https://github.com/rust-lang/rust/issues/92869
