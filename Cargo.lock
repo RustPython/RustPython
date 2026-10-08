@@ -767,7 +767,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1469,7 +1469,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2048,7 +2048,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2384,9 +2384,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-base"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f368e032195e6f046f237a982cd541cac7d4e17d5c680cac5534dfa71cd8879e"
+checksum = "60f9f06976ea22081565c6f4ddc40e699982c1c6b9bd1bd4871b92eb986f2307"
 dependencies = [
  "hashbrown 0.16.1",
  "itertools 0.14.0",
@@ -2396,9 +2396,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-bigint"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d673b71d4521ba5ca045cd23d62eda6b321474ff231d6a1698cc9b892851f2"
+checksum = "5a0ea1859fa74e642919ea67bb7afe2e663f88f2e59afdeafda4a0b5ec6855fb"
 dependencies = [
  "malachite-base",
  "malachite-nz",
@@ -2409,9 +2409,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-nz"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0b3ad1a8d2a722fbfad2e1fc7c5044f7ab38e027240cfbcb086a62ca95c9c2"
+checksum = "d5eef5870b4c0072ab10e28ed6e8228ae224f188bdbb65c739fcc189248381f5"
 dependencies = [
  "itertools 0.14.0",
  "libm",
@@ -2421,9 +2421,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-q"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7841d36b3f5d39f1c65d4bcc45cb104fde66cf7eafc10da3922483fa2847cb94"
+checksum = "11ff775589824d11de83716ee96d70b7a4fbd70794415ba363b6aeed272010f7"
 dependencies = [
  "itertools 0.14.0",
  "libm",
@@ -3581,7 +3581,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4686,7 +4686,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5180,7 +5180,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
