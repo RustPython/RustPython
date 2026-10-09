@@ -24,7 +24,7 @@
 # Pick an out-of-sync Python library from the todo list and upgrade it
 # by running `scripts/update_lib quick`, then open a pull request.
 #
-# frontmatter-hash: 4c8478ae37e731fb9e34ca116a5fcbdd4f23b00f6f4d148df40f4db52b3bea6e
+# frontmatter-hash: bf5b6c1bf4e49141df567a8ff69cce1fc96faa991e1cc353ed6a77aa7c2ba719
 
 name: "Upgrade Python Library"
 "on":
@@ -118,8 +118,6 @@ jobs:
         with:
           key: cpython-lib-${{ env.PYTHON_VERSION }}
           path: cpython
-          restore-keys: |
-            cpython-lib-
       - name: Configure Git credentials
         env:
           REPO_NAME: ${{ github.repository }}
