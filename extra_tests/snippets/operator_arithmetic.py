@@ -192,13 +192,18 @@ for value in ("a", b"a", (1,), "", b"", ()):
             )
         subclass = type("RepeatSubclass", (type(value),), {})(value)
         assert repeat(subclass, 2) == mul(value, 2)
-        check_repeat_error(
-            OverflowError,
-            "cannot fit 'int' into an index-sized integer",
-            repeat,
-            subclass,
-            2**100,
+        overridden = type(
+            "OverrideRepeat",
+            (type(value),),
+            {
+                "__mul__": lambda self, count: "forward",
+                "__rmul__": lambda self, count: "reverse",
+            },
+        )(value)
+        expected = (
+            "forward" if expression.startswith(("return seq", "seq *=")) else "reverse"
         )
+        assert repeat(overridden, 2) == expected
 
 
 class DeclineRepeat(GetItemOnly):
