@@ -26,16 +26,16 @@ use crate::{
 };
 use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 
-/// frozendict() -> new empty immutable dictionary
-/// frozendict(mapping) -> new immutable dictionary initialized from a mapping
-///     object's (key, value) pairs
-/// frozendict(iterable) -> new immutable dictionary initialized as if via:
-///     d = {}
-///     for k, v in iterable:
-///         d[k] = v
-///     d = frozendict(d)
-/// frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
-///     pairs in the keyword argument list.  For example:  frozendict(one=1, two=2)
+#[doc = r"frozendict() -> new empty immutable dictionary
+frozendict(mapping) -> new immutable dictionary initialized from a mapping
+    object's (key, value) pairs
+frozendict(iterable) -> new immutable dictionary initialized as if via:
+    d = {}
+    for k, v in iterable:
+        d[k] = v
+    d = frozendict(d)
+frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
+    pairs in the keyword argument list.  For example:  frozendict(one=1, two=2)"]
 #[pyclass(module = false, name = "frozendict", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFrozenDict {
