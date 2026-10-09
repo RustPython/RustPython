@@ -33,7 +33,7 @@ fn format_decimal_object(
 ) -> PyResult<String> {
     let type_error = || {
         vm.new_type_error(format!(
-            "%{} format: a real number is required, not {}",
+            "format argument: %{} requires a real number, not {}",
             spec.format_type.to_char(),
             obj.class().slot_name()
         ))
