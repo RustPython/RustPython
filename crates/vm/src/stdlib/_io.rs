@@ -1436,6 +1436,7 @@ mod _io {
                     match ($x, written > 0) {
                         (Some(0), _) | (None, true) => {
                             out.truncate(written);
+                            out.shrink_to_fit();
                             return Ok(Some(out));
                         }
                         (Some(r), _) => r,
@@ -6246,6 +6247,7 @@ mod fileio {
                     }
                 };
                 bytes.truncate(n);
+                bytes.shrink_to_fit();
                 bytes
             } else {
                 let mut bytes = vec![];

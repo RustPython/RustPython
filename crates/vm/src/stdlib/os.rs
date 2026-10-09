@@ -344,6 +344,7 @@ pub(super) mod _os {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
                     buffer.truncate(n);
+                    buffer.shrink_to_fit();
                     return Ok(vm.ctx.new_bytes(buffer));
                 }
                 Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
