@@ -385,4 +385,26 @@ mod tests {
             func.call0().unwrap();
         });
     }
+
+    #[test]
+    fn no_keywords_before_arity() {
+        Python::attach(|py| {
+            unsafe extern "C" fn c_fn(_self: *mut PyObject, _args: *mut PyObject) -> *mut PyObject {
+                unsafe { PyLong_FromLong(42) }
+            }
+            let f = PyCFunction::new(py, c_fn, c"no_keywords", c"", None).unwrap();
+            let kwargs = pyo3::types::PyDict::new(py);
+            kwargs.set_item("unexpected", 1).unwrap();
+            let err = f.call((1,), Some(&kwargs)).unwrap_err();
+            assert_eq!(
+                err.value(py).str().unwrap().to_str().unwrap(),
+                "no_keywords() takes no keyword arguments"
+            );
+            kwargs.clear();
+            assert_eq!(
+                f.call((), Some(&kwargs)).unwrap().extract::<i32>().unwrap(),
+                42
+            );
+        });
+    }
 }

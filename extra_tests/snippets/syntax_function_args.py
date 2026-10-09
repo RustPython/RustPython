@@ -1,6 +1,90 @@
 from testutils import assert_raises
 
 
+def error(call, expected):
+    try:
+        call()
+    except TypeError as exc:
+        assert str(exc) == expected, (str(exc), expected)
+    else:
+        raise AssertionError("expected TypeError")
+
+
+error(lambda: id(obj=1), "id() takes no keyword arguments")
+error(lambda: id(**{"obj": 1}), "id() takes no keyword arguments")
+error(lambda: id(1, 2, obj=1), "id() takes no keyword arguments")
+error(lambda: list.append(x=1), "unbound method list.append() needs an argument")
+error(lambda: list.append(**{"x": 1}), "unbound method list.append() needs an argument")
+error(
+    lambda: list.append(1, x=1),
+    "descriptor 'append' for 'list' objects doesn't apply to a 'int' object",
+)
+error(lambda: list.append([], x=1), "list.append() takes no keyword arguments")
+error(lambda: list.append([], **{"x": 1}), "list.append() takes no keyword arguments")
+error(lambda: [].append(x=1), "list.append() takes no keyword arguments")
+error(lambda: [].clear(1, x=1), "list.clear() takes no keyword arguments")
+
+
+class Index:
+    def __index__(self):
+        raise AssertionError("conversion ran before keyword check")
+
+
+error(lambda: bin(Index(), x=1), "bin() takes no keyword arguments")
+assert id(1, **{}) == id(1)
+assert round(1.25, ndigits=1) == 1.2
+assert pow(2, exp=3) == 8
+assert sorted([2, 1], reverse=True) == [2, 1]
+assert sum([1, 2], start=4) == 7
+values = []
+list.append(values, 1)
+values.append(2)
+assert values == [1, 2]
+list.clear(values)
+assert values == []
+
+# Keyword metadata must forward raw arguments without changing body validation.
+for choose in (min, max):
+    assert choose([], default=42) == 42
+    assert choose([1, 2], key=lambda value: -value) == (2 if choose is min else 1)
+    try:
+        choose(bogus=1)
+    except TypeError as exc:
+        assert str(exc) == f"{choose.__name__} expected at least 1 argument, got 0"
+    else:
+        raise AssertionError("missing positional argument was accepted")
+    try:
+        choose(1, 2, default=0)
+    except TypeError as exc:
+        assert str(exc) == (
+            f"Cannot specify a default for {choose.__name__}() "
+            "with multiple positional arguments"
+        )
+    else:
+        raise AssertionError("default with multiple arguments was accepted")
+
+# Named fields in argument structs must override positional-only arguments.
+assert eval("value", globals={"value": 42}) == 42
+namespace = {}
+exec("value = 42", globals=namespace)
+assert namespace["value"] == 42
+assert compile(source="42", filename="<inference>", mode="eval")
+assert __import__(name="sys").__name__ == "sys"
+
+from io import StringIO
+
+output = StringIO()
+print(1, 2, sep=":", end="!", file=output)
+assert output.getvalue() == "1:2!"
+
+# Methods using a keyword-only argument struct must keep accepting keywords.
+values = [1, 2]
+values.sort(reverse=True)
+assert values == [2, 1]
+
+# Definitions built without the macros infer their calling convention too.
+assert int.__new__(int, "11", base=2) == 3
+
 def sum(x, y):
     return x+y
 

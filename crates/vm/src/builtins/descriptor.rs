@@ -112,8 +112,9 @@ impl Callable for PyMethodDescriptor {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        if let Some(obj) = args.args.first() {
-            method_descr_typecheck(zelf, obj, vm)?;
+        method_descr_check_self(zelf, args.args.first().map(|obj| &**obj), vm)?;
+        if !args.kwargs.is_empty() && !zelf.method.flags.contains(PyMethodFlags::KEYWORDS) {
+            return Err(method_descr_no_keywords_error(zelf, vm));
         }
         (zelf.method.func)(
             vm,
@@ -1556,6 +1557,40 @@ fn method_descr_typecheck(
     )))
 }
 
+#[inline]
+fn method_descr_check_self(
+    descr: &PyMethodDescriptor,
+    obj: Option<&PyObject>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let obj = obj.ok_or_else(|| method_descr_missing_self_error(descr, vm))?;
+    method_descr_typecheck(descr, obj, vm)
+}
+
+#[cold]
+fn method_descr_missing_self_error(
+    descr: &PyMethodDescriptor,
+    vm: &VirtualMachine,
+) -> crate::exceptions::types::PyBaseExceptionRef {
+    vm.new_type_error(format!(
+        "unbound method {}.{}() needs an argument",
+        descr.common.typ.name(),
+        descr.common.name
+    ))
+}
+
+#[cold]
+fn method_descr_no_keywords_error(
+    descr: &PyMethodDescriptor,
+    vm: &VirtualMachine,
+) -> crate::exceptions::types::PyBaseExceptionRef {
+    vm.new_type_error(format!(
+        "{}.{}() takes no keyword arguments",
+        descr.common.typ.name(),
+        descr.common.name
+    ))
+}
+
 /// Vectorcall for method_descriptor: calls native method directly
 fn vectorcall_method_descriptor(
     zelf_obj: &PyObject,
@@ -1565,10 +1600,19 @@ fn vectorcall_method_descriptor(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
-    if nargs > 0
-        && let Some(obj) = args.first()
+    method_descr_check_self(
+        zelf,
+        if nargs > 0 {
+            args.first().map(|obj| &**obj)
+        } else {
+            None
+        },
+        vm,
+    )?;
+    if kwnames.is_some_and(|names| !names.is_empty())
+        && !zelf.method.flags.contains(PyMethodFlags::KEYWORDS)
     {
-        method_descr_typecheck(zelf, obj, vm)?;
+        return Err(method_descr_no_keywords_error(zelf, vm));
     }
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(

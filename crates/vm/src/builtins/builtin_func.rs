@@ -87,6 +87,9 @@ impl Callable for PyNativeFunction {
     type Args = FuncArgs;
     #[inline]
     fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if !args.kwargs.is_empty() && !zelf.value.flags.contains(PyMethodFlags::KEYWORDS) {
+            return Err(native_no_keywords_error(zelf, vm)?);
+        }
         let mut callee = Callee::named(zelf.value.name);
         if let Some(z) = &zelf.zelf {
             // STATIC methods store the class in zelf for qualname/repr purposes,
@@ -272,6 +275,12 @@ fn vectorcall_native_function(
 ) -> PyResult {
     let zelf: &Py<PyNativeFunction> = zelf_obj.downcast_ref().unwrap();
 
+    if kwnames.is_some_and(|names| !names.is_empty())
+        && !zelf.value.flags.contains(PyMethodFlags::KEYWORDS)
+    {
+        return Err(native_no_keywords_error(zelf, vm)?);
+    }
+
     // Build FuncArgs with self already at position 0 (no insert(0) needed)
     let needs_self = zelf
         .zelf
@@ -290,6 +299,30 @@ fn vectorcall_native_function(
 
     let callee = Callee::named(zelf.value.name).with_instance_arg(needs_self);
     (zelf.value.func)(vm, func_args, callee)
+}
+
+#[cold]
+fn native_no_keywords_error(
+    zelf: &Py<PyNativeFunction>,
+    vm: &VirtualMachine,
+) -> PyResult<crate::exceptions::types::PyBaseExceptionRef> {
+    if zelf.value.flags.contains(PyMethodFlags::VARARGS) {
+        return Ok(vm.new_type_error(format!("{}() takes no keyword arguments", zelf.value.name)));
+    }
+    let qualname = PyNativeFunction::__qualname__(NativeFunctionOrMethod(zelf.to_owned()), vm)?;
+    let module = zelf
+        .module
+        .load_owned()
+        .filter(|module| !vm.is_none(module));
+    let module = module.map(|module| module.str(vm)).transpose()?;
+    let name = if let Some(module) = module
+        && module.to_string() != "builtins"
+    {
+        format!("{module}.{qualname}")
+    } else {
+        qualname.to_string()
+    };
+    Ok(vm.new_type_error(format!("{name}() takes no keyword arguments")))
 }
 
 pub(crate) fn init(context: &'static Context) {
