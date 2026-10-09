@@ -1663,14 +1663,7 @@ impl AsBuffer for PyCFuncPtr {
         } else {
             (Cow::Borrowed(pointer_format()), pointer_size())
         };
-        let desc = BufferDescriptor {
-            offset: 0,
-            len: itemsize,
-            readonly: false,
-            itemsize,
-            format,
-            dim_desc: vec![],
-        };
+        let desc = BufferDescriptor::from_dim_desc(itemsize, 0, false, itemsize, format, vec![]);
         let buf = PyBuffer::new(zelf.to_owned().into(), desc, &CDATA_BUFFER_METHODS);
         Ok(buf)
     }
