@@ -1804,7 +1804,7 @@ pub(crate) fn parse<E: From<CompileError>>(
 ) -> Result<PyObjectRef, E> {
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
     let mut options = parser::ParseOptions::from(mode);
-    let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
+    let target_version = target_version.unwrap_or(ast::PythonVersion::PY315);
     if let Some(error) = feature_version_syntax_error(source, &source_file, target_version) {
         return Err(error.into());
     }
@@ -2045,7 +2045,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
         let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY315));
         let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
             CompileError::from(ParseError {
@@ -2080,7 +2080,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         let call_source = format!("{ARG_PREFIX}{inner})");
         let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY315));
         let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
             CompileError::from(ParseError {

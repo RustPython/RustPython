@@ -25,6 +25,12 @@ assert "sys" in sys.builtin_module_names
 assert isinstance(sys.implementation.name, str)
 assert isinstance(sys.implementation.cache_tag, str)
 
+if sys.implementation.name == "rustpython":
+    assert sys.version_info == (3, 15, 0, "alpha", 0)
+    assert sys.hexversion == 0x030F00A0
+    assert sys.version.startswith("3.15.0.alpha (")
+    assert sys.implementation.cache_tag == "rustpython-315"
+
 assert sys.getfilesystemencoding() == "utf-8"
 assert sys.getfilesystemencodeerrors().startswith("surrogate")
 

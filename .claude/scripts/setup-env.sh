@@ -16,7 +16,7 @@ if [ "$(printf '%s\n' "3.13" "$CURRENT_PY" | sort -V | head -1)" != "3.13" ]; th
     echo "Upgrading python3 default to 3.13..."
     # Find best available Python >= 3.13
     TARGET=""
-    for ver in python3.14 python3.13; do
+    for ver in python3.15 python3.14 python3.13; do
         if command -v "$ver" &>/dev/null; then
             TARGET=$(command -v "$ver")
             break
@@ -40,8 +40,8 @@ fi
 
 # 2. Clone CPython source if not present (needed for scripts/update_lib)
 if [ ! -d "cpython" ]; then
-    echo "Cloning CPython v3.14.3 (shallow)..."
-    git clone --depth 1 --branch v3.14.3 https://github.com/python/cpython.git cpython
+    echo "Cloning CPython v3.15.0 (shallow)..."
+    git clone --depth 1 --branch v3.15.0 https://github.com/python/cpython.git cpython
     echo "CPython source ready."
 else
     echo "CPython source already present."

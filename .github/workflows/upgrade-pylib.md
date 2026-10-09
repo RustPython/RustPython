@@ -28,7 +28,7 @@ engine: copilot
 
 runtimes:
   python:
-    version: "3.14"
+    version: "3.15"
 
 tools:
   bash:
@@ -52,7 +52,7 @@ cache:
     - cpython-lib-
 
 env:
-  PYTHON_VERSION: "v3.14.7"
+  PYTHON_VERSION: "v3.15.0"
   ISSUE_ID: "6839"
 ---
 
