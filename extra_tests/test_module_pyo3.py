@@ -7,6 +7,8 @@ Requires the `pyo3` feature:
 """
 
 import array
+import collections.abc
+import copy
 import struct
 import sys
 import time
@@ -60,7 +62,10 @@ d = Decimal("1.1")
 assert isinstance(d, pyo3.ref)
 assert isinstance(d, Decimal)
 assert d.__class__ is Decimal
-assert type(d) is pyo3.ref
+assert type(d) is Decimal
+assert type(Decimal("1.5")) is Decimal
+assert not isinstance(Decimal("1"), collections.abc.Iterable)
+assert copy.copy(Decimal("1.5")) == Decimal("1.5")
 assert Decimal.__name__ == "Decimal"
 assert str(d) == "1.1"
 assert repr(d) == "Decimal('1.1')"
@@ -210,6 +215,7 @@ del dq[1]
 assert list(dq) == [10, 3, 4]
 assert list(reversed(dq)) == [4, 3, 10]
 assert bool(dq) and not bool(_collections.deque())
+assert isinstance(_collections.deque(), collections.abc.Iterable)
 
 od = _collections.OrderedDict()
 od["b"] = 1
@@ -293,6 +299,12 @@ else:
 
 ctypes = pyo3.import_module("ctypes")
 c_int = ctypes.c_int
+assert type(ctypes.Structure).__name__ == "PyCStructType"
+assert type(ctypes.c_int).__name__ == "PyCSimpleType"
+assert not callable(Decimal("1")) and callable(ctypes.CFUNCTYPE(None))
+assert bytes(ctypes.c_double(0.5)) == struct.pack("d", 0.5)
+d2 = ctypes.c_double(2.5)
+assert type(ctypes.c_double.from_address(ctypes.addressof(d2))) is ctypes.c_double
 assert ctypes.sizeof(c_int) == 4
 arr = (c_int * 4)(1, 2, 3, 4)
 assert list(arr) == [1, 2, 3, 4] and len(arr) == 4 and arr[2] == 3
@@ -336,6 +348,17 @@ view = memoryview(d)
 assert (view.ndim, view.shape, view.format) == (0, (), "<d")
 d.value = 2.5
 assert bytes(view) == struct.pack("<d", 2.5)
+
+
+class EmptyStruct(ctypes.Structure):
+    pass
+
+
+# A resized scalar spans its whole buffer, not just its itemsize.
+empty = EmptyStruct()
+ctypes.resize(empty, 5)
+memoryview(empty).cast("B")[:] = b"hello"
+assert bytes(memoryview(empty)) == b"hello"
 
 
 # numpy, when available
