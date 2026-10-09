@@ -301,7 +301,7 @@ impl PyMemoryView {
                 vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
             );
         }
-        let (shape, _, _) = self.desc.dim_desc[0];
+        let shape = self.desc.shape()[0] as usize;
         // ptr_from_index
         let index = i
             .wrapped_at(shape)
@@ -327,7 +327,7 @@ impl PyMemoryView {
         if self.desc.ndim() != 1 {
             return Err(vm.new_not_implemented_error("sub-views are not implemented"));
         }
-        let (shape, _, _) = self.desc.dim_desc[0];
+        let shape = self.desc.shape()[0] as usize;
         // ptr_from_index
         let index = i
             .wrapped_at(shape)
@@ -412,7 +412,7 @@ impl PyMemoryView {
     }
 
     fn init_len(&mut self) {
-        let product: usize = self.desc.dim_desc.iter().map(|x| x.0).product();
+        let product: usize = self.desc.shape().iter().map(|&x| x as usize).product();
         self.desc.len = product * self.desc.itemsize;
     }
 
@@ -420,34 +420,36 @@ impl PyMemoryView {
     /// outside `dim` is reached through a pointer, in which case its suboffset
     /// does.
     fn adjust_position(&mut self, dim: usize, delta: isize) {
-        match self.desc.dim_desc[..dim]
+        match self.desc.suboffsets()[..dim]
             .iter()
-            .rposition(|&(_, _, suboffset)| suboffset != 0)
+            .rposition(|&suboffset| suboffset != -1)
         {
-            Some(n) => self.desc.dim_desc[n].2 += delta,
+            Some(n) => self.desc.suboffsets_mut()[n] += delta,
             None => self.desc.offset += delta,
         }
     }
 
     fn init_range(&mut self, range: Range<usize>, dim: usize) {
-        let (shape, stride, _) = self.desc.dim_desc[dim];
+        let shape = self.desc.shape()[dim] as usize;
+        let stride = self.desc.strides()[dim];
         debug_assert!(shape >= range.len());
 
         self.adjust_position(dim, stride * range.start as isize);
-        self.desc.dim_desc[dim].0 = range.len();
+        self.desc.shape_mut()[dim] = range.len() as isize;
     }
 
     // init_slice
     fn init_slice(&mut self, slice: &Py<PySlice>, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let (shape, stride, _) = self.desc.dim_desc[dim];
+        let shape = self.desc.shape()[dim] as usize;
+        let stride = self.desc.strides()[dim];
         let slice = slice.to_saturated(vm)?;
         let (start, slice_len) = slice.adjust_indices_start(shape);
 
         // Repeated slicing multiplies the stride by the step every time, which
         // overflows after about twenty rounds; C wraps there and so does this.
         self.adjust_position(dim, stride.wrapping_mul(start));
-        self.desc.dim_desc[dim].0 = slice_len;
-        self.desc.dim_desc[dim].1 = stride.wrapping_mul(slice.step());
+        self.desc.shape_mut()[dim] = slice_len as isize;
+        self.desc.strides_mut()[dim] = stride.wrapping_mul(slice.step());
 
         Ok(())
     }
@@ -459,7 +461,13 @@ impl PyMemoryView {
         dim: usize,
         vm: &VirtualMachine,
     ) -> PyResult<PyListRef> {
-        let (shape, stride, suboffset) = self.desc.dim_desc[dim];
+        let shape = self.desc.shape()[dim] as usize;
+        let stride = self.desc.strides()[dim];
+        let suboffset = if self.desc.suboffsets()[dim] == -1 {
+            0
+        } else {
+            self.desc.suboffsets()[dim]
+        };
         if dim + 1 == self.desc.ndim() {
             let mut v = Vec::with_capacity(shape);
             for _ in 0..shape {
@@ -731,7 +739,7 @@ impl PyMemoryView {
             Err(vm.new_type_error("0-dim memory has no length"))
         } else {
             // shape for dim[0]
-            Ok(self.desc.dim_desc[0].0)
+            Ok(self.desc.shape()[0] as usize)
         }
     }
 
@@ -760,14 +768,14 @@ impl PyMemoryView {
             released: AtomicCell::new(false),
             restricted: AtomicCell::new(false),
             format_spec,
-            desc: BufferDescriptor {
-                len: self.desc.len,
-                offset: self.desc.offset,
-                readonly: self.desc.readonly,
+            desc: BufferDescriptor::from_dim_desc(
+                self.desc.len,
+                self.desc.offset,
+                self.desc.readonly,
                 itemsize,
-                format: format_str.to_owned().into(),
-                dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
-            },
+                format_str.to_owned().into(),
+                vec![(self.desc.len / itemsize, itemsize as isize, 0)],
+            ),
             hash: OnceCell::new(),
             exports: AtomicCell::new(0),
         };
@@ -903,9 +911,9 @@ impl Py<PyMemoryView> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
             self.desc
-                .dim_desc
+                .shape()
                 .iter()
-                .map(|(shape, _, _)| shape.to_pyobject(vm))
+                .map(|shape| (*shape as usize).to_pyobject(vm))
                 .collect(),
         ))
     }
@@ -915,9 +923,9 @@ impl Py<PyMemoryView> {
         self.try_not_released(vm)?;
         Ok(vm.ctx.new_tuple(
             self.desc
-                .dim_desc
+                .strides()
                 .iter()
-                .map(|(_, stride, _)| stride.to_pyobject(vm))
+                .map(|stride| stride.to_pyobject(vm))
                 .collect(),
         ))
     }
@@ -927,15 +935,15 @@ impl Py<PyMemoryView> {
         self.try_not_released(vm)?;
         let has_suboffsets = self
             .desc
-            .dim_desc
+            .suboffsets()
             .iter()
-            .any(|(_, _, suboffset)| *suboffset != 0);
+            .any(|suboffset| *suboffset != -1);
         if has_suboffsets {
             Ok(vm.ctx.new_tuple(
                 self.desc
-                    .dim_desc
+                    .suboffsets()
                     .iter()
-                    .map(|(_, _, suboffset)| suboffset.to_pyobject(vm))
+                    .map(|suboffset| suboffset.to_pyobject(vm))
                     .collect(),
             ))
         } else {
@@ -1055,7 +1063,7 @@ impl Py<PyMemoryView> {
                 vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
             );
         }
-        let len = self.desc.dim_desc[0].0;
+        let len = self.desc.shape()[0] as usize;
         let mut count = 0;
         for i in 0..len {
             let item = self.getitem_by_idx(i as isize, vm)?;
@@ -1074,7 +1082,7 @@ impl Py<PyMemoryView> {
                 vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
             );
         }
-        let len = self.desc.dim_desc[0].0;
+        let len = self.desc.shape()[0] as usize;
         let MemoryIndexArgs { value, start, stop } = args;
 
         let start = if start < 0 {
@@ -1148,12 +1156,14 @@ impl Py<PyMemoryView> {
                         vm.new_type_error("memoryview: product(shape) * itemsize != buffer size")
                     );
                 }
-                other.desc.dim_desc = vec![];
+                other
+                    .desc
+                    .set_dimensions(Box::new([]), Box::new([]), Box::new([]));
                 return Ok(other.into_ref(&vm.ctx));
             }
 
             let mut product_shape = itemsize;
-            let mut dim_descriptor = Vec::with_capacity(shape_ndim);
+            let mut shape_descriptor = Vec::with_capacity(shape_ndim);
 
             for x in shape {
                 let x = x
@@ -1174,12 +1184,13 @@ impl Py<PyMemoryView> {
                     return Err(vm.new_value_error("memoryview.cast(): product(shape) > SSIZE_MAX"));
                 }
                 product_shape *= x;
-                dim_descriptor.push((x, 0, 0));
+                shape_descriptor.push(x as isize);
             }
 
-            dim_descriptor.last_mut().unwrap().1 = itemsize as isize;
-            for i in (0..dim_descriptor.len() - 1).rev() {
-                dim_descriptor[i].1 = dim_descriptor[i + 1].1 * dim_descriptor[i + 1].0 as isize;
+            let mut strides = vec![0isize; shape_descriptor.len()];
+            strides[shape_descriptor.len() - 1] = itemsize as isize;
+            for i in (0..strides.len() - 1).rev() {
+                strides[i] = strides[i + 1] * shape_descriptor[i + 1];
             }
 
             if product_shape != other.desc.len {
@@ -1188,7 +1199,11 @@ impl Py<PyMemoryView> {
                 );
             }
 
-            other.desc.dim_desc = dim_descriptor;
+            other.desc.set_dimensions(
+                shape_descriptor.into_boxed_slice(),
+                strides.into_boxed_slice(),
+                vec![-1; shape_ndim].into_boxed_slice(),
+            );
 
             Ok(other.into_ref(&vm.ctx))
         } else {
@@ -1670,8 +1685,8 @@ fn is_equiv_shape(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
         return false;
     }
 
-    let a_iter = a.dim_desc.iter().map(|x| x.0);
-    let b_iter = b.dim_desc.iter().map(|x| x.0);
+    let a_iter = a.shape().iter().copied();
+    let b_iter = b.shape().iter().copied();
     for (a_shape, b_shape) in a_iter.zip(b_iter) {
         if a_shape != b_shape {
             return false;

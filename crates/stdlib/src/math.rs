@@ -94,35 +94,36 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let base = base.into_option().map(|v| v.into_float());
-        // Check base first for proper error messages
-        if let Some(b) = base {
-            if b <= 0.0 {
-                return Err(vm.new_value_error(format!(
+    fn log(x: PyObjectRef, base: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<f64> {
+        let natural_log = |x: &PyObject| {
+            // Handle BigInt specially for large values (only for actual int type, not float)
+            if let Some(i) = x.downcast_ref::<PyInt>() {
+                return pymath::math::log_bigint(i.as_bigint(), None).map_err(|err| match err {
+                    pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
+                    _ => pymath_exception(err, vm),
+                });
+            }
+            let val = x.try_float(vm)?.to_f64();
+            pymath::math::log(val, None).map_err(|err| match err {
+                pymath::Error::EDOM => vm.new_value_error(format!(
                     "expected a positive input, got {}",
-                    super::float_repr(b)
-                )));
-            }
-            if b == 1.0 {
-                return Err(vm.new_value_error("math domain error"));
-            }
-        }
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log_bigint(i.as_bigint(), base).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
+                    super::float_repr(val)
+                )),
                 _ => pymath_exception(err, vm),
-            });
+            })
+        };
+        let numerator = natural_log(&x)?;
+        match base {
+            OptionalArg::Missing => Ok(numerator),
+            OptionalArg::Present(base) => {
+                let denominator = natural_log(&base)?;
+                if denominator == 0.0 {
+                    Err(vm.new_zero_division_error("division by zero"))
+                } else {
+                    Ok(numerator / denominator)
+                }
+            }
         }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log(val, base).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
-            _ => pymath_exception(err, vm),
-        })
     }
 
     #[pyfunction]

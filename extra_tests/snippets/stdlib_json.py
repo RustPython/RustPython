@@ -67,6 +67,24 @@ assert "{}" == json.dumps({})
 assert "{}" == json_dump({})
 assert round_trip_test({"a": "b"})
 
+
+class EmptyDictWithItems(dict):
+    def items(self):
+        raise AssertionError("items() must not be called for an empty dictionary")
+
+
+for sort_keys in (False, True):
+    assert json.dumps(EmptyDictWithItems(), sort_keys=sort_keys) == "{}"
+    assert json.dumps([EmptyDictWithItems()], sort_keys=sort_keys) == "[{}]"
+
+
+class NonemptyDictWithItems(dict):
+    def items(self):
+        return [("replacement", 2)]
+
+
+assert json.dumps(NonemptyDictWithItems(original=1)) == '{"replacement": 2}'
+
 # should reject non-str keys in jsons
 assert_raises(json.JSONDecodeError, lambda: json.loads('{3: "abc"}'))
 assert_raises(json.JSONDecodeError, lambda: json_load('{3: "abc"}'))

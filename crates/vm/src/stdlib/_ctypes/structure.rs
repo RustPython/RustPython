@@ -823,14 +823,14 @@ impl AsBuffer for PyCStructure {
         // Structure: ndim=0, shape=(), itemsize=struct_size
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor {
-                offset: 0,
-                len: buffer_len,
-                readonly: false,
-                itemsize: buffer_len,
-                format: Cow::Owned(format),
-                dim_desc: vec![], // ndim=0 means empty dim_desc
-            },
+            BufferDescriptor::from_dim_desc(
+                buffer_len,
+                0,
+                false,
+                buffer_len,
+                Cow::Owned(format),
+                vec![], // ndim=0 means empty dim_desc
+            ),
             &CDATA_BUFFER_METHODS,
         );
         Ok(buf)

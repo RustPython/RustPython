@@ -39,3 +39,41 @@ with assert_raises(ValueError):
     mapped.find(b"")
 with assert_raises(ValueError):
     mapped.rfind(b"")
+
+
+# Buffer acquisition must reject a closed mapping before returning a view.
+with assert_raises(ValueError):
+    memoryview(mapped)
+
+mapped = mmap.mmap(-1, 4)
+mapped[:] = b"data"
+view = memoryview(mapped)
+child = view[1:]
+view.release()
+with assert_raises(BufferError):
+    mapped.close()
+assert not mapped.closed
+assert child.tobytes() == b"ata"
+child.release()
+mapped.close()
+mapped.close()
+
+# On Windows resize must neither invalidate an export nor revive a closed map.
+import sys
+
+if sys.platform == "win32":
+    mapped = mmap.mmap(-1, 4)
+    mapped[:] = b"data"
+    with memoryview(mapped) as view:
+        with assert_raises(BufferError):
+            mapped.resize(8)
+        with assert_raises(BufferError):
+            mapped.resize(0)
+        assert view.tobytes() == b"data"
+    mapped.resize(8)
+    with memoryview(mapped) as view:
+        assert view.tobytes() == b"data" + b"\0" * 4
+    mapped.close()
+    with assert_raises(ValueError):
+        mapped.resize(4)
+    assert mapped.closed

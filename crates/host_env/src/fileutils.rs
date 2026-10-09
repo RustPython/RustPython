@@ -11,6 +11,10 @@ pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
+    // Unlike a directory fd, fstat accepts no negative descriptor sentinels.
+    if fd.as_raw() < 0 {
+        return Err(std::io::Error::from_raw_os_error(libc::EBADF));
+    }
     rustix::fs::fstat(fd).map_err(Into::into)
 }
 
