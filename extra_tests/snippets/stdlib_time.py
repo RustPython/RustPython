@@ -1,6 +1,63 @@
 import sys
 import time
 
+if sys.platform == "win32":
+    # Record the native runtime before evaluating the range regression below.
+    print("Windows time runtime:", sys.version, sys.implementation, sys.flags)
+    print("Windows time word size:", sys.maxsize)
+    if hasattr(sys, "getwindowsversion"):
+        print("Windows version:", sys.getwindowsversion())
+    try:
+        import sysconfig
+
+        build_keys = (
+            "Py_DEBUG",
+            "Py_GIL_DISABLED",
+            "Py_ENABLE_SHARED",
+            "SIZEOF_TIME_T",
+            "CC",
+            "CFLAGS",
+        )
+        print(
+            "Windows time build:",
+            dict(zip(build_keys, sysconfig.get_config_vars(*build_keys))),
+        )
+    except Exception as error:
+        print("Windows time build unavailable:", type(error).__name__, str(error))
+    for converter in (time.gmtime, time.localtime, time.ctime):
+        for timestamp in (
+            0,
+            -1,
+            -43200,
+            -43201,
+            -86400,
+            2**40,
+            2**63 - 1,
+            -(2**63),
+            -float(2**63),
+            float(2**63),
+        ):
+            try:
+                result = converter(timestamp)
+            except Exception as error:
+                print(
+                    "Windows time result:",
+                    converter.__name__,
+                    repr(timestamp),
+                    type(error).__name__,
+                    str(error),
+                    getattr(error, "errno", None),
+                    getattr(error, "winerror", None),
+                )
+            else:
+                print(
+                    "Windows time result:",
+                    converter.__name__,
+                    repr(timestamp),
+                    "success",
+                    repr(result),
+                )
+
 if sys.platform != "wasi":
     for converter in (time.gmtime, time.localtime, time.ctime):
         # 2**63 is outside signed time_t even though its maximum rounds up to
