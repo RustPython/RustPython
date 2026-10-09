@@ -35,7 +35,7 @@ pub(crate) mod pyo3_type {
     };
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyTuple as RustPyTuple, PyType, PyTypeRef},
+        builtins::{PyClassMethod, PyStr, PyTuple as RustPyTuple, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
         function::{FuncArgs, KwArgs, PySetterValue},
         protocol::PyNumberMethods,
@@ -65,17 +65,50 @@ pub(crate) mod pyo3_type {
 
     #[pyclass(flags(BASETYPE), with(Callable, GetAttr, SetAttr, AsNumber))]
     impl Pyo3Type {
-        /// Runs class statements deriving from wrapped classes.
+        /// Allocates a class whose metaclass or bases live in CPython.
+        ///
+        /// `type(name, bases, namespace)` calls this and then `slots.init`.
+        /// `__new__` alone must not initialize: a ctypes class whose metaclass
+        /// `__init__` did not run is abstract.
         #[pyslot]
         fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let derives_from_cpython = args.args.len() == 3
-                && args.args[1]
-                    .downcast_ref::<RustPyTuple>()
+            let metatype_backed = is_cpython_backed(metatype.as_object(), vm);
+            let bases_backed = args.args.len() == 3
+                && args
+                    .args
+                    .get(1)
+                    .and_then(|bases| bases.downcast_ref::<RustPyTuple>())
                     .is_some_and(|bases| bases.iter().any(|base| is_cpython_backed(base, vm)));
-            if derives_from_cpython {
-                return with_gil(vm, |py| create_class(py, None, args, vm));
+            if args.args.len() == 3 && (metatype_backed || bases_backed) {
+                return with_gil(vm, |py| {
+                    let metaclass = if metatype_backed {
+                        Some(type_to_cpython(py, &metatype, vm)?)
+                    } else {
+                        None
+                    };
+                    create_class(py, metaclass, args, vm, false)
+                });
             }
             type_slot(|ty| ty.slots.new.load(), vm)(metatype, args, vm)
+        }
+
+        /// The wrapped class's MRO, without the layout bases added on this side.
+        #[pygetset]
+        fn __mro__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            if let Some(mro) = published_mro(zelf.to_base(), vm)? {
+                let items = mro.into_iter().map(Into::into).collect();
+                return Ok(vm.ctx.new_tuple(items).into());
+            }
+            type_descriptor(zelf.to_base(), "__mro__", vm)
+        }
+
+        #[pymethod]
+        fn mro(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            if let Some(mro) = published_mro(zelf.to_base(), vm)? {
+                let items = mro.into_iter().map(Into::into).collect();
+                return Ok(vm.ctx.new_list(items).into());
+            }
+            type_descriptor(zelf.to_base(), "mro", vm)?.call((), vm)
         }
     }
 
@@ -93,7 +126,7 @@ pub(crate) mod pyo3_type {
                     .cast::<CPythonType>()
                     .is_ok_and(|cls| cls.is_subclass_of::<CPythonType>().unwrap_or(false));
                 if is_metaclass && args.args.len() == 3 {
-                    return create_class(py, Some(cls.clone()), args, vm);
+                    return create_class(py, Some(cls.clone()), args, vm, true);
                 }
                 let result = call_cpython(cls, args, vm)?;
                 to_rustpython(&result, vm)
@@ -141,17 +174,18 @@ pub(crate) mod pyo3_type {
                     PySetterValue::Assign(value) => Some(to_cpython(py, value, vm)?),
                     PySetterValue::Delete => None,
                 };
-                // A method copied from this interpreter must not run again:
-                // `super().__setattr__` would swap `_fields_` twice and recurse.
+                // The copied method runs once, so it can rewrite the value.
+                // `super().__setattr__` lands here again and must call the next
+                // setter directly; running the copied method twice swaps
+                // `_fields_` twice and recurses.
                 let bypass = if cpython_value.is_some() {
                     rustpython_setattr_bypass(cls).to_pyresult(vm)?
                 } else {
                     None
                 };
                 run_cpython(vm, || match (&bypass, &cpython_value) {
-                    (Some(descr), Some(value)) => {
-                        let bound = descr.call_method1("__get__", (&cls, cls.get_type()))?;
-                        bound.call1((&cpython_name, value)).map(|_| ())
+                    (Some(bypass), Some(value)) => {
+                        call_bypassed_setattr(cls, bypass, &cpython_name, value)
                     }
                     (_, Some(value)) => cls.setattr(&cpython_name, value),
                     (_, None) => cls.delattr(&cpython_name),
@@ -206,18 +240,29 @@ pub(crate) mod pyo3_type {
             })
     }
 
-    /// `__setattr__` following methods copied from this interpreter.
+    /// A `__setattr__` copied from this interpreter, and the next one after it.
+    struct CopiedSetattr<'py> {
+        copied: Bound<'py, PyAny>,
+        next: Bound<'py, PyAny>,
+    }
+
+    std::thread_local! {
+        static SETATTR_REENTRY: core::cell::RefCell<Vec<usize>> =
+            const { core::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// `__setattr__` copied from this interpreter, followed by the next one.
     ///
-    /// Those methods are on the metaclass so class creation invokes them, and
-    /// `super().__setattr__` then lands here. Calling them again would swap
-    /// `_fields_` a second time and recurse. `None` means the first
-    /// `__setattr__` is already the one ordinary assignment should call.
+    /// The copied method rewrites `_fields_` and then calls
+    /// `super().__setattr__`, which assigns on this same class again. `None`
+    /// means the first `__setattr__` is already the one ordinary assignment
+    /// should call.
     fn rustpython_setattr_bypass<'py>(
         cls: &Bound<'py, PyAny>,
-    ) -> pyo3::PyResult<Option<Bound<'py, PyAny>>> {
+    ) -> pyo3::PyResult<Option<CopiedSetattr<'py>>> {
         let py = cls.py();
         let mro = cls.get_type().mro();
-        let mut passed_copied = false;
+        let mut copied = None;
         for base in mro.iter() {
             let dict = base.getattr(pyo3::intern!(py, "__dict__"))?;
             let attr = dict.call_method1(
@@ -228,15 +273,56 @@ pub(crate) mod pyo3_type {
                 continue;
             }
             if unwrap_rustpython_object(&attr).is_some() {
-                passed_copied = true;
+                if copied.is_none() {
+                    copied = Some(attr);
+                }
                 continue;
             }
-            if passed_copied {
-                return Ok(Some(attr));
+            if let Some(copied) = copied {
+                return Ok(Some(CopiedSetattr { copied, next: attr }));
             }
             return Ok(None);
         }
         Ok(None)
+    }
+
+    /// Call the copied setter, or on re-entry for this class the one after it.
+    fn call_bypassed_setattr(
+        cls: &Bound<'_, PyAny>,
+        bypass: &CopiedSetattr<'_>,
+        name: &Bound<'_, PyAny>,
+        value: &Bound<'_, PyAny>,
+    ) -> pyo3::PyResult<()> {
+        let key = cls.as_ptr() as usize;
+        let outer = SETATTR_REENTRY.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            if stack.contains(&key) {
+                false
+            } else {
+                stack.push(key);
+                true
+            }
+        });
+        struct Guard {
+            key: usize,
+            outer: bool,
+        }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                if self.outer {
+                    SETATTR_REENTRY.with(|stack| {
+                        let mut stack = stack.borrow_mut();
+                        if let Some(pos) = stack.iter().rposition(|item| *item == self.key) {
+                            stack.remove(pos);
+                        }
+                    });
+                }
+            }
+        }
+        let _guard = Guard { key, outer };
+        let descr = if outer { &bypass.copied } else { &bypass.next };
+        let bound = descr.call_method1("__get__", (cls, cls.get_type()))?;
+        bound.call1((name, value)).map(|_| ())
     }
 
     /// Names a wrapper class answers itself, as a RustPython class, rather
@@ -274,7 +360,7 @@ pub(crate) mod pyo3_type {
         if let Some(builtin) = builtin_to_cpython(py, ty, vm) {
             return Ok(builtin);
         }
-        Ok(RustPythonObject::wrap(py, ty.to_owned().into()))
+        Ok(RustPythonObject::wrap(py, ty.to_owned().into(), vm))
     }
 
     /// The RustPython class standing for the CPython class `ty`.
@@ -327,9 +413,17 @@ pub(crate) mod pyo3_type {
             0
         };
         let name = ty.name().to_pyresult(vm)?.to_string();
+        // Managed weak references live in a prefix, so the payload size stays
+        // `pyo3.ref`'s. `__dict__` stays forwarded and is not added here.
+        let weakref = ref_layout && cpython_type_supports_weakref(ty);
         let slots = || {
+            let mut flags = PyTypeFlags::HEAP_TYPE;
+            if weakref {
+                flags.insert(PyTypeFlags::HAS_WEAKREF);
+                flags.insert(PyTypeFlags::MANAGED_WEAKREF);
+            }
             let mut slots = PyTypeSlots::default();
-            slots.flags = AtomicPyTypeFlags::from_plain(PyTypeFlags::HEAP_TYPE);
+            slots.flags = AtomicPyTypeFlags::from_plain(flags);
             slots.basicsize = basicsize;
             slots
         };
@@ -371,7 +465,69 @@ pub(crate) mod pyo3_type {
         // Cached before the namespace is mirrored, which may refer back to it.
         state.cache_type(ty, wrapper.clone());
         mirror_namespace(ty, &wrapper, ref_layout, is_metaclass, vm)?;
+        // `type(name, bases, namespace)` allocates with `tp_new` and then
+        // calls this metaclass's `tp_init`. The attribute takes the new class
+        // as its first argument, same as the slot.
+        if is_metaclass {
+            wrapper.set_attr(
+                vm.ctx.intern_str("__init__"),
+                vm.new_function("__init__", metaclass_init_py).into(),
+            );
+            wrapper.slots.init.store(Some(metaclass_init));
+        }
         Ok(wrapper)
+    }
+
+    fn cpython_type_supports_weakref(ty: &Bound<'_, CPythonType>) -> bool {
+        // SAFETY: `ty` is a live type object. Only its weak-reference offset
+        // and flag word are read.
+        unsafe {
+            let ptr = ty.as_type_ptr();
+            (*ptr).tp_weaklistoffset != 0
+                || pyo3::ffi::PyType_HasFeature(ptr, pyo3::ffi::Py_TPFLAGS_MANAGED_WEAKREF) != 0
+        }
+    }
+
+    /// Classes of the wrapped type, in its own MRO order.
+    fn published_mro(zelf: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<Vec<PyTypeRef>>> {
+        let Some(wrapped) = wrapped_cpython_type(zelf, vm) else {
+            return Ok(None);
+        };
+        with_gil(vm, |py| {
+            let obj = wrapped.py_obj.bind(py);
+            let Ok(cls) = obj.cast::<CPythonType>() else {
+                return Ok(None);
+            };
+            let mut mro = Vec::new();
+            for base in cls.mro().iter() {
+                let base = base
+                    .cast::<CPythonType>()
+                    .map_err(PyErr::from)
+                    .to_pyresult(vm)?;
+                mro.push(wrap_cpython_type(base, vm)?);
+            }
+            Ok(Some(mro))
+        })
+    }
+
+    /// `type`'s own `__mro__` or `mro`, bound to `zelf`, without looking the
+    /// name up on `zelf` again.
+    fn type_descriptor(zelf: &Py<PyType>, name: &str, vm: &VirtualMachine) -> PyResult {
+        let type_type = vm.ctx.types.type_type;
+        let Some(descr) = type_type.get_direct_attr(vm.ctx.intern_str(name)) else {
+            return Err(
+                vm.new_attribute_error(format!("type object 'type' has no attribute '{name}'"))
+            );
+        };
+        let Some(descr_get) = descr.class().slots.descr_get.load() else {
+            return Ok(descr);
+        };
+        descr_get(
+            descr.as_object(),
+            Some(zelf.as_object()),
+            Some(type_type.as_object()),
+            vm,
+        )
     }
 
     fn map_cpython_bases(
@@ -548,15 +704,19 @@ pub(crate) mod pyo3_type {
     /// An instance of `obj`'s class, when that class can carry the payload.
     pub(crate) fn instance_to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
         let ty = obj.get_type();
+        if let Some(cached) = Pyo3Ref::cached(obj) {
+            return Ok(cached);
+        }
         if use_generic_proxy(&ty, vm) {
             return Ok(Pyo3Ref::wrap(obj, vm));
         }
         let wrapper = wrap_cpython_type(&ty, vm)?;
         let layout = Pyo3Ref::static_type();
         if wrapper.fast_issubclass(layout) && wrapper.slots.basicsize == layout.slots.basicsize {
-            return Pyo3Ref::new(obj.clone().unbind())
+            let proxy = Pyo3Ref::tracked(obj.clone().unbind())
                 .into_ref_with_type(vm, wrapper)
-                .map(Into::into);
+                .map(Into::into)?;
+            return Ok(Pyo3Ref::publish(proxy));
         }
         Ok(Pyo3Ref::wrap(obj, vm))
     }
@@ -624,15 +784,15 @@ pub(crate) mod pyo3_type {
         }
         let namespace = ty.as_object().get_attr("__dict__", vm)?;
         let bases = ty.bases.read().iter().map(|base| base.to_owned()).collect();
-        let cpython = create_cpython_class(
+        let (metaclass, args) = create_cpython_class(
             py,
             None,
             vm.ctx.new_str(ty.name().to_string()).into(),
             bases,
             &namespace,
-            &KwArgs::default(),
             vm,
         )?;
+        let cpython = call_new_class(py, metaclass, args, &KwArgs::default(), vm, true)?;
         let cpython_type = cpython
             .cast::<CPythonType>()
             .map_err(PyErr::from)
@@ -652,9 +812,8 @@ pub(crate) mod pyo3_type {
         name: PyObjectRef,
         bases: Vec<PyTypeRef>,
         namespace: &PyObject,
-        kwargs: &KwArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<(Bound<'py, PyAny>, Vec<Bound<'py, PyAny>>)> {
         let mut cpython_bases = Vec::new();
         let mut mixins = Vec::new();
         for base in bases {
@@ -688,6 +847,7 @@ pub(crate) mod pyo3_type {
                         )
                     });
                     if !skip {
+                        let value = promote_class_method(&key, value, vm);
                         cpython_namespace
                             .set_item(to_cpython(py, &key, vm)?, to_cpython(py, &value, vm)?)
                             .to_pyresult(vm)?;
@@ -701,6 +861,7 @@ pub(crate) mod pyo3_type {
                 matches!(key.to_str(), Some("__classcell__" | "__classdictcell__"))
             });
             if !is_cell {
+                let value = promote_class_method(&key, value, vm);
                 cpython_namespace
                     .set_item(to_cpython(py, &key, vm)?, to_cpython(py, &value, vm)?)
                     .to_pyresult(vm)?;
@@ -717,7 +878,32 @@ pub(crate) mod pyo3_type {
             cpython_bases.into_any(),
             cpython_namespace.into_any(),
         ];
-        call_cpython_with(&metaclass, args, kwargs, vm)
+        Ok((metaclass, args))
+    }
+
+    /// Class statements call the metaclass (`tp_new` and `tp_init`).
+    /// `type.__new__` only allocates; the following `slots.init` initializes.
+    fn call_new_class<'py>(
+        py: Python<'py>,
+        metaclass: Bound<'py, PyAny>,
+        args: Vec<Bound<'py, PyAny>>,
+        kwargs: &KwArgs,
+        vm: &VirtualMachine,
+        initialize: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (callable, positional) = if initialize {
+            (metaclass, args)
+        } else {
+            let type_new = py
+                .get_type::<CPythonType>()
+                .getattr("__new__")
+                .to_pyresult(vm)?;
+            let mut positional = Vec::with_capacity(args.len() + 1);
+            positional.push(metaclass);
+            positional.extend(args);
+            (type_new, positional)
+        };
+        call_cpython_with(&callable, positional, kwargs, vm)
     }
 
     fn most_derived_metaclass<'py>(
@@ -732,6 +918,26 @@ pub(crate) mod pyo3_type {
             }
         }
         Ok(winner.into_any())
+    }
+
+    /// Plain functions named `__init_subclass__` or `__class_getitem__` are
+    /// class methods. A value that is already a classmethod stays as it is.
+    fn promote_class_method(
+        key: &PyObject,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        let promote = key.downcast_ref::<PyStr>().is_some_and(|key| {
+            matches!(
+                key.to_str(),
+                Some("__init_subclass__" | "__class_getitem__")
+            )
+        }) && value.class().is(vm.ctx.types.function_type);
+        if promote {
+            PyClassMethod::from(value).into_pyobject(vm)
+        } else {
+            value
+        }
     }
 
     fn namespace_items(
@@ -756,6 +962,7 @@ pub(crate) mod pyo3_type {
         metaclass: Option<Bound<'_, PyAny>>,
         args: FuncArgs,
         vm: &VirtualMachine,
+        initialize: bool,
     ) -> PyResult {
         let [name, bases, namespace]: [PyObjectRef; 3] = args
             .args
@@ -771,15 +978,9 @@ pub(crate) mod pyo3_type {
                     .map_err(|_| vm.new_type_error("bases must be classes"))
             })
             .collect::<PyResult<Vec<_>>>()?;
-        let cpython = create_cpython_class(
-            py,
-            metaclass,
-            name,
-            bases.clone(),
-            &namespace,
-            &args.kwargs,
-            vm,
-        )?;
+        let (metaclass, c_args) =
+            create_cpython_class(py, metaclass, name, bases.clone(), &namespace, vm)?;
+        let cpython = call_new_class(py, metaclass, c_args, &args.kwargs, vm, initialize)?;
         let Ok(cpython_type) = cpython.cast::<CPythonType>() else {
             // The metaclass returned something other than a class.
             return to_rustpython(&cpython, vm);
@@ -807,5 +1008,40 @@ pub(crate) mod pyo3_type {
 
     fn type_slot<T: Copy>(get: impl FnOnce(&PyType) -> Option<T>, vm: &VirtualMachine) -> T {
         get(vm.ctx.types.type_type).expect("type implements every slot pyo3_type overrides")
+    }
+
+    /// Run the metaclass initializer on the class allocated by `slot_new`.
+    fn metaclass_init(obj: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let Some(ty) = obj.downcast_ref::<PyType>() else {
+            return Ok(());
+        };
+        let Some(wrapped) = wrapped_cpython_type(ty, vm) else {
+            return Ok(());
+        };
+        with_gil(vm, |py| {
+            let c_type = wrapped.py_obj.bind(py);
+            let init = run_cpython(vm, || c_type.get_type().getattr("__init__"))?;
+            let converted = args
+                .args
+                .iter()
+                .map(|arg| to_cpython(py, arg, vm))
+                .collect::<PyResult<Vec<_>>>()?;
+            let mut positional = Vec::with_capacity(converted.len() + 1);
+            positional.push(c_type.clone().into_any());
+            positional.extend(converted);
+            call_cpython_with(&init, positional, &args.kwargs, vm)?;
+            Ok(())
+        })
+    }
+
+    fn metaclass_init_py(mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if args.args.is_empty() {
+            return Err(
+                vm.new_type_error("descriptor '__init__' of a ctypes metaclass needs an argument")
+            );
+        }
+        let obj = args.args.remove(0);
+        metaclass_init(&obj, args, vm)?;
+        Ok(vm.ctx.none())
     }
 }
