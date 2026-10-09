@@ -50,5 +50,6 @@ runs:
         if sys.platform == "win32":
             with open(os.environ["GITHUB_PATH"], "a") as path:
                 print(sys.base_prefix, file=path)
+                print(os.path.dirname(sys.executable), file=path)
         print(sys.version)
         PY
