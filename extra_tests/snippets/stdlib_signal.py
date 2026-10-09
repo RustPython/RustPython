@@ -21,6 +21,35 @@ assert old_signal is signal.SIG_IGN
 assert signal.getsignal(signal.SIGILL) is signal.SIG_DFL
 
 
+# Ignoring a synchronously raised signal must not invoke a callback, including
+# on WASI where libc uses a function pointer rather than integer 1 for SIG_IGN.
+synchronous_signals = []
+
+
+def synchronous_handler(signum, frame):
+    synchronous_signals.append(signum)
+
+
+previous = signal.signal(signal.SIGILL, synchronous_handler)
+try:
+    signal.raise_signal(signal.SIGILL)
+    assert synchronous_signals == [signal.SIGILL]
+    assert signal.signal(signal.SIGILL, signal.SIG_IGN) is synchronous_handler
+    signal.raise_signal(signal.SIGILL)
+    assert synchronous_signals == [signal.SIGILL]
+    assert signal.getsignal(signal.SIGILL) is signal.SIG_IGN
+finally:
+    signal.signal(signal.SIGILL, previous)
+
+if sys.platform == "wasi":
+    # wasi-libc rejects SIGKILL (9) and SIGSTOP (19), even though they are not
+    # exported by RustPython's minimal WASI signal module.
+    for uncatchable in (9, 19):
+        previous = signal.getsignal(uncatchable)
+        assert_raises(OSError, signal.signal, uncatchable, signal.SIG_IGN)
+        assert signal.getsignal(uncatchable) is previous
+
+
 # unix, and not WASI
 if "win" not in sys.platform and sys.platform != "wasi":
     signal.signal(signal.SIGALRM, handler)
