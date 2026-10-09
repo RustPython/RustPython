@@ -18,8 +18,8 @@ pub mod array {
             atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
-                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef, PyUtf8Str, PyUtf8StrRef, builtins_iter, locked_next,
+                PyGenericAlias, PyInt, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
+                PyUtf8Str, PyUtf8StrRef, builtins_iter, locked_next,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -235,20 +235,29 @@ pub mod array {
                     }
                 }
 
-                fn fromlist(&mut self, list: &Py<PyList>, vm: &VirtualMachine) -> PyResult<()> {
+                // The caller must rule out conversion callbacks before taking locks.
+                fn extend_builtin_list(&mut self, list: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
                             // convert list before modify self
-                            let mut list: Vec<$t> = list
-                                .borrow_vec()
-                                .iter()
-                                .cloned()
+                            let mut items: Vec<$t> = list.iter().cloned()
                                 .map(|value| <$t>::try_into_from_object(vm, value))
                                 .try_collect()?;
-                            v.append(&mut list);
-                            Ok(())
+                            v.append(&mut items);
                         })*
                     }
+                    Ok(())
+                }
+
+                fn resize(&mut self, len: usize, vm: &VirtualMachine) -> PyResult<()> {
+                    match self {
+                        $(ArrayContentType::$n(v) => {
+                            v.try_reserve(len.saturating_sub(v.len()))
+                                .map_err(|_| vm.no_memory_error())?;
+                            v.resize(len, <$t>::default());
+                        })*
+                    }
+                    Ok(())
                 }
 
                 fn get_bytes(&self) -> &[u8] {
@@ -506,12 +515,12 @@ pub mod array {
         (Double, f64, 'd', "d"),
     );
 
-    #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+    #[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug)]
     pub struct WideChar(wchar_t);
 
     /// Element type for the 'w' typecode: always a 4-byte unicode code point
     /// (Py_UCS4), unlike 'u' which is platform-dependent `wchar_t`.
-    #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+    #[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq, Debug)]
     pub struct Ucs4Char(u32);
 
     trait ArrayElement: Sized {
@@ -1186,7 +1195,55 @@ pub mod array {
 
         #[pymethod]
         fn fromlist(zelf: &Py<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.try_resizable(vm)?.fromlist(&list, vm)
+            let n = list.borrow_vec().len();
+            if n == 0 {
+                return Ok(());
+            }
+            {
+                let items = list.borrow_vec();
+                if items.iter().all(|item| {
+                    let class = item.class();
+                    class.is(vm.ctx.types.int_type)
+                        || class.is(vm.ctx.types.float_type)
+                        || class.is(vm.ctx.types.bool_type)
+                        || class.is(vm.ctx.types.str_type)
+                }) {
+                    return zelf.try_resizable(vm)?.extend_builtin_list(&items, vm);
+                }
+            }
+            let (old_size, typecode) = {
+                let mut array = zelf.try_resizable(vm)?;
+                let old_size = array.len();
+                let new_size = old_size
+                    .checked_add(n)
+                    .ok_or_else(|| vm.no_memory_error())?;
+                // Callbacks can observe the new size, so initialize the new elements.
+                array.resize(new_size, vm)?;
+                (old_size, array.typecode())
+            };
+            let result = (|| {
+                for i in 0..n {
+                    let value = list.borrow_vec().get(i).cloned().ok_or_else(|| {
+                        vm.new_runtime_error("list changed size during iteration")
+                    })?;
+                    let index = zelf.read().len() as isize - n as isize + i as isize;
+                    let item = ArrayContentType::item_from_object(typecode, value, vm)?;
+                    // Conversion can resize the array. Check the saved index afterwards;
+                    // a negative index is the conversion-only sentinel used by CPython.
+                    if index >= 0 {
+                        zelf.write().setitem_by_item(index, item, vm)?;
+                    }
+                    if list.borrow_vec().len() != n {
+                        return Err(vm.new_runtime_error("list changed size during iteration"));
+                    }
+                }
+                Ok(())
+            })();
+            if result.is_err() && zelf.read().len() != old_size {
+                // A callback may have exported a buffer, preventing even the rollback.
+                zelf.try_resizable(vm)?.resize(old_size, vm)?;
+            }
+            result
         }
 
         #[pymethod]

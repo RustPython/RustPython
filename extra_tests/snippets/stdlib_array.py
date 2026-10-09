@@ -346,3 +346,102 @@ test_array_search_callbacks()
 test_array_search_sees_appended_items()
 test_array_insert_converts_without_lock()
 test_array_extend_callbacks_and_partial_progress()
+
+
+def test_array_fromlist_callbacks():
+    for code in ("i", "d"):
+        values = array(code, [1])
+        source = []
+
+        class Number:
+            def __index__(self):
+                assert len(values) == 3
+                values[0] = 9
+                source[1] = 8
+                return 7
+
+            def __float__(self):
+                return float(self.__index__())
+
+        source[:] = [Number(), 2]
+        values.fromlist(source)
+        assert list(values) == [9, 7, 8]
+
+    values = array("i", [1])
+
+    class Append:
+        def __index__(self):
+            values.append(9)
+            return 7
+
+    values.fromlist([Append()])
+    assert list(values) == [1, 7, 9]
+
+
+def test_array_fromlist_rollback():
+    for mutate in (lambda source: source.clear(), lambda source: source.append(3)):
+        values = array("i", [1])
+
+        class ChangeList:
+            def __index__(self):
+                values[0] = 9
+                mutate(source)
+                return 7
+
+        source = [ChangeList(), 2]
+        with assert_raises(RuntimeError):
+            values.fromlist(source)
+        assert list(values) == [9]
+
+    values = array("i", [1])
+
+    class Fail:
+        def __index__(self):
+            assert values[1] == 2
+            raise ValueError("conversion failed")
+
+    with assert_raises(ValueError):
+        values.fromlist([2, Fail()])
+    assert list(values) == [1]
+
+    class Clear:
+        def __index__(self):
+            values.clear()
+            return 7
+
+    with assert_raises(IndexError):
+        values.fromlist([Clear()])
+    assert len(values) == 1
+
+
+def test_array_fromlist_exports():
+    values = array("i", [1])
+    with memoryview(values):
+        values.fromlist([])
+        with assert_raises(BufferError):
+            values.fromlist([2])
+
+    views = []
+
+    class Export:
+        def __index__(self):
+            views.append(memoryview(values))
+            return 7
+
+    values.fromlist([Export()])
+    assert list(views.pop()) == [1, 7]
+
+    class ExportAndFail:
+        def __index__(self):
+            views.append(memoryview(values))
+            raise ValueError("conversion failed")
+
+    with assert_raises(BufferError):
+        values.fromlist([ExportAndFail()])
+    assert len(values) == len(views[0]) == 3
+    views.pop().release()
+
+
+test_array_fromlist_callbacks()
+test_array_fromlist_rollback()
+test_array_fromlist_exports()
