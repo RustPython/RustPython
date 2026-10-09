@@ -26,19 +26,6 @@ with assert_raises(StopIteration):
         next(dict_reversed)
 assert "dict" in dict().__doc__
 
-assert (
-    frozendict.__doc__
-    == """frozendict() -> new empty immutable dictionary
-frozendict(mapping) -> new immutable dictionary initialized from a mapping
-    object's (key, value) pairs
-frozendict(iterable) -> new immutable dictionary initialized as if via:
-    d = {}
-    for k, v in iterable:
-        d[k] = v
-    d = frozendict(d)
-frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
-    pairs in the keyword argument list.  For example:  frozendict(one=1, two=2)"""
-)
 
 d = {"a": 123, "b": 456}
 assert 1 not in d.items()
@@ -874,6 +861,20 @@ assert CountingHash.calls == 1, CountingHash.calls
 import builtins
 
 if hasattr(builtins, "frozendict"):
+    assert (
+        frozendict.__doc__
+        == """frozendict() -> new empty immutable dictionary
+frozendict(mapping) -> new immutable dictionary initialized from a mapping
+    object's (key, value) pairs
+frozendict(iterable) -> new immutable dictionary initialized as if via:
+    d = {}
+    for k, v in iterable:
+        d[k] = v
+    d = frozendict(d)
+frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
+    pairs in the keyword argument list.  For example:  frozendict(one=1, two=2)"""
+    )
+
     import builtins
     import copy
     import gc
