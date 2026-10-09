@@ -72,6 +72,20 @@ pub unsafe extern "C" fn PyByteArray_Resize(bytearray: *mut PyObject, len: isize
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyByteArray_Concat(a: *mut PyObject, b: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let a = unsafe { a.assume_borrowed_or_opt() }
+            .ok_or_else(|| vm.new_system_error("NULL a in PyByteArray_Concat"))?;
+        let b = unsafe { b.assume_borrowed_or_opt() }
+            .ok_or_else(|| vm.new_system_error("NULL b in PyByteArray_Concat"))?;
+        let mut data = a.try_bytes_like(vm, |buf| buf.to_vec())?;
+        let b_buf = b.try_bytes_like(vm, |buf| buf.to_vec())?;
+        data.extend_from_slice(&b_buf);
+        Ok(vm.ctx.new_bytearray(data))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
@@ -123,6 +137,18 @@ mod tests {
             let source = PyBytes::new(py, b"ABC");
             let bytearray = PyByteArray::from(&source).unwrap();
             assert_eq!(bytearray.to_vec(), b"ABC");
+        })
+    }
+
+    #[test]
+    fn bytearray_concat() {
+        Python::attach(|py| {
+            let a = PyByteArray::new(py, b"hello ");
+            let b = PyByteArray::new(py, b"world");
+            let c_ptr = unsafe { super::PyByteArray_Concat(a.as_ptr().cast(), b.as_ptr().cast()) };
+            let c = unsafe { pyo3::Bound::from_owned_ptr(py, c_ptr.cast()) };
+            let c_ba = c.cast::<PyByteArray>().unwrap();
+            assert_eq!(c_ba.to_vec(), b"hello world");
         })
     }
 }
