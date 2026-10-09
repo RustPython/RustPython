@@ -1,3 +1,4 @@
+import sys
 from operator import imul, mul
 
 from testutils import assert_raises
@@ -59,7 +60,10 @@ assert_raises(TypeError, lambda: 1.5 ^ True)
 def check_repeat_error(error, message, operation, *args):
     with assert_raises(error) as caught:
         operation(*args)
-    assert str(caught.exception) == message, str(caught.exception)
+    if isinstance(message, tuple):
+        assert str(caught.exception) in message, str(caught.exception)
+    else:
+        assert str(caught.exception) == message, str(caught.exception)
 
 
 class GetItemOnly:
@@ -89,11 +93,23 @@ for value in (range(3), GetItemOnly()):
 
 # Native sequence slots use the same count conversion in both directions.
 for value in ([1], (1,), "a", b"a", bytearray(b"a")):
-    for operation in (mul, lambda seq, count: count * seq, imul):
+    for operation_index, operation in enumerate(
+        (mul, lambda seq, count: count * seq, imul)
+    ):
         for count, error, message in (
             (1.5, TypeError, "can't multiply sequence by non-int of type 'float'"),
             (2**100, OverflowError, "cannot fit 'int' into an index-sized integer"),
         ):
+            if (
+                sys.implementation.name == "cpython"
+                and sys.version_info[:2] == (3, 15)
+                and type(value) in (str, bytes, tuple)
+                and operation_index == 1
+                and error is OverflowError
+            ):
+                # CPython 3.15's warmed reverse-sequence specialization uses a
+                # different count converter from the cold generic path.
+                message = (message, "Python int too large to convert to C ssize_t")
             check_repeat_error(error, message, operation, value, count)
 
 

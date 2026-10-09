@@ -3944,11 +3944,13 @@ def test_timezone_cycles():
 def test_timestamp_errno():
     if sys.platform == "win32":
         try:
-            datetime_module.datetime.fromtimestamp(-1)
+            datetime_module.datetime.fromtimestamp(2**40)
         except OSError as error:
             assert error.errno == errno.EINVAL
         else:
-            raise AssertionError("Windows localtime accepted a negative timestamp")
+            raise AssertionError(
+                "Windows localtime accepted a timestamp beyond the CRT range"
+            )
         try:
             datetime_module.datetime.fromtimestamp(-86400, datetime_module.timezone.utc)
         except OSError as error:
