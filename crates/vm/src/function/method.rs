@@ -6,7 +6,7 @@ use crate::{
         descriptor::{PyClassMethodDescriptor, PyMethodDescriptor},
     },
     class::PyClassDef,
-    function::{IntoPyNativeFn, PyNativeFn},
+    function::{FuncArgs, IntoPyNativeFn, PyNativeFn, SigArg},
 };
 
 bitflags::bitflags! {
@@ -49,6 +49,22 @@ bitflags::bitflags! {
 impl PyMethodFlags {
     // FIXME: macro temp
     pub const EMPTY: Self = Self::empty();
+
+    const CALL_CONVENTION: Self = Self::VARARGS
+        .union(Self::KEYWORDS)
+        .union(Self::NOARGS)
+        .union(Self::O)
+        .union(Self::FASTCALL);
+
+    /// Adds the calling convention inferred from `args` unless one is set.
+    /// For METHOD and CLASS the first argument is the bound receiver.
+    pub(crate) const fn with_call_convention(self, args: &[SigArg]) -> Self {
+        if self.intersects(Self::CALL_CONVENTION) {
+            return self;
+        }
+        let receiver = self.intersects(Self::METHOD.union(Self::CLASS));
+        self.union(super::signature::native_call_flags(args, receiver))
+    }
 }
 
 #[macro_export]
@@ -115,16 +131,16 @@ impl PyMethodDef {
     }
 
     #[inline]
-    pub const fn new_const<Kind>(
+    pub const fn new_const<Kind, F: IntoPyNativeFn<Kind>>(
         name: &'static str,
-        func: impl IntoPyNativeFn<Kind>,
+        func: F,
         flags: PyMethodFlags,
         doc: super::ItemDoc,
     ) -> Self {
         Self {
             name,
             func: super::static_func(func),
-            flags,
+            flags: flags.with_call_convention(F::ARGS),
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]
@@ -145,7 +161,7 @@ impl PyMethodDef {
         Self {
             name,
             func: super::static_raw_func(func),
-            flags,
+            flags: flags.with_call_convention(&[SigArg::from_arg::<FuncArgs>("args")]),
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]
@@ -249,7 +265,7 @@ impl PyMethodDef {
     ) -> PyRef<PyNativeMethod> {
         PyRef::new_ref(
             self.to_bound_method(obj, class),
-            ctx.types.builtin_function_or_method_type.to_owned(),
+            ctx.types.builtin_method_type.to_owned(),
             None,
         )
     }
@@ -267,18 +283,10 @@ impl PyMethodDef {
         &'static self,
         ctx: &Context,
         class: &'static Py<PyType>,
-    ) -> PyRef<PyNativeMethod> {
+    ) -> PyRef<PyNativeFunction> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
-        // Set zelf to the class (m_self = type for static methods).
-        // Callable::call skips prepending when STATIC flag is set.
-        let func = PyNativeFunction {
-            zelf: Some(class.to_owned().into()),
-            value: self,
-            module_object: None,
-            module: crate::object::PyAtomicRef::new_empty(),
-            _method_def_owner: None,
-        };
-        PyNativeMethod { func, class }.into_ref(ctx)
+        // m_self is the type; STATIC skips prepending it on call.
+        self.build_bound_function(ctx, class.to_owned().into())
     }
 
     /// Concatenate method groups. A pending body is copied from `docs`, then cleared.

@@ -12,8 +12,8 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
-        PySsize,
+        ArgByteOrder, ArgIndex, ArgIntoBool, FuncArgs, OptionalArg, PyArithmeticValue,
+        PyComparisonValue, PySsize,
     },
     protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
@@ -526,7 +526,7 @@ impl Py<PyInt> {
 #[derive(FromArgs)]
 struct RoundArgs {
     #[pyarg(positional, optional)]
-    ndigits: Option<PyIntRef>,
+    ndigits: Option<ArgIndex>,
 }
 
 #[pyclass(
@@ -538,7 +538,7 @@ impl Py<PyInt> {
     #[pymethod]
     fn __round__(zelf: PyRef<PyInt>, args: RoundArgs, vm: &VirtualMachine) -> PyRef<PyInt> {
         if let Some(ndigits) = args.ndigits {
-            let ndigits = ndigits.as_bigint();
+            let ndigits = ndigits.as_ref().as_bigint();
             // round(12345, -2) == 12300
             // If precision >= 0, then any integer is already rounded correctly
             if let Some(ndigits) = ndigits.neg().to_u32()

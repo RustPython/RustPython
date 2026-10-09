@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
-    int::{PyInt, PyIntRef},
+    int::PyInt,
     iter::{IterStatus, builtins_iter},
 };
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
     },
     convert::{ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
+    function::{ArgIndex, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
@@ -391,15 +391,49 @@ pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyUtf8StrRef>,
+    encoding: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyUtf8StrRef>,
+    errors: OptionalArg<PyObjectRef>,
+}
+
+/// The `encoding` or `errors` argument of `str()`, which must be a str.
+fn str_new_str_arg(
+    arg: OptionalArg<PyObjectRef>,
+    name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyUtf8StrRef>> {
+    let OptionalArg::Present(arg) = arg else {
+        return Ok(None);
+    };
+    let arg = arg.downcast::<PyStr>().map_err(|arg| {
+        vm.new_type_error(format!(
+            "str() argument '{name}' must be str, not {}",
+            arg.class().name()
+        ))
+    })?;
+    Ok(Some(arg.try_into_utf8(vm)?))
 }
 
 impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // A call with keyword arguments is parsed by unicode_new, which counts
+        // every argument.
+        if !func_args.kwargs.is_empty() {
+            let total = func_args.args.len() + func_args.kwargs.len();
+            if total > 3 {
+                let keyword = if func_args.args.is_empty() {
+                    "keyword "
+                } else {
+                    ""
+                };
+                return Err(vm.new_type_error(format!(
+                    "str() takes at most 3 {keyword}arguments ({total} given)"
+                )));
+            }
+        }
+
         // Optimization: return exact str as-is (only when no encoding/errors provided)
         if cls.is(vm.ctx.types.str_type)
             && func_args.args.len() == 1
@@ -433,8 +467,8 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                let encoding = args.encoding.into_option();
-                let errors = args.errors.into_option();
+                let encoding = str_new_str_arg(args.encoding, "encoding", vm)?;
+                let errors = str_new_str_arg(args.errors, "errors", vm)?;
                 // CPython parity: presence of `encoding` OR `errors` triggers
                 // decode mode. When `errors` is given alone, the encoding
                 // defaults to UTF-8.
@@ -1871,14 +1905,18 @@ pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl FindArgs {
     fn get_value(self, len: usize) -> (PyStrRef, core::ops::Range<usize>) {
-        let range = adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
+        let range = adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
         (self.sub, range)
     }
 }

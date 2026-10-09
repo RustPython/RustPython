@@ -662,7 +662,7 @@ impl Context {
         let def = PyMethodDef {
             name,
             func: Box::leak(Box::new(f.into_func())),
-            flags,
+            flags: flags.with_call_convention(F::ARGS),
             #[cfg(feature = "doc")]
             doc_off: doc.offset,
             #[cfg(feature = "doc")]

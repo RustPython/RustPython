@@ -2896,7 +2896,7 @@ mod _pickle {
 
     impl SaveCtx<'_> {
         fn save(&mut self, obj: &PyObject, pers_save: bool, vm: &VirtualMachine) -> PyResult<()> {
-            vm.with_recursion("while pickling an object", || {
+            vm.with_recursion(" while pickling an object", || {
                 self.save_inner(obj, pers_save, vm)
             })
         }

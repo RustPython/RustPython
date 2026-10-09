@@ -346,7 +346,7 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
                 let list = arg.downcast_ref::<PyList>().unwrap();
                 list.borrow_vec().to_vec()
             };
-            let sub = vm.with_recursion("while computing __parameters__", || {
+            let sub = vm.with_recursion(" while computing __parameters__", || {
                 make_parameters_from_slice(&items, vm)
             })?;
             for sub_param in sub.as_slice() {

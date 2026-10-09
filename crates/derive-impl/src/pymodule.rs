@@ -2,8 +2,8 @@ use crate::error::Diagnostic;
 use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, infer_native_call_flags,
-    internal_doc_tokens, iter_use_idents, pyclass_ident_and_attrs,
+    ErrorVec, ItemMeta, ItemNursery, ModuleItemMeta, SimpleItemMeta, internal_doc_tokens,
+    iter_use_idents, pyclass_ident_and_attrs,
 };
 use core::str::FromStr;
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
@@ -536,7 +536,6 @@ struct FunctionNurseryItem {
     ident: Ident,
     /// One internal doc per [`py_names`](Self::py_names) entry.
     docs: Vec<TokenStream>,
-    call_flags: TokenStream,
 }
 
 impl FunctionNursery {
@@ -566,14 +565,13 @@ impl ToTokens for ValidatedFunctionNursery {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
-            let flags = &item.call_flags;
             for (py_name, doc) in item.py_names.iter().zip(&item.docs) {
                 inner_tokens.extend(quote![
                     #cfgs
                     rustpython_vm::function::PyMethodDef::new_const(
                         #py_name,
                         #ident,
-                        #flags,
+                        rustpython_vm::function::PyMethodFlags::empty(),
                         #doc,
                     ),
                 ]);
@@ -711,14 +709,12 @@ impl ModuleItem for FunctionItem {
                 internal_doc_tokens(func.sig(), py_name, None, doc, None, Some("$module"))
             })
             .collect();
-        let call_flags = infer_native_call_flags(func.sig(), 0);
 
         args.context.function_items.add_item(FunctionNurseryItem {
             ident: ident.to_owned(),
             py_names,
             cfgs: args.cfgs.to_vec(),
             docs,
-            call_flags,
         });
         Ok(())
     }

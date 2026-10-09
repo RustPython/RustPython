@@ -97,4 +97,48 @@ finally:
     leave.set()
     t.join()
 
+
+def release_deep_snapshot():
+    # Detached snapshots can own a deep chain of untracked frames. Releasing
+    # one on a small native stack must not recurse through the entire chain.
+    depth = 5000
+    ready = threading.Event()
+    release = threading.Event()
+    disposed = threading.Event()
+
+    def recurse(n):
+        if n:
+            recurse(n - 1)
+        else:
+            ready.set()
+            release.wait()
+
+    def inspect():
+        frame = sys._current_frames()[worker.ident]
+        del frame
+        disposed.set()
+
+    old_limit = sys.getrecursionlimit()
+    old_stack = threading.stack_size()
+    worker = threading.Thread(target=recurse, args=(depth,), daemon=True)
+    try:
+        sys.setrecursionlimit(depth + 100)
+        worker.start()
+        assert ready.wait(30), "worker did not reach the bottom of its stack"
+        threading.stack_size(256 * 1024)
+        observer = threading.Thread(target=inspect, daemon=True)
+        observer.start()
+        observer.join(30)
+        assert not observer.is_alive(), "snapshot disposal did not finish"
+        assert disposed.is_set(), "snapshot disposal failed"
+    finally:
+        threading.stack_size(old_stack)
+        release.set()
+        worker.join(30)
+        sys.setrecursionlimit(old_limit)
+    assert not worker.is_alive(), "worker did not finish"
+
+
+release_deep_snapshot()
+
 print("ok")

@@ -1,4 +1,4 @@
-use super::signature::Param;
+use super::signature::{Param, ParamKind};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyType},
@@ -307,6 +307,15 @@ impl FuncArgs {
         let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
         let num_given = self.args.len().saturating_sub(instance);
 
+        // A keyword that fills a parameter already given by position is
+        // reported before leftover-keyword and conversion errors.
+        if let Some(params) = T::PARAMS
+            && !self.kwargs.is_empty()
+            && let Some((name, pos)) = duplicate_name_and_position(params, num_given, &self.kwargs)
+        {
+            return Err(callee.given_by_name_and_position(name, pos, vm));
+        }
+
         let bound = T::from_args(vm, &mut self)
             .map_err(|e| e.into_exception(&arity, num_given, callee, vm))?;
 
@@ -408,6 +417,15 @@ impl Callee {
         vm.new_type_error(unexpected_keyword_message(self.name, keyword))
     }
 
+    fn given_by_name_and_position(
+        self,
+        keyword: &str,
+        pos: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        vm.new_type_error(given_by_name_and_position_message(self.name, keyword, pos))
+    }
+
     /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.
     fn missing_argument(
         self,
@@ -462,6 +480,52 @@ pub(crate) fn arity_message(
 pub(crate) fn unexpected_keyword_message(name: Option<&str>, keyword: &str) -> String {
     let (name, parens) = call_form(name, "this function");
     format!("{name}{parens} got an unexpected keyword argument '{keyword}'")
+}
+
+pub(crate) fn given_by_name_and_position_message(
+    name: Option<&str>,
+    keyword: &str,
+    pos: usize,
+) -> String {
+    let name = name.map_or("function", short_name);
+    format!("argument for {name}() given by name ('{keyword}') and position ({pos})")
+}
+
+/// First positional-or-keyword parameter that was also passed by keyword.
+fn duplicate_name_and_position<'a>(
+    params: &'a [Param],
+    nargs: usize,
+    kwargs: &KwArgs,
+) -> Option<(&'a str, usize)> {
+    fn walk<'a>(
+        params: &'a [Param],
+        nargs: usize,
+        kwargs: &KwArgs,
+        pos: &mut usize,
+    ) -> Option<(&'a str, usize)> {
+        for param in params {
+            match param.kind {
+                ParamKind::Flatten(Some(inner)) => {
+                    if let Some(hit) = walk(inner, nargs, kwargs, pos) {
+                        return Some(hit);
+                    }
+                }
+                ParamKind::Flatten(None) | ParamKind::PositionalOnly => {
+                    *pos += 1;
+                }
+                ParamKind::PositionalOrKeyword => {
+                    *pos += 1;
+                    if nargs >= *pos && !param.name.is_empty() && kwargs.contains_key(param.name) {
+                        return Some((param.name, *pos));
+                    }
+                }
+                ParamKind::VarPositional => return None,
+                ParamKind::KeywordOnly | ParamKind::VarKeyword => {}
+            }
+        }
+        None
+    }
+    walk(params, nargs, kwargs, &mut 0)
 }
 
 /// The branch of _PyArg_UnpackKeywords that names a parameter it didn't get.

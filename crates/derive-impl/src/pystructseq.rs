@@ -602,7 +602,8 @@ pub(crate) fn impl_pystruct_sequence(
         }
 
         // PySubclass for proper inheritance
-        impl ::rustpython_vm::class::PySubclass for #pytype_ident {
+        // SAFETY: the generated payload is a transparent wrapper around PyTuple.
+        unsafe impl ::rustpython_vm::class::PySubclass for #pytype_ident {
             type Base = ::rustpython_vm::builtins::PyTuple;
 
             #[inline]

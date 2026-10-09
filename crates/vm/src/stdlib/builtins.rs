@@ -1163,10 +1163,9 @@ mod builtins {
                 ))
             })?;
         match ndigits {
-            Some(obj) => {
-                let ndigits = obj.try_index(vm)?;
-                meth.invoke((ndigits,), vm)
-            }
+            // Like CPython, pass ndigits through as-is; the __round__ implementation
+            // decides what it accepts (float and int apply __index__ themselves).
+            Some(obj) => meth.invoke((obj,), vm),
             None => {
                 // without a parameter, the result type is coerced to int
                 meth.invoke((), vm)

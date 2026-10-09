@@ -2810,29 +2810,7 @@ pub fn free_library(module: windows_sys::Win32::Foundation::HMODULE) -> std::io:
 }
 
 #[cfg(windows)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sys_string_len(bstr: *const u16) -> usize {
-    unsafe { windows_sys::Win32::Foundation::SysStringLen(bstr) as usize }
-}
-
-#[cfg(windows)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn sys_free_string(bstr: *const u16) {
-    unsafe { windows_sys::Win32::Foundation::SysFreeString(bstr) };
-}
-
-#[cfg(windows)]
-pub fn sys_alloc_string_len(units: &[u16]) -> Option<*mut u16> {
-    let len = u32::try_from(units.len()).ok()?;
-    let bstr = unsafe { windows_sys::Win32::Foundation::SysAllocStringLen(units.as_ptr(), len) };
-    (!bstr.is_null()).then_some(bstr as *mut u16)
-}
-
-#[cfg(windows)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub fn co_task_mem_free(ptr: *mut core::ffi::c_void) {
-    unsafe { windows_sys::Win32::System::Com::CoTaskMemFree(ptr) };
-}
+pub use crate::windows::{co_task_mem_free, sys_alloc_string_len, sys_free_string, sys_string_len};
 
 /// `GetErrorInfo(0)`. `None` when the thread has no error object (`S_FALSE`).
 #[cfg(windows)]

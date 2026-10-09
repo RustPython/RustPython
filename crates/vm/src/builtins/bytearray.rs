@@ -23,7 +23,7 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, PyComparisonValue, PySsize},
+    function::{ArgBytesLike, FuncArgs, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -187,6 +187,9 @@ impl PyByteArray {
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Converting the needle runs Python, which must not resize this bytearray.
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
         let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
         self.inner().contains(needle, vm)
     }
@@ -469,8 +472,13 @@ impl Py<PyByteArray> {
     #[pymethod]
     fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
         // Measuring the separator runs Python, so it happens before the buffer
-        // is borrowed.
-        let (sep, bytes_per_sep) = options.resolve(vm)?;
+        // is borrowed, with the buffer exported so that resizing this
+        // bytearray from there raises BufferError.
+        let (sep, bytes_per_sep) = {
+            self.exports.fetch_add(1, Ordering::Release);
+            scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+            options.resolve(vm)?
+        };
         Ok(self.inner().hex(sep, bytes_per_sep))
     }
 
@@ -511,6 +519,8 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
         self.inner().count(options, vm)
     }
 
@@ -565,27 +575,43 @@ impl Py<PyByteArray> {
         )
     }
 
+    /// Converting the needle runs Python, which must not resize this
+    /// bytearray, so the buffer stays exported while it does.
+    fn find_exported<F>(
+        &self,
+        options: ByteInnerFindOptions,
+        find: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>>
+    where
+        F: Fn(&[u8], &[u8]) -> Option<usize>,
+    {
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        self.inner().find(options, find, vm)
+    }
+
     #[pymethod]
     fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
+        let index = self.find_exported(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
     fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
+        let index = self.find_exported(options, |h, n| h.find(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
     fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
+        let index = self.find_exported(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
     fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
+        let index = self.find_exported(options, |h, n| h.rfind(n), vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
@@ -614,21 +640,21 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
-    fn split(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
+    fn split(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // Converting the separator runs Python, which must not resize this
+        // bytearray, so the arguments are bound with the buffer exported.
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let options: ByteInnerSplitOptions = args.bind_for(vm, "split")?;
         self.inner()
             .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
-    fn rsplit(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
+    fn rsplit(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let options: ByteInnerSplitOptions = args.bind_for(vm, "rsplit")?;
         self.inner()
             .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
     }

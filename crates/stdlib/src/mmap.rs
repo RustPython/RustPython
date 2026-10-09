@@ -14,7 +14,7 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, ArgIndex},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
@@ -188,6 +188,9 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
+        // only read by the linux/netbsd mremap expansion check
+        #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+        flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
         offset: i64,
@@ -330,9 +333,9 @@ mod mmap {
         option: core::ffi::c_int,
         // None means 0.
         #[pyarg(positional, default, py_default = "0")]
-        start: Option<PyIntRef>,
+        start: Option<ArgIndex>,
         #[pyarg(positional, optional)]
-        length: Option<PyIntRef>,
+        length: Option<ArgIndex>,
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
@@ -345,7 +348,8 @@ mod mmap {
             let start = self
                 .start
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .ok()
                         .filter(|s| *s < len)
                         .ok_or_else(|| vm.new_value_error("madvise start out of bounds"))
@@ -355,7 +359,8 @@ mod mmap {
             let length = self
                 .length
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .map_err(|_| vm.new_value_error("madvise length invalid"))
                 })
                 .transpose()?
@@ -400,7 +405,11 @@ mod mmap {
             }
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
-            let (_flags, _prot, access) = match access {
+            #[cfg_attr(
+                not(any(target_os = "linux", target_os = "netbsd")),
+                allow(unused_variables)
+            )]
+            let (flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
                 AccessMode::Copy => (MAP_PRIVATE, PROT_READ | PROT_WRITE, access),
@@ -474,6 +483,8 @@ mod mmap {
                 } else {
                     -1
                 }),
+                #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+                flags,
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -920,9 +931,9 @@ mod mmap {
         #[pymethod(name = "move")]
         fn move_(
             zelf: &Py<Self>,
-            dest: PyIntRef,
-            src: PyIntRef,
-            count: PyIntRef,
+            dest: ArgIndex,
+            src: ArgIndex,
+            count: ArgIndex,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
@@ -948,7 +959,7 @@ mod mmap {
             }
 
             let size = zelf.__len__();
-            let (dest, src, cnt) = args(&dest, &src, &count, size, vm)
+            let (dest, src, cnt) = args(dest.as_ref(), src.as_ref(), count.as_ref(), size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
@@ -1039,9 +1050,26 @@ mod mmap {
 
         #[cfg(unix)]
         #[pymethod]
-        fn resize(zelf: &Py<Self>, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.check_resizeable(vm)?;
+
+            let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+
+            // Linux mremap() refuses to grow a shared anonymous mapping, and NetBSD
+            // mremap() returns a mapping whose grown region is not backed.
+            #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+            if zelf.fd.load() == -1
+                && zelf.flags & host_mmap::MAP_PRIVATE == 0
+                && new_size > zelf.size.load() as isize
+            {
+                return Err(vm.new_value_error("mmap: can't expand a shared anonymous mapping"));
+            }
+
             // TODO: implement using mremap on Linux
+            #[cfg(not(any(target_os = "linux", target_os = "netbsd")))]
+            let _ = new_size;
             Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
