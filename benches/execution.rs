@@ -7,6 +7,7 @@ use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
+use pyo3::types::{PyCode, PyCodeInput, PyCodeMethods, PyDict, PyDictMethods};
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
 use std::{collections::HashMap, path::Path};
@@ -25,9 +26,14 @@ fn bench_cpython_code(b: &mut Bencher<'_>, source: &str) {
     let c_str_source = c_str_source_head.as_c_str();
     pyo3::Python::attach(|py| {
         b.iter(|| {
-            let module = pyo3::types::PyModule::from_code(py, c_str_source, c"", c"")
+            let code = PyCode::compile(py, c_str_source, c"<benchmark>", PyCodeInput::File)
+                .expect("Error compiling source");
+            let globals = PyDict::new(py);
+            globals.set_item("__name__", "__main__").unwrap();
+            let result = code
+                .run(Some(&globals), None)
                 .expect("Error running source");
-            black_box(module);
+            black_box(result);
         })
     })
 }
@@ -46,6 +52,10 @@ fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
         b.iter(|| {
             let code = vm.compile(source, Mode::Exec, name).unwrap();
             let scope = vm.new_scope_with_builtins();
+            scope
+                .globals
+                .set_item("__name__", vm.ctx.new_str("__main__").into(), vm)
+                .unwrap();
             let res: PyResult = vm.run_code_obj(code, scope);
             vm.unwrap_pyresult(res);
         })
