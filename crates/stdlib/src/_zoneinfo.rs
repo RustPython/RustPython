@@ -552,6 +552,9 @@ mod _zoneinfo {
                 parser.bump();
             }
             let end = parser.i;
+            if end == start {
+                return None;
+            }
             parser.bump();
             return Some(String::from_utf8_lossy(&parser.bytes[start..end]).into_owned());
         }
