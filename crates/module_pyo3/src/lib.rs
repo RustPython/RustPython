@@ -11,10 +11,14 @@
 //! print(a * 2, a.sum())
 //! ```
 //!
-//! CPython objects appear in RustPython as `pyo3.ref` proxies and CPython
-//! classes as wrapper classes; see [`convert`] for what crosses by value and
-//! what by reference, [`pyo3_type`] for classes, and [`errors`] for
-//! exceptions.
+//! CPython objects appear in RustPython as instances of the wrapper of their
+//! class. `pyo3.ref` carries the proxy payload and forwards attribute access;
+//! slots come from the methods the class actually defines. Classes that
+//! cannot be laid out that way stay generic proxies, and `proxy.__class__`
+//! is still the wrapped class. A wrapper's metaclass is the wrapper of the
+//! CPython metaclass, or `pyo3.pyo3_type` when that metaclass is `type`.
+//! See [`convert`] for what crosses by value and what by reference,
+//! [`pyo3_type`] for classes, and [`errors`] for exceptions.
 //!
 //! `pyo3.wraps` instead runs a whole function in CPython:
 //!

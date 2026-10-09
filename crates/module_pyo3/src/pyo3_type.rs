@@ -1,11 +1,17 @@
 //! `pyo3.pyo3_type`: CPython classes as seen from RustPython.
 //!
-//! A CPython class reaches RustPython as a wrapper class whose metaclass is
-//! `pyo3.pyo3_type`. The wrapper mirrors the class's bases and namespace, so
-//! RustPython's own machinery — `super()`, `isinstance()`, attribute lookup
-//! through the MRO — works on it, and it forwards the rest to the CPython
-//! class: attribute access and assignment, operators, and calls, which create
-//! the instances in CPython.
+//! A CPython class reaches RustPython as a wrapper class. Its metaclass is
+//! the wrapper of the CPython metaclass, or `pyo3.pyo3_type` when that
+//! metaclass is `type`. The wrapper mirrors the class's bases and namespace,
+//! so RustPython's own machinery — `super()`, `isinstance()`, attribute
+//! lookup through the MRO — works on it, and the metaclass forwards the rest
+//! to the CPython class: attribute access and assignment, operators, and
+//! calls, which create the instances in CPython.
+//!
+//! An instance of a class that can carry a [`Pyo3Ref`](crate::pyo3_ref::Pyo3Ref)
+//! is an instance of that wrapper, so `type(proxy)` is the wrapper and the
+//! wrapper's slots are exactly the methods the class defines. Other instances
+//! stay generic proxies.
 //!
 //! A class statement deriving from a wrapped class creates the class in
 //! CPython, with its body converted, so CPython code sees a genuine subclass.
@@ -16,19 +22,21 @@
 //! CPython's built-in classes are not wrapped: CPython's `int` is RustPython's
 //! `int`, and so on.
 
-pub(crate) use pyo3_type::{is_cpython_backed, type_to_cpython, wrap_cpython_type};
+pub(crate) use pyo3_type::{
+    instance_to_rustpython, is_cpython_backed, type_to_cpython, wrap_cpython_type,
+};
 
 #[pymodule(sub)]
 pub(crate) mod pyo3_type {
     use pyo3::types::{PyDict, PyTuple, PyType as CPythonType};
     use pyo3::{
-        Bound, PyAny, PyErr, Python,
+        Bound, PyAny, PyErr, Python, ffi,
         types::{PyAnyMethods, PyDictMethods, PyStringMethods, PyTupleMethods, PyTypeMethods},
     };
     use rustpython_vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyStr, PyTuple as RustPyTuple, PyType, PyTypeRef},
-        class::PyClassImpl,
+        class::{PyClassImpl, StaticType},
         function::{FuncArgs, KwArgs, PySetterValue},
         protocol::PyNumberMethods,
         types::{
@@ -42,8 +50,8 @@ pub(crate) mod pyo3_type {
     };
     use crate::errors::Pyo3ResultExt;
     use crate::gil::{run_cpython, with_gil};
-    use crate::pyo3_ref::{Pyo3Ref, binary_op};
-    use crate::rustpython_object::RustPythonObject;
+    use crate::pyo3_ref::{Pyo3Ref, binary_op, buffer_method, call_method};
+    use crate::rustpython_object::{RustPythonObject, unwrap_rustpython_object};
 
     /// Attribute of a wrapper class holding the CPython class it wraps.
     const CPYTHON_TYPE_ATTR: &str = "_pyo3_cpython_type";
@@ -133,9 +141,20 @@ pub(crate) mod pyo3_type {
                     PySetterValue::Assign(value) => Some(to_cpython(py, value, vm)?),
                     PySetterValue::Delete => None,
                 };
-                run_cpython(vm, || match cpython_value {
-                    Some(value) => cls.setattr(&cpython_name, value),
-                    None => cls.delattr(&cpython_name),
+                // A method copied from this interpreter must not run again:
+                // `super().__setattr__` would swap `_fields_` twice and recurse.
+                let bypass = if cpython_value.is_some() {
+                    rustpython_setattr_bypass(cls).to_pyresult(vm)?
+                } else {
+                    None
+                };
+                run_cpython(vm, || match (&bypass, &cpython_value) {
+                    (Some(descr), Some(value)) => {
+                        let bound = descr.call_method1("__get__", (&cls, cls.get_type()))?;
+                        bound.call1((&cpython_name, value)).map(|_| ())
+                    }
+                    (_, Some(value)) => cls.setattr(&cpython_name, value),
+                    (_, None) => cls.delattr(&cpython_name),
                 })?;
                 cls.getattr(pyo3::intern!(py, "__dict__"))
                     .and_then(|namespace| namespace.get_item(&cpython_name))
@@ -185,6 +204,39 @@ pub(crate) mod pyo3_type {
                     .iter()
                     .any(|cls| wrapped_cpython_type(cls, vm).is_some())
             })
+    }
+
+    /// `__setattr__` following methods copied from this interpreter.
+    ///
+    /// Those methods are on the metaclass so class creation invokes them, and
+    /// `super().__setattr__` then lands here. Calling them again would swap
+    /// `_fields_` a second time and recurse. `None` means the first
+    /// `__setattr__` is already the one ordinary assignment should call.
+    fn rustpython_setattr_bypass<'py>(
+        cls: &Bound<'py, PyAny>,
+    ) -> pyo3::PyResult<Option<Bound<'py, PyAny>>> {
+        let py = cls.py();
+        let mro = cls.get_type().mro();
+        let mut passed_copied = false;
+        for base in mro.iter() {
+            let dict = base.getattr(pyo3::intern!(py, "__dict__"))?;
+            let attr = dict.call_method1(
+                pyo3::intern!(py, "get"),
+                (pyo3::intern!(py, "__setattr__"),),
+            )?;
+            if attr.is_none() {
+                continue;
+            }
+            if unwrap_rustpython_object(&attr).is_some() {
+                passed_copied = true;
+                continue;
+            }
+            if passed_copied {
+                return Ok(Some(attr));
+            }
+            return Ok(None);
+        }
+        Ok(None)
     }
 
     /// Names a wrapper class answers itself, as a RustPython class, rather
@@ -247,48 +299,65 @@ pub(crate) mod pyo3_type {
             return Ok(builtin);
         }
 
+        let is_metaclass = ty.is_subclass_of::<CPythonType>().to_pyresult(vm)?;
+        let meta_of_ty = ty.get_type();
+        let metaclass = if is_exact_type(&meta_of_ty) {
+            metaclass()
+        } else {
+            wrap_cpython_type(&meta_of_ty, vm)?
+        };
+        // Metaclasses are instances of `type`, not of `pyo3.ref`. A class whose
+        // MRO names a built-in other than `object` cannot share that payload
+        // either (`int`, `str`, ...).
+        let ref_layout = !is_metaclass && allows_ref_payload(ty, vm);
         let bases = match bases {
             Some(bases) => bases,
-            None => ty
-                .getattr(pyo3::intern!(ty.py(), "__bases__"))
-                .and_then(|bases| Ok(bases.cast_into::<PyTuple>()?))
-                .to_pyresult(vm)?
-                .iter()
-                .map(|base| {
-                    wrap_cpython_type(
-                        base.cast::<CPythonType>()
-                            .map_err(PyErr::from)
-                            .to_pyresult(vm)?,
-                        vm,
-                    )
-                })
-                .collect::<PyResult<_>>()?,
+            None => map_cpython_bases(ty, vm)?,
+        };
+        let bases = if ref_layout {
+            ensure_ref_base(bases, vm)
+        } else if is_metaclass {
+            ensure_type_base(bases, vm)
+        } else {
+            bases
+        };
+        let basicsize = if ref_layout {
+            Pyo3Ref::static_type().slots.basicsize
+        } else {
+            0
         };
         let name = ty.name().to_pyresult(vm)?.to_string();
         let slots = || {
             let mut slots = PyTypeSlots::default();
             slots.flags = AtomicPyTypeFlags::from_plain(PyTypeFlags::HEAP_TYPE);
-            slots.new.store(Some(instance_new));
+            slots.basicsize = basicsize;
             slots
         };
+        let fallback = if ref_layout {
+            Pyo3Ref::static_type().to_owned()
+        } else if is_metaclass {
+            Pyo3Type::static_type().to_owned()
+        } else {
+            vm.ctx.types.object_type.to_owned()
+        };
         // A mix of built-in bases RustPython cannot lay out together only
-        // costs the wrapper those bases.
+        // costs the wrapper those bases. The payload size stays `pyo3.ref`'s
+        // when instances of the class are that payload.
         let wrapper = PyType::new_heap(
             &name,
             bases,
             Default::default(),
             slots(),
-            metaclass(),
+            metaclass.clone(),
             &vm.ctx,
         )
         .or_else(|_| {
-            let object = vec![vm.ctx.types.object_type.to_owned()];
             PyType::new_heap(
                 &name,
-                object,
+                vec![fallback],
                 Default::default(),
                 slots(),
-                metaclass(),
+                metaclass,
                 &vm.ctx,
             )
         })
@@ -301,14 +370,112 @@ pub(crate) mod pyo3_type {
         );
         // Cached before the namespace is mirrored, which may refer back to it.
         state.cache_type(ty, wrapper.clone());
-        mirror_namespace(ty, &wrapper, vm)?;
+        mirror_namespace(ty, &wrapper, ref_layout, is_metaclass, vm)?;
         Ok(wrapper)
     }
 
-    /// Copy the CPython class's `__dict__` into the wrapper.
+    fn map_cpython_bases(
+        ty: &Bound<'_, CPythonType>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyTypeRef>> {
+        ty.bases()
+            .iter()
+            .map(|base| {
+                wrap_cpython_type(
+                    base.cast::<CPythonType>()
+                        .map_err(PyErr::from)
+                        .to_pyresult(vm)?,
+                    vm,
+                )
+            })
+            .collect()
+    }
+
+    /// Drop plain `object` and make sure some base carries the proxy payload.
+    fn ensure_ref_base(mut bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> Vec<PyTypeRef> {
+        let object = vm.ctx.types.object_type;
+        let layout = Pyo3Ref::static_type();
+        bases.retain(|base| !base.is(object));
+        if !bases.iter().any(|base| base.fast_issubclass(layout)) {
+            bases.push(layout.to_owned());
+        }
+        bases
+    }
+
+    /// A metaclass wrapper subclasses `pyo3.pyo3_type`, not the bare `type`.
+    fn ensure_type_base(mut bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> Vec<PyTypeRef> {
+        let type_type = vm.ctx.types.type_type;
+        let pyo3_type = Pyo3Type::static_type();
+        for base in &mut bases {
+            if base.is(type_type) {
+                *base = pyo3_type.to_owned();
+            }
+        }
+        if !bases.iter().any(|base| base.fast_issubclass(pyo3_type)) {
+            bases.push(pyo3_type.to_owned());
+        }
+        bases
+    }
+
+    fn is_exact_type(ty: &Bound<'_, CPythonType>) -> bool {
+        ty.is(ty.py().get_type::<CPythonType>())
+    }
+
+    /// `int`, `str` and the other built-ins RustPython lays out itself cannot
+    /// share a payload with `pyo3.ref`. `object` can: it is what `pyo3.ref`
+    /// extends.
+    fn allows_ref_payload(ty: &Bound<'_, CPythonType>, vm: &VirtualMachine) -> bool {
+        for base in ty.mro().iter() {
+            let Ok(base) = base.cast::<CPythonType>() else {
+                continue;
+            };
+            if let Some(rustpython) = builtin_to_rustpython(base, vm)
+                && !rustpython.is(vm.ctx.types.object_type)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn is_heap_type(ty: &Bound<'_, CPythonType>) -> bool {
+        // SAFETY: `ty` is a live type object. The call only reads its flag word.
+        unsafe { ffi::PyType_HasFeature(ty.as_type_ptr(), ffi::Py_TPFLAGS_HEAPTYPE) != 0 }
+    }
+
+    /// Whether an instance of `ty` stays a generic proxy.
+    ///
+    /// Heap classes with a compatible layout become instances of their wrapper.
+    /// A static type that owns `__get__` (`wrapper_descriptor`, `function`, ...)
+    /// stays generic: binding those descriptors through a mirrored `__get__`
+    /// would look `__get__` up again.
+    fn use_generic_proxy(ty: &Bound<'_, CPythonType>, vm: &VirtualMachine) -> bool {
+        !allows_ref_payload(ty, vm) || (!is_heap_type(ty) && owns_name(ty, "__get__"))
+    }
+
+    fn is_storage_descriptor(value: &Bound<'_, PyAny>) -> bool {
+        let Ok(ty_name) = value.get_type().name() else {
+            return false;
+        };
+        let Ok(ty_name) = ty_name.to_str() else {
+            return false;
+        };
+        matches!(ty_name, "getset_descriptor" | "member_descriptor")
+    }
+
+    fn owns_name(ty: &Bound<'_, CPythonType>, name: &str) -> bool {
+        let py = ty.py();
+        ty.getattr(pyo3::intern!(py, "__dict__"))
+            .and_then(|dict| dict.contains(name))
+            .unwrap_or(false)
+    }
+
+    /// Copy the CPython class's `__dict__` into the wrapper, updating slots.
     fn mirror_namespace(
         ty: &Bound<'_, CPythonType>,
         wrapper: &Py<PyType>,
+        ref_layout: bool,
+        is_metaclass: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let py = ty.py();
@@ -320,12 +487,78 @@ pub(crate) mod pyo3_type {
         for item in items {
             let (name, value): (String, Bound<'_, PyAny>) =
                 item.and_then(|item| item.extract()).to_pyresult(vm)?;
-            if matches!(name.as_str(), "__dict__" | "__weakref__") {
+            // getset and member descriptors describe the other interpreter's
+            // layout. Installing them hits this type's own setters (`__name__`,
+            // `__annotate__`) and would hide forwarded attribute access.
+            if skip_mirror(&name, is_metaclass) || is_storage_descriptor(&value) {
                 continue;
             }
-            wrapper.set_attr(vm.ctx.intern_str(name), to_rustpython(&value, vm)?);
+            let mirrored = match (ref_layout, name.as_str()) {
+                (true, "__buffer__") => buffer_method(vm),
+                (true, "__call__") => call_method(vm),
+                _ => to_rustpython(&value, vm)?,
+            };
+            let interned = vm.ctx.intern_str(name);
+            PyType::setattro(wrapper, interned, PySetterValue::Assign(mirrored), vm)?;
         }
         Ok(())
+    }
+
+    /// Names that must not land in the wrapper dict.
+    ///
+    /// Attribute access stays the native forwarder, so `__getattribute__` and
+    /// `__setattr__` are left alone. `__release_buffer__` is left alone too:
+    /// the acquired buffer releases itself. On a metaclass, `__call__`,
+    /// `__new__`, `__init__` and the class operators stay the metaclass's own
+    /// slots. `type(name, bases, namespace)` runs that `__init__` again after
+    /// the class has been created, and a ctypes metaclass refuses a second
+    /// initialization.
+    fn skip_mirror(name: &str, is_metaclass: bool) -> bool {
+        matches!(
+            name,
+            "__dict__"
+                | "__weakref__"
+                | "__slots__"
+                | "__class__"
+                | "__bases__"
+                | "__base__"
+                | "__mro__"
+                | "mro"
+                | "__subclasses__"
+                | "__instancecheck__"
+                | "__subclasscheck__"
+                | CPYTHON_TYPE_ATTR
+                | "__flags__"
+                | "__basicsize__"
+                | "__itemsize__"
+                | "__dictoffset__"
+                | "__weakrefoffset__"
+                | "__release_buffer__"
+                | "__getattribute__"
+                | "__getattr__"
+                | "__setattr__"
+                | "__delattr__"
+        ) || (is_metaclass
+            && matches!(
+                name,
+                "__call__" | "__init__" | "__mul__" | "__rmul__" | "__or__" | "__ror__" | "__new__"
+            ))
+    }
+
+    /// An instance of `obj`'s class, when that class can carry the payload.
+    pub(crate) fn instance_to_rustpython(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
+        let ty = obj.get_type();
+        if use_generic_proxy(&ty, vm) {
+            return Ok(Pyo3Ref::wrap(obj, vm));
+        }
+        let wrapper = wrap_cpython_type(&ty, vm)?;
+        let layout = Pyo3Ref::static_type();
+        if wrapper.fast_issubclass(layout) && wrapper.slots.basicsize == layout.slots.basicsize {
+            return Pyo3Ref::new(obj.clone().unbind())
+                .into_ref_with_type(vm, wrapper)
+                .map(Into::into);
+        }
+        Ok(Pyo3Ref::wrap(obj, vm))
     }
 
     /// CPython's `None`, `int`, `ValueError`... are RustPython's.
@@ -574,15 +807,5 @@ pub(crate) mod pyo3_type {
 
     fn type_slot<T: Copy>(get: impl FnOnce(&PyType) -> Option<T>, vm: &VirtualMachine) -> T {
         get(vm.ctx.types.type_type).expect("type implements every slot pyo3_type overrides")
-    }
-
-    /// `__new__` of wrapper classes, reached only through subclasses created
-    /// outside `pyo3.pyo3_type`.
-    fn instance_new(subtype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        with_gil(vm, |py| {
-            let cls = type_to_cpython(py, &subtype, vm)?;
-            let result = call_cpython(&cls, args, vm)?;
-            to_rustpython(&result, vm)
-        })
     }
 }
