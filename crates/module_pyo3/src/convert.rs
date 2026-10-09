@@ -11,13 +11,23 @@
 //!
 //! RustPython objects going to CPython are handled by what CPython code
 //! expects of them:
-//! - `list`, `dict`, `set`, `frozenset` and `bytearray` are copied, because
-//!   extension modules routinely require the exact built-in types;
+//! - `list`, `dict`, `set`, `frozenset`, `bytearray` and the exact immutable
+//!   built-ins above are copied as that exact built-in;
+//! - a subclass of `int`, `float`, `complex`, `str` or `bytes` is copied as a
+//!   value of that built-in, from the stored contents rather than `__str__`
+//!   or `__int__`. C code accepts the concrete type before any protocol, and
+//!   no layout is both that built-in and a proxy;
 //! - other buffers are exposed through a `memoryview` sharing their memory;
-//! - callables and descriptors become `rustpython.object` proxies, which call
-//!   back into RustPython;
+//! - anything else that is callable, a data descriptor, or supports
+//!   `__index__`, `__float__` or `__complex__` becomes a `rustpython.object`
+//!   proxy whose class carries exactly those protocols: callable, then data
+//!   descriptor, then whichever of the number protocols the object has. A
+//!   protocol the object lacks is not added;
 //! - anything else is pickled and unpickled in CPython when possible (so a
 //!   `datetime` arrives as a CPython `datetime`), and proxied otherwise.
+
+use core::cell::RefCell;
+use std::collections::HashMap;
 
 use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
@@ -43,7 +53,9 @@ use crate::errors::Pyo3ResultExt;
 use crate::gil::{run_cpython, run_rustpython};
 use crate::pyo3_ref::{Pyo3Ref, memoryview_from_cpython};
 use crate::pyo3_type::{instance_to_rustpython, type_to_cpython, wrap_cpython_type};
-use crate::rustpython_object::{RustPythonBuffer, RustPythonObject, unwrap_rustpython_object};
+use crate::rustpython_object::{
+    RustPythonBuffer, RustPythonObject, has_number_protocol, unwrap_rustpython_object,
+};
 
 /// Convert a RustPython object for use in CPython.
 pub(crate) fn to_cpython<'py>(
@@ -68,13 +80,14 @@ pub(crate) fn to_cpython<'py>(
     {
         return RustPythonBuffer::memoryview(py, obj.to_owned(), buffer).to_pyresult(vm);
     }
-    if obj.is_callable() || obj.class().slots.descr_get.load().is_some() {
-        return Ok(RustPythonObject::wrap(py, obj.to_owned()));
+    if obj.is_callable()
+        || obj.class().slots.descr_get.load().is_some()
+        || has_number_protocol(obj, vm)
+    {
+        return Ok(RustPythonObject::wrap(py, obj.to_owned(), vm));
     }
-    Ok(
-        pickle_to_cpython(py, obj, vm)
-            .unwrap_or_else(|| RustPythonObject::wrap(py, obj.to_owned())),
-    )
+    Ok(pickle_to_cpython(py, obj, vm)
+        .unwrap_or_else(|| RustPythonObject::wrap(py, obj.to_owned(), vm)))
 }
 
 /// Convert a CPython object for use in RustPython.
@@ -104,8 +117,99 @@ pub(crate) fn call_cpython<'py>(
     vm: &VirtualMachine,
 ) -> PyResult<Bound<'py, PyAny>> {
     let py = callable.py();
-    let positional = items_to_cpython(py, &args.args, vm)?;
-    call_cpython_with(callable, positional, &args.kwargs, vm)
+    // One RustPython `str` or `bytes` passed twice (ctypes `cast(obj, obj, typ)`)
+    // must arrive as one object. `cast` then keeps a pointer into that copy and
+    // does not retain a non-ctypes source, so the copy is anchored on the result.
+    with_value_memo(|| {
+        let positional = items_to_cpython(py, &args.args, vm)?;
+        let result = call_cpython_with(callable, positional, &args.kwargs, vm)?;
+        anchor_borrowed_buffers(py, &result);
+        Ok(result)
+    })
+}
+
+/// Keep memoized `str` and `bytes` copies alive on a ctypes result.
+///
+/// The result (and anything that uses it as `_b_base_`) may point into those
+/// copies. Stashing them on the instance keeps the memory valid after this
+/// call returns; the attribute is absent when the call copied no such value.
+fn anchor_borrowed_buffers(py: Python<'_>, result: &Bound<'_, PyAny>) {
+    let buffers = VALUE_MEMO.with(|slot| {
+        let map = slot.borrow();
+        let Some(map) = map.as_ref() else {
+            return Vec::new();
+        };
+        map.values().map(|value| value.clone_ref(py)).collect()
+    });
+    if buffers.is_empty() {
+        return;
+    }
+    // `_objects` is the ctypes member. Other results do not borrow this memory.
+    if !result.hasattr("_objects").unwrap_or(false) {
+        return;
+    }
+    let Ok(kept) = PyTuple::new(py, buffers) else {
+        return;
+    };
+    let _ = result.setattr("_pyo3_keepalive", kept);
+}
+
+std::thread_local! {
+    static VALUE_MEMO: RefCell<Option<HashMap<usize, pyo3::Py<PyAny>>>> = const { RefCell::new(None) };
+}
+
+/// Share immutable values for the duration of one call.
+fn with_value_memo<R>(f: impl FnOnce() -> R) -> R {
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            VALUE_MEMO.with(|slot| {
+                slot.borrow_mut().take();
+            });
+        }
+    }
+    let guard = VALUE_MEMO.with(|slot| {
+        if slot.borrow().is_some() {
+            None
+        } else {
+            *slot.borrow_mut() = Some(HashMap::new());
+            Some(Guard)
+        }
+    });
+    let result = f();
+    drop(guard);
+    result
+}
+
+fn cached_value<'py>(py: Python<'py>, obj: &PyObject) -> Option<Bound<'py, PyAny>> {
+    VALUE_MEMO.with(|slot| {
+        let map = slot.borrow();
+        let cached = map.as_ref()?.get(&(obj as *const PyObject as usize))?;
+        Some(cached.bind(py).clone())
+    })
+}
+
+fn remember_value(obj: &PyObject, value: &Bound<'_, PyAny>) {
+    VALUE_MEMO.with(|slot| {
+        let mut map = slot.borrow_mut();
+        let Some(map) = map.as_mut() else {
+            return;
+        };
+        map.insert(obj as *const PyObject as usize, value.clone().unbind());
+    });
+}
+
+fn memoized_immutable<'py>(
+    py: Python<'py>,
+    obj: &PyObject,
+    make: impl FnOnce() -> PyResult<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Some(cached) = cached_value(py, obj) {
+        return Ok(cached);
+    }
+    let value = make()?;
+    remember_value(obj, &value);
+    Ok(value)
 }
 
 /// Call a CPython callable with converted positional arguments.
@@ -144,20 +248,28 @@ fn value_to_cpython<'py>(
     } else if obj.is(&ctx.not_implemented) {
         py.NotImplemented().into_bound(py)
     } else if obj.class().is(ctx.types.bool_type) {
+        // `bool` shares the int payload, so it has to be matched before the
+        // int branch. A bool subclass falls through and is copied as `int`.
         PyBool::new(py, obj.is(&ctx.true_value))
             .to_owned()
             .into_any()
-    } else if let Some(int) = obj.downcast_ref_if_exact::<RustPyInt>(vm) {
+    } else if let Some(int) = obj.downcast_ref::<RustPyInt>() {
         int_to_cpython(py, int.as_bigint()).to_pyresult(vm)?
-    } else if let Some(float) = obj.downcast_ref_if_exact::<RustPyFloat>(vm) {
+    } else if let Some(float) = obj.downcast_ref::<RustPyFloat>() {
         PyFloat::new(py, float.to_f64()).into_any()
-    } else if let Some(complex) = obj.downcast_ref_if_exact::<RustPyComplex>(vm) {
+    } else if let Some(complex) = obj.downcast_ref::<RustPyComplex>() {
         let value = complex.to_complex();
         PyComplex::from_doubles(py, value.re, value.im).into_any()
-    } else if let Some(s) = obj.downcast_ref_if_exact::<PyStr>(vm) {
-        str_to_cpython(py, s.as_wtf8()).to_pyresult(vm)?.into_any()
-    } else if let Some(bytes) = obj.downcast_ref_if_exact::<RustPyBytes>(vm) {
-        PyBytes::new(py, bytes.as_bytes()).into_any()
+    } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+        memoized_immutable(py, obj, || {
+            Ok(str_to_cpython(py, s.as_wtf8()).to_pyresult(vm)?.into_any())
+        })?
+    } else if let Some(bytes) = obj.downcast_ref::<RustPyBytes>() {
+        memoized_immutable(
+            py,
+            obj,
+            || Ok(PyBytes::new(py, bytes.as_bytes()).into_any()),
+        )?
     } else if let Some(bytearray) = obj.downcast_ref_if_exact::<RustPyByteArray>(vm) {
         PyByteArray::new(py, &bytearray.borrow_buf()).into_any()
     } else if let Some(tuple) = obj.downcast_ref_if_exact::<RustPyTuple>(vm) {
