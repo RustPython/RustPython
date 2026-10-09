@@ -202,9 +202,9 @@ mod _imp {
     };
     use core::ffi::c_void;
     use core::ptr::NonNull;
-    #[cfg(all(feature = "host_env", windows))]
+    #[cfg(all(feature = "_capi", feature = "host_env", windows))]
     use rustpython_host_env::ctypes::open_library;
-    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
     use rustpython_host_env::ctypes::{
         dlopen_mode, insert_raw_library_handle, lookup_function_symbol_addr,
         open_library_with_mode_raw,
@@ -317,7 +317,7 @@ mod _imp {
         _file: crate::function::OptionalArg<PyObjectRef>,
     }
 
-    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
     #[pyfunction]
     fn create_dynamic(args: CreateDynamicArgs, vm: &VirtualMachine) -> PyResult {
         let name_obj = args.spec.get_attr("name", vm)?;
