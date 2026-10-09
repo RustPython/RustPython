@@ -103,6 +103,16 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
+    #[cfg(all(feature = "host_env", windows))]
+    if vm.is_main_thread() && vm.state.is_main_interpreter() {
+        // Report before a Python signal handler can raise out of the current
+        // error-reporting scope.
+        crate::stdlib::_signal::_signal::report_wakeup_send_errors(vm);
+    } else if crate::stdlib::_signal::_signal::wakeup_send_errors_pending() {
+        // A different interpreter/thread must leave the report for the main one.
+        set_triggered();
+    }
+
     let signal_handlers = vm
         .signal_handlers
         .get()
