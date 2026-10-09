@@ -10763,7 +10763,9 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpMultiplyFloat)
-                } else if let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm) {
+                } else if (sequence_int_guard(a, b, vm) || int_sequence_guard(a, b, vm))
+                    && let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm)
+                {
                     cached_extend_descr = Some(descr);
                     Some(Instruction::BinaryOpExtend)
                 } else {
