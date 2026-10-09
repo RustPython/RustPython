@@ -1098,6 +1098,23 @@ def test_replace_unchanged():
 test_replace_unchanged()
 
 
+def test_replace_missing_pattern():
+    for text in ("ordinary text", "\u00e1\u03b2\U0001f600", "a\ud800b\udfff"):
+        for count in (-1, 1, 10):
+            assert text.replace("\r", "replacement", count) is text
+            result = MyString(text).replace("\r", "replacement", count)
+            assert type(result) is str
+            assert result == text
+
+    # Continue the same search after the first match, including lone surrogates.
+    assert "ababa".replace("aba", "x") == "xba"
+    assert "\ud800x\ud800".replace("\ud800", "\udfff", 1) == "\udfffx\ud800"
+    assert "\ud800x\ud800".replace("\ud800", "\udfff") == "\udfffx\udfff"
+
+
+test_replace_missing_pattern()
+
+
 def test_expandtabs_zero_tabsize():
     # With no width to advance to, the tabs come out and nothing else moves.
     # A tab that followed a character used to ask for a run of usize::MAX
