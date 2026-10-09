@@ -16,7 +16,7 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
     spec: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let name = unsafe { &*spec }
+        let name = unsafe { spec.assume_borrowed() }
             .get_attr("name", vm)?
             .downcast_exact::<PyStr>(vm)
             .unwrap();
@@ -70,13 +70,12 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyModule_Exec(module: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let module = unsafe { &*module }.try_downcast_ref::<PyModule>(vm)?;
-        let def = module
+        let module = unsafe { module.assume_borrowed_and_cast::<PyModule>(vm)? };
+        module
             .def
             .as_deref()
-            .ok_or_else(|| vm.new_system_error("Empty module"))?;
-        def.exec_module(vm, module)?;
-        Ok(())
+            .ok_or_else(|| vm.new_system_error("Empty module"))?
+            .exec_module(vm, module)
     })
 }
 

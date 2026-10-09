@@ -400,11 +400,11 @@ mod _imp {
 
     #[pyfunction]
     fn exec_dynamic(module: PyRef<PyModule>, vm: &VirtualMachine) -> PyResult<()> {
-        let def = module
+        module
             .def
             .as_deref()
-            .ok_or_else(|| vm.new_system_error("Empty module"))?;
-        def.exec_module(vm, &module)
+            .ok_or_else(|| vm.new_system_error("Empty module"))?
+            .exec_module(vm, &module)
     }
 
     #[pyfunction]
