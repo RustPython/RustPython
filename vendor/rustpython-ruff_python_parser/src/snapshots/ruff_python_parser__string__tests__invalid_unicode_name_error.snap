@@ -1,0 +1,14 @@
+---
+source: crates/ruff_python_parser/src/string.rs
+expression: error
+---
+ParseError {
+    error: Lexical(
+        UnicodeEscapeError {
+            kind: UnknownName,
+            start: 0,
+            end: 10,
+        },
+    ),
+    location: 0..13,
+}

@@ -3,7 +3,7 @@ use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{CStr, c_char, c_int};
-use rustpython_vm::builtins::{PyCode, PyDict};
+use rustpython_vm::builtins::{PyAnyDictRef, PyCode};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{AsObject, PyObject, TryFromObject};
@@ -32,12 +32,15 @@ pub unsafe extern "C" fn PyEval_EvalCode(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
-        let globals = unsafe { globals.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let globals =
+            PyAnyDictRef::try_from_object(vm, unsafe { globals.assume_borrowed() }.to_owned())?;
         let locals = unsafe { locals.assume_borrowed_or_opt() }
             .map(|obj| ArgMapping::try_from_object(vm, obj.to_owned()))
             .transpose()?;
 
-        let scope = Scope::with_builtins(locals, globals.to_owned(), vm);
+        let locals = locals.or_else(|| Some(ArgMapping::from_anydict_exact(globals.clone())));
+        // Unlike Python's eval/exec, this API does not insert __builtins__.
+        let scope = Scope::new(locals, globals);
 
         vm.run_code_obj(code.to_owned(), scope)
     })
@@ -296,6 +299,124 @@ assert not hidden_leaked
         Python::attach(|py| {
             let err = recurse(py).unwrap_err();
             assert!(err.is_instance_of::<PyRecursionError>(py));
+        })
+    }
+
+    #[pyfunction]
+    fn frame_global_views(py: Python<'_>) -> PyResult<Vec<Bound<'_, PyAny>>> {
+        unsafe {
+            let frame = super::PyEval_GetFrame();
+            Ok(vec![
+                Bound::from_borrowed_ptr(py, super::PyEval_GetGlobals().cast()),
+                Bound::from_owned_ptr_or_err(py, super::PyEval_GetFrameGlobals().cast())?,
+                Bound::from_owned_ptr_or_err(py, crate::pyframe::PyFrame_GetGlobals(frame).cast())?,
+            ])
+        }
+    }
+
+    fn eval_with_globals<'py>(
+        globals: &Bound<'py, PyAny>,
+        source: &str,
+        mode: &str,
+        locals: Option<&Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let py = globals.py();
+        let code = py.import("builtins")?.getattr("compile")?.call1((
+            source,
+            "<capi-frozendict>",
+            mode,
+        ))?;
+        unsafe {
+            Bound::from_owned_ptr_or_err(
+                py,
+                pyo3::ffi::PyEval_EvalCode(
+                    code.as_ptr(),
+                    globals.as_ptr(),
+                    locals.map_or(core::ptr::null_mut(), Bound::as_ptr),
+                ),
+            )
+        }
+    }
+
+    #[test]
+    fn code_eval_frozen_globals() {
+        Python::attach(|py| {
+            let globals = py.eval(c"frozendict(answer=40)", None, None).unwrap();
+            let result = eval_with_globals(&globals, "answer + len((1, 2))", "eval", None).unwrap();
+            assert_eq!(result.extract::<i32>().unwrap(), 42);
+            let identity = eval_with_globals(&globals, "globals()", "eval", None).unwrap();
+            assert!(identity.is(&globals));
+            assert!(!globals.contains("__builtins__").unwrap());
+
+            let namespace = pyo3::types::PyDict::new(py);
+            namespace
+                .set_item(
+                    "frame_global_views",
+                    wrap_pyfunction!(frame_global_views, py).unwrap(),
+                )
+                .unwrap();
+            let globals = py
+                .import("builtins")
+                .unwrap()
+                .getattr("frozendict")
+                .unwrap()
+                .call1((namespace,))
+                .unwrap();
+            let views = eval_with_globals(&globals, "frame_global_views()", "eval", None).unwrap();
+            for view in views.try_iter().unwrap() {
+                assert!(view.unwrap().is(&globals));
+            }
+
+            let explicit = py
+                .eval(
+                    c"frozendict(answer=40, __builtins__=frozendict(len=lambda x: 9))",
+                    None,
+                    None,
+                )
+                .unwrap();
+            let result = eval_with_globals(&explicit, "answer + len(())", "eval", None).unwrap();
+            assert_eq!(result.extract::<i32>().unwrap(), 49);
+        })
+    }
+
+    #[test]
+    fn code_eval_frozen_globals_mutation() {
+        Python::attach(|py| {
+            let globals = py.eval(c"frozendict(answer=40)", None, None).unwrap();
+            for source in [
+                "answer = 1",
+                "global answer; answer = 1",
+                "global answer; del answer",
+            ] {
+                let error = eval_with_globals(&globals, source, "exec", None).unwrap_err();
+                assert!(error.is_instance_of::<pyo3::exceptions::PyTypeError>(py));
+            }
+            let locals = pyo3::types::PyDict::new(py);
+            eval_with_globals(
+                &globals,
+                "local_answer = answer + 2",
+                "exec",
+                Some(locals.as_any()),
+            )
+            .unwrap();
+            assert_eq!(
+                locals
+                    .get_item("local_answer")
+                    .unwrap()
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                42
+            );
+            assert_eq!(
+                globals
+                    .get_item("answer")
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                40
+            );
+            assert!(!globals.contains("__builtins__").unwrap());
         })
     }
 }

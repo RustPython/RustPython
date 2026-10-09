@@ -20,6 +20,36 @@ mod _codecs {
         function::ArgBytesLike,
     };
 
+    #[derive(FromArgs)]
+    struct NormalizeEncodingArgs {
+        #[pyarg(any)]
+        encoding: PyStrRef,
+    }
+
+    #[pyfunction]
+    fn _normalize_encoding(args: NormalizeEncodingArgs, vm: &VirtualMachine) -> PyResult<String> {
+        let encoding = args.encoding;
+        // CPython converts the entire input to UTF-8 before scanning for NUL.
+        if !encoding.is_utf8() {
+            let ctx = PyEncodeContext::new(encodings::utf8::ENCODING_NAME, &encoding, vm);
+            encodings::utf8::encode(ctx, &encodings::errors::Strict)?;
+        }
+        let mut normalized = String::with_capacity(encoding.byte_len());
+        let mut punct = false;
+        for byte in encoding.as_bytes().iter().copied().take_while(|b| *b != 0) {
+            if byte.is_ascii_alphanumeric() || byte == b'.' {
+                if punct && !normalized.is_empty() {
+                    normalized.push('_');
+                }
+                normalized.push(char::from(byte));
+                punct = false;
+            } else {
+                punct = true;
+            }
+        }
+        Ok(normalized)
+    }
+
     #[pyfunction]
     fn register(search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.state.codec_registry.register(search_function, vm)

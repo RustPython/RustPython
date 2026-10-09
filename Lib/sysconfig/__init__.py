@@ -219,18 +219,10 @@ if os.name == 'nt':
 if "_PYTHON_PROJECT_BASE" in os.environ:
     _PROJECT_BASE = _safe_realpath(os.environ["_PYTHON_PROJECT_BASE"])
 
-def is_python_build(check_home=None):
-    if check_home is not None:
-        import warnings
-        warnings.warn(
-            (
-                'The check_home argument of sysconfig.is_python_build is '
-                'deprecated and its value is ignored. '
-                'It will be removed in Python 3.15.'
-            ),
-            DeprecationWarning,
-            stacklevel=2,
-        )
+def is_python_build():
+    # RustPython reports source builds without CPython's Modules/Setup files.
+    if getattr(sys, '_is_python_build', False):
+        return True
     for fn in ("Setup", "Setup.local"):
         if os.path.isfile(os.path.join(_PROJECT_BASE, "Modules", fn)):
             return True
@@ -423,7 +415,13 @@ def _init_non_posix(vars):
     vars['EXE'] = '.exe'
     vars['VERSION'] = _PY_VERSION_SHORT_NO_DOT
     vars['BINDIR'] = os.path.dirname(_safe_realpath(sys.executable))
-    vars['TZPATH'] = ''
+    # No standard path exists on Windows for this, but we'll check
+    # whether someone is imitating a POSIX-like layout
+    check_tzpath = os.path.join(vars['prefix'], 'share', 'zoneinfo')
+    if os.path.exists(check_tzpath):
+        vars['TZPATH'] = check_tzpath
+    else:
+        vars['TZPATH'] = ''
 
 #
 # public APIs
@@ -442,6 +440,7 @@ def parse_config_h(fp, vars=None):
     import re
     define_rx = re.compile("#define ([A-Z][A-Za-z0-9_]+) (.*)\n")
     undef_rx = re.compile("/[*] #undef ([A-Z][A-Za-z0-9_]+) [*]/\n")
+    quoted_re = re.compile('^"(.*)"$')
 
     while True:
         line = fp.readline()
@@ -450,6 +449,8 @@ def parse_config_h(fp, vars=None):
         m = define_rx.match(line)
         if m:
             n, v = m.group(1, 2)
+            if mq := quoted_re.match(v):
+                v = mq.group(1)
             try:
                 if n in _ALWAYS_STR:
                     raise ValueError
@@ -650,6 +651,9 @@ def get_platform():
     isn't particularly important.
 
     Examples of returned values:
+       linux-x86_64
+       linux-aarch64
+       solaris-2.6-sun4u
 
 
     Windows:
@@ -667,12 +671,10 @@ def get_platform():
 
     For other non-POSIX platforms, currently just returns :data:`sys.platform`."""
     if os.name == 'nt':
-        if 'amd64' in sys.version.lower():
-            return 'win-amd64'
-        if '(arm)' in sys.version.lower():
-            return 'win-arm32'
-        if '(arm64)' in sys.version.lower():
-            return 'win-arm64'
+        import _sysconfig
+        platform = _sysconfig.get_platform()
+        if platform:
+            return platform
         return sys.platform
 
     if os.name != "posix" or not hasattr(os, 'uname'):

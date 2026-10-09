@@ -10,7 +10,7 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::compile::FutureFeature;
-use rustpython_compiler_core::bytecode;
+use rustpython_compiler_core::{PositionEncoding, SourceFile, bytecode};
 
 const MAXDIGITS: usize = 3;
 const F_LJUST: u8 = 1;
@@ -284,10 +284,27 @@ pub fn preprocess_statements(
     future_annotations: bool,
     syntax_check_only: bool,
 ) {
+    preprocess_statements_with_ast_source(
+        body,
+        optimize,
+        future_annotations,
+        syntax_check_only,
+        None,
+    );
+}
+
+pub(crate) fn preprocess_statements_with_ast_source(
+    body: &mut [ast::Stmt],
+    optimize: u8,
+    future_annotations: bool,
+    syntax_check_only: bool,
+    ast_source: Option<(&SourceFile, usize)>,
+) {
     let preprocessor = AstPreprocessor {
         optimize,
         future_annotations,
         constant_folding: !syntax_check_only,
+        ast_source,
     };
     for stmt in body {
         preprocessor.visit_stmt(stmt);
@@ -300,10 +317,27 @@ pub fn preprocess_mod(
     future_annotations: bool,
     syntax_check_only: bool,
 ) {
+    preprocess_mod_with_ast_source(
+        module,
+        optimize,
+        future_annotations,
+        syntax_check_only,
+        None,
+    );
+}
+
+pub(crate) fn preprocess_mod_with_ast_source(
+    module: &mut ast::Mod,
+    optimize: u8,
+    future_annotations: bool,
+    syntax_check_only: bool,
+    ast_source: Option<(&SourceFile, usize)>,
+) {
     let preprocessor = AstPreprocessor {
         optimize,
         future_annotations,
         constant_folding: !syntax_check_only,
+        ast_source,
     };
     match module {
         ast::Mod::Module(module) => preprocessor.visit_astfold_body(&mut module.body),
@@ -311,18 +345,19 @@ pub fn preprocess_mod(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AstPreprocessor {
+#[derive(Clone, Copy, Debug)]
+struct AstPreprocessor<'a> {
     optimize: u8,
     future_annotations: bool,
     constant_folding: bool,
+    ast_source: Option<(&'a SourceFile, usize)>,
 }
 
-impl AstPreprocessor {
+impl AstPreprocessor<'_> {
     fn visit_astfold_body(self, body: &mut ast::Suite) {
         let mut docstring = body_starts_with_docstring(body);
         if docstring && self.optimize >= 2 {
-            remove_docstring_from_body(body);
+            remove_docstring_from_body(body, self.ast_source);
             docstring = false;
         }
 
@@ -336,7 +371,7 @@ impl AstPreprocessor {
     }
 }
 
-impl Transformer for AstPreprocessor {
+impl Transformer for AstPreprocessor<'_> {
     fn visit_stmt(&self, stmt: &mut ast::Stmt) {
         match stmt {
             ast::Stmt::FunctionDef(function) => {
@@ -632,13 +667,27 @@ fn generated_literal(value: String) -> InterpolatedStringLiteralElement {
     }
 }
 
-fn remove_docstring_from_body(body: &mut ast::Suite) {
+fn remove_docstring_from_body(body: &mut ast::Suite, ast_source: Option<(&SourceFile, usize)>) {
     if let Some(range) = take_docstring(body) {
         if !body.is_empty() {
             return;
         }
         let start = range.start();
-        let pass_range = TextRange::new(start, start + ruff_text_size::TextSize::from(4));
+        let missing_column = ast_source.is_some_and(|(source, column)| {
+            source
+                .to_source_code()
+                .source_location(start, PositionEncoding::Utf8)
+                .character_offset
+                .to_zero_indexed()
+                == column
+        });
+        // CPython's synthetic pass stays on the docstring's first line. An
+        // absent start column remains absent; it is not a byte offset to add to.
+        let pass_range = if missing_column {
+            TextRange::empty(start)
+        } else {
+            TextRange::new(start, start + ruff_text_size::TextSize::from(4))
+        };
         body.push(ast::Stmt::Pass(ast::StmtPass {
             node_index: Default::default(),
             range: pass_range,

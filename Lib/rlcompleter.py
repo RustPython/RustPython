@@ -34,9 +34,9 @@ import builtins
 import inspect
 import keyword
 import re
-import types
 import __main__
 import warnings
+import types
 
 __all__ = ["Completer"]
 
@@ -189,7 +189,17 @@ class Completer:
                         # arbitrary code or raise exceptions.
                         matches.append(match)
                         continue
-                    if (value := getattr(thisobject, word, None)) is not None:
+
+                    if (isinstance(thisobject, types.ModuleType)
+                        and
+                        isinstance(thisobject.__dict__.get(word),
+                                   types.LazyImportType)
+                    ):
+                        value = thisobject.__dict__.get(word)
+                    else:
+                        value = getattr(thisobject, word, None)
+
+                    if value is not None:
                         matches.append(self._callable_postfix(value, match))
                     else:
                         matches.append(match)

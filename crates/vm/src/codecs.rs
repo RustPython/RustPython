@@ -253,7 +253,7 @@ impl CodecsRegistry {
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
-        let name = normalize_encoding_name(name);
+        let name = normalize_registry_encoding_name(name);
         self.inner
             .write()
             .search_cache
@@ -261,7 +261,8 @@ impl CodecsRegistry {
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
-        let encoding = normalize_encoding_name(encoding);
+        let original_encoding = encoding;
+        let encoding = normalize_registry_encoding_name(encoding);
         let search_path = {
             let inner = self.inner.read();
             if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
@@ -286,7 +287,7 @@ impl CodecsRegistry {
             }
         }
 
-        Err(vm.new_lookup_error(format!("unknown encoding: {encoding}")))
+        Err(vm.new_lookup_error(format!("unknown encoding: {original_encoding}")))
     }
 
     fn _lookup_text_encoding(
@@ -307,7 +308,7 @@ impl CodecsRegistry {
     }
 
     pub fn forget(&self, encoding: &str) -> Option<PyCodec> {
-        let encoding = normalize_encoding_name(encoding);
+        let encoding = normalize_registry_encoding_name(encoding);
         self.inner.write().search_cache.remove(encoding.as_ref())
     }
 
@@ -620,6 +621,28 @@ impl FastCodec {
             None
         }
     }
+}
+
+// Python/codecs.c normalizes registry keys differently from the built-in
+// codec fast paths: preserve non-ASCII and punctuation for search functions.
+fn normalize_registry_encoding_name(encoding: &str) -> Cow<'_, str> {
+    if !encoding
+        .bytes()
+        .any(|byte| byte.is_ascii_uppercase() || byte == b' ')
+    {
+        return encoding.into();
+    }
+    encoding
+        .chars()
+        .map(|ch| {
+            if ch == ' ' {
+                '-'
+            } else {
+                ch.to_ascii_lowercase()
+            }
+        })
+        .collect::<String>()
+        .into()
 }
 
 fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {

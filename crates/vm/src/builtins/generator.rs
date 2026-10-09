@@ -133,6 +133,12 @@ impl Py<PyGenerator> {
     }
 
     #[pygetset]
+    fn gi_state(&self) -> &'static str {
+        self.inner
+            .state_name(["GEN_CREATED", "GEN_RUNNING", "GEN_SUSPENDED", "GEN_CLOSED"])
+    }
+
+    #[pygetset]
     fn gi_suspended(&self, _vm: &VirtualMachine) -> bool {
         self.inner.suspended()
     }

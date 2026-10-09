@@ -59,7 +59,17 @@ mod _sre {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef;
 
         fn create_request(self, pattern: &Pattern, start: usize, end: usize) -> Request<'_, Self> {
-            Request::new(self, start, end, &pattern.code, false)
+            let request = Request::new(self, start, end, &pattern.code, false);
+            #[cfg(all(feature = "host_env", any(unix, windows)))]
+            let request = Request {
+                locale: rustpython_sre_engine::Locale {
+                    is_alnum: rustpython_host_env::locale::byte_isalnum,
+                    to_lower: rustpython_host_env::locale::byte_tolower,
+                    to_upper: rustpython_host_env::locale::byte_toupper,
+                },
+                ..request
+            };
+            request
         }
     }
 
@@ -533,6 +543,7 @@ mod _sre {
         flags(HAS_WEAKREF)
     )]
     impl Py<Pattern> {
+        #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(
             zelf: PyRef<Pattern>,
@@ -1151,6 +1162,7 @@ mod _sre {
             self.pattern.clone()
         }
 
+        #[pymethod(name = "prefixmatch")]
         #[pymethod(name = "match")]
         fn py_match(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<Match>>> {
             with_sre_str!(self.pattern, &self.string.clone(), vm, |s| {

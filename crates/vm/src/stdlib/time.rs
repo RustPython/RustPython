@@ -5,8 +5,10 @@
 // https://docs.python.org/3/library/time.html
 
 pub use decl::time;
+pub(crate) mod pytime;
 
 pub(crate) use decl::module_def;
+pub(crate) use decl::perf_counter_ns as profiler_time;
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
@@ -128,21 +130,13 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = object.class().name().to_owned();
-        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_bytes() == b"negative duration"
-            {
-                return vm.new_value_error("sleep length must be non-negative");
-            }
-            if e.class().is(vm.ctx.exceptions.type_error) {
-                return vm.new_type_error(format!(
-                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
-                ));
-            }
-            e
-        })?;
+        // _PyTime_ROUND_TIMEOUT rounds away from zero.
+        let nanoseconds =
+            super::pytime::from_seconds_object(&object, super::pytime::Round::Up, vm)?;
+        if nanoseconds < 0 {
+            return Err(vm.new_value_error("sleep length must be non-negative"));
+        }
+        let dur = Duration::from_nanos(nanoseconds as u64);
 
         #[cfg(unix)]
         {
@@ -241,7 +235,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+    pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
@@ -906,7 +900,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     #[cfg_attr(target_env = "musl", allow(deprecated))]
-    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<libc::time_t> {
+    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<host_time::TimeT> {
         match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -914,17 +908,19 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
+                let minimum = host_time::TimeT::MIN as f64;
+                // The signed maximum rounds up when represented by f64.
+                if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                Ok(secs as libc::time_t)
+                Ok(secs as host_time::TimeT)
             }
             Either::B(int) => {
                 // try_into is needed on 32-bit platforms where time_t != i64
                 #[allow(clippy::useless_conversion)]
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let ts: libc::time_t = int.try_into().map_err(|_| {
+                let ts: host_time::TimeT = int.try_into().map_err(|_| {
                     vm.new_overflow_error("timestamp out of range for platform time_t")
                 })?;
                 Ok(ts)
@@ -1248,6 +1244,7 @@ mod platform {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyUtf8StrRef},
+        convert::ToPyException,
     };
     use core::time::Duration;
     use rustpython_host_env::time as host_time;
@@ -1281,8 +1278,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::gmtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::gmtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
         Ok(struct_time_from_tm(vm, tm, "UTC", 0))
     }
 
@@ -1290,8 +1287,29 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::localtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::localtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
+
+        if when < 0 {
+            // Match CPython's timegm fallback, including C's truncating divisions.
+            let year = i64::from(tm.tm_year);
+            let local_as_utc = i64::from(tm.tm_sec)
+                + i64::from(tm.tm_min) * 60
+                + i64::from(tm.tm_hour) * 3600
+                + i64::from(tm.tm_yday) * 86400
+                + (year - 70) * 31536000
+                + ((year - 69) / 4) * 86400
+                - ((year - 1) / 100) * 86400
+                + ((year + 299) / 400) * 86400;
+            let zone =
+                host_time::strftime_ascii("%Z", &tm).map_err(|error| error.to_pyexception(vm))?;
+            return Ok(struct_time_from_tm(
+                vm,
+                tm,
+                &zone,
+                (local_as_utc - when) as i32,
+            ));
+        }
 
         // Get timezone info from Windows API
         let info = get_tz_info();

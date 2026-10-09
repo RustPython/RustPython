@@ -36,7 +36,6 @@ use alloc::fmt;
 use core::{
     any::TypeId,
     borrow::Borrow,
-    cell::UnsafeCell,
     marker::PhantomData,
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -753,7 +752,7 @@ impl WeakRefList {
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
             wr_object: Radium::new(obj as *const PyObject as *mut PyObject),
-            callback: UnsafeCell::new(callback),
+            callback: PyRwLock::new(callback),
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
         let weak = PyRef::new_ref(weak_payload, cls, dict);
@@ -772,7 +771,7 @@ impl WeakRefList {
             None
         };
         if let Some(existing) = existing {
-            // Nullify wr_object so drop_inner won't unlink an
+            // Nullify wr_object so clear_ref won't unlink an
             // un-inserted node (which would corrupt the list head).
             weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
             return existing;
@@ -840,7 +839,7 @@ impl WeakRefList {
         match NonNull::new(candidate_ptr) {
             Some(candidate) => {
                 let node = unsafe { candidate.as_ref() };
-                let has_callback = unsafe { (&*node.payload.callback.get()).is_some() };
+                let has_callback = node.payload.callback.read().is_some();
                 let node_cls = node.class();
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
@@ -890,7 +889,7 @@ impl WeakRefList {
             // Collect callback only if we can still acquire a strong ref.
             if wr.ref_count.safe_inc() {
                 let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
-                let cb = unsafe { wr.payload.callback.get().replace(None) };
+                let cb = wr.payload.callback.write().take();
                 if let Some(cb) = cb {
                     callbacks.push((wr_ref, cb));
                 }
@@ -909,49 +908,60 @@ impl WeakRefList {
         }
     }
 
-    /// Clear all weakrefs but DON'T call callbacks. Instead, return them for later invocation.
-    /// Used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks are invoked.
-    /// handle_weakrefs() clears all weakrefs first, then invokes callbacks.
-    fn clear_for_gc_collect_callbacks(&self, obj: &PyObject) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
+    /// Clear callback-bearing weakrefs before finalizers, and collect callbacks
+    /// only for weakrefs that outlive the unreachable set. Callback ownership
+    /// stays on the weakref until tp_clear or deallocation.
+    fn clear_for_gc_collect_callbacks(
+        &self,
+        obj: &PyObject,
+        is_unreachable: &impl Fn(&PyObject) -> bool,
+    ) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
         let obj_addr = obj as *const PyObject as usize;
         let _lock = weakref_lock::lock(obj_addr);
-
-        // Clear generic cache
-        self.generic.store(ptr::null_mut(), Ordering::Relaxed);
 
         let mut callbacks = Vec::new();
         let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
         while let Some(node) = current {
             let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
-
             let wr = unsafe { node.as_ref() };
 
-            // Mark weakref as dead
-            wr.payload
-                .wr_object
-                .store(ptr::null_mut(), Ordering::Relaxed);
+            if wr.payload.callback.read().is_some() {
+                wr.payload
+                    .wr_object
+                    .store(ptr::null_mut(), Ordering::Release);
+                unsafe { unlink_weakref(self, node) };
 
-            // Unlink from list
-            unsafe {
-                let mut ptrs = WeakLink::pointers(node);
-                ptrs.as_mut().set_prev(None);
-                ptrs.as_mut().set_next(None);
-            }
-
-            // Collect callback without invoking only if we can keep weakref alive.
-            if wr.ref_count.safe_inc() {
-                let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
-                let cb = unsafe { wr.payload.callback.get().replace(None) };
-                if let Some(cb) = cb {
-                    callbacks.push((wr_ref, cb));
+                // A weakref in cyclic trash must not run its callback. Leave
+                // its callback edge intact until the later tp_clear phase.
+                if !is_unreachable(wr.as_object()) && wr.ref_count.safe_inc() {
+                    let wr_ref = unsafe { PyRef::from_raw(wr as *const Py<PyWeak>) };
+                    let callback = wr.payload.callback.read().clone();
+                    if let Some(callback) = callback {
+                        callbacks.push((wr_ref, callback));
+                    }
                 }
             }
 
             current = next;
         }
-        self.head.store(ptr::null_mut(), Ordering::Relaxed);
-
         callbacks
+    }
+
+    /// Unlink all remaining weakrefs before tp_clear, without invoking or
+    /// releasing callbacks. Dropping a callback can itself run Python code.
+    fn clear_for_gc(&self, obj: &PyObject) {
+        let _lock = weakref_lock::lock(obj as *const PyObject as usize);
+        self.generic.store(ptr::null_mut(), Ordering::Relaxed);
+        let mut current = NonNull::new(self.head.load(Ordering::Relaxed));
+        while let Some(node) = current {
+            let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
+            let wr = unsafe { node.as_ref() };
+            wr.payload
+                .wr_object
+                .store(ptr::null_mut(), Ordering::Release);
+            unsafe { unlink_weakref(self, node) };
+            current = next;
+        }
     }
 
     fn count(&self, obj: &PyObject) -> usize {
@@ -1012,15 +1022,16 @@ unsafe impl Link for WeakLink {
 }
 
 // PyWeakReference: each weakref holds a direct pointer to its referent.
-#[pyclass(name = "ReferenceType", module = "weakref")]
+#[pyclass(name = "ReferenceType", module = "weakref", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<Self>>,
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
-    /// Protected by stripe lock (keyed on wr_object address).
-    callback: UnsafeCell<Option<PyObjectRef>>,
+    /// Owned callback edge, protected independently of the referent list.
+    /// GC can retain this edge after unlinking the weakref.
+    callback: PyRwLock<Option<PyObjectRef>>,
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
 
@@ -1060,31 +1071,13 @@ impl PyWeak {
         self.wr_object.load(Ordering::Acquire).is_null()
     }
 
-    /// Get the callback associated with this weak reference.
-    /// Returns `None` if there is no callback or if the referent has been
-    /// collected (at which point the callback was already consumed).
+    /// Get the owned callback, which GC can retain after clearing the referent.
     pub(crate) fn get_callback(&self) -> Option<PyObjectRef> {
-        let obj_ptr = self.wr_object.load(Ordering::Acquire);
-        if obj_ptr.is_null() {
-            // Dead weakref: callback was consumed during clear
-            return None;
-        }
-
-        let _lock = weakref_lock::lock(obj_ptr as usize);
-
-        // Double-check under lock (clear may have run between our check and lock)
-        let obj_ptr = self.wr_object.load(Ordering::Relaxed);
-        if obj_ptr.is_null() {
-            return None;
-        }
-
-        // Safety: we hold the stripe lock that protects the callback field
-        let callback = unsafe { &*self.callback.get() };
-        callback.clone()
+        self.callback.read().clone()
     }
 
-    /// weakref_dealloc: remove from list if still linked.
-    fn drop_inner(&self) {
+    /// _PyWeakref_ClearRef: unlink without releasing the callback.
+    fn clear_ref(&self) {
         let obj_ptr = self.wr_object.load(Ordering::Acquire);
         if obj_ptr.is_null() {
             return; // Already cleared by WeakRefList::clear()
@@ -1118,12 +1111,31 @@ impl PyWeak {
     }
 }
 
+// SAFETY: the callback is the only owned Python edge; wr_object is borrowed.
+unsafe impl Traverse for PyWeak {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        // A stopped thread may hold this lock. Missing a busy edge can
+        // postpone collection, but must not deadlock the collector.
+        if let Some(callback) = self.callback.try_read() {
+            callback.traverse(tracer_fn);
+        }
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.clear_ref();
+        let callback = self.callback.write().take();
+        if let Some(callback) = callback {
+            out.push(callback);
+        }
+    }
+}
+
 impl Drop for PyWeak {
     #[inline(always)]
     fn drop(&mut self) {
         // we do NOT have actual exclusive access!
         let me: &Self = self;
-        me.drop_inner();
+        me.clear_ref();
     }
 }
 
@@ -2165,7 +2177,7 @@ impl PyObject {
         }
 
         // Clear weak refs AFTER __del__.
-        // Note: This differs from GC behavior which clears weakrefs before finalizers,
+        // GC clears callback-bearing weakrefs before finalizers and the rest later,
         // but for direct deallocation (drop_slow_inner), we need to allow the finalizer
         // to run without triggering use-after-free from WeakRefList operations.
         if let Some(wrl) = self.weak_ref_list() {
@@ -2292,15 +2304,27 @@ impl PyObject {
         }
     }
 
-    /// Clear weakrefs but collect callbacks instead of calling them.
-    /// This is used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks run.
-    /// Returns collected callbacks as (PyRef<PyWeak>, callback) pairs.
-    // = handle_weakrefs
-    pub fn gc_clear_weakrefs_collect_callbacks(&self) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
+    /// Clear callback-bearing weakrefs before finalizers and return callbacks
+    /// belonging to reachable weakrefs for invocation outside the list lock.
+    pub fn gc_clear_weakrefs_collect_callbacks(
+        &self,
+        is_unreachable: &impl Fn(&Self) -> bool,
+    ) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {
         if let Some(wrl) = self.weak_ref_list() {
-            wrl.clear_for_gc_collect_callbacks(self)
+            wrl.clear_for_gc_collect_callbacks(self, is_unreachable)
         } else {
             vec![]
+        }
+    }
+
+    /// Clear weakrefs both in and pointing into the final unreachable set.
+    /// Callback edges remain owned until tp_clear or deallocation.
+    pub(crate) fn gc_clear_weakrefs(&self) {
+        if let Some(weakref) = self.downcast_ref::<PyWeak>() {
+            weakref.clear_ref();
+        }
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear_for_gc(self);
         }
     }
 

@@ -608,6 +608,9 @@ mod _sqlite3 {
             access: *const libc::c_char,
         ) -> c_int {
             let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
+            // The callback may replace or clear its own registration. Retain the
+            // callable through invocation, result conversion, and error reporting.
+            let callable = callable.to_owned();
             let f = || -> PyResult<c_int> {
                 let arg1 = ptr_to_str_or_none(arg1, vm)?;
                 let arg2 = ptr_to_str_or_none(arg2, vm)?;
@@ -619,9 +622,22 @@ mod _sqlite3 {
                     return Ok(SQLITE_DENY);
                 };
                 val.try_to_primitive::<c_int>(vm)
+                    .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))
             };
 
-            f().unwrap_or(SQLITE_DENY)
+            match f() {
+                Ok(result) => result,
+                Err(exc) => {
+                    if enable_traceback().load(Ordering::Relaxed) {
+                        let msg = callable
+                            .repr(vm)
+                            .ok()
+                            .map(|r| format!("Exception ignored on sqlite3 callback {r}"));
+                        vm.run_unraisable(exc, msg, vm.ctx.none());
+                    }
+                    SQLITE_DENY
+                }
+            }
         }
 
         unsafe extern "C" fn trace_callback(
@@ -2715,15 +2731,25 @@ mod _sqlite3 {
             }
         }
 
-        fn wrapped_index(index: PyIntRef, length: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
-            let mut index = index.try_to_primitive::<c_int>(vm)?;
+        fn wrapped_index(
+            index: PyIntRef,
+            object: &PyObject,
+            length: c_int,
+            vm: &VirtualMachine,
+        ) -> PyResult<c_int> {
+            let mut index = index.try_to_primitive::<isize>(vm).map_err(|_| {
+                vm.new_index_error(format!(
+                    "cannot fit '{}' into an index-sized integer",
+                    object.class().name()
+                ))
+            })?;
             if index < 0 {
-                index += length;
+                index += length as isize;
             }
-            if index < 0 || index >= length {
+            if index < 0 || index >= length as isize {
                 Err(vm.new_index_error("Blob index out of range"))
             } else {
-                Ok(index)
+                Ok(index as c_int)
             }
         }
 
@@ -2746,7 +2772,7 @@ mod _sqlite3 {
             let inner = self.inner(vm)?;
             if let Some(index) = needle.try_index_opt(vm) {
                 let blob_len = inner.blob.bytes();
-                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                let index = Self::wrapped_index(index?, needle, blob_len, vm)?;
                 let mut byte: u8 = 0;
                 let ret = inner.blob.read_single(&mut byte, index);
                 self.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
@@ -2800,7 +2826,7 @@ mod _sqlite3 {
                     )));
                 };
                 let blob_len = inner.blob.bytes();
-                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                let index = Self::wrapped_index(index?, needle, blob_len, vm)?;
                 // Mirror CPython ass_subscript_index: use PyLong_AsLong, treat any
                 // overflow (e.g. 2**65) as -1, then validate the [0, 255] range.
                 let val = int_val.as_bigint().to_i64().unwrap_or(-1);

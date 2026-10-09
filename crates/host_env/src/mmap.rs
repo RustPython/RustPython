@@ -7,8 +7,8 @@ use std::io;
 
 #[cfg(unix)]
 pub use libc::{
-    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, PROT_EXEC, PROT_READ,
-    PROT_WRITE,
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MS_ASYNC,
+    MS_INVALIDATE, MS_SYNC, PROT_EXEC, PROT_READ, PROT_WRITE,
 };
 
 #[cfg(unix)]
@@ -127,7 +127,7 @@ pub use libc::MADV_SOFT_OFFLINE;
 #[cfg(target_os = "freebsd")]
 pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
-pub use libc::EOVERFLOW;
+pub use libc::{EBADF, EOVERFLOW};
 
 #[cfg(windows)]
 use crate::windows::{CheckWin32Bool, HandleToOwned};
@@ -202,10 +202,43 @@ impl MappedFile {
         }
     }
 
-    pub fn flush_range(&self, offset: usize, size: usize) -> io::Result<()> {
+    pub fn flush_range(&self, offset: usize, size: usize, flags: i32) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            if offset > self.as_slice().len() || size > self.as_slice().len() - offset {
+                return Err(io::Error::from_raw_os_error(libc::EINVAL));
+            }
+            let ptr = unsafe { self.as_ptr().add(offset) };
+            let flags = if flags == 0 { MS_SYNC } else { flags };
+            if unsafe { libc::msync(ptr.cast_mut().cast(), size, flags) } == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = flags;
+            match self {
+                Self::Read(_) => Ok(()),
+                Self::Write(mmap) => mmap.flush_range(offset, size),
+            }
+        }
+    }
+
+    /// # Safety
+    /// The backing file must cover the mapping offset plus `new_size`, and no
+    /// exported pointers may remain live while the mapping is moved or shrunk.
+    #[cfg(target_os = "linux")]
+    pub unsafe fn remap(&mut self, new_size: usize) -> io::Result<()> {
+        // memmap2 permits a zero-length mapping, whereas mmap.resize(0) must
+        // preserve mremap's EINVAL result.
+        if new_size == 0 {
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        }
+        let options = memmap2::RemapOptions::new().may_move(true);
         match self {
-            Self::Read(_) => Ok(()),
-            Self::Write(mmap) => mmap.flush_range(offset, size),
+            Self::Read(mmap) => unsafe { mmap.remap(new_size, options) },
+            Self::Write(mmap) => unsafe { mmap.remap(new_size, options) },
         }
     }
 
@@ -214,6 +247,23 @@ impl MappedFile {
         let ptr = unsafe { self.as_ptr().add(start) };
         posix::madvise(ptr as usize, length, advice)
     }
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_mapping_name(address: usize, size: usize, name: &core::ffi::CStr) -> io::Result<()> {
+    if unsafe {
+        libc::prctl(
+            libc::PR_SET_VMA,
+            libc::PR_SET_VMA_ANON_NAME,
+            address,
+            size,
+            name.as_ptr(),
+        )
+    } == -1
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -409,13 +459,34 @@ pub fn map_anon(size: usize) -> io::Result<MappedFile> {
 }
 
 #[cfg(unix)]
+pub fn duplicate_descriptor(fd: i32) -> io::Result<crt_fd::Owned> {
+    // Python supplies an arbitrary integer, so validate it through fcntl before
+    // constructing a Rust descriptor. Only the successful duplicate is owned.
+    let new_fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if new_fd != -1 {
+        return Ok(unsafe { crt_fd::Owned::from_raw(new_fd) });
+    }
+    let err = io::Error::last_os_error();
+    if err.raw_os_error() != Some(libc::EINVAL) {
+        return Err(err);
+    }
+    // Older kernels may not support F_DUPFD_CLOEXEC.
+    let new_fd = unsafe { libc::dup(fd) };
+    if new_fd == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let new_fd = unsafe { crt_fd::Owned::from_raw(new_fd) };
+    posix::set_inheritable(new_fd.borrow().into(), false)?;
+    Ok(new_fd)
+}
+
+#[cfg(unix)]
 pub fn map_file(
-    fd: crt_fd::Borrowed<'_>,
+    new_fd: crt_fd::Owned,
     offset: i64,
     size: usize,
     access: AccessMode,
 ) -> io::Result<(crt_fd::Owned, MappedFile)> {
-    let new_fd: crt_fd::Owned = posix::dup_noninheritable(fd.into())?.into();
     let mut mmap_opt = MmapOptions::new();
     let mmap_opt = mmap_opt.offset(offset as u64).len(size);
 

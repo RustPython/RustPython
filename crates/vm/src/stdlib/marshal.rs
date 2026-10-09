@@ -4,14 +4,15 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "marshal")]
 mod decl {
     use crate::builtins::code::{CodeObject, Literal, PyVmBag};
+    use crate::builtins::dict::DictIter;
     use crate::class::StaticType;
     use crate::common::wtf8::Wtf8;
     use crate::{
         PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
-            PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyMemoryView, PyNone, PySet,
-            PyStopIteration, PyStr, PyTuple,
+            PyAnyDictRef, PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex,
+            PyDict, PyEllipsis, PyFloat, PyFrozenDict, PyFrozenSet, PyInt, PyList, PyMemoryView,
+            PyNone, PySet, PyStopIteration, PyStr, PyTuple,
         },
         convert::ToPyObject,
         function::ArgBytesLike,
@@ -76,6 +77,10 @@ mod decl {
                     let entries = pydict.into_iter().collect::<Vec<_>>();
                     f(DumpableValue::Dict(&entries))
                 }
+                ref pyfrozen @ PyFrozenDict => {
+                    let entries = DictIter::new(&pyfrozen.dict).collect::<Vec<_>>();
+                    f(DumpableValue::Frozendict(&entries))
+                }
                 ref bytes @ PyBytes => {
                     f(DumpableValue::Bytes(bytes.as_bytes()))
                 }
@@ -95,7 +100,7 @@ mod decl {
     struct DumpsArgs {
         #[pyarg(positional)]
         value: PyObjectRef,
-        #[pyarg(positional, default = 5)]
+        #[pyarg(positional, default = 6)]
         version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
@@ -248,12 +253,13 @@ mod decl {
         }
         let type_pos = buf.len();
         let use_ref = refs.is_some() && !is_singleton;
-        // A code or slice entry stays incomplete until its contents are
-        // written: the reader rebuilds both from their fields, so a
+        // A code, slice or frozendict entry stays incomplete until its contents are
+        // written: the reader rebuilds them from their fields, so a
         // back-reference issued while those fields are still being emitted
         // would name an object that does not exist yet.
         let requires_completion = obj.downcast_ref::<PyCode>().is_some()
-            || obj.downcast_ref::<crate::builtins::PySlice>().is_some();
+            || obj.downcast_ref::<crate::builtins::PySlice>().is_some()
+            || obj.downcast_ref::<PyFrozenDict>().is_some();
         if use_ref {
             refs.as_mut().unwrap().reserve(obj, requires_completion);
         }
@@ -372,9 +378,17 @@ mod decl {
             for elem in items.iter() {
                 write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
-        } else if let Some(d) = obj.downcast_ref::<PyDict>() {
-            buf.write_u8(b'{');
-            for (k, v) in d {
+        } else if let Some(d) = PyAnyDictRef::from_object(obj) {
+            let typ = if d.is_frozen() {
+                if version < 6 || !obj.class().is(vm.ctx.types.frozendict_type) {
+                    return Err(vm.new_value_error("unmarshallable object"));
+                }
+                b'}'
+            } else {
+                b'{'
+            };
+            buf.write_u8(typ);
+            for (k, v) in DictIter::new(d.as_dict()) {
                 write_object_depth(buf, &k, refs, version, allow_code, vm, depth - 1)?;
                 write_object_depth(buf, &v, refs, version, allow_code, vm, depth - 1)?;
             }
@@ -394,10 +408,15 @@ mod decl {
             // route `co_consts` back through the object writer: it reaches the
             // values `BorrowedConstant` cannot describe and shares the one
             // reference table the reader indexes against.
-            marshal::serialize_code_with(buf, &co.code, |buf, constant| {
-                let constant = PyObjectRef::from(constant.clone());
-                write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
-            })?;
+            marshal::serialize_code_with(
+                buf,
+                &co.code,
+                co.source_path().as_str(),
+                |buf, constant| {
+                    let constant = PyObjectRef::from(constant.clone());
+                    write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
+                },
+            )?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
@@ -473,7 +492,7 @@ mod decl {
         value: PyObjectRef,
         #[pyarg(positional)]
         file: PyObjectRef,
-        #[pyarg(positional, default = 5)]
+        #[pyarg(positional, default = 6)]
         version: i32,
         #[pyarg(named, default = true)]
         allow_code: bool,
@@ -676,6 +695,11 @@ mod decl {
         }
         fn make_dict_placeholder(&self) -> Option<Self::Value> {
             Some(self.vm.ctx.new_dict().into())
+        }
+        fn freeze_dict(&self, dict: Self::Value) -> Result<Self::Value, marshal::MarshalError> {
+            PyFrozenDict::from_object(Some(dict), self.vm)
+                .map(Into::into)
+                .map_err(|error| self.remember_python_error(error))
         }
         fn insert_dict_item(
             &self,

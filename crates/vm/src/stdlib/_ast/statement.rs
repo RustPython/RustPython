@@ -1,10 +1,10 @@
+use super::SourceFile;
 use super::*;
 use crate::stdlib::_ast::argument::{
     KeywordArguments, PositionalArguments, merge_class_def_args, split_class_def_args,
 };
 use crate::stdlib::_ast::exception::except_handler_from_object_unvalidated_range;
 use crate::stdlib::_ast::type_parameters::type_params_from_field;
-use rustpython_compiler_core::SourceFile;
 
 fn runtime_decorator_expr_list(values: &[Option<ast::Decorator>]) -> Vec<Option<ast::Expr>> {
     values
@@ -1484,7 +1484,11 @@ fn stmt_import_from_object_with_range(
         node_index: Default::default(),
         names: get_node_list_field(vm, source_file, object, "names", "Import")?,
         range,
-        is_lazy: false,
+        is_lazy: get_node_field_opt(vm, object, "is_lazy")?
+            .map(|value| node_object_to_i32(vm, &value))
+            .transpose()?
+            .unwrap_or(0)
+            != 0,
     })
 }
 
@@ -1494,13 +1498,15 @@ impl Node for ast::StmtImport {
             node_index: _,
             names,
             range: _range,
-            is_lazy: _,
+            is_lazy,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeStmtImport::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(vm, source_file), vm)
+            .unwrap();
+        dict.set_item("is_lazy", vm.ctx.new_int(i32::from(is_lazy)).into(), vm)
             .unwrap();
         node_add_location(&dict, _range, vm, source_file);
         node.into()
@@ -1532,7 +1538,11 @@ fn stmt_import_from_from_object_with_range(
         names: get_node_list_field(vm, source_file, object, "names", "ImportFrom")?,
         level,
         range,
-        is_lazy: false,
+        is_lazy: get_node_field_opt(vm, object, "is_lazy")?
+            .map(|value| node_object_to_i32(vm, &value))
+            .transpose()?
+            .unwrap_or(0)
+            != 0,
         runtime_level,
     })
 }
@@ -1561,7 +1571,7 @@ impl Node for ast::StmtImportFrom {
             names,
             level,
             range,
-            is_lazy: _,
+            is_lazy,
             runtime_level,
         } = self;
         let node = NodeAst
@@ -1577,6 +1587,8 @@ impl Node for ast::StmtImportFrom {
             |level| vm.ctx.new_int(level).to_pyobject(vm),
         );
         dict.set_item("level", level, vm).unwrap();
+        dict.set_item("is_lazy", vm.ctx.new_int(i32::from(is_lazy)).into(), vm)
+            .unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }

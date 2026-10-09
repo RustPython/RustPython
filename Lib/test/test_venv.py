@@ -13,7 +13,6 @@ import pathlib
 import re
 import shlex
 import shutil
-import struct
 import subprocess
 import sys
 import sysconfig
@@ -140,14 +139,9 @@ class BasicTest(BaseTest):
         self.isdir(self.bindir)
         self.isdir(self.include)
         self.isdir(*self.lib)
-        # Issue 21197
         p = self.get_env_file('lib64')
-        conditions = ((struct.calcsize('P') == 8) and (os.name == 'posix') and
-                      (sys.platform != 'darwin'))
-        if conditions:
-            self.assertTrue(os.path.islink(p))
-        else:
-            self.assertFalse(os.path.exists(p))
+        if os.path.exists(p):
+            self.assertFalse(os.path.islink(p))
         data = self.get_text_file_contents('pyvenv.cfg')
         executable = sys._base_executable
         path = os.path.dirname(executable)
@@ -311,9 +305,9 @@ class BasicTest(BaseTest):
                 self.assertEqual(out.strip(), expected, err)
         for attr, expected in (
             ('executable', self.envpy()),
-            # Usually compare to sys.executable, but if we're running in our own
-            # venv then we really need to compare to our base executable
-            ('_base_executable', sys._base_executable),
+            # Usually compare to sys.prefix, but if we're running in our own
+            # venv then we really need to compare to our base prefix
+            ('base_prefix', sys.base_prefix),
         ):
             with self.subTest(attr):
                 cmd[2] = f'import sys; print(sys.{attr})'
@@ -608,6 +602,51 @@ class BasicTest(BaseTest):
             encoding='oem',
         )
         self.assertEqual(out.strip(), '0')
+
+    @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
+    def test_activate_bat_respects_disable_prompt(self):
+        rmtree(self.env_dir)
+        env_dir = os.path.join(os.path.realpath(self.env_dir), 'venv')
+        builder = venv.EnvBuilder(clear=True)
+        builder.create(env_dir)
+        activate = os.path.join(env_dir, self.bindir, 'activate.bat')
+        test_batch = os.path.join(self.env_dir, 'test_disable_prompt.bat')
+        with open(test_batch, "w") as f:
+            f.write('@echo off\n'
+                    'set "PROMPT=base$G"\n'
+                    'set "VIRTUAL_ENV_DISABLE_PROMPT=1"\n'
+                    f'call "{activate}"\n'
+                    'echo ACTIVE_PROMPT:%PROMPT%\n'
+                    'echo VIRTUAL_ENV:%VIRTUAL_ENV%\n'
+                    'set "PROMPT=changed$G"\n'
+                    'call deactivate\n'
+                    'echo FINAL_PROMPT:%PROMPT%\n')
+        out, err = check_output([test_batch])
+        lines = out.splitlines()
+        self.assertEqual(lines[0], b'ACTIVE_PROMPT:base$G')
+        self.assertEndsWith(lines[1], os.fsencode(env_dir))
+        self.assertEqual(lines[2], b'FINAL_PROMPT:changed$G')
+
+    @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
+    def test_activate_bat_prefixes_prompt_by_default(self):
+        rmtree(self.env_dir)
+        env_dir = os.path.join(os.path.realpath(self.env_dir), 'venv')
+        builder = venv.EnvBuilder(clear=True)
+        builder.create(env_dir)
+        activate = os.path.join(env_dir, self.bindir, 'activate.bat')
+        test_batch = os.path.join(self.env_dir, 'test_enable_prompt.bat')
+        with open(test_batch, "w") as f:
+            f.write('@echo off\n'
+                    'set "PROMPT=base) $G"\n'
+                    'set "VIRTUAL_ENV_DISABLE_PROMPT="\n'
+                    f'call "{activate}"\n'
+                    'echo ACTIVE_PROMPT:%PROMPT%\n'
+                    'call deactivate\n'
+                    'echo FINAL_PROMPT:%PROMPT%\n')
+        out, err = check_output([test_batch])
+        lines = out.splitlines()
+        self.assertEqual(lines[0], b'ACTIVE_PROMPT:(venv) base) $G')
+        self.assertEqual(lines[1], b'FINAL_PROMPT:base) $G')
 
     @unittest.skipUnless(os.name == 'nt' and can_symlink(),
                          'symlinks on Windows')
@@ -937,10 +976,10 @@ class BasicTest(BaseTest):
             exename = exename.replace("python", "pythonw")
         envpyw = os.path.join(self.env_dir, self.bindir, exename)
         try:
-            subprocess.check_call([envpyw, "-c", "import sys; "
-                "assert sys._base_executable.endswith('%s')" % exename])
+            subprocess.check_call([envpyw, "-c", "import fnmatch, sys; "
+                "assert fnmatch.fnmatch(sys._base_executable, '**/pythonw*.exe')"])
         except subprocess.CalledProcessError:
-            self.fail("venvwlauncher.exe did not run %s" % exename)
+            self.fail("venvwlauncher.exe did not run pythonw.exe")
 
 
 @requireVenvCreate
@@ -1057,7 +1096,7 @@ class EnsurePipTest(BaseTest):
                      err, flags=re.MULTILINE)
         # Ignore warning about missing optional module:
         try:
-            import ssl
+            import ssl  # noqa: F401
         except ImportError:
             err = re.sub(
                 "^WARNING: Disabling truststore since ssl support is missing$",

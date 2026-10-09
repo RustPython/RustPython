@@ -83,15 +83,16 @@ impl VirtualMachine {
     }
 
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
-        let scope = self.new_scope_with_builtins();
-        let main_module = self.new_module("__main__", scope.globals.clone(), None);
+        let globals = self.ctx.new_dict();
+        let scope = Scope::with_builtins(None, globals.clone(), self);
+        let main_module = self.new_module("__main__", globals.clone(), None);
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",
             main_module.into(),
             self,
         )?;
-        self.set_main_builtin_importer(&scope.globals)?;
+        self.set_main_builtin_importer(&globals)?;
 
         Ok(scope)
     }
@@ -503,7 +504,7 @@ impl VirtualMachine {
                     ),
                 ..
             }) => incomplete_or_syntax(allow_incomplete),
-            // Unclosed bracket errors (converted from Eof by from_ruff_parse_error)
+            // The parser distinguishes incomplete brackets from invalid earlier tokens.
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 is_unclosed_bracket: true,
@@ -692,7 +693,23 @@ impl VirtualMachine {
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
             // EOF errors have no source span in CPython.
+            let standalone_case_suite = cfg_select! {
+                feature = "parser" => {
+                    matches!(
+                        error,
+                        crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                            error: ruff_python_parser::ParseErrorType::ExpectedIndentedBlock {
+                                clause: ruff_python_parser::BlockClause::StandaloneCase,
+                                ..
+                            },
+                            ..
+                        })
+                    )
+                }
+                _ => false,
+            };
             let no_end_offset = unexpected_eof_error
+                || standalone_case_suite
                 || (check_version_suite_error
                     && statement
                         .as_deref()

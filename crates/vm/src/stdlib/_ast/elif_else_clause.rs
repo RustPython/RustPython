@@ -1,5 +1,5 @@
+use super::SourceFile;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 pub(super) fn ast_to_object(
     clause: ast::ElifElseClause,

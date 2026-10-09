@@ -6,7 +6,7 @@ import test.support
 from test.support import threading_helper, requires_subprocess, requires_gil_enabled
 from test.support import verbose, cpython_only, os_helper
 from test.support.import_helper import ensure_lazy_imports, import_module
-from test.support.script_helper import assert_python_ok, assert_python_failure
+from test.support.script_helper import assert_python_ok, assert_python_failure, spawn_python
 from test.support import force_not_colorized
 
 import random
@@ -324,6 +324,7 @@ class ThreadTests(BaseTestCase):
     # PyThreadState_SetAsyncExc() is a CPython-only gimmick, not (currently)
     # exposed at the Python level.  This test relies on ctypes to get at it.
     @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @cpython_only
     def test_PyThreadState_SetAsyncExc(self):
         ctypes = import_module("ctypes")
 
@@ -412,6 +413,53 @@ class ThreadTests(BaseTestCase):
             t.join()
         # else the thread is still running, and we have no way to kill it
 
+    @cpython_only
+    @unittest.skipUnless(hasattr(signal, "pthread_kill"), "need pthread_kill")
+    @unittest.skipUnless(hasattr(signal, "SIGUSR1"), "need SIGUSR1")
+    def test_PyThreadState_SetAsyncExc_interrupts_sleep(self):
+        _testcapi = import_module("_testlimitedcapi")
+
+        worker_started = threading.Event()
+
+        class InjectedException(Exception):
+            """Custom exception for testing"""
+
+        caught_exception = None
+
+        def catch_exception():
+            nonlocal caught_exception
+            day_as_seconds = 60 * 60 * 24
+            try:
+                worker_started.set()
+                time.sleep(day_as_seconds)
+            except InjectedException as exc:
+                caught_exception = exc
+
+        thread = threading.Thread(target=catch_exception)
+        thread.start()
+        worker_started.wait()
+
+        signal.signal(signal.SIGUSR1, lambda sig, frame: None)
+
+        result = _testcapi.threadstate_set_async_exc(
+            thread.ident, InjectedException)
+        self.assertEqual(result, 1)
+
+        for _ in support.sleeping_retry(support.SHORT_TIMEOUT):
+            if not thread.is_alive():
+                break
+            try:
+                signal.pthread_kill(thread.ident, signal.SIGUSR1)
+            except OSError:
+                # The thread might have terminated between the is_alive check
+                # and the pthread_kill
+                break
+
+        thread.join()
+        signal.signal(signal.SIGUSR1, signal.SIG_DFL)
+
+        self.assertIsInstance(caught_exception, InjectedException)
+
     @unittest.skip("TODO: RUSTPYTHON; threading._start_new_thread not exposed")
     def test_limbo_cleanup(self):
         # Issue 7481: Failure to start thread should cleanup the limbo map.
@@ -428,7 +476,11 @@ class ThreadTests(BaseTestCase):
         finally:
             threading._start_joinable_thread = _start_joinable_thread
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ctypes.pythonapi is not supported
+    @unittest.expectedFailureIf(
+        sys.implementation.name == "rustpython"
+        and "_testcapi" not in sys.builtin_module_names,
+        "TODO: RUSTPYTHON; requires the capi build feature",
+    )
     def test_finalize_running_thread(self):
         # Issue 1402: the PyGILState_Ensure / _Release functions may be called
         # very late on python exit: on deallocation of a running thread for
@@ -1250,13 +1302,68 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(err, b"")
         self.assertIn(b"all clear", out)
 
+    @support.subTests('lock_class_name', ['Lock', 'RLock'])
+    def test_acquire_daemon_thread_lock_in_finalization(self, lock_class_name):
+        # gh-123940: Py_Finalize() prevents other threads from running Python
+        # code (and so, releasing locks), so acquiring a locked lock can not
+        # succeed.
+        # We raise an exception rather than hang.
+        code = textwrap.dedent(f"""
+            import threading
+            import time
+
+            thread_started_event = threading.Event()
+
+            lock = threading.{lock_class_name}()
+            def loop():
+                if {lock_class_name!r} == 'RLock':
+                    lock.acquire()
+                with lock:
+                    thread_started_event.set()
+                    while True:
+                        time.sleep(1)
+
+            uncontested_lock = threading.{lock_class_name}()
+
+            class Cycle:
+                def __init__(self):
+                    self.self_ref = self
+                    self.thr = threading.Thread(
+                        target=loop, daemon=True)
+                    self.thr.start()
+                    thread_started_event.wait()
+
+                def __del__(self):
+                    assert self.thr.is_alive()
+
+                    # We *can* acquire an unlocked lock
+                    uncontested_lock.acquire()
+                    if {lock_class_name!r} == 'RLock':
+                        uncontested_lock.acquire()
+
+                    # Acquiring a locked one fails
+                    try:
+                        lock.acquire()
+                    except PythonFinalizationError:
+                        assert self.thr.is_alive()
+                        print('got the correct exception!')
+
+            # Cycle holds a reference to itself, which ensures it is
+            # cleaned up during the GC that runs after daemon threads
+            # have been forced to exit during finalization.
+            Cycle()
+        """)
+        rc, out, err = assert_python_ok("-c", code)
+        self.assertEqual(err, b"")
+        self.assertIn(b"got the correct exception", out)
+
     def test_start_new_thread_failed(self):
         # gh-109746: if Python fails to start newly created thread
         # due to failure of underlying PyThread_start_new_thread() call,
         # its state should be removed from interpreter' thread states list
         # to avoid its double cleanup
         try:
-            from resource import setrlimit, RLIMIT_NPROC
+            from resource import setrlimit, RLIMIT_NPROC  # noqa: F401
         except ImportError as err:
             self.skipTest(err)  # RLIMIT_NPROC is specific to Linux and BSD
         code = """if 1:
@@ -1287,12 +1394,6 @@ class ThreadTests(BaseTestCase):
 
     @cpython_only
     def test_finalize_daemon_thread_hang(self):
-        if support.check_sanitizer(thread=True, memory=True):
-            # the thread running `time.sleep(100)` below will still be alive
-            # at process exit
-            self.skipTest(
-                    "https://github.com/python/cpython/issues/124878 - Known"
-                    " race condition that TSAN identifies.")
         # gh-87135: tests that daemon threads hang during finalization
         script = textwrap.dedent('''
             import os
@@ -1410,10 +1511,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(err, b"")
         self.assertEqual(out.strip(), b"Exiting...")
-
-    @unittest.skip("TODO: RUSTPYTHON; Thread._tstate_lock not implemented")
-    def test_tstate_lock(self):
-        return super().test_tstate_lock()
 
 class ThreadJoinOnShutdown(BaseTestCase):
 
@@ -1630,7 +1727,6 @@ class SubinterpThreadingTests(BaseTestCase):
             os.set_blocking(r, False)
         return (r, w)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join(self):
         # Non-daemon threads should be joined at subinterpreter shutdown
         # (issue #18808)
@@ -1659,7 +1755,6 @@ class SubinterpThreadingTests(BaseTestCase):
         # The thread was joined properly.
         self.assertEqual(os.read(r, 1), b"x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join_2(self):
         # Same as above, but a delay gets introduced after the thread's
         # Python code returned but before the thread state is deleted.
@@ -2044,6 +2139,32 @@ class ThreadingExceptionTests(BaseTestCase):
         self.assertEqual(out, b"")
         self.assertEqual(err, b"")
 
+    @requires_subprocess()
+    @unittest.skipIf(os.name == 'nt', "signals don't work well on windows")
+    def test_keyboard_interrupt_during_threading_shutdown(self):
+        import subprocess
+        source = f"""
+        from threading import Thread
+        import time
+        import os
+
+
+        def test():
+            print('a', flush=True, end='')
+            time.sleep(10)
+
+
+        for _ in range(3):
+            Thread(target=test).start()
+        """
+
+        with spawn_python("-c", source, stderr=subprocess.PIPE) as proc:
+            self.assertEqual(proc.stdout.read(3), b'aaa')
+            proc.send_signal(signal.SIGINT)
+            proc.stderr.flush()
+            error = proc.stderr.read()
+            self.assertIn(b"KeyboardInterrupt", error)
+
 
 class ThreadRunFail(threading.Thread):
     def run(self):
@@ -2217,8 +2338,7 @@ class CRLockTests(lock_tests.RLockTests):
         ]
         for args, kwargs in arg_types:
             with self.subTest(args=args, kwargs=kwargs):
-                with self.assertWarns(DeprecationWarning):
-                    threading.RLock(*args, **kwargs)
+                self.assertRaises(TypeError, threading.RLock, *args, **kwargs)
 
         # Subtypes with custom `__init__` are allowed (but, not recommended):
         class CustomRLock(self.locktype):
@@ -2236,6 +2356,9 @@ class ConditionAsRLockTests(lock_tests.RLockTests):
     # Condition uses an RLock by default and exports its API.
     locktype = staticmethod(threading.Condition)
 
+    def test_constructor_noargs(self):
+        self.skipTest("Condition allows positional arguments")
+
     def test_recursion_count(self):
         self.skipTest("Condition does not expose _recursion_count()")
 
@@ -2250,6 +2373,231 @@ class BoundedSemaphoreTests(lock_tests.BoundedSemaphoreTests):
 
 class BarrierTests(lock_tests.BarrierTests):
     barriertype = staticmethod(threading.Barrier)
+
+
+## Test Synchronization tools for iterators ################
+
+class ThreadingIteratorToolsTests(BaseTestCase):
+    def test_serialize_serializes_concurrent_iteration(self):
+        limit = 10_000
+        workers_count = 10
+        result = 0
+        result_lock = threading.Lock()
+        start = threading.Event()
+
+        def producer(limit):
+            for x in range(limit):
+                yield x
+
+        def consumer(iterator):
+            nonlocal result
+            start.wait()
+            total = 0
+            for x in iterator:
+                total += x
+            with result_lock:
+                result += total
+
+        iterator = threading.serialize_iterator(producer(limit))
+        workers = [
+            threading.Thread(target=consumer, args=(iterator,))
+            for _ in range(workers_count)
+        ]
+        with threading_helper.wait_threads_exit():
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                # Wait for the worker thread to actually start.
+                while worker.ident is None:
+                    time.sleep(0.1)
+            start.set()
+            for worker in workers:
+                worker.join()
+
+        self.assertEqual(result, limit * (limit - 1) // 2)
+
+    def test_serialize_generator_methods(self):
+        # A generator that yields and receives
+        def echo():
+            try:
+                while True:
+                    val = yield "ready"
+                    yield f"received {val}"
+            except ValueError:
+                yield "caught"
+
+        it = threading.serialize_iterator(echo())
+
+        # Test __next__
+        self.assertEqual(next(it), "ready")
+
+        # Test send()
+        self.assertEqual(it.send("hello"), "received hello")
+        self.assertEqual(next(it), "ready")
+
+        # Test throw()
+        self.assertEqual(it.throw(ValueError), "caught")
+
+        # Test close()
+        it.close()
+        with self.assertRaises(StopIteration):
+            next(it)
+
+    def test_serialize_methods_attribute_error(self):
+        # A standard iterator that does not have send/throw/close
+        # should raise AttributeError when called.
+        standard_it = threading.serialize_iterator([1, 2, 3])
+
+        with self.assertRaises(AttributeError):
+            standard_it.send("foo")
+
+        with self.assertRaises(AttributeError):
+            standard_it.throw(ValueError)
+
+        with self.assertRaises(AttributeError):
+            standard_it.close()
+
+    def test_serialize_generator_methods_locking(self):
+        # Verifies that generator methods also acquire the lock.
+        # We can test this by checking if the lock is held during the call.
+
+        class LockCheckingGenerator:
+            def __init__(self, lock):
+                self.lock = lock
+            def __iter__(self):
+                return self
+            def send(self, value):
+                if not self.lock.locked():
+                    raise RuntimeError("Lock not held during send()")
+                return value
+            def throw(self, *args):
+                if not self.lock.locked():
+                    raise RuntimeError("Lock not held during throw()")
+            def close(self):
+                if not self.lock.locked():
+                    raise RuntimeError("Lock not held during close()")
+
+        # Manually create the serialize object to inspect the lock
+        it = threading.serialize_iterator([])
+        mock_gen = LockCheckingGenerator(it._lock)
+        it._iterator = mock_gen
+
+        # These should not raise RuntimeError
+        it.send(1)
+        it.throw(ValueError)
+        it.close()
+
+    def test_serialize_next_exception(self):
+        # Verify exception pass through for calls to next()
+
+        def f():
+            raise RuntimeError
+            yield None
+
+        g = threading.serialize_iterator(f())
+        with self.assertRaises(RuntimeError):
+            next(g)
+
+    def test_synchronized_serializes_generator_instances(self):
+        unique = 10
+        repetitions = 5
+        limit = 100
+        start = threading.Event()
+
+        @threading.synchronized_iterator
+        def atomic_counter():
+            # The sleep widens the race window that would exist without
+            # synchronization between yielding a value and advancing state.
+            i = 0
+            while True:
+                yield i
+                time.sleep(0.0005)
+                i += 1
+
+        def consumer(counter):
+            start.wait()
+            for _ in range(limit):
+                next(counter)
+
+        unique_counters = [atomic_counter() for _ in range(unique)]
+        counters = unique_counters * repetitions
+        workers = [
+            threading.Thread(target=consumer, args=(counter,))
+            for counter in counters
+        ]
+        with threading_helper.wait_threads_exit():
+            for worker in workers:
+                worker.start()
+            start.set()
+            for worker in workers:
+                worker.join()
+
+        self.assertEqual(
+            {next(counter) for counter in unique_counters},
+            {limit * repetitions},
+        )
+
+    def test_synchronized_preserves_wrapped_metadata(self):
+        def gen():
+            yield 1
+
+        wrapped = threading.synchronized_iterator(gen)
+
+        self.assertEqual(wrapped.__name__, gen.__name__)
+        self.assertIs(wrapped.__wrapped__, gen)
+        self.assertEqual(list(wrapped()), [1])
+
+    def test_concurrent_tee_supports_concurrent_consumers(self):
+        limit = 5_000
+        num_threads = 25
+        successes = 0
+        failures = []
+        result_lock = threading.Lock()
+        start = threading.Event()
+        expected = list(range(limit))
+
+        def producer(limit):
+            for x in range(limit):
+                yield x
+
+        def consumer(iterator):
+            nonlocal successes
+            start.wait()
+            items = list(iterator)
+            with result_lock:
+                if items == expected:
+                    successes += 1
+                else:
+                    failures.append(items[:20])
+
+        tees = threading.concurrent_tee(producer(limit), n=num_threads)
+        workers = [
+            threading.Thread(target=consumer, args=(iterator,))
+            for iterator in tees
+        ]
+        with threading_helper.wait_threads_exit():
+            for worker in workers:
+                worker.start()
+            start.set()
+            for worker in workers:
+                worker.join()
+
+        self.assertEqual(failures, [])
+        self.assertEqual(successes, len(tees))
+
+        # Verify that locks are shared
+        self.assertEqual(len({id(t_obj.lock) for t_obj in tees}), 1)
+
+    def test_concurrent_tee_zero_iterators(self):
+        self.assertEqual(threading.concurrent_tee(range(10), n=0), ())
+
+    def test_concurrent_tee_negative_n(self):
+        with self.assertRaises(ValueError):
+            threading.concurrent_tee(range(10), n=-1)
+
+
+#################
+
 
 
 class MiscTestCase(unittest.TestCase):
@@ -2485,6 +2833,7 @@ class AtexitTests(unittest.TestCase):
 
         self.assertFalse(err)
 
+    @force_not_colorized
     def test_atexit_after_shutdown(self):
         # The only way to do this is by registering an atexit within
         # an atexit, which is intended to raise an exception.

@@ -74,6 +74,9 @@ class OrderedDictTests:
         od.update(dict(pairs))
         self.assertEqual(sorted(od.items()), pairs)                                 # dict input
         od = OrderedDict()
+        od.update(frozendict(pairs))
+        self.assertEqual(sorted(od.items()), pairs)                                 # frozendict input
+        od = OrderedDict()
         od.update(**dict(pairs))
         self.assertEqual(sorted(od.items()), pairs)                                 # kwds input
         od = OrderedDict()
@@ -288,9 +291,11 @@ class OrderedDictTests:
         pairs = pairs[2:] + pairs[:2]
         od2 = OrderedDict(pairs)
         self.assertNotEqual(od1, od2)       # different order implies inequality
-        # comparison to regular dict is not order sensitive
+        # comparison to regular (frozen)dict is not order sensitive
         self.assertEqual(od1, dict(od2))
         self.assertEqual(dict(od2), od1)
+        self.assertEqual(od1, frozendict(od2))
+        self.assertEqual(frozendict(od1), od2)
         # different length implied inequality
         self.assertNotEqual(od1, OrderedDict(pairs[:-1]))
 
@@ -698,6 +703,7 @@ class OrderedDictTests:
         d |= list(b.items())
         expected = OrderedDict({0: 0, 1: 1, 2: 2, 3: 3})
         self.assertEqual(a | dict(b), expected)
+        self.assertEqual(a | frozendict(b), expected)
         self.assertEqual(a | b, expected)
         self.assertEqual(c, expected)
         self.assertEqual(d, expected)
@@ -706,12 +712,17 @@ class OrderedDictTests:
         c |= a
         expected = OrderedDict({1: 1, 2: 1, 3: 3, 0: 0})
         self.assertEqual(dict(b) | a, expected)
+        self.assertEqual(frozendict(b) | a, expected)
+        self.assertEqual(a.__ror__(frozendict(b)), expected)
         self.assertEqual(b | a, expected)
         self.assertEqual(c, expected)
 
         self.assertIs(type(a | b), OrderedDict)
         self.assertIs(type(dict(a) | b), OrderedDict)
+        self.assertIs(type(frozendict(a) | b), frozendict)
+        self.assertIs(type(b.__ror__(frozendict(a))), OrderedDict)
         self.assertIs(type(a | dict(b)), OrderedDict)
+        self.assertIs(type(a | frozendict(b)), OrderedDict)
 
         expected = a.copy()
         a |= ()

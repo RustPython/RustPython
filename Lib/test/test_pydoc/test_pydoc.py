@@ -581,7 +581,7 @@ class PydocDocTest(unittest.TestCase):
             # of the known subclasses of object. (doc.docclass() used to
             # fail if HeapType was imported before running this test, like
             # when running tests sequentially.)
-            from _testcapi import HeapType
+            from _testcapi import HeapType  # noqa: F401
         except ImportError:
             pass
         text = doc.docclass(object)
@@ -1009,6 +1009,8 @@ class PydocDocTest(unittest.TestCase):
         os = import_helper.import_fresh_module('os')
         expected = os.__doc__.splitlines()[0]
         filename = os.__spec__.cached
+        if not filename:
+            raise unittest.SkipTest('requires .pyc files')
         synopsis = pydoc.synopsis(filename)
 
         self.assertEqual(synopsis, expected)
@@ -1016,10 +1018,10 @@ class PydocDocTest(unittest.TestCase):
     def test_synopsis_sourceless_empty_doc(self):
         with os_helper.temp_cwd() as test_dir:
             init_path = os.path.join(test_dir, 'foomod42.py')
-            cached_path = importlib.util.cache_from_source(init_path)
+            cached_path = init_path + 'c'
             with open(init_path, 'w') as fobj:
                 fobj.write("foo = 1")
-            py_compile.compile(init_path)
+            py_compile.compile(init_path, cached_path)
             synopsis = pydoc.synopsis(init_path, {})
             self.assertIsNone(synopsis)
             synopsis_cached = pydoc.synopsis(cached_path, {})
@@ -1363,47 +1365,6 @@ class PydocImportTest(PydocBaseTest):
             finally:
                 sys.path[:] = saved_paths
 
-    @unittest.skip('causes undesirable side-effects (#20128)')
-    def test_modules(self):
-        # See Helper.listmodules().
-        num_header_lines = 2
-        num_module_lines_min = 5  # Playing it safe.
-        num_footer_lines = 3
-        expected = num_header_lines + num_module_lines_min + num_footer_lines
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        helper('modules')
-        result = output.getvalue().strip()
-        num_lines = len(result.splitlines())
-
-        self.assertGreaterEqual(num_lines, expected)
-
-    @unittest.skip('causes undesirable side-effects (#20128)')
-    def test_modules_search(self):
-        # See Helper.listmodules().
-        expected = 'pydoc - '
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        with captured_stdout() as help_io:
-            helper('modules pydoc')
-        result = help_io.getvalue()
-
-        self.assertIn(expected, result)
-
-    @unittest.skip('some buildbots are not cooperating (#20128)')
-    def test_modules_search_builtin(self):
-        expected = 'gc - '
-
-        output = StringIO()
-        helper = pydoc.Helper(output=output)
-        with captured_stdout() as help_io:
-            helper('modules garbage')
-        result = help_io.getvalue()
-
-        self.assertStartsWith(result, expected)
-
     def test_importfile(self):
         try:
             loaded_pydoc = pydoc.importfile(pydoc.__file__)
@@ -1483,7 +1444,7 @@ class TestDescriptions(unittest.TestCase):
             self.assertIn('NoReturn = typing.NoReturn', doc)
             self.assertIn(typing.NoReturn.__doc__.strip().splitlines()[0], doc)
         else:
-            self.assertIn('NoReturn = class _SpecialForm(_Final)', doc)
+            self.assertIn('NoReturn = class _SpecialForm(_Final, _NotIterable)', doc)
 
     def test_typing_pydoc(self):
         def foo(data: typing.List[typing.Any],
@@ -2215,7 +2176,7 @@ class TestHelper(unittest.TestCase):
 
     def test_keywords(self):
         self.assertEqual(sorted(pydoc.Helper.keywords),
-                         sorted(keyword.kwlist + ['case', 'match']))
+                         sorted(keyword.kwlist + ['case', 'match', 'lazy']))
 
     def test_interact_empty_line_continues(self):
         # gh-138568: test pressing Enter without input should continue in help session
@@ -2413,6 +2374,32 @@ class TestInternalUtilities(unittest.TestCase):
                 self.assertIsNone(self._get_revised_path(leading_argv0dir))
                 trailing_argv0dir = trailing_curdir + [self.argv0dir]
                 self.assertIsNone(self._get_revised_path(trailing_argv0dir))
+
+    def test__get_version(self):
+        import json
+        import warnings
+
+        class MyModule:
+            __name__ = 'my_module'
+
+            @property
+            def __version__(self):
+                warnings._deprecated("__version__", remove=(3, 20))
+                return "1.2.3"
+
+        module = MyModule()
+        doc = pydoc.Doc()
+        with warnings.catch_warnings(record=True) as w: # TODO: remove in 3.20
+            warnings.simplefilter("always")
+            version = doc._get_version(json)
+            self.assertEqual(version, "2.0.9")
+            self.assertEqual(len(w), 0)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            version = doc._get_version(module)
+            self.assertEqual(version, "1.2.3")
+            self.assertEqual(len(w), 1)
 
 
 def setUpModule():

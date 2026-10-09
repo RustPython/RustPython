@@ -100,14 +100,35 @@ impl WarningsState {
 
 /// None matches everything; plain strings do exact comparison;
 /// regex objects use .match().
-fn check_matched(obj: &PyObject, arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+fn check_matched(
+    obj: &PyObject,
+    arg: Option<&PyObject>,
+    filename: Option<&Py<PyStr>>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
     if vm.is_none(obj) {
         return Ok(true);
     }
     if obj.class().is(vm.ctx.types.str_type) {
-        return obj.rich_compare_bool(arg, crate::types::PyComparisonOp::Eq, vm);
+        return match arg {
+            Some(arg) => obj.rich_compare_bool(arg, crate::types::PyComparisonOp::Eq, vm),
+            None => Ok(false),
+        };
     }
-    let result = vm.call_method(obj, "match", (arg.to_owned(),))?;
+    let result = if let Some(arg) = arg {
+        vm.call_method(obj, "match", (arg.to_owned(),))?
+    } else {
+        let helper = vm
+            .import("_py_warnings", 0)?
+            .get_attr("_match_filename", vm)?;
+        helper.call(
+            (
+                obj.to_owned(),
+                filename.expect("filename for omitted module").to_owned(),
+            ),
+            vm,
+        )?
+    };
     result.is_true(vm)
 }
 
@@ -336,22 +357,14 @@ fn update_registry(
     already_warned(registry, &altkey, true, vm)
 }
 
-fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
-    match filename.byte_len() {
-        0 => vm.new_pyobj("<unknown>"),
-        len if len >= 3 && filename.as_bytes().ends_with(b".py") => {
-            vm.new_pyobj(&filename.as_wtf8()[..len - 3])
-        }
-        _ => filename.as_object().to_owned(),
-    }
-}
-
 /// Search a filters list for a matching action.
+#[allow(clippy::too_many_arguments)]
 fn filter_search(
     category: &PyObject,
     text: &PyObject,
     lineno: usize,
-    module: &PyObject,
+    module: Option<&PyObject>,
+    filename: &Py<PyStr>,
     filters: &PyListRef,
     list_name: &str,
     vm: &VirtualMachine,
@@ -378,9 +391,9 @@ fn filter_search(
                 action.class().name()
             )));
         }
-        let good_msg = check_matched(&tmp_item.as_slice()[1], text, vm)?;
+        let good_msg = check_matched(&tmp_item.as_slice()[1], Some(text), None, vm)?;
         let is_subclass = category.is_subclass(&tmp_item.as_slice()[2], vm)?;
-        let good_mod = check_matched(&tmp_item.as_slice()[3], module, vm)?;
+        let good_mod = check_matched(&tmp_item.as_slice()[3], module, Some(filename), vm)?;
         let ln: usize = tmp_item.as_slice()[4]
             .try_int(vm)
             .map_or(0, |v| v.as_u32_mask() as _);
@@ -397,7 +410,8 @@ fn get_filter(
     category: &PyObject,
     text: &PyObject,
     lineno: usize,
-    module: &PyObject,
+    module: Option<&PyObject>,
+    filename: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> PyResult {
     if let Some(context_filters) = get_warnings_context_filters(vm)? {
@@ -406,6 +420,7 @@ fn get_filter(
             text,
             lineno,
             module,
+            filename,
             &context_filters,
             "_warnings_context _filters",
             vm,
@@ -416,7 +431,9 @@ fn get_filter(
     }
 
     let filters = get_warnings_filters(vm)?;
-    if let Some(action) = filter_search(category, text, lineno, module, &filters, "filters", vm)? {
+    if let Some(action) = filter_search(
+        category, text, lineno, module, filename, &filters, "filters", vm,
+    )? {
         return Ok(action);
     }
     get_default_action(vm)
@@ -504,9 +521,9 @@ pub fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // Normalize module. None → silent return (late-shutdown safety).
-    let module = module.unwrap_or_else(|| normalize_module(&filename, vm));
-    if vm.is_none(&module) {
+    // Explicit None remains the late-shutdown sentinel. An omitted module
+    // selects the filename-pattern matching added in Python 3.15.
+    if module.as_ref().is_some_and(|module| vm.is_none(module)) {
         return Ok(());
     }
 
@@ -543,7 +560,14 @@ pub fn warn_explicit(
     }
 
     // Get filter action
-    let action = get_filter(category.as_object(), text.as_object(), lineno, &module, vm)?;
+    let action = get_filter(
+        category.as_object(),
+        text.as_object(),
+        lineno,
+        module.as_deref(),
+        &filename,
+        vm,
+    )?;
     let action_str = PyStrRef::try_from_object(vm, action)
         .map_err(|_| vm.new_type_error("action must be a string"))?;
 
@@ -603,6 +627,7 @@ pub fn warn_explicit(
         lineno_obj,
         source_line,
         source,
+        module,
         vm,
     )
 }
@@ -617,10 +642,10 @@ fn call_show_warning(
     lineno_obj: PyObjectRef,
     source_line: Option<PyObjectRef>,
     source: Option<PyObjectRef>,
+    module: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
-    else {
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), true)? else {
         show_warning(&filename, lineno, text, &category, source_line, vm);
         return Ok(());
     };
@@ -633,18 +658,19 @@ fn call_show_warning(
         return Err(vm.new_runtime_error("unable to get warnings.WarningMessage"));
     };
 
-    let msg = warnmsg_cls.call(
-        vec![
-            message,
-            category.into(),
-            filename.into(),
-            lineno_obj,
-            vm.ctx.none(),
-            vm.ctx.none(),
-            vm.unwrap_or_none(source),
-        ],
-        vm,
-    )?;
+    let mut args = vec![
+        message,
+        category.into(),
+        filename.into(),
+        lineno_obj,
+        vm.ctx.none(),
+        vm.ctx.none(),
+        vm.unwrap_or_none(source),
+    ];
+    if let Some(module) = module {
+        args.push(module);
+    }
+    let msg = warnmsg_cls.call(args, vm)?;
 
     show_fn.call((msg,), vm)?;
     Ok(())
@@ -745,15 +771,8 @@ fn setup_context(
             f.iframe().code().source_path(),
             f.lineno().max(0) as usize,
         )
-    } else if let Some(frame) = vm.current_frame() {
-        // We have a frame but it wasn't found during stack walking
-        (
-            frame.iframe().globals().to_owned(),
-            vm.ctx.intern_str("<sys>"),
-            1,
-        )
     } else {
-        // No frames on the stack - use sys.__dict__ (interp->sysdict)
+        // Stack traversal exhausted: use sys.__dict__ (interp->sysdict).
         let globals = vm
             .sys_module
             .as_object()
@@ -762,7 +781,7 @@ fn setup_context(
                 d.downcast::<crate::builtins::PyDict>()
                     .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
             })?;
-        (globals, vm.ctx.intern_str("<sys>"), 0)
+        (globals.into(), vm.ctx.intern_str("<sys>"), 0)
     };
 
     let registry = match globals.get_item("__warningregistry__", vm) {
@@ -777,6 +796,8 @@ fn setup_context(
     // Setup module.
     let module = globals
         .get_item("__name__", vm)
-        .unwrap_or_else(|_| vm.new_pyobj("<string>"));
+        .ok()
+        .filter(|module| vm.is_none(module) || module.downcastable::<PyStr>())
+        .unwrap_or_else(|| vm.new_pyobj("<string>"));
     Ok((filename.to_owned(), lineno, Some(module), registry))
 }

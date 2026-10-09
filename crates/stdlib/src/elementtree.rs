@@ -26,7 +26,7 @@ pub(crate) mod _elementtree {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
-        builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
+        builtins::{PyAnyDictRef, PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
         function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
@@ -356,14 +356,21 @@ pub(crate) mod _elementtree {
         let positional_attrib = args.args.get(extra_positional + 1).cloned();
         let attrib = match positional_attrib {
             Some(obj) => {
-                let dict = obj.downcast::<PyDict>().map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "{func_name}() argument {} must be dict, not {}",
-                        extra_positional + 2,
-                        obj.class().name()
-                    ))
-                })?;
-                let copied = dict.copy().into_ref(&vm.ctx);
+                let expected = if extra_positional == 0 {
+                    "dict or frozendict"
+                } else {
+                    "dict"
+                };
+                let dict = PyAnyDictRef::from_object(&obj)
+                    .filter(|_| extra_positional == 0 || obj.downcastable::<PyDict>())
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "{func_name}() argument {} must be {expected}, not {}",
+                            extra_positional + 2,
+                            obj.class().name()
+                        ))
+                    })?;
+                let copied = dict.copy_as_dict(vm)?.into_ref(&vm.ctx);
                 for (key, value) in args.kwargs.drain(..) {
                     copied.set_item(&key, value, vm)?;
                 }
@@ -373,13 +380,13 @@ pub(crate) mod _elementtree {
                 let popped = args.kwargs.shift_remove("attrib");
                 let copied = match popped {
                     Some(obj) => {
-                        let dict = obj.downcast::<PyDict>().map_err(|obj| {
+                        let dict = PyAnyDictRef::from_object(&obj).ok_or_else(|| {
                             vm.new_type_error(format!(
-                                "attrib must be dict, not {}",
+                                "attrib must be dict or frozendict, not {}",
                                 obj.class().name()
                             ))
                         })?;
-                        dict.copy().into_ref(&vm.ctx)
+                        dict.copy_as_dict(vm)?.into_ref(&vm.ctx)
                     }
                     None => vm.ctx.new_dict(),
                 };
@@ -578,7 +585,12 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn remove(zelf: &Py<Self>, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_element(&subelement, vm)?;
+            if !subelement.downcastable::<Self>() {
+                return Err(vm.new_type_error(format!(
+                    "remove() argument must be xml.etree.ElementTree.Element, not {}",
+                    subelement.class().name()
+                )));
+            }
             // Identity first, then equality, the way `element_remove` does;
             // the equality test can run arbitrary code, so the lock is
             // dropped for it and the list re-read afterwards.
@@ -603,7 +615,11 @@ pub(crate) mod _elementtree {
                 i += 1;
             }
             let Some(i) = found else {
-                return Err(vm.new_value_error("Element.remove(x): element not found"));
+                return Err(vm.new_value_error(format!(
+                    "{} not in {}",
+                    subelement.repr(vm)?,
+                    zelf.as_object().repr(vm)?
+                )));
             };
             let _recycle = {
                 let mut inner = zelf.inner.write();
@@ -2325,6 +2341,16 @@ pub(crate) mod _elementtree {
             uri: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            let prefix = if vm.is_none(&prefix) {
+                vm.ctx.new_str("").into()
+            } else {
+                prefix
+            };
+            let uri = if vm.is_none(&uri) {
+                vm.ctx.new_str("").into()
+            } else {
+                uri
+            };
             if let Some(builder) = zelf.native_target(vm) {
                 // The standard tree builder has no start_ns() of its own; it
                 // only forwards the event when one was asked for.
@@ -2348,6 +2374,11 @@ pub(crate) mod _elementtree {
             }
             let handler = zelf.state.read().handle_end_ns.clone();
             if let Some(handler) = handler {
+                let prefix = if vm.is_none(&prefix) {
+                    vm.ctx.new_str("").into()
+                } else {
+                    prefix
+                };
                 handler.call((prefix,), vm)?;
             }
             Ok(())

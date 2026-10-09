@@ -1,0 +1,2256 @@
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::str::FromStr;
+
+use bitflags::bitflags;
+use hashbrown::HashSet;
+use ruff_python_ast::name::Name;
+use ruff_python_ast::token::TokenKind;
+use ruff_python_ast::{
+    Alias, AtomicNodeIndex, ElifElseClause, Expr, Int, IpyEscapeKind, Keyword, Mod, ModExpression,
+    ModModule, ParameterWithDefault, Stmt, StringFlags,
+};
+use ruff_python_trivia::is_python_whitespace;
+use ruff_text_size::{Ranged, TextRange, TextSize};
+use rustc_hash::FxBuildHasher;
+use thin_vec::ThinVec;
+use unicode_normalization::UnicodeNormalization;
+
+use crate::error::{
+    InterpolatedStringErrorType, LexicalError, LexicalErrorType, UnsupportedSyntaxError,
+};
+use crate::lexer::Lexer;
+use crate::parser::expression::ExpressionContext;
+use crate::parser::progress::{ParserProgress, TokenId};
+use crate::parser::scratch_buffer::ScratchBuffer;
+use crate::string::InterpolatedStringKind;
+use crate::token_set::TokenSet;
+use crate::token_source::{TokenSource, TokenSourceCheckpoint};
+use crate::{Mode, ParseError, ParseErrorType, UnsupportedSyntaxErrorKind};
+use crate::{Parsed, Tokens};
+
+pub use crate::parser::options::ParseOptions;
+
+#[cfg(feature = "python315-diagnostics")]
+mod case_diagnostics;
+mod expression;
+mod helpers;
+mod options;
+mod pattern;
+mod progress;
+mod recovery;
+mod scratch_buffer;
+mod statement;
+#[cfg(test)]
+mod tests;
+
+#[derive(Debug, Default)]
+struct NameInterner {
+    names: HashSet<Name, FxBuildHasher>,
+}
+
+impl NameInterner {
+    /// Returns an inline name directly, or a shared clone of a heap-allocated name.
+    fn intern(&mut self, text: &str) -> Name {
+        if let Some(name) = Name::new_inline(text) {
+            return name;
+        }
+
+        self.names
+            .get_or_insert_with(text, |text| Name::new_heap(text))
+            .clone()
+    }
+}
+
+// Stack probes access thread-local state, so avoid them while recursive parser calls remain
+// shallow. `STACK_RED_ZONE` must cover the stack used before the first deferred probe.
+const STACK_RED_ZONE: usize = 100 * 1024;
+const STACK_SIZE: usize = 1024 * 1024;
+const MAX_UNCHECKED_RECURSION_DEPTH: usize = 20;
+
+#[derive(Debug)]
+pub(crate) struct Parser<'src> {
+    source: &'src str,
+
+    /// Token source for the parser that skips over any non-trivia token.
+    tokens: TokenSource<'src>,
+
+    /// Deduplicates the backing allocations for repeated names that do not fit inline.
+    name_interner: NameInterner,
+
+    /// Reusable storage for names that need to be constructed by the parser.
+    name_buffer: String,
+
+    /// Stores all the syntax errors found during the parsing.
+    errors: Vec<ParseError>,
+
+    /// Display-precedence errors that are valid generator operands, retained for
+    /// the invalid grammar fallback if the overall parse fails.
+    deferred_starred_generator_errors: Vec<(usize, ParseError)>,
+
+    /// Stores non-fatal syntax errors found during parsing, such as version-related errors.
+    unsupported_syntax_errors: Vec<UnsupportedSyntaxError>,
+
+    /// Options for how the code will be parsed.
+    options: ParseOptions,
+
+    /// The ID of the current token. This is used to track the progress of the parser
+    /// to avoid infinite loops when the parser is stuck.
+    current_token_id: TokenId,
+
+    /// The end of the previous token processed. This is used to determine a node's end.
+    prev_token_end: TextSize,
+
+    /// The recovery context in which the parser is currently in.
+    recovery_context: RecoveryContext,
+
+    /// The start offset in the source code from which to start parsing at.
+    start_offset: TextSize,
+
+    /// The start of the token at which the parser first recovered from an unclosed bracket, if
+    /// that happened before any error was found. The error itself is reported at the end of the
+    /// bracket's logical line.
+    first_unclosed_bracket_recovery: Option<TextSize>,
+
+    /// The first escape sequence error in a literal part of the f-string or t-string being
+    /// parsed. It is reported at the closing quote once the string ends.
+    interpolated_string_escape_error: Option<LexicalErrorType>,
+
+    /// The kind of the innermost f-string or t-string whose replacement field expression is
+    /// being parsed, and the bracket level inside its brace, where a `:` starts the format spec.
+    replacement_field: Option<(InterpolatedStringKind, usize)>,
+
+    /// Number of active recursive statement, expression, and pattern parsing operations.
+    recursion_depth: usize,
+
+    /// Reusable, nesting-safe scratch storage for expression lists.
+    expr_scratch: ScratchBuffer<Expr>,
+
+    /// Reusable, nesting-safe scratch storage for call keywords.
+    keyword_scratch: ScratchBuffer<Keyword>,
+
+    /// Reusable, nesting-safe scratch storage for function and lambda parameters.
+    parameter_scratch: ScratchBuffer<ParameterWithDefault>,
+
+    /// Reusable, nesting-safe scratch storage for statement lists.
+    stmt_scratch: ScratchBuffer<Stmt>,
+
+    /// Reusable scratch storage for import aliases.
+    alias_scratch: ScratchBuffer<Alias>,
+
+    /// Reusable, nesting-safe scratch storage for `elif` and `else` clauses.
+    elif_else_scratch: ScratchBuffer<ElifElseClause>,
+}
+
+/// A bracket that encloses part of an expression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bracket {
+    /// The arguments of a call or the slices of a subscript.
+    CallOrSubscript,
+    /// A parenthesized expression, list, set or dictionary.
+    Display,
+}
+
+impl<'src> Parser<'src> {
+    /// Create a new parser for the given source code.
+    pub(crate) fn new(source: &'src str, options: ParseOptions) -> Self {
+        Parser::new_starts_at(source, TextSize::new(0), options)
+    }
+
+    /// Create a new parser for the given source code which starts parsing at the given offset.
+    pub(crate) fn new_starts_at(
+        source: &'src str,
+        start_offset: TextSize,
+        options: ParseOptions,
+    ) -> Self {
+        let tokens = TokenSource::from_source(source, options.mode, start_offset);
+
+        Parser {
+            options,
+            source,
+            errors: Vec::new(),
+            deferred_starred_generator_errors: Vec::new(),
+            unsupported_syntax_errors: Vec::new(),
+            tokens,
+            name_interner: NameInterner::default(),
+            name_buffer: String::new(),
+            recovery_context: RecoveryContext::empty(),
+            prev_token_end: TextSize::new(0),
+            start_offset,
+            first_unclosed_bracket_recovery: None,
+            interpolated_string_escape_error: None,
+            replacement_field: None,
+            recursion_depth: 0,
+            current_token_id: TokenId::default(),
+            expr_scratch: ScratchBuffer::with_capacity(16),
+            keyword_scratch: ScratchBuffer::new(),
+            parameter_scratch: ScratchBuffer::new(),
+            stmt_scratch: ScratchBuffer::with_capacity(32),
+            alias_scratch: ScratchBuffer::new(),
+            elif_else_scratch: ScratchBuffer::new(),
+        }
+    }
+
+    /// Grows the stack for recursive parser calls only after shallow nesting is exceeded.
+    #[inline]
+    fn with_recursion<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.recursion_depth += 1;
+
+        let result = if self.recursion_depth > MAX_UNCHECKED_RECURSION_DEPTH {
+            self.grow_stack(f)
+        } else {
+            f(self)
+        };
+
+        self.recursion_depth -= 1;
+        result
+    }
+
+    #[cold]
+    fn grow_stack<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        stacker::maybe_grow(STACK_RED_ZONE, STACK_SIZE, || f(self))
+    }
+
+    /// Consumes the [`Parser`] and returns the parsed [`Parsed`].
+    pub(crate) fn parse(mut self) -> Parsed<Mod> {
+        let syntax = stacker::maybe_grow(STACK_RED_ZONE, STACK_SIZE, || match self.options.mode {
+            Mode::Expression | Mode::ParenthesizedExpression => {
+                Mod::Expression(self.parse_single_expression())
+            }
+            Mode::Module | Mode::Ipython => Mod::Module(self.parse_module()),
+        });
+
+        self.finish(syntax)
+    }
+
+    /// Parses a single expression.
+    ///
+    /// This is to be used for [`Mode::Expression`].
+    ///
+    /// ## Recovery
+    ///
+    /// After parsing a single expression, an error is reported and all remaining tokens are
+    /// dropped by the parser.
+    fn parse_single_expression(&mut self) -> ModExpression {
+        let start = self.node_start();
+        let parsed_expr = self.parse_expression_list(ExpressionContext::default());
+
+        // All remaining newlines are actually going to be non-logical newlines.
+        self.eat(TokenKind::Newline);
+
+        if !self.at(TokenKind::EndOfFile) {
+            self.add_error(
+                ParseErrorType::UnexpectedExpressionToken,
+                self.current_token_range(),
+            );
+
+            // TODO(dhruvmanila): How should error recovery work here? Just truncate after the expression?
+            let mut progress = ParserProgress::default();
+            loop {
+                progress.assert_progressing(self);
+                if self.at(TokenKind::EndOfFile) {
+                    break;
+                }
+                self.bump_any();
+            }
+        }
+
+        self.bump(TokenKind::EndOfFile);
+
+        ModExpression {
+            body: Box::new(parsed_expr.expr),
+            range: self.node_range(start),
+            node_index: AtomicNodeIndex::NONE,
+        }
+    }
+
+    /// Parses a Python module.
+    ///
+    /// This is to be used for [`Mode::Module`] and [`Mode::Ipython`].
+    fn parse_module(&mut self) -> ModModule {
+        let body = self.parse_list_into_thin_vec(RecoveryContextKind::ModuleStatements, |p| {
+            p.parse_statement()
+        });
+
+        self.bump(TokenKind::EndOfFile);
+
+        ModModule {
+            body,
+            range: TextRange::new(self.start_offset, self.current_token_range().end()),
+            node_index: AtomicNodeIndex::NONE,
+            runtime_body: None,
+        }
+    }
+
+    fn finish(self, syntax: Mod) -> Parsed<Mod> {
+        assert_eq!(
+            self.current_token_kind(),
+            TokenKind::EndOfFile,
+            "Parser should be at the end of the file."
+        );
+        // TODO consider re-integrating lexical error handling into the parser?
+        let mut parse_errors = self.errors;
+        if !parse_errors.is_empty()
+            && let Some((0, error)) = self.deferred_starred_generator_errors.into_iter().next()
+        {
+            // CPython retries its invalid grammar rules only after a parse failure.
+            // Preserve encounter order, including nested operands whose ranges begin
+            // after the outer expression's later error. Semantic errors occur later.
+            parse_errors.insert(0, error);
+        }
+        let (tokens, lex_errors) = self.tokens.finish();
+
+        // Fast path for when there are no lex errors.
+        // There's no fast path for when there are no parse errors because a lex error
+        // always results in a parse error.
+        if lex_errors.is_empty() {
+            prioritize_tokenizer_error(
+                &mut parse_errors,
+                self.source,
+                self.options.mode,
+                self.start_offset,
+                self.first_unclosed_bracket_recovery,
+            );
+            return Parsed {
+                syntax,
+                tokens: Tokens::new(tokens),
+                errors: parse_errors,
+                unsupported_syntax_errors: self.unsupported_syntax_errors,
+            };
+        }
+
+        let mut merged = Vec::with_capacity(parse_errors.len().saturating_add(lex_errors.len()));
+
+        let mut parse_errors = parse_errors.into_iter().peekable();
+        let mut lex_errors = lex_errors.into_iter().peekable();
+
+        while let (Some(parse_error), Some(lex_error)) = (parse_errors.peek(), lex_errors.peek()) {
+            match parse_error
+                .location
+                .start()
+                .cmp(&lex_error.location().start())
+            {
+                Ordering::Less => merged.push(parse_errors.next().unwrap()),
+                // A replacement field error at a token the tokenizer accepts replaces the lex
+                // error of that token.
+                Ordering::Equal
+                    if matches!(
+                        parse_error.error,
+                        ParseErrorType::FStringError(_) | ParseErrorType::TStringError(_)
+                    ) && !lex_error.error().is_tokenizer_error() =>
+                {
+                    lex_errors.next().unwrap();
+                    merged.push(parse_errors.next().unwrap());
+                }
+                Ordering::Equal => {
+                    // Skip the parse error if we already have a lex error at the same location..
+                    parse_errors.next().unwrap();
+                    merged.push(lex_errors.next().unwrap().into());
+                }
+                Ordering::Greater => merged.push(lex_errors.next().unwrap().into()),
+            }
+        }
+
+        merged.extend(parse_errors);
+        merged.extend(lex_errors.map(ParseError::from));
+        prioritize_tokenizer_error(
+            &mut merged,
+            self.source,
+            self.options.mode,
+            self.start_offset,
+            self.first_unclosed_bracket_recovery,
+        );
+
+        Parsed {
+            syntax,
+            tokens: Tokens::new(tokens),
+            errors: merged,
+            unsupported_syntax_errors: self.unsupported_syntax_errors,
+        }
+    }
+
+    /// Returns the start position for a node that starts at the current token.
+    fn node_start(&self) -> TextSize {
+        self.current_token_range().start()
+    }
+
+    /// Returns the 1-based line number of `offset` in the source.
+    ///
+    /// `\n`, `\r\n`, and a lone `\r` each count as one line break.
+    pub(super) fn line_number(&self, offset: TextSize) -> u32 {
+        line_number(self.source, offset)
+    }
+
+    /// Returns `true` if the already parsed expression at `range` is enclosed in parentheses of
+    /// its own.
+    fn is_parenthesized(&self, range: TextRange) -> bool {
+        self.enclosing_parentheses(range).is_some()
+    }
+
+    /// Returns the end of the already parsed expression at `range`, including the parentheses
+    /// that enclose only it.
+    fn parenthesized_end(&self, mut range: TextRange) -> TextSize {
+        while let Some(parenthesized) = self.enclosing_parentheses(range) {
+            range = parenthesized;
+        }
+        range.end()
+    }
+
+    /// Returns the range from the `(` directly before `range` to the `)` directly after it, if
+    /// both exist.
+    fn enclosing_parentheses(&self, range: TextRange) -> Option<TextRange> {
+        let tokens = self.tokens.bumped();
+        let before = tokens[..tokens.partition_point(|token| token.start() < range.start())]
+            .iter()
+            .rev()
+            .find(|token| !token.kind().is_trivia())
+            .filter(|token| token.kind() == TokenKind::Lpar)?;
+        let (after_kind, after_range) = self.token_after(range.end());
+        (after_kind == TokenKind::Rpar).then(|| TextRange::new(before.start(), after_range.end()))
+    }
+
+    /// Returns the kind and range of the last non-trivia token that starts before `offset`.
+    fn token_before(&self, offset: TextSize) -> Option<(TokenKind, TextRange)> {
+        let tokens = self.tokens.bumped();
+        tokens[..tokens.partition_point(|token| token.start() < offset)]
+            .iter()
+            .rev()
+            .find(|token| !token.kind().is_trivia())
+            .map(|token| (token.kind(), token.range()))
+    }
+
+    /// Returns how many brackets enclose the tokens bumped so far.
+    fn bracket_level(&self) -> usize {
+        let mut level = 0usize;
+        for token in self.tokens.bumped() {
+            match token.kind() {
+                TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => level += 1,
+                TokenKind::Rpar | TokenKind::Rsqb | TokenKind::Rbrace => {
+                    level = level.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        level
+    }
+
+    /// Returns the innermost bracket enclosing the tokens bumped so far, or `None` if there is
+    /// none or it starts an f-string or t-string replacement field.
+    fn innermost_bracket(&self) -> Option<Bracket> {
+        #[derive(PartialEq)]
+        enum Opener {
+            Bracket(Bracket),
+            InterpolatedString,
+            ReplacementField,
+        }
+        let mut openers = Vec::new();
+        let mut previous = TokenKind::Unknown;
+        for token in self.tokens.bumped() {
+            if token.kind().is_trivia() {
+                continue;
+            }
+            match token.kind() {
+                TokenKind::FStringStart | TokenKind::TStringStart => {
+                    openers.push(Opener::InterpolatedString);
+                }
+                TokenKind::Lbrace if openers.last() == Some(&Opener::InterpolatedString) => {
+                    openers.push(Opener::ReplacementField);
+                }
+                TokenKind::Lpar | TokenKind::Lsqb
+                    if matches!(
+                        previous,
+                        TokenKind::Identifier
+                            | TokenKind::String
+                            | TokenKind::FStringEnd
+                            | TokenKind::TStringEnd
+                            | TokenKind::Rpar
+                            | TokenKind::Rsqb
+                            | TokenKind::Rbrace
+                    ) || previous.is_soft_keyword() =>
+                {
+                    openers.push(Opener::Bracket(Bracket::CallOrSubscript));
+                }
+                TokenKind::Lpar | TokenKind::Lsqb | TokenKind::Lbrace => {
+                    openers.push(Opener::Bracket(Bracket::Display));
+                }
+                TokenKind::Rpar
+                | TokenKind::Rsqb
+                | TokenKind::Rbrace
+                | TokenKind::FStringEnd
+                | TokenKind::TStringEnd => {
+                    openers.pop();
+                }
+                _ => {}
+            }
+            previous = token.kind();
+        }
+        match openers.pop() {
+            Some(Opener::Bracket(bracket)) => Some(bracket),
+            _ => None,
+        }
+    }
+
+    /// Returns the kind of the first non-trivia token that starts at or after `offset`.
+    fn token_kind_after(&self, offset: TextSize) -> TokenKind {
+        self.token_after(offset).0
+    }
+
+    /// Returns the kind and range of the first non-trivia token that starts at or after
+    /// `offset`.
+    fn token_after(&self, offset: TextSize) -> (TokenKind, TextRange) {
+        let tokens = self.tokens.bumped();
+        tokens[tokens.partition_point(|token| token.start() < offset)..]
+            .iter()
+            .find(|token| !token.kind().is_trivia())
+            .map_or_else(
+                || (self.current_token_kind(), self.current_token_range()),
+                |token| (token.kind(), token.range()),
+            )
+    }
+
+    fn node_range(&self, start: TextSize) -> TextRange {
+        // It's possible during error recovery that the parsing didn't consume any tokens. In that
+        // case, `last_token_end` still points to the end of the previous token but `start` is the
+        // start of the current token. Calling `TextRange::new(start, self.last_token_end)` would
+        // panic in that case because `start > end`. This path "detects" this case and creates an
+        // empty range instead.
+        //
+        // The reason it's `<=` instead of just `==` is because there could be whitespaces between
+        // the two tokens. For example:
+        //
+        // ```python
+        // #     last token end
+        // #     | current token (newline) start
+        // #     v v
+        // def foo \n
+        // #      ^
+        // #      assume there's trailing whitespace here
+        // ```
+        //
+        // Or, there could tokens that are considered "trivia" and thus aren't emitted by the token
+        // source. These are comments and non-logical newlines. For example:
+        //
+        // ```python
+        // #     last token end
+        // #     v
+        // def foo # comment\n
+        // #                ^ current token (newline) start
+        // ```
+        //
+        // In either of the above cases, there's a "gap" between the end of the last token and start
+        // of the current token.
+        if self.prev_token_end <= start {
+            // We need to create an empty range at the last token end instead of the start because
+            // otherwise this node range will fall outside the range of it's parent node. Taking
+            // the above example:
+            //
+            // ```python
+            // if True:
+            // #   function start
+            // #   |     function end
+            // #   v     v
+            //     def foo # comment
+            // #                    ^ current token start
+            // ```
+            //
+            // Here, the current token start is the start of parameter range but the function ends
+            // at `foo`. Even if there's a function body, the range of parameters would still be
+            // before the comment.
+
+            // test_err node_range_with_gaps
+            // def foo # comment
+            // def bar(): ...
+            // def baz
+            TextRange::empty(self.prev_token_end)
+        } else {
+            TextRange::new(start, self.prev_token_end)
+        }
+    }
+
+    fn missing_node_range(&self) -> TextRange {
+        // TODO(dhruvmanila): This range depends on whether the missing node is
+        // on the leftmost or the rightmost of the expression. It's incorrect for
+        // the leftmost missing node because the range is outside the expression
+        // range. For example,
+        //
+        // ```python
+        // value = ** y
+        // #       ^^^^ expression range
+        // #      ^ last token end
+        // ```
+        TextRange::empty(self.prev_token_end)
+    }
+
+    /// Moves the parser to the next token.
+    fn do_bump(&mut self, kind: TokenKind) {
+        if match self.current_token_kind() {
+            // TODO explore including everything up to the dedent as part of the body.
+            TokenKind::Dedent => false,
+
+            // Don't include newlines in the body
+            TokenKind::Newline => false,
+
+            // TODO(micha): Including the semi feels more correct but it isn't compatible with lalrpop and breaks the
+            // formatters semicolon detection. Exclude it for now
+            TokenKind::Semi => false,
+
+            _ => true,
+        } {
+            self.prev_token_end = self.current_token_range().end();
+        }
+
+        self.tokens.bump(kind);
+        self.current_token_id.increment();
+    }
+
+    /// Returns the next token kind without consuming it.
+    fn peek(&mut self) -> TokenKind {
+        self.tokens.peek()
+    }
+
+    /// Returns the next two token kinds without consuming it.
+    fn peek2(&mut self) -> (TokenKind, TokenKind) {
+        self.tokens.peek2()
+    }
+
+    /// Returns the current token kind.
+    #[inline]
+    fn current_token_kind(&self) -> TokenKind {
+        self.tokens.current_kind()
+    }
+
+    /// Returns the range of the current token.
+    #[inline]
+    fn current_token_range(&self) -> TextRange {
+        self.tokens.current_range()
+    }
+
+    /// Returns the current token ID.
+    #[inline]
+    fn current_token_id(&self) -> TokenId {
+        self.current_token_id
+    }
+
+    /// Bumps the current token assuming it is of the given kind.
+    ///
+    /// # Panics
+    ///
+    /// If the current token is not of the given kind.
+    fn bump(&mut self, kind: TokenKind) {
+        assert_eq!(self.current_token_kind(), kind);
+
+        self.do_bump(kind);
+    }
+
+    fn bump_identifier(&mut self) -> Name {
+        let text = self.current_token_text();
+        let name = if !self.tokens.current_flags().is_non_ascii_identifier() {
+            self.intern_name(text)
+        } else {
+            self.intern_normalized_name(text)
+        };
+        self.bump(TokenKind::Identifier);
+        name
+    }
+
+    fn intern_name(&mut self, text: &str) -> Name {
+        self.name_interner.intern(text)
+    }
+
+    fn intern_normalized_name(&mut self, text: &str) -> Name {
+        let snapshot = self.name_buffer.len();
+        self.name_buffer.extend(text.nfkc());
+
+        let name = self.name_interner.intern(&self.name_buffer[snapshot..]);
+
+        self.name_buffer.truncate(snapshot);
+        name
+    }
+
+    fn bump_int(&mut self) -> Int {
+        let text = self.current_token_text();
+        let value = if let Some(digits) =
+            text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
+        {
+            Int::from_str_radix(&strip_underscores(digits), 16, text)
+        } else if let Some(digits) = text.strip_prefix("0o").or_else(|| text.strip_prefix("0O")) {
+            Int::from_str_radix(&strip_underscores(digits), 8, text)
+        } else if let Some(digits) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
+            Int::from_str_radix(&strip_underscores(digits), 2, text)
+        } else {
+            Int::from_str(&strip_underscores(text))
+        }
+        .expect("lexer validated integer literal");
+        self.bump(TokenKind::Int);
+        value
+    }
+
+    fn bump_float(&mut self) -> f64 {
+        let value = f64::from_str(&strip_underscores(self.current_token_text()))
+            .expect("lexer validated float literal");
+        self.bump(TokenKind::Float);
+        value
+    }
+
+    fn bump_complex(&mut self) -> (f64, f64) {
+        let text = self.current_token_text();
+        let value = f64::from_str(&strip_underscores(&text[..text.len() - 1]))
+            .expect("lexer validated complex literal");
+        self.bump(TokenKind::Complex);
+        (0.0, value)
+    }
+
+    fn bump_string_value(&mut self) -> &'src str {
+        let range = self.current_token_range();
+        let flags = self.tokens.current_flags().as_any_string_flags();
+        let value_range = TextRange::new(
+            range.start() + flags.opener_len(),
+            range.end() - flags.closer_len(),
+        );
+        let value = &self.source[value_range];
+        self.bump(TokenKind::String);
+        value
+    }
+
+    fn bump_ipython_escape_command(
+        &mut self,
+        context: IpyEscapeContext,
+    ) -> (Box<str>, IpyEscapeKind) {
+        let (value, kind) = self.parse_ipython_escape_command_value(context);
+        self.bump(TokenKind::IpyEscapeCommand);
+        (value, kind)
+    }
+
+    fn current_token_text(&self) -> &'src str {
+        self.src_text(self.current_token_range())
+    }
+
+    fn parse_ipython_escape_command_value(
+        &self,
+        context: IpyEscapeContext,
+    ) -> (Box<str>, IpyEscapeKind) {
+        let raw = self.current_token_text();
+        let initial_kind = if context.is_logical_line_start()
+            && let Ok(kind) = IpyEscapeKind::try_from([
+                raw.as_bytes()[0] as char,
+                raw[1..].chars().next().unwrap_or('\0'),
+            ]) {
+            kind
+        } else {
+            IpyEscapeKind::try_from(raw.as_bytes()[0] as char).expect("IPython escape token")
+        };
+
+        let mut value = String::new();
+        let mut chars = raw[initial_kind.as_str().len()..].chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' if matches!(chars.peek(), Some('\r' | '\n')) => {
+                    if chars.next() == Some('\r') && matches!(chars.peek(), Some('\n')) {
+                        chars.next();
+                    }
+                }
+                '?' => {
+                    let mut question_count = 1;
+                    while matches!(chars.peek(), Some('?')) {
+                        chars.next();
+                        question_count += 1;
+                    }
+
+                    // At logical-line start, IPython treats one or two terminal `?` after a
+                    // nonempty help or magic command as the command kind. Strict `foo?` syntax
+                    // is parsed separately.
+                    // https://github.com/ipython/ipython/blob/292e3a23459ca965b8c1bfe2c3707044c510209a/IPython/core/inputtransformer2.py#L454-L462
+                    if !context.is_logical_line_start()
+                        || !(initial_kind.is_magic() || initial_kind.is_help())
+                        || question_count > 2
+                        || value.chars().last().is_none_or(is_python_whitespace)
+                        || !matches!(chars.peek(), None | Some('\n' | '\r'))
+                    {
+                        value.extend(std::iter::repeat_n('?', question_count));
+                        continue;
+                    }
+
+                    let kind = if question_count == 1 {
+                        IpyEscapeKind::Help
+                    } else {
+                        IpyEscapeKind::Help2
+                    };
+
+                    // A help suffix replaces a leading help prefix, but takes precedence over a
+                    // magic prefix, which remains part of the value (`%foo?` becomes help for
+                    // `%foo`).
+                    if initial_kind.is_help() {
+                        value = value.trim_start_matches([' ', '?']).to_string();
+                    } else {
+                        value.insert_str(0, initial_kind.as_str());
+                    }
+
+                    return (value.into_boxed_str(), kind);
+                }
+                '\n' | '\r' => break,
+                c => value.push(c),
+            }
+        }
+
+        (value.into_boxed_str(), initial_kind)
+    }
+
+    /// Bumps the current token assuming it is found in the given token set.
+    ///
+    /// # Panics
+    ///
+    /// If the current token is not found in the given token set.
+    fn bump_ts(&mut self, ts: TokenSet) {
+        let kind = self.current_token_kind();
+        assert!(ts.contains(kind));
+
+        self.do_bump(kind);
+    }
+
+    /// Bumps the current token regardless of its kind and advances to the next token.
+    ///
+    /// # Panics
+    ///
+    /// If the parser is at end of file.
+    fn bump_any(&mut self) {
+        let kind = self.current_token_kind();
+        assert_ne!(kind, TokenKind::EndOfFile);
+
+        self.do_bump(kind);
+    }
+
+    /// Bumps the soft keyword token as an `Identifier` token.
+    ///
+    /// # Panics
+    ///
+    /// If the current token is not a soft keyword.
+    fn bump_soft_keyword_as_identifier(&mut self) {
+        assert!(self.at_soft_keyword());
+
+        self.do_bump(TokenKind::Identifier);
+    }
+
+    /// Consume the current token if it is of the given kind. Returns `true` if it matches, `false`
+    /// otherwise.
+    fn eat(&mut self, kind: TokenKind) -> bool {
+        if self.at(kind) {
+            self.do_bump(kind);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Eat the current token if its of the expected kind, otherwise adds an appropriate error.
+    fn expect(&mut self, expected: TokenKind) -> bool {
+        if self.eat(expected) {
+            return true;
+        }
+
+        self.add_error(
+            ParseErrorType::ExpectedToken {
+                found: self.current_token_kind(),
+                expected,
+            },
+            self.current_token_range(),
+        );
+
+        false
+    }
+
+    /// Re-lexes the current token in the context of a logical line to recover from an unclosed
+    /// bracket.
+    fn re_lex_logical_token(&mut self) {
+        if self.errors.is_empty() && self.first_unclosed_bracket_recovery.is_none() {
+            self.first_unclosed_bracket_recovery = Some(self.current_token_range().start());
+        }
+        self.tokens.re_lex_logical_token();
+    }
+
+    fn add_error<T>(&mut self, error: ParseErrorType, ranged: T)
+    where
+        T: Ranged,
+    {
+        fn inner(errors: &mut Vec<ParseError>, error: ParseErrorType, range: TextRange) {
+            // Avoid flagging multiple errors at the same location
+            let is_same_location = errors
+                .last()
+                .is_some_and(|last| last.location.start() == range.start());
+
+            if !is_same_location {
+                errors.push(ParseError {
+                    location: reported_range(&error, range),
+                    error,
+                });
+            }
+        }
+
+        fn reported_range(error: &ParseErrorType, range: TextRange) -> TextRange {
+            match error {
+                // A misplaced starred expression or star pattern is reported at its `*`.
+                ParseErrorType::InvalidStarredExpressionUsage
+                | ParseErrorType::InvalidStarPatternUsage => {
+                    TextRange::at(range.start(), TextSize::new(1))
+                }
+                // An unexpected indent is reported at the last character of the indentation.
+                ParseErrorType::UnexpectedIndentation if !range.is_empty() => {
+                    TextRange::at(range.end() - TextSize::new(1), TextSize::new(1))
+                }
+                _ => range,
+            }
+        }
+
+        // The lexer already reported an error for the current token, which comes first. A
+        // string literal that fails to decode was read before it.
+        if self.at(TokenKind::Unknown) && !matches!(error, ParseErrorType::Lexical(_)) {
+            return;
+        }
+
+        inner(&mut self.errors, error, ranged.range());
+    }
+
+    /// Add an [`UnsupportedSyntaxError`] with the given [`UnsupportedSyntaxErrorKind`] and
+    /// [`TextRange`] if its minimum version is less than [`Parser::target_version`].
+    fn add_unsupported_syntax_error(&mut self, kind: UnsupportedSyntaxErrorKind, range: TextRange) {
+        if kind.is_unsupported(self.options.target_version) {
+            self.unsupported_syntax_errors.push(UnsupportedSyntaxError {
+                kind,
+                range,
+                target_version: self.options.target_version,
+            });
+        }
+    }
+
+    /// Returns `true` if the current token is of the given kind.
+    fn at(&self, kind: TokenKind) -> bool {
+        self.current_token_kind() == kind
+    }
+
+    /// Returns `true` if the current token is found in the given token set.
+    fn at_ts(&self, ts: TokenSet) -> bool {
+        ts.contains(self.current_token_kind())
+    }
+
+    fn src_text<T>(&self, ranged: T) -> &'src str
+    where
+        T: Ranged,
+    {
+        &self.source[ranged.range()]
+    }
+
+    /// Parses a list of elements into a thin vector where each element is parsed using
+    /// the given `parse_element` function.
+    fn parse_list_into_thin_vec<T>(
+        &mut self,
+        recovery_context_kind: RecoveryContextKind,
+        parse_element: impl Fn(&mut Parser<'src>) -> T,
+    ) -> ThinVec<T> {
+        let mut elements = ThinVec::new();
+        self.parse_list(recovery_context_kind, |p| elements.push(parse_element(p)));
+        elements.shrink_to_fit();
+        elements
+    }
+
+    /// Parses a list of elements where each element is parsed using the given
+    /// `parse_element` function.
+    fn parse_list(
+        &mut self,
+        recovery_context_kind: RecoveryContextKind,
+        mut parse_element: impl FnMut(&mut Parser<'src>),
+    ) {
+        let mut progress = ParserProgress::default();
+        let mut unexpected_indents = 0;
+
+        let saved_context = self.recovery_context;
+        self.recovery_context = self
+            .recovery_context
+            .union(RecoveryContext::from_kind(recovery_context_kind));
+
+        loop {
+            progress.assert_progressing(self);
+
+            if 0 < unexpected_indents && self.at(TokenKind::Dedent) {
+                // Ignore this `Dedent` like we ignored the `Indent`, avoiding extra errors from
+                // being imbalanced
+                unexpected_indents -= 1;
+                self.bump(TokenKind::Dedent);
+            } else if recovery_context_kind.is_list_element(self) {
+                parse_element(self);
+            } else if recovery_context_kind.is_regular_list_terminator(self) {
+                break;
+            } else {
+                // Run the error recovery: If the token is recognised as an element or terminator
+                // of an enclosing list, then we try to re-lex in the context of a logical line and
+                // break out of list parsing.
+                if self.is_enclosing_list_element_or_terminator() {
+                    self.re_lex_logical_token();
+                    break;
+                }
+
+                self.add_error(
+                    recovery_context_kind.create_error(self),
+                    self.current_token_range(),
+                );
+
+                if matches!(
+                    recovery_context_kind,
+                    RecoveryContextKind::ModuleStatements | RecoveryContextKind::BlockStatements
+                ) && self.at(TokenKind::Indent)
+                {
+                    // For this invalid `Indent`, ensure the matching `Dedent` gets consumed as well
+                    unexpected_indents += 1;
+                }
+                self.bump_any();
+            }
+        }
+
+        self.recovery_context = saved_context;
+    }
+
+    /// Parses a comma separated list of elements into a vector where each element
+    /// is parsed using the given `parse_element` function.
+    fn parse_comma_separated_list_into_vec<T>(
+        &mut self,
+        recovery_context_kind: RecoveryContextKind,
+        parse_element: impl Fn(&mut Parser<'src>) -> T,
+    ) -> Vec<T> {
+        self.parse_comma_separated_list_into_vec_with_capacity(
+            recovery_context_kind,
+            parse_element,
+            0,
+        )
+    }
+
+    /// Parses a comma separated list of elements into a vector with an initial capacity.
+    fn parse_comma_separated_list_into_vec_with_capacity<T>(
+        &mut self,
+        recovery_context_kind: RecoveryContextKind,
+        parse_element: impl Fn(&mut Parser<'src>) -> T,
+        capacity: usize,
+    ) -> Vec<T> {
+        let mut elements = Vec::with_capacity(capacity);
+        self.parse_comma_separated_list(recovery_context_kind, |p| elements.push(parse_element(p)));
+        elements
+    }
+
+    /// Parses a comma separated list of elements where each element is parsed
+    /// using the given `parse_element` function.
+    ///
+    /// The difference between this function and `parse_comma_separated_list_into_vec`
+    /// is that this function does not return the parsed elements. Instead, it is the
+    /// caller's responsibility to handle the parsed elements. This is the reason
+    /// that the `parse_element` parameter is bound to [`FnMut`] instead of [`Fn`].
+    ///
+    /// Returns `true` if there is a trailing comma present.
+    fn parse_comma_separated_list(
+        &mut self,
+        recovery_context_kind: RecoveryContextKind,
+        mut parse_element: impl FnMut(&mut Parser<'src>),
+    ) -> bool {
+        let mut progress = ParserProgress::default();
+
+        let saved_context = self.recovery_context;
+        self.recovery_context = self
+            .recovery_context
+            .union(RecoveryContext::from_kind(recovery_context_kind));
+
+        let mut first_element = true;
+        let mut trailing_comma_range: Option<TextRange> = None;
+
+        loop {
+            progress.assert_progressing(self);
+
+            if recovery_context_kind.is_list_element(self) {
+                parse_element(self);
+
+                // Only unset this when we've completely parsed a single element. This is mainly to
+                // raise the correct error in case the first element isn't valid and the current
+                // token isn't a comma. Without this knowledge, the parser would later expect a
+                // comma instead of raising the context error.
+                first_element = false;
+
+                let maybe_comma_range = self.current_token_range();
+                if self.eat(TokenKind::Comma) {
+                    trailing_comma_range = Some(maybe_comma_range);
+                    continue;
+                }
+                trailing_comma_range = None;
+            }
+
+            // test_ok comma_separated_regular_list_terminator
+            // # The first element is parsed by `parse_list_like_expression` and the comma after
+            // # the first element is expected by `parse_list_expression`
+            // [0]
+            // [0, 1]
+            // [0, 1,]
+            // [0, 1, 2]
+            // [0, 1, 2,]
+            if recovery_context_kind.is_regular_list_terminator(self) {
+                break;
+            }
+
+            // test_err comma_separated_missing_comma_between_elements
+            // # The comma between the first two elements is expected in `parse_list_expression`.
+            // [0, 1 2]
+            if recovery_context_kind.is_list_element(self) {
+                // This is a special case to expect a comma between two elements and should be
+                // checked before running the error recovery. This is because the error recovery
+                // will always run as the parser is currently at a list element.
+                self.expect(TokenKind::Comma);
+                continue;
+            }
+
+            // Run the error recovery: If the token is recognised as an element or terminator of an
+            // enclosing list, then we try to re-lex in the context of a logical line and break out
+            // of list parsing.
+            if self.is_enclosing_list_element_or_terminator() {
+                self.re_lex_logical_token();
+                break;
+            }
+
+            if first_element || self.at(TokenKind::Comma) {
+                // There are two conditions when we need to add the recovery context error:
+                //
+                // 1. If the parser is at a comma which means that there's a missing element
+                //    otherwise the comma would've been consumed by the first `eat` call above.
+                //    And, the parser doesn't take the re-lexing route on a comma token.
+                // 2. If it's the first element and the current token is not a comma which means
+                //    that it's an invalid element.
+
+                // test_err comma_separated_missing_element_between_commas
+                // [0, 1, , 2]
+
+                // test_err comma_separated_missing_first_element
+                // call(= 1)
+                self.add_error(
+                    recovery_context_kind.create_error(self),
+                    self.current_token_range(),
+                );
+
+                trailing_comma_range = if self.at(TokenKind::Comma) {
+                    Some(self.current_token_range())
+                } else {
+                    None
+                };
+            } else {
+                // Otherwise, there should've been a comma at this position. This could be because
+                // the element isn't consumed completely by `parse_element`.
+
+                // test_err comma_separated_missing_comma
+                // call(**x := 1)
+                self.expect(TokenKind::Comma);
+
+                trailing_comma_range = None;
+            }
+
+            self.bump_any();
+        }
+
+        if let Some(trailing_comma_range) = trailing_comma_range {
+            if !recovery_context_kind.allow_trailing_comma() {
+                let error = if cfg!(feature = "python315-diagnostics")
+                    && matches!(recovery_context_kind, RecoveryContextKind::WithItems(_))
+                    && self.at(TokenKind::Colon)
+                {
+                    ParseErrorType::TrailingCommaInWith
+                } else {
+                    ParseErrorType::OtherError(
+                        "trailing comma not allowed without surrounding parentheses".to_string(),
+                    )
+                };
+                let range = if cfg!(feature = "python315-diagnostics")
+                    && matches!(
+                        recovery_context_kind,
+                        RecoveryContextKind::ImportFromAsNames(Parenthesized::No)
+                    )
+                    && self.at(TokenKind::Newline)
+                {
+                    // The invalid import-target production diagnoses its NEWLINE.
+                    self.current_token_range()
+                } else {
+                    trailing_comma_range
+                };
+                self.add_error(error, range);
+            }
+        }
+
+        self.recovery_context = saved_context;
+
+        trailing_comma_range.is_some()
+    }
+
+    #[cold]
+    fn is_enclosing_list_element_or_terminator(&self) -> bool {
+        for context in self.recovery_context.kind_iter() {
+            if context.is_list_terminator(self) || context.is_list_element(self) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Creates a checkpoint to which the parser can later return to using [`Self::rewind`].
+    fn checkpoint(&self) -> ParserCheckpoint {
+        ParserCheckpoint {
+            tokens: self.tokens.checkpoint(),
+            errors_position: self.errors.len(),
+            deferred_starred_generator_errors_position: self
+                .deferred_starred_generator_errors
+                .len(),
+            unsupported_syntax_errors_position: self.unsupported_syntax_errors.len(),
+            current_token_id: self.current_token_id,
+            prev_token_end: self.prev_token_end,
+            recovery_context: self.recovery_context,
+        }
+    }
+
+    /// Restore the parser to the given checkpoint.
+    fn rewind(&mut self, checkpoint: ParserCheckpoint) {
+        let ParserCheckpoint {
+            tokens,
+            errors_position,
+            deferred_starred_generator_errors_position,
+            unsupported_syntax_errors_position,
+            current_token_id,
+            prev_token_end,
+            recovery_context,
+        } = checkpoint;
+
+        self.tokens.rewind(tokens);
+        self.errors.truncate(errors_position);
+        self.deferred_starred_generator_errors
+            .truncate(deferred_starred_generator_errors_position);
+        self.unsupported_syntax_errors
+            .truncate(unsupported_syntax_errors_position);
+        self.current_token_id = current_token_id;
+        self.prev_token_end = prev_token_end;
+        self.recovery_context = recovery_context;
+    }
+}
+
+fn strip_underscores(text: &str) -> Cow<'_, str> {
+    if text.as_bytes().contains(&b'_') {
+        Cow::Owned(text.chars().filter(|&c| c != '_').collect())
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
+#[derive(Copy, Clone)]
+enum IpyEscapeContext {
+    Assignment,
+    LogicalLineStart,
+}
+
+impl IpyEscapeContext {
+    const fn is_logical_line_start(self) -> bool {
+        matches!(self, Self::LogicalLineStart)
+    }
+}
+
+struct ParserCheckpoint {
+    tokens: TokenSourceCheckpoint,
+    errors_position: usize,
+    deferred_starred_generator_errors_position: usize,
+    unsupported_syntax_errors_position: usize,
+    current_token_id: TokenId,
+    prev_token_end: TextSize,
+    recovery_context: RecoveryContext,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum SequenceMatchPatternParentheses {
+    Tuple,
+    List,
+}
+
+impl SequenceMatchPatternParentheses {
+    /// Returns the token kind that closes the parentheses.
+    const fn closing_kind(self) -> TokenKind {
+        match self {
+            SequenceMatchPatternParentheses::Tuple => TokenKind::Rpar,
+            SequenceMatchPatternParentheses::List => TokenKind::Rsqb,
+        }
+    }
+
+    /// Returns `true` if the parentheses are for a list pattern e.g., `case [a, b]: ...`.
+    const fn is_list(self) -> bool {
+        matches!(self, SequenceMatchPatternParentheses::List)
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum FunctionKind {
+    /// A lambda expression, e.g., `lambda x: x`
+    Lambda,
+    /// A function definition, e.g., `def f(x): ...`
+    FunctionDef,
+}
+
+impl FunctionKind {
+    /// Returns the token that terminates a list of parameters.
+    const fn list_terminator(self) -> TokenKind {
+        match self {
+            FunctionKind::Lambda => TokenKind::Colon,
+            FunctionKind::FunctionDef => TokenKind::Rpar,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum WithItemKind {
+    /// A list of `with` items that are surrounded by parentheses.
+    ///
+    /// ```python
+    /// with (item1, item2): ...
+    /// with (item1, item2 as foo): ...
+    /// ```
+    ///
+    /// The parentheses belongs to the `with` statement.
+    Parenthesized,
+
+    /// The `with` item has a parenthesized expression.
+    ///
+    /// ```python
+    /// with (item) as foo: ...
+    /// ```
+    ///
+    /// The parentheses belongs to the context expression.
+    ParenthesizedExpression,
+
+    /// The `with` items aren't parenthesized in any way.
+    ///
+    /// ```python
+    /// with item: ...
+    /// with item as foo: ...
+    /// with item1, item2: ...
+    /// ```
+    ///
+    /// There are no parentheses around the items.
+    Unparenthesized,
+}
+
+impl WithItemKind {
+    /// Returns `true` if the with items are parenthesized.
+    const fn is_parenthesized(self) -> bool {
+        matches!(self, WithItemKind::Parenthesized)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum InterpolatedStringElementsKind {
+    /// The regular f-string elements.
+    ///
+    /// For example, the `"hello "`, `x`, and `" world"` elements in:
+    /// ```py
+    /// f"hello {x:.2f} world"
+    /// ```
+    Regular(InterpolatedStringKind),
+
+    /// The f-string elements are part of the format specifier.
+    ///
+    /// For example, the `.2f` in:
+    /// ```py
+    /// f"hello {x:.2f} world"
+    /// ```
+    FormatSpec(InterpolatedStringKind),
+}
+
+impl InterpolatedStringElementsKind {
+    const fn list_terminator(self) -> TokenKind {
+        match self {
+            InterpolatedStringElementsKind::Regular(string_kind) => string_kind.end_token(),
+            // test_ok fstring_format_spec_terminator
+            // f"hello {x:} world"
+            // f"hello {x:.3f} world"
+            InterpolatedStringElementsKind::FormatSpec(_) => TokenKind::Rbrace,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Parenthesized {
+    /// The elements are parenthesized, e.g., `(a, b)`.
+    Yes,
+    /// The elements are not parenthesized, e.g., `a, b`.
+    No,
+}
+
+impl From<bool> for Parenthesized {
+    fn from(value: bool) -> Self {
+        if value {
+            Parenthesized::Yes
+        } else {
+            Parenthesized::No
+        }
+    }
+}
+
+impl Parenthesized {
+    /// Returns `true` if the parenthesized value is `Yes`.
+    const fn is_yes(self) -> bool {
+        matches!(self, Parenthesized::Yes)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+enum ListTerminatorKind {
+    /// The current token terminates the list.
+    Regular,
+    /// The current token doesn't terminate the list, but is useful for better error recovery.
+    ErrorRecovery,
+}
+
+#[derive(Copy, Clone, Debug)]
+enum RecoveryContextKind {
+    /// When parsing a list of statements at the module level i.e., at the top level of a file.
+    ModuleStatements,
+
+    /// When parsing a list of statements in a block e.g., the body of a function or a class.
+    BlockStatements,
+
+    /// The `elif` clauses of an `if` statement
+    Elif,
+
+    /// The `except` clauses of a `try` statement
+    Except,
+
+    /// When parsing a list of assignment targets
+    AssignmentTargets,
+
+    /// When parsing a list of type parameters
+    TypeParams,
+
+    /// When parsing a list of names in a `from ... import ...` statement
+    ImportFromAsNames(Parenthesized),
+
+    /// When parsing a list of names in an `import` statement
+    ImportNames,
+
+    /// When parsing a list of slice elements e.g., `data[1, 2]`.
+    ///
+    /// This is different from `ListElements` as the surrounding context is
+    /// different in that the list is part of a subscript expression.
+    Slices,
+
+    /// When parsing a list of elements in a list expression e.g., `[1, 2]`
+    ListElements,
+
+    /// When parsing a list of elements in a set expression e.g., `{1, 2}`
+    SetElements,
+
+    /// When parsing a list of elements in a dictionary expression e.g., `{1: "a", **data}`
+    DictElements,
+
+    /// When parsing a list of elements in a tuple expression e.g., `(1, 2)`
+    TupleElements(Parenthesized),
+
+    /// When parsing a list of patterns in a match statement with an optional
+    /// parentheses, e.g., `case a, b: ...`, `case (a, b): ...`, `case [a, b]: ...`
+    SequenceMatchPattern(Option<SequenceMatchPatternParentheses>),
+
+    /// When parsing a mapping pattern in a match statement
+    MatchPatternMapping,
+
+    /// When parsing a list of arguments in a class pattern for the match statement
+    MatchPatternClassArguments,
+
+    /// When parsing a list of arguments in a function call or a class definition
+    Arguments,
+
+    /// When parsing a `del` statement
+    DeleteTargets,
+
+    /// When parsing a list of identifiers
+    Identifiers,
+
+    /// When parsing a list of parameters in a function definition which can be
+    /// either a function definition or a lambda expression.
+    Parameters(FunctionKind),
+
+    /// When parsing a list of items in a `with` statement
+    WithItems(WithItemKind),
+
+    /// When parsing a list of f-string or t-string elements which are either literal elements, expressions, or interpolations.
+    InterpolatedStringElements(InterpolatedStringElementsKind),
+}
+
+impl RecoveryContextKind {
+    /// Returns `true` if a trailing comma is allowed in the current context.
+    const fn allow_trailing_comma(self) -> bool {
+        match self {
+            RecoveryContextKind::Slices
+            | RecoveryContextKind::TupleElements(_)
+            | RecoveryContextKind::SetElements
+            | RecoveryContextKind::ListElements
+            | RecoveryContextKind::DictElements
+            | RecoveryContextKind::Arguments
+            | RecoveryContextKind::MatchPatternMapping
+            | RecoveryContextKind::SequenceMatchPattern(_)
+            | RecoveryContextKind::MatchPatternClassArguments
+            | RecoveryContextKind::Parameters(_)
+            | RecoveryContextKind::TypeParams
+            | RecoveryContextKind::DeleteTargets
+            | RecoveryContextKind::ImportFromAsNames(Parenthesized::Yes) => true,
+
+            // Only allow a trailing comma if the with item itself is parenthesized
+            RecoveryContextKind::WithItems(WithItemKind::Parenthesized) => true,
+
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the parser is at a token that terminates the list as per the context.
+    ///
+    /// This token could either end the list or is only present for better error recovery. Refer to
+    /// [`is_regular_list_terminator`] to only check against the former.
+    ///
+    /// [`is_regular_list_terminator`]: RecoveryContextKind::is_regular_list_terminator
+    fn is_list_terminator(self, p: &Parser) -> bool {
+        self.list_terminator_kind(p).is_some()
+    }
+
+    /// Returns `true` if the parser is at a token that terminates the list as per the context but
+    /// the token isn't part of the error recovery set.
+    #[expect(clippy::inline_always, reason = "reduces list-parser branch misses")]
+    #[inline(always)]
+    fn is_regular_list_terminator(self, p: &Parser) -> bool {
+        matches!(
+            self.list_terminator_kind(p),
+            Some(ListTerminatorKind::Regular)
+        )
+    }
+
+    /// Checks the current token the parser is at and returns the list terminator kind if the token
+    /// terminates the list as per the context.
+    #[expect(clippy::inline_always, reason = "reduces list-parser branch misses")]
+    #[inline(always)]
+    fn list_terminator_kind(self, p: &Parser) -> Option<ListTerminatorKind> {
+        // The end of file marker ends all lists.
+        if p.at(TokenKind::EndOfFile) {
+            return Some(ListTerminatorKind::Regular);
+        }
+
+        match self {
+            // The parser must consume all tokens until the end
+            RecoveryContextKind::ModuleStatements => None,
+            RecoveryContextKind::BlockStatements => p
+                .at(TokenKind::Dedent)
+                .then_some(ListTerminatorKind::Regular),
+
+            RecoveryContextKind::Elif => {
+                p.at(TokenKind::Else).then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::Except => {
+                matches!(p.current_token_kind(), TokenKind::Finally | TokenKind::Else)
+                    .then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::AssignmentTargets => {
+                // test_ok assign_targets_terminator
+                // x = y = z = 1; a, b
+                // x = y = z = 1
+                // a, b
+                matches!(p.current_token_kind(), TokenKind::Newline | TokenKind::Semi)
+                    .then_some(ListTerminatorKind::Regular)
+            }
+
+            // Tokens other than `]` are for better error recovery. For example, recover when we
+            // find the `:` of a clause header or the equal of a type assignment.
+            RecoveryContextKind::TypeParams => {
+                if p.at(TokenKind::Rsqb) {
+                    Some(ListTerminatorKind::Regular)
+                } else {
+                    matches!(
+                        p.current_token_kind(),
+                        TokenKind::Newline | TokenKind::Colon | TokenKind::Equal | TokenKind::Lpar
+                    )
+                    .then_some(ListTerminatorKind::ErrorRecovery)
+                }
+            }
+            // The names of an import statement cannot be parenthesized, so `)` is not a
+            // terminator.
+            RecoveryContextKind::ImportNames => {
+                // test_ok import_stmt_terminator
+                // import a, b; import c, d
+                // import a, b
+                // c, d
+                matches!(p.current_token_kind(), TokenKind::Semi | TokenKind::Newline)
+                    .then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::ImportFromAsNames(_) => {
+                // test_ok from_import_stmt_terminator
+                // from a import (b, c)
+                // from a import (b, c); x, y
+                // from a import b, c; x, y
+                // from a import b, c
+                // x, y
+                matches!(
+                    p.current_token_kind(),
+                    TokenKind::Rpar | TokenKind::Semi | TokenKind::Newline
+                )
+                .then_some(ListTerminatorKind::Regular)
+            }
+            // The elements in a container expression cannot end with a newline
+            // as all of them are actually non-logical newlines.
+            RecoveryContextKind::Slices | RecoveryContextKind::ListElements => {
+                p.at(TokenKind::Rsqb).then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::SetElements | RecoveryContextKind::DictElements => p
+                .at(TokenKind::Rbrace)
+                .then_some(ListTerminatorKind::Regular),
+            RecoveryContextKind::TupleElements(parenthesized) => {
+                if parenthesized.is_yes() {
+                    p.at(TokenKind::Rpar).then_some(ListTerminatorKind::Regular)
+                } else {
+                    // test_err aug_assign_stmt_unparenthesized_tuple_target
+                    // a, b += 1
+                    (p.at_sequence_end()
+                        || p.current_token_kind()
+                            .as_augmented_assign_operator()
+                            .is_some())
+                    .then_some(ListTerminatorKind::Regular)
+                }
+            }
+            RecoveryContextKind::SequenceMatchPattern(parentheses) => match parentheses {
+                None => {
+                    // test_ok match_sequence_pattern_terminator
+                    // match subject:
+                    //     case a if x: ...
+                    //     case a, b: ...
+                    //     case a, b if x: ...
+                    //     case a: ...
+                    matches!(p.current_token_kind(), TokenKind::Colon | TokenKind::If)
+                        .then_some(ListTerminatorKind::Regular)
+                }
+                Some(parentheses) => {
+                    // test_ok match_sequence_pattern_parentheses_terminator
+                    // match subject:
+                    //     case [a, b]: ...
+                    //     case (a, b): ...
+                    p.at(parentheses.closing_kind())
+                        .then_some(ListTerminatorKind::Regular)
+                }
+            },
+            RecoveryContextKind::MatchPatternMapping => p
+                .at(TokenKind::Rbrace)
+                .then_some(ListTerminatorKind::Regular),
+            RecoveryContextKind::MatchPatternClassArguments => {
+                p.at(TokenKind::Rpar).then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::Arguments => {
+                p.at(TokenKind::Rpar).then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::DeleteTargets | RecoveryContextKind::Identifiers => {
+                // test_ok del_targets_terminator
+                // del a, b; c, d
+                // del a, b
+                // c, d
+                matches!(p.current_token_kind(), TokenKind::Semi | TokenKind::Newline)
+                    .then_some(ListTerminatorKind::Regular)
+            }
+            RecoveryContextKind::Parameters(function_kind) => {
+                // `lambda x, y: ...` or `def f(x, y): ...`
+                if p.at(function_kind.list_terminator()) {
+                    Some(ListTerminatorKind::Regular)
+                } else {
+                    // To recover from missing closing parentheses
+                    (p.at(TokenKind::Rarrow) || p.at_compound_stmt())
+                        .then_some(ListTerminatorKind::ErrorRecovery)
+                }
+            }
+            RecoveryContextKind::WithItems(with_item_kind) => match with_item_kind {
+                WithItemKind::Parenthesized => match p.current_token_kind() {
+                    TokenKind::Rpar => Some(ListTerminatorKind::Regular),
+                    TokenKind::Colon => Some(ListTerminatorKind::ErrorRecovery),
+                    _ => None,
+                },
+                // test_err ipython_help_escape_command_error_recovery_1
+                // # parse_options: {"mode": "ipython"}
+                // with (a, ?b)
+                // ?
+
+                // test_err ipython_help_escape_command_error_recovery_2
+                // # parse_options: {"mode": "ipython"}
+                // with (a, ?b
+                // ?
+
+                // test_err ipython_help_escape_command_error_recovery_3
+                // # parse_options: {"mode": "ipython"}
+                // with a, ?b
+                // ?
+                // x = 1
+                WithItemKind::Unparenthesized => matches!(
+                    p.current_token_kind(),
+                    TokenKind::Colon | TokenKind::Newline
+                )
+                .then_some(ListTerminatorKind::Regular),
+                WithItemKind::ParenthesizedExpression => p
+                    .at(TokenKind::Colon)
+                    .then_some(ListTerminatorKind::Regular),
+            },
+            RecoveryContextKind::InterpolatedStringElements(kind) => {
+                if p.at(kind.list_terminator()) {
+                    Some(ListTerminatorKind::Regular)
+                } else {
+                    // test_err unterminated_fstring_newline_recovery
+                    // f"hello
+                    // 1 + 1
+                    // f"hello {x
+                    // 2 + 2
+                    // f"hello {x:
+                    // 3 + 3
+                    // f"hello {x}
+                    // 4 + 4
+                    p.at(TokenKind::Newline)
+                        .then_some(ListTerminatorKind::ErrorRecovery)
+                }
+            }
+        }
+    }
+
+    #[expect(clippy::inline_always, reason = "reduces list-parser branch misses")]
+    #[inline(always)]
+    fn is_list_element(self, p: &Parser) -> bool {
+        match self {
+            RecoveryContextKind::ModuleStatements => p.at_stmt(),
+            RecoveryContextKind::BlockStatements => p.at_stmt(),
+            RecoveryContextKind::Elif => p.at(TokenKind::Elif),
+            RecoveryContextKind::Except => p.at(TokenKind::Except),
+            RecoveryContextKind::AssignmentTargets => p.at(TokenKind::Equal),
+            RecoveryContextKind::TypeParams => p.at_type_param(),
+            RecoveryContextKind::ImportNames => p.at_identifier_or_soft_keyword(),
+            RecoveryContextKind::ImportFromAsNames(_) => {
+                p.at(TokenKind::Star) || p.at_identifier_or_soft_keyword()
+            }
+            RecoveryContextKind::Slices => p.at(TokenKind::Colon) || p.at_expr(),
+            RecoveryContextKind::ListElements
+            | RecoveryContextKind::SetElements
+            | RecoveryContextKind::TupleElements(_) => p.at_expr(),
+            RecoveryContextKind::DictElements => p.at(TokenKind::DoubleStar) || p.at_expr(),
+            RecoveryContextKind::SequenceMatchPattern(_) => p.at_pattern_start(),
+            RecoveryContextKind::MatchPatternMapping => {
+                // A star pattern is invalid as a mapping key and is here only for
+                // better error recovery.
+                p.at(TokenKind::Star) || p.at_mapping_pattern_start()
+            }
+            RecoveryContextKind::MatchPatternClassArguments => p.at_pattern_start(),
+            RecoveryContextKind::Arguments => p.at_expr(),
+            RecoveryContextKind::DeleteTargets => p.at_expr(),
+            RecoveryContextKind::Identifiers => p.at_identifier_or_soft_keyword(),
+            RecoveryContextKind::Parameters(_) => {
+                // A `(` is an element only to report parenthesized parameters.
+                matches!(
+                    p.current_token_kind(),
+                    TokenKind::Star | TokenKind::DoubleStar | TokenKind::Slash | TokenKind::Lpar
+                ) || p.at_identifier_or_soft_keyword()
+            }
+            RecoveryContextKind::WithItems(_) => p.at_expr(),
+            RecoveryContextKind::InterpolatedStringElements(elements_kind) => match elements_kind {
+                InterpolatedStringElementsKind::Regular(interpolated_string_kind)
+                | InterpolatedStringElementsKind::FormatSpec(interpolated_string_kind) => {
+                    p.current_token_kind() == interpolated_string_kind.middle_token()
+                        || p.current_token_kind() == TokenKind::Lbrace
+                }
+            },
+        }
+    }
+
+    fn create_error(self, p: &Parser) -> ParseErrorType {
+        match self {
+            RecoveryContextKind::ModuleStatements | RecoveryContextKind::BlockStatements => {
+                if p.at(TokenKind::Indent) {
+                    ParseErrorType::UnexpectedIndentation
+                } else {
+                    ParseErrorType::OtherError("invalid syntax".to_string())
+                }
+            }
+            RecoveryContextKind::Elif
+            | RecoveryContextKind::Except
+            | RecoveryContextKind::AssignmentTargets
+            | RecoveryContextKind::TypeParams
+            | RecoveryContextKind::ImportFromAsNames(_)
+            | RecoveryContextKind::ImportNames
+            | RecoveryContextKind::Slices
+            | RecoveryContextKind::ListElements
+            | RecoveryContextKind::SetElements
+            | RecoveryContextKind::DictElements
+            | RecoveryContextKind::TupleElements(_)
+            | RecoveryContextKind::SequenceMatchPattern(_)
+            | RecoveryContextKind::MatchPatternMapping
+            | RecoveryContextKind::MatchPatternClassArguments
+            | RecoveryContextKind::Arguments
+            | RecoveryContextKind::DeleteTargets
+            | RecoveryContextKind::Identifiers
+            | RecoveryContextKind::Parameters(_)
+            | RecoveryContextKind::WithItems(_) => {
+                ParseErrorType::OtherError("invalid syntax".to_string())
+            }
+            RecoveryContextKind::InterpolatedStringElements(kind) => match kind {
+                InterpolatedStringElementsKind::Regular(string_kind) => ParseErrorType::OtherError(
+                    format!("expected an element of or the end of the {string_kind}"),
+                ),
+                InterpolatedStringElementsKind::FormatSpec(string_kind) => {
+                    ParseErrorType::OtherError(format!(
+                        "expected an {string_kind} element or a '}}'"
+                    ))
+                }
+            },
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+struct RecoveryContext(u32);
+
+bitflags! {
+    impl RecoveryContext: u32 {
+        const MODULE_STATEMENTS = 1 << 0;
+        const BLOCK_STATEMENTS = 1 << 1;
+        const ELIF = 1 << 2;
+        const EXCEPT = 1 << 3;
+        const ASSIGNMENT_TARGETS = 1 << 4;
+        const TYPE_PARAMS = 1 << 5;
+        const IMPORT_FROM_AS_NAMES_PARENTHESIZED = 1 << 6;
+        const IMPORT_FROM_AS_NAMES_UNPARENTHESIZED = 1 << 7;
+        const IMPORT_NAMES = 1 << 8;
+        const SLICES = 1 << 9;
+        const LIST_ELEMENTS = 1 << 10;
+        const SET_ELEMENTS = 1 << 11;
+        const DICT_ELEMENTS = 1 << 12;
+        const TUPLE_ELEMENTS_PARENTHESIZED = 1 << 13;
+        const TUPLE_ELEMENTS_UNPARENTHESIZED = 1 << 14;
+        const SEQUENCE_MATCH_PATTERN = 1 << 15;
+        const SEQUENCE_MATCH_PATTERN_LIST = 1 << 16;
+        const SEQUENCE_MATCH_PATTERN_TUPLE = 1 << 17;
+        const MATCH_PATTERN_MAPPING = 1 << 18;
+        const MATCH_PATTERN_CLASS_ARGUMENTS = 1 << 19;
+        const ARGUMENTS = 1 << 20;
+        const DELETE = 1 << 21;
+        const IDENTIFIERS = 1 << 22;
+        const FUNCTION_PARAMETERS = 1 << 23;
+        const LAMBDA_PARAMETERS = 1 << 24;
+        const WITH_ITEMS_PARENTHESIZED = 1 << 25;
+        const WITH_ITEMS_PARENTHESIZED_EXPRESSION = 1 << 26;
+        const WITH_ITEMS_UNPARENTHESIZED = 1 << 27;
+        const F_STRING_ELEMENTS = 1 << 28;
+        const T_STRING_ELEMENTS = 1 << 29;
+        const F_STRING_ELEMENTS_IN_FORMAT_SPEC = 1 << 30;
+        const T_STRING_ELEMENTS_IN_FORMAT_SPEC = 1 << 31;
+    }
+}
+
+impl RecoveryContext {
+    const fn from_kind(kind: RecoveryContextKind) -> Self {
+        match kind {
+            RecoveryContextKind::ModuleStatements => RecoveryContext::MODULE_STATEMENTS,
+            RecoveryContextKind::BlockStatements => RecoveryContext::BLOCK_STATEMENTS,
+            RecoveryContextKind::Elif => RecoveryContext::ELIF,
+            RecoveryContextKind::Except => RecoveryContext::EXCEPT,
+            RecoveryContextKind::AssignmentTargets => RecoveryContext::ASSIGNMENT_TARGETS,
+            RecoveryContextKind::TypeParams => RecoveryContext::TYPE_PARAMS,
+            RecoveryContextKind::ImportFromAsNames(parenthesized) => match parenthesized {
+                Parenthesized::Yes => RecoveryContext::IMPORT_FROM_AS_NAMES_PARENTHESIZED,
+                Parenthesized::No => RecoveryContext::IMPORT_FROM_AS_NAMES_UNPARENTHESIZED,
+            },
+            RecoveryContextKind::ImportNames => RecoveryContext::IMPORT_NAMES,
+            RecoveryContextKind::Slices => RecoveryContext::SLICES,
+            RecoveryContextKind::ListElements => RecoveryContext::LIST_ELEMENTS,
+            RecoveryContextKind::SetElements => RecoveryContext::SET_ELEMENTS,
+            RecoveryContextKind::DictElements => RecoveryContext::DICT_ELEMENTS,
+            RecoveryContextKind::TupleElements(parenthesized) => match parenthesized {
+                Parenthesized::Yes => RecoveryContext::TUPLE_ELEMENTS_PARENTHESIZED,
+                Parenthesized::No => RecoveryContext::TUPLE_ELEMENTS_UNPARENTHESIZED,
+            },
+            RecoveryContextKind::SequenceMatchPattern(parentheses) => match parentheses {
+                None => RecoveryContext::SEQUENCE_MATCH_PATTERN,
+                Some(SequenceMatchPatternParentheses::List) => {
+                    RecoveryContext::SEQUENCE_MATCH_PATTERN_LIST
+                }
+                Some(SequenceMatchPatternParentheses::Tuple) => {
+                    RecoveryContext::SEQUENCE_MATCH_PATTERN_TUPLE
+                }
+            },
+            RecoveryContextKind::MatchPatternMapping => RecoveryContext::MATCH_PATTERN_MAPPING,
+            RecoveryContextKind::MatchPatternClassArguments => {
+                RecoveryContext::MATCH_PATTERN_CLASS_ARGUMENTS
+            }
+            RecoveryContextKind::Arguments => RecoveryContext::ARGUMENTS,
+            RecoveryContextKind::DeleteTargets => RecoveryContext::DELETE,
+            RecoveryContextKind::Identifiers => RecoveryContext::IDENTIFIERS,
+            RecoveryContextKind::Parameters(function_kind) => match function_kind {
+                FunctionKind::Lambda => RecoveryContext::LAMBDA_PARAMETERS,
+                FunctionKind::FunctionDef => RecoveryContext::FUNCTION_PARAMETERS,
+            },
+            RecoveryContextKind::WithItems(with_item_kind) => match with_item_kind {
+                WithItemKind::Parenthesized => RecoveryContext::WITH_ITEMS_PARENTHESIZED,
+                WithItemKind::ParenthesizedExpression => {
+                    RecoveryContext::WITH_ITEMS_PARENTHESIZED_EXPRESSION
+                }
+                WithItemKind::Unparenthesized => RecoveryContext::WITH_ITEMS_UNPARENTHESIZED,
+            },
+            RecoveryContextKind::InterpolatedStringElements(kind) => match kind {
+                InterpolatedStringElementsKind::Regular(InterpolatedStringKind::FString) => {
+                    RecoveryContext::F_STRING_ELEMENTS
+                }
+                InterpolatedStringElementsKind::Regular(InterpolatedStringKind::TString) => {
+                    RecoveryContext::T_STRING_ELEMENTS
+                }
+
+                InterpolatedStringElementsKind::FormatSpec(InterpolatedStringKind::FString) => {
+                    RecoveryContext::F_STRING_ELEMENTS_IN_FORMAT_SPEC
+                }
+                InterpolatedStringElementsKind::FormatSpec(InterpolatedStringKind::TString) => {
+                    RecoveryContext::T_STRING_ELEMENTS_IN_FORMAT_SPEC
+                }
+            },
+        }
+    }
+
+    /// Safe conversion to the corresponding [`RecoveryContextKind`] (inverse of [`Self::from_kind`]).
+    ///
+    /// Returns `None` if the `RecoveryContext` is empty or has multiple flags set.
+    const fn to_kind(self) -> Option<RecoveryContextKind> {
+        Some(match self {
+            RecoveryContext::MODULE_STATEMENTS => RecoveryContextKind::ModuleStatements,
+            RecoveryContext::BLOCK_STATEMENTS => RecoveryContextKind::BlockStatements,
+            RecoveryContext::ELIF => RecoveryContextKind::Elif,
+            RecoveryContext::EXCEPT => RecoveryContextKind::Except,
+            RecoveryContext::ASSIGNMENT_TARGETS => RecoveryContextKind::AssignmentTargets,
+            RecoveryContext::TYPE_PARAMS => RecoveryContextKind::TypeParams,
+            RecoveryContext::IMPORT_FROM_AS_NAMES_PARENTHESIZED => {
+                RecoveryContextKind::ImportFromAsNames(Parenthesized::Yes)
+            }
+            RecoveryContext::IMPORT_FROM_AS_NAMES_UNPARENTHESIZED => {
+                RecoveryContextKind::ImportFromAsNames(Parenthesized::No)
+            }
+            RecoveryContext::IMPORT_NAMES => RecoveryContextKind::ImportNames,
+            RecoveryContext::SLICES => RecoveryContextKind::Slices,
+            RecoveryContext::LIST_ELEMENTS => RecoveryContextKind::ListElements,
+            RecoveryContext::SET_ELEMENTS => RecoveryContextKind::SetElements,
+            RecoveryContext::DICT_ELEMENTS => RecoveryContextKind::DictElements,
+            RecoveryContext::TUPLE_ELEMENTS_PARENTHESIZED => {
+                RecoveryContextKind::TupleElements(Parenthesized::Yes)
+            }
+            RecoveryContext::TUPLE_ELEMENTS_UNPARENTHESIZED => {
+                RecoveryContextKind::TupleElements(Parenthesized::No)
+            }
+            RecoveryContext::SEQUENCE_MATCH_PATTERN => {
+                RecoveryContextKind::SequenceMatchPattern(None)
+            }
+            RecoveryContext::SEQUENCE_MATCH_PATTERN_LIST => {
+                RecoveryContextKind::SequenceMatchPattern(Some(
+                    SequenceMatchPatternParentheses::List,
+                ))
+            }
+            RecoveryContext::SEQUENCE_MATCH_PATTERN_TUPLE => {
+                RecoveryContextKind::SequenceMatchPattern(Some(
+                    SequenceMatchPatternParentheses::Tuple,
+                ))
+            }
+            RecoveryContext::MATCH_PATTERN_MAPPING => RecoveryContextKind::MatchPatternMapping,
+            RecoveryContext::MATCH_PATTERN_CLASS_ARGUMENTS => {
+                RecoveryContextKind::MatchPatternClassArguments
+            }
+            RecoveryContext::ARGUMENTS => RecoveryContextKind::Arguments,
+            RecoveryContext::DELETE => RecoveryContextKind::DeleteTargets,
+            RecoveryContext::IDENTIFIERS => RecoveryContextKind::Identifiers,
+            RecoveryContext::FUNCTION_PARAMETERS => {
+                RecoveryContextKind::Parameters(FunctionKind::FunctionDef)
+            }
+            RecoveryContext::LAMBDA_PARAMETERS => {
+                RecoveryContextKind::Parameters(FunctionKind::Lambda)
+            }
+            RecoveryContext::WITH_ITEMS_PARENTHESIZED => {
+                RecoveryContextKind::WithItems(WithItemKind::Parenthesized)
+            }
+            RecoveryContext::WITH_ITEMS_PARENTHESIZED_EXPRESSION => {
+                RecoveryContextKind::WithItems(WithItemKind::ParenthesizedExpression)
+            }
+            RecoveryContext::WITH_ITEMS_UNPARENTHESIZED => {
+                RecoveryContextKind::WithItems(WithItemKind::Unparenthesized)
+            }
+            RecoveryContext::F_STRING_ELEMENTS => RecoveryContextKind::InterpolatedStringElements(
+                InterpolatedStringElementsKind::Regular(InterpolatedStringKind::FString),
+            ),
+            RecoveryContext::T_STRING_ELEMENTS => RecoveryContextKind::InterpolatedStringElements(
+                InterpolatedStringElementsKind::Regular(InterpolatedStringKind::TString),
+            ),
+            RecoveryContext::F_STRING_ELEMENTS_IN_FORMAT_SPEC => {
+                RecoveryContextKind::InterpolatedStringElements(
+                    InterpolatedStringElementsKind::FormatSpec(InterpolatedStringKind::FString),
+                )
+            }
+            RecoveryContext::T_STRING_ELEMENTS_IN_FORMAT_SPEC => {
+                RecoveryContextKind::InterpolatedStringElements(
+                    InterpolatedStringElementsKind::FormatSpec(InterpolatedStringKind::TString),
+                )
+            }
+            _ => return None,
+        })
+    }
+
+    fn kind_iter(self) -> impl Iterator<Item = RecoveryContextKind> {
+        self.iter().map(|context| {
+            context
+                .to_kind()
+                .expect("Expected context to be of a single kind.")
+        })
+    }
+}
+
+/// Returns the 1-based line number of `offset` in `source`.
+///
+/// `\n`, `\r\n`, and a lone `\r` each count as one line break.
+fn line_number(source: &str, offset: TextSize) -> u32 {
+    let text = &source[..offset.to_usize()];
+    let newlines =
+        text.matches('\n').count() + text.matches('\r').count() - text.matches("\r\n").count();
+    u32::try_from(newlines + 1).unwrap()
+}
+
+/// Moves the error that stops parsing first to the front of `errors`.
+///
+/// The source is tokenized again without the parser's error recovery, and its first tokenizer
+/// error is compared with the first error found by the parser, other than a tokenizer error. A
+/// tokenizer error detected before that error stops parsing there. One detected after it is still
+/// reported, because the rest of the source is tokenized once parsing failed, except:
+/// - an error detected inside an f-string or t-string keeps the parser's error;
+/// - an unexpected indent is reported without tokenizing the rest of the source;
+/// - a bracket that is never closed wins over an error on a later line. On the same line, it wins
+///   over an error at or after it when parsing reads ahead from the error to the end of the
+///   source, which it does unless a `:`, a `;` or an unknown token follows. An error found by
+///   recovering from an unclosed bracket is placed at the token that started the recovery,
+///   `unclosed_bracket_recovery`.
+fn prioritize_tokenizer_error(
+    errors: &mut Vec<ParseError>,
+    source: &str,
+    mode: Mode,
+    start_offset: TextSize,
+    unclosed_bracket_recovery: Option<TextSize>,
+) {
+    // The lexer reports every tokenizer error, so a source without errors has none to find.
+    if errors.is_empty() {
+        return;
+    }
+    let is_tokenizer_error = |error: &ParseError| matches!(&error.error, ParseErrorType::Lexical(lexical) if lexical.is_tokenizer_error());
+    let first = errors
+        .iter()
+        .find(|error| !is_tokenizer_error(error))
+        .cloned();
+
+    let mut lexer = Lexer::new(source, mode, start_offset);
+    // The starts of the tokens at which parsing stops without reading ahead.
+    let mut stops = Vec::new();
+    #[cfg(feature = "python315-diagnostics")]
+    let mut replacement_hint = ReplacementFieldHint::new(first.as_ref());
+    #[cfg(feature = "python315-diagnostics")]
+    let mut replacement_hint_wins = false;
+    let (tokenizer_error, in_interpolated_string, detected) = loop {
+        #[cfg(feature = "python315-diagnostics")]
+        let replacement_field = lexer.replacement_field();
+        let in_interpolated_string = lexer.in_interpolated_string();
+        let previous_errors = lexer.errors().len();
+        let kind = lexer.next_token();
+        if let Some(error) = lexer.errors()[previous_errors..]
+            .iter()
+            .find(|error| error.error().is_tokenizer_error())
+        {
+            #[cfg(feature = "python315-diagnostics")]
+            {
+                replacement_hint_wins =
+                    replacement_hint.is_unclosed_field_hint(error.error(), replacement_field);
+            }
+            // A missing closing brace or a bracket that closes a replacement field is found at
+            // the token that shows it.
+            let detected = match error.error() {
+                LexicalErrorType::FStringError(
+                    InterpolatedStringErrorType::UnclosedLbrace
+                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                    | InterpolatedStringErrorType::UnmatchedBracket(_),
+                )
+                | LexicalErrorType::TStringError(
+                    InterpolatedStringErrorType::UnclosedLbrace
+                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                    | InterpolatedStringErrorType::UnmatchedBracket(_),
+                ) => error.location().start(),
+                _ => lexer.offset(),
+            };
+            break (error.clone(), in_interpolated_string, detected);
+        }
+        #[cfg(feature = "python315-diagnostics")]
+        replacement_hint.token(kind, lexer.current_range(), replacement_field);
+        if matches!(
+            kind,
+            TokenKind::Colon | TokenKind::Semi | TokenKind::Unknown
+        ) {
+            stops.push(lexer.current_range().start());
+        }
+        if kind == TokenKind::EndOfFile {
+            #[cfg(feature = "python315-diagnostics")]
+            if let Some(start) = replacement_hint.unclosed_format_spec {
+                let error = LexicalError::new(
+                    LexicalErrorType::UnclosedBracket {
+                        opening: '{',
+                        incomplete: false,
+                    },
+                    TextRange::empty(start),
+                );
+                break (error, false, lexer.offset());
+            }
+            return;
+        }
+    };
+
+    let Some(first) = first else {
+        move_to_front(errors, ParseError::from(tokenizer_error));
+        return;
+    };
+    let first_start = first.location.start();
+    let error_start = match tokenizer_error.error() {
+        LexicalErrorType::UnclosedBracket { .. } => {
+            unclosed_bracket_recovery.map_or(first_start, |start| start.max(first_start))
+        }
+        _ => first_start,
+    };
+    // An escape sequence error is found when its string is parsed, before the end of the
+    // source shows an unclosed bracket.
+    let escape_error = matches!(
+        first.error,
+        ParseErrorType::Lexical(
+            LexicalErrorType::UnicodeEscapeError { .. } | LexicalErrorType::BytesEscapeError { .. }
+        )
+    );
+    #[cfg(not(feature = "python315-diagnostics"))]
+    let replacement_hint_wins = false;
+    let wins = replacement_hint_wins
+        || detected <= first_start
+        || (!in_interpolated_string
+            && !escape_error
+            && match tokenizer_error.error() {
+                LexicalErrorType::UnclosedBracket { .. } => {
+                    let bracket_start = tokenizer_error.location().start();
+                    bracket_start <= error_start
+                        && (line_number(source, bracket_start) < line_number(source, error_start)
+                            || stops.iter().all(|stop| *stop < first_start))
+                }
+                _ => !matches!(first.error, ParseErrorType::UnexpectedIndentation),
+            });
+    if !wins {
+        move_to_front(errors, first);
+        return;
+    }
+    // A bracket reported in place of an error before the end of the source can't be closed by
+    // more input.
+    let front = match *tokenizer_error.error() {
+        LexicalErrorType::UnclosedBracket {
+            opening,
+            incomplete: true,
+        } if error_start.to_usize() < source.trim_end().len() => {
+            errors.retain(|error| *error != ParseError::from(tokenizer_error.clone()));
+            LexicalError::new(
+                LexicalErrorType::UnclosedBracket {
+                    opening,
+                    incomplete: false,
+                },
+                tokenizer_error.location(),
+            )
+        }
+        _ => tokenizer_error,
+    };
+    move_to_front(errors, ParseError::from(front));
+}
+
+/// Tracks the grammar boundaries after an expression hint while the unrecovered token stream
+/// is read. A replacement field keeps reading to its separator; an inner display or a debug /
+/// conversion separator can already establish the hint before a later missing brace is found.
+#[cfg(feature = "python315-diagnostics")]
+struct ReplacementFieldHint {
+    range: Option<TextRange>,
+    field: Option<TextSize>,
+    stopped: bool,
+    unclosed_format_spec: Option<TextSize>,
+}
+
+#[cfg(feature = "python315-diagnostics")]
+impl ReplacementFieldHint {
+    fn new(first: Option<&ParseError>) -> Self {
+        let range = first.and_then(|error| match &error.error {
+            ParseErrorType::MissingCommaAfterConcatenatedLiteral {
+                expression_range, ..
+            } => Some(*expression_range),
+            ParseErrorType::OtherError(message)
+                if matches!(
+                    message.as_str(),
+                    "invalid syntax. Perhaps you forgot a comma?"
+                        | "invalid syntax. Is this intended to be part of the string?"
+                ) =>
+            {
+                Some(error.location)
+            }
+            _ => None,
+        });
+        Self {
+            range,
+            field: None,
+            stopped: false,
+            unclosed_format_spec: None,
+        }
+    }
+
+    fn token(&mut self, kind: TokenKind, range: TextRange, field: Option<(TextSize, bool)>) {
+        let Some(hint) = self.range else {
+            return;
+        };
+        if range.contains(hint.start()) {
+            self.field = field.map(|(start, _)| start);
+        }
+        if range.start() < hint.end() || self.field.is_none() {
+            return;
+        }
+        // The hint covers both expressions. A later expression token establishes the hint;
+        // only the format-specifier and string-end tokens still belong to this field.
+        if !kind.is_trivia()
+            && !matches!(
+                kind,
+                TokenKind::Colon
+                    | TokenKind::FStringMiddle
+                    | TokenKind::TStringMiddle
+                    | TokenKind::FStringEnd
+                    | TokenKind::TStringEnd
+                    | TokenKind::EndOfFile
+            )
+        {
+            self.stopped = true;
+        }
+        if kind.is_interpolated_string_end() && !self.stopped {
+            self.unclosed_format_spec = field
+                .filter(|(start, format)| *format && Some(*start) == self.field)
+                .map(|(start, _)| start);
+        }
+    }
+
+    fn is_unclosed_field_hint(
+        &self,
+        error: &LexicalErrorType,
+        field: Option<(TextSize, bool)>,
+    ) -> bool {
+        self.field.is_some()
+            && self.field == field.map(|(start, _)| start)
+            && !self.stopped
+            && matches!(
+                error,
+                LexicalErrorType::FStringError(
+                    InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                ) | LexicalErrorType::TStringError(
+                    InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                )
+            )
+    }
+}
+
+/// Moves `error` to the front of `errors`, removing an equal error elsewhere.
+fn move_to_front(errors: &mut Vec<ParseError>, error: ParseError) {
+    errors.retain(|other| *other != error);
+    errors.insert(0, error);
+}

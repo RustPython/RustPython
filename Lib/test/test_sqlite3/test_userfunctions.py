@@ -429,27 +429,9 @@ class FunctionTests(unittest.TestCase):
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for keyword args
     def test_func_keyword_args(self):
-        regex = (
-            r"Passing keyword arguments 'name', 'narg' and 'func' to "
-            r"_sqlite3.Connection.create_function\(\) is deprecated. "
-            r"Parameters 'name', 'narg' and 'func' will become "
-            r"positional-only in Python 3.15."
-        )
-
-        def noop():
-            return None
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function("noop", 0, func=noop)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function("noop", narg=0, func=noop)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_function(name="noop", narg=0, func=noop)
-        self.assertEqual(cm.filename, __file__)
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 3 positional arguments'):
+            self.con.create_function("noop", 0, func=lambda: None)
 
 
 class WindowSumInt:
@@ -753,25 +735,9 @@ class AggregateTests(unittest.TestCase):
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for create_aggregate
     def test_agg_keyword_args(self):
-        regex = (
-            r"Passing keyword arguments 'name', 'n_arg' and 'aggregate_class' to "
-            r"_sqlite3.Connection.create_aggregate\(\) is deprecated. "
-            r"Parameters 'name', 'n_arg' and 'aggregate_class' will become "
-            r"positional-only in Python 3.15."
-        )
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 3 positional arguments'):
             self.con.create_aggregate("test", 1, aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_aggregate("test", n_arg=1, aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
-            self.con.create_aggregate(name="test", n_arg=0,
-                                      aggregate_class=AggrText)
-        self.assertEqual(cm.filename, __file__)
 
 
 class AuthorizerTests(unittest.TestCase):
@@ -817,16 +783,9 @@ class AuthorizerTests(unittest.TestCase):
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_authorizer
     def test_authorizer_keyword_args(self):
-        regex = (
-            r"Passing keyword argument 'authorizer_callback' to "
-            r"_sqlite3.Connection.set_authorizer\(\) is deprecated. "
-            r"Parameter 'authorizer_callback' will become positional-only in "
-            r"Python 3.15."
-        )
-
-        with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
+        with self.assertRaisesRegex(TypeError,
+                'takes exactly 1 positional argument'):
             self.con.set_authorizer(authorizer_callback=lambda: None)
-        self.assertEqual(cm.filename, __file__)
 
 
 class AuthorizerRaiseExceptionTests(AuthorizerTests):
@@ -838,12 +797,10 @@ class AuthorizerRaiseExceptionTests(AuthorizerTests):
             raise ValueError
         return sqlite.SQLITE_OK
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_table_access(self):
         super().test_table_access()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ValueError, msg_regex="authorizer_cb")
     def test_column_access(self):
         super().test_table_access()

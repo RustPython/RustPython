@@ -1,5 +1,5 @@
+use super::SourceFile;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 // product
 impl Node for ast::MatchCase {

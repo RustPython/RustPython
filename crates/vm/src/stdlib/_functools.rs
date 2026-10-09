@@ -5,7 +5,8 @@ mod _functools {
     use crate::{
         Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyTuple, PyType, PyTypeRef, object,
+            PyBoundMethod, PyDict, PyDictRef, PyGenericAlias, PyStr, PyTuple, PyType, PyTypeRef,
+            object,
         },
         common::{hash::PyHash, lock::PyRwLock},
         function::{
@@ -277,6 +278,11 @@ mod _functools {
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
+        #[extend_class]
+        fn extend_pyclass(_ctx: &Context, class: &'static Py<PyType>) {
+            class.slots.vectorcall.store(Some(Self::vectorcall));
+        }
+
         #[pygetset]
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
@@ -534,25 +540,43 @@ mod _functools {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            // Clone and release lock before calling Python code to prevent deadlock
+            let nargs = args.args.len();
+            let mut values = args.args;
+            let mut kwnames = Vec::with_capacity(args.kwargs.len());
+            for (key, value) in args.kwargs {
+                kwnames.push(vm.ctx.new_str(key).into());
+                values.push(value);
+            }
+            Self::vectorcall(zelf.as_object(), values, nargs, Some(&kwnames), vm)
+        }
+    }
+
+    impl PyPartial {
+        fn vectorcall(
+            zelf: &PyObject,
+            args: Vec<PyObjectRef>,
+            nargs: usize,
+            kwnames: Option<&[PyObjectRef]>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let zelf = zelf.downcast_ref::<Self>().unwrap();
+            // Keep the call's state alive before keyword lookups can execute
+            // __hash__/__eq__ and replace it through __setstate__.
             let func = zelf.func.load_owned();
             let stored_args = zelf.args.load_owned();
             let keywords = zelf.keywords.load_owned();
             let phcount = zelf.phcount.load(Ordering::Relaxed);
 
             // Check if we have enough args to fill placeholders
-            if phcount > 0 && args.args.len() < phcount {
+            if nargs < phcount {
                 return Err(vm.new_type_error(format!(
-                    "missing positional arguments in 'partial' call; expected at least {}, got {}",
-                    phcount,
-                    args.args.len()
+                    "missing positional arguments in 'partial' call; expected at least {phcount}, got {nargs}"
                 )));
             }
 
             // Build combined args, replacing placeholders
-            let mut combined_args =
-                Vec::with_capacity(stored_args.as_slice().len() + args.args.len());
-            let mut new_args_iter = args.args.iter();
+            let mut combined_args = Vec::with_capacity(stored_args.as_slice().len() + args.len());
+            let mut new_args_iter = args[..nargs].iter();
 
             for stored_arg in stored_args.as_slice() {
                 if is_placeholder(stored_arg) {
@@ -569,25 +593,60 @@ mod _functools {
             }
             // Append remaining new args
             combined_args.extend(new_args_iter.cloned());
+            let combined_nargs = combined_args.len();
 
-            // Merge keywords from self.keywords and args.kwargs
-            let mut final_kwargs = crate::function::KwArgsMap::default();
+            let kwnames = kwnames.unwrap_or_default();
+            if func.class().slots.vectorcall.load().is_none() {
+                // FuncArgs callables retain their existing keyword binding path.
+                // In particular, do not introduce vectorcall's hash callbacks
+                // when the wrapped callable does not support vectorcall.
+                let mut kwargs = KwArgs::default();
+                for (key, value) in keywords.items_vec() {
+                    let key = key
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                    kwargs.insert(key.as_wtf8().to_owned(), value);
+                }
+                for (key, value) in kwnames.iter().zip(&args[nargs..]) {
+                    let key = key.downcast_ref::<PyStr>().unwrap();
+                    kwargs.insert(key.as_wtf8().to_owned(), value.clone());
+                }
+                return func.call(FuncArgs::new(combined_args, kwargs), vm);
+            }
+            if keywords.is_empty() {
+                combined_args.extend_from_slice(&args[nargs..]);
+                return func.vectorcall(combined_args, combined_nargs, Some(kwnames), vm);
+            }
 
-            // Add keywords from self.keywords
-            for (key, value) in &*keywords {
-                // `expect_str()` would panic on surrogate keys; keep them as WTF-8.
-                let key_str = key
-                    .downcast_ref::<crate::builtins::PyStr>()
+            // Like partial_vectorcall, copy stored keywords only when an incoming
+            // key replaces one. New keys remain a tail, preserving their identity
+            // and avoiding extra hash callbacks from an intermediate dictionary.
+            let mut merged_keywords = None;
+            let mut tail_names = Vec::new();
+            let mut tail_values = Vec::new();
+            for (key, value) in kwnames.iter().zip(&args[nargs..]) {
+                let hash = PyDict::hash_or_unhashable(&**key, vm)?;
+                if keywords.entries.contains(vm, &**key, hash)? {
+                    let merged = merged_keywords.get_or_insert_with(|| keywords.copy());
+                    merged.inner_setitem(&**key, value.clone(), vm)?;
+                } else {
+                    tail_names.push(key.clone());
+                    tail_values.push(value.clone());
+                }
+            }
+
+            let merged = merged_keywords.as_ref().unwrap_or(&keywords);
+            let mut combined_names = Vec::with_capacity(merged.__len__() + tail_names.len());
+            for (key, value) in merged.items_vec() {
+                key.downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                final_kwargs.insert(key_str.as_wtf8().to_owned(), value);
+                combined_names.push(key);
+                combined_args.push(value);
             }
+            combined_names.extend(tail_names);
+            combined_args.extend(tail_values);
 
-            // Add keywords from args.kwargs (these override self.keywords)
-            for (key, value) in args.kwargs {
-                final_kwargs.insert(key, value);
-            }
-
-            func.call(FuncArgs::new(combined_args, KwArgs::new(final_kwargs)), vm)
+            func.vectorcall(combined_args, combined_nargs, Some(&combined_names), vm)
         }
     }
 
@@ -842,7 +901,7 @@ mod _functools {
 
     #[pyclass(
         with(Constructor, Callable, GetDescriptor),
-        flags(HAS_DICT, HAS_WEAKREF)
+        flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
     )]
     impl Py<PyLruCacheWrapper> {
         #[pymethod]

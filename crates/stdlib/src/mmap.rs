@@ -11,7 +11,7 @@ mod mmap {
     use crate::vm::{
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine, atomic_func,
-        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef, PyUtf8StrRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
         function::{ArgBytesLike, ArgIndex},
@@ -69,7 +69,8 @@ mod mmap {
     #[pyattr]
     use host_mmap::{
         MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
-        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
+        MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, MS_ASYNC, MS_INVALIDATE, MS_SYNC, PROT_EXEC,
+        PROT_READ, PROT_WRITE,
     };
 
     #[cfg(target_os = "macos")]
@@ -188,9 +189,6 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
-        // only read by the linux/netbsd mremap expansion check
-        #[cfg(any(target_os = "linux", target_os = "netbsd"))]
-        flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
         offset: i64,
@@ -200,6 +198,10 @@ mod mmap {
         access: AccessMode,
         #[cfg(unix)]
         trackfd: bool,
+        #[cfg(target_os = "linux")]
+        anonymous: bool,
+        #[cfg(target_os = "linux")]
+        private: bool,
     }
 
     impl PyMmap {
@@ -293,6 +295,8 @@ mod mmap {
         offset: isize,
         #[pyarg(positional, optional)]
         size: Option<isize>,
+        #[pyarg(named, default)]
+        flags: core::ffi::c_int,
     }
 
     impl FlushOptions {
@@ -301,14 +305,15 @@ mod mmap {
                 return None;
             }
             let offset = self.offset as usize;
+            let remaining = len.checked_sub(offset)?;
 
             let size = match self.size {
+                None | Some(-1) => remaining,
                 Some(s) if s < 0 => return None,
                 Some(s) => s as usize,
-                None => len,
             };
 
-            if len.checked_sub(offset)? < size {
+            if remaining < size {
                 return None;
             }
 
@@ -405,10 +410,7 @@ mod mmap {
             }
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
-            #[cfg_attr(
-                not(any(target_os = "linux", target_os = "netbsd")),
-                allow(unused_variables)
-            )]
+            #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
             let (flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
@@ -425,17 +427,35 @@ mod mmap {
                 }
             };
 
-            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) };
+            let anonymous = fd == -1 || flags & host_mmap::MAP_ANONYMOUS != 0;
+            let fd = if fd == -1 {
+                None
+            } else {
+                match host_mmap::duplicate_descriptor(fd) {
+                    Ok(fd) => Some(fd),
+                    // Anonymous mappings ignore the supplied descriptor when
+                    // trackfd=False, including invalid descriptor integers.
+                    Err(err)
+                        if anonymous
+                            && !trackfd
+                            && err.raw_os_error() == Some(host_mmap::EBADF) =>
+                    {
+                        None
+                    }
+                    Err(err) => return Err(err.to_pyexception(vm)),
+                }
+            };
 
             // macOS: Issue #11277: fsync(2) is not enough on OS X - a special, OS X specific
             // fcntl(2) is necessary to force DISKSYNC and get around mmap(2) bug
             #[cfg(target_os = "macos")]
-            if let Ok(fd) = fd {
-                host_mmap::prepare_file_mapping(fd);
+            if let Some(fd) = &fd {
+                host_mmap::prepare_file_mapping(fd.borrow());
             }
 
-            if let Ok(fd) = fd {
-                let file_len = host_mmap::file_len(fd).map_err(|err| err.to_pyexception(vm))?;
+            if let Some(fd) = &fd {
+                let file_len =
+                    host_mmap::file_len(fd.borrow()).map_err(|err| err.to_pyexception(vm))?;
 
                 if map_size == 0 {
                     if file_len == 0 {
@@ -455,7 +475,10 @@ mod mmap {
             }
 
             let (fd, mmap) = || -> std::io::Result<_> {
-                if let Ok(fd) = fd {
+                if anonymous {
+                    let mmap = host_mmap::map_anon(map_size)?;
+                    Ok((fd, mmap))
+                } else if let Some(fd) = fd {
                     let (new_fd, mmap) = host_mmap::map_file(
                         fd,
                         offset,
@@ -469,8 +492,7 @@ mod mmap {
                     )?;
                     Ok((Some(new_fd), mmap))
                 } else {
-                    let mmap = host_mmap::map_anon(map_size)?;
-                    Ok((None, mmap))
+                    unreachable!("non-anonymous mappings have a duplicated descriptor")
                 }
             }()
             .map_err(|e| e.to_pyexception(vm))?;
@@ -478,13 +500,15 @@ mod mmap {
             Ok(Self {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
+                #[cfg(target_os = "linux")]
+                anonymous,
+                #[cfg(target_os = "linux")]
+                private: flags & MAP_PRIVATE != 0,
                 fd: AtomicCell::new(if trackfd {
                     fd.map_or(-1, |owned| owned.into_raw())
                 } else {
                     -1
                 }),
-                #[cfg(any(target_os = "linux", target_os = "netbsd"))]
-                flags,
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -664,7 +688,8 @@ mod mmap {
     impl AsBuffer for PyMmap {
         const RELEASE_BUFFER: bool = true;
 
-        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            let _mmap = zelf.check_valid(vm)?;
             let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
@@ -787,8 +812,7 @@ mod mmap {
             Ok(m)
         }
 
-        /// TODO: impl resize
-        #[allow(dead_code)]
+        #[cfg(any(target_os = "linux", windows))]
         fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.exports.load() > 0 {
                 return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
@@ -817,11 +841,11 @@ mod mmap {
                 return Ok(());
             }
 
+            let mut mmap = zelf.mmap.lock();
             if zelf.exports.load() > 0 {
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
 
-            let mut mmap = zelf.mmap.lock();
             zelf.closed.store(true);
             *mmap = None;
 
@@ -832,9 +856,16 @@ mod mmap {
 
         fn get_find_range(&self, options: &FindOptions) -> (usize, usize) {
             let size = self.__len__();
-            let start = options
-                .start
-                .map_or_else(|| self.pos(), |start| start.saturated_at(size));
+            let start = options.start.map_or_else(
+                || self.pos(),
+                |start| {
+                    if start < 0 {
+                        start.saturated_at(size)
+                    } else {
+                        start as usize
+                    }
+                },
+            );
             let end = options.end.map_or(size, |end| end.saturated_at(size));
             (start, end)
         }
@@ -884,6 +915,8 @@ mod mmap {
 
         #[pymethod]
         fn flush(zelf: &Py<Self>, options: FlushOptions, vm: &VirtualMachine) -> PyResult<()> {
+            let mmap = zelf.check_valid(vm)?;
+            let flags = options.flags;
             let (offset, size) = options
                 .values(zelf.__len__())
                 .ok_or_else(|| vm.new_value_error("flush values out of range"))?;
@@ -892,9 +925,9 @@ mod mmap {
                 return Ok(());
             }
 
-            match zelf.check_valid(vm)?.deref().as_ref().unwrap() {
+            match mmap.deref().as_ref().unwrap() {
                 MmapObj::Mapped(mmap) => {
-                    mmap.flush_range(offset, size)
+                    mmap.flush_range(offset, size, flags)
                         .map_err(|e| e.to_pyexception(vm))?;
                 }
                 #[cfg(windows)]
@@ -908,15 +941,54 @@ mod mmap {
             Ok(())
         }
 
+        #[pymethod]
+        fn set_name(zelf: &Py<Self>, name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<()> {
+            let name =
+                alloc::ffi::CString::new(name.as_str()).map_err(|err| err.to_pyexception(vm))?;
+            #[cfg(target_os = "linux")]
+            {
+                const PREFIX: &str = "cpython:mmap:";
+                if name.as_bytes().len() > 79 - PREFIX.len() {
+                    return Err(vm.new_value_error("name is too long"));
+                }
+                if !zelf.anonymous {
+                    return Err(
+                        vm.new_value_error("Cannot set annotation on non-anonymous mappings")
+                    );
+                }
+                // As in CPython's release build, kernel annotations are enabled
+                // only in development mode.
+                if vm.state.config.settings.dev_mode {
+                    let annotation =
+                        alloc::ffi::CString::new([PREFIX.as_bytes(), name.as_bytes()].concat())
+                            .expect("the name was checked for embedded NUL characters");
+                    let mmap = zelf.mmap.lock();
+                    let address = mmap
+                        .as_ref()
+                        .map_or(0, |mapping| mapping.as_slice().as_ptr() as usize);
+                    host_mmap::set_mapping_name(address, zelf.__len__(), &annotation)
+                        .map_err(|err| err.to_pyexception(vm))?;
+                }
+                Ok(())
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (zelf, name);
+                Err(vm.new_not_implemented_error(
+                    "Annotation of mmap is not supported on this platform",
+                ))
+            }
+        }
+
         #[cfg(all(unix, not(target_os = "redox")))]
         #[pymethod]
         fn madvise(zelf: &Py<Self>, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {
+            let guard = zelf.check_valid(vm)?;
             let (option, start, length) = options.values(zelf.__len__(), vm)?;
             if !host_mmap::validate_advice(option) {
                 return Err(vm.new_value_error("Not a valid Advice value"));
             }
 
-            let guard = zelf.check_valid(vm)?;
             let mmap = guard.deref().as_ref().unwrap();
             match mmap {
                 MmapObj::Mapped(m) => m.madvise_range(start, length, option),
@@ -958,14 +1030,13 @@ mod mmap {
                 Some((dest, src, cnt))
             }
 
-            let size = zelf.__len__();
-            let (dest, src, cnt) = args(dest.as_ref(), src.as_ref(), count.as_ref(), size, vm)
-                .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
-
-            let dest_end = dest + cnt;
-            let src_end = src + cnt;
-
             zelf.try_writable(vm, |mmap| {
+                let (dest, src, cnt) =
+                    args(dest.as_ref(), src.as_ref(), count.as_ref(), mmap.len(), vm).ok_or_else(
+                        || vm.new_value_error("source, destination, or count out of range"),
+                    )?;
+                let dest_end = dest + cnt;
+                let src_end = src + cnt;
                 let src_buf = mmap[src..src_end].to_vec();
                 (&mut mmap[dest..dest_end])
                     .write(&src_buf)
@@ -996,6 +1067,9 @@ mod mmap {
                 .filter(|&n| n >= 0 && (n as usize) <= remaining)
                 .map_or(remaining, |n| n as usize);
 
+            if num_bytes == 0 {
+                return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx));
+            }
             let end_pos = pos + num_bytes;
             let bytes = mmap.deref().as_ref().unwrap().as_slice()[pos..end_pos].to_vec();
 
@@ -1008,12 +1082,13 @@ mod mmap {
 
         #[pymethod]
         fn read_byte(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let mmap = zelf.check_valid(vm)?;
             let pos = zelf.pos();
             if pos >= zelf.__len__() {
                 return Err(vm.new_value_error("read byte out of range"));
             }
 
-            let b = zelf.check_valid(vm)?.deref().as_ref().unwrap().as_slice()[pos];
+            let b = mmap.deref().as_ref().unwrap().as_slice()[pos];
 
             zelf.advance_pos(1);
 
@@ -1048,29 +1123,34 @@ mod mmap {
             Ok(result)
         }
 
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         #[pymethod]
-        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn resize(zelf: &Py<Self>, newsize: isize, vm: &VirtualMachine) -> PyResult<()> {
+            let mut mmap = zelf.check_valid(vm)?;
             zelf.check_resizeable(vm)?;
-
-            let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
-                vm.new_overflow_error("Python int too large to convert to C ssize_t")
-            })?;
-
-            // Linux mremap() refuses to grow a shared anonymous mapping, and NetBSD
-            // mremap() returns a mapping whose grown region is not backed.
-            #[cfg(any(target_os = "linux", target_os = "netbsd"))]
-            if zelf.fd.load() == -1
-                && zelf.flags & host_mmap::MAP_PRIVATE == 0
-                && new_size > zelf.size.load() as isize
-            {
+            let file_size = i128::from(zelf.offset) + newsize as i128;
+            if newsize < 0 || file_size > isize::MAX as i128 {
+                return Err(vm.new_value_error("new size out of range"));
+            }
+            let newsize = newsize as usize;
+            if zelf.anonymous && !zelf.private && newsize > zelf.__len__() {
                 return Err(vm.new_value_error("mmap: can't expand a shared anonymous mapping"));
             }
-
-            // TODO: implement using mremap on Linux
-            #[cfg(not(any(target_os = "linux", target_os = "netbsd")))]
-            let _ = new_size;
-            Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
+            let fd = zelf.fd.load();
+            if fd != -1 {
+                let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                    .map_err(|err| err.to_pyexception(vm))?;
+                let file_size = file_size
+                    .try_into()
+                    .map_err(|_| vm.new_value_error("new size out of range"))?;
+                crt_fd::ftruncate(fd, file_size).map_err(|err| err.to_pyexception(vm))?;
+            }
+            let MmapObj::Mapped(mapping) = mmap.as_mut().unwrap();
+            // The mapping is locked, exported buffers are prohibited, and its
+            // backing file has already been resized to cover the new mapping.
+            unsafe { mapping.remap(newsize) }.map_err(|err| err.to_pyexception(vm))?;
+            zelf.size.store(newsize);
+            Ok(())
         }
 
         #[cfg(windows)]
@@ -1196,15 +1276,25 @@ mod mmap {
 
         #[cfg(unix)]
         #[pymethod]
-        fn size(zelf: &Py<Self>, vm: &VirtualMachine) -> std::io::Result<PyIntRef> {
-            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(zelf.fd.load())? };
-            let file_len = host_mmap::file_len(fd)?;
+        fn size(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let _mmap = zelf.check_valid(vm)?;
+            if !zelf.trackfd {
+                return Err(vm.new_value_error("can't get size with trackfd=False"));
+            }
+            let fd = zelf.fd.load();
+            if fd == -1 {
+                return Ok(PyInt::from(zelf.__len__()).into_ref(&vm.ctx));
+            }
+            let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                .map_err(|err| err.to_pyexception(vm))?;
+            let file_len = host_mmap::file_len(fd).map_err(|err| err.to_pyexception(vm))?;
             Ok(PyInt::from(file_len).into_ref(&vm.ctx))
         }
 
         #[cfg(windows)]
         #[pymethod]
         fn size(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let _mmap = zelf.check_valid(vm)?;
             let handle = zelf.handle.load();
             if host_mmap::is_invalid_handle_value(handle) {
                 // Anonymous mapping, return the mmap size
@@ -1230,7 +1320,6 @@ mod mmap {
         fn write(zelf: &Py<Self>, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let self_ = &**zelf;
             let pos = self_.pos();
-            let size = self_.__len__();
 
             // Writing locks the map, and reading a source that views this same
             // map locks it too, so such a source is copied out first.
@@ -1244,11 +1333,10 @@ mod mmap {
                 &borrowed
             };
 
-            if pos > size || size - pos < data.len() {
-                return Err(vm.new_value_error("data out of range"));
-            }
-
             let len = self_.try_writable(vm, |mmap| {
+                if pos > mmap.len() || mmap.len() - pos < data.len() {
+                    return Err(vm.new_value_error("data out of range"));
+                }
                 (&mut mmap[pos..(pos + data.len())])
                     .write(data)
                     .map_err(|err| err.to_pyexception(vm))?;
@@ -1265,15 +1353,13 @@ mod mmap {
             let b = value_from_object(vm, &byte)?;
 
             let pos = zelf.pos();
-            let size = zelf.__len__();
-
-            if pos >= size {
-                return Err(vm.new_value_error("write byte out of range"));
-            }
-
             zelf.try_writable(vm, |mmap| {
+                if pos >= mmap.len() {
+                    return Err(vm.new_value_error("write byte out of range"));
+                }
                 mmap[pos] = b;
-            })?;
+                Ok(())
+            })??;
 
             zelf.advance_pos(1);
 
@@ -1356,11 +1442,12 @@ mod mmap {
         }
 
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            let mmap = self.check_valid(vm)?;
             let i = i
                 .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
-            let b = self.check_valid(vm)?.deref().as_ref().unwrap().as_slice()[i];
+            let b = mmap.deref().as_ref().unwrap().as_slice()[i];
 
             Ok(PyInt::from(b).into_ref(&vm.ctx).into())
         }
@@ -1370,9 +1457,8 @@ mod mmap {
             slice: &SaturatedSlice,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
-
             let mmap = self.check_valid(vm)?;
+            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
             let slice_data = mmap.deref().as_ref().unwrap().as_slice();
 
             if slice_len == 0 {
@@ -1421,17 +1507,15 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let i: usize = i
-                .wrapped_at(self.__len__())
-                .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
-
             let b = value_from_object(vm, value)?;
 
             self.try_writable(vm, |mmap| {
+                let i = i
+                    .wrapped_at(mmap.len())
+                    .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
                 mmap[i] = b;
-            })?;
-
-            Ok(())
+                Ok(())
+            })?
         }
 
         fn setitem_by_slice(
@@ -1440,43 +1524,37 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
-
             let bytes = bytes_from_object(vm, value)?;
 
-            if bytes.len() != slice_len {
-                return Err(vm.new_index_error("mmap slice assignment is wrong size"));
-            }
+            self.try_writable(vm, |mmap| {
+                let (range, step, slice_len) = slice.adjust_indices(mmap.len());
 
-            if slice_len == 0 {
-                // do nothing
-                Ok(())
-            } else if step == 1 {
-                self.try_writable(vm, |mmap| {
+                if bytes.len() != slice_len {
+                    return Err(vm.new_index_error("mmap slice assignment is wrong size"));
+                }
+
+                if slice_len == 0 {
+                    // do nothing
+                } else if step == 1 {
                     (&mut mmap[range])
                         .write(&bytes)
                         .map_err(|err| err.to_pyexception(vm))?;
-                    Ok(())
-                })?
-            } else {
-                let mut bi = 0; // bytes index
-                if step.is_negative() {
-                    for i in range.rev().step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
-                            mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
-                    }
                 } else {
-                    for i in range.step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
+                    let mut bi = 0; // bytes index
+                    if step.is_negative() {
+                        for i in range.rev().step_by(step.unsigned_abs()) {
                             mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
+                            bi += 1;
+                        }
+                    } else {
+                        for i in range.step_by(step.unsigned_abs()) {
+                            mmap[i] = bytes[bi];
+                            bi += 1;
+                        }
                     }
                 }
                 Ok(())
-            }
+            })?
         }
     }
 

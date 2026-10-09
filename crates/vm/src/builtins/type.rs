@@ -1,6 +1,6 @@
 use super::{
-    PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned, PyStrRef,
-    PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
+    PyAnyDictRef, PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned,
+    PyStrRef, PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
     AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -46,6 +46,32 @@ use rustpython_common::wtf8::Wtf8;
 use std::collections::HashSet;
 
 pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
+
+pub(crate) struct CommonTypeDescriptors {
+    dict: PyRef<super::PyGetSet>,
+    weakref: PyRef<super::PyGetSet>,
+}
+
+impl CommonTypeDescriptors {
+    pub(crate) fn new(ctx: &Context) -> Self {
+        // These descriptors operate on the instance's layout, not the class
+        // that first exposes them. Keeping object as their owner also lets an
+        // annotation closure retain a class namespace without retaining the class.
+        let dict = super::PyGetSet::new("__dict__", ctx.types.object_type, ctx)
+            .with_get(subtype_get_dict)
+            .with_set(subtype_set_dict)
+            .with_doc(ItemDoc::static_text("dictionary for instance variables"));
+        let weakref = super::PyGetSet::new("__weakref__", ctx.types.object_type, ctx)
+            .with_get(subtype_get_weakref)
+            .with_doc(ItemDoc::static_text(
+                "list of weak references to the object",
+            ));
+        Self {
+            dict: ctx.new_pyref(dict),
+            weakref: ctx.new_pyref(weakref),
+        }
+    }
+}
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
@@ -1798,24 +1824,8 @@ impl Constructor for PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyAnyDictRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
-
-        // A mapping that is not an exact dict (e.g. OrderedDict) keeps its
-        // own iteration order; copy via the mapping protocol so that order
-        // lands in the type dict.
-        let dict = if args.args[2].class().is(vm.ctx.types.dict_type) {
-            dict
-        } else {
-            let copied = vm.ctx.new_dict();
-            copied.merge_object(args.args[2].clone(), vm)?;
-            copied
-        };
-
-        if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters"));
-        }
-        let name = name.try_into_utf8(vm)?;
 
         let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1841,11 +1851,11 @@ impl Constructor for PyType {
             // Search the bases for the proper metatype to deal with this:
             let winner = calculate_meta_class(metatype.clone(), bases.as_slice(), vm)?;
             let metatype = if !winner.is(&metatype) {
-                if let Some(ref slot_new) = winner.slots.new.load() {
-                    // Pass it to the winner
-                    return slot_new(winner, args, vm);
-                }
-                winner
+                let slot_new = winner.slots.new.load().ok_or_else(|| {
+                    vm.new_type_error(format!("cannot create '{}' instances", winner.slot_name()))
+                })?;
+                // Pass it to the winner.
+                return slot_new(winner, args, vm);
             } else {
                 metatype
             };
@@ -1855,6 +1865,25 @@ impl Constructor for PyType {
 
             (metatype, base.to_owned(), bases, base_is_type)
         };
+
+        // Copy only after resolving the metaclass: its __new__ receives the
+        // original namespace. A subclass with a custom iterator (e.g.
+        // OrderedDict) keeps its own mapping order in the mutable type dict.
+        let dict = if let Some(dict) = dict.as_object().downcast_ref_if_exact::<PyDict>(vm) {
+            dict.to_owned()
+        } else {
+            let copied = vm.ctx.new_dict();
+            // Like dict.copy(), an empty table bypasses subclass hooks.
+            if !dict.is_empty() {
+                copied.merge_object(dict.into(), vm)?;
+            }
+            copied
+        };
+
+        if name.as_bytes().contains(&0) {
+            return Err(vm.new_value_error("type name must not contain null characters"));
+        }
+        let name = name.try_into_utf8(vm)?;
 
         let qualname = dict
             .get_item_opt(identifier!(vm, __qualname__), vm)?
@@ -1885,19 +1914,25 @@ impl Constructor for PyType {
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyClassMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __class_getitem__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyClassMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __new__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyStaticMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(globals) = crate::frame::current_globals() {
@@ -1948,16 +1983,6 @@ impl Constructor for PyType {
                 let tuple = elements.into_pytuple(vm);
                 tuple.try_into_typed(vm)?
             };
-
-            // Any nonempty __slots__ is rejected when the base has a variable
-            // item size, including a tuple of only `__dict__` or `__weakref__`.
-            // Types like weakref.ref have itemsize 0 and do allow slots.
-            if !slots.as_slice().is_empty() && base.slots.itemsize > 0 {
-                return Err(vm.new_type_error(format!(
-                    "nonempty __slots__ not supported for subtype of '{}'",
-                    base.name()
-                )));
-            }
 
             // Validate slot names and track duplicates
             let mut seen_dict = false;
@@ -2030,6 +2055,19 @@ impl Constructor for PyType {
                 .cloned()
                 .collect();
             filtered.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            // CPython 3.15 permits named slots on tuple subclasses. Our
+            // member cells live in the object prefix, independently of the
+            // tuple's elements. Other variable-size bases still only accept
+            // the managed __dict__ and __weakref__ slots filtered above.
+            if !filtered.is_empty()
+                && base.slots.itemsize > 0
+                && !base.fast_issubclass(vm.ctx.types.tuple_type)
+            {
+                return Err(vm.new_type_error(format!(
+                    "arbitrary __slots__ not supported for subtype of '{}'",
+                    base.name()
+                )));
+            }
             let filtered_slots = PyTuple::new_ref_typed(filtered, &vm.ctx);
 
             (Some(filtered_slots), has_dict, add_weakref)
@@ -2197,7 +2235,7 @@ impl Constructor for PyType {
         // Also, type subclasses don't need their own __dict__ descriptor
         // since they inherit it from type
 
-        // Add __dict__ descriptor after type creation to ensure correct __objclass__
+        // Share the interpreter's object-owned __dict__ descriptor.
         // Only add if:
         // 1. base is not type (type subclasses inherit __dict__ from type)
         // 2. the class has HAS_DICT flag (i.e., __slots__ was not defined or __dict__ is in __slots__)
@@ -2210,12 +2248,10 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__dict__));
             if !typ.attributes.contains(__dict__) && !has_inherited_dict {
-                let getset = super::PyGetSet::new("__dict__", &typ, &vm.ctx)
-                    .with_get(subtype_get_dict)
-                    .with_set(subtype_set_dict)
-                    .with_doc(ItemDoc::static_text("dictionary for instance variables"));
-                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
-                typ.attributes.set(__dict__, descriptor.into());
+                typ.attributes.set(
+                    __dict__,
+                    vm.state.common_type_descriptors.dict.clone().into(),
+                );
             }
         }
 
@@ -2228,14 +2264,10 @@ impl Constructor for PyType {
                 .iter()
                 .any(|base| base.attributes.contains(__weakref__));
             if !typ.attributes.contains(__weakref__) && !has_inherited_weakref {
-                let getset = super::PyGetSet::new("__weakref__", &typ, &vm.ctx)
-                    .with_get(subtype_get_weakref)
-                    .with_set(subtype_set_weakref)
-                    .with_doc(ItemDoc::static_text(
-                        "list of weak references to the object",
-                    ));
-                let descriptor = PyRef::new_ref(getset, vm.ctx.types.getset_type.to_owned(), None);
-                typ.attributes.set(__weakref__, descriptor.into());
+                typ.attributes.set(
+                    __weakref__,
+                    vm.state.common_type_descriptors.weakref.clone().into(),
+                );
             }
         }
 
@@ -2463,8 +2495,8 @@ impl Py<PyType> {
         // Similar to CPython's type_set_doc
         let value = value.ok_or_else(|| {
             vm.new_type_error(format!(
-                "cannot delete '__doc__' attribute of immutable type '{}'",
-                self.name()
+                "cannot delete '__doc__' attribute of type '{}'",
+                self.slot_name()
             ))
         })?;
 
@@ -2520,15 +2552,23 @@ impl Py<PyType> {
         PyType::with_type_lock(vm, || self.bases.read().clone().into_untyped())
     }
     #[pygetset(setter, name = "__bases__")]
-    fn set_bases(zelf: &Self, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_bases(zelf: &Self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
-        if zelf.slots().flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error(format!(
-                "cannot set '__bases__' attribute of immutable type '{}'",
-                zelf.name()
-            )));
-        }
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '__bases__' attribute of type '{}'",
+                zelf.slot_name()
+            ))
+        })?;
+        zelf.check_set_special_type_attr(identifier!(vm, __bases__), vm)?;
+        let bases_tuple = value.downcast::<PyTuple>().map_err(|value| {
+            vm.new_type_error(format!(
+                "can only assign tuple to {}.__bases__, not {}",
+                zelf.slot_name(),
+                value.class().slot_name()
+            ))
+        })?;
         if bases_tuple.as_slice().is_empty() {
             return Err(vm.new_type_error(format!(
                 "can only assign non-empty tuple to {}.__bases__, not ()",
@@ -2553,11 +2593,7 @@ impl Py<PyType> {
 
         // Reject reparenting onto a base whose instances have an incompatible
         // object layout.
-        let old_base_owned = zelf.base.load_owned();
-        let old_base = old_base_owned
-            .as_deref()
-            .unwrap_or(vm.ctx.types.object_type);
-        compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
+        compatible_for_assignment(zelf, &new_base, "__bases__", false, vm)?;
 
         // References released inside the critical section are collected here
         // and dropped after the lock: dropping them inside can run arbitrary
@@ -2912,10 +2948,10 @@ impl Py<PyType> {
         let annotations = if annotate.is_callable() {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
+            if !result.downcastable::<PyDict>() {
                 return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
+                    "__annotate__() must return a dict, not {}",
+                    result.class().fully_qualified_name(vm)?
                 )));
             }
             result
@@ -3193,6 +3229,9 @@ impl SetAttr for PyType {
                 }
             }
             Ok(prev_value)
+        })
+        .inspect_err(|exc| {
+            vm.set_attribute_error_context(exc, zelf.to_owned().into(), attr_name.to_owned());
         })?;
         Ok(())
     }
@@ -3369,18 +3408,18 @@ fn subtype_set_dict(obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine)
 }
 
 // subtype_get_weakref
-fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if !obj
+        .class()
+        .slots
+        .flags
+        .has_feature(PyTypeFlags::HAS_WEAKREF)
+    {
+        return Err(vm.new_attribute_error("This object has no __weakref__"));
+    }
     // Return the first weakref in the weakref list, or None
     let weakref = obj.get_weakrefs();
-    weakref.unwrap_or_else(|| vm.ctx.none())
-}
-
-// subtype_set_weakref: __weakref__ is read-only
-fn subtype_set_weakref(obj: PyObjectRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    Err(vm.new_attribute_error(format!(
-        "attribute '__weakref__' of '{}' objects is not writable",
-        obj.class().name()
-    )))
+    Ok(weakref.unwrap_or_else(|| vm.ctx.none()))
 }
 
 /*
@@ -3677,7 +3716,11 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
+    // Prefix member cells do not change basicsize, but still make a base
+    // solid: unrelated slotted bases cannot share the same member indexes.
+    t1.slots.basicsize != t2.slots.basicsize
+        || t1.slots.itemsize != t2.slots.itemsize
+        || t1.slots.member_count != t2.slots.member_count
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
@@ -3735,20 +3778,21 @@ fn type_has_weakref(typ: &Py<PyType>) -> bool {
 
 /// Returns true if `child` adds no instance layout of its own beyond its base,
 /// so the base can stand in for it when comparing object layouts.
-fn compatible_with_base(child: &Py<PyType>) -> bool {
+fn compatible_with_base(child: &Py<PyType>, set_class: bool) -> bool {
     let Some(parent) = child.base.deref() else {
         return false;
     };
     child.slots.basicsize == parent.slots.basicsize
         && child.slots.itemsize == parent.slots.itemsize
         && child.slots.member_count == parent.slots.member_count
-        && type_has_dict(child) == type_has_dict(parent)
-        && type_has_weakref(child) == type_has_weakref(parent)
+        && (!set_class
+            || (type_has_dict(child) == type_has_dict(parent)
+                && type_has_weakref(child) == type_has_weakref(parent)))
 }
 
 /// Walk up to the most derived base that actually fixes the instance layout.
-fn layout_solid_base(mut typ: &Py<PyType>) -> &Py<PyType> {
-    while compatible_with_base(typ) {
+fn layout_solid_base(mut typ: &Py<PyType>, set_class: bool) -> &Py<PyType> {
+    while compatible_with_base(typ, set_class) {
         typ = typ.base.deref().unwrap();
     }
     typ
@@ -3756,12 +3800,12 @@ fn layout_solid_base(mut typ: &Py<PyType>) -> &Py<PyType> {
 
 /// Returns true if `a` and `b`, which share the same base, added the same
 /// instance layout (`__dict__`, `__weakref__`, and `__slots__`).
-fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
+fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>, set_class: bool) -> bool {
     if a.slots.basicsize != b.slots.basicsize
         || a.slots.itemsize != b.slots.itemsize
         || a.slots.member_count != b.slots.member_count
-        || type_has_dict(a) != type_has_dict(b)
-        || type_has_weakref(a) != type_has_weakref(b)
+        || (set_class
+            && (type_has_dict(a) != type_has_dict(b) || type_has_weakref(a) != type_has_weakref(b)))
     {
         return false;
     }
@@ -3780,25 +3824,44 @@ fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
     }
 }
 
-/// Validates that instances of `old_to` and `new_to` share an interchangeable
-/// object layout, the check `__class__` and `__bases__` assignment perform.
+/// Validates the layout for `__class__` or `__bases__` assignment. For a base
+/// change, `original` is the existing class whose allocation must remain valid.
 ///
 /// `attr` names the attribute being assigned for the error message; the
-/// message reports `new_to` first and `old_to` second.
+/// message reports the new type first and the replaced type or base second.
 pub(crate) fn compatible_for_assignment(
-    old_to: &Py<PyType>,
+    original: &Py<PyType>,
     new_to: &Py<PyType>,
     attr: &str,
+    set_class: bool,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let newbase = layout_solid_base(new_to);
-    let oldbase = layout_solid_base(old_to);
+    let old_base = if set_class {
+        None
+    } else {
+        original.base.load_owned()
+    };
+    let old_to = old_base.as_deref().unwrap_or(original);
+    // Reparenting leaves the class's prefix allocation unchanged. A new base
+    // may use its existing dict/weakref storage, but cannot require storage
+    // the class never allocated. Payload size and member slots are checked
+    // separately against the old base, not against the class's own additions.
+    let storage_compatible = set_class
+        || ((!type_has_dict(new_to) || type_has_dict(original))
+            && (!type_has_weakref(new_to) || type_has_weakref(original)));
+    let newbase = layout_solid_base(new_to, set_class);
+    let oldbase = layout_solid_base(old_to, set_class);
     let bases_equal = match (newbase.base.deref(), oldbase.base.deref()) {
         (Some(x), Some(y)) => x.is(y),
         (None, None) => true,
         _ => false,
     };
-    let compatible = newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
+    let compatible = storage_compatible
+        && (newbase.is(oldbase)
+            || (bases_equal
+                && (set_class
+                    || (newbase.heaptype_ext.is_some() && oldbase.heaptype_ext.is_some()))
+                && same_slots_added(newbase, oldbase, set_class)));
     if compatible {
         return Ok(());
     }

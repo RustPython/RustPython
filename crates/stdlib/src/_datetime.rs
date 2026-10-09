@@ -9,6 +9,8 @@ pub(crate) use _datetime::{PyTzInfo, datetime_type, module_def, timedelta_from_s
 
 #[pymodule]
 mod _datetime {
+    #[cfg(windows)]
+    use crate::vm::convert::ToPyException;
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectCell, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
@@ -1525,7 +1527,8 @@ mod _datetime {
         vals: &mut [i32; 4],
         tzoffset: &mut i32,
         tzmicrosecond: &mut i32,
-    ) -> i32 {
+        vm: &VirtualMachine,
+    ) -> PyResult<i32> {
         let p_end = start + len;
         let mut tzinfo_pos = start;
         loop {
@@ -1540,18 +1543,18 @@ mod _datetime {
         }
         let rv = parse_hh_mm_ss_ff(s, start, tzinfo_pos, vals);
         if rv < 0 {
-            return rv;
+            return Ok(rv);
         } else if tzinfo_pos == p_end {
-            return if rv == 1 { -5 } else { 0 };
+            return Ok(if rv == 1 { -5 } else { 0 });
         }
         if byte_at(s, tzinfo_pos) == b'Z' {
             *tzoffset = 0;
             *tzmicrosecond = 0;
-            return if byte_at(s, tzinfo_pos + 1) != 0 {
+            return Ok(if byte_at(s, tzinfo_pos + 1) != 0 {
                 -5
             } else {
                 1
-            };
+            });
         }
         let tzsign = if byte_at(s, tzinfo_pos) == b'-' {
             -1
@@ -1560,9 +1563,10 @@ mod _datetime {
         };
         let mut tz = [0; 4];
         let rv = parse_hh_mm_ss_ff(s, tzinfo_pos + 1, p_end, &mut tz);
+        check_time_args(tz[0], tz[1], tz[2], tz[3], 0, vm)?;
         *tzoffset = tzsign * (tz[0] * 3600 + tz[1] * 60 + tz[2]);
         *tzmicrosecond = tzsign * tz[3];
-        if rv != 0 { -5 } else { 1 }
+        Ok(if rv != 0 { -5 } else { 1 })
     }
 
     fn tzinfo_from_isoformat_results(
@@ -1746,18 +1750,15 @@ mod _datetime {
 
     /// `_PyTime_ObjectToTime_t` with floor rounding.
     fn object_to_time_t(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
-        if let Some(float) = obj.downcast_ref::<PyFloat>() {
-            let d = float.to_f64();
-            if d.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            let d = d.floor();
-            if !(-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&d) {
-                return Err(time_t_overflow(vm));
-            }
-            return Ok(d as i64);
+        if obj.number().is_index() {
+            return long_to_time_t(obj, vm);
         }
-        long_to_time_t(obj, vm)
+        let d = timestamp_as_double(obj, vm)?;
+        let d = d.floor();
+        if !(-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&d) {
+            return Err(time_t_overflow(vm));
+        }
+        Ok(d as i64)
     }
 
     fn time_t_overflow(vm: &VirtualMachine) -> crate::vm::builtins::PyBaseExceptionRef {
@@ -1770,29 +1771,37 @@ mod _datetime {
         int.as_bigint().to_i64().ok_or_else(|| time_t_overflow(vm))
     }
 
+    fn timestamp_as_double(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
+        let d = match obj.downcast_ref::<PyFloat>() {
+            Some(float) => float.to_f64(),
+            None => obj.try_float(vm)?.to_f64(),
+        };
+        if d.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+        }
+        Ok(d)
+    }
+
     /// `_PyTime_ObjectToTimeval` with half-even rounding: whole seconds and microseconds.
     fn object_to_timeval(obj: &PyObject, vm: &VirtualMachine) -> PyResult<(i64, i32)> {
-        if let Some(float) = obj.downcast_ref::<PyFloat>() {
-            let d = float.to_f64();
-            if d.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            let mut intpart = d.trunc();
-            let mut floatpart = (d - intpart) * 1e6;
-            floatpart = round_half_even(floatpart);
-            if floatpart >= 1e6 {
-                floatpart -= 1e6;
-                intpart += 1.0;
-            } else if floatpart < 0.0 {
-                floatpart += 1e6;
-                intpart -= 1.0;
-            }
-            if !(-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&intpart) {
-                return Err(time_t_overflow(vm));
-            }
-            return Ok((intpart as i64, floatpart as i32));
+        if obj.number().is_index() {
+            return Ok((long_to_time_t(obj, vm)?, 0));
         }
-        Ok((long_to_time_t(obj, vm)?, 0))
+        let d = timestamp_as_double(obj, vm)?;
+        let mut intpart = d.trunc();
+        let mut floatpart = (d - intpart) * 1e6;
+        floatpart = round_half_even(floatpart);
+        if floatpart >= 1e6 {
+            floatpart -= 1e6;
+            intpart += 1.0;
+        } else if floatpart < 0.0 {
+            floatpart += 1e6;
+            intpart -= 1.0;
+        }
+        if !(-9.223_372_036_854_776e18..9.223_372_036_854_776e18).contains(&intpart) {
+            return Err(time_t_overflow(vm));
+        }
+        Ok((intpart as i64, floatpart as i32))
     }
 
     fn round_half_even(x: f64) -> f64 {
@@ -1819,12 +1828,16 @@ mod _datetime {
     fn platform_time(t: i64, local: bool, vm: &VirtualMachine) -> PyResult<Tm> {
         #[cfg(any(unix, windows))]
         {
-            let t_c = libc::time_t::try_from(t).map_err(|_| time_t_overflow(vm))?;
+            let t_c =
+                rustpython_host_env::time::TimeT::try_from(t).map_err(|_| time_t_overflow(vm))?;
             let tm = if local {
                 rustpython_host_env::time::localtime_from_timestamp(t_c)
             } else {
                 rustpython_host_env::time::gmtime_from_timestamp(t_c)
             };
+            #[cfg(windows)]
+            let tm = tm.map_err(|error| error.to_pyexception(vm))?;
+            #[cfg(unix)]
             let Some(tm) = tm else {
                 return Err(vm.new_last_errno_error());
             };
@@ -3018,7 +3031,8 @@ mod _datetime {
             let len = bytes.len() - start;
             let mut vals = [0; 4];
             let (mut tzoffset, mut tzusec) = (0, 0);
-            let rv = parse_isoformat_time(bytes, start, len, &mut vals, &mut tzoffset, &mut tzusec);
+            let rv =
+                parse_isoformat_time(bytes, start, len, &mut vals, &mut tzoffset, &mut tzusec, vm)?;
             if rv < 0 {
                 return Err(invalid_isoformat(&tstr, vm)?);
             }
@@ -3486,8 +3500,7 @@ mod _datetime {
         let tm = platform_time(timet, local_tm, vm)?;
         let second = tm.second.min(59);
         let mut fold = 0;
-        let skip_probe = cfg!(windows) && timet - MAX_FOLD_SECONDS <= 0;
-        if tzinfo.is_none() && local_tm && !skip_probe {
+        if tzinfo.is_none() && local_tm {
             let result_seconds =
                 utc_to_seconds(tm.year, tm.month, tm.day, tm.hour, tm.minute, second, vm)?;
             let probe_seconds = local(EPOCH_SECONDS + timet - MAX_FOLD_SECONDS, vm)?;
@@ -3890,7 +3903,8 @@ mod _datetime {
                     }
                 };
                 len = len.saturating_sub(p);
-                rv = parse_isoformat_time(bytes, p, len, &mut vals, &mut tzoffset, &mut tzusec);
+                rv =
+                    parse_isoformat_time(bytes, p, len, &mut vals, &mut tzoffset, &mut tzusec, vm)?;
             }
             if rv < 0 {
                 return Err(invalid_isoformat(&dtstr, vm)?);

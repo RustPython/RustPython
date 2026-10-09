@@ -5,6 +5,7 @@ import sys
 import unittest
 import unittest.mock
 import _colorize
+from test.support import cpython_only, import_helper
 from test.support.os_helper import EnvironmentVarGuard
 
 
@@ -20,6 +21,15 @@ def supports_virtual_terminal():
         return unittest.mock.patch("nt._supports_virtual_terminal", return_value=True)
     else:
         return contextlib.nullcontext()
+
+
+class TestImportTime(unittest.TestCase):
+
+    @cpython_only
+    def test_lazy_import(self):
+        import_helper.ensure_lazy_imports(
+            "_colorize", {"copy", "re", "inspect", "typing"}
+        )
 
 
 class TestTheme(unittest.TestCase):
@@ -40,6 +50,7 @@ class TestTheme(unittest.TestCase):
         unittest_no_colors = _colorize.Unittest.no_colors()
         copy = theme.copy_with(unittest=unittest_no_colors)
         self.assertEqual(copy.argparse, theme.argparse)
+        self.assertEqual(copy.difflib, theme.difflib)
         self.assertEqual(copy.syntax, theme.syntax)
         self.assertEqual(copy.traceback, theme.traceback)
         self.assertEqual(copy.unittest, unittest_no_colors)

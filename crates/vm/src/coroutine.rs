@@ -40,6 +40,8 @@ pub struct Coro {
     code: PyRef<PyCode>,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
+    /// The body has not started until execution advances past its creation point.
+    creation_lasti: u32,
     // _weakreflist
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -159,7 +161,7 @@ pub(crate) fn flat_resume_enter(
     if coro.closed.load() {
         return Ok(FlatEnter::Exhausted);
     }
-    let value = if coro.frame_opt().is_some_and(|f| f.lasti() > 0) {
+    let value = if coro.started() {
         Some(value)
     } else if !vm.is_none(&value) {
         return Err(vm.new_type_error(format!(
@@ -184,6 +186,7 @@ pub(crate) fn flat_resume_enter(
             return Err(exc);
         }
     };
+    coro.prepare_resume(&frame_ref);
     // The claim outlives this scope; `flat_resume_exit` drops it.
     core::mem::forget(_claim);
     Ok(FlatEnter::Entered {
@@ -228,12 +231,14 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 impl Coro {
     pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         let code = frame.iframe().code().to_owned();
+        let creation_lasti = frame.lasti();
         frame.as_object().mark_cache_published();
         Self {
             frame: Some(frame).into(),
             code,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
+            creation_lasti,
             exception: PyAtomicRef::from(None),
             name: PyMutex::new(name),
             qualname: PyMutex::new(qualname),
@@ -354,12 +359,15 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
+        let value = if self.started() {
             Some(vm.ctx.none())
         } else {
             None
         };
-        let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
+        let result = self.run_claimed(&claim, vm, |f| {
+            self.prepare_resume(f);
+            f.resume(value, vm)
+        });
         self.maybe_close(&result, &claim);
         drop(claim);
         self.finalize_send_result(result, jen, vm)
@@ -401,7 +409,7 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
+        let value = if self.started() {
             Some(value)
         } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
@@ -411,7 +419,10 @@ impl Coro {
         } else {
             None
         };
-        let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
+        let result = self.run_claimed(&claim, vm, |f| {
+            self.prepare_resume(f);
+            f.resume(value, vm)
+        });
         self.maybe_close(&result, &claim);
         drop(claim);
         self.finalize_send_result(result, jen, vm)
@@ -462,7 +473,7 @@ impl Coro {
             return Ok(vm.ctx.none());
         }
         // FRAME_CREATED: mark finished and clear the iframe.
-        if self.frame_opt().is_none_or(|f| f.lasti() == 0) {
+        if !self.started() {
             self.closed.store(true);
             self.clear_except_code();
             return Ok(vm.ctx.none());
@@ -490,16 +501,37 @@ impl Coro {
         }
     }
 
+    /// Switch a created eager frame from its exposed POP_TOP position to the
+    /// next-instruction convention used by the dispatcher. The running claim
+    /// must be held, and this is only for normal sends, never throw or close.
+    fn prepare_resume(&self, frame: &FrameObject) {
+        if self.creation_lasti != 0 && frame.lasti() == self.creation_lasti {
+            frame.set_lasti(self.creation_lasti - 1);
+        }
+    }
+
     /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
     /// than at its start.
     pub(crate) fn started(&self) -> bool {
-        self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        self.frame_opt()
+            .is_some_and(|f| f.lasti() > self.creation_lasti)
+    }
+
+    pub(crate) fn state_name(&self, names: [&'static str; 4]) -> &'static str {
+        let index = if self.running() {
+            1
+        } else if self.closed() {
+            3
+        } else if self.started() {
+            2
+        } else {
+            0
+        };
+        names[index]
     }
 
     pub fn suspended(&self) -> bool {
-        !self.closed.load()
-            && !self.running.load()
-            && self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        !self.closed.load() && !self.running.load() && self.started()
     }
 
     pub fn running(&self) -> bool {
@@ -632,12 +664,16 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine"));
+            return Err(vm.new_type_error(format!(
+                "{}.__await__() must return an iterator, not coroutine",
+                obj.class().fully_qualified_name(vm)?
+            )));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(
-                "__await__() returned non-iterator of type '{}'",
-                result.class().name()
+                "{}.__await__() must return an iterator, not {}",
+                obj.class().fully_qualified_name(vm)?,
+                result.class().fully_qualified_name(vm)?
             )));
         }
         return Ok(result);

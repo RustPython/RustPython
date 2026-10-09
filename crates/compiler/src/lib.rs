@@ -388,6 +388,19 @@ fn default_parse_diagnostic(
     error: parser::ParseError,
     source_file: &SourceFile,
 ) -> NormalizedParseDiagnostic {
+    if let parser::ParseErrorType::MissingCommaAfterConcatenatedLiteral {
+        diagnostic_start, ..
+    } = &error.error
+    {
+        // Concatenation hints can have empty or reversed CPython diagnostic ranges.
+        let (location, end_location) =
+            source_locations(source_file, *diagnostic_start, error.location.end());
+        return NormalizedParseDiagnostic::new(error.error, location, end_location);
+    }
+    if matches!(error.error, parser::ParseErrorType::EmptyImportNames) {
+        let location = source_location(source_file, error.location.start());
+        return NormalizedParseDiagnostic::new(error.error, location, location);
+    }
     let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
     NormalizedParseDiagnostic::new(error.error, loc, end_loc)
 }
@@ -950,6 +963,55 @@ pub fn too_deeply_nested_error(
     }))
 }
 
+/// Source-only rejection performed by CPython's checked_from_import parser action.
+#[doc(hidden)]
+#[must_use]
+pub fn lazy_future_import_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::statement_visitor::StatementVisitor;
+
+    struct Checker<'a> {
+        pending: Vec<&'a ast::Stmt>,
+    }
+
+    impl<'a> StatementVisitor<'a> for Checker<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            self.pending.push(stmt);
+        }
+    }
+
+    let ast::Mod::Module(module) = ast else {
+        return None;
+    };
+    let mut checker = Checker {
+        pending: module.body.iter().collect(),
+    };
+    let mut first = None;
+    while let Some(stmt) = checker.pending.pop() {
+        if let ast::Stmt::ImportFrom(import) = stmt
+            && import.is_lazy
+            && import.level == 0
+            && import
+                .module
+                .as_ref()
+                .is_some_and(|name| name.as_str() == "__future__")
+        {
+            let start = import.range.start().to_usize();
+            first = Some(first.map_or(start, |previous: usize| previous.min(start)));
+        }
+        ast::statement_visitor::walk_stmt(&mut checker, stmt);
+    }
+    first.map(|start| {
+        CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new(
+                "lazy from __future__ import is not allowed".to_owned(),
+                start,
+                start + 4,
+            ),
+        )
+    })
+}
+
 /// Syntax the reference grammar has no rule for, but that this parser accepts.
 ///
 /// A bare generator expression is one: `f(x for x in y)` is the `primary
@@ -1146,15 +1208,16 @@ pub fn single_mode_multiple_statements_error(
     let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
         Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
         _ => newline.start(),
-    }
-    .to_usize();
-    Some(CompileError::from_source_error(
+    };
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: parser::ParseErrorType::OtherError(
+                "multiple statements found while compiling a single statement".to_owned(),
+            ),
+            location: ruff_text_size::TextRange::new(position, position + TextSize::new(1)),
+        },
         source_file,
-        CpythonDiagnostic::new(
-            "multiple statements found while compiling a single statement".to_owned(),
-            position,
-            position,
-        ),
+        Mode::Single,
     ))
 }
 
@@ -1362,6 +1425,11 @@ fn _compile_with_syntax_warning_handler<'a>(
     );
     pre_parse_source_error(&source_file)?;
     let parsed = parser::parse_unchecked(barry_source.source(), parser_options);
+    if parsed.errors().is_empty()
+        && let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file)
+    {
+        return Err(error);
+    }
     if matches!(mode, Mode::Single)
         && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
     {
@@ -1477,7 +1545,27 @@ impl BarrySource<'_> {
         parse_error: Option<&parser::ParseError>,
         source_file: &SourceFile,
     ) -> Option<CompileError> {
-        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+        if let Some(error) = parse_error
+            && let Some(range) = self.invalid_legacy_operator(error)
+        {
+            if error.location.start() > range.start() {
+                return Some(CompileError::from_source_error(
+                    source_file,
+                    CpythonDiagnostic::new(
+                        "invalid syntax.  Maybe you meant '!=' instead of '<>'?".to_owned(),
+                        range.start().to_usize(),
+                        range.end().to_usize(),
+                    ),
+                ));
+            }
+            // At expression start, '<' is already invalid: the comparison
+            // production (and its obsolete-operator hint) was never entered.
+            // Barry mode instead lexed the rewritten '!=' as one token.
+            let range = if self.source.as_bytes()[range.start().to_usize()] == b'<' {
+                ruff_text_size::TextRange::at(range.start(), TextSize::new(1))
+            } else {
+                range
+            };
             return Some(barry_as_flufl_invalid_legacy_operator_error(
                 source_file,
                 range,
@@ -1669,6 +1757,11 @@ pub fn _compile_symtable(
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             pre_parse_source_error(&source_file)?;
             let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), parser_options);
+            if parsed.errors().is_empty()
+                && let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file)
+            {
+                return Err(error);
+            }
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed)
             {
@@ -2413,7 +2506,10 @@ mod tests {
     fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
         let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<>' outside Barry mode is a syntax error");
-        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax.  Maybe you meant '!=' instead of '<>'?"
+        );
         assert_eq!(err.python_location(), (1, 3));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
@@ -2426,12 +2522,12 @@ mod tests {
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
         // A `<>` that starts a statement is reported at the `<` too, where the
-        // parser stops instead of one character in.
+        // parser stops; only that first character is highlighted.
         let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("a bare '<>' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 1));
-        assert_eq!(err.python_end_location(), Some((1, 3)));
+        assert_eq!(err.python_end_location(), Some((1, 2)));
 
         // A bracket left open earlier in the source outranks the operator.
         let err = compile(

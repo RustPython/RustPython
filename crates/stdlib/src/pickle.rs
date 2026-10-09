@@ -5,7 +5,7 @@ pub(crate) use _pickle::module_def;
 mod _pickle {
     use crate::common::{
         lock::{PyMutex, PyRwLock},
-        wtf8::Wtf8Buf,
+        wtf8::{Wtf8Buf, wtf8_concat},
     };
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -15,6 +15,7 @@ mod _pickle {
             PyInt, PyList, PySet, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         function::{FuncArgs, OptionalArg, PySetterValue},
+        object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
     };
@@ -228,6 +229,9 @@ mod _pickle {
 
     /// Amount of data `peek()` grabs at a time from a file-like input.
     const PREFETCH: usize = 8192;
+    // Grow reads geometrically from this bound, rather than trusting a length
+    // advertised by a potentially truncated pickle.
+    const MIN_READ_BUF_SIZE: usize = 1 << 20;
 
     // input handling
 
@@ -247,14 +251,29 @@ mod _pickle {
         frame_end: Option<usize>,
     }
 
+    // SAFETY: these are all the Python references owned by the input state.
+    unsafe impl Traverse for ReadState {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.read.traverse(traverse_fn);
+            self.readline.traverse(traverse_fn);
+            self.peek.traverse(traverse_fn);
+        }
+    }
+
     fn to_byte_vec(obj: &PyObject, what: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        obj.downcast_ref::<crate::vm::builtins::PyBytes>()
-            .map(|b| b.as_bytes().to_vec())
+        let bytes = obj
+            .downcast_ref::<PyBytes>()
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "{what}() from the underlying stream did not return bytes"
                 ))
-            })
+            })?
+            .as_bytes();
+        let mut data = Vec::new();
+        data.try_reserve_exact(bytes.len())
+            .map_err(|_| vm.no_memory_error())?;
+        data.extend_from_slice(bytes);
+        Ok(data)
     }
 
     fn truncated(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -304,8 +323,19 @@ mod _pickle {
                 }
             }
             let read = self.read.clone().expect("file input");
-            let data = read.call((n,), vm)?;
-            let data = to_byte_vec(&data, "read", vm)?;
+            let mut chunk_size = n.min(MIN_READ_BUF_SIZE);
+            let data = read.call((chunk_size,), vm)?;
+            let mut data = to_byte_vec(&data, "read", vm)?;
+            let mut received = data.len();
+            while received == chunk_size && data.len() < n {
+                chunk_size = data.len().min(n - data.len());
+                let chunk = read.call((chunk_size,), vm)?;
+                let chunk = to_byte_vec(&chunk, "read", vm)?;
+                received = chunk.len();
+                data.try_reserve(received)
+                    .map_err(|_| vm.no_memory_error())?;
+                data.extend_from_slice(&chunk);
+            }
             let len = data.len();
             self.set_input(data, true);
             Ok(len)
@@ -316,7 +346,7 @@ mod _pickle {
             if let Some(end) = self.frame_end {
                 if self.pos >= end {
                     self.frame_end = None;
-                } else if self.pos + n > end {
+                } else if n > end - self.pos {
                     return Err(new_unpickling_error(
                         vm,
                         "pickle exhausted before end of frame",
@@ -398,7 +428,7 @@ mod _pickle {
     // memo proxies
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "UnpicklerMemoProxy")]
+    #[pyclass(module = "_pickle", name = "UnpicklerMemoProxy", traverse)]
     #[derive(Debug, PyPayload)]
     struct UnpicklerMemoProxy {
         unpickler: PyRef<PyUnpickler>,
@@ -464,6 +494,13 @@ mod _pickle {
         buffers: Option<PyObjectRef>,
     }
 
+    // SAFETY: buffers is the only Python reference owned by the configuration.
+    unsafe impl Traverse for UnpicklerConfig {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.buffers.traverse(traverse_fn);
+        }
+    }
+
     impl Default for UnpicklerConfig {
         fn default() -> Self {
             Self {
@@ -478,12 +515,40 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "Unpickler")]
+    #[pyclass(module = "_pickle", name = "Unpickler", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyUnpickler {
         read_state: PyMutex<ReadState>,
         memo: PyRwLock<UnpicklerMemo>,
         config: PyRwLock<UnpicklerConfig>,
+    }
+
+    // SAFETY: visit each owned reference once, including sparse memo entries.
+    unsafe impl Traverse for PyUnpickler {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.read_state.traverse(traverse_fn);
+            self.config.traverse(traverse_fn);
+            if let Some(memo) = self.memo.try_read_recursive() {
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "GC tracing visits every memo reference regardless of index order"
+                )]
+                for value in memo.values() {
+                    value.traverse(traverse_fn);
+                }
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let state = self.read_state.get_mut();
+            out.extend(state.read.take());
+            out.extend(state.readline.take());
+            out.extend(state.peek.take());
+            out.extend(self.memo.get_mut().drain().map(|(_, value)| value));
+            let config = self.config.get_mut();
+            out.extend(config.buffers.take());
+            config.initialized = false;
+        }
     }
 
     #[derive(FromArgs)]
@@ -556,23 +621,29 @@ mod _pickle {
                 return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
             }
 
-            *state = ReadState {
-                read,
-                readline,
-                peek,
-                ..ReadState::default()
-            };
+            let old_state = core::mem::replace(
+                &mut *state,
+                ReadState {
+                    read,
+                    readline,
+                    peek,
+                    ..ReadState::default()
+                },
+            );
             let old_memo = core::mem::take(&mut *zelf.memo.write());
-            *zelf.config.write() = UnpicklerConfig {
-                initialized: true,
-                proto: 0,
-                fix_imports: args.fix_imports,
-                encoding,
-                errors,
-                buffers,
-            };
+            let old_config = core::mem::replace(
+                &mut *zelf.config.write(),
+                UnpicklerConfig {
+                    initialized: true,
+                    proto: 0,
+                    fix_imports: args.fix_imports,
+                    encoding,
+                    errors,
+                    buffers,
+                },
+            );
             drop(state);
-            drop(old_memo);
+            drop((old_state, old_memo, old_config));
             Ok(())
         }
     }
@@ -818,13 +889,18 @@ mod _pickle {
             .ok()
             .filter(|n| isize::try_from(*n).is_ok())
             .ok_or_else(|| {
-                new_unpickling_error(
-                    vm,
+                let message = if what == "FRAME" {
+                    format!(
+                        "FRAME length exceeds system's maximum of {} bytes",
+                        isize::MAX
+                    )
+                } else {
                     format!(
                         "{what} exceeds system's maximum size of {} bytes",
                         isize::MAX
-                    ),
-                )
+                    )
+                };
+                vm.new_overflow_error(message)
             })
     }
 
@@ -1090,7 +1166,7 @@ mod _pickle {
                 }
                 Some(BINBYTES8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
-                    let n = read_size(&arr, vm, "BINBYTES8")?;
+                    let n = read_size(&arr, vm, "BINBYTES")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(vm.ctx.new_bytes(data).into());
                 }
@@ -1129,7 +1205,7 @@ mod _pickle {
                 }
                 Some(BINUNICODE8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
-                    let n = read_size(&arr, vm, "BINUNICODE8")?;
+                    let n = read_size(&arr, vm, "BINUNICODE")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(utf8_surrogatepass(&data, vm)?);
                 }
@@ -3427,6 +3503,7 @@ mod _pickle {
                         .map_err(|_| new_pickling_error(vm, "the global name must be a string"))?
                 }
             };
+            let name = mangle_global_name(name, vm);
             let module_name = whichmodule(obj, &name, vm)?;
 
             if self.proto >= 2 {
@@ -3599,6 +3676,38 @@ mod _pickle {
                 vm.ctx.new_str(text)
             })
             .collect()
+    }
+
+    fn mangle_global_name(name: PyRef<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
+        if !name.as_bytes().windows(3).any(|part| part == b".__") {
+            return name;
+        }
+        let mut parts = split_dotted(&name, vm);
+        let mut changed = false;
+        // Work backwards so each parent still has its original class name.
+        for i in (1..parts.len()).rev() {
+            let part = &parts[i];
+            if part.as_bytes().starts_with(b"__") && !part.as_bytes().ends_with(b"__") {
+                let parent = parts[i - 1]
+                    .as_wtf8()
+                    .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+                if !parent.is_empty() {
+                    parts[i] = vm.ctx.new_str(wtf8_concat!("_", parent, part.as_wtf8()));
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return name;
+        }
+        let mut mangled = Wtf8Buf::new();
+        for (i, part) in parts.iter().enumerate() {
+            if i != 0 {
+                mangled.push_char('.');
+            }
+            mangled.push_wtf8(part.as_wtf8());
+        }
+        vm.ctx.new_str(mangled)
     }
 
     fn whichmodule(

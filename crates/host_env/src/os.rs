@@ -11,8 +11,6 @@ pub use crate::posix_unix_like::rename;
 #[cfg(any(unix, windows))]
 use core::ffi::CStr;
 use core::str::Utf8Error;
-#[cfg(windows)]
-use core::time::Duration;
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -605,26 +603,43 @@ pub fn seek_fd(
     unsafe { suppress_iph!(libc::lseek(fd.as_raw(), position, how)) }.check_libc_neg()
 }
 
+/// A signed Unix timestamp with a nonnegative subsecond component.
+#[derive(Clone, Copy)]
+pub struct FileTime {
+    pub seconds: i64,
+    pub nanoseconds: u32,
+}
+
 #[cfg(windows)]
-fn filetime_from_duration(duration: Duration) -> FILETIME {
-    let intervals = ((duration.as_secs() as i64 + 11644473600) * 10_000_000)
-        + (duration.subsec_nanos() as i64 / 100);
-    FILETIME {
+fn filetime_from_timestamp(timestamp: FileTime) -> io::Result<FILETIME> {
+    let intervals = (i128::from(timestamp.seconds) + 11_644_473_600) * 10_000_000
+        + i128::from(timestamp.nanoseconds / 100);
+    // Windows filesystem timestamps use nonnegative signed 64-bit counts
+    // from 1601. Reject unrepresentable values without wrapping or clamping.
+    let intervals = u64::try_from(intervals)
+        .ok()
+        .filter(|&value| i64::try_from(value).is_ok())
+        .ok_or_else(|| {
+            io::Error::from_raw_os_error(
+                windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER as i32,
+            )
+        })?;
+    Ok(FILETIME {
         dwLowDateTime: intervals as u32,
         dwHighDateTime: (intervals >> 32) as u32,
-    }
+    })
 }
 
 #[cfg(windows)]
 pub fn set_file_times(
     path: impl AsRef<Path>,
-    access: Duration,
-    modified: Duration,
+    access: FileTime,
+    modified: FileTime,
 ) -> io::Result<()> {
     use crate::windows::CheckWin32Bool;
-    let access = filetime_from_duration(access);
-    let modified = filetime_from_duration(modified);
     let file = fs::open_write_with_custom_flags(path, FILE_FLAG_BACKUP_SEMANTICS)?;
+    let access = filetime_from_timestamp(access)?;
+    let modified = filetime_from_timestamp(modified)?;
     unsafe {
         SetFileTime(
             file.as_raw_handle() as _,
@@ -792,7 +807,7 @@ pub fn set_errno(value: i32) {
 
 #[cfg(unix)]
 pub fn set_errno(value: i32) {
-    nix::errno::Errno::from_raw(value).set();
+    nix::errno::Errno::set_raw(value);
 }
 
 #[cfg(target_os = "wasi")]

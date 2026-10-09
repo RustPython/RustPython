@@ -11,7 +11,7 @@ mod builtins {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyAnyDictRef, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
@@ -40,8 +40,8 @@ mod builtins {
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
     #[pyfunction]
-    fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._abs(&x)
+    fn abs(number: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._abs(&number)
     }
 
     #[pyfunction]
@@ -70,8 +70,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(number: ArgIndex) -> String {
-        let number = number.into_int_ref();
+    fn bin(integer: ArgIndex) -> String {
+        let number = integer.into_int_ref();
         let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
@@ -118,6 +118,8 @@ mod builtins {
         dont_inherit: ArgIntoBool,
         #[pyarg(any, default = -1)]
         optimize: i32,
+        #[pyarg(named, optional)]
+        module: Option<PyObjectRef>,
         #[pyarg(named, default = -1)]
         _feature_version: i32,
     }
@@ -208,6 +210,17 @@ mod builtins {
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
+            let module = args.module.filter(|module| !vm.is_none(module));
+            let module = module
+                .map(|module| {
+                    PyStrRef::try_from_object(vm, module.clone()).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "compile() argument 'module' must be str or None, not {}",
+                            module.class().name()
+                        ))
+                    })
+                })
+                .transpose()?;
             let dont_inherit = args.dont_inherit.into_bool();
             let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
@@ -297,7 +310,14 @@ mod builtins {
                     opts.optimize = optimize;
                     opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
                     opts.future_features = future_features;
-                    return _ast::compile(vm, args.source, &filename.to_string_lossy(), mode, opts);
+                    return _ast::compile(
+                        vm,
+                        args.source,
+                        &filename.to_string_lossy(),
+                        mode,
+                        opts,
+                        module.as_deref(),
+                    );
                 }
             }
 
@@ -314,13 +334,14 @@ mod builtins {
                 let mut compile_flags = flags | future_features.bits() as i32;
                 #[cfg(feature = "rustpython-compiler")]
                 let compile_source = |source: &[u8], compile_flags: i32| {
-                    vm.compile_string_object_with_flags(
+                    vm.compile_string_object_with_flags_and_module(
                         source,
                         &filename.to_string_lossy(),
                         start.as_i32(),
                         compile_flags,
                         feature_version,
                         optimize as i32,
+                        module.as_deref(),
                     )
                 };
                 match &source {
@@ -415,21 +436,23 @@ mod builtins {
                 vm: &VirtualMachine,
                 func_name: &'static str,
             ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
+                if !globals.fast_isinstance(vm.ctx.types.dict_type)
+                    && !globals.fast_isinstance(vm.ctx.types.frozendict_type)
+                {
                     return Err(match func_name {
                         "eval" => {
                             let is_mapping = globals.mapping_unchecked().check();
                             vm.new_type_error(if is_mapping {
-                                "globals must be a real dict; try eval(expr, {}, mapping)"
+                                "globals must be a real dict or a frozendict; try eval(expr, {}, mapping)"
                             } else {
-                                "globals must be a dict"
+                                "globals must be a dict or a frozendict"
                             })
                         }
                         "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict, not {}",
+                            "exec() globals must be a dict or a frozendict, not {}",
                             globals.class().name()
                         )),
-                        _ => vm.new_type_error("globals must be a dict"),
+                        _ => vm.new_type_error("globals must be a dict or a frozendict"),
                     });
                 }
                 Ok(())
@@ -439,15 +462,11 @@ mod builtins {
                 Some(globals) => {
                     validate_globals_dict(&globals, vm, func_name)?;
 
-                    let globals = PyDictRef::try_from_object(vm, globals)?;
-                    if !globals.contains_key(identifier!(vm, __builtins__), vm) {
-                        let builtins_dict = vm.builtins.dict().into();
-                        globals.set_item(identifier!(vm, __builtins__), builtins_dict, vm)?;
-                    }
+                    let globals = PyAnyDictRef::try_from_object(vm, globals)?;
                     (
                         globals.clone(),
                         self.locals
-                            .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone())),
+                            .unwrap_or_else(|| ArgMapping::from_anydict_exact(globals.clone())),
                     )
                 }
                 None => (
@@ -460,7 +479,21 @@ mod builtins {
                 ),
             };
 
-            let scope = crate::scope::Scope::with_builtins(Some(locals), globals, vm);
+            let builtins = if globals.is_frozen() {
+                globals.get_item_opt(identifier!(vm, __builtins__), vm)?
+            } else {
+                globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            };
+            if builtins.is_none() {
+                if globals.is_frozen() {
+                    return Err(
+                        vm.new_type_error("cannot assign __builtins__ to frozendict globals")
+                    );
+                }
+                globals.set_item(identifier!(vm, __builtins__), vm.builtins.dict().into(), vm)?;
+            }
+
+            let scope = crate::scope::Scope::new(Some(locals), globals);
             Ok(scope)
         }
     }
@@ -638,8 +671,18 @@ mod builtins {
                 if let Some(code) = crate::frame::current_code() {
                     opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
-                vm.compile_with_opts(source, mode, "<string>", opts)
-                    .map_err(|err| err.into_pyexception(vm, Some(source)))?
+                let module = scope
+                    .globals
+                    .inner_getitem_opt(identifier!(vm, __name__), vm)?;
+                vm.compile_with_opts_and_module(
+                    source,
+                    mode,
+                    "<string>",
+                    opts,
+                    module.as_deref(),
+                    &[],
+                )
+                .map_err(|err| err.into_pyexception(vm, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::B(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
@@ -700,7 +743,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyDictRef {
+    fn globals(vm: &VirtualMachine) -> PyAnyDictRef {
         vm.current_globals()
     }
 
@@ -1266,6 +1309,53 @@ mod builtins {
         )
     }
 
+    #[derive(FromArgs)]
+    struct LazyImportArgs {
+        #[pyarg(any)]
+        name: PyObjectRef,
+        #[pyarg(any, optional)]
+        globals: OptionalArg<PyObjectRef>,
+        #[pyarg(any, optional)]
+        locals: Option<PyObjectRef>,
+        #[pyarg(any, default, py_default = "()")]
+        fromlist: Option<PyObjectRef>,
+        #[pyarg(any, default)]
+        level: i32,
+    }
+
+    #[pyfunction]
+    fn __lazy_import__(args: LazyImportArgs, vm: &VirtualMachine) -> PyResult {
+        let globals = args
+            .globals
+            .into_option()
+            .or_else(|| crate::frame::current_globals().map(Into::into))
+            .ok_or_else(|| {
+                vm.new_type_error("__lazy_import__() missing globals when called without a frame")
+            })?;
+        let globals_dict = globals
+            .downcast_ref::<crate::builtins::PyDict>()
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "expect dict for globals, got {}",
+                    globals.class().name()
+                ))
+            })?;
+        let builtins = globals_dict
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .ok_or_else(|| vm.new_value_error("unable to get builtins for lazy import"))?;
+        let builtins = if let Some(module) = builtins.downcast_ref::<crate::builtins::PyModule>() {
+            module.dict().into()
+        } else {
+            builtins
+        };
+        let name = args
+            .name
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("module name must be a string"))?;
+        let _ = args.locals;
+        crate::lazy_import::create(name, &globals, args.fromlist, args.level, builtins, vm)
+    }
+
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
@@ -1469,6 +1559,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "dict" => ctx.types.dict_type.to_owned(),
         "enumerate" => ctx.types.enumerate_type.to_owned(),
         "float" => ctx.types.float_type.to_owned(),
+        "frozendict" => ctx.types.frozendict_type.to_owned(),
         "frozenset" => ctx.types.frozenset_type.to_owned(),
         "filter" => ctx.types.filter_type.to_owned(),
         "int" => ctx.types.int_type.to_owned(),
@@ -1515,6 +1606,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "BufferError" => ctx.exceptions.buffer_error.to_owned(),
         "EOFError" => ctx.exceptions.eof_error.to_owned(),
         "ImportError" => ctx.exceptions.import_error.to_owned(),
+        "ImportCycleError" => ctx.exceptions.import_cycle_error.to_owned(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.to_owned(),
         "LookupError" => ctx.exceptions.lookup_error.to_owned(),
         "IndexError" => ctx.exceptions.index_error.to_owned(),

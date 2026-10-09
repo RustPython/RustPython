@@ -1,3 +1,4 @@
+import functools
 import os
 import pathlib
 import sys
@@ -18,6 +19,7 @@ from analyzer import SKIP_PROPERTIES, Analysis, Family, Properties, analyze_file
 from stack import get_stack_effect
 
 
+@functools.cache
 def get_analysis() -> Analysis:
     from generators_common import DEFAULT_INPUT
 

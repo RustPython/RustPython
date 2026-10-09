@@ -15,6 +15,10 @@ pub use super::posix_unix_like::*;
 
 pub use libc::{c_char, pid_t};
 
+/// `<sys/param.h>` on glibc defines NODEV as `(dev_t)-1`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub const NODEV: i32 = -1;
+
 /// `<sysexits.h>`. The `libc` crate does not bind these.
 pub const EX_OK: i32 = 0;
 pub const EX_USAGE: i32 = 64;
@@ -570,6 +574,67 @@ pub fn statvfs_fd(fd: i32) -> std::io::Result<StatVfsInfo> {
 }
 
 #[cfg(not(target_os = "redox"))]
+pub fn mkfifo(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    let ret = unsafe { libc::mkfifo(path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+type MkfifoAt = unsafe extern "C" fn(libc::c_int, *const libc::c_char, libc::mode_t) -> libc::c_int;
+
+#[cfg(target_vendor = "apple")]
+fn mkfifoat_symbol() -> Option<MkfifoAt> {
+    static MKFIFOAT: std::sync::OnceLock<Option<MkfifoAt>> = std::sync::OnceLock::new();
+    *MKFIFOAT.get_or_init(|| {
+        // mkfifoat was added in macOS 13 / iOS 16. Resolve it at runtime so
+        // ordinary mkfifo remains usable on older Apple systems.
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"mkfifoat".as_ptr()) };
+        if symbol.is_null() {
+            None
+        } else {
+            // SAFETY: the system symbol has the MkfifoAt signature and stays
+            // loaded for the lifetime of the process.
+            Some(unsafe { core::mem::transmute::<*mut libc::c_void, MkfifoAt>(symbol) })
+        }
+    })
+}
+
+#[cfg(not(target_os = "redox"))]
+pub fn has_mkfifoat() -> bool {
+    #[cfg(target_vendor = "apple")]
+    {
+        mkfifoat_symbol().is_some()
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        !cfg!(target_os = "android")
+    }
+}
+
+#[cfg(not(any(target_os = "redox", target_os = "android")))]
+pub fn mkfifoat(dir_fd: i32, path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    let mkfifoat = mkfifoat_symbol().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "mkfifoat unavailable on this platform",
+        )
+    })?;
+    #[cfg(not(target_vendor = "apple"))]
+    let mkfifoat = libc::mkfifoat;
+    let ret = unsafe { mkfifoat(dir_fd, path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "redox"))]
 pub fn mknod(path: &CStr, mode: libc::mode_t, device: libc::dev_t) -> std::io::Result<()> {
     let ret = unsafe { libc::mknod(path.as_ptr(), mode, device) };
     if ret == 0 {
@@ -760,31 +825,53 @@ pub fn fchmod(fd: BorrowedFd<'_>, mode: u32) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "redox")]
+#[allow(
+    clippy::useless_conversion,
+    reason = "time_t widths differ across targets"
+)]
 pub fn utimes(
     path: &Path,
-    acc: core::time::Duration,
-    modif: core::time::Duration,
+    acc: crate::os::FileTime,
+    modif: crate::os::FileTime,
 ) -> std::io::Result<()> {
-    let tv = |d: core::time::Duration| libc::timeval {
-        tv_sec: d.as_secs() as _,
-        tv_usec: d.subsec_micros() as _,
+    let tv = |time: crate::os::FileTime| -> std::io::Result<libc::timeval> {
+        Ok(libc::timeval {
+            tv_sec: time
+                .seconds
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+            tv_usec: i64::from(time.nanoseconds / 1_000)
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+        })
     };
-    nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into()).map_err(std::io::Error::from)
+    nix::sys::stat::utimes(path, &tv(acc)?.into(), &tv(modif)?.into()).map_err(std::io::Error::from)
 }
 
 #[cfg(all(any(target_os = "wasi", unix), not(target_os = "redox")))]
+#[allow(
+    clippy::useless_conversion,
+    reason = "time_t and long widths differ across targets"
+)]
 pub fn set_file_times_at(
     dir_fd: i32,
     path: &CStr,
-    access: core::time::Duration,
-    modified: core::time::Duration,
+    access: crate::os::FileTime,
+    modified: crate::os::FileTime,
     follow_symlinks: bool,
 ) -> std::io::Result<()> {
-    let ts = |d: core::time::Duration| libc::timespec {
-        tv_sec: d.as_secs() as _,
-        tv_nsec: d.subsec_nanos() as _,
+    let ts = |time: crate::os::FileTime| -> std::io::Result<libc::timespec> {
+        Ok(libc::timespec {
+            tv_sec: time
+                .seconds
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+            tv_nsec: i64::from(time.nanoseconds)
+                .try_into()
+                .map_err(|_| std::io::Error::from_raw_os_error(libc::EOVERFLOW))?,
+        })
     };
-    let times = [ts(access), ts(modified)];
+    let times = [ts(access)?, ts(modified)?];
     let ret = unsafe {
         libc::utimensat(
             dir_fd,
@@ -1087,13 +1174,22 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
-pub fn getlogin() -> Option<CString> {
+pub fn getlogin() -> std::io::Result<CString> {
+    let old_errno = crate::os::get_errno();
+    crate::os::clear_errno();
     let ptr = unsafe { libc::getlogin() };
-    if ptr.is_null() {
-        None
+    let result = if ptr.is_null() {
+        let errno = crate::os::get_errno();
+        Err(if errno == 0 {
+            std::io::Error::other("unable to determine login name")
+        } else {
+            std::io::Error::from_raw_os_error(errno)
+        })
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_owned())
-    }
+        Ok(unsafe { CStr::from_ptr(ptr) }.to_owned())
+    };
+    crate::os::set_errno(old_errno);
+    result
 }
 
 pub fn restore_signals() {

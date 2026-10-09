@@ -203,19 +203,21 @@ pub(super) mod _os {
     #[cfg(not(windows))]
     use crate::exceptions;
     use crate::host_env::fileutils::StatStruct;
+    use crate::stdlib::time::pytime::{self, Round};
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
-            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytes, PyBytesRef, PyGenericAlias, PyIntRef, PyStr, PyStrRef, PyTuple, PyTupleRef,
+            PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs},
-        host_env::crt_fd,
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, FuncArgs},
+        host_env::{crt_fd, os::ErrorExt},
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
@@ -225,11 +227,12 @@ pub(super) mod _os {
         },
         vm::VirtualMachine,
     };
+    use core::hint::cold_path;
     #[cfg(not(windows))]
     use core::marker::PhantomData;
-    use core::{hint::cold_path, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::os::FileTime;
     #[cfg(windows)]
     use rustpython_host_env::{nt as host_nt, windows::ToWideString};
 
@@ -300,30 +303,41 @@ pub(super) mod _os {
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Owned> {
         #[cfg(windows)]
-        let fd = {
-            let [] = dir_fd.0;
-            let name = name.to_wide_cstring(vm)?;
-            let flags = flags | crate::host_env::os::O_NOINHERIT;
-            crt_fd::wopen(&name, flags, mode)
-        };
+        let path = name.to_wide_cstring(vm)?;
+        #[cfg(windows)]
+        let flags = flags | crate::host_env::os::O_NOINHERIT;
         #[cfg(not(windows))]
-        let fd = {
-            let name = name.clone().into_cstring(vm)?;
-            #[cfg(not(target_os = "wasi"))]
-            let flags = flags | crate::host_env::os::O_CLOEXEC;
-            #[cfg(not(target_os = "redox"))]
-            if let Some(dir_fd) = dir_fd.get_opt() {
-                crt_fd::openat(dir_fd, &name, flags, mode)
-            } else {
-                crt_fd::open(&name, flags, mode)
+        let path = name.clone().into_cstring(vm)?;
+        #[cfg(not(any(windows, target_os = "wasi")))]
+        let flags = flags | crate::host_env::os::O_CLOEXEC;
+
+        loop {
+            let fd = vm.allow_threads(|| {
+                #[cfg(windows)]
+                {
+                    let [] = dir_fd.0;
+                    crt_fd::wopen(&path, flags, mode)
+                }
+                #[cfg(not(any(windows, target_os = "redox")))]
+                if let Some(dir_fd) = dir_fd.get_opt() {
+                    crt_fd::openat(dir_fd, &path, flags, mode)
+                } else {
+                    crt_fd::open(&path, flags, mode)
+                }
+                #[cfg(target_os = "redox")]
+                {
+                    let [] = dir_fd.0;
+                    crt_fd::open(&path, flags, mode)
+                }
+            });
+            match fd {
+                Ok(fd) => return Ok(fd),
+                Err(err) if err.posix_errno() == libc::EINTR => vm.check_signals()?,
+                Err(err) => {
+                    return Err(OSErrorBuilder::with_filename_from_errno(&err, name, vm));
+                }
             }
-            #[cfg(target_os = "redox")]
-            {
-                let [] = dir_fd.0;
-                crt_fd::open(&name, flags, mode)
-            }
-        };
-        fd.map_err(|err| OSErrorBuilder::with_filename_from_errno(&err, name, vm))
+        }
     }
 
     #[derive(FromArgs)]
@@ -1850,15 +1864,27 @@ pub(super) mod _os {
         let (acc, modif) = match (args.times, args.ns) {
             (Some(t), None) => {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
-                    vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
+                    vm.new_type_error(
+                        "utime: 'times' must be either a tuple of two numbers or None",
+                    )
                 })?;
-                (a.try_into_value(vm)?, m.try_into_value(vm)?)
+                let to_time = |obj: PyObjectRef| -> PyResult<FileTime> {
+                    let (seconds, nanoseconds) =
+                        pytime::object_to_denominator(&obj, 1_000_000_000, Round::Floor, vm)?;
+                    Ok(FileTime {
+                        seconds,
+                        nanoseconds: nanoseconds.try_into().map_err(|_| {
+                            vm.new_overflow_error("timestamp out of range for platform time_t")
+                        })?,
+                    })
+                };
+                (to_time(a)?, to_time(m)?)
             }
             (None, Some(ns)) => {
                 let (a, m) = parse_tup(&ns)
                     .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
-                let ns_to_dur = |obj: PyObjectRef| {
+                let ns_to_time = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) = divmod
                         .downcast_ref::<PyTuple>()
@@ -1870,16 +1896,25 @@ pub(super) mod _os {
                                 divmod.class().name()
                             ))
                         })?;
-                    let secs = div.try_index(vm)?.try_to_primitive(vm)?;
-                    let ns = rem.try_index(vm)?.try_to_primitive(vm)?;
-                    Ok(Duration::new(secs, ns))
+                    let div = div.try_index(vm)?;
+                    let seconds = pytime::object_to_time_t(div.as_object(), Round::Floor, vm)?;
+                    let nanoseconds = rem.try_index(vm)?.try_to_primitive(vm)?;
+                    Ok(FileTime {
+                        seconds,
+                        nanoseconds,
+                    })
                 };
-                // TODO: do validation to make sure this doesn't.. underflow?
-                (ns_to_dur(a)?, ns_to_dur(m)?)
+                (ns_to_time(a)?, ns_to_time(m)?)
             }
             (None, None) => {
                 let now = SystemTime::now();
                 let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                let now = FileTime {
+                    seconds: now.as_secs().try_into().map_err(|_| {
+                        vm.new_overflow_error("timestamp out of range for platform time_t")
+                    })?,
+                    nanoseconds: now.subsec_nanos(),
+                };
                 (now, now)
             }
             (Some(_), Some(_)) => {
@@ -1893,8 +1928,8 @@ pub(super) mod _os {
 
     fn utime_impl(
         path: OsPath,
-        acc: Duration,
-        modif: Duration,
+        acc: FileTime,
+        modif: FileTime,
         dir_fd: DirFd<'_, { UTIME_DIR_FD as usize }>,
         _follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -2061,17 +2096,37 @@ pub(super) mod _os {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any)]
-        length: crt_fd::Offset,
+        length: PyObjectRef,
     }
 
     #[pyfunction]
     fn truncate(args: TruncateArgs, vm: &VirtualMachine) -> PyResult<()> {
         let TruncateArgs { path, length } = args;
-        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
-            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
-            Err(_) => {}
-        }
+        let index =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                None
+            } else {
+                path.try_index_opt(vm)
+            };
+        let path = if let Some(index) = index {
+            super::warn_if_bool_fd(&path, vm)?;
+            Either::A(index?.try_to_primitive::<crt_fd::Raw>(vm)?)
+        } else {
+            Either::B(
+                PathConverter::new()
+                    .function("truncate")
+                    .try_path_inner(path, true, vm)?,
+            )
+        };
+        let length = length.try_into_value::<crt_fd::Offset>(vm)?;
+        let path = match path {
+            Either::A(fd) => {
+                let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                    .map_err(|e| e.into_pyexception(vm))?;
+                return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
+            }
+            Either::B(path) => path,
+        };
 
         #[cold]
         fn error(
@@ -2082,7 +2137,6 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,
@@ -2307,6 +2361,7 @@ pub(super) mod _os {
             SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
             SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
+            SupportFunc::new("lstat", Some(false), Some(STAT_DIR_FD), Some(false)),
             SupportFunc::new("fstat", Some(false), Some(false), Some(false)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),

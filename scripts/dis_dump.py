@@ -170,12 +170,20 @@ def _resolve_arg_fallback(code, opname, arg):
             "LOAD_ATTR",
             "STORE_ATTR",
             "DELETE_ATTR",
-            "IMPORT_NAME",
             "IMPORT_FROM",
             "LOAD_FROM_DICT_OR_GLOBALS",
         ):
             if 0 <= arg < len(code.co_names):
                 return code.co_names[arg]
+        elif opname == "IMPORT_NAME":
+            name_idx = arg >> 2
+            if 0 <= name_idx < len(code.co_names):
+                name = code.co_names[name_idx]
+                if arg & 1:
+                    return f"{name} + lazy"
+                if arg & 2:
+                    return f"{name} + eager"
+                return name
         elif opname == "LOAD_SUPER_ATTR":
             name_idx = arg >> 2
             if 0 <= name_idx < len(code.co_names):

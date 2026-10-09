@@ -16,10 +16,12 @@ pub(crate) static MAIN_INTERP_PTR: AtomicPtr<Interpreter> = AtomicPtr::new(core:
 
 /// Request a thread local vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
+    // Attachment may park forever during finalization. Clone the inactive
+    // template here, then let the caller attach after releasing this mutex.
     get_main_interpreter()
         .as_ref()
         .expect("Interpreter not initialized")
-        .enter(|vm| vm.new_thread())
+        .new_thread()
 }
 
 #[unsafe(no_mangle)]
@@ -43,8 +45,10 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
         unsafe { init_exception_statics(&Context::genesis().exceptions) };
         let builder = Interpreter::builder(Default::default());
         let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
+        let testcapi = rustpython_vm::stdlib::capi_test_module_def(&builder.ctx);
         *interp = builder
             .add_native_modules(&defs)
+            .add_native_module(testcapi)
             .init_hook(|vm| {
                 let state = PyRc::get_mut(&mut vm.state).unwrap();
                 let path = rustpython_pylib::LIB_PATH.to_owned();

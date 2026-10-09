@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 use rustpython_compiler_core::bytecode::{
-    CodeObject, ConstantData, Constants, Instruction, OpArg, OpArgState,
+    CodeObject, CommonConstant, ConstantData, Constants, Instruction, OpArg, OpArgState,
 };
 use rustpython_jit::{CompiledCode, JitType};
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
@@ -206,6 +206,17 @@ impl StackMachine {
             }
             Instruction::LoadConst { consti } => {
                 self.stack.push(constants[consti.get(arg)].clone().into())
+            }
+            Instruction::LoadCommonConstant { idx } => {
+                let value = match idx.get(arg) {
+                    CommonConstant::None => StackValue::None,
+                    CommonConstant::EmptyStr => StackValue::String(String::new()),
+                    common => unimplemented!(
+                        "common constant {:?} isn't yet supported in py_function!",
+                        common
+                    ),
+                };
+                self.stack.push(value);
             }
             Instruction::LoadName { namei } => self
                 .stack

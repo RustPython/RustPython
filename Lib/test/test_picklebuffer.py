@@ -64,8 +64,7 @@ class PickleBufferTest(unittest.TestCase):
         # Idempotency
         pb.release()
 
-    # TODO: RUSTPYTHON; PickleBuffer is not traversed by the cycle collector
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; PickleBuffer is not traversed by the cycle collector
     def test_cycle(self):
         b = B(b"foo")
         pb = PickleBuffer(b)

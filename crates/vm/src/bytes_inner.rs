@@ -397,17 +397,24 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
-fn bytearray_repr_char_len(ch: u8) -> usize {
+fn bytearray_repr_char_len(ch: u8, quote: u8) -> usize {
+    if ch == quote {
+        return 2;
+    }
     match ch {
-        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        b'\\' | b'\t' | b'\r' | b'\n' => 2,
         0x20..=0x7e => 1,
         _ => 4, // \xHH
     }
 }
 
-fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+fn write_bytearray_repr_char(ch: u8, quote: u8, buf: &mut String) {
+    if ch == quote {
+        buf.push('\\');
+        buf.push(ch as char);
+        return;
+    }
     match ch {
-        b'\'' => buf.push_str(r#"\'"#),
         b'\\' => buf.push_str(r#"\\"#),
         b'\t' => buf.push_str(r#"\t"#),
         b'\n' => buf.push_str(r#"\n"#),
@@ -455,7 +462,7 @@ impl PyBytesInner {
             .elements
             .iter()
             .try_fold(0usize, |len, &ch| {
-                len.checked_add(bytearray_repr_char_len(ch))
+                len.checked_add(bytearray_repr_char_len(ch, quote as u8))
             })
             .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let len = class_name
@@ -469,7 +476,7 @@ impl PyBytesInner {
         buf.push('b');
         buf.push(quote);
         for &ch in &self.elements {
-            write_bytearray_repr_char(ch, &mut buf);
+            write_bytearray_repr_char(ch, quote as u8, &mut buf);
         }
         buf.push(quote);
         buf.push(')');
@@ -1313,7 +1320,7 @@ pub struct ByteInnerReplaceOptions {
     old: PyBytesInner,
     #[pyarg(positional)]
     new: PyBytesInner,
-    #[pyarg(positional, default = -1)]
+    #[pyarg(any, default = -1)]
     count: isize,
 }
 

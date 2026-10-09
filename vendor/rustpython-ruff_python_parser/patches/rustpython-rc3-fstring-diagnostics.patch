@@ -1,0 +1,268 @@
+--- a/vendor/rustpython-ruff_python_parser/src/error.rs
++++ b/vendor/rustpython-ruff_python_parser/src/error.rs
+@@ -90,6 +90,8 @@
+ pub enum InterpolatedStringErrorType {
+     /// Expected a right brace after an opened left brace.
+     UnclosedLbrace,
++    /// Expected a right brace for a replacement field opened on an earlier line.
++    UnclosedLbraceOnLine { opening_line: u32 },
+     /// An invalid conversion flag was encountered.
+     InvalidConversionFlag,
+     /// A single right brace was encountered.
+@@ -126,6 +128,9 @@
+     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+         match self {
+             Self::UnclosedLbrace => f.write_str("expecting '}'"),
++            Self::UnclosedLbraceOnLine { opening_line } => {
++                write!(f, "expecting '}}' to close '{{' on line {opening_line}")
++            }
+             Self::InvalidConversionFlag => write!(f, "invalid conversion character"),
+             Self::SingleRbrace => f.write_str("single '}' is not allowed"),
+             Self::UnterminatedString { .. } => write!(f, "unterminated string"),
+@@ -891,8 +896,14 @@
+         matches!(
+             self,
+             Self::UnclosedStringError { .. }
+-                | Self::FStringError(InterpolatedStringErrorType::UnclosedLbrace)
+-                | Self::TStringError(InterpolatedStringErrorType::UnclosedLbrace)
++                | Self::FStringError(
++                    InterpolatedStringErrorType::UnclosedLbrace
++                        | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
++                )
++                | Self::TStringError(
++                    InterpolatedStringErrorType::UnclosedLbrace
++                        | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
++                )
+         )
+     }
+ 
+@@ -914,6 +925,7 @@
+                     | InterpolatedStringErrorType::SingleRbrace
+                     | InterpolatedStringErrorType::NewlineInFormatSpec
+                     | InterpolatedStringErrorType::UnclosedLbrace
++                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                     | InterpolatedStringErrorType::UnmatchedBracket(_)
+             ),
+             Self::UnclosedStringError { .. }
+--- a/vendor/rustpython-ruff_python_parser/src/lexer.rs
++++ b/vendor/rustpython-ruff_python_parser/src/lexer.rs
+@@ -1126,7 +1126,7 @@
+                         == self.current_flags.is_triple_quoted() =>
+             {
+                 LexicalErrorType::from_interpolated_string_error(
+-                    InterpolatedStringErrorType::UnclosedLbrace,
++                    self.unclosed_replacement_field_error(),
+                     interpolated_string.kind(),
+                 )
+             }
+@@ -1160,6 +1160,32 @@
+             })
+             .count();
+         u32::try_from(newlines + 1).unwrap()
++    }
++
++    /// Returns the opening brace of the active replacement field and whether it is in a
++    /// format specifier. Brackets inside its expression are not replacement fields.
++    #[cfg(feature = "python315-diagnostics")]
++    pub(crate) fn replacement_field(&self) -> Option<(TextSize, bool)> {
++        let context = self.interpolated_strings.current()?;
++        if self.nesting <= context.nesting() {
++            return None;
++        }
++        let implicit = self.nesting as usize - self.brackets.len();
++        let index =
++            (context.replacement_field_nesting(self.nesting) as usize).checked_sub(implicit)?;
++        let bracket = self.brackets.get(index)?;
++        (bracket.kind == '{').then_some((bracket.start, context.is_in_format_spec(self.nesting)))
++    }
++
++    fn unclosed_replacement_field_error(&self) -> InterpolatedStringErrorType {
++        #[cfg(feature = "python315-diagnostics")]
++        if let Some((start, _)) = self.replacement_field() {
++            let opening_line = self.line_number(start);
++            if opening_line != self.line_number(self.token_range().start()) {
++                return InterpolatedStringErrorType::UnclosedLbraceOnLine { opening_line };
++            }
++        }
++        InterpolatedStringErrorType::UnclosedLbrace
+     }
+ 
+     /// Returns the error for reaching the end of the source unexpectedly at `range`: the innermost
+--- a/vendor/rustpython-ruff_python_parser/src/lexer/interpolated_string.rs
++++ b/vendor/rustpython-ruff_python_parser/src/lexer/interpolated_string.rs
+@@ -92,6 +92,12 @@
+         current_nesting.saturating_sub(self.nesting)
+     }
+ 
++    /// Returns the nesting level immediately outside the current replacement field.
++    #[cfg(feature = "python315-diagnostics")]
++    pub(crate) const fn replacement_field_nesting(&self, current_nesting: u32) -> u32 {
++        self.nesting + self.format_spec_depth - self.is_in_format_spec(current_nesting) as u32
++    }
++
+     /// Returns `true` if the lexer is in an f-string expression or t-string interpolation i.e., between
+     /// two curly braces.
+     pub(crate) const fn is_in_interpolation(&self, current_nesting: u32) -> bool {
+--- a/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
+@@ -2023,7 +2023,13 @@
+     let mut lexer = Lexer::new(source, mode, start_offset);
+     // The starts of the tokens at which parsing stops without reading ahead.
+     let mut stops = Vec::new();
++    #[cfg(feature = "python315-diagnostics")]
++    let mut replacement_hint = ReplacementFieldHint::new(first.as_ref());
++    #[cfg(feature = "python315-diagnostics")]
++    let mut replacement_hint_wins = false;
+     let (tokenizer_error, in_interpolated_string, detected) = loop {
++        #[cfg(feature = "python315-diagnostics")]
++        let replacement_field = lexer.replacement_field();
+         let in_interpolated_string = lexer.in_interpolated_string();
+         let previous_errors = lexer.errors().len();
+         let kind = lexer.next_token();
+@@ -2031,21 +2037,30 @@
+             .iter()
+             .find(|error| error.error().is_tokenizer_error())
+         {
++            #[cfg(feature = "python315-diagnostics")]
++            {
++                replacement_hint_wins =
++                    replacement_hint.is_unclosed_field_hint(error.error(), replacement_field);
++            }
+             // A missing closing brace or a bracket that closes a replacement field is found at
+             // the token that shows it.
+             let detected = match error.error() {
+                 LexicalErrorType::FStringError(
+                     InterpolatedStringErrorType::UnclosedLbrace
++                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                     | InterpolatedStringErrorType::UnmatchedBracket(_),
+                 )
+                 | LexicalErrorType::TStringError(
+                     InterpolatedStringErrorType::UnclosedLbrace
++                    | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
+                     | InterpolatedStringErrorType::UnmatchedBracket(_),
+                 ) => error.location().start(),
+                 _ => lexer.offset(),
+             };
+             break (error.clone(), in_interpolated_string, detected);
+         }
++        #[cfg(feature = "python315-diagnostics")]
++        replacement_hint.token(kind, lexer.current_range(), replacement_field);
+         if matches!(
+             kind,
+             TokenKind::Colon | TokenKind::Semi | TokenKind::Unknown
+@@ -2053,6 +2068,17 @@
+             stops.push(lexer.current_range().start());
+         }
+         if kind == TokenKind::EndOfFile {
++            #[cfg(feature = "python315-diagnostics")]
++            if let Some(start) = replacement_hint.unclosed_format_spec {
++                let error = LexicalError::new(
++                    LexicalErrorType::UnclosedBracket {
++                        opening: '{',
++                        incomplete: false,
++                    },
++                    TextRange::empty(start),
++                );
++                break (error, false, lexer.offset());
++            }
+             return;
+         }
+     };
+@@ -2076,7 +2102,10 @@
+             LexicalErrorType::UnicodeEscapeError { .. } | LexicalErrorType::BytesEscapeError { .. }
+         )
+     );
+-    let wins = detected <= first_start
++    #[cfg(not(feature = "python315-diagnostics"))]
++    let replacement_hint_wins = false;
++    let wins = replacement_hint_wins
++        || detected <= first_start
+         || (!in_interpolated_string
+             && !escape_error
+             && match tokenizer_error.error() {
+@@ -2113,6 +2142,85 @@
+     move_to_front(errors, ParseError::from(front));
+ }
+ 
++/// Tracks the grammar boundaries after an expression hint while the unrecovered token stream
++/// is read. A replacement field keeps reading to its separator; an inner display or a debug /
++/// conversion separator can already establish the hint before a later missing brace is found.
++#[cfg(feature = "python315-diagnostics")]
++struct ReplacementFieldHint {
++    range: Option<TextRange>,
++    field: Option<TextSize>,
++    stopped: bool,
++    unclosed_format_spec: Option<TextSize>,
++}
++
++#[cfg(feature = "python315-diagnostics")]
++impl ReplacementFieldHint {
++    fn new(first: Option<&ParseError>) -> Self {
++        let range = first.and_then(|error| {
++            matches!(&error.error, ParseErrorType::OtherError(message) if matches!(message.as_str(),
++                "invalid syntax. Perhaps you forgot a comma?" |
++                "invalid syntax. Is this intended to be part of the string?"))
++            .then_some(error.location)
++        });
++        Self {
++            range,
++            field: None,
++            stopped: false,
++            unclosed_format_spec: None,
++        }
++    }
++
++    fn token(&mut self, kind: TokenKind, range: TextRange, field: Option<(TextSize, bool)>) {
++        let Some(hint) = self.range else {
++            return;
++        };
++        if range.contains(hint.start()) {
++            self.field = field.map(|(start, _)| start);
++        }
++        if range.start() < hint.end() || self.field.is_none() {
++            return;
++        }
++        // The hint covers both expressions. A later expression token establishes the hint;
++        // only the format-specifier and string-end tokens still belong to this field.
++        if !kind.is_trivia()
++            && !matches!(
++                kind,
++                TokenKind::Colon
++                    | TokenKind::FStringMiddle
++                    | TokenKind::TStringMiddle
++                    | TokenKind::FStringEnd
++                    | TokenKind::TStringEnd
++                    | TokenKind::EndOfFile
++            )
++        {
++            self.stopped = true;
++        }
++        if kind.is_interpolated_string_end() && !self.stopped {
++            self.unclosed_format_spec = field
++                .filter(|(start, format)| *format && Some(*start) == self.field)
++                .map(|(start, _)| start);
++        }
++    }
++
++    fn is_unclosed_field_hint(
++        &self,
++        error: &LexicalErrorType,
++        field: Option<(TextSize, bool)>,
++    ) -> bool {
++        self.field.is_some()
++            && self.field == field.map(|(start, _)| start)
++            && !self.stopped
++            && matches!(
++                error,
++                LexicalErrorType::FStringError(
++                    InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
++                ) | LexicalErrorType::TStringError(
++                    InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
++                )
++            )
++    }
++}
++
+ /// Moves `error` to the front of `errors`, removing an equal error elsewhere.
+ fn move_to_front(errors: &mut Vec<ParseError>, error: ParseError) {
+     errors.retain(|other| *other != error);

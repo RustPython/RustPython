@@ -118,7 +118,8 @@ def printlist(x, width=70, indent=4, file=None):
     blanks = ' ' * indent
     # Print the sorted list: 'x' may be a '--random' list or a set()
     print(textwrap.fill(' '.join(str(elt) for elt in sorted(x)), width,
-                        initial_indent=blanks, subsequent_indent=blanks),
+                        initial_indent=blanks, subsequent_indent=blanks,
+                        break_long_words=False, break_on_hyphens=False),
           file=file)
 
 
@@ -293,6 +294,25 @@ def clear_caches():
         pass
     else:
         importlib_metadata.FastPath.__new__.cache_clear()
+
+    try:
+        encodings = sys.modules['encodings']
+    except KeyError:
+        pass
+    else:
+        encodings._cache.clear()
+
+    try:
+        codecs = sys.modules['codecs']
+    except KeyError:
+        pass
+    else:
+        # There's no direct API to clear the codecs search cache, but
+        # `unregister` clears it implicitly.
+        def noop_search_function(name):
+            return None
+        codecs.register(noop_search_function)
+        codecs.unregister(noop_search_function)
 
 
 def get_build_info():
@@ -727,3 +747,9 @@ def _sanitize_xml_replace(regs):
 
 def sanitize_xml(text: str) -> str:
     return ILLEGAL_XML_CHARS_RE.sub(_sanitize_xml_replace, text)
+
+
+def display_title(title):
+    print(title)
+    print("#" * len(title))
+    print(flush=True)

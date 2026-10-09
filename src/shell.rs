@@ -54,6 +54,14 @@ fn shell_exec(
             }
         }
         Err(err) => {
+            // Diagnostic normalization can replace the lexer's EOF error.
+            // Keep unfinished expressions in line-continuation mode so they
+            // execute as soon as their closing delimiter arrives.
+            if let VmCompileError::Compile(CompileError::Parse(parse)) = &err
+                && (parse.is_unclosed_bracket || parse.is_unclosed_string)
+            {
+                return ShellExecResult::ContinueLine;
+            }
             if matches!(
                 &err,
                 VmCompileError::Compile(CompileError::Parse(ParseError {
@@ -217,14 +225,14 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
 
         if let Err(exc) = result {
             if exc.fast_isinstance(vm.ctx.exceptions.system_exit) {
-                repl.save_history(&repl_history_path).unwrap();
+                let _ = repl.save_history(&repl_history_path);
                 return Err(exc);
             }
             vm.print_exception(&exc);
         }
         flush_stdio(vm);
     }
-    repl.save_history(&repl_history_path).unwrap();
+    let _ = repl.save_history(&repl_history_path);
 
     Ok(())
 }

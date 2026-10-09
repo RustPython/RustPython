@@ -583,10 +583,7 @@ pub(crate) mod typevar {
                 return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
             };
 
-            let bound = kwargs
-                .swap_remove("bound")
-                .map(|b| type_check(b, "Bound must be a type.", vm))
-                .transpose()?;
+            let bound = kwargs.swap_remove("bound");
             let covariant = kwargs
                 .swap_remove("covariant")
                 .map(|v| v.try_to_bool(vm))
@@ -678,8 +675,16 @@ pub(crate) mod typevar {
     pub struct TypeVarTuple {
         #[pymember(name = "__name__")]
         name: PyObjectRef,
+        #[pymember(name = "__bound__")]
+        bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
+        covariant: bool,
+        #[pymember(name = "__contravariant__")]
+        contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
+        infer_variance: bool,
     }
 
     #[pyclass(
@@ -791,6 +796,22 @@ pub(crate) mod typevar {
                 return Err(vm.new_type_error("TypeVarTuple() takes at most 1 positional argument"));
             };
 
+            let bound = kwargs.swap_remove("bound");
+            let covariant = kwargs
+                .swap_remove("covariant")
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let contravariant = kwargs
+                .swap_remove("contravariant")
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let infer_variance = kwargs
+                .swap_remove("infer_variance")
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
@@ -799,6 +820,13 @@ pub(crate) mod typevar {
                     Some("typevartuple"),
                     &invalid_key.to_string(),
                 ));
+            }
+
+            if covariant && contravariant {
+                return Err(vm.new_value_error("Bivariant types are not supported."));
+            }
+            if infer_variance && (covariant || contravariant) {
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance."));
             }
 
             // Handle default value
@@ -811,8 +839,12 @@ pub(crate) mod typevar {
 
             let typevartuple = Self {
                 name,
+                bound,
                 default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(evaluate_default),
+                covariant,
+                contravariant,
+                infer_variance,
             };
 
             let obj = typevartuple.into_ref_with_type(vm, cls)?;
@@ -829,8 +861,13 @@ pub(crate) mod typevar {
     impl Representable for TypeVarTuple {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.str(vm)?;
-            Ok(name.to_string())
+            let name = zelf.name.str_utf8(vm)?;
+            Ok(variance_repr(
+                name.as_str(),
+                zelf.infer_variance,
+                zelf.covariant,
+                zelf.contravariant,
+            ))
         }
     }
 
@@ -838,8 +875,12 @@ pub(crate) mod typevar {
         pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
             Self {
                 name,
+                bound: None,
                 default_value: PyMutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
+                covariant: false,
+                contravariant: false,
+                infer_variance: true,
             }
         }
     }

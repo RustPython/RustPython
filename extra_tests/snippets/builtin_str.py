@@ -411,7 +411,7 @@ for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
     for value in (None, TypeError("conversion failed")):
         with assert_raises(TypeError) as cm:
             template % PercentInt(value)
-        assert str(cm.exception).endswith("a real number is required, not PercentInt")
+        assert str(cm.exception).endswith("requires a real number, not PercentInt")
     assert_raises(
         RuntimeError, template.__mod__, PercentInt(RuntimeError("conversion failed"))
     )

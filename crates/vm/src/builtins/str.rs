@@ -1,5 +1,6 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyAnyDictRef, PyBytesRef, PyDict, PyList, PyTuple, PyTupleRef, PyType,
+    PyTypeRef,
     int::PyInt,
     iter::{IterStatus, builtins_iter},
 };
@@ -1570,17 +1571,15 @@ impl Py<PyStr> {
                 )),
             }
         } else {
-            // dict_str must be a dict
-            match dict_or_str.downcast::<PyDict>() {
-                Ok(dict) => {
-                    for (key, val) in dict {
-                        // FIXME: ints are key-compatible
-                        if let Some(num) = key.downcast_ref::<PyInt>() {
-                            new_dict.set_item(
-                                &*num.as_bigint().to_i32().to_pyobject(vm),
-                                val,
-                                vm,
-                            )?;
+            // The single-argument form accepts exact dict and frozendict objects.
+            match PyAnyDictRef::from_object(&dict_or_str).filter(|_| {
+                dict_or_str.class().is(vm.ctx.types.dict_type)
+                    || dict_or_str.class().is(vm.ctx.types.frozendict_type)
+            }) {
+                Some(dict) => {
+                    for (key, val) in &dict {
+                        if key.downcast_ref::<PyInt>().is_some() {
+                            new_dict.set_item(&*key, val, vm)?;
                         } else if let Some(string) = key.downcast_ref::<PyStr>() {
                             if string.len() == 1 {
                                 let num_value =
@@ -1599,7 +1598,7 @@ impl Py<PyStr> {
                     }
                     Ok(new_dict.to_pyobject(vm))
                 }
-                _ => Err(vm.new_value_error(
+                _ => Err(vm.new_type_error(
                     "if you give only one argument to maketrans it must be a dict",
                 )),
             }

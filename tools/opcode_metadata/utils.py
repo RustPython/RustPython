@@ -18,6 +18,10 @@ class StackEffect:
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class Override:
+    cpython_name: str | None = None
+    deopt: str | None = None
+    cache_entries: int | None = None
+    properties: dict[str, bool] = dataclasses.field(default_factory=dict)
     is_instrumented: bool | None = None
     stack_effect: StackEffect = dataclasses.field(default_factory=StackEffect)
 

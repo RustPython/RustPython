@@ -1,0 +1,709 @@
+--- a/vendor/rustpython-ruff_python_parser/src/error.rs
++++ b/vendor/rustpython-ruff_python_parser/src/error.rs
+@@ -198,6 +198,17 @@
+     /// An error specific to stringified annotations occurred.
+     StringAnnotationError(&'static str),
+ 
++    /// A `raise from` statement has no exception expression.
++    MissingRaiseException,
++    /// A `raise` statement ends immediately after `from`.
++    MissingRaiseCause,
++    /// An unparenthesized `with` item list ends with a comma.
++    TrailingCommaInWith,
++    /// `lazy` follows the module name instead of preceding `from`.
++    MisplacedLazyImport,
++    /// An absolute future import is marked lazy.
++    LazyFutureImport,
++
+     /// An empty slice was found during parsing, e.g `data[]`.
+     EmptySlice,
+     /// An empty global names list was found during parsing.
+@@ -240,6 +251,8 @@
+     InvalidStarPatternUsage,
+     /// An underscore was used as a binding target in a match pattern.
+     InvalidMatchPatternTarget,
++    /// A complete case clause was found outside a match statement.
++    CaseOutsideMatch,
+ 
+     /// A parameter was found after a vararg.
+     ParamAfterVarKeywordParam,
+@@ -259,6 +272,10 @@
+         kind: ExpressionKind,
+         maybe_comparison: bool,
+     },
++    /// A named expression is used in an assertion without its required parentheses.
++    NamedExpressionWithoutParentheses,
++    /// A mapping pattern contains an entry after its double-star rest pattern.
++    MappingRestPatternNotLast,
+     /// A name is assigned to where `==` or `:=` may have been meant.
+     AssignmentInsteadOfComparison,
+     /// A `yield` expression is assigned to.
+@@ -456,6 +473,8 @@
+     Finally,
+     Match,
+     Case,
++    /// A standalone case uses the generic invalid-block diagnostic.
++    StandaloneCase,
+     Class,
+     FunctionDef,
+ }
+@@ -474,7 +493,7 @@
+             Self::ExceptStar => "'except*' statement",
+             Self::Finally => "'finally' statement",
+             Self::Match => "'match' statement",
+-            Self::Case => "'case' statement",
++            Self::Case | Self::StandaloneCase => "'case' statement",
+             Self::Class => "class definition",
+             Self::FunctionDef => "function definition",
+         })
+@@ -499,6 +518,10 @@
+     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+         match self {
+             ParseErrorType::OtherError(msg) => f.write_str(msg),
++            ParseErrorType::ExpectedIndentedBlock {
++                clause: BlockClause::StandaloneCase,
++                ..
++            } => f.write_str("expected an indented block"),
+             ParseErrorType::ExpectedIndentedBlock { clause, line } => {
+                 write!(
+                     f,
+@@ -594,6 +617,21 @@
+             ParseErrorType::PositionalAfterKeywordUnpacking => {
+                 f.write_str("positional argument follows keyword argument unpacking")
+             }
++            ParseErrorType::MissingRaiseException => {
++                f.write_str("did you forget an expression between 'raise' and 'from'?")
++            }
++            ParseErrorType::MissingRaiseCause => {
++                f.write_str("did you forget an expression after 'from'?")
++            }
++            ParseErrorType::TrailingCommaInWith => {
++                f.write_str("the last 'with' item has a trailing comma")
++            }
++            ParseErrorType::MisplacedLazyImport => {
++                f.write_str("use 'lazy from ... ' instead of 'from ... lazy import'")
++            }
++            ParseErrorType::LazyFutureImport => {
++                f.write_str("lazy from __future__ import is not allowed")
++            }
+             ParseErrorType::EmptySlice => f.write_str("expected index or slice expression"),
+             ParseErrorType::EmptyGlobalNames => {
+                 f.write_str("global statement must have at least one name")
+@@ -646,6 +684,9 @@
+                 f.write_str("cannot use starred expression here")
+             }
+             ParseErrorType::InvalidMatchPatternTarget => f.write_str("cannot use '_' as a target"),
++            ParseErrorType::CaseOutsideMatch => {
++                f.write_str("case statement must be inside match statement")
++            }
+             ParseErrorType::ExpectedRealNumber => {
+                 f.write_str("expected a real number in complex literal pattern")
+             }
+@@ -666,6 +707,12 @@
+             } => write!(
+                 f,
+                 "cannot assign to {kind} here. Maybe you meant '==' instead of '='?"
++            ),
++            ParseErrorType::NamedExpressionWithoutParentheses => {
++                f.write_str("cannot use named expression without parentheses here")
++            }
++            ParseErrorType::MappingRestPatternNotLast => f.write_str(
++                "double star pattern must be the last (right-most) subpattern in the mapping pattern",
+             ),
+             ParseErrorType::AssignmentInsteadOfComparison => {
+                 f.write_str("invalid syntax. Maybe you meant '==' or ':=' instead of '='?")
+--- a/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
+@@ -31,6 +31,8 @@
+ 
+ pub use crate::parser::options::ParseOptions;
+ 
++#[cfg(feature = "python315-diagnostics")]
++mod case_diagnostics;
+ mod expression;
+ mod helpers;
+ mod options;
+@@ -1146,12 +1148,29 @@
+ 
+         if let Some(trailing_comma_range) = trailing_comma_range {
+             if !recovery_context_kind.allow_trailing_comma() {
+-                self.add_error(
++                let error = if cfg!(feature = "python315-diagnostics")
++                    && matches!(recovery_context_kind, RecoveryContextKind::WithItems(_))
++                    && self.at(TokenKind::Colon)
++                {
++                    ParseErrorType::TrailingCommaInWith
++                } else {
+                     ParseErrorType::OtherError(
+                         "trailing comma not allowed without surrounding parentheses".to_string(),
+-                    ),
+-                    trailing_comma_range,
+-                );
++                    )
++                };
++                let range = if cfg!(feature = "python315-diagnostics")
++                    && matches!(
++                        recovery_context_kind,
++                        RecoveryContextKind::ImportFromAsNames(Parenthesized::No)
++                    )
++                    && self.at(TokenKind::Newline)
++                {
++                    // The invalid import-target production diagnoses its NEWLINE.
++                    self.current_token_range()
++                } else {
++                    trailing_comma_range
++                };
++                self.add_error(error, range);
+             }
+         }
+ 
+--- a/vendor/rustpython-ruff_python_parser/src/parser/statement.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/statement.rs
+@@ -111,8 +111,10 @@
+     /// - <https://docs.python.org/3/reference/simple_stmts.html>
+     pub(super) fn parse_statement(&mut self) -> Stmt {
+         let start = self.node_start();
+-
+-        match self.current_token_kind() {
++        #[cfg(feature = "python315-diagnostics")]
++        let case_diagnostic = self.standalone_case_diagnostic();
++
++        let statement = match self.current_token_kind() {
+             TokenKind::If => Stmt::If(self.parse_if_statement()),
+             TokenKind::For => Stmt::For(self.parse_for_statement(start)),
+             TokenKind::While => Stmt::While(self.parse_while_statement()),
+@@ -146,7 +148,18 @@
+ 
+                 self.parse_single_simple_statement()
+             }
+-        }
++        };
++
++        #[cfg(feature = "python315-diagnostics")]
++        if !self.errors.is_empty()
++            && let Some(error) = case_diagnostic
++        {
++            // Only the invalid-grammar diagnostic changes. Keep the ordinary
++            // statement parser's AST, tokens, and recovery path intact.
++            self.errors.insert(0, error);
++        }
++
++        statement
+     }
+ 
+     /// Parses a single simple statement.
+@@ -567,12 +580,19 @@
+                 // test_err raise_stmt_from_without_exc
+                 // raise from exc
+                 // raise from None
+-                self.add_error(
+-                    ParseErrorType::OtherError(
+-                        "exception missing in `raise` statement with cause".to_string(),
+-                    ),
+-                    self.current_token_range(),
+-                );
++                if cfg!(feature = "python315-diagnostics") {
++                    self.add_error(
++                        ParseErrorType::MissingRaiseException,
++                        TextRange::new(start, self.current_token_range().end()),
++                    );
++                } else {
++                    self.add_error(
++                        ParseErrorType::OtherError(
++                            "exception missing in `raise` statement with cause".to_string(),
++                        ),
++                        self.current_token_range(),
++                    );
++                }
+                 None
+             }
+             _ => {
+@@ -598,7 +618,17 @@
+             }
+         };
+ 
++        let from_range = self.current_token_range();
+         let cause = self.eat(TokenKind::From).then(|| {
++            if cfg!(feature = "python315-diagnostics")
++                && exc.is_some()
++                && matches!(
++                    self.current_token_kind(),
++                    TokenKind::Newline | TokenKind::EndOfFile | TokenKind::Semi
++                )
++            {
++                self.add_error(ParseErrorType::MissingRaiseCause, from_range);
++            }
+             // test_err raise_stmt_invalid_cause
+             // raise x from *y
+             // raise x from yield y
+@@ -675,7 +705,7 @@
+         if names.is_empty() {
+             // test_err import_stmt_empty
+             // import
+-            self.add_error(ParseErrorType::EmptyImportNames, self.current_token_range());
++            self.add_empty_import_names_error();
+         }
+ 
+         ast::StmtImport {
+@@ -718,6 +748,7 @@
+         start: TextSize,
+         is_lazy: bool,
+     ) -> ast::StmtImportFrom {
++        let import_errors_start = self.errors.len();
+         self.bump(TokenKind::From);
+ 
+         let mut leading_dots = 0;
+@@ -756,6 +787,13 @@
+             None
+         };
+ 
++        if cfg!(feature = "python315-diagnostics")
++            && module.is_some()
++            && let Some(range) = self.misplaced_lazy_import_range()
++        {
++            self.add_error(ParseErrorType::MisplacedLazyImport, range);
++        }
++
+         // test_ok from_import_no_space
+         // from.import x
+         // from...import x
+@@ -766,6 +804,11 @@
+         let mut seen_star_import = false;
+ 
+         let parenthesized = Parenthesized::from(self.eat(TokenKind::Lpar));
++        let lazy_future = cfg!(feature = "python315-diagnostics")
++            && is_lazy
++            && leading_dots == 0
++            && module.as_ref().is_some_and(|name| name.id == "__future__");
++        let mut incomplete_optional_alias = false;
+ 
+         // test_err from_import_unparenthesized_trailing_comma
+         // from a import b,
+@@ -778,6 +821,15 @@
+                 // from x import a.
+                 // from x import a.b
+                 // from x import a, b.c, d, e.f, g
++                // CPython's optional `as NAME` rolls back on a missing name, so an
++                // unparenthesized target list can finish before this recovery error.
++                incomplete_optional_alias = lazy_future
++                    && !parenthesized.is_yes()
++                    && parser.at_identifier_or_soft_keyword()
++                    && matches!(
++                        parser.peek2(),
++                        (TokenKind::As, TokenKind::Newline | TokenKind::EndOfFile)
++                    );
+                 let alias = parser.parse_alias(ImportStyle::ImportFrom);
+                 seen_star_import |= alias.name.id == "*";
+                 parser.alias_scratch.push(alias);
+@@ -790,7 +842,7 @@
+             // from x import
+             // from x import ()
+             // from x import ,,
+-            self.add_error(ParseErrorType::EmptyImportNames, self.current_token_range());
++            self.add_empty_import_names_error();
+         }
+ 
+         if seen_star_import && parenthesized.is_yes() {
+@@ -823,6 +875,24 @@
+             self.expect(TokenKind::Rpar);
+         }
+ 
++        if lazy_future
++            && !names.is_empty()
++            && (self.errors.len() == import_errors_start
++                || (!parenthesized.is_yes()
++                    && incomplete_optional_alias
++                    && self.errors.len() == import_errors_start + 1))
++        {
++            // This grammar action precedes subsequent statements and the optional-as
++            // recovery above. Keep the recovered AST and tokens unchanged.
++            self.errors.insert(
++                import_errors_start,
++                crate::ParseError {
++                    error: ParseErrorType::LazyFutureImport,
++                    location: TextRange::at(start, TextSize::new(4)),
++                },
++            );
++        }
++
+         ast::StmtImportFrom {
+             module,
+             names,
+@@ -832,6 +902,51 @@
+             node_index: AtomicNodeIndex::NONE,
+             runtime_level: None,
+         }
++    }
++
++    /// Checks the misplaced `lazy` invalid production with the import-target parser.
++    /// Rewind afterward so the existing invalid-input recovery and AST stay intact.
++    fn misplaced_lazy_import_range(&mut self) -> Option<TextRange> {
++        if !self.at(TokenKind::Lazy) || self.peek() != TokenKind::Import {
++            return None;
++        }
++        let checkpoint = self.checkpoint();
++        let errors_before = self.errors.len();
++        let lazy_range = self.current_token_range();
++        self.bump(TokenKind::Lazy);
++        self.bump(TokenKind::Import);
++        let parenthesized = Parenthesized::from(self.eat(TokenKind::Lpar));
++        let names = self.parse_comma_separated_list_into_vec(
++            RecoveryContextKind::ImportFromAsNames(parenthesized),
++            |parser| parser.parse_alias(ImportStyle::ImportFrom),
++        );
++        if parenthesized.is_yes() {
++            self.expect(TokenKind::Rpar);
++        }
++        let valid = !names.is_empty()
++            && self.errors.len() == errors_before
++            && (!names.iter().any(|alias| alias.name.id == "*")
++                || (names.len() == 1 && !parenthesized.is_yes()));
++        self.rewind(checkpoint);
++        valid.then_some(lazy_range)
++    }
++
++    /// Empty import targets use a cursor diagnostic only at newline or EOF.
++    /// A concrete unexpected token keeps its ordinary syntax-error span.
++    fn add_empty_import_names_error(&mut self) {
++        let error = if cfg!(feature = "python315-diagnostics")
++            && !matches!(
++                self.current_token_kind(),
++                TokenKind::Newline | TokenKind::EndOfFile
++            ) {
++            ParseErrorType::ExpectedToken {
++                expected: TokenKind::Identifier,
++                found: self.current_token_kind(),
++            }
++        } else {
++            ParseErrorType::EmptyImportNames
++        };
++        self.add_error(error, self.current_token_range());
+     }
+ 
+     /// Parses an `import` or `from` import name.
+@@ -890,10 +1005,15 @@
+             } else {
+                 // test_err import_alias_missing_asname
+                 // import x as
+-                self.add_error(
+-                    ParseErrorType::OtherError("expected symbol after `as`".to_string()),
+-                    self.current_token_range(),
+-                );
++                let error = if cfg!(feature = "python315-diagnostics") {
++                    ParseErrorType::ExpectedToken {
++                        expected: TokenKind::Identifier,
++                        found: self.current_token_kind(),
++                    }
++                } else {
++                    ParseErrorType::OtherError("expected symbol after `as`".to_string())
++                };
++                self.add_error(error, self.current_token_range());
+                 None
+             }
+         } else {
+@@ -1014,7 +1134,11 @@
+         // assert assert x
+         // assert yield x
+         // assert x := 1
++        let test_errors_start = self.errors.len();
+         let test = self.parse_conditional_expression_or_higher();
++        if cfg!(feature = "python315-diagnostics") && self.errors.len() == test_errors_start {
++            self.check_assert_assignment(&test);
++        }
+ 
+         let msg = if self.eat(TokenKind::Comma) {
+             if self.at_expr() {
+@@ -1023,7 +1147,14 @@
+                 // assert False, assert x
+                 // assert False, yield x
+                 // assert False, x := 1
+-                Some(Box::new(self.parse_conditional_expression_or_higher().expr))
++                let message_errors_start = self.errors.len();
++                let message = self.parse_conditional_expression_or_higher();
++                if cfg!(feature = "python315-diagnostics")
++                    && self.errors.len() == message_errors_start
++                {
++                    self.check_assert_assignment(&message);
++                }
++                Some(Box::new(message.expr))
+             } else {
+                 // test_err assert_empty_msg
+                 // assert x,
+@@ -1042,6 +1173,39 @@
+             msg,
+             range: self.node_range(start),
+             node_index: AtomicNodeIndex::NONE,
++        }
++    }
++
++    /// Diagnose an assignment after an otherwise valid assertion expression. Speculative
++    /// parsing supplies the expression span without consuming recovery tokens or changing
++    /// the recovered assertion AST. Errors inside parentheses retain their own diagnostics.
++    fn check_assert_assignment(&mut self, target: &ParsedExpr) {
++        let operator = self.current_token_kind();
++        if !matches!(operator, TokenKind::Equal | TokenKind::ColonEqual) {
++            return;
++        }
++
++        let checkpoint = self.checkpoint();
++        let errors_start = self.errors.len();
++        self.bump(operator);
++        let value_end = if self.at_expr() {
++            let value = self.parse_conditional_expression_or_higher();
++            (self.errors.len() == errors_start).then_some(value.end())
++        } else {
++            None
++        };
++        self.rewind(checkpoint);
++
++        if let Some(value_end) = value_end {
++            let error = if operator == TokenKind::ColonEqual {
++                ParseErrorType::NamedExpressionWithoutParentheses
++            } else {
++                ParseErrorType::InvalidAssignmentTarget {
++                    kind: ExpressionKind::of(&target.expr),
++                    maybe_comparison: true,
++                }
++            };
++            self.add_error(error, TextRange::new(target.start(), value_end));
+         }
+     }
+ 
+@@ -2471,12 +2635,14 @@
+     /// See: <https://docs.python.org/3/reference/compound_stmts.html#the-with-statement>
+     fn parse_with_items(&mut self) -> Vec<WithItem> {
+         if !self.at_expr() {
+-            self.add_error(
++            let error = if cfg!(feature = "python315-diagnostics") {
++                ParseErrorType::ExpectedExpression
++            } else {
+                 ParseErrorType::OtherError(
+                     "expected the start of an expression after `with` keyword".to_string(),
+-                ),
+-                self.current_token_range(),
+-            );
++                )
++            };
++            self.add_error(error, self.current_token_range());
+             return vec![];
+         }
+ 
+@@ -3326,7 +3492,7 @@
+     /// clause header or an indented block.
+     ///
+     /// `header_start` is the start of the clause's header keyword token.
+-    fn parse_body(&mut self, clause: BlockClause, header_start: TextSize) -> Suite {
++    pub(super) fn parse_body(&mut self, clause: BlockClause, header_start: TextSize) -> Suite {
+         // Note: The test cases in this method chooses a clause at random to test
+         // the error logic.
+ 
+--- a/vendor/rustpython-ruff_python_parser/src/parser/pattern.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/pattern.rs
+@@ -212,6 +212,8 @@
+ 
+         self.parse_comma_separated_list(RecoveryContextKind::MatchPatternMapping, |parser| {
+             let mapping_item_start = parser.node_start();
++            let mapping_item_token = parser.current_token_range();
++            let mapping_item_errors_start = parser.errors.len();
+ 
+             if parser.eat(TokenKind::DoubleStar) {
+                 // A `_` rest target is not a capture target.
+@@ -267,17 +269,32 @@
+                 };
+                 keys.push(key);
+ 
++                let colon_errors_start = parser.errors.len();
+                 parser.expect(TokenKind::Colon);
++                if cfg!(feature = "python315-diagnostics")
++                    && rest.is_some()
++                    && parser.errors.len() > colon_errors_start
++                {
++                    // An incomplete mapping entry does not match the invalid rest-order
++                    // production. Report its first token, where the mapping stopped.
++                    parser.errors[colon_errors_start].location = mapping_item_token;
++                }
+ 
+                 patterns.push(parser.parse_match_pattern(AllowStarPattern::No));
+ 
+-                if rest.is_some() {
+-                    parser.add_error(
+-                        ParseErrorType::OtherError(
+-                            "pattern cannot follow a double star pattern".to_string(),
+-                        ),
+-                        parser.node_range(mapping_item_start),
+-                    );
++                if let Some(rest) = &rest {
++                    if cfg!(feature = "python315-diagnostics") {
++                        if parser.errors.len() == mapping_item_errors_start {
++                            parser.add_error(ParseErrorType::MappingRestPatternNotLast, rest);
++                        }
++                    } else {
++                        parser.add_error(
++                            ParseErrorType::OtherError(
++                                "pattern cannot follow a double star pattern".to_string(),
++                            ),
++                            parser.node_range(mapping_item_start),
++                        );
++                    }
+                 }
+             }
+         });
+--- /dev/null
++++ b/vendor/rustpython-ruff_python_parser/src/parser/case_diagnostics.rs
+@@ -0,0 +1,156 @@
++//! The invalid standalone-case production. This is diagnostic-only speculation:
++//! the caller always parses the original statement again for syntax and tokens.
++
++use ruff_python_ast::token::TokenKind;
++use ruff_python_ast::{Expr, Pattern};
++use ruff_text_size::TextRange;
++
++use super::Parser;
++use super::expression::ExpressionContext;
++use crate::{BlockClause, ParseError, ParseErrorType};
++
++impl Parser<'_> {
++    pub(super) fn standalone_case_diagnostic(&mut self) -> Option<ParseError> {
++        if !self.at(TokenKind::Case)
++            || !self.errors.is_empty()
++            || self
++                .token_before(self.node_start())
++                .is_some_and(|(kind, _)| {
++                    !matches!(
++                        kind,
++                        TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent
++                    )
++                })
++        {
++            return None;
++        }
++
++        let checkpoint = self.checkpoint();
++        // These recovery fields are not covered by the normal parser checkpoint.
++        let unclosed_bracket = self.first_unclosed_bracket_recovery;
++        let escape_error = self.interpolated_string_escape_error.clone();
++        let replacement_field = self.replacement_field;
++        let diagnostic = self.parse_invalid_standalone_case();
++        self.rewind(checkpoint);
++        self.first_unclosed_bracket_recovery = unclosed_bracket;
++        self.interpolated_string_escape_error = escape_error;
++        self.replacement_field = replacement_field;
++        diagnostic
++    }
++
++    fn parse_invalid_standalone_case(&mut self) -> Option<ParseError> {
++        let start = self.node_start();
++        self.bump(TokenKind::Case);
++        let pattern = self.parse_match_patterns();
++        if !self.errors.is_empty() {
++            return self.standalone_case_inner_error();
++        }
++        if !pattern_has_valid_value_names(&pattern) {
++            return None;
++        }
++
++        if self.eat(TokenKind::If) {
++            if !self.at_expr() {
++                return None;
++            }
++            self.parse_named_expression_or_higher(ExpressionContext::default());
++            if !self.errors.is_empty() {
++                return self.standalone_case_inner_error();
++            }
++        }
++        if !self.at(TokenKind::Colon) {
++            return None;
++        }
++        let header_range = TextRange::new(start, self.current_token_range().end());
++        self.bump(TokenKind::Colon);
++        self.parse_body(BlockClause::StandaloneCase, start);
++
++        if self
++            .tokens
++            .has_tokenizer_error_in(TextRange::new(start, self.current_token_range().end()))
++        {
++            return None;
++        }
++        if self.errors.is_empty() {
++            Some(ParseError {
++                error: ParseErrorType::CaseOutsideMatch,
++                location: header_range,
++            })
++        } else {
++            self.standalone_case_inner_error()
++        }
++    }
++
++    /// A malformed production does not establish a standalone case. An invalid
++    /// rule reached while parsing its pattern, guard, or body can still raise
++    /// its own diagnostic before the enclosing standalone-case rule fires.
++    fn standalone_case_inner_error(&self) -> Option<ParseError> {
++        self.errors
++            .first()
++            .filter(|error| {
++                matches!(
++                    error.error,
++                    ParseErrorType::CaseOutsideMatch
++                        | ParseErrorType::ExpectedIndentedBlock { .. }
++                        | ParseErrorType::InvalidMatchPatternTarget
++                        | ParseErrorType::InvalidPatternTarget(_)
++                        | ParseErrorType::MissingRaiseException
++                        | ParseErrorType::MissingRaiseCause
++                        | ParseErrorType::NamedExpressionWithoutParentheses
++                        | ParseErrorType::MappingRestPatternNotLast
++                        | ParseErrorType::TrailingCommaInWith
++                        | ParseErrorType::MisplacedLazyImport
++                        | ParseErrorType::LazyFutureImport
++                        | ParseErrorType::InvalidAssignmentTarget { .. }
++                        | ParseErrorType::InvalidAnnotatedAssignmentTarget
++                        | ParseErrorType::InvalidAugmentedAssignmentTarget(_)
++                        | ParseErrorType::InvalidDeleteTarget(_)
++                )
++            })
++            .cloned()
++    }
++}
++
++/// The recovery parser permits an underscore at the root of a value or class
++/// pattern. In the grammar it commits to the wildcard instead, so `_.x` cannot
++/// complete the pattern even when the recovered AST is an attribute.
++fn pattern_has_valid_value_names(pattern: &Pattern) -> bool {
++    match pattern {
++        Pattern::MatchValue(pattern) => value_has_valid_root(&pattern.value),
++        Pattern::MatchSingleton(_) | Pattern::MatchStar(_) => true,
++        Pattern::MatchSequence(pattern) => {
++            pattern.patterns.iter().all(pattern_has_valid_value_names)
++        }
++        Pattern::MatchMapping(pattern) => {
++            pattern.patterns.iter().all(pattern_has_valid_value_names)
++        }
++        Pattern::MatchClass(pattern) => {
++            value_has_valid_root(&pattern.cls)
++                && pattern
++                    .arguments
++                    .patterns
++                    .iter()
++                    .all(pattern_has_valid_value_names)
++                && pattern
++                    .arguments
++                    .keywords
++                    .iter()
++                    .all(|keyword| pattern_has_valid_value_names(&keyword.pattern))
++        }
++        Pattern::MatchAs(pattern) => pattern
++            .pattern
++            .as_deref()
++            .is_none_or(pattern_has_valid_value_names),
++        Pattern::MatchOr(pattern) => pattern.patterns.iter().all(pattern_has_valid_value_names),
++    }
++}
++
++fn value_has_valid_root(mut value: &Expr) -> bool {
++    while let Expr::Attribute(attribute) = value {
++        value = &attribute.value;
++    }
++    match value {
++        Expr::Name(name) => name.id != "_",
++        _ => true,
++    }
++}

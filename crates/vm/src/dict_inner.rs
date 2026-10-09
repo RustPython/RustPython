@@ -1182,6 +1182,14 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
+    pub(crate) fn items_with_hashes(&self) -> Vec<(PyObjectRef, T, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone(), v.hash)))
+            .collect()
+    }
+
     /// Fold stored hashes under the read lock; the callback must not run Python.
     pub(crate) fn fold_hashes<Acc, Fold>(&self, init: Acc, f: Fold) -> Acc
     where
@@ -1356,14 +1364,15 @@ impl<T: Clone> Dict<T> {
         Ok(removed)
     }
 
-    /// Move an existing entry to the end and return its current value without
-    /// making the key temporarily absent. Equality runs unlocked.
-    pub(crate) fn move_to_end<K: DictKey + ?Sized>(
+    // Locate an entry and mutate it under one guard. The operation must not
+    // run Python or drop owned Python references while the guard is held.
+    fn with_entry_mut<K: DictKey + ?Sized, R>(
         &self,
         vm: &VirtualMachine,
         key: &K,
         hash_value: HashValue,
-    ) -> PyResult<Option<T>> {
+        update: impl FnOnce(&mut DictInner<T>, EntryIndex) -> R,
+    ) -> PyResult<Option<R>> {
         struct ProbeWitness {
             index_index: IndexIndex,
             entry_index: IndexEntry,
@@ -1455,6 +1464,21 @@ impl<T: Clone> Dict<T> {
                     }
                 },
             };
+            let result = update(&mut inner, entry_index);
+            drop(inner);
+            return Ok(Some(result));
+        }
+    }
+
+    /// Move an existing entry to the end and return its current value without
+    /// making the key temporarily absent. Equality runs unlocked.
+    pub(crate) fn move_to_end<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<Option<T>> {
+        self.with_entry_mut(vm, key, hash, |inner, entry_index| {
             let value = inner.entries[entry_index].as_ref().unwrap().value.clone();
             if inner.entries[entry_index + 1..].iter().any(Option::is_some) {
                 // Reserve before taking the entry. No reader can observe an
@@ -1479,9 +1503,25 @@ impl<T: Clone> Dict<T> {
                     inner.resize(indices_size);
                 }
             }
-            drop(inner);
-            return Ok(Some(value));
-        }
+            value
+        })
+    }
+
+    // Replace only a still-matching value. The predicate must not run Python.
+    // Keep both the replacement and removed value alive outside the guard.
+    pub(crate) fn replace_if<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        replacement: T,
+        matches: impl FnOnce(&T) -> bool,
+    ) -> PyResult<bool> {
+        let removed = self.with_entry_mut(vm, key, hash, |inner, index| {
+            let entry = inner.entries[index].as_mut().unwrap();
+            matches(&entry.value).then(|| core::mem::replace(&mut entry.value, replacement.clone()))
+        })?;
+        Ok(removed.flatten().is_some())
     }
 
     pub(crate) fn pop_back(&self) -> Option<(PyObjectRef, T)> {

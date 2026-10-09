@@ -49,6 +49,10 @@ pub mod module {
     #[pyattr]
     use rustpython_host_env::posix::PIDFD_NONBLOCK;
 
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[pyattr]
+    use rustpython_host_env::posix::NODEV;
+
     #[cfg(target_os = "macos")]
     #[pyattr]
     use rustpython_host_env::posix::{
@@ -881,7 +885,11 @@ pub mod module {
 
     /// Warn if forking from a multi-threaded process.
     /// `num_os_threads` should be captured before parent after-fork hooks run.
-    fn warn_if_multi_threaded(name: &str, num_os_threads: isize, vm: &VirtualMachine) {
+    fn warn_if_multi_threaded(
+        name: &str,
+        num_os_threads: isize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let num_threads = if num_os_threads > 0 {
             num_os_threads as usize
         } else {
@@ -895,7 +903,7 @@ pub mod module {
                 .and_then(|m| m.get_item("threading", vm))
             {
                 Ok(m) => m,
-                Err(_) => return,
+                Err(_) => return Ok(()),
             };
             let active = threading.get_attr("_active", vm).ok();
             let limbo = threading.get_attr("_limbo", vm).ok();
@@ -920,10 +928,9 @@ pub mod module {
             );
 
             // Match PyErr_WarnFormat(..., stacklevel=1) in CPython.
-            // Best effort: ignore failures like CPython does in this path.
-            let _ =
-                crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm);
+            crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
         }
+        Ok(())
     }
 
     #[pyfunction]
@@ -960,7 +967,7 @@ pub mod module {
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
                 // Warn only after parent callback path resumes the world.
-                warn_if_multi_threaded("fork", num_os_threads, vm);
+                warn_if_multi_threaded("fork", num_os_threads, vm)?;
                 Ok(pid)
             }
             Err(err) => {
@@ -1002,12 +1009,66 @@ pub mod module {
             Ok((pid, master)) => {
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
-                warn_if_multi_threaded("forkpty", num_os_threads, vm);
+                warn_if_multi_threaded("forkpty", num_os_threads, vm)?;
                 Ok((pid, master))
             }
             Err(err) => {
                 py_os_after_fork_parent(vm);
                 Err(err.into_pyexception(vm))
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[derive(FromArgs)]
+    struct MkfifoArgs {
+        #[pyarg(any)]
+        path: OsPath,
+        #[pyarg(any, default = 0o666)]
+        mode: i32,
+        #[pyarg(named, optional, py_default = "None")]
+        dir_fd: OptionalArg<PyObjectRef>,
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn mkfifo(args: MkfifoArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let c_path = args.path.into_cstring(vm)?;
+        let mode = args.mode as libc::mode_t;
+        // Keep a raw C int: even -1 is valid with an absolute path, for which
+        // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
+        let dir_fd = match args.dir_fd {
+            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+                warn_if_bool_fd(&fd, vm)?;
+                let fd = fd
+                    .try_index_opt(vm)
+                    .unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                            "argument should be integer or None, not {}",
+                            fd.class().name()
+                        )))
+                    })?
+                    .try_to_primitive::<i32>(vm)?;
+                (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
+            }
+            _ => None,
+        };
+        if dir_fd.is_some() && !host_posix::has_mkfifoat() {
+            return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
+        }
+
+        loop {
+            let result = vm.allow_threads(|| {
+                #[cfg(not(target_os = "android"))]
+                if let Some(dir_fd) = dir_fd {
+                    return host_posix::mkfifoat(dir_fd, &c_path, mode);
+                }
+                host_posix::mkfifo(&c_path, mode)
+            });
+            match result {
+                Ok(()) => return Ok(()),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => vm.check_signals()?,
+                Err(err) => return Err(err.into_pyexception(vm)),
             }
         }
     }
@@ -1182,35 +1243,43 @@ pub mod module {
         rustpython_host_env::posix::pipe2(flags).map_err(|err| err.into_pyexception(vm))
     }
 
+    const CHMOD_DIR_FD: bool = cfg!(not(target_os = "redox"));
+
     fn _chmod(
         path: OsPath,
-        dir_fd: DirFd<'_, 0>,
+        dir_fd: DirFd<'_, { CHMOD_DIR_FD as usize }>,
         mode: u32,
         follow_symlinks: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
-        #[cfg(all(
-            unix,
-            not(target_os = "redox"),
-            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
-        ))]
-        if !follow_symlinks {
+        #[cfg(not(target_os = "redox"))]
+        if dir_fd.get_opt().is_some() || !follow_symlinks {
             let err_path = path.clone();
             let c_path = path.into_cstring(vm)?;
+            let flags = if follow_symlinks {
+                0
+            } else {
+                libc::AT_SYMLINK_NOFOLLOW
+            };
             return rustpython_host_env::posix::fchmodat(
-                libc::AT_FDCWD,
+                dir_fd.get().as_raw(),
                 &c_path,
                 mode as libc::mode_t,
-                libc::AT_SYMLINK_NOFOLLOW,
+                flags,
             )
             .map_err(|err| {
                 let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
                     || err.raw_os_error() == Some(libc::ENOTSUP);
-                if enotsup {
-                    vm.new_not_implemented_error(
-                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
-                    )
+                if !follow_symlinks && enotsup {
+                    if dir_fd.get_opt().is_some() {
+                        vm.new_value_error("chmod: cannot use dir_fd and follow_symlinks together")
+                    } else {
+                        vm.new_not_implemented_error(
+                            "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                        )
+                    }
                 } else {
                     OSErrorBuilder::with_filename(&err, err_path, vm)
                 }
@@ -1240,7 +1309,7 @@ pub mod module {
         #[pyarg(any)]
         mode: u32,
         #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, 0>,
+        dir_fd: DirFd<'fd, { CHMOD_DIR_FD as usize }>,
         // CPython writes the platform expression; on posix it is always true.
         #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
         follow_symlinks: bool,
@@ -2194,8 +2263,8 @@ pub mod module {
         vec![
             SupportFunc::new(
                 "chmod",
-                Some(false),
-                Some(false),
+                Some(cfg!(not(target_os = "redox"))),
+                Some(CHMOD_DIR_FD),
                 Some(cfg!(any(
                     target_os = "macos",
                     target_os = "freebsd",
@@ -2210,6 +2279,13 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
+            #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+            SupportFunc::new(
+                "mkfifo",
+                Some(false),
+                Some(host_posix::has_mkfifoat()),
+                Some(false),
+            ),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("mknod", Some(true), Some(MKNOD_DIR_FD), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
@@ -2221,23 +2297,10 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
-        // Get a pointer to the login name string. The string is statically
-        // allocated and might be overwritten on subsequent calls to this
-        // function or to `cuserid()`. See man getlogin(3) for more information.
-        let Some(login) = rustpython_host_env::posix::getlogin() else {
-            return Err(vm.new_os_error("unable to determine login name"));
-        };
-        login.to_str().map(|s| s.to_owned()).map_err(|e| {
-            vm.new_unicode_decode_error(
-                vm.ctx.new_str("utf-8"),
-                vm.ctx.new_bytes(login.as_bytes().to_vec()),
-                e.valid_up_to(),
-                e.error_len()
-                    .map_or(login.as_bytes().len(), |n| e.valid_up_to() + n),
-                vm.ctx.new_str("unable to decode login name"),
-            )
-        })
+    fn getlogin(vm: &VirtualMachine) -> PyResult<crate::builtins::PyStrRef> {
+        let login =
+            rustpython_host_env::posix::getlogin().map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes())))
     }
 
     // cfg from nix
@@ -2742,10 +2805,16 @@ pub mod module {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[derive(FromArgs)]
-    struct SendFileArgs<'fd> {
-        out_fd: BorrowedFd<'fd>,
-        in_fd: BorrowedFd<'fd>,
+    struct SendFileArgs {
+        out_fd: i32,
+        in_fd: i32,
+        #[cfg(target_os = "linux")]
+        offset: PyObjectRef,
+        #[cfg(target_os = "macos")]
         offset: rustpython_host_env::crt_fd::Offset,
+        #[cfg(target_os = "linux")]
+        count: isize,
+        #[cfg(target_os = "macos")]
         count: i64,
         #[cfg(target_os = "macos")]
         // Missing means an empty header list.
@@ -2764,12 +2833,19 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
-        let mut file_offset = args.offset;
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        if args.count < 0 {
+            return Err(vm.new_value_error("count cannot be negative"));
+        }
+        let mut file_offset = args.offset.try_into_value(vm)?;
+        let out_fd = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(args.out_fd) }
+            .map_err(|err| err.into_pyexception(vm))?;
+        let in_fd = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(args.in_fd) }
+            .map_err(|err| err.into_pyexception(vm))?;
 
         let res = rustpython_host_env::posix::sendfile(
-            args.out_fd,
-            args.in_fd,
+            out_fd.into(),
+            in_fd.into(),
             &mut file_offset,
             args.count as usize,
         )
@@ -2793,7 +2869,10 @@ pub mod module {
 
     #[cfg(target_os = "macos")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        if args.count < 0 {
+            return Err(vm.new_value_error("count cannot be negative"));
+        }
         let headers = _extract_vec_bytes(args.headers, vm)?;
         let count = headers
             .as_ref()
@@ -2817,9 +2896,13 @@ pub mod module {
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
         let trailers = trailers.as_deref();
 
+        let out_fd = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(args.out_fd) }
+            .map_err(|err| err.into_pyexception(vm))?;
+        let in_fd = unsafe { rustpython_host_env::crt_fd::Borrowed::try_borrow_raw(args.in_fd) }
+            .map_err(|err| err.into_pyexception(vm))?;
         let (res, written) = rustpython_host_env::posix::sendfile(
-            args.in_fd,
-            args.out_fd,
+            in_fd.into(),
+            out_fd.into(),
             args.offset,
             count,
             headers,

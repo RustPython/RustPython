@@ -455,6 +455,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "buffer-redux"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "431a9cc8d7efa49bc326729264537f5e60affce816c66edf434350778c9f4f54"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3958,8 +3967,6 @@ dependencies = [
 [[package]]
 name = "rustpython-ruff_python_parser"
 version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c9729e35cac02839c7a67aaccfea3eba32032f7aeacca2e82ad79e8d7b7fd95"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -4205,6 +4212,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53f6a737db68eb1a8ccff86b584b2fc13eca6a7bb6f78ebc7c529547e3ab9684"
 dependencies = [
  "bitflags 2.13.2",
+ "buffer-redux",
  "cfg-if",
  "clipboard-win",
  "home",
@@ -5342,8 +5350,6 @@ dependencies = [
 [[package]]
 name = "xml"
 version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "636f85e5ca6488e96401b61eb7de54f4e44755c988af0f52cf90230c312a1a89"
 
 [[package]]
 name = "xz"

@@ -1,3 +1,4 @@
+pub(crate) use _math_integer::module_def as integer_module_def;
 pub(crate) use math::module_def;
 
 use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
@@ -5,18 +6,30 @@ use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 #[pymodule]
 mod math {
     use crate::vm::{
-        AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-        builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
+        AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        builtins::{
+            PyFloat, PyInt, PyIntRef, PyModule, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint,
+        },
         function::{
-            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, NameIntegers,
-            OptionalArg, PosArgs,
+            ArgIndex, ArgIntoFloat, ArgIterable, Either, NameCoordinates, OptionalArg, PosArgs,
         },
         identifier,
     };
     use malachite_bigint::BigInt;
-    use num_traits::{Signed, ToPrimitive};
 
     use super::{float_repr, pymath_exception};
+
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let integer = vm.import("_math_integer", 0)?;
+        for name in super::INTEGER_FUNCTIONS {
+            module.set_attr(name, integer.get_attr(name, vm)?, vm)?;
+        }
+        vm.sys_module
+            .get_attr("modules", vm)?
+            .set_item("math.integer", integer.clone(), vm)?;
+        module.set_attr("integer", integer, vm)
+    }
 
     // Constants
     #[pyattr]
@@ -46,6 +59,36 @@ mod math {
     #[pyfunction]
     fn isnan(x: ArgIntoFloat) -> bool {
         pymath::math::isnan(x.into_float())
+    }
+
+    /// Return True if x is normal, and False otherwise.
+    #[pyfunction]
+    fn isnormal(x: ArgIntoFloat) -> bool {
+        x.into_float().is_normal()
+    }
+
+    /// Return True if x is subnormal, and False otherwise.
+    #[pyfunction]
+    fn issubnormal(x: ArgIntoFloat) -> bool {
+        x.into_float().is_subnormal()
+    }
+
+    /// Return True if the sign of x is negative and False otherwise.
+    #[pyfunction]
+    fn signbit(x: ArgIntoFloat) -> bool {
+        x.into_float().is_sign_negative()
+    }
+
+    /// Return the larger of two floating-point arguments.
+    #[pyfunction]
+    fn fmax(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
+        x.into_float().max(y.into_float())
+    }
+
+    /// Return the smaller of two floating-point arguments.
+    #[pyfunction]
+    fn fmin(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
+        x.into_float().min(y.into_float())
     }
 
     #[derive(FromArgs)]
@@ -93,36 +136,62 @@ mod math {
         pymath::math::expm1(x.into_float()).map_err(|err| pymath_exception(err, vm))
     }
 
-    #[pyfunction]
-    fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let base = base.into_option().map(|v| v.into_float());
-        // Check base first for proper error messages
-        if let Some(b) = base {
-            if b <= 0.0 {
-                return Err(vm.new_value_error(format!(
-                    "expected a positive input, got {}",
-                    super::float_repr(b)
-                )));
+    fn logarithm(
+        x: &PyObject,
+        float_log: impl Fn(f64) -> pymath::Result<f64>,
+        integer_log: impl Fn(&BigInt) -> pymath::Result<f64>,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        let integer = if let Some(i) = x.downcast_ref::<PyInt>() {
+            i.to_owned()
+        } else {
+            match x.try_float(vm) {
+                Ok(value) => {
+                    let value = value.to_f64();
+                    return float_log(value).map_err(|err| match err {
+                        pymath::Error::EDOM => vm.new_value_error(format!(
+                            "expected a positive input, got {}",
+                            float_repr(value)
+                        )),
+                        _ => pymath_exception(err, vm),
+                    });
+                }
+                // A logarithm may still be representable when conversion to float
+                // overflows. Preserve __float__ precedence and retry only __index__.
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.overflow_error) => {
+                    x.try_index_opt(vm).ok_or(err)??
+                }
+                Err(err) => return Err(err),
             }
-            if b == 1.0 {
-                return Err(vm.new_value_error("math domain error"));
-            }
-        }
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log_bigint(i.as_bigint(), base).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
-                _ => pymath_exception(err, vm),
-            });
-        }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log(val, base).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
+        };
+        integer_log(integer.as_bigint()).map_err(|err| match err {
+            pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
             _ => pymath_exception(err, vm),
         })
+    }
+
+    #[pyfunction]
+    fn log(x: PyObjectRef, base: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<f64> {
+        let natural_log = |x: &PyObject| {
+            logarithm(
+                x,
+                |value| pymath::math::log(value, None),
+                |value| pymath::math::log_bigint(value, None),
+                vm,
+            )
+        };
+        let numerator = natural_log(&x)?;
+        match base {
+            OptionalArg::Missing => Ok(numerator),
+            OptionalArg::Present(base) => {
+                let denominator = natural_log(&base)?;
+                if denominator == 0.0 {
+                    Err(vm.new_zero_division_error("division by zero"))
+                } else {
+                    Ok(numerator / denominator)
+                }
+            }
+        }
     }
 
     #[pyfunction]
@@ -132,40 +201,12 @@ mod math {
 
     #[pyfunction]
     fn log2(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log2_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
-                _ => pymath_exception(err, vm),
-            });
-        }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log2(val).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
-            _ => pymath_exception(err, vm),
-        })
+        logarithm(&x, pymath::math::log2, pymath::math::log2_bigint, vm)
     }
 
     #[pyfunction]
     fn log10(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log10_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
-                _ => pymath_exception(err, vm),
-            });
-        }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log10(val).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
-            _ => pymath_exception(err, vm),
-        })
+        logarithm(&x, pymath::math::log10, pymath::math::log10_bigint, vm)
     }
 
     #[pyfunction]
@@ -773,7 +814,46 @@ mod math {
             pymath::Error::ERANGE => vm.new_overflow_error("overflow in fma"),
         })
     }
+}
 
+pub(crate) fn pymath_exception(err: pymath::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
+    match err {
+        pymath::Error::EDOM => vm.new_value_error("math domain error"),
+        pymath::Error::ERANGE => vm.new_overflow_error("math range error"),
+    }
+}
+
+/// Format a float in Python style (ensures trailing .0 for integers).
+fn float_repr(value: f64) -> String {
+    if value.is_nan() {
+        "nan".to_owned()
+    } else if value.is_infinite() {
+        if value.is_sign_positive() {
+            "inf".to_owned()
+        } else {
+            "-inf".to_owned()
+        }
+    } else {
+        let s = format!("{value}");
+        // If no decimal point and not in scientific notation, add .0
+        if !s.contains('.') && !s.contains('e') && !s.contains('E') {
+            format!("{s}.0")
+        } else {
+            s
+        }
+    }
+}
+
+const INTEGER_FUNCTIONS: [&str; 6] = ["comb", "factorial", "gcd", "isqrt", "lcm", "perm"];
+
+#[pymodule(sub, name = "math")]
+mod integer_functions {
+    use crate::vm::{
+        PyResult, VirtualMachine,
+        function::{ArgIndex, NameIntegers, PosArgs},
+    };
+    use malachite_bigint::BigInt;
+    use num_traits::{Signed, ToPrimitive};
     // Integer functions:
 
     #[pyfunction]
@@ -933,30 +1013,20 @@ mod math {
     }
 }
 
-pub(crate) fn pymath_exception(err: pymath::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
-    match err {
-        pymath::Error::EDOM => vm.new_value_error("math domain error"),
-        pymath::Error::ERANGE => vm.new_overflow_error("math range error"),
-    }
-}
+/// This module provides access to integer related mathematical functions.
+#[pymodule(with(integer_functions))]
+mod _math_integer {
+    use crate::vm::{Py, PyResult, VirtualMachine, builtins::PyModule};
 
-/// Format a float in Python style (ensures trailing .0 for integers).
-fn float_repr(value: f64) -> String {
-    if value.is_nan() {
-        "nan".to_owned()
-    } else if value.is_infinite() {
-        if value.is_sign_positive() {
-            "inf".to_owned()
-        } else {
-            "-inf".to_owned()
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        __module_exec(vm, module);
+        let name = vm.ctx.new_str("math.integer");
+        module.set_attr("__name__", name.clone(), vm)?;
+        for function_name in super::INTEGER_FUNCTIONS {
+            module
+                .get_attr(function_name, vm)?
+                .set_attr("__module__", name.clone(), vm)?;
         }
-    } else {
-        let s = format!("{value}");
-        // If no decimal point and not in scientific notation, add .0
-        if !s.contains('.') && !s.contains('e') && !s.contains('E') {
-            format!("{s}.0")
-        } else {
-            s
-        }
+        Ok(())
     }
 }

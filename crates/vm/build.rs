@@ -22,8 +22,8 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=../../Lib/importlib/_bootstrap.py");
 
-    // = 3.14.0alpha
-    python_version(3, 14, 0, "alpha", 0);
+    // = 3.15.0alpha
+    python_version(3, 15, 0, "alpha", 0);
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(

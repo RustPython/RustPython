@@ -453,7 +453,13 @@ impl PyBaseObject {
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
-                    super::type_::compatible_for_assignment(current_cls, &cls, "__class__", vm)?;
+                    super::type_::compatible_for_assignment(
+                        current_cls,
+                        &cls,
+                        "__class__",
+                        true,
+                        vm,
+                    )?;
                     instance.set_class(cls, vm);
                     crate::stdlib::_testinternalcapi::note_set_class();
                     Ok(())

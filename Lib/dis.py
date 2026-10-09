@@ -593,6 +593,12 @@ class ArgResolver:
                     argval, argrepr = _get_name_info(arg//2, get_name)
                     if (arg & 1) and argrepr:
                         argrepr = f"{argrepr} + NULL"
+                elif deop == opmap['IMPORT_NAME']:
+                    argval, argrepr = _get_name_info(arg//4, get_name)
+                    if argrepr and (arg & 1):
+                        argrepr = f"{argrepr} + lazy"
+                    elif argrepr and (arg & 2):
+                        argrepr = f"{argrepr} + eager"
                 elif deop == LOAD_ATTR:
                     argval, argrepr = _get_name_info(arg//2, get_name)
                     if (arg & 1) and argrepr:
@@ -637,6 +643,7 @@ class ArgResolver:
                 argrepr = _intrinsic_2_descs[arg]
             elif deop == LOAD_COMMON_CONSTANT:
                 obj = _common_constants[arg]
+                argval = obj
                 if isinstance(obj, type):
                     argrepr = obj.__name__
                 else:
@@ -686,10 +693,15 @@ def _get_const_value(op, arg, co_consts):
        Otherwise (if it is a LOAD_CONST and co_consts is not
        provided) returns the dis.UNKNOWN sentinel.
     """
-    assert op in hasconst or op == LOAD_SMALL_INT
+    assert op in hasconst or op == LOAD_SMALL_INT or op == LOAD_COMMON_CONSTANT
 
     if op == LOAD_SMALL_INT:
         return arg
+    if op == LOAD_COMMON_CONSTANT:
+        # Opargs 0-6 are callables; 7-11 are literal values.
+        if 7 <= arg <= 11:
+            return _common_constants[arg]
+        return UNKNOWN
     argval = UNKNOWN
     if co_consts is not None:
         argval = co_consts[arg]
@@ -1009,11 +1021,12 @@ def _find_imports(co):
         if op == IMPORT_NAME and i >= 2:
             from_op = opargs[i-1]
             level_op = opargs[i-2]
-            if (from_op[0] in hasconst and
-                (level_op[0] in hasconst or level_op[0] == LOAD_SMALL_INT)):
+            if ((from_op[0] in hasconst or from_op[0] == LOAD_COMMON_CONSTANT) and
+                (level_op[0] in hasconst or level_op[0] == LOAD_SMALL_INT or
+                 level_op[0] == LOAD_COMMON_CONSTANT)):
                 level = _get_const_value(level_op[0], level_op[1], consts)
                 fromlist = _get_const_value(from_op[0], from_op[1], consts)
-                yield (names[oparg], level, fromlist)
+                yield (names[oparg >> 2], level, fromlist)
 
 def _find_store_names(co):
     """Find names of variables which are written in the code

@@ -1233,6 +1233,20 @@ f'''
     FSTRING_END \'"\'           (2, 2) (2, 3)
     """)
 
+    def test_ineq_tokens(self):
+        self.check_tokenize("1 != 2", """\
+    NUMBER     '1'           (1, 0) (1, 1)
+    OP         '!='          (1, 2) (1, 4)
+    NUMBER     '2'           (1, 5) (1, 6)
+""")
+        self.check_tokenize("1 <> 2", """\
+    NUMBER     '1'           (1, 0) (1, 1)
+    OP         '<'           (1, 2) (1, 3)
+    OP         '>'           (1, 3) (1, 4)
+    NUMBER     '2'           (1, 5) (1, 6)
+""")
+
+
 class GenerateTokensTest(TokenizeTest):
     def check_tokenize(self, s, expected):
         # Format the tokens in s in a table format.
@@ -3332,6 +3346,7 @@ class CTokenizerBufferTests(unittest.TestCase):
             run_test_script(file_name)
 
 
+@support.force_not_colorized_test_class
 class CommandLineTest(unittest.TestCase):
     def setUp(self):
         self.filename = tempfile.mktemp()

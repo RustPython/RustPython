@@ -590,7 +590,7 @@ impl CFormatSpec {
     }
 }
 
-fn parse_spec_mapping_key<T, I>(iter: &mut ParseIter<I>) -> Result<Option<T>, ParsingError>
+pub fn parse_spec_mapping_key<T, I>(iter: &mut ParseIter<I>) -> Result<Option<T>, ParsingError>
 where
     T: FormatBuf,
     I: Iterator<Item = T::Char>,
@@ -604,7 +604,7 @@ where
     Ok(None)
 }
 
-fn parse_flags<C, I>(iter: &mut ParseIter<I>) -> CConversionFlags
+pub fn parse_flags<C, I>(iter: &mut ParseIter<I>) -> CConversionFlags
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -626,7 +626,7 @@ where
     flags
 }
 
-fn consume_length<C, I>(iter: &mut ParseIter<I>)
+pub fn consume_length<C, I>(iter: &mut ParseIter<I>)
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -634,7 +634,7 @@ where
     iter.next_if(|(_, c)| matches!(c.to_char_lossy(), 'h' | 'l' | 'L'));
 }
 
-fn parse_format_type<C, I>(
+pub fn parse_format_type<C, I>(
     iter: &mut ParseIter<I>,
     context: CFormatContext,
 ) -> Result<CFormatType, ParsingError>
@@ -674,7 +674,7 @@ where
     })
 }
 
-fn parse_quantity<C, I>(
+pub fn parse_quantity<C, I>(
     iter: &mut ParseIter<I>,
     max_value: usize,
     too_big: CFormatErrorType,
@@ -709,7 +709,9 @@ where
     Ok(None)
 }
 
-fn parse_precision<C, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatPrecision>, ParsingError>
+pub fn parse_precision<C, I>(
+    iter: &mut ParseIter<I>,
+) -> Result<Option<CFormatPrecision>, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,

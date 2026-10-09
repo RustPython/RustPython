@@ -185,10 +185,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            writeln!(output, "Traceback (most recent call last):")?;
-            for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
-            }
+            write_traceback(output, &tb)?;
         }
 
         let varargs = exc.args();
@@ -448,6 +445,17 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
+pub(crate) fn write_traceback<W: Write>(
+    output: &mut W,
+    traceback: &PyTracebackRef,
+) -> Result<(), W::Error> {
+    writeln!(output, "Traceback (most recent call last):")?;
+    for entry in traceback.iter() {
+        write_traceback_entry(output, &entry)?;
+    }
+    Ok(())
+}
+
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
@@ -549,6 +557,7 @@ pub struct ExceptionZoo {
     pub attribute_error: &'static Py<PyType>,
     pub buffer_error: &'static Py<PyType>,
     pub eof_error: &'static Py<PyType>,
+    pub import_cycle_error: &'static Py<PyType>,
     pub import_error: &'static Py<PyType>,
     pub module_not_found_error: &'static Py<PyType>,
     pub lookup_error: &'static Py<PyType>,
@@ -926,6 +935,7 @@ impl ExceptionZoo {
         let eof_error = PyEOFError::init_builtin_type();
 
         let import_error = PyImportError::init_builtin_type();
+        let import_cycle_error = PyImportCycleError::init_builtin_type();
         let module_not_found_error = PyModuleNotFoundError::init_builtin_type();
 
         let lookup_error = PyLookupError::init_builtin_type();
@@ -1010,6 +1020,7 @@ impl ExceptionZoo {
             attribute_error,
             buffer_error,
             eof_error,
+            import_cycle_error,
             import_error,
             module_not_found_error,
             lookup_error,
@@ -1104,6 +1115,7 @@ impl ExceptionZoo {
         extend_exception!(PyEOFError, ctx, excs.eof_error);
 
         extend_exception!(PyImportError, ctx, excs.import_error);
+        extend_exception!(PyImportCycleError, ctx, excs.import_cycle_error);
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
@@ -1576,6 +1588,18 @@ impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     }
 }
 
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::time::TimestampError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::FiletimeOutOfRange => {
+                vm.new_overflow_error("timestamp out of range for Windows FILETIME")
+            }
+            Self::Os(error) => error.to_pyexception(vm),
+        }
+    }
+}
+
 #[cfg(any(unix, windows))]
 impl ToPyException for rustpython_host_env::time::CheckedTmError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -1711,7 +1735,7 @@ pub(super) mod types {
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
-        types::{Constructor, Initializer},
+        types::{Constructor, Initializer, Representable},
     };
     use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
     use crossbeam_utils::atomic::AtomicCell;
@@ -2100,7 +2124,35 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(with(Constructor, Initializer))]
+    impl Representable for PyImportError {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let base: &Py<PyBaseException> = zelf
+                .as_object()
+                .downcast_ref()
+                .expect("ImportError is a BaseException");
+            let mut has_args = !base.args().is_empty();
+            if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
+                return PyBaseException::repr_str(base, vm);
+            }
+            let mut result = PyBaseException::repr_str(base, vm)?;
+            result.pop();
+            for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
+                if let Some(value) = field.load_owned() {
+                    if has_args {
+                        result.push_str(", ");
+                    }
+                    result.push_str(name);
+                    result.push('=');
+                    result.push_str(&value.repr(vm)?.to_string_lossy());
+                    has_args = true;
+                }
+            }
+            result.push(')');
+            Ok(result)
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer, Representable))]
     impl PyImportError {
         #[pyslot]
         fn slot_str(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
@@ -2190,6 +2242,11 @@ pub(super) mod types {
             unreachable!("slot_init is defined")
         }
     }
+
+    #[pyexception(name, base = PyImportError, ctx = "import_cycle_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyImportCycleError(PyImportError);
 
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]

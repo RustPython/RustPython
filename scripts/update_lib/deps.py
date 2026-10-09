@@ -570,10 +570,7 @@ DEPENDENCIES = {
     "io": {
         "hard_deps": ["_pyio.py"],
         "test": [
-            "test_io.py",
-            "test_bufio.py",
-            "test_fileio.py",
-            "test_memoryio.py",
+            "test_io",
         ],
     },
     "dbm": {
@@ -607,8 +604,8 @@ DEPENDENCIES = {
     "file": {
         "lib": [],
         "test": [
-            "test_file.py",
-            "test_largefile.py",
+            "test_io/test_file.py",
+            "test_io/test_largefile.py",
         ],
     },
     "fcntl": {
@@ -687,7 +684,7 @@ DEPENDENCIES = {
     },
     "os": {
         "test": [
-            "test_os.py",
+            "test_os",
             "test_popen.py",
         ],
     },
@@ -704,6 +701,8 @@ DEPENDENCIES = {
             "test__interpreters.py",
             "test__interpchannels.py",
             "test_crossinterp.py",
+            "_crossinterp_definitions.py",
+            "_code_definitions.py",
         ],
     },
     "atexit": {

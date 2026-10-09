@@ -102,7 +102,7 @@ define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
     with_vm(|vm| {
-        vm.current_exception()
+        vm.raised_exception()
             .map(|exc| exc.class().as_object().as_raw())
             .unwrap_or_default()
     })
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
     with_vm(|vm| {
         let exception =
             unsafe { exc.assume_owned_or_opt() }.map(|exc| unsafe { exc.downcast_unchecked() });
-        vm.set_exception(exception);
+        vm.set_raised_exception(exception);
     })
 }
 

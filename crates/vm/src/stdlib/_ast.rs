@@ -23,7 +23,8 @@ use node::Node;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize, TextSlice};
 use rustpython_compiler_core::{
-    LineIndex, OneIndexed, PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation,
+    LineIndex, OneIndexed, PositionEncoding, SourceFile as CompilerSourceFile, SourceFileBuilder,
+    SourceLocation,
 };
 
 #[cfg(feature = "parser")]
@@ -54,6 +55,54 @@ mod statement;
 mod string;
 mod type_ignore;
 mod type_parameters;
+
+/// Source text used while converting between Python and Ruff AST nodes.
+/// Bytecode compilation reserves the end of each synthetic line for absent
+/// columns; real column zero must remain distinguishable from missing columns.
+#[derive(Clone)]
+pub(crate) struct SourceFile {
+    file: CompilerSourceFile,
+    missing_column: Option<usize>,
+}
+
+impl From<CompilerSourceFile> for SourceFile {
+    fn from(file: CompilerSourceFile) -> Self {
+        Self {
+            file,
+            missing_column: None,
+        }
+    }
+}
+
+impl core::ops::Deref for SourceFile {
+    type Target = CompilerSourceFile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.file
+    }
+}
+
+impl SourceFile {
+    fn for_ast_compilation(file: CompilerSourceFile) -> Self {
+        // synthetic_source_from_ast_object adds one space beyond the largest
+        // supplied column. Its newline position cannot collide with a real
+        // AST column, including a valid zero-width range at column zero.
+        let missing_column = file.source_text().lines().next().map(str::len);
+        Self {
+            file,
+            missing_column,
+        }
+    }
+
+    fn ast_column(&self, column: i32) -> Column {
+        let column = if column < 0 {
+            self.missing_column.unwrap_or(0) as u32
+        } else {
+            column as u32
+        };
+        Column(TextSize::new(column))
+    }
+}
 
 /// Return the cached singleton instance for an operator/context node type,
 /// or create a new instance if none exists.
@@ -522,12 +571,26 @@ fn copy_ast_passthrough_fields(
             &["kind"]
         } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
             &["str"]
+        } else if is_node_instance(vm, target, pyast::NodeStmtImport::static_type())?
+            || is_node_instance(vm, target, pyast::NodeStmtImportFrom::static_type())?
+        {
+            &["is_lazy"]
         } else {
             &[]
         };
 
     for field in fields {
         if let Some(value) = vm.get_attribute_opt(source, *field)? {
+            let value = if *field == "is_lazy" {
+                let value = if vm.is_none(&value) {
+                    0
+                } else {
+                    node_object_to_i32(vm, &value)?
+                };
+                vm.ctx.new_int(value).into()
+            } else {
+                value
+            };
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -768,7 +831,7 @@ fn excepthandler_range_from_object_unvalidated(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(start_column.max(0) as u32)),
+            column: source_file.ast_column(start_column),
         },
         end: PySourceLocation {
             row: Row(if end_row > 0 {
@@ -776,7 +839,7 @@ fn excepthandler_range_from_object_unvalidated(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(end_column.max(0) as u32)),
+            column: source_file.ast_column(end_column),
         },
     };
 
@@ -838,7 +901,7 @@ fn range_from_object_impl(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(start_col_val.max(0) as u32)),
+            column: source_file.ast_column(start_col_val),
         },
         end: PySourceLocation {
             row: Row(if end_row_val > 0 {
@@ -846,7 +909,7 @@ fn range_from_object_impl(
             } else {
                 OneIndexed::MIN
             }),
-            column: Column(TextSize::new(end_col_val.max(0) as u32)),
+            column: source_file.ast_column(end_col_val),
         },
     };
 
@@ -1788,7 +1851,7 @@ fn empty_arguments_object(vm: &VirtualMachine) -> PyObjectRef {
 
 #[cfg(feature = "parser")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn parse(
+pub(crate) fn parse<E: From<CompileError>>(
     vm: &VirtualMachine,
     source: &str,
     filename: &str,
@@ -1800,12 +1863,18 @@ pub(crate) fn parse(
     interactive: bool,
     explicit_future_features: crate::bytecode::CodeFlags,
     dont_imply_dedent: bool,
-) -> Result<PyObjectRef, CompileError> {
-    let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
+    mut emit_warning: impl FnMut(usize, char) -> Result<(), E>,
+) -> Result<PyObjectRef, E> {
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), source.to_owned())
+        .finish()
+        .into();
     let mut options = parser::ParseOptions::from(mode);
-    let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
+    let target_version = target_version.unwrap_or(ast::PythonVersion {
+        major: crate::version::MAJOR as u8,
+        minor: crate::version::MINOR as u8,
+    });
     if let Some(error) = feature_version_syntax_error(source, &source_file, target_version) {
-        return Err(error);
+        return Err(error.into());
     }
     options = options.with_target_version(target_version);
     let barry_source = rustpython_compiler::prepare_barry_as_flufl_source(
@@ -1819,40 +1888,55 @@ pub(crate) fn parse(
         && let Some(error) =
             rustpython_compiler::single_mode_multiple_statements_error(&source_file, &parsed)
     {
-        return Err(error);
+        return Err(error.into());
     }
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
     if let Some(lines) = &type_comment_source
         && let Some(error) = invalid_type_comment_syntax_error(&source_file, lines)
     {
-        return Err(error);
+        // This parser action runs before a later invalid type-comment token.
+        let earlier_lazy_future = matches!(
+            (&error, parsed.errors().first()),
+            (
+                CompileError::Parse(comment_error),
+                Some(parser::ParseError {
+                    error: parser::ParseErrorType::LazyFutureImport,
+                    location,
+                })
+            ) if location.start() < comment_error.raw_location.start()
+        );
+        if !earlier_lazy_future {
+            return Err(error.into());
+        }
     }
     if let Err(errors) = parsed.as_result() {
         let parse_error = errors[0].clone();
         if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
-            return Err(error);
+            return Err(error.into());
         }
-        let range = text_range_to_source_range(&source_file, parse_error.location);
-        return Err(ParseError {
-            error: parse_error.error,
-            raw_location: parse_error.location,
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
-            source_path: source_file.name().to_owned(),
-            is_unclosed_bracket: false,
-            is_unclosed_string: false,
-        }
-        .into());
+        let compile_mode = match mode {
+            parser::Mode::Expression => rustpython_compiler::Mode::Eval,
+            _ if interactive => rustpython_compiler::Mode::Single,
+            _ => rustpython_compiler::Mode::Exec,
+        };
+        return Err(
+            CompileError::from_ruff_parse_error(parse_error, &source_file, compile_mode).into(),
+        );
+    }
+    if let Some(error) =
+        rustpython_compiler::lazy_future_import_error(parsed.syntax(), &source_file)
+    {
+        return Err(error.into());
     }
     if let Some(error) = barry_source.diagnostic(None, &source_file) {
-        return Err(error);
+        return Err(error.into());
     }
     if dont_imply_dedent
         && interactive
         && let Some(error) = rustpython_compiler::dont_imply_dedent_source_error(&source_file)
     {
-        return Err(error);
+        return Err(error.into());
     }
 
     if let Some(error) = parsed
@@ -1861,10 +1945,10 @@ pub(crate) fn parse(
         .find(|error| should_report_unsupported_syntax_error(error))
     {
         if let Some(error) = cpython_unsupported_syntax_error(error, source, &source_file) {
-            return Err(error);
+            return Err(error.into());
         }
         let range = text_range_to_source_range(&source_file, error.range());
-        return Err(ParseError {
+        return Err(CompileError::from(ParseError {
             error: parser::ParseErrorType::OtherError(error.to_string()),
             raw_location: error.range(),
             location: range.start.to_source_location(),
@@ -1872,7 +1956,7 @@ pub(crate) fn parse(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
-        }
+        })
         .into());
     }
 
@@ -1881,11 +1965,11 @@ pub(crate) fn parse(
         parsed.tokens(),
         vm.state.int_max_str_digits.load(),
     ) {
-        return Err(error);
+        return Err(error.into());
     }
 
     if let Some(error) = rustpython_compiler::leading_byte_order_mark_error(&source_file) {
-        return Err(error);
+        return Err(error.into());
     }
     let mut top = parsed.into_syntax();
     rustpython_compiler::too_deeply_nested_error(
@@ -1894,18 +1978,34 @@ pub(crate) fn parse(
         rustpython_compiler::CompileOpts::default().recursion_limit,
     )?;
     if let Some(error) = rustpython_compiler::unsupported_grammar_error(&top, &source_file) {
-        return Err(error);
+        return Err(error.into());
     }
     if let Some(error) = ipython_escape_command_syntax_error(&top, &source_file) {
-        return Err(error);
+        return Err(error.into());
     }
     if let Some(error) = feature_version_ast_syntax_error(&top, &source_file, target_version) {
-        return Err(error);
+        return Err(error.into());
+    }
+    #[cfg(feature = "codegen")]
+    let future_features = codegen::preprocess::checked_future_features(&top)
+        .map_err(|err| future_feature_compile_error(&source_file, err))?;
+    // Keep original literal spans: preprocessing can fold multiple source
+    // literals into one node, but each has its own lexical diagnostic.
+    match &top {
+        ast::Mod::Module(module) => {
+            string::emit_format_spec_warnings(&module.body, &[], &source_file, &mut emit_warning)?;
+        }
+        ast::Mod::Expression(expression) => {
+            string::emit_format_spec_warnings(
+                &[],
+                core::slice::from_ref(expression.body.as_ref()),
+                &source_file,
+                &mut emit_warning,
+            )?;
+        }
     }
     #[cfg(feature = "codegen")]
     {
-        let future_features = codegen::preprocess::checked_future_features(&top)
-            .map_err(|err| future_feature_compile_error(&source_file, err))?;
         let future_annotations = explicit_future_features
             .contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS)
             || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
@@ -1969,14 +2069,20 @@ pub(crate) fn wrap_interactive(vm: &VirtualMachine, module_obj: &PyObject) -> Py
 }
 
 #[cfg(feature = "parser")]
-pub(crate) fn parse_func_type(
+pub(crate) fn parse_func_type<E: From<CompileError>>(
     vm: &VirtualMachine,
     source: &str,
     filename: &str,
     optimize: u8,
     target_version: Option<ast::PythonVersion>,
-) -> Result<PyObjectRef, CompileError> {
+    mut emit_warning: impl FnMut(usize, char) -> Result<(), E>,
+) -> Result<PyObjectRef, E> {
     let _ = optimize;
+    let target_version = target_version.unwrap_or(ast::PythonVersion {
+        major: crate::version::MAJOR as u8,
+        minor: crate::version::MINOR as u8,
+    });
+    let leading_space = source.len() - source.trim_start().len();
     let source = source.trim();
     let invalid_func_type = || -> CompileError {
         ParseError {
@@ -2008,7 +2114,7 @@ pub(crate) fn parse_func_type(
     }
 
     let Some(split_at) = split_at else {
-        return Err(ParseError {
+        return Err(CompileError::from(ParseError {
             error: parser::ParseErrorType::OtherError("invalid func_type".to_owned()),
             raw_location: TextRange::default(),
             location: SourceLocation::default(),
@@ -2016,7 +2122,7 @@ pub(crate) fn parse_func_type(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
-        }
+        })
         .into());
     };
 
@@ -2024,12 +2130,15 @@ pub(crate) fn parse_func_type(
     let right = source[split_at + 2..].trim();
 
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
-        let source_file = SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned()).finish();
+        let source_file: SourceFile =
+            SourceFileBuilder::new(filename.to_owned(), expr_src.to_owned())
+                .finish()
+                .into();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version);
         let parsed = parser::parse(expr_src, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
-            ParseError {
+            CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
                 location: range.start.to_source_location(),
@@ -2037,7 +2146,7 @@ pub(crate) fn parse_func_type(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
-            }
+            })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
             unreachable!();
@@ -2046,22 +2155,28 @@ pub(crate) fn parse_func_type(
     };
 
     if !left.starts_with('(') || !left.ends_with(')') {
-        return Err(invalid_func_type());
+        return Err(invalid_func_type().into());
     }
     let inner = left[1..left.len() - 1].trim();
+    let inner_start = left.len() - 1 - left[1..left.len() - 1].trim_start().len();
+    const ARG_PREFIX: &str = "__rustpython_func_type__(";
+    let mut arg_source_file = None;
     let argtypes = if inner.is_empty() {
         Vec::new()
     } else {
         if inner.ends_with(',') {
-            return Err(invalid_func_type());
+            return Err(invalid_func_type().into());
         }
-        let call_source = format!("__rustpython_func_type__({inner})");
-        let source_file = SourceFileBuilder::new(filename.to_owned(), call_source.clone()).finish();
+        let call_source = format!("{ARG_PREFIX}{inner})");
+        let source_file: SourceFile =
+            SourceFileBuilder::new(filename.to_owned(), call_source.clone())
+                .finish()
+                .into();
         let options = parser::ParseOptions::from(parser::Mode::Expression)
-            .with_target_version(target_version.unwrap_or(ast::PythonVersion::PY314));
+            .with_target_version(target_version);
         let parsed = parser::parse(&call_source, options).map_err(|parse_error| {
             let range = text_range_to_source_range(&source_file, parse_error.location);
-            ParseError {
+            CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
                 location: range.start.to_source_location(),
@@ -2069,13 +2184,13 @@ pub(crate) fn parse_func_type(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
-            }
+            })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
             unreachable!();
         };
         let ast::Expr::Call(call) = *expression.body else {
-            return Err(invalid_func_type());
+            return Err(invalid_func_type().into());
         };
         let mut args = Vec::new();
         let positional_len = call.arguments.args.len();
@@ -2084,7 +2199,7 @@ pub(crate) fn parse_func_type(
             match arg {
                 ast::Expr::Starred(starred) => {
                     if seen_star || index + 1 != positional_len {
-                        return Err(invalid_func_type());
+                        return Err(invalid_func_type().into());
                     }
                     seen_star = true;
                     args.push(*starred.value);
@@ -2095,22 +2210,43 @@ pub(crate) fn parse_func_type(
         let mut seen_kw_star = false;
         for keyword in call.arguments.keywords {
             if keyword.arg.is_some() || seen_kw_star {
-                return Err(invalid_func_type());
+                return Err(invalid_func_type().into());
             }
             seen_kw_star = true;
             args.push(keyword.value);
         }
+        arg_source_file = Some(source_file);
         args
     };
 
     let returns = parse_expr(right)?;
+    // Func-type nodes are parsed from separate fragments. Keep warning offsets
+    // in those fragments until the boundary, then map them to the original
+    // source without changing the AST's existing location representation.
+    if let Some(source_file) = arg_source_file {
+        string::emit_format_spec_warnings(&[], &argtypes, &source_file, &mut |offset, ch| {
+            emit_warning(leading_space + inner_start + offset - ARG_PREFIX.len(), ch)
+        })?;
+    }
+    let return_source_file: SourceFile =
+        SourceFileBuilder::new(filename.to_owned(), right.to_owned())
+            .finish()
+            .into();
+    string::emit_format_spec_warnings(
+        &[],
+        core::slice::from_ref(&returns),
+        &return_source_file,
+        &mut |offset, ch| emit_warning(leading_space + source.len() - right.len() + offset, ch),
+    )?;
 
     let func_type = ModFunctionType {
         argtypes: argtypes.into_boxed_slice(),
         returns,
         runtime_argtypes: None,
     };
-    let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), source.to_owned())
+        .finish()
+        .into();
     Ok(func_type.ast_to_object(vm, &source_file))
 }
 
@@ -2389,7 +2525,9 @@ pub(crate) fn preprocess_ast_object(
 ) -> PyResult<PyObjectRef> {
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
+    let source_file: SourceFile = SourceFileBuilder::new(filename.to_owned(), text)
+        .finish()
+        .into();
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
@@ -2455,7 +2593,8 @@ pub(crate) fn preprocess_ast_object(
 #[cfg(feature = "codegen")]
 pub(crate) struct RustModFromObject {
     pub ast: ast::Mod,
-    pub source_file: SourceFile,
+    pub source_file: CompilerSourceFile,
+    pub missing_column: Option<usize>,
 }
 
 #[cfg(feature = "codegen")]
@@ -2472,7 +2611,8 @@ pub(crate) fn rust_mod_from_object(
         return Err(vm.new_type_error("expected an AST"));
     }
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
+    let source_file =
+        SourceFile::for_ast_compilation(SourceFileBuilder::new(filename.to_owned(), text).finish());
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
@@ -2488,7 +2628,11 @@ pub(crate) fn rust_mod_from_object(
             return Err(vm.new_runtime_error("this compiler does not handle FunctionTypes"));
         }
     };
-    Ok(RustModFromObject { ast, source_file })
+    Ok(RustModFromObject {
+        ast,
+        source_file: source_file.file,
+        missing_column: source_file.missing_column,
+    })
 }
 
 #[cfg(feature = "codegen")]
@@ -2498,9 +2642,15 @@ pub(crate) fn compile(
     filename: &str,
     mode: crate::compiler::Mode,
     mut opts: codegen::CompileOpts,
+    module: Option<&Py<PyStr>>,
 ) -> PyResult {
+    #[cfg(not(feature = "parser"))]
+    let _ = module;
     let text = synthetic_source_from_ast_object(vm, &object)?;
-    let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
+    let source_file = SourceFile::for_ast_compilation(
+        SourceFileBuilder::new(filename.to_owned(), text.clone()).finish(),
+    );
+    opts.ast_missing_column = source_file.missing_column;
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
@@ -2535,7 +2685,7 @@ pub(crate) fn compile(
                 message.into(),
                 fname,
                 location.line.get(),
-                None,
+                module.map(|module| module.to_owned().into()),
                 vm.ctx.none(),
                 None,
                 None,
@@ -2578,7 +2728,9 @@ pub(crate) fn compile(
 
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
-    let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
+    let source_file: SourceFile = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned())
+        .finish()
+        .into();
     let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     Ok(())

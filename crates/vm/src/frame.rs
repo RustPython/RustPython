@@ -6,9 +6,10 @@ use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
-        PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyAnyDictRef, PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine,
+        PyDict, PyDictRef, PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList,
+        PyModule, PyProperty, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
+        PyType, PyUtf8Str,
         builtin_func::PyNativeFunction,
         descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
@@ -23,7 +24,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Callee, Either, FuncArgs, KwArgs, PyMethodFlags},
+    function::{ArgMapping, Callee, Either, FuncArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
@@ -48,7 +49,7 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_common::atomic::{PyAtomic, Radium};
 use rustpython_common::{
     lock::{OnceCell, PyMutex},
-    wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
+    wtf8::{Wtf8Buf, wtf8_concat},
 };
 use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
@@ -107,7 +108,7 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_globals() -> Option<PyDictRef> {
+pub fn current_globals() -> Option<PyAnyDictRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -922,7 +923,7 @@ pub struct InterpreterFrame {
     // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
     pub(crate) code: *const Py<PyCode>,
     pub(crate) func_obj: *const PyObject, // nullable
-    pub(crate) globals: *const Py<PyDict>,
+    pub(crate) globals: *const PyAnyDictRef,
     pub(crate) builtins: *const PyObject,
 
     /// Unified storage for local variables and evaluation stack.
@@ -982,7 +983,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new(
         code: &Py<PyCode>,
-        globals: &Py<PyDict>,
+        globals: &PyAnyDictRef,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         localsplus: LocalsPlus,
@@ -1026,7 +1027,7 @@ impl InterpreterFrame {
                 Some(obj) => obj as *const PyObject,
                 None => core::ptr::null(),
             },
-            globals: globals as *const Py<PyDict>,
+            globals: globals as *const PyAnyDictRef,
             builtins: builtins as *const PyObject,
             localsplus,
             locals,
@@ -1059,7 +1060,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new_on_datastack<'a>(
         code: &Py<PyCode>,
-        globals: &Py<PyDict>,
+        globals: &PyAnyDictRef,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         locals: FrameLocals,
@@ -1265,7 +1266,7 @@ impl InterpreterFrame {
         // Create a full FrameObject with its own InterpreterFrame copy.
         // The FrameObject owns references to the same objects (code, globals, etc).
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals: PyDictRef = self.globals().to_owned();
+        let globals = self.globals().clone();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1361,7 +1362,7 @@ impl InterpreterFrame {
     #[cold]
     fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals: PyDictRef = self.globals().to_owned();
+        let globals = self.globals().clone();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1418,7 +1419,7 @@ impl InterpreterFrame {
 
     /// Borrowed globals dict.
     #[inline(always)]
-    pub fn globals(&self) -> &Py<PyDict> {
+    pub fn globals(&self) -> &PyAnyDictRef {
         // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.globals }
     }
@@ -1533,7 +1534,7 @@ pub struct FrameObject {
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
     pub(crate) owned_code: Option<PyRef<PyCode>>,
-    pub(crate) owned_globals: Option<PyDictRef>,
+    pub(crate) owned_globals: Option<PyAnyDictRef>,
     pub(crate) owned_builtins: Option<PyObjectRef>,
     pub(crate) owned_func_obj: Option<PyObjectRef>,
 
@@ -1816,7 +1817,7 @@ impl FrameObject {
         let locals = match scope.locals {
             Some(locals) => FrameLocals::with_locals(locals),
             None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
-            None => FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone())),
+            None => FrameLocals::with_locals(ArgMapping::from_anydict_exact(scope.globals.clone())),
         };
 
         // Pointers are initially set from owned fields' references but will be
@@ -1852,7 +1853,7 @@ impl FrameObject {
     fn init_iframe_ptrs(self_: &Py<Self>) {
         let iframe = unsafe { self_.iframe_mut() };
         iframe.code = &**self_.owned_code.as_ref().unwrap() as *const Py<PyCode>;
-        iframe.globals = &**self_.owned_globals.as_ref().unwrap() as *const Py<PyDict>;
+        iframe.globals = self_.owned_globals.as_ref().unwrap() as *const PyAnyDictRef;
         iframe.builtins = &**self_.owned_builtins.as_ref().unwrap() as *const PyObject;
         iframe.func_obj = match &self_.owned_func_obj {
             Some(obj) => &**obj as *const PyObject,
@@ -2496,7 +2497,7 @@ impl Py<FrameObject> {
                 },
             )
         };
-        let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        let builtins_dict = if globals.as_object().class().is(vm.ctx.types.dict_type) {
             builtins
                 .downcast_ref_if_exact::<PyDict>(vm)
                 // SAFETY: downcast_ref_if_exact already verified exact type
@@ -2519,6 +2520,7 @@ impl Py<FrameObject> {
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
             call_traced: false,
+            incomplete: false,
         };
         f(exec)
     }
@@ -2526,6 +2528,13 @@ impl Py<FrameObject> {
     // #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
     pub fn run(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
         self.with_exec(vm, |mut exec| exec.run(vm))
+    }
+
+    pub(crate) fn run_genexpr_preamble(&self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        self.with_exec(vm, |mut exec| {
+            exec.incomplete = true;
+            exec.run(vm)
+        })
     }
 
     /// Resume a suspended generator or coroutine body, pushing `value` as the
@@ -2605,6 +2614,7 @@ impl Py<FrameObject> {
             monitoring_mask: 0,
             flatten: Flatten::Nothing,
             call_traced: false,
+            incomplete: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2738,7 +2748,7 @@ fn exec_iframe<'a>(
             },
         )
     };
-    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+    let builtins_dict = if globals.as_object().class().is(vm.ctx.types.dict_type) {
         builtins
             .downcast_ref_if_exact::<PyDict>(vm)
             .map(|d| unsafe { PyExact::ref_unchecked(d) })
@@ -2760,6 +2770,7 @@ fn exec_iframe<'a>(
         monitoring_mask: 0,
         flatten,
         call_traced: false,
+        incomplete: false,
     }
 }
 
@@ -2787,7 +2798,7 @@ pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
 /// delegating to, if the trampoline can resume it in this frame's place.
 ///
 /// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
-/// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
+/// that follows the delegating `YIELD_VALUE`, with the delegate below its NULL index slot on the
 /// stack — and requires the `SEND` to have already specialized to `SendGen`,
 /// so that a `Send` still collecting specialization feedback keeps running
 /// normally. The frame is left untouched; `park_at_send` commits to it.
@@ -2823,10 +2834,14 @@ pub(crate) fn yield_from_delegate(
     {
         return None;
     }
-    let delegate = match iframe.localsplus.stack_last() {
-        Some(Some(top)) => top.as_object(),
-        _ => return None,
-    };
+    let stack = iframe.localsplus.stack_as_slice();
+    let delegate = stack
+        .get(stack.len().checked_sub(2)?)?
+        .as_ref()?
+        .as_object();
+    if stack.last()?.is_some() {
+        return None;
+    }
     // The same guards `SendGen` applies before resuming a generator itself.
     if delegate.downcast_ref_if_exact::<PyGenerator>(vm).is_none()
         && delegate.downcast_ref_if_exact::<PyCoroutine>(vm).is_none()
@@ -2930,7 +2945,7 @@ pub(crate) struct ExecutingFrame<'a> {
     code: &'a Py<PyCode>,
     localsplus: &'a mut LocalsPlus,
     locals: &'a FrameLocals,
-    globals: &'a Py<PyDict>,
+    globals: &'a PyAnyDictRef,
     builtins: &'a PyObject,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
     /// Only set when both globals and builtins are exact dict types (not
@@ -2954,6 +2969,8 @@ pub(crate) struct ExecutingFrame<'a> {
     flatten: Flatten,
     /// PY_START/PY_RESUME Call already fired for this activation.
     call_traced: bool,
+    /// A generator-expression preamble is not yet a publicly visible frame.
+    incomplete: bool,
 }
 
 /// How much of what a frame does the trampoline can take over.
@@ -3338,7 +3355,7 @@ impl ExecutingFrame<'_> {
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
     fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
-        if self.call_traced {
+        if self.incomplete || self.call_traced {
             return Ok(());
         }
         self.call_traced = true;
@@ -3579,7 +3596,8 @@ impl ExecutingFrame<'_> {
             // principle toggle it, because we refresh `tracing` below right
             // after that call returns (that cold path is only taken when
             // tracing was already on, so it costs nothing on the hot path).
-            let mut tracing = vm.use_tracing.get();
+            let traceable = !self.incomplete && idx >= self.code.first_traceable;
+            let mut tracing = traceable && vm.use_tracing.get();
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -3593,7 +3611,9 @@ impl ExecutingFrame<'_> {
                 && self.trace_lines_is_set()
                 && !matches!(
                     self.code.instructions.read_op(idx),
-                    Instruction::Resume { .. } | Instruction::InstrumentedResume
+                    Instruction::Resume { .. }
+                        | Instruction::ResumeCheck
+                        | Instruction::InstrumentedResume
                 )
             {
                 let line = self.code.addr2line(idx as i32 * 2);
@@ -3632,7 +3652,7 @@ impl ExecutingFrame<'_> {
                     // The trace callback may have toggled tracing (e.g. via
                     // sys.settrace(None)); refresh before the opcode-trace check
                     // below reuses this flag.
-                    tracing = vm.use_tracing.get();
+                    tracing = traceable && vm.use_tracing.get();
                     // Trace callback may have changed lasti via set_f_lineno.
                     // Re-read and restart the loop from the new position.
                     if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
@@ -3679,7 +3699,10 @@ impl ExecutingFrame<'_> {
                     && self.trace_opcodes_is_set()
                     && !matches!(
                         op.into(),
-                        Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
+                        Opcode::Resume
+                            | Opcode::ResumeCheck
+                            | Opcode::InstrumentedResume
+                            | Opcode::ExtendedArg
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;
@@ -3704,6 +3727,9 @@ impl ExecutingFrame<'_> {
             if vm.eval_breaker_tripped()
                 && let Err(exception) = eval_breaker_work(vm)
             {
+                if self.incomplete {
+                    break Err(exception);
+                }
                 #[cold]
                 fn handle_signal_exception(
                     frame: &mut ExecutingFrame<'_>,
@@ -3776,6 +3802,11 @@ impl ExecutingFrame<'_> {
                 }
                 // Instruction raised an exception
                 Err(exception) => {
+                    if self.incomplete {
+                        // Like _PyFrame_IsIncomplete, hide eager iterator setup
+                        // from traceback and tracing; the caller adds its frame.
+                        break Err(exception);
+                    }
                     #[cold]
                     fn handle_exception(
                         frame: &mut ExecutingFrame<'_>,
@@ -3938,16 +3969,16 @@ impl ExecutingFrame<'_> {
         // In RustPython, we check:
         // 1. lasti points to RESUME (after YIELD_VALUE)
         // 2. The previous instruction was YIELD_VALUE with arg >= 1
-        // 3. Stack top is the delegate (receiver)
+        // 3. The delegate is below its NULL index slot
         //
-        // First check if stack is empty - if so, we can't be in yield-from
-        if self.localsplus.stack_is_empty() {
+        // A suspended delegate needs both its receiver and NULL index slots.
+        if self.localsplus.stack_len() < 2 {
             return None;
         }
         let lasti = self.lasti() as usize;
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
-                Instruction::Send { .. } => return Some(self.top_value()),
+                Instruction::Send { .. } => return Some(self.nth_value(1)),
                 Instruction::Resume { .. } | Instruction::InstrumentedResume => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
@@ -3961,8 +3992,8 @@ impl ExecutingFrame<'_> {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
                         if u8::from(prev_unit.arg) >= 1 {
-                            // In yield-from/await context, delegate is on top of stack
-                            return Some(self.top_value());
+                            // In yield-from/await context, delegate is below the NULL index slot
+                            return Some(self.nth_value(1));
                         }
                     }
                 }
@@ -4433,8 +4464,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, false, vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -4549,15 +4580,10 @@ impl ExecutingFrame<'_> {
             }
             Instruction::DeleteName { namei: idx } => {
                 let name = self.code.names[idx.get(arg) as usize];
-                let res = self.locals.mapping(vm).ass_subscript(name, None, vm);
-
-                match res {
-                    Ok(()) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(name_error(name, vm));
-                    }
-                    Err(e) => return Err(e),
-                }
+                self.locals
+                    .mapping(vm)
+                    .ass_subscript(name, None, vm)
+                    .map_err(|_| name_error(name, vm))?;
                 Ok(None)
             }
             Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
@@ -4610,65 +4636,71 @@ impl ExecutingFrame<'_> {
 
                 let dict: &Py<PyDict> = unsafe { dict_ref.downcast_unchecked_ref() };
 
-                // Get callable for error messages
-                // Stack: [callable, self_or_null, args_tuple, kwargs_dict]
-                let callable = self.nth_value(idx + 2);
-                let func_str = Self::object_function_str(callable, vm);
-
-                // Fast path: source is an exact dict (not a subclass, which may
-                // override `keys`/`__getitem__`). Iterate its entries natively
-                // instead of going through the mapping protocol, mirroring
-                // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
-                let source = if source.class().is(vm.ctx.types.dict_type) {
-                    let src_dict = source
-                        .downcast_ref::<PyDict>()
-                        .expect("exact dict must have a PyDict payload");
-                    // Snapshot under a single read lock so a mutation of `source`
-                    // triggered by `dict.set_item` (e.g. via a target subclass, or
-                    // aliasing) can't be observed mid-iteration.
-                    for (key, value) in src_dict.items_vec() {
-                        if dict.contains_key(&*key, vm) {
-                            let key_str = key.str(vm)?;
-                            return Err(vm.new_type_error(format!(
-                                "{} got multiple values for keyword argument '{}'",
-                                func_str,
-                                key_str.as_wtf8()
-                            )));
+                let merge_result = (|| -> PyResult<Option<PyObjectRef>> {
+                    // Fast path: source is an exact dict (not a subclass, which may
+                    // override `keys`/`__getitem__`). Iterate its entries natively
+                    // instead of going through the mapping protocol, mirroring
+                    // CPython's `PyDict_Merge` fast path for `PyDict_Check(other)`.
+                    if source.class().is(vm.ctx.types.dict_type) {
+                        let src_dict = source
+                            .downcast_ref::<PyDict>()
+                            .expect("exact dict must have a PyDict payload");
+                        // Preserve stored hashes: copying an exact dict must not call
+                        // a key's __hash__ before the callable receives its arguments.
+                        // Snapshot under one lock before any equality callbacks run.
+                        for (key, value, hash) in src_dict.entries.items_with_hashes() {
+                            if dict.contains_known_hash(&key, hash, vm)? {
+                                return Ok(Some(key));
+                            }
+                            dict.set_item_known_hash(&key, hash, value, vm)?;
                         }
+                        return Ok(None);
+                    }
+
+                    // Merge keys, checking for duplicates.
+                    let keys = source.mapping_unchecked().keys(vm)?;
+                    let keys_iter = PyIter::try_from_object(vm, keys)?;
+                    while let PyIterReturn::Return(key) = keys_iter.next(vm)? {
+                        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
+                        if dict.entries.contains(vm, &*key, hash)? {
+                            return Ok(Some(key));
+                        }
+                        let value = source.get_item(&*key, vm)?;
                         dict.set_item(&*key, value, vm)?;
                     }
-                    return Ok(None);
-                } else {
-                    source
-                };
+                    Ok(None)
+                })();
 
-                // Check if source is a mapping
-                if vm
-                    .get_method(source.clone(), vm.ctx.intern_str("keys"))
-                    .is_none()
-                {
-                    return Err(vm.new_type_error(format!(
-                        "{} argument after ** must be a mapping, not {}",
-                        func_str,
-                        source.class().name()
-                    )));
-                }
-
-                // Merge keys, checking for duplicates
-                let keys_iter = vm.call_method(&source, "keys", ())?;
-                for key in keys_iter.try_to_value::<Vec<PyObjectRef>>(vm)? {
-                    if dict.contains_key(&*key, vm) {
+                match merge_result {
+                    Ok(Some(key)) => {
+                        // Stack: [callable, self_or_null, args_tuple, kwargs_dict]
+                        let callable = self.nth_value(idx + 2);
+                        let func_str = Self::object_function_str(callable, vm);
                         let key_str = key.str(vm)?;
-                        return Err(vm.new_type_error(format!(
+                        Err(vm.new_type_error(format!(
                             "{} got multiple values for keyword argument '{}'",
                             func_str,
                             key_str.as_wtf8()
-                        )));
+                        )))
                     }
-                    let value = vm.call_method(&source, "__getitem__", (key.clone(),))?;
-                    dict.set_item(&*key, value, vm)?;
+                    Ok(None) => Ok(None),
+                    Err(error) if error.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                        // Only missing keys make this a non-mapping. Preserve callback
+                        // errors, chaining a failed recheck as _PyEval_FormatKwargsError does.
+                        match vm.get_attribute_opt(&source, identifier!(vm, keys)) {
+                            Ok(None) => Err(vm.new_type_error(format!(
+                                "Value after ** must be a mapping, not {}",
+                                source.class().fully_qualified_name(vm)?
+                            ))),
+                            Ok(Some(_)) => Err(error),
+                            Err(lookup_error) => {
+                                lookup_error.set_context(Some(error));
+                                Err(lookup_error)
+                            }
+                        }
+                    }
+                    Err(error) => Err(error),
                 }
-                Ok(None)
             }
             Instruction::EndAsyncFor => {
                 // Pops (awaitable, exc) from stack.
@@ -4818,23 +4850,33 @@ impl ExecutingFrame<'_> {
                 self.push_value(iter);
                 Ok(None)
             }
-            Instruction::GetIter => {
+            Instruction::GetIter { mode } if mode.get(arg) == 0 => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
                 self.push_value(iter_obj.into());
+                self.push_null();
                 Ok(None)
             }
-            Instruction::GetYieldFromIter => {
-                // GET_YIELD_FROM_ITER: prepare iterator for yield from
+            Instruction::GetIter { .. } | Instruction::GetYieldFromIter => {
+                // GET_ITER modes 1–3 prepare an iterator for yield from.
                 // If iterable is a coroutine, ensure we're in a coroutine context
                 // If iterable is a generator, use it directly
                 // Otherwise, call iter() on it
                 let iterable = self.pop_value();
                 let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
                     // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self.code.flags.intersects(
-                        bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
-                    ) {
+                    let mode = if let Instruction::GetIter { mode } = instruction {
+                        mode.get(arg)
+                    } else {
+                        1
+                    };
+                    if mode == 3
+                        || (mode == 1
+                            && !self.code.flags.intersects(
+                                bytecode::CodeFlags::COROUTINE
+                                    | bytecode::CodeFlags::ITERABLE_COROUTINE,
+                            ))
+                    {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
@@ -4848,6 +4890,7 @@ impl ExecutingFrame<'_> {
                     PyIter::try_from_object(vm, iterable)?.into()
                 };
                 self.push_value(iter);
+                self.push_null();
                 Ok(None)
             }
             Instruction::GetLen => {
@@ -4863,7 +4906,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ImportName { namei: idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
+                let packed = idx.get(arg);
+                self.import(vm, self.code.names[(packed >> 2) as usize], packed & 3)?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -4984,7 +5028,7 @@ impl ExecutingFrame<'_> {
                 let name = self.localsplus_name(idx);
                 let value = self.mapping_get_optional(&class_dict, name, vm)?;
                 self.push_value(match value {
-                    Some(v) => v,
+                    Some(v) => crate::lazy_import::reify_value(v, name, &class_dict, vm)?,
                     None => self
                         .cell_ref(idx)
                         .get()
@@ -4999,7 +5043,7 @@ impl ExecutingFrame<'_> {
                 let value = self.mapping_get_optional(&dict, name, vm)?;
 
                 self.push_value(match value {
-                    Some(v) => v,
+                    Some(v) => crate::lazy_import::reify_value(v, name, &dict, vm)?,
                     None => self.load_global_or_builtin(name, vm)?,
                 });
                 Ok(None)
@@ -5042,6 +5086,11 @@ impl ExecutingFrame<'_> {
                         .expect("builtin_any not initialized"),
                     CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
                     CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
+                    CommonConstant::None => vm.ctx.none(),
+                    CommonConstant::EmptyStr => vm.ctx.empty_str.to_owned().into(),
+                    CommonConstant::True => vm.ctx.new_bool(true).into(),
+                    CommonConstant::False => vm.ctx.new_bool(false).into(),
+                    CommonConstant::MinusOne => vm.ctx.cached_int(-1).to_owned().into(),
                 };
                 self.push_value(value);
                 Ok(None)
@@ -5149,13 +5198,16 @@ impl ExecutingFrame<'_> {
             Instruction::LoadName { namei: idx } => {
                 let name = self.code.names[idx.get(arg) as usize];
                 let result = self.locals.mapping(vm).subscript(name, vm);
-                match result {
-                    Ok(x) => self.push_value(x),
+                let value = match result {
+                    Ok(x) => {
+                        crate::lazy_import::reify_value(x, name, self.locals.as_object(vm), vm)?
+                    }
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        self.push_value(self.load_global_or_builtin(name, vm)?);
+                        self.load_name_global_or_builtin(name, vm)?
                     }
                     Err(e) => return Err(e),
-                }
+                };
+                self.push_value(value);
                 Ok(None)
             }
             Instruction::LoadSpecial { method } => {
@@ -5471,12 +5523,20 @@ impl ExecutingFrame<'_> {
             // CACHE is used by adaptive interpreter for inline caching - NOP for us
             Instruction::Cache => Ok(None),
             Instruction::ReturnGenerator => {
-                // In RustPython, generators/coroutines are created in function.rs
-                // before the frame starts executing. The RETURN_GENERATOR instruction
-                // pushes None so that the following POP_TOP has something to consume.
-                // This matches CPython's semantics where the sent value (None for first call)
-                // is on the stack when the generator resumes.
+                // Leave the initial sent value for POP_TOP on the first resume.
                 self.push_value(vm.ctx.none());
+                if self.iframe().generator.load().is_none() {
+                    let function = self
+                        .func_obj
+                        .and_then(|function| function.downcast_ref::<PyFunction>())
+                        .ok_or_else(|| vm.new_system_error("generator frame has no function"))?;
+                    // A created frame identifies the pending POP_TOP. Native
+                    // lasti normally points one unit beyond the exposed opcode;
+                    // the first normal resume rewinds before dispatching it.
+                    self.update_lasti(|lasti| *lasti += 1);
+                    let generator = function.make_generator_or_coro(self.frame_object(vm), vm);
+                    return Ok(Some(ExecutionResult::Return(generator)));
+                }
                 Ok(None)
             }
             Instruction::PopExcept => {
@@ -5518,8 +5578,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopTop => {
-                // Pop value from stack and ignore.
-                self.pop_stackref();
+                // Discard either an object or a NULL stack slot.
+                self.pop_stackref_opt();
                 Ok(None)
             }
             Instruction::EndFor => {
@@ -5528,7 +5588,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopIter => {
-                // Pop the iterator from stack (end of for loop)
+                // Discard the NULL index slot, then the iterator.
+                self.pop_stackref_opt();
                 self.pop_stackref();
                 Ok(None)
             }
@@ -5833,10 +5894,10 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
-                // (receiver, v -- receiver, retval)
+                // (receiver, NULL, v -- receiver, NULL, retval)
                 self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let receiver = self.nth_value(1);
+                let receiver = self.nth_value(2);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
@@ -5844,7 +5905,7 @@ impl ExecutingFrame<'_> {
                         .builtin_coro(receiver)
                         .is_some_and(|coro| !coro.running() && !coro.closed());
                 let val = self.pop_value();
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 let ret = if can_fast_send {
                     let coro = self.builtin_coro(receiver).unwrap();
                     if vm.is_none(&val) {
@@ -5874,8 +5935,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SendGen => {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                // Stack: [receiver, val] — peek receiver before popping
-                let receiver = self.nth_value(1);
+                // Stack: [receiver, NULL, val] — peek receiver before popping
+                let receiver = self.nth_value(2);
                 let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
@@ -5887,7 +5948,7 @@ impl ExecutingFrame<'_> {
                 let val = self.pop_value();
 
                 if can_fast_send {
-                    let receiver = self.top_value();
+                    let receiver = self.nth_value(1);
                     // Hand an already-suspended generator to the trampoline,
                     // which runs its frame in this same eval loop and re-yields
                     // for this frame — no Rust frame and no instruction per
@@ -5922,7 +5983,7 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
                         self.push_value(value);
@@ -5941,9 +6002,10 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::EndSend => {
-                // Stack: (receiver, value) -> (value)
+                // Stack: (receiver, NULL, value) -> (value)
                 // Pops receiver, leaves value
                 let value = self.pop_value();
+                self.pop_stackref_opt(); // discard NULL index
                 self.pop_stackref(); // discard receiver
                 self.push_value(value);
                 Ok(None)
@@ -5960,14 +6022,14 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::CleanupThrow => {
-                // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
-                // If StopIteration: pop all 3, extract value, push (None, value)
-                // Otherwise: pop all 3, return Err(exc) for unwind_blocks to handle
+                // CLEANUP_THROW: (sub_iter, NULL, last_sent_val, exc) -> (None, NULL, value) OR re-raise
+                // If StopIteration: pop all 4, extract value, push (None, NULL, value)
+                // Otherwise: pop all 4, return Err(exc) for unwind_blocks to handle
                 //
-                // Unlike CPython where exception_unwind pops the triple as part of
+                // Unlike CPython where exception_unwind pops the inputs as part of
                 // stack cleanup to handler depth, RustPython pops here explicitly
                 // and lets unwind_blocks find outer handlers.
-                // Compiler sets handler_depth = base + 2 (before exc is pushed).
+                // Compiler sets handler_depth = base + 3 (before exc is pushed).
 
                 // First peek at exc_value (top of stack) without popping
                 let exc = self.top_value();
@@ -5978,18 +6040,21 @@ impl ExecutingFrame<'_> {
                 {
                     // Extract value from StopIteration
                     let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
-                    // Now pop all three
+                    // Now pop all four
                     self.pop_stackref(); // exc
                     self.pop_stackref(); // last_sent_val
+                    self.pop_stackref_opt(); // NULL index
                     self.pop_stackref(); // sub_iter
                     self.push_value(vm.ctx.none());
+                    self.push_null();
                     self.push_value(value);
                     return Ok(None);
                 }
 
-                // Re-raise other exceptions: pop all three and return Err(exc)
+                // Re-raise other exceptions: pop all four and return Err(exc)
                 let exc = self.pop_value(); // exc
                 self.pop_stackref(); // last_sent_val
+                self.pop_stackref_opt(); // NULL index
                 self.pop_stackref(); // sub_iter
 
                 let exc = exc
@@ -6162,6 +6227,9 @@ impl ExecutingFrame<'_> {
                         module
                             .dict()
                             .get_cached_module_attr(attr_name, keys_version, index, vm)
+                    && value
+                        .downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+                        .is_none()
                 {
                     self.pop_stackref();
                     if oparg.is_method() {
@@ -7850,7 +7918,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterRange => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
                     if let Some(value) = range_iter.fast_next() {
                         self.push_value(vm.ctx.new_int(value).into());
@@ -7865,7 +7933,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterList => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
                     if let Some(value) = list_iter.fast_next() {
                         self.push_value(value);
@@ -7880,7 +7948,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterTuple => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
                     if let Some(value) = tuple_iter.fast_next() {
                         self.push_value(value);
@@ -7895,7 +7963,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterGen => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if self.specialization_eval_frame_active(vm) {
                     self.execute_for_iter(vm, target)?;
                     return Ok(None);
@@ -7941,10 +8009,12 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if cached_version != 0
-                    && let Some(x) = self
-                        .globals
-                        .get_item_by_index_and_keys_version(cached_version, cached_index)
+                    && let Some(globals) = self.globals.as_mutable()
+                    && let Some(x) =
+                        globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = crate::lazy_import::reify_value(x, name, self.globals.as_object(), vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -7967,12 +8037,15 @@ impl ExecutingFrame<'_> {
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if cached_globals_ver != 0
                     && cached_builtins_ver != 0
-                    && let Ok(current_globals_ver) = u16::try_from(self.globals.keys_version())
+                    && let Some(globals) = self.globals.as_mutable()
+                    && let Ok(current_globals_ver) = u16::try_from(globals.keys_version())
                     && cached_globals_ver == current_globals_ver
                     && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
                     && let Some(x) = builtins_dict
                         .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
+                    let name = self.code.names[(oparg >> 1) as usize];
+                    let x = crate::lazy_import::reify_value(x, name, self.builtins, vm)?;
                     self.push_value(x);
                     if (oparg & 1) != 0 {
                         self.push_value_opt(None);
@@ -8100,8 +8173,8 @@ impl ExecutingFrame<'_> {
                 self.execute_call_instrumented(args, vm)
             }
             Instruction::InstrumentedCallFunctionEx => {
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call_instrumented(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, true, vm)
             }
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
@@ -8187,10 +8260,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::InstrumentedEndFor => {
-                // Stack: [value, receiver(iter), ...]
+                // Stack: [..., receiver(iter), NULL, value]
                 // PyGen_Check: only fire STOP_ITERATION for generators
                 let is_gen = self
-                    .nth_value(1)
+                    .nth_value(2)
                     .downcast_ref::<crate::builtins::PyGenerator>()
                     .is_some();
                 let value = self.pop_value();
@@ -8202,6 +8275,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedEndSend => {
                 let value = self.pop_value();
+                self.pop_stackref_opt(); // NULL index
                 let receiver = self.pop_value();
                 // PyGen_Check || PyCoro_CheckExact
                 let is_gen_or_coro = receiver
@@ -8290,6 +8364,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopIter => {
                 // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
+                self.pop_stackref_opt(); // NULL index
                 self.pop_stackref();
                 Ok(None)
             }
@@ -8439,34 +8514,58 @@ impl ExecutingFrame<'_> {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
-            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals) };
-            globals_exact
-                .get_chain_exact(builtins_dict, name, vm)?
-                .ok_or_else(|| {
-                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
-                })
+            let globals = self
+                .globals
+                .as_object()
+                .downcast_ref::<PyDict>()
+                .expect("exact dict globals");
+            if let Some(value) = globals.get_item_opt(name, vm)? {
+                return crate::lazy_import::reify_value(value, name, globals.as_object(), vm);
+            }
+            let value = builtins_dict.get_item_opt(name, vm)?.ok_or_else(|| {
+                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+            })?;
+            crate::lazy_import::reify_value(value, name, builtins_dict.as_object(), vm)
         } else {
             // Slow path: builtins is not a dict, use generic __getitem__
             if let Some(value) = self.globals.get_item_opt(name, vm)? {
-                return Ok(value);
+                return crate::lazy_import::reify_value(value, name, self.globals.as_object(), vm);
             }
-            self.builtins.get_item(name, vm).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
-                } else {
-                    e
-                }
-            })
+            self.load_builtin(name, vm)
         }
     }
 
+    fn load_name_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        // LOAD_NAME reads the stored global entries even for dict subclasses;
+        // LOAD_GLOBAL instead honors their __getitem__ implementation.
+        if let Some(value) = self.globals.inner_getitem_opt(name, vm)? {
+            return crate::lazy_import::reify_value(value, name, self.globals.as_object(), vm);
+        }
+        self.load_builtin(name, vm)
+    }
+
+    fn load_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        let value = self.builtins.get_item(name, vm).map_err(|e| {
+            if e.fast_isinstance(vm.ctx.exceptions.key_error) {
+                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+            } else {
+                e
+            }
+        })?;
+        crate::lazy_import::reify_value(value, name, self.builtins, vm)
+    }
+
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
-    fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
-        let module_name = module_name.unwrap_or(vm.ctx.empty_str);
+    fn import(
+        &mut self,
+        vm: &VirtualMachine,
+        module_name: &Py<PyStr>,
+        policy: u32,
+    ) -> PyResult<()> {
         let from_list = self.pop_value();
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import_from(module_name, from_list, level)?;
+        let module = crate::lazy_import::import_name(module_name, from_list, level, policy, vm)?;
 
         self.push_value(module);
         Ok(())
@@ -8477,107 +8576,11 @@ impl ExecutingFrame<'_> {
         let module = self.top_value();
         let name = self.code.names[idx as usize];
 
-        // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module, name)? {
-            return Ok(obj);
+        if let Some(deferred) = module.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+        {
+            return crate::lazy_import::import_from(deferred, name, vm);
         }
-        // fallback to importing '{module.__name__}.{name}' from sys.modules
-        let fallback_module = (|| {
-            let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
-            let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
-            let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
-            let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
-            sys_modules.get_item(&*full_mod_name, vm).ok()
-        })();
-
-        if let Some(sub_module) = fallback_module {
-            return Ok(sub_module);
-        }
-
-        use crate::import::{
-            get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name,
-        };
-
-        // Get module name for the error message
-        let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
-        let mod_name = mod_name_obj
-            .as_ref()
-            .and_then(|n| n.downcast_ref::<PyUtf8Str>());
-        let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
-
-        let spec = module
-            .get_attr("__spec__", vm)
-            .ok()
-            .filter(|s| !vm.is_none(s));
-
-        let origin = get_spec_file_origin(spec.as_deref(), vm);
-
-        let is_possibly_shadowing = origin
-            .as_ref()
-            .is_some_and(|o| is_possibly_shadowing_path(o, vm));
-        let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
-            if let Some(ref mod_name) = mod_name_obj {
-                is_stdlib_module_name(mod_name, vm)?
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        let msg = if is_possibly_shadowing_stdlib {
-            let origin = origin.as_ref().unwrap();
-            format!(
-                "cannot import name '{name}' from '{module_name}' \
-                 (consider renaming '{origin}' since it has the same \
-                 name as the standard library module named '{module_name}' \
-                 and prevents importing that standard library module)"
-            )
-        } else {
-            let is_init = is_module_initializing(module, vm);
-            if is_init {
-                if is_possibly_shadowing {
-                    let origin = origin.as_ref().unwrap();
-                    format!(
-                        "cannot import name '{name}' from '{module_name}' \
-                         (consider renaming '{origin}' if it has the same name \
-                         as a library you intended to import)"
-                    )
-                } else if let Some(ref path) = origin {
-                    format!(
-                        "cannot import name '{name}' from partially initialized module \
-                         '{module_name}' (most likely due to a circular import) ({path})"
-                    )
-                } else {
-                    format!(
-                        "cannot import name '{name}' from partially initialized module \
-                         '{module_name}' (most likely due to a circular import)"
-                    )
-                }
-            } else if let Some(ref path) = origin {
-                format!("cannot import name '{name}' from '{module_name}' ({path})")
-            } else {
-                format!("cannot import name '{name}' from '{module_name}' (unknown location)")
-            }
-        };
-        let err = vm.new_import_error(
-            msg,
-            match mod_name {
-                Some(s) => s.to_owned().into_wtf8(),
-                None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
-            },
-        );
-
-        if let Some(ref path) = origin {
-            let _ignore = err
-                .as_object()
-                .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
-        }
-
-        // name_from = the attribute name that failed to import (best-effort metadata)
-        let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
-
-        Err(err)
+        crate::import::import_from_attribute(module, name, vm)
     }
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
@@ -8782,33 +8785,34 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
+    fn collect_ex_args(
+        &mut self,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
         let kwargs_or_null = self.pop_value_opt();
-        let mut kwargs = KwArgs::default();
+        let mut kwnames = Vec::new();
+        let mut keyword_values = Vec::new();
         if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
-            let func_str = Self::object_function_str(callable, vm);
-
-            Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
+            Self::iterate_mapping_keys(vm, &kw_obj, callable, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
-                let key_str = key
-                    .downcast_ref::<PyStr>()
+                key.downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                kwargs.insert(key_str.as_wtf8().to_owned(), value);
+                // Keep the original key for vectorcall. A str subclass may run
+                // Python code when the callee binds or merges its keywords.
+                kwnames.push(key);
+                keyword_values.push(value);
                 Ok(())
             })?
         };
 
         let args_obj = self.pop_value();
-        let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
+        let mut args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()
         } else {
             // Single *arg passed directly; convert to sequence at runtime.
-            // Stack: [callable, self_or_null]
-            let callable = self.nth_value(1);
-            let func_str = Self::object_function_str(callable, vm);
             let not_iterable = args_obj.class().slots().iter.load().is_none()
                 && args_obj
                     .get_class_attr(vm.ctx.intern_str("__getitem__"))
@@ -8816,8 +8820,7 @@ impl ExecutingFrame<'_> {
             args_obj.try_to_value::<Vec<PyObjectRef>>(vm).map_err(|e| {
                 if not_iterable && e.class().is(vm.ctx.exceptions.type_error) {
                     vm.new_type_error(format!(
-                        "{} argument after * must be an iterable, not {}",
-                        func_str,
+                        "Value after * must be an iterable, not {}",
                         args_obj.class().slot_name()
                     ))
                 } else {
@@ -8825,7 +8828,8 @@ impl ExecutingFrame<'_> {
                 }
             })?
         };
-        Ok(FuncArgs { args, kwargs })
+        args.extend(keyword_values);
+        Ok((args, kwnames))
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -8858,7 +8862,7 @@ impl ExecutingFrame<'_> {
     fn iterate_mapping_keys<F>(
         vm: &VirtualMachine,
         mapping: &PyObject,
-        func_str: &Wtf8,
+        callable: &PyObject,
         mut key_handler: F,
     ) -> PyResult<()>
     where
@@ -8882,12 +8886,17 @@ impl ExecutingFrame<'_> {
         let Some(keys_method) = vm.get_method(mapping.to_owned(), vm.ctx.intern_str("keys")) else {
             return Err(vm.new_type_error(format!(
                 "{} argument after ** must be a mapping, not {}",
-                func_str,
+                Self::object_function_str(callable, vm),
                 mapping.class().name()
             )));
         };
 
-        let keys = PyIter::try_from_object(vm, keys_method?.call((), vm)?)?;
+        let keys = mapping.mapping_unchecked().collect_method_output(
+            identifier!(vm, keys),
+            keys_method?.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             let value = mapping.get_item(&*key, vm)?;
             key_handler(key, value)?;
@@ -9017,22 +9026,34 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
+    fn execute_call_ex(
+        &mut self,
+        mut args: Vec<PyObjectRef>,
+        kwnames: Vec<PyObjectRef>,
+        instrumented: bool,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         // Stack: [callable, self_or_null, ...]
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
 
-        let final_args = if let Some(self_val) = self_or_null {
-            let mut args = args;
-            args.prepend_arg(self_val);
-            args
+        if let Some(self_val) = self_or_null {
+            args.insert(0, self_val);
+        }
+        let nargs = args.len() - kwnames.len();
+        let arg0 = if instrumented {
+            args[..nargs].first().cloned()
         } else {
-            args
+            None
         };
-
-        let value = callable.call(final_args, vm)?;
-        self.push_value(value);
-        Ok(None)
+        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        if instrumented {
+            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+        } else {
+            let value = invoke()?;
+            self.push_value(value);
+            Ok(None)
+        }
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
@@ -9048,29 +9069,36 @@ impl ExecutingFrame<'_> {
             args
         };
 
+        let arg0 = final_args.args.first().cloned();
+        self.execute_call_instrumented_inner(&callable, arg0, || callable.call(final_args, vm), vm)
+    }
+
+    fn execute_call_instrumented_inner(
+        &mut self,
+        callable: &PyObject,
+        arg0: Option<PyObjectRef>,
+        invoke: impl FnOnce() -> PyResult,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
 
         // Fire CALL event
         let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
-            let arg0 = final_args
-                .args
-                .first()
-                .cloned()
-                .unwrap_or_else(|| monitoring::get_missing(vm));
+            let arg0 = arg0.unwrap_or_else(|| monitoring::get_missing(vm));
             let offset = (self.lasti() - 1) * 2;
-            monitoring::fire_call(vm, self.code, offset, &callable, arg0.clone())?;
+            monitoring::fire_call(vm, self.code, offset, callable, arg0.clone())?;
             Some(arg0)
         } else {
             None
         };
 
-        match callable.call(final_args, vm) {
+        match invoke() {
             Ok(value) => {
                 if let Some(arg0) = call_arg0
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_c_return(vm, self.code, offset, &callable, arg0)?;
+                    monitoring::fire_c_return(vm, self.code, offset, callable, arg0)?;
                 }
                 self.push_value(value);
                 Ok(None)
@@ -9080,7 +9108,7 @@ impl ExecutingFrame<'_> {
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    match monitoring::fire_c_raise(vm, self.code, offset, &callable, arg0) {
+                    match monitoring::fire_c_raise(vm, self.code, offset, callable, arg0) {
                         Ok(()) => exc,
                         Err(monitor_exc) => monitor_exc,
                     }
@@ -9357,7 +9385,7 @@ impl ExecutingFrame<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
         if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some()
@@ -9381,14 +9409,14 @@ impl ExecutingFrame<'_> {
         Ok(())
     }
 
-    /// Advance the iterator on top of stack.
+    /// Advance the iterator below its NULL index slot.
     /// Returns `true` if iteration continued (item pushed), `false` if exhausted (jumped).
     fn execute_for_iter(
         &mut self,
         vm: &VirtualMachine,
         target: bytecode::Label,
     ) -> Result<bool, PyBaseExceptionRef> {
-        let top = self.top_value();
+        let top = self.nth_value(1);
 
         // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
         if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
@@ -9419,10 +9447,7 @@ impl ExecutingFrame<'_> {
                 self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
-            Err(next_error) => {
-                self.pop_stackref();
-                Err(next_error)
-            }
+            Err(next_error) => Err(next_error),
         }
     }
 
@@ -11319,8 +11344,8 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        // Stack: [receiver, val] — receiver is at position 1
-        let receiver = self.nth_value(1);
+        // Stack: [receiver, NULL, val] — receiver is at position 2
+        let receiver = self.nth_value(2);
         let is_exact_gen_or_coro = receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
             || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some();
         if is_exact_gen_or_coro && !self.specialization_eval_frame_active(vm) {
@@ -11586,7 +11611,7 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
 
         let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
             Some(Instruction::ForIterRange)
@@ -11679,7 +11704,7 @@ impl ExecutingFrame<'_> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             FrameLocals::lazy()
         } else {
-            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 func.globals.clone(),
             ))
         };
@@ -11745,7 +11770,7 @@ impl ExecutingFrame<'_> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             FrameLocals::lazy()
         } else {
-            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 func.globals.clone(),
             ))
         };
@@ -11831,8 +11856,11 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
+        let Some(globals) = self.globals.as_mutable() else {
+            return;
+        };
         let name = self.code.names[(oparg >> 1) as usize];
-        let Ok(globals_version @ 1..) = u16::try_from(self.globals.assign_keys_version(vm)) else {
+        let Ok(globals_version @ 1..) = u16::try_from(globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -11844,7 +11872,7 @@ impl ExecutingFrame<'_> {
             return;
         };
 
-        if let Ok(Some(globals_hint)) = self.globals.hint_for_key(name, vm) {
+        if let Ok(Some(globals_hint)) = globals.hint_for_key(name, vm) {
             unsafe {
                 self.code
                     .instructions
@@ -12638,19 +12666,6 @@ fn get_special_method_error_msg(
             ),
         }
     }
-}
-
-fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> bool {
-    let Ok(spec) = module.get_attr(&vm.ctx.new_str("__spec__"), vm) else {
-        return false;
-    };
-    if vm.is_none(&spec) {
-        return false;
-    }
-    let Ok(initializing_attr) = spec.get_attr(&vm.ctx.new_str("_initializing"), vm) else {
-        return false;
-    };
-    initializing_attr.try_to_bool(vm).unwrap_or(false)
 }
 
 fn expect_unchecked<T: fmt::Debug>(optional: Option<T>, err_msg: &'static str) -> T {

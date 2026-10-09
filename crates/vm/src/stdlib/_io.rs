@@ -762,10 +762,11 @@ mod _io {
                             )));
                         }
                         let n = n as usize;
-                        let mut bytes = b.borrow_buf_mut();
-                        bytes.truncate(n);
+                        if n != b.borrow_buf().len() {
+                            b.resize(n as isize, vm)?;
+                        }
                         // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
-                        bytes.clone().to_pyobject(vm)
+                        b.borrow_buf().to_vec().to_pyobject(vm)
                     }
                 })
             } else {
@@ -5934,7 +5935,7 @@ mod _io {
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
-    use crate::host_env::crt_fd;
+    use crate::host_env::{crt_fd, os::ErrorExt};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
@@ -6048,14 +6049,19 @@ mod fileio {
                 } else {
                     let path = OsPath::try_from_fspath(name.clone(), vm)?;
                     #[cfg(any(unix, target_os = "wasi"))]
-                    let fd = host_io::open_path(&path.clone().into_cstring(vm)?, flags, 0o666);
+                    let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
-                    let fd = host_io::open_path(&path.to_wide_cstring(vm)?, flags, 0o666);
+                    let raw_path = path.to_wide_cstring(vm)?;
                     let filename = OsPathOrFd::Path(path);
-                    match fd {
-                        Ok(fd) => (fd.into_raw(), Some(filename)),
-                        Err(e) => {
-                            return Err(OSErrorBuilder::with_filename_from_errno(&e, filename, vm));
+                    loop {
+                        match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
+                            Ok(fd) => break (fd.into_raw(), Some(filename)),
+                            Err(e) if e.posix_errno() == libc::EINTR => vm.check_signals()?,
+                            Err(e) => {
+                                return Err(OSErrorBuilder::with_filename_from_errno(
+                                    &e, filename, vm,
+                                ));
+                            }
                         }
                     }
                 }

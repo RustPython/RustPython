@@ -1,0 +1,120 @@
+--- a/vendor/rustpython-ruff_python_parser/Cargo.toml
++++ b/vendor/rustpython-ruff_python_parser/Cargo.toml
+@@ -35,6 +35,10 @@
+ [lib]
+ name = "ruff_python_parser"
+ path = "src/lib.rs"
++
++# Local RustPython compatibility: wording only; independent of grammar target.
++[features]
++python315-diagnostics = []
+ 
+ [dependencies.bitflags]
+ version = "2.5.0"
+--- a/vendor/rustpython-ruff_python_parser/Cargo.toml.orig
++++ b/vendor/rustpython-ruff_python_parser/Cargo.toml.orig
+@@ -12,6 +12,10 @@
+ 
+ [lib]
+ name = "ruff_python_parser"
++
++# Local RustPython compatibility: wording only; independent of grammar target.
++[features]
++python315-diagnostics = []
+ 
+ [dependencies]
+ ruff_python_ast = { workspace = true, features = ["get-size"] }
+--- a/vendor/rustpython-ruff_python_parser/src/error.rs
++++ b/vendor/rustpython-ruff_python_parser/src/error.rs
+@@ -609,22 +609,38 @@
+             }
+             ParseErrorType::EmptyTypeParams => f.write_str("Type parameter list cannot be empty"),
+             ParseErrorType::ParamAfterVarKeywordParam => {
+-                f.write_str("arguments cannot follow var-keyword argument")
++                f.write_str(if cfg!(feature = "python315-diagnostics") {
++                    "parameters cannot follow var-keyword parameter"
++                } else {
++                    "arguments cannot follow var-keyword argument"
++                })
+             }
+             ParseErrorType::NonDefaultParamAfterDefaultParam => {
+                 f.write_str("parameter without a default follows parameter with a default")
+             }
+             ParseErrorType::ExpectedKeywordParam => {
+-                f.write_str("named arguments must follow bare *")
++                f.write_str(if cfg!(feature = "python315-diagnostics") {
++                    "named parameters must follow bare *"
++                } else {
++                    "named arguments must follow bare *"
++                })
+             }
+             ParseErrorType::VarKeywordParameterWithDefault => {
+-                f.write_str("var-keyword argument cannot have default value")
++                f.write_str(if cfg!(feature = "python315-diagnostics") {
++                    "var-keyword parameter cannot have default value"
++                } else {
++                    "var-keyword argument cannot have default value"
++                })
+             }
+             ParseErrorType::ExpectedColonAfterDictionaryKey => {
+                 f.write_str("':' expected after dictionary key")
+             }
+             ParseErrorType::VarParameterWithDefault => {
+-                f.write_str("var-positional argument cannot have default value")
++                f.write_str(if cfg!(feature = "python315-diagnostics") {
++                    "var-positional parameter cannot have default value"
++                } else {
++                    "var-positional argument cannot have default value"
++                })
+             }
+             ParseErrorType::InvalidStarPatternUsage => {
+                 f.write_str("cannot use starred expression here")
+--- a/vendor/rustpython-ruff_python_parser/src/parser/statement.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/statement.rs
+@@ -3652,10 +3652,13 @@
+                             // # def foo(a, *, b, c, *args): ...
+                             // def foo(a, *args1, *args2, b): ...
+                             // def foo(a, *args1, b, c, *args2): ...
++                            let message = if cfg!(feature = "python315-diagnostics") {
++                                "* may appear only once"
++                            } else {
++                                "* argument may appear only once"
++                            };
+                             parser.add_error(
+-                                ParseErrorType::OtherError(
+-                                    "* argument may appear only once".to_string(),
+-                                ),
++                                ParseErrorType::OtherError(message.to_string()),
+                                 star_range,
+                             );
+                         }
+@@ -3675,7 +3678,11 @@
+                             // def foo(a, *args, *, b): ...
+                             // def foo(a, *args, b, c, *): ...
+                             let message = if parser.at(TokenKind::Comma) {
+-                                "* argument may appear only once"
++                                if cfg!(feature = "python315-diagnostics") {
++                                    "* may appear only once"
++                                } else {
++                                    "* argument may appear only once"
++                                }
+                             } else {
+                                 "invalid syntax"
+                             };
+@@ -3759,10 +3766,13 @@
+                         // test_err params_no_arg_before_slash
+                         // def foo(/): ...
+                         // def foo(/, a): ...
++                        let message = if cfg!(feature = "python315-diagnostics") {
++                            "at least one parameter must precede /"
++                        } else {
++                            "at least one argument must precede /"
++                        };
+                         parser.add_error(
+-                            ParseErrorType::OtherError(
+-                                "at least one argument must precede /".to_string(),
+-                            ),
++                            ParseErrorType::OtherError(message.to_string()),
+                             slash_range,
+                         );
+                     }

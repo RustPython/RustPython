@@ -59,6 +59,16 @@ mod _types {
     }
 
     #[pyattr]
+    fn LazyImportType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.lazy_import_type.to_owned().into()
+    }
+
+    #[pyattr]
+    fn FrameLocalsProxyType(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.types.frame_locals_proxy_type.to_owned().into()
+    }
+
+    #[pyattr]
     fn FrameType(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.types.frame_type.to_owned().into()
     }

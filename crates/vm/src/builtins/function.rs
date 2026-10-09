@@ -2,8 +2,8 @@
 mod jit;
 
 use super::{
-    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr, PyStrRef,
-    PyTuple, PyTupleRef, PyType, object,
+    PyAnyDictRef, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
+    PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
 use crate::common::lock::PyMutex;
@@ -66,7 +66,7 @@ fn format_missing_args(
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
     #[pymember(name = "__globals__")]
-    pub(crate) globals: PyDictRef,
+    pub(crate) globals: PyAnyDictRef,
     #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
     #[pymember(name = "__closure__")]
@@ -179,15 +179,17 @@ impl PyFunction {
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
-        globals: PyDictRef,
+        globals: PyAnyDictRef,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
-        let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
-        let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
-            // If not in globals, inherit from current execution context
-            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
-        });
+        let name = PyMutex::new(code.co_name());
+        let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
+        let builtins = globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .unwrap_or_else(|| {
+                // If not in globals, inherit from current execution context.
+                crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
+            });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
             module.dict().into()
@@ -205,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
@@ -621,7 +623,7 @@ impl Py<PyFunction> {
             } else if let Some(locals) = locals {
                 Some(locals)
             } else {
-                Some(ArgMapping::from_dict_exact(self.globals.clone()))
+                Some(ArgMapping::from_anydict_exact(self.globals.clone()))
             };
             let use_datastack = !is_gen && !is_coro && !is_async_gen;
             let frame = FrameObject::new_ref(
@@ -635,7 +637,7 @@ impl Py<PyFunction> {
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
-                return Ok(self.make_generator_or_coro(frame, vm));
+                return self.initialize_generator_or_coro(frame, vm);
             }
             // Tracing active: use heap frame with full trace support.
             let result = vm.run_frame(frame.clone());
@@ -654,7 +656,7 @@ impl Py<PyFunction> {
         } else if let Some(locals) = locals {
             crate::frame::FrameLocals::with_locals(locals)
         } else {
-            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -687,7 +689,11 @@ impl Py<PyFunction> {
     }
 
     /// Create generator, coroutine, or async generator from a FrameObject.
-    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn make_generator_or_coro(
+        &self,
+        frame: FrameObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         let code = frame.iframe().code();
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
@@ -716,6 +722,30 @@ impl Py<PyFunction> {
         }
         frame.set_generator(&obj);
         obj
+    }
+
+    fn initialize_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyResult {
+        let has_preamble = self
+            .code
+            .instructions
+            .iter()
+            .find(|unit| unit.op.deoptimize().as_opcode() == bytecode::Opcode::Resume)
+            .is_some_and(|unit| {
+                u32::from(u8::from(unit.arg)) == bytecode::oparg::ResumeContext::GEN_EXPR_START
+            });
+        if !has_preamble {
+            return Ok(self.make_generator_or_coro(frame, vm));
+        }
+        // Iterator acquisition is eager. This incomplete activation is hidden
+        // from frame inspection until RETURN_GENERATOR creates the generator.
+        let generator = match vm.run_genexpr_preamble(&frame) {
+            Ok(generator) => generator,
+            Err(error) => {
+                crate::frame::release_datastack_frame(&frame, vm);
+                return Err(error);
+            }
+        };
+        Ok(generator)
     }
 
     #[inline(always)]
@@ -805,7 +835,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         let frame = FrameObject::new_ref(
@@ -842,7 +872,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    ) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -862,7 +892,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             None
         } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            Some(ArgMapping::from_anydict_exact(self.globals.clone()))
         };
 
         // Heap-backed: the frame outlives the call that made it.
@@ -884,7 +914,7 @@ impl Py<PyFunction> {
             }
         }
 
-        self.make_generator_or_coro(frame, vm)
+        self.initialize_generator_or_coro(frame, vm)
     }
 
     pub(crate) fn invoke_prepared_exact_args(
@@ -897,7 +927,7 @@ impl Py<PyFunction> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
         } else {
-            crate::frame::FrameLocals::with_locals(ArgMapping::from_dict_exact(
+            crate::frame::FrameLocals::with_locals(ArgMapping::from_anydict_exact(
                 self.globals.clone(),
             ))
         };
@@ -944,7 +974,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(args.into_iter(), vm));
+            return self.make_generator_exact_args(args.into_iter(), vm);
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -966,7 +996,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(taken, vm));
+            return self.make_generator_exact_args(taken, vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -1092,14 +1122,15 @@ impl Py<PyFunction> {
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
             let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let ann_dict = match ann_dict.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
             *self.annotations.lock() = Some(ann_dict.clone());
@@ -1318,12 +1349,10 @@ impl Constructor for PyFunction {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        let mut func = Self::new(args.code.clone(), args.globals.clone().into(), vm)?;
         // Set function name if provided
         if let Some(name) = args.name.into_option() {
-            *func.name.lock() = name.clone();
-            // Also update qualname to match the name
-            *func.qualname.lock() = name;
+            *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {
@@ -1474,7 +1503,26 @@ impl Py<PyBoundMethod> {
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
         let func_self = self.object.clone();
-        let func_name = self.function.get_attr("__name__", vm)?;
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
         Ok((builtins_getattr, (func_self, func_name)))
     }
 
@@ -1779,7 +1827,7 @@ pub(crate) fn vectorcall_function(
         // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
         // of the call-site specialization that would otherwise catch it.
         args.truncate(nargs);
-        return Ok(zelf.make_generator_exact_args(args.into_iter(), vm));
+        return zelf.make_generator_exact_args(args.into_iter(), vm);
     }
 
     if !has_kwargs && base_simple && nargs == code.arg_count as usize {

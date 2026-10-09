@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
+use super::{PyAnyDictRef, PyAsyncGen, PyCode, PyCoroutine, PyGenerator, PyIntRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -242,8 +242,15 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAiter => {
+                    Instruction::GetIter { .. }
+                    | Instruction::GetYieldFromIter
+                    | Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
+                        if !matches!(opcode, Instruction::GetAiter) {
+                            // The index belongs to the iterator for safe f_lineno
+                            // jumps, even when represented by a NULL at runtime.
+                            next_stack = push_value(next_stack, Kind::Iterator as i64);
+                        }
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
@@ -514,12 +521,19 @@ impl Py<FrameObject> {
         );
         match owner {
             FrameOwner::Generator => {
-                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
-                // and finished frames go through the owner finalizer.
-                if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
-                }
                 if let Some(owner) = self.iframe().generator.to_owned() {
+                    let started = if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        coro.as_coro().started()
+                    } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
+                        async_gen.as_coro().started()
+                    } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
+                        generator.as_coro().started()
+                    } else {
+                        false
+                    };
+                    if started {
+                        return Err(vm.new_runtime_error("cannot clear a suspended frame"));
+                    }
                     if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
                         let _ = PyCoroutine::del(coro, vm);
                     } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
@@ -668,7 +682,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    pub fn f_globals(&self) -> PyDictRef {
+    pub fn f_globals(&self) -> PyAnyDictRef {
         self.iframe().globals().to_owned()
     }
 

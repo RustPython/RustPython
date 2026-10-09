@@ -21,6 +21,13 @@ use crate::{
 use rustpython_common::lock::LazyLock;
 use rustpython_common::wtf8::Wtf8Buf;
 
+/// FrameLocalsProxy($frame)
+/// --
+///
+/// Create a write-through view of the locals dictionary for a frame.
+///
+///   frame
+///     the frame object to wrap.
 #[pyclass(
     module = false,
     name = "FrameLocalsProxy",

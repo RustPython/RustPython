@@ -151,11 +151,56 @@ impl Py<PyModule> {
         Ok(())
     }
 
-    fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
+    pub(crate) fn getattr_inner(
+        &self,
+        name: &Py<PyStr>,
+        suppress_cycle: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut attr = self.as_object().generic_getattr_opt(name, None, vm)?;
+        if attr.is_none() {
+            if let Some(value) =
+                crate::lazy_import::try_load_submodule(self, name, suppress_cycle, vm)?
+            {
+                return Ok(value);
+            }
+            // A concurrent import may have bound a child and removed its pending entry.
+            if self.class().is(vm.ctx.types.module_type)
+                || self
+                    .class()
+                    .get_attr(vm.ctx.intern_str(name.as_wtf8()))
+                    .is_none_or(|descriptor| descriptor.class().slots().descr_get.load().is_none())
+            {
+                attr = self.dict().get_item_opt(name, vm)?;
+            }
+        }
+        if let Some(attr) = attr {
+            if let Some(deferred) =
+                attr.downcast_ref_if_exact::<crate::lazy_import::PyLazyImport>(vm)
+            {
+                if name.to_str() != Some("__getattr__")
+                    && let Some(getattr) = crate::lazy_import::resolved_dict_item(
+                        &self.dict(),
+                        identifier!(vm, __getattr__),
+                        vm,
+                    )?
+                {
+                    match getattr.call((name.to_owned(),), vm) {
+                        Ok(value) => return Ok(value),
+                        Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {}
+                        Err(exc) => return Err(exc),
+                    }
+                }
+                if suppress_cycle && crate::lazy_import::is_resolving(deferred, vm) {
+                    return Err(vm.new_attribute_error(format!("module has no attribute '{name}'")));
+                }
+                return crate::lazy_import::reify(deferred, name, self.dict().as_object(), vm);
+            }
             return Ok(attr);
         }
-        if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
+        if let Some(getattr) =
+            crate::lazy_import::resolved_dict_item(&self.dict(), identifier!(vm, __getattr__), vm)?
+        {
             return getattr.call((name.to_owned(),), vm);
         }
         let dict = self.dict();
@@ -272,7 +317,7 @@ impl Py<PyModule> {
 
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
         let attr_name = attr_name.as_pystr(&vm.ctx);
-        self.getattr_inner(attr_name, vm)
+        self.getattr_inner(attr_name, false, vm)
     }
 
     pub fn set_attr<'a>(
@@ -303,7 +348,9 @@ impl PyModule {
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
         // PEP 562: honor a module-level __dir__ if one is defined
-        if let Some(dir_func) = dict.get_item_opt(identifier!(vm, __dir__), vm)? {
+        if let Some(dir_func) =
+            crate::lazy_import::resolved_dict_item(&dict, identifier!(vm, __dir__), vm)?
+        {
             return dir_func.call((), vm)?.try_to_value(vm);
         }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
@@ -366,10 +413,10 @@ impl PyModule {
         {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
+            if !result.downcastable::<PyDict>() {
                 return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
+                    "__annotate__() must return a dict, not {}",
+                    result.class().fully_qualified_name(vm)?
                 )));
             }
             result
@@ -438,7 +485,7 @@ impl Initializer for PyModule {
 
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-        zelf.getattr_inner(name, vm)
+        zelf.getattr_inner(name, false, vm)
     }
 }
 

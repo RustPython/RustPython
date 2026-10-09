@@ -1,9 +1,9 @@
 """Test script for the dbm.open function based on testdumbdbm.py"""
 
-import sys
 import unittest
 import dbm
 import os
+import sys
 from test.support import import_helper
 from test.support import os_helper
 
@@ -67,7 +67,7 @@ class AnyDBMTestCase:
         return keys
 
     def test_error(self):
-        self.assertTrue(issubclass(self.module.error, OSError))
+        self.assertIsSubclass(self.module.error, OSError)
 
     def test_anydbm_not_existing(self):
         self.assertRaises(dbm.error, dbm.open, _fname)
@@ -135,6 +135,67 @@ class AnyDBMTestCase:
         self.assertIn(key, f)
         assert(f[key] == b"Python:")
         f.close()
+
+    def test_anydbm_readonly_reorganize(self):
+        self.init_db()
+        with dbm.open(_fname, 'r') as d:
+            # Early stopping.
+            if not hasattr(d, 'reorganize'):
+                self.skipTest("method reorganize not available this dbm submodule")
+
+            self.assertRaises(dbm.error, lambda: d.reorganize())
+
+    def test_anydbm_reorganize_not_changed_content(self):
+        self.init_db()
+        with dbm.open(_fname, 'c') as d:
+            # Early stopping.
+            if not hasattr(d, 'reorganize'):
+                self.skipTest("method reorganize not available this dbm submodule")
+
+            keys_before = sorted(d.keys())
+            values_before = [d[k] for k in keys_before]
+            d.reorganize()
+            keys_after = sorted(d.keys())
+            values_after = [d[k] for k in keys_before]
+            self.assertEqual(keys_before, keys_after)
+            self.assertEqual(values_before, values_after)
+
+    def test_anydbm_reorganize_decreased_size(self):
+
+        def _calculate_db_size(db_path):
+            if os.path.isfile(db_path):
+                return os.path.getsize(db_path)
+            total_size = 0
+            for root, _, filenames in os.walk(db_path):
+                for filename in filenames:
+                    file_path = os.path.join(root, filename)
+                    total_size += os.path.getsize(file_path)
+            return total_size
+
+        # This test requires relatively large databases to reliably show difference in size before and after reorganizing.
+        with dbm.open(_fname, 'n') as f:
+            # Early stopping.
+            if not hasattr(f, 'reorganize'):
+                self.skipTest("method reorganize not available this dbm submodule")
+
+            for k in self._dict:
+                f[k.encode('ascii')] = self._dict[k] * 100000
+            db_keys = list(f.keys())
+
+        # Make sure to calculate size of database only after file is closed to ensure file content are flushed to disk.
+        size_before = _calculate_db_size(os.path.dirname(_fname))
+
+        # Delete some elements from the start of the database.
+        keys_to_delete = db_keys[:len(db_keys) // 2]
+        with dbm.open(_fname, 'c') as f:
+            for k in keys_to_delete:
+                del f[k]
+            f.reorganize()
+
+        # Make sure to calculate size of database only after file is closed to ensure file content are flushed to disk.
+        size_after = _calculate_db_size(os.path.dirname(_fname))
+
+        self.assertLess(size_after, size_before)
 
     def test_open_with_bytes(self):
         dbm.open(os.fsencode(_fname), "c").close()
@@ -260,6 +321,7 @@ for mod in dbm_iterator():
     if suffix == 'sqlite3' and sys.platform == 'win32':
         cls = unittest.skip("TODO: RUSTPYTHON; sqlite3 file locking on Windows")(cls)
     globals()[testname] = cls
+
 
 if __name__ == "__main__":
     unittest.main()

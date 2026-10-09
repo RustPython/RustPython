@@ -74,7 +74,7 @@ class ResourceTracker(object):
         # Filenames not supported by the simple format will always be sent
         # using JSON.
         # The reader should understand all formats.
-        self._use_simple_format = True
+        self._use_simple_format = False
 
         # Set to True by _stop_locked() if the waitpid polling loop ran to
         # its timeout without reaping the tracker.  Exposed for tests.

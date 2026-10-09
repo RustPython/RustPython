@@ -180,10 +180,14 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
         return Ok(frozen);
     }
 
-    // use_frozen(): override > 0 → true, override < 0 → false, 0 → default (true)
+    // use_frozen(): override > 0 → true, override < 0 → false, 0 → startup setting
     // When disabled, non-bootstrap modules are simply not found (same as look_up_frozen)
     let override_val = vm.state.override_frozen_modules.load();
-    if override_val < 0 {
+    if override_val < 0
+        || (override_val == 0
+            && vm.import_bootstrap_complete
+            && !vm.state.config.settings.use_frozen_modules)
+    {
         return Err(FrozenError::NotFound);
     }
 
@@ -194,7 +198,10 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 mod _imp {
     use crate::{
         AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyDict, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        builtins::{
+            PyBytesRef, PyCode, PyDict, PyImportError, PyMemoryView, PyModule, PyStrRef,
+            PyUtf8StrRef,
+        },
         import, version,
     };
 
@@ -224,40 +231,71 @@ mod _imp {
         Vec::new()
     }
 
-    // CPython removes the name from its pending lazy-module registry here.
-    // RustPython currently performs only eager imports, so that registry is empty.
+    // This hook is also used by eager imports that satisfy pending lazy targets.
     #[pyfunction]
     fn _set_lazy_attributes(
         _modobj: PyObjectRef,
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Even an empty set checks the hash of a str subclass.
-        name.as_object().hash(vm)?;
-        Ok(())
+        crate::lazy_import::clear_submodule(&name, false, vm)?;
+        vm.state.lazy_imports.modules.discard(name.into(), vm)
     }
 
     #[pyfunction]
-    fn is_builtin(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        vm.state.module_defs.contains_key(name.as_str())
+    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
+        name.to_str()
+            .is_some_and(|name| vm.state.module_defs.contains_key(name))
     }
 
     #[pyfunction]
-    fn is_frozen(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        super::find_frozen(name.as_str(), vm).is_ok()
+    fn is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
+        name.to_str()
+            .is_some_and(|name| super::find_frozen(name, vm).is_ok())
     }
 
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
-        let name: PyUtf8StrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
+        let name_obj = spec.get_attr("name", vm)?;
+        let name: PyStrRef = name_obj.downcast().map_err(|obj| {
+            vm.new_type_error(format!(
+                "name must be string, not {:.200}",
+                obj.class().name()
+            ))
+        })?;
+        if name.is_empty() {
+            return Err(vm.new_value_error("name must not be empty"));
+        }
+        // Builtin module names use ASCII even when an unknown name is supplied.
+        if !name.as_bytes().is_ascii() {
+            vm.state
+                .codec_registry
+                .encode_text(name.clone(), "ascii", None, vm)?;
+        }
+        let name_str = name.as_utf8().expect("ASCII module name").as_str();
+        if name_str.contains('\0') {
+            return Err(vm.new_value_error("embedded null character"));
+        }
+        if !matches!(name_str, "sys" | "builtins") && !vm.state.module_defs.contains_key(name_str) {
+            let exc = vm.new_payload_exception::<PyImportError>(
+                vm.ctx.exceptions.module_not_found_error.to_owned(),
+                vec![
+                    vm.ctx
+                        .new_str(format!("{name_str} module not found"))
+                        .into(),
+                ]
+                .into(),
+            )?;
+            exc.as_object().set_attr("name", name.clone(), vm)?;
+            return Err(exc.upcast());
+        }
 
-        // Check sys.modules first
+        let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+        // Only registered builtins (or the two core modules) may use this cache.
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             return Ok(module);
         }
 
-        let name_str = name.as_str();
         if let Some(&def) = vm.state.module_defs.get(name_str) {
             // Phase 1: Create module (use create slot if provided, else default creation)
             let module = if let Some(create) = def.slots.create {
@@ -274,7 +312,7 @@ mod _imp {
             module.__init_methods(vm)?;
 
             // Add to sys.modules BEFORE exec (critical for circular import handling)
-            sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
+            sys_modules.set_item(&*name, module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
             if let Some(exec) = def.slots.exec {
@@ -445,7 +483,7 @@ mod _imp {
     #[derive(FromArgs)]
     struct FindFrozenArgs {
         #[pyarg(positional)]
-        name: PyUtf8StrRef,
+        name: PyStrRef,
         #[pyarg(named, default)]
         withdata: bool,
     }
@@ -457,8 +495,9 @@ mod _imp {
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
         let FindFrozenArgs { name, withdata } = args;
-
-        let name_str = name.as_str();
+        let Some(name_str) = name.to_str() else {
+            return Ok(None);
+        };
         let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
             Err(FrozenError::NotFound | FrozenError::Disabled | FrozenError::BadName) => {

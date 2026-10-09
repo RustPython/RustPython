@@ -398,6 +398,9 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
         return;
     }
 
+    // Clear Python thread-local values before detaching, while their
+    // destructors can still run in this native thread's VM context.
+    crate::stdlib::_thread::cleanup_thread_local_data();
     let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
     drop(gilstate_vm);
 
@@ -1466,6 +1469,7 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
             importlib: self.importlib.clone(),
+            import_timing: Cell::default(),
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
@@ -1475,8 +1479,11 @@ impl VirtualMachine {
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
+            import_bootstrap_complete: self.import_bootstrap_complete,
+            startup_error: self.startup_error.clone(),
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),

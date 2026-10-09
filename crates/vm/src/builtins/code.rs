@@ -395,10 +395,14 @@ pub struct PyCode {
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
     #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
-    #[pymember(name = "co_name", path = "obj_name")]
-    #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
+    // Keep the Python objects as well as the core's interned spellings: code
+    // construction accepts str subclasses with their own equality and hash.
+    #[pymember(name = "co_name")]
+    name: PyStrRef,
+    #[pymember(name = "co_qualname")]
+    qualified_name: PyStrRef,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
     /// merged cell variables.
@@ -419,6 +423,8 @@ pub struct PyCode {
     /// this code cannot leave the slot unbalanced, so `with_frame` skips the
     /// exc_info save/restore. Computed once by scanning the instruction stream.
     pub has_exc_handling: bool,
+    /// First RESUME that exposes this frame to tracing and monitoring.
+    pub(crate) first_traceable: usize,
 }
 
 impl Deref for PyCode {
@@ -547,7 +553,24 @@ impl PyCode {
                     | Instruction::InstrumentedEndAsyncFor
             )
         });
+        let mut first_traceable = 0;
+        let mut i = 0;
+        while let Some(unit) = code.instructions.get(i) {
+            if matches!(
+                unit.op,
+                Instruction::Resume { .. }
+                    | Instruction::ResumeCheck
+                    | Instruction::InstrumentedResume
+            ) && u32::from(u8::from(unit.arg)) != bytecode::oparg::ResumeContext::GEN_EXPR_START
+            {
+                first_traceable = i;
+                break;
+            }
+            i += 1 + unit.op.deoptimize().cache_entries();
+        }
         Self {
+            name: code.obj_name.to_owned(),
+            qualified_name: code.qualname.to_owned(),
             code,
             localsplus_names,
             source_path: AtomicPtr::new(sp),
@@ -556,6 +579,7 @@ impl PyCode {
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
+            first_traceable,
         }
     }
 
@@ -580,7 +604,18 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
+        PyRef::new_ref(
+            Self::new_for_vm(vm, code),
+            vm.ctx.types.code_type.to_owned(),
+            None,
+        )
+    }
+
+    fn new_for_vm(vm: &VirtualMachine, mut code: CodeObject) -> Self {
+        if !vm.state.config.settings.code_debug_ranges {
+            code.linetable = remove_column_info(&code.linetable);
+        }
+        Self::new(code)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -686,9 +721,6 @@ impl PyCode {
             return self.code.first_line_number.map_or(-1, |n| n.get() as i32);
         }
         let linetable = self.code.linetable.as_ref();
-        if linetable.is_empty() {
-            return self.code.first_line_number.map_or(-1, |n| n.get() as i32);
-        }
         let first_line = self.code.first_line_number.map_or(0, |n| n.get() as i32);
         let mut range = PyCodeAddressRange::new(linetable, first_line);
         while range.ar_end <= lasti_bytes {
@@ -732,7 +764,7 @@ impl Comparable for PyCode {
             let other = class_or_notimplemented!(Self, other);
             let a = &zelf.code;
             let b = &other.code;
-            let eq = a.obj_name == b.obj_name
+            let eq = vm.bool_eq(zelf.name.as_object(), other.name.as_object())?
                 && a.arg_count == b.arg_count
                 && a.posonlyarg_count == b.posonlyarg_count
                 && a.kwonlyarg_count == b.kwonlyarg_count
@@ -771,7 +803,7 @@ impl Hashable for PyCode {
         let code = &zelf.code;
         // Hash a tuple of key attributes, matching CPython's code_hash
         let tuple = vm.ctx.new_tuple(vec![
-            vm.ctx.new_str(code.obj_name.as_str()).into(),
+            zelf.name.clone().into(),
             vm.ctx.new_int(code.arg_count).into(),
             vm.ctx.new_int(code.posonlyarg_count).into(),
             vm.ctx.new_int(code.kwonlyarg_count).into(),
@@ -955,11 +987,32 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(Self::new(code))
+        let mut code = Self::new_for_vm(vm, code);
+        code.preserve_name_subclasses(args.name, args.qualname);
+        Ok(code)
     }
 }
 
 impl PyCode {
+    fn preserve_name_subclasses(&mut self, name: PyStrRef, qualname: PyStrRef) {
+        // Exact strings retain the interned objects initialized by `new`.
+        // Interning a str subclass would discard its identity and behavior.
+        if !name.class().is(super::PyStr::static_type()) {
+            self.name = name;
+        }
+        if !qualname.class().is(super::PyStr::static_type()) {
+            self.qualified_name = qualname;
+        }
+    }
+
+    pub(crate) fn co_name(&self) -> PyStrRef {
+        self.name.clone()
+    }
+
+    pub(crate) fn co_qualname(&self) -> PyStrRef {
+        self.qualified_name.clone()
+    }
+
     pub fn co_filename(&self) -> PyStrRef {
         self.source_path().to_owned()
     }
@@ -1385,7 +1438,7 @@ impl Py<PyCode> {
 
         let obj_name = match co_name {
             OptionalArg::Present(obj_name) => obj_name,
-            OptionalArg::Missing => self.code.obj_name.to_owned(),
+            OptionalArg::Missing => self.co_name(),
         };
 
         let names = match co_names {
@@ -1411,7 +1464,7 @@ impl Py<PyCode> {
 
         let qualname = match co_qualname {
             OptionalArg::Present(qualname) => qualname,
-            OptionalArg::Missing => self.code.qualname.to_owned(),
+            OptionalArg::Missing => self.co_qualname(),
         };
 
         // Room for one value is always reserved, even where nothing is pushed.
@@ -1518,7 +1571,9 @@ impl Py<PyCode> {
             exceptiontable,
         };
 
-        Ok(PyCode::new(new_code))
+        let mut code = PyCode::new_for_vm(vm, new_code);
+        code.preserve_name_subclasses(obj_name, qualname);
+        Ok(code)
     }
 
     #[pymethod]
@@ -1572,6 +1627,45 @@ impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyCode::new_ref_from_bytecode(vm, self).into()
     }
+}
+
+// Preserve entry lengths and line deltas while dropping columns, as code
+// construction does under -X no_debug_ranges in CPython. Copying the signed
+// varint avoids interpreting or narrowing an arbitrary supplied line delta.
+fn remove_column_info(linetable: &[u8]) -> Box<[u8]> {
+    let mut result = Vec::with_capacity(linetable.len());
+    let mut reader = LineTableReader::new(linetable);
+    while let Some(header) = reader.read_byte() {
+        let kind = (header >> 3) & 15;
+        if kind == PyCodeLocationInfoKind::None as u8 {
+            result.push(header);
+        } else {
+            result.push(0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3) | (header & 7));
+            match PyCodeLocationInfoKind::from_code(kind) {
+                Some(PyCodeLocationInfoKind::Long | PyCodeLocationInfoKind::NoColumns) => {
+                    if reader.peek_byte().is_none_or(|byte| byte & 0x80 != 0) {
+                        result.push(0);
+                    } else {
+                        while let Some(byte) = reader.read_byte() {
+                            result.push(byte);
+                            if byte & 0x40 == 0
+                                || reader.peek_byte().is_none_or(|next| next & 0x80 != 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Some(PyCodeLocationInfoKind::OneLine1) => result.push(2),
+                Some(PyCodeLocationInfoKind::OneLine2) => result.push(4),
+                _ => result.push(0),
+            }
+        }
+        while reader.peek_byte().is_some_and(|byte| byte & 0x80 == 0) {
+            reader.read_byte();
+        }
+    }
+    result.into_boxed_slice()
 }
 
 // Helper struct for reading linetable

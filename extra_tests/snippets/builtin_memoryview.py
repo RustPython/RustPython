@@ -399,7 +399,7 @@ def test_cast_rejects_non_native_format():
             memoryview(b"").cast(fmt)
             raise AssertionError(f"cast accepted {fmt!r}")
         except ValueError as e:
-            assert "native single character format" in str(e), e
+            assert "native format" in str(e), e
     assert memoryview(bytes(8)).cast("@i").itemsize == 4
 
 
@@ -517,7 +517,7 @@ test_fortran_contiguity()
 
 
 def test_cast_arguments():
-    # cast() takes a native single character format, optionally '@'-prefixed;
+    # cast() takes a native format, optionally '@'-prefixed;
     # a zero-size format used to reach a division by zero.
     assert memoryview(b"abcd").cast("@i").itemsize == 4
     for fmt in ("0s", "4s", "<i", "", "ss"):
