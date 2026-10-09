@@ -1506,9 +1506,9 @@ mod escape_warnings {
                 }
                 // F-string literals — tokenizer + string_parser paths
                 ast::Expr::FString(fstring_expr) => {
-                    for part in fstring_expr.value.as_slice() {
+                    for part in &fstring_expr.value {
                         match part {
-                            ast::FStringPart::Literal(string_lit) => {
+                            ast::FStringPartRef::Literal(string_lit) => {
                                 // Plain string part in f-string concatenation
                                 if !matches!(
                                     string_lit.flags.prefix(),
@@ -1517,7 +1517,7 @@ mod escape_warnings {
                                     self.check_quoted_literal(string_lit.range, false);
                                 }
                             }
-                            ast::FStringPart::FString(fstring) => {
+                            ast::FStringPartRef::FString(fstring) => {
                                 if matches!(
                                     fstring.flags.prefix(),
                                     ast::str_prefix::FStringPrefix::Raw { .. }

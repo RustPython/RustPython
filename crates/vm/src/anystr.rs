@@ -5,9 +5,9 @@ use rustpython_unicode::case;
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyInt, PyIntRef, PyTuple},
+    builtins::{PyInt, PyTuple},
     convert::TryFromBorrowedObject,
-    function::PySsize,
+    function::{ArgIndex, PySsize},
 };
 
 #[derive(FromArgs)]
@@ -41,17 +41,17 @@ pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl StartsEndsWithArgs {
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
             Some(adjust_indices(
-                self.start.as_deref(),
-                self.end.as_deref(),
+                self.start.as_ref().map(AsRef::as_ref),
+                self.end.as_ref().map(AsRef::as_ref),
                 len,
             ))
         } else {

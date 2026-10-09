@@ -233,6 +233,10 @@ impl SignalNum {
     #[allow(dead_code, reason = "Not used on all platforms")]
     pub(crate) const SIGINT: Self = Self(libc::SIGINT);
 
+    #[cfg(all(target_os = "wasi", feature = "host_env"))]
+    #[allow(dead_code, reason = "Not used on all platforms")]
+    pub(crate) const SIGINT: Self = Self(rustpython_host_env::signal::SIGINT);
+
     /// Construct [`Self`] without any validation on the signalnum value.
     ///
     /// # Safety

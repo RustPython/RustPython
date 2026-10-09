@@ -1,3 +1,4 @@
+#[cfg(any(unix, windows))]
 use std::io;
 #[cfg(windows)]
 use std::sync::Once;
@@ -13,12 +14,82 @@ pub use libc::sighandler_t;
 #[cfg(unix)]
 pub use libc::{SIG_DFL, SIG_ERR, SIG_IGN};
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, target_os = "wasi")))]
 pub const SIG_DFL: libc::sighandler_t = 0;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, target_os = "wasi")))]
 pub const SIG_IGN: libc::sighandler_t = 1;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, target_os = "wasi")))]
 pub const SIG_ERR: libc::sighandler_t = -1 as _;
+
+/// wasi-libc's userspace emulation of `signal()`/`raise()`, linked from
+/// `libwasi-emulated-signal` (see `crates/host_env/vendor/wasm32-wasip1`).
+/// WebAssembly has no asynchronous signal delivery, so this is a
+/// synchronous, in-process handler table: a handler only runs when this
+/// process's own code calls `raise()`, never from an outside interrupt.
+/// Numbering matches wasi-libc's `bits/signal.h`, the same values CPython's
+/// WASI build gets by linking the same library.
+#[cfg(target_os = "wasi")]
+mod wasm {
+    use std::io;
+
+    #[allow(non_camel_case_types)]
+    pub type sighandler_t = usize;
+
+    pub const SIG_DFL: sighandler_t = 0;
+    pub const SIG_IGN: sighandler_t = 1;
+    pub const SIG_ERR: sighandler_t = -1isize as usize;
+
+    pub const SIGINT: i32 = 2;
+    pub const SIGILL: i32 = 4;
+    pub const SIGABRT: i32 = 6;
+    pub const SIGFPE: i32 = 8;
+    pub const SIGSEGV: i32 = 11;
+    pub const SIGTERM: i32 = 15;
+
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: sighandler_t) -> sighandler_t;
+        fn raise(signum: i32) -> i32;
+    }
+
+    /// # Safety
+    ///
+    /// The caller must ensure `signalnum` is a valid platform signal number.
+    pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
+        let handler = unsafe { signal(signalnum, SIG_IGN) };
+        if handler == SIG_ERR {
+            None
+        } else {
+            unsafe { signal(signalnum, handler) };
+            Some(handler)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// The caller must ensure `signalnum` is a valid platform signal number and
+    /// `handler` is accepted by the platform signal ABI.
+    pub unsafe fn install_handler(
+        signalnum: i32,
+        handler: sighandler_t,
+    ) -> io::Result<sighandler_t> {
+        let old = unsafe { signal(signalnum, handler) };
+        if old == SIG_ERR {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(old)
+    }
+
+    pub fn raise_signal(signalnum: i32) -> io::Result<()> {
+        if unsafe { raise(signalnum) } == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+}
+
+#[cfg(target_os = "wasi")]
+pub use wasm::*;
 
 #[cfg(unix)]
 pub use libc::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
@@ -104,12 +175,26 @@ mod ffi {
 /// The caller must ensure `signalnum` is a valid platform signal number.
 #[cfg(any(unix, windows))]
 pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
-    let handler = unsafe { libc::signal(signalnum, libc::SIG_IGN) };
-    if handler == libc::SIG_ERR as sighandler_t {
-        None
-    } else {
-        unsafe { libc::signal(signalnum, handler) };
-        Some(handler)
+    #[cfg(unix)]
+    {
+        // Query without changing disposition: even temporarily ignoring SIGCHLD
+        // can discard a child's exit status, and signal() also replaces masks.
+        let mut action = core::mem::MaybeUninit::<libc::sigaction>::uninit();
+        if unsafe { libc::sigaction(signalnum, core::ptr::null(), action.as_mut_ptr()) } == 0 {
+            Some(unsafe { action.assume_init() }.sa_sigaction)
+        } else {
+            None
+        }
+    }
+    #[cfg(windows)]
+    {
+        let handler = unsafe { libc::signal(signalnum, libc::SIG_IGN) };
+        if handler == libc::SIG_ERR as sighandler_t {
+            None
+        } else {
+            unsafe { libc::signal(signalnum, handler) };
+            Some(handler)
+        }
     }
 }
 
@@ -320,7 +405,7 @@ pub fn notify_signal(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 pub fn notify_signal(signum: i32, wakeup_fd: i32) {
     if wakeup_fd == -1 {
         return;
@@ -378,4 +463,50 @@ pub fn sigset_contains(mask: libc::sigset_t, signum: i32) -> bool {
 #[cfg(windows)]
 pub fn valid_signals(_max_signum: usize) -> io::Result<Vec<i32>> {
     Ok(VALID_SIGNALS.to_vec())
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    #[test]
+    fn probing_preserves_signal_flags_and_mask() {
+        unsafe extern "C" fn handler(_: libc::c_int) {}
+
+        struct Restore(libc::sigaction);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::sigaction(libc::SIGUSR2, &self.0, core::ptr::null_mut()) };
+            }
+        }
+
+        // No other host_env test uses SIGUSR2; retain the host disposition even
+        // when an assertion fails. Do not deliver any signal to the process.
+        unsafe {
+            let mut action: libc::sigaction = core::mem::zeroed();
+            action.sa_sigaction = handler as *const () as libc::sighandler_t;
+            action.sa_flags = libc::SA_NODEFER;
+            assert_eq!(libc::sigemptyset(&mut action.sa_mask), 0);
+            assert_eq!(libc::sigaddset(&mut action.sa_mask, libc::SIGUSR1), 0);
+            let mut original = core::mem::MaybeUninit::uninit();
+            assert_eq!(
+                libc::sigaction(libc::SIGUSR2, &action, original.as_mut_ptr()),
+                0
+            );
+            let _restore = Restore(original.assume_init());
+
+            assert_eq!(
+                super::probe_handler(libc::SIGUSR2),
+                Some(action.sa_sigaction)
+            );
+            let mut observed = core::mem::MaybeUninit::<libc::sigaction>::uninit();
+            assert_eq!(
+                libc::sigaction(libc::SIGUSR2, core::ptr::null(), observed.as_mut_ptr()),
+                0
+            );
+            let observed = observed.assume_init();
+            assert_eq!(observed.sa_sigaction, action.sa_sigaction);
+            assert_ne!(observed.sa_flags & libc::SA_NODEFER, 0);
+            assert_eq!(libc::sigismember(&observed.sa_mask, libc::SIGUSR1), 1);
+        }
+    }
 }

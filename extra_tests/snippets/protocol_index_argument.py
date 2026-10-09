@@ -312,3 +312,65 @@ class HintIndex:
 
 with assert_raises(TypeError):
     operator.length_hint(HintIndex())
+
+
+# Arguments bound as `int` objects accept `__index__` as well.
+assert "abcabc".find("a", Index(1)) == 3
+assert "abcabc".rfind("a", 0, Index(3)) == 0
+assert "abcabc".index("c", Index(3)) == 5
+assert "abcabc".rindex("a", Index(1), Index(4)) == 3
+assert "aaaaaa".count("a", Index(2), Index(-1)) == 3
+assert "abcdef".startswith("d", Index(3))
+assert "abcdef".endswith("c", 0, Index(3))
+assert b"abcabc".find(b"a", Index(1)) == 3
+assert b"abcabc".count(b"b", Index(2)) == 1
+assert b"abcdef".startswith(b"d", Index(3))
+assert bytearray(b"abcabc").rindex(b"a", 0, Index(3)) == 0
+assert bytearray(b"abcdef").endswith(b"c", 0, Index(3))
+
+assert list(enumerate("ab", Index(3))) == [(3, "a"), (4, "b")]
+assert list(enumerate("ab", start=Index(3))) == [(3, "a"), (4, "b")]
+
+import itertools
+
+assert list(itertools.combinations("abc", Index(2))) == [
+    ("a", "b"),
+    ("a", "c"),
+    ("b", "c"),
+]
+assert list(itertools.combinations_with_replacement("ab", Index(2))) == [
+    ("a", "a"),
+    ("a", "b"),
+    ("b", "b"),
+]
+assert list(itertools.batched("abcde", Index(2))) == [("a", "b"), ("c", "d"), ("e",)]
+
+assert _thread.stack_size(Index(0)) == 0
+
+import mmap
+
+mapped = mmap.mmap(-1, 6)
+mapped.write(b"abcdef")
+mapped.move(Index(0), Index(3), Index(3))
+assert mapped[:] == b"defdef"
+if hasattr(mapped, "madvise"):
+    mapped.madvise(mmap.MADV_NORMAL, Index(0), Index(6))
+
+if sys.platform != "win32":
+    import fcntl
+    import grp
+    import pwd
+    import resource
+    import tempfile
+
+    assert pwd.getpwuid(Index(0)).pw_uid == 0
+    assert grp.getgrgid(Index(0)).gr_gid == 0
+
+    nofile = resource.getrlimit(resource.RLIMIT_NOFILE)
+    assert resource.getrlimit(Index(resource.RLIMIT_NOFILE)) == nofile
+    resource.setrlimit(Index(resource.RLIMIT_NOFILE), nofile)
+
+    with tempfile.TemporaryFile() as f:
+        assert fcntl.fcntl(f, fcntl.F_SETFD, Index(fcntl.FD_CLOEXEC)) == 0
+        assert fcntl.fcntl(f, fcntl.F_GETFD) == fcntl.FD_CLOEXEC
+        fcntl.lockf(f, fcntl.LOCK_SH | fcntl.LOCK_NB, Index(0), Index(0))

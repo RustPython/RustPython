@@ -10,7 +10,7 @@ use crate::{
     cformat::cformat_bytes,
     common::wtf8::is_py_ascii_whitespace,
     common::{borrow::BorrowedValue, hash},
-    function::{ArgIterable, Either, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, ArgIterable, Either, OptionalArg, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -313,11 +313,11 @@ impl ByteInnerSub {
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
-    sub: ByteInnerSub,
+    sub: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<ArgIndex>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<ArgIndex>,
 }
 
 impl ByteInnerFindOptions {
@@ -326,8 +326,14 @@ impl ByteInnerFindOptions {
         len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
-        let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start.as_deref(), self.end.as_deref(), len);
+        let range = anystr::adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
+        // The needle is converted after the slice indices, and only here, so
+        // that a caller can guard its buffer while the conversion runs Python.
+        let sub = ByteInnerSub::try_from_object(vm, self.sub)?.into_vec(vm)?;
         Ok((sub, range))
     }
 }

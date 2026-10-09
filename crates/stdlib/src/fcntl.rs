@@ -8,9 +8,8 @@ mod fcntl {
 
     use crate::vm::{
         PyResult, VirtualMachine,
-        builtins::PyIntRef,
         convert::ToPyException,
-        function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
+        function::{ArgIndex, ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::_io,
     };
     use rustpython_host_env::io::is_interrupted_error;
@@ -86,7 +85,7 @@ mod fcntl {
     #[derive(FromArgs)]
     struct FcntlArg {
         #[pyarg(positional, default = 0)]
-        arg: Either<ArgStrOrBytesLike, PyIntRef>,
+        arg: Either<ArgStrOrBytesLike, ArgIndex>,
     }
 
     #[pyfunction]
@@ -114,7 +113,7 @@ mod fcntl {
                 )?;
                 return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
             }
-            Either::B(i) => i.as_u32_mask(),
+            Either::B(i) => i.as_ref().as_u32_mask(),
         };
         let ret = retry_on_eintr(
             vm,
@@ -213,9 +212,9 @@ mod fcntl {
     #[derive(FromArgs)]
     struct LockfArgs {
         #[pyarg(positional, default = 0)]
-        len: PyIntRef,
+        len: ArgIndex,
         #[pyarg(positional, default = 0)]
-        start: PyIntRef,
+        start: ArgIndex,
         #[pyarg(positional, default)]
         whence: i32,
     }
@@ -229,8 +228,8 @@ mod fcntl {
         LockfArgs { len, start, whence }: LockfArgs,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let start = start.try_to_primitive(vm)?;
-        let len = len.try_to_primitive(vm)?;
+        let start = start.as_ref().try_to_primitive(vm)?;
+        let len = len.as_ref().try_to_primitive(vm)?;
         // F_LOCK and F_TLOCK differ in exactly this: the first one waits.
         let ret = retry_on_eintr(
             vm,

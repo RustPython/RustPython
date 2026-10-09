@@ -1388,3 +1388,22 @@ def test_slice_replacement_lifetime():
 
 
 test_slice_replacement_lifetime()
+
+
+def test_subscript_typeerror_message():
+    def message(index):
+        try:
+            [0, 1, 2][index]
+        except TypeError as err:
+            return str(err)
+        raise AssertionError("TypeError was not raised")
+
+    assert message("x") == "list indices must be integers or slices, not str"
+
+    Long = type("A" * 250, (), {})
+    assert message(Long()) == "list indices must be integers or slices, not {}".format(
+        "A" * 200
+    )
+
+
+test_subscript_typeerror_message()

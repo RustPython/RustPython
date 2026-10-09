@@ -5,11 +5,8 @@ pub(crate) use pwd::module_def;
 #[pymodule]
 mod pwd {
     use crate::{
-        PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyUtf8StrRef},
-        convert::IntoPyException,
-        exceptions,
-        types::PyStructSequence,
+        PyResult, VirtualMachine, builtins::PyUtf8StrRef, convert::IntoPyException, exceptions,
+        function::ArgIndex, types::PyStructSequence,
     };
     use core::hint::cold_path;
     use rustpython_host_env::pwd as host_pwd;
@@ -68,7 +65,8 @@ mod pwd {
     }
 
     #[pyfunction]
-    fn getpwuid(uidobj: PyIntRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
+    fn getpwuid(uidobj: ArgIndex, vm: &VirtualMachine) -> PyResult<PasswdData> {
+        let uidobj = uidobj.into_int_ref();
         let uid_t = libc::uid_t::try_from(uidobj.as_bigint()).ok();
         let user = uid_t
             .map(host_pwd::getpwuid)

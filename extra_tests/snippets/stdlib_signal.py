@@ -21,8 +21,8 @@ assert old_signal is signal.SIG_IGN
 assert signal.getsignal(signal.SIGILL) is signal.SIG_DFL
 
 
-# unix
-if "win" not in sys.platform:
+# unix, and not WASI
+if "win" not in sys.platform and sys.platform != "wasi":
     signal.signal(signal.SIGALRM, handler)
     assert signal.getsignal(signal.SIGALRM) is handler
 

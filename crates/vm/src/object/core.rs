@@ -173,17 +173,14 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         return; // resurrected by __del__
     }
 
-    // Only tracked objects take the trashcan recursion guard and untrack path.
-    // Untracked objects either own no children (int, float, str, ...) or, like
-    // non-escaped frames, are released at interpreter depth with at most one
-    // unguarded link before their tracked children (dicts, functions, code)
-    // re-enter guarded deallocation, so recursion stays bounded. A frame stored
-    // in an object graph is forced to escape, becoming tracked and guarded here.
-    // Read once and reuse for both gates below.
+    // Untracked payloads can still own recursive chains of references, such as
+    // detached frames returned by sys._current_frames(). Guard traversable
+    // payloads regardless of tracking, while keeping scalar deallocation cheap.
     let tracked = obj_ref.is_gc_tracked();
+    let guarded = tracked || T::HAS_TRAVERSE;
 
     // Trashcan: limit recursive deallocation depth to prevent stack overflow
-    if tracked && !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
+    if guarded && !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
         return; // deferred to queue
     }
 
@@ -262,7 +259,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Trashcan: decrement depth and process deferred objects at outermost level
-    if tracked {
+    if guarded {
         unsafe { trashcan::end() };
     }
 }

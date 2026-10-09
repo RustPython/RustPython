@@ -11,7 +11,7 @@ use crate::{
     },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
-    sliceable::{SequenceIndex, SliceableSequenceOp},
+    sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::PyComparisonOp,
     vm::Context,
 };
@@ -217,7 +217,7 @@ static STRUCT_SEQUENCE_AS_MAPPING: LazyLock<PyMappingMethods> =
             let tuple = mapping.obj.downcast_ref::<PyTuple>().unwrap();
             let visible_elements = &tuple.as_slice()[..n_seq];
 
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
+            match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, needle)? {
                 SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
                 SequenceIndex::Slice(slice) => visible_elements
                     .getitem_by_slice(vm, slice)
@@ -376,7 +376,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
         let n_seq = get_visible_len(zelf.as_ref(), vm)?;
         let visible_elements = &zelf.as_slice()[..n_seq];
 
-        match SequenceIndex::try_from_borrowed_object(vm, &needle, "tuple")? {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, &needle)? {
             SequenceIndex::Int(i) => visible_elements.getitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => visible_elements
                 .getitem_by_slice(vm, slice)

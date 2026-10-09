@@ -865,7 +865,6 @@ x = (
         x = X()
         self.assertEqual(f'{x} {x}', '1 2')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_missing_expression(self):
         self.assertAllRaise(SyntaxError,
                             "f-string: valid expression required before '}'",

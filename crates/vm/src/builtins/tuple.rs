@@ -15,7 +15,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{OptionalRangeArgs, SequenceExt},
-    sliceable::{SequenceIndex, SliceableSequenceOp},
+    sliceable::{NameTuple, SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
@@ -470,7 +470,7 @@ impl PyTuple {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "tuple")? {
+        match SequenceIndex::try_from_borrowed_object::<NameTuple>(vm, needle)? {
             SequenceIndex::Int(i) => {
                 let index = self
                     .elements

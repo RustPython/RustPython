@@ -135,6 +135,81 @@ impl SigArg {
     }
 }
 
+/// Calling-convention bits from each argument's binding metadata.
+///
+/// Inspect arguments separately: a tuple's `PARAMS` can erase leaf metadata.
+/// With `receiver`, the first argument is the bound `$self` / `$type`; it
+/// contributes only the parameters its type supplies.
+/// A keyword-capable parameter uses `FASTCALL | KEYWORDS`.
+#[must_use]
+pub(crate) const fn native_call_flags(args: &[SigArg], receiver: bool) -> super::PyMethodFlags {
+    let mut has_keywords = false;
+    let mut variable = false;
+    let mut fixed = 0usize;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].params {
+            Some(params) => count_params(params, &mut has_keywords, &mut variable, &mut fixed),
+            None if receiver && i == 0 => {}
+            None => fixed += 1,
+        }
+        i += 1;
+    }
+    if has_keywords {
+        super::PyMethodFlags::FASTCALL.union(super::PyMethodFlags::KEYWORDS)
+    } else if variable {
+        super::PyMethodFlags::FASTCALL
+    } else {
+        match fixed {
+            0 => super::PyMethodFlags::NOARGS,
+            1 => super::PyMethodFlags::O,
+            _ => super::PyMethodFlags::FASTCALL,
+        }
+    }
+}
+
+const fn count_params(
+    params: &[Param],
+    has_keywords: &mut bool,
+    variable: &mut bool,
+    fixed: &mut usize,
+) {
+    let mut i = 0;
+    while i < params.len() {
+        count_param(&params[i], has_keywords, variable, fixed);
+        i += 1;
+    }
+}
+
+const fn count_param(
+    param: &Param,
+    has_keywords: &mut bool,
+    variable: &mut bool,
+    fixed: &mut usize,
+) {
+    match param.kind {
+        ParamKind::PositionalOrKeyword => {
+            *has_keywords = true;
+            if param.default.is_some() {
+                *variable = true;
+            } else {
+                *fixed += 1;
+            }
+        }
+        ParamKind::KeywordOnly | ParamKind::VarKeyword => *has_keywords = true,
+        ParamKind::VarPositional => *variable = true,
+        ParamKind::PositionalOnly => {
+            if param.default.is_some() {
+                *variable = true;
+            } else {
+                *fixed += 1;
+            }
+        }
+        ParamKind::Flatten(Some(inner)) => count_params(inner, has_keywords, variable, fixed),
+        ParamKind::Flatten(None) => {}
+    }
+}
+
 const fn name_eq(name: &str, bytes: &[u8]) -> bool {
     let got = name.as_bytes();
     if got.len() != bytes.len() {
@@ -242,6 +317,7 @@ struct St {
     emitted: bool,
     po_left: usize,
     var_pos_seen: bool,
+    var_kw_seen: bool,
     star_emitted: bool,
 }
 
@@ -255,6 +331,7 @@ const fn write_signature_prefix(buf: &mut [u8], name: &str, args: &[SigArg]) -> 
             emitted: false,
             po_left: count_po_args(args),
             var_pos_seen: false,
+            var_kw_seen: false,
             star_emitted: false,
         },
         args,
@@ -575,6 +652,12 @@ const fn write_one(buf: &mut [u8], mut st: St, param: Param, fallback: &str) -> 
             st = emit_named(buf, st, "", name, param.default);
             st.po_left -= 1;
             if st.po_left == 0 {
+                // Python rejects `/` after `*` or `**`. The Rust arguments put a
+                // keyword or variadic one before a positional one; reorder them.
+                assert!(
+                    !st.star_emitted && !st.var_pos_seen && !st.var_kw_seen,
+                    "positional-only parameter after `*` or `**`: reorder the Rust arguments"
+                );
                 st = emit_text(buf, st, "/");
             }
             st
@@ -591,7 +674,10 @@ const fn write_one(buf: &mut [u8], mut st: St, param: Param, fallback: &str) -> 
             st.var_pos_seen = true;
             emit_named(buf, st, "*", name, param.default)
         }
-        ParamKind::VarKeyword => emit_named(buf, st, "**", name, param.default),
+        ParamKind::VarKeyword => {
+            st.var_kw_seen = true;
+            emit_named(buf, st, "**", name, param.default)
+        }
     }
 }
 
@@ -620,7 +706,8 @@ const fn write_args(buf: &mut [u8], mut st: St, args: &[SigArg]) -> St {
 
 #[cfg(test)]
 mod tests {
-    use super::{DefaultRepr, Param, ParamKind, St, write_one};
+    use super::{DefaultRepr, Param, ParamKind, SigArg, St, native_call_flags, write_one};
+    use crate::function::PyMethodFlags;
 
     fn rendered(default: DefaultRepr) -> String {
         let mut buf = [0u8; 64];
@@ -631,6 +718,7 @@ mod tests {
                 emitted: false,
                 po_left: 0,
                 var_pos_seen: false,
+                var_kw_seen: false,
                 star_emitted: true,
             },
             Param {
@@ -661,5 +749,56 @@ mod tests {
         assert_eq!(rendered(DefaultRepr::Bytes(b"a'b")), r"b'a\'b'");
         assert_eq!(rendered(DefaultRepr::Raw("sys.maxsize")), "sys.maxsize");
         assert_eq!(rendered(DefaultRepr::Unrepresentable), "<unrepresentable>");
+    }
+
+    #[test]
+    fn native_call_flags_from_params() {
+        const fn arg(params: Option<&'static [Param]>) -> SigArg {
+            SigArg { name: "", params }
+        }
+        let keywords = PyMethodFlags::FASTCALL.union(PyMethodFlags::KEYWORDS);
+        assert_eq!(native_call_flags(&[], false), PyMethodFlags::NOARGS);
+        assert_eq!(native_call_flags(&[arg(None)], false), PyMethodFlags::O);
+        assert_eq!(
+            native_call_flags(&[arg(None), arg(None)], false),
+            PyMethodFlags::FASTCALL
+        );
+        // The receiver is not a Python argument.
+        assert_eq!(
+            native_call_flags(&[SigArg::marker("$self"), arg(None)], true),
+            PyMethodFlags::O
+        );
+        assert_eq!(native_call_flags(&[arg(None)], true), PyMethodFlags::NOARGS);
+
+        const OPTIONAL: &[Param] = &[Param {
+            name: "",
+            kind: ParamKind::PositionalOnly,
+            default: Some(DefaultRepr::Unrepresentable),
+        }];
+        assert_eq!(
+            native_call_flags(&[arg(Some(OPTIONAL))], false),
+            PyMethodFlags::FASTCALL
+        );
+
+        const KW: &[Param] = &[Param::positional_or_keyword("exp")];
+        assert_eq!(native_call_flags(&[arg(Some(KW))], false), keywords);
+
+        const FUNCARGS: &[Param] = &[Param::var_positional("args"), Param::var_keyword("kwargs")];
+        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], false), keywords);
+        // A receiver that binds the whole call keeps its parameters.
+        assert_eq!(native_call_flags(&[arg(Some(FUNCARGS))], true), keywords);
+
+        const POSARGS: &[Param] = &[Param::var_positional("args")];
+        assert_eq!(
+            native_call_flags(&[arg(Some(POSARGS))], false),
+            PyMethodFlags::FASTCALL
+        );
+
+        const INNER: &[Param] = &[Param::keyword_only(
+            "reverse",
+            Some(DefaultRepr::Bool(false)),
+        )];
+        const FLAT: &[Param] = &[Param::flatten(Some(INNER))];
+        assert_eq!(native_call_flags(&[arg(Some(FLAT))], false), keywords);
     }
 }

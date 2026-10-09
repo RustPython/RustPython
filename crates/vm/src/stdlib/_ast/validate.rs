@@ -616,10 +616,11 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
             validate_expr(vm, &await_expr.value, ast::ExprContext::Load)
         }
         ast::Expr::Compare(compare) => {
-            if compare.comparators.is_empty() {
+            let comparators = compare.operands.get(1..).unwrap_or(&[]);
+            if comparators.is_empty() {
                 return Err(vm.new_value_error("Compare with no comparators"));
             }
-            if compare.comparators.len() != compare.ops.len() {
+            if comparators.len() != compare.ops.len() {
                 return Err(vm.new_value_error(
                     "Compare has a different number of comparators and operands",
                 ));
@@ -629,8 +630,8 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
                 compare.runtime_comparators.as_ref(),
                 ast::ExprContext::Load,
             )?;
-            validate_exprs(vm, &compare.comparators, ast::ExprContext::Load, false)?;
-            validate_expr(vm, &compare.left, ast::ExprContext::Load)
+            validate_exprs(vm, comparators, ast::ExprContext::Load, false)?;
+            validate_expr(vm, compare.first_operand(), ast::ExprContext::Load)
         }
         ast::Expr::Call(call) => {
             validate_expr(vm, &call.func, ast::ExprContext::Load)?;

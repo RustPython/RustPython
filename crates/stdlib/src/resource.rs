@@ -6,8 +6,9 @@ pub(crate) use resource::module_def;
 mod resource {
     use crate::vm::{
         Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
-        builtins::{PyInt, PyIntRef},
+        builtins::PyInt,
         convert::{ToPyException, ToPyObject},
+        function::ArgIndex,
         types::PyStructSequence,
     };
     use num_traits::Signed;
@@ -185,8 +186,8 @@ mod resource {
     }
 
     #[pyfunction]
-    fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
-        let resource = py2rlim(&resource, vm)?;
+    fn getrlimit(resource: ArgIndex, vm: &VirtualMachine) -> PyResult<Limits> {
+        let resource = py2rlim(resource.as_ref(), vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
@@ -197,8 +198,8 @@ mod resource {
     }
 
     #[pyfunction]
-    fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        let resource = py2rlim(&resource, vm)?;
+    fn setrlimit(resource: ArgIndex, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
+        let resource = py2rlim(resource.as_ref(), vm)?;
 
         if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));

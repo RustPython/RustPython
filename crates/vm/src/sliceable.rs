@@ -257,6 +257,34 @@ pub enum SequenceIndex {
     Slice(SaturatedSlice),
 }
 
+/// Compile-time type name used in sequence index TypeErrors.
+///
+/// `&'static str` is not a legal const-generic type, so the name is an associated
+/// constant on a marker type, the same pattern as [`crate::function::ArgName`].
+pub trait SequenceIndexName {
+    const NAME: &'static str;
+}
+
+macro_rules! sequence_index_name {
+    ($($ty:ident = $name:literal),* $(,)?) => {$(
+        #[derive(Clone, Copy, Debug)]
+        pub struct $ty;
+        impl SequenceIndexName for $ty {
+            const NAME: &'static str = $name;
+        }
+    )*};
+}
+
+sequence_index_name! {
+    NameList = "list",
+    NameTuple = "tuple",
+    NameByte = "byte",
+    NameBytearray = "bytearray",
+    NameArray = "array",
+    NameMmap = "mmap",
+    NameElement = "element",
+}
+
 impl SequenceIndex {
     /// The index or slice `obj` stands for, or `None` when it is neither.
     fn try_from_object_opt(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<Self>> {
@@ -280,27 +308,47 @@ impl SequenceIndex {
         }
     }
 
-    pub fn try_from_borrowed_object(
+    fn try_from_object(
         vm: &VirtualMachine,
         obj: &PyObject,
-        type_name: &str,
+        err_fmt: fn(&str) -> String,
     ) -> PyResult<Self> {
-        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
-            Err(vm.new_type_error(format!(
-                "{type_name} indices must be integers or slices, not {}",
-                obj.class().slot_name()
-            )))
-        })
+        Self::try_from_object_opt(vm, obj)
+            .unwrap_or_else(|| Self::index_type_error(vm, obj, err_fmt))
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn index_type_error(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        err_fmt: fn(&str) -> String,
+    ) -> PyResult<Self> {
+        let class_name = obj.class().slot_name();
+        Err(vm.new_type_error(err_fmt(&class_name)))
+    }
+
+    fn sequence_index_type_error<N: SequenceIndexName>(class_name: &str) -> String {
+        format!(
+            "{} indices must be integers or slices, not {class_name:.200}",
+            N::NAME
+        )
+    }
+
+    fn str_index_type_error(class_name: &str) -> String {
+        format!("string indices must be integers, not '{class_name:.200}'")
+    }
+
+    pub fn try_from_borrowed_object<N: SequenceIndexName>(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+    ) -> PyResult<Self> {
+        Self::try_from_object(vm, obj, Self::sequence_index_type_error::<N>)
     }
 
     /// `unicode_subscript`, which turns down what it cannot use in its own words.
     pub fn try_from_str_subscript(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
-            Err(vm.new_type_error(format!(
-                "string indices must be integers, not '{}'",
-                obj.class().slot_name()
-            )))
-        })
+        Self::try_from_object(vm, obj, Self::str_index_type_error)
     }
 }
 

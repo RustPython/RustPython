@@ -659,7 +659,12 @@ impl Context {
     where
         F: IntoPyNativeFn<FKind>,
     {
-        let payload = HeapMethodDef::with_owned_function(name, Box::new(f.into_func()), flags, doc);
+        let payload = HeapMethodDef::with_owned_function(
+            name,
+            Box::new(f.into_func()),
+            flags.with_call_convention(F::ARGS),
+            doc,
+        );
         PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 

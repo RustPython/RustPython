@@ -144,7 +144,6 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring("xxx", sys.maxsize+1)

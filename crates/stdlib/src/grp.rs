@@ -5,9 +5,10 @@ pub(crate) use grp::module_def;
 mod grp {
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyListRef, PyUtf8StrRef},
+        builtins::{PyListRef, PyUtf8StrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
+        function::ArgIndex,
         types::PyStructSequence,
     };
     use core::hint::cold_path;
@@ -44,12 +45,12 @@ mod grp {
     #[derive(FromArgs)]
     struct GetGrGidArgs {
         #[pyarg(any)]
-        id: PyIntRef,
+        id: ArgIndex,
     }
 
     #[pyfunction]
     fn getgrgid(id: GetGrGidArgs, vm: &VirtualMachine) -> PyResult<GroupData> {
-        let gid = id.id;
+        let gid = id.id.into_int_ref();
         let gr_gid = gid.as_bigint();
         let gid = host_grp::gid_t::try_from(gr_gid).ok();
         let group = gid

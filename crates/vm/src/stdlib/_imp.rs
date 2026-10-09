@@ -193,12 +193,22 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        builtins::{PyBytesRef, PyCode, PyDict, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
         import, version,
     };
 
     use super::FrozenError;
+
+    // Private exact-dict relocation primitive for future import-cache ordering.
+    #[pyfunction]
+    fn _dict_move_to_end(
+        modules: PyRefExact<PyDict>,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        modules.move_to_end(key, vm)
+    }
 
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
@@ -212,6 +222,19 @@ mod _imp {
     #[pyfunction]
     const fn extension_suffixes() -> Vec<PyObjectRef> {
         Vec::new()
+    }
+
+    // CPython removes the name from its pending lazy-module registry here.
+    // RustPython currently performs only eager imports, so that registry is empty.
+    #[pyfunction]
+    fn _set_lazy_attributes(
+        _modobj: PyObjectRef,
+        name: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Even an empty set checks the hash of a str subclass.
+        name.as_object().hash(vm)?;
+        Ok(())
     }
 
     #[pyfunction]

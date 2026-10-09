@@ -50,7 +50,7 @@ impl<T: Node> Node for Vec<T> {
                 }
                 items[i].clone()
             };
-            result.push(vm.with_recursion("while traversing AST node", || {
+            result.push(vm.with_recursion(" while traversing AST node", || {
                 Node::ast_from_object(vm, source_file, item)
             })?);
             if list.borrow_vec().len() != len {
@@ -91,7 +91,7 @@ impl<T: Node> Node for Box<T> {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        vm.with_recursion("while traversing AST node", || {
+        vm.with_recursion(" while traversing AST node", || {
             T::ast_from_object(vm, source_file, object).map(Self::new)
         })
     }

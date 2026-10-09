@@ -1,7 +1,7 @@
 use super::{PyStr, PyStrInterned, PyTuple, PyType};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
+    builtins::{PyTypeRef, builtin_func::PyNativeFunction, type_},
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
@@ -33,20 +33,6 @@ pub struct PyDescriptorOwned {
     pub typ: PyRef<PyType>,
     pub name: &'static PyStrInterned,
     pub qualname: PyRwLock<Option<String>>,
-}
-
-impl PyDescriptor {
-    fn bind(
-        &self,
-        method: &'static PyMethodDef,
-        owner: Option<PyObjectRef>,
-        obj: PyObjectRef,
-        ctx: &Context,
-    ) -> PyRef<PyNativeMethod> {
-        let mut bound = method.to_bound_method(obj, self.typ);
-        bound.func._method_def_owner = owner;
-        bound.into_ref(ctx)
-    }
 }
 
 #[pyclass(name = "method_descriptor", module = false, traverse = "manual")]
@@ -145,9 +131,9 @@ impl Callable for PyMethodDescriptor {
 }
 
 impl PyMethodDescriptor {
-    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.common
-            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeFunction> {
+        self.method
+            .build_bound_function_with_owner(ctx, obj, self._method_def_owner.clone())
     }
 }
 
@@ -223,9 +209,9 @@ impl PyClassMethodDescriptor {
         }
     }
 
-    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeMethod> {
-        self.common
-            .bind(self.method, self._method_def_owner.clone(), obj, ctx)
+    pub fn bind(&self, obj: PyObjectRef, ctx: &Context) -> PyRef<PyNativeFunction> {
+        self.method
+            .build_bound_function_with_owner(ctx, obj, self._method_def_owner.clone())
     }
 }
 

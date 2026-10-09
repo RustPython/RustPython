@@ -1193,11 +1193,11 @@ mod _collections {
             for key in iter {
                 let key = key?;
                 let hash = key.hash(vm)?;
-                let count = match entries.get_known_hash(vm, &*key, hash)? {
+                let count = match entries.get(vm, &*key, hash)? {
                     Some(old) => vm._add(&old, one.as_object())?,
                     None => one.clone().into(),
                 };
-                entries.insert_known_hash(vm, &*key, hash, count)?;
+                entries.insert(vm, &*key, hash, count)?;
             }
             return Ok(());
         }

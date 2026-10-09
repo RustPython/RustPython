@@ -1,6 +1,6 @@
 //! `PyArg_ParseTupleAndKeywords` argument matching.
 
-use super::FuncArgs;
+use super::{FuncArgs, given_by_name_and_position_message};
 use crate::{PyObject, PyObjectRef, PyResult, VirtualMachine, common::wtf8::Wtf8};
 
 /// The keyword list of a `PyArg_ParseTupleAndKeywords` call together with the
@@ -103,9 +103,10 @@ impl ArgSpec<'_> {
         if !exhausted && nkwargs > 0 {
             for (i, name) in self.keywords.iter().enumerate().take(nargs) {
                 if args.kwargs.contains_key(name) {
-                    return Err(vm.new_type_error(format!(
-                        "argument for {fname}() given by name ('{name}') and position ({})",
-                        i + 1
+                    return Err(vm.new_type_error(given_by_name_and_position_message(
+                        Some(fname),
+                        name,
+                        i + 1,
                     )));
                 }
             }

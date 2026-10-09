@@ -254,11 +254,19 @@ impl PyNativeFunction {
     }
 }
 
-// PyCMethodObject in CPython
-#[pyclass(name = "builtin_function_or_method", module = false, base = PyNativeFunction, ctx = "builtin_function_or_method_type", traverse = "manual")]
+// Bound METH_METHOD object. The payload starts with PyNativeFunction so it can
+// be read as a builtin function. The Python type is `builtin_method`.
+#[repr(C)]
+#[pyclass(
+    name = "builtin_method",
+    module = false,
+    base = PyNativeFunction,
+    ctx = "builtin_method_type",
+    traverse = "manual"
+)]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
-    pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
+    pub(crate) class: &'static Py<PyType>,
 }
 
 unsafe impl Traverse for PyNativeMethod {
@@ -271,9 +279,6 @@ unsafe impl Traverse for PyNativeMethod {
     }
 }
 
-// All Python-visible behavior (getters, slots) is registered by PyNativeFunction::extend_class.
-// PyNativeMethod only extends the Rust-side struct with the defining class reference.
-// The func field at offset 0 (#[repr(C)]) allows NativeFunctionOrMethod to read it safely.
 #[pyclass(flags(HAS_WEAKREF, DISALLOW_INSTANTIATION))]
 impl PyNativeMethod {}
 
@@ -327,6 +332,7 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_native_function));
+    PyNativeMethod::extend_class(context, context.types.builtin_method_type);
 }
 
 /// Wrapper that provides access to the common PyNativeFunction data
@@ -337,12 +343,59 @@ impl TryFromObject for NativeFunctionOrMethod {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let class = vm.ctx.types.builtin_function_or_method_type;
         if obj.fast_isinstance(class) {
-            // Both PyNativeFunction and PyNativeMethod share the same type now.
-            // PyNativeMethod has `func: PyNativeFunction` as its first field,
-            // so we can safely treat the data pointer as PyNativeFunction for reading.
+            // `builtin_method` is a subclass; the payload starts with PyNativeFunction.
             Ok(Self(unsafe { obj.downcast_unchecked() }))
         } else {
             Err(vm.new_downcast_type_error(class, &obj))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        Interpreter, PyObjectRef,
+        function::{PyMethodDef, PyMethodFlags},
+    };
+
+    #[test]
+    fn builtin_method_is_subclass_of_builtin_function() {
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let function_type = vm.ctx.types.builtin_function_or_method_type;
+            let method_type = vm.ctx.types.builtin_method_type;
+            assert!(!function_type.is(method_type));
+            assert_eq!(&*function_type.name(), "builtin_function_or_method");
+            assert_eq!(&*method_type.name(), "builtin_method");
+            assert!(method_type.fast_issubclass(function_type));
+        });
+    }
+
+    #[test]
+    fn bound_instance_method_uses_function_type() {
+        fn identity(value: PyObjectRef) -> PyObjectRef {
+            value
+        }
+        const DEF: PyMethodDef = PyMethodDef::new_const(
+            "identity",
+            identity,
+            PyMethodFlags::METHOD,
+            crate::function::ItemDoc::NONE,
+        );
+
+        Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let bound = DEF.build_bound_function(&vm.ctx, vm.ctx.none());
+            assert!(
+                bound
+                    .class()
+                    .is(vm.ctx.types.builtin_function_or_method_type)
+            );
+            assert!(!bound.as_object().downcastable::<PyNativeMethod>());
+
+            let method = DEF.build_bound_method(&vm.ctx, vm.ctx.none(), vm.ctx.types.object_type);
+            assert!(method.class().is(vm.ctx.types.builtin_method_type));
+            assert!(method.as_object().downcastable::<PyNativeFunction>());
+            assert!(method.as_object().downcastable::<PyNativeMethod>());
+        });
     }
 }

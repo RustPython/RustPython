@@ -14,11 +14,11 @@ mod mmap {
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
-        function::ArgBytesLike,
+        function::{ArgBytesLike, ArgIndex},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
-        sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
+        sliceable::{NameMmap, SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
     };
     use core::ops::{Deref, DerefMut};
@@ -26,7 +26,10 @@ mod mmap {
     use num_traits::Signed;
     use std::io::Write;
     #[cfg(windows)]
-    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
+    use {
+        core::hint::cold_path, memchr::memchr, num_traits::ToPrimitive, rustpython_vm::exceptions,
+        std::io,
+    };
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -188,6 +191,9 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
+        // only read by the linux/netbsd mremap expansion check
+        #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+        flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
         offset: i64,
@@ -330,9 +336,9 @@ mod mmap {
         option: core::ffi::c_int,
         // None means 0.
         #[pyarg(positional, default, py_default = "0")]
-        start: Option<PyIntRef>,
+        start: Option<ArgIndex>,
         #[pyarg(positional, optional)]
-        length: Option<PyIntRef>,
+        length: Option<ArgIndex>,
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
@@ -345,7 +351,8 @@ mod mmap {
             let start = self
                 .start
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .ok()
                         .filter(|s| *s < len)
                         .ok_or_else(|| vm.new_value_error("madvise start out of bounds"))
@@ -355,7 +362,8 @@ mod mmap {
             let length = self
                 .length
                 .map(|s| {
-                    s.try_to_primitive::<usize>(vm)
+                    s.as_ref()
+                        .try_to_primitive::<usize>(vm)
                         .map_err(|_| vm.new_value_error("madvise length invalid"))
                 })
                 .transpose()?
@@ -400,7 +408,11 @@ mod mmap {
             }
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
-            let (_flags, _prot, access) = match access {
+            #[cfg_attr(
+                not(any(target_os = "linux", target_os = "netbsd")),
+                allow(unused_variables)
+            )]
+            let (flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
                 AccessMode::Copy => (MAP_PRIVATE, PROT_READ | PROT_WRITE, access),
@@ -474,6 +486,8 @@ mod mmap {
                 } else {
                     -1
                 }),
+                #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+                flags,
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -653,7 +667,9 @@ mod mmap {
     impl AsBuffer for PyMmap {
         const RELEASE_BUFFER: bool = true;
 
-        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            // Publish the export while close/resize cannot invalidate the mapping.
+            let _mmap = zelf.check_valid(vm)?;
             let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
@@ -770,6 +786,7 @@ mod mmap {
             let m = self.mmap.lock();
 
             if m.is_none() {
+                drop(m);
                 return Err(vm.new_value_error("mmap closed or invalid"));
             }
 
@@ -778,20 +795,31 @@ mod mmap {
 
         /// TODO: impl resize
         #[allow(dead_code)]
-        fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn check_resizeable(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyMutexGuard<'_, Option<MmapObj>>> {
+            // Borrowed buffers can hold the data lock across blocking I/O.
             if self.exports.load() > 0 {
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
+            }
+            let mmap = self.check_valid(vm)?;
+            if self.exports.load() > 0 {
+                drop(mmap);
                 return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
             }
 
             #[cfg(unix)]
             if !self.trackfd {
+                drop(mmap);
                 return Err(vm.new_value_error("mmap can't resize with trackfd=False."));
             }
 
             if self.access == AccessMode::Write || self.access == AccessMode::Default {
-                return Ok(());
+                return Ok(mmap);
             }
 
+            drop(mmap);
             Err(vm.new_type_error("mmap can't resize a readonly or copy-on-write memory map."))
         }
 
@@ -802,15 +830,20 @@ mod mmap {
 
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Reject an existing export without waiting for its borrowed-data guard.
+            if zelf.exports.load() > 0 {
+                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
+            }
+            let mut mmap = zelf.mmap.lock();
             if Self::closed(zelf) {
                 return Ok(());
             }
 
             if zelf.exports.load() > 0 {
+                drop(mmap);
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
 
-            let mut mmap = zelf.mmap.lock();
             zelf.closed.store(true);
             *mmap = None;
 
@@ -920,9 +953,9 @@ mod mmap {
         #[pymethod(name = "move")]
         fn move_(
             zelf: &Py<Self>,
-            dest: PyIntRef,
-            src: PyIntRef,
-            count: PyIntRef,
+            dest: ArgIndex,
+            src: ArgIndex,
+            count: ArgIndex,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             fn args(
@@ -948,7 +981,7 @@ mod mmap {
             }
 
             let size = zelf.__len__();
-            let (dest, src, cnt) = args(&dest, &src, &count, size, vm)
+            let (dest, src, cnt) = args(dest.as_ref(), src.as_ref(), count.as_ref(), size, vm)
                 .ok_or_else(|| vm.new_value_error("source, destination, or count out of range"))?;
 
             let dest_end = dest + cnt;
@@ -1039,32 +1072,50 @@ mod mmap {
 
         #[cfg(unix)]
         #[pymethod]
-        fn resize(zelf: &Py<Self>, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.check_resizeable(vm)?;
+        fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+            drop(zelf.check_resizeable(vm)?);
+
+            let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+
+            // Linux mremap() refuses to grow a shared anonymous mapping, and NetBSD
+            // mremap() returns a mapping whose grown region is not backed.
+            #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+            if zelf.fd.load() == -1
+                && zelf.flags & host_mmap::MAP_PRIVATE == 0
+                && new_size > zelf.size.load() as isize
+            {
+                return Err(vm.new_value_error("mmap: can't expand a shared anonymous mapping"));
+            }
+
             // TODO: implement using mremap on Linux
+            #[cfg(not(any(target_os = "linux", target_os = "netbsd")))]
+            let _ = new_size;
             Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
         #[cfg(windows)]
         #[pymethod]
         fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.check_resizeable(vm)?;
-
-            let newsize: usize = newsize
-                .try_to_primitive(vm)
-                .map_err(|_| vm.new_value_error("new size out of range"))?;
-
-            if newsize == 0 {
-                return Err(vm.new_value_error("new size must be positive"));
-            }
-
-            let handle = zelf.handle.load();
+            let newsize = newsize.as_bigint().to_usize();
 
             // Get the lock on mmap
-            let mut mmap_guard = zelf.mmap.lock();
+            // Keep the export check valid until resize ends.
+            let mut mmap_guard = zelf.check_resizeable(vm)?;
+            let Some(newsize) = newsize else {
+                drop(mmap_guard);
+                return Err(vm.new_value_error("new size out of range"));
+            };
+            if newsize == 0 {
+                drop(mmap_guard);
+                return Err(vm.new_value_error("new size must be positive"));
+            }
+            let handle = zelf.handle.load();
 
             // Check if this is a Named mmap - these cannot be resized
             if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
+                drop(mmap_guard);
                 return Err(vm.new_os_error("mmap: cannot resize a named memory mapping"));
             }
 
@@ -1080,8 +1131,13 @@ mod mmap {
                 let copy_size = core::cmp::min(old_size, newsize);
 
                 // Create new anonymous mmap
-                let mut new_mmap =
-                    host_mmap::map_anon(newsize).map_err(|e| e.to_pyexception(vm))?;
+                let mut new_mmap = match host_mmap::map_anon(newsize) {
+                    Ok(mmap) => mmap,
+                    Err(err) => {
+                        drop(mmap_guard);
+                        return Err(err.to_pyexception(vm));
+                    }
+                };
 
                 // Copy data from old mmap to new mmap
                 if let Some(old_mmap) = mmap_guard.as_ref() {
@@ -1106,17 +1162,23 @@ mod mmap {
                         handle as host_mmap::Handle,
                         zelf.size.load(),
                     );
+                    drop(mmap_guard);
                     return Err(err.to_pyexception(vm));
                 }
 
                 // Create new mmap with the new size
-                let new_mmap = Self::create_mmap_windows(
+                let new_mmap = match Self::create_mmap_windows(
                     handle as host_mmap::Handle,
                     zelf.offset,
                     newsize,
                     &zelf.access,
-                )
-                .map_err(|e| e.to_pyexception(vm))?;
+                ) {
+                    Ok(mmap) => mmap,
+                    Err(err) => {
+                        drop(mmap_guard);
+                        return Err(err.to_pyexception(vm));
+                    }
+                };
 
                 *mmap_guard = Some(new_mmap);
                 zelf.size.store(newsize);
@@ -1369,7 +1431,7 @@ mod mmap {
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+            match SequenceIndex::try_from_borrowed_object::<NameMmap>(vm, needle)? {
                 SequenceIndex::Int(i) => self.getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
             }
@@ -1381,7 +1443,7 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+            match SequenceIndex::try_from_borrowed_object::<NameMmap>(vm, needle)? {
                 SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
                 SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
             }
@@ -1449,6 +1511,79 @@ mod mmap {
                 }
                 Ok(())
             }
+        }
+    }
+
+    #[cfg(test)]
+    #[cfg(feature = "threading")]
+    mod tests {
+        use super::*;
+        use core::time::Duration;
+        use std::{sync::mpsc, thread};
+
+        fn rejects_borrowed_buffer(resize: bool) {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder
+                .add_native_modules(&defs)
+                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .build();
+            interp.enter(|vm| {
+                let module = vm.import("mmap", 0).unwrap();
+                let mapped = module
+                    .get_attr("mmap", vm)
+                    .unwrap()
+                    .call((-1, 1), vm)
+                    .unwrap()
+                    .downcast::<PyMmap>()
+                    .unwrap();
+                let buffer = PyMmap::as_buffer(&mapped, vm).unwrap();
+                thread::scope(|scope| {
+                    let (ready_tx, ready_rx) = mpsc::channel();
+                    let (done_tx, done_rx) = mpsc::channel();
+                    let buffer = &buffer;
+                    let borrower = scope.spawn(move || {
+                        // A native I/O operation can keep this guard while detached.
+                        let bytes = buffer.as_contiguous().unwrap();
+                        assert!(bytes.is_locked());
+                        ready_tx.send(()).unwrap();
+                        // Release even on a regression, so the test fails rather than hangs.
+                        let rejected_before_release =
+                            done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+                        drop(bytes);
+                        rejected_before_release
+                    });
+                    ready_rx.recv().unwrap();
+                    let result = if resize {
+                        mapped.check_resizeable(vm).map(drop)
+                    } else {
+                        PyMmap::close(&mapped, vm)
+                    };
+                    let _ = done_tx.send(());
+                    assert!(
+                        borrower.join().unwrap(),
+                        "export rejection waited for the borrowed buffer"
+                    );
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .class()
+                            .is(vm.ctx.exceptions.buffer_error)
+                    );
+                });
+                drop(buffer);
+                PyMmap::close(&mapped, vm).unwrap();
+            });
+        }
+
+        #[test]
+        fn close_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(false);
+        }
+
+        #[test]
+        fn resize_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(true);
         }
     }
 

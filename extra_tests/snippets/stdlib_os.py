@@ -8,6 +8,26 @@ from testutils import assert_raises
 
 assert os.name == "posix" or os.name == "nt"
 
+
+def stat_rejects_negative_file_descriptors():
+    import errno
+    import os
+
+    for stat in (os.stat, os.fstat):
+        for fd in (-1, -5, -9, -100, -(2**31)):
+            try:
+                stat(fd)
+            except OSError as exc:
+                assert exc.errno == errno.EBADF, (stat, fd, exc)
+            else:
+                raise AssertionError((stat, fd, "accepted a negative file descriptor"))
+
+
+# Keep the original RustPython-only coverage: CPython treats -1 as a path sentinel.
+if os.name == "posix" and sys.implementation.name == "rustpython":
+    stat_rejects_negative_file_descriptors()
+
+
 fd = os.open("README.md", os.O_RDONLY)
 assert fd > 0
 
