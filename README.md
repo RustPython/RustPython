@@ -2,10 +2,8 @@
 
 # [RustPython](https://rustpython.github.io/)
 
-A Python-3 interpreter written in Rust, targeting CPython 3.15 :snake: :scream:
+A Python-3 (CPython >= 3.15.0) Interpreter written in Rust :snake: :scream:
 :metal:.
-
-Python 3.15 compatibility is a work in progress.
 
 [![Build Status](https://github.com/RustPython/RustPython/workflows/CI/badge.svg)](https://github.com/RustPython/RustPython/actions?query=workflow%3ACI)
 [![codecov](https://codecov.io/gh/RustPython/RustPython/branch/main/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
