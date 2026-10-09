@@ -73,9 +73,9 @@ if sys.platform == "win32":
     import errno
 
     for converter in (time.gmtime, time.localtime, time.ctime):
-        # Python 3.14 preserves UCRT conversion failures as OSError. Negative
-        # timestamps are not accepted through the Python 3.15 FILETIME fallback.
-        for timestamp in (-1, 2**40, 2**63 - 1, -(2**63), -float(2**63)):
+        # Python 3.14 preserves UCRT conversion failures as OSError. Use a
+        # negative timestamp below gmtime's near-epoch allowance in UCRT.
+        for timestamp in (-86400, 2**40, 2**63 - 1, -(2**63), -float(2**63)):
             try:
                 converter(timestamp)
             except OSError as error:
