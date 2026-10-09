@@ -512,13 +512,14 @@ mod tests {
 
         fn lookup_ref(&self, key: &Bound<'py, PyAny>) -> PyResult<Option<Bound<'py, PyAny>>> {
             let mut value = core::ptr::null_mut();
-            let status =
-                unsafe { pyo3::ffi::PyDict_GetItemRef(self.0.as_ptr(), key.as_ptr(), &mut value) };
+            let status = unsafe {
+                super::PyDict_GetItemRef(self.0.as_ptr().cast(), key.as_ptr().cast(), &mut value)
+            };
             if status < 0 {
                 assert!(value.is_null());
                 return Err(PyErr::fetch(self.0.py()));
             }
-            Ok(unsafe { Bound::from_owned_ptr_or_opt(self.0.py(), value) })
+            Ok(unsafe { Bound::from_owned_ptr_or_opt(self.0.py(), value.cast()) })
         }
 
         fn lookup_string(
@@ -529,13 +530,13 @@ mod tests {
             if owned {
                 let mut value = core::ptr::null_mut();
                 let status = unsafe {
-                    pyo3::ffi::PyDict_GetItemStringRef(self.0.as_ptr(), key.as_ptr(), &mut value)
+                    super::PyDict_GetItemStringRef(self.0.as_ptr().cast(), key.as_ptr(), &mut value)
                 };
                 if status < 0 {
                     assert!(value.is_null());
                     return Err(PyErr::fetch(self.0.py()));
                 }
-                Ok(unsafe { Bound::from_owned_ptr_or_opt(self.0.py(), value) })
+                Ok(unsafe { Bound::from_owned_ptr_or_opt(self.0.py(), value.cast()) })
             } else {
                 let value =
                     unsafe { pyo3::ffi::PyDict_GetItemString(self.0.as_ptr(), key.as_ptr()) };
@@ -608,10 +609,10 @@ mod tests {
                     "delete_string" => {
                         pyo3::ffi::PyDict_DelItemString(self.0.as_ptr(), c"x".as_ptr())
                     }
-                    "setdefault" => pyo3::ffi::PyDict_SetDefaultRef(
-                        self.0.as_ptr(),
-                        key.as_ptr(),
-                        value.as_ptr(),
+                    "setdefault" => super::PyDict_SetDefaultRef(
+                        self.0.as_ptr().cast(),
+                        key.as_ptr().cast(),
+                        value.as_ptr().cast(),
                         core::ptr::null_mut(),
                     ),
                     "update" => pyo3::ffi::PyDict_Update(self.0.as_ptr(), value.as_ptr()),

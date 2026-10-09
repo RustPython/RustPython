@@ -135,7 +135,6 @@ class RebindBuiltinsTests(unittest.TestCase):
         self.assertEqual(foo(), 7)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @skip_wasi_stack_overflow()
     def test_load_global_specialization_failure_keeps_oparg(self):
         # https://github.com/python/cpython/issues/91625
