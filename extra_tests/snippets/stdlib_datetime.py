@@ -3949,6 +3949,12 @@ def test_timestamp_errno():
             assert error.errno == errno.EINVAL
         else:
             raise AssertionError("Windows localtime accepted a negative timestamp")
+        try:
+            datetime_module.datetime.fromtimestamp(-86400, datetime_module.timezone.utc)
+        except OSError as error:
+            assert error.errno == errno.EINVAL
+        else:
+            raise AssertionError("Windows gmtime accepted an out-of-range timestamp")
 
 
 test_astimezone_subclass_state()

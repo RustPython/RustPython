@@ -146,18 +146,24 @@ pub fn current_time_t() -> TimeT {
 
 #[cfg(windows)]
 #[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn gmtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+pub fn gmtime_from_timestamp(when: TimeT) -> std::io::Result<libc::tm> {
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _gmtime64_s(out.as_mut_ptr(), &when) };
-    (err == 0).then(|| unsafe { out.assume_init() })
+    if err != 0 {
+        return Err(crate::os::io_error_from_errno(err));
+    }
+    Ok(unsafe { out.assume_init() })
 }
 
 #[cfg(windows)]
 #[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn localtime_from_timestamp(when: TimeT) -> Option<libc::tm> {
+pub fn localtime_from_timestamp(when: TimeT) -> std::io::Result<libc::tm> {
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _localtime64_s(out.as_mut_ptr(), &when) };
-    (err == 0).then(|| unsafe { out.assume_init() })
+    if err != 0 {
+        return Err(crate::os::io_error_from_errno(err));
+    }
+    Ok(unsafe { out.assume_init() })
 }
 
 #[cfg(windows)]

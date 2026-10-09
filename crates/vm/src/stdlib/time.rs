@@ -914,7 +914,9 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
+                let minimum = libc::time_t::MIN as f64;
+                // The signed maximum rounds up when represented by f64.
+                if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
@@ -1248,6 +1250,7 @@ mod platform {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyUtf8StrRef},
+        convert::ToPyException,
     };
     use core::time::Duration;
     use rustpython_host_env::time as host_time;
@@ -1281,8 +1284,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::gmtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::gmtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
         Ok(struct_time_from_tm(vm, tm, "UTC", 0))
     }
 
@@ -1290,8 +1293,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::localtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::localtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
 
         // Get timezone info from Windows API
         let info = get_tz_info();

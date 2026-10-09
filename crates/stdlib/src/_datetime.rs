@@ -9,6 +9,8 @@ pub(crate) use _datetime::{PyTzInfo, datetime_type, module_def, timedelta_from_s
 
 #[pymodule]
 mod _datetime {
+    #[cfg(windows)]
+    use crate::vm::convert::ToPyException;
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectCell, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
@@ -1825,6 +1827,9 @@ mod _datetime {
             } else {
                 rustpython_host_env::time::gmtime_from_timestamp(t_c)
             };
+            #[cfg(windows)]
+            let tm = tm.map_err(|error| error.to_pyexception(vm))?;
+            #[cfg(unix)]
             let Some(tm) = tm else {
                 return Err(vm.new_last_errno_error());
             };
