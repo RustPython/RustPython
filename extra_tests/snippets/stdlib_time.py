@@ -1,6 +1,31 @@
 import sys
 import time
 
+if sys.platform != "wasi":
+    for converter in (time.gmtime, time.localtime, time.ctime):
+        # 2**63 is outside signed time_t even though its maximum rounds up to
+        # that value when represented as a float.
+        try:
+            converter(float(2**63))
+        except OverflowError:
+            pass
+        else:
+            raise AssertionError("out-of-range timestamp did not raise OverflowError")
+
+if sys.platform == "win32":
+    import errno
+
+    for converter in (time.gmtime, time.localtime, time.ctime):
+        # Python 3.14 preserves UCRT conversion failures as OSError. Negative
+        # timestamps are not accepted through the Python 3.15 FILETIME fallback.
+        for timestamp in (-1, 2**40, 2**63 - 1, -(2**63), -float(2**63)):
+            try:
+                converter(timestamp)
+            except OSError as error:
+                assert error.errno == errno.EINVAL, (converter, timestamp, error)
+            else:
+                raise AssertionError("UCRT timestamp failure did not raise OSError")
+
 x = time.gmtime(1000)
 
 assert x.tm_year == 1970
