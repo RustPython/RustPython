@@ -116,3 +116,85 @@ _count_elements(custom_get, "aab")
 assert custom_get == {"a": 101, "b": 101}
 with assert_raises(AttributeError):
     _count_elements([], "a")
+
+
+# defaultdict union constructs the subclass with its factory and left operand.
+def check_defaultdict_subclass_union():
+    calls = []
+
+    class DefaultSubclass(defaultdict):
+        def __init__(self, factory=None, initial=()):
+            calls.append((factory, initial))
+            super().__init__(factory, initial)
+
+        def update(self, *args, **kwargs):
+            raise AssertionError("union must use native dict update")
+
+        def __setitem__(self, key, value):
+            raise AssertionError("union must not call overridden __setitem__")
+
+    for factory in (None, list):
+        left = DefaultSubclass(factory, {"shared": 1, "left": 2})
+        right = {"right": 3, "shared": 4}
+        calls.clear()
+        result = left | right
+        assert type(result) is DefaultSubclass
+        assert result.default_factory is factory
+        assert list(result.items()) == [("shared", 4), ("left", 2), ("right", 3)]
+        assert len(calls) == 1 and calls[0][0] is factory and calls[0][1] is left
+
+        calls.clear()
+        result = right | left
+        assert type(result) is DefaultSubclass
+        assert result.default_factory is factory
+        assert list(result.items()) == [("right", 3), ("shared", 1), ("left", 2)]
+        assert len(calls) == 1 and calls[0][0] is factory and calls[0][1] is right
+        assert left == {"shared": 1, "left": 2}
+        assert right == {"right": 3, "shared": 4}
+
+        calls.clear()
+        assert left.__or__([("x", 1)]) is NotImplemented
+        assert left.__ror__([("x", 1)]) is NotImplemented
+        assert calls == []
+
+    class FailingSubclass(defaultdict):
+        fail = False
+
+        def __init__(self, *args):
+            if self.fail:
+                raise ValueError("union constructor")
+            super().__init__(*args)
+
+    left = FailingSubclass(int, {"a": 1})
+    FailingSubclass.fail = True
+    with assert_raises(ValueError) as caught:
+        left | {}
+    assert str(caught.exception) == "union constructor"
+    with assert_raises(ValueError) as caught:
+        {} | left
+    assert str(caught.exception) == "union constructor"
+
+    class ReplacingSubclass(defaultdict):
+        replacement = None
+
+        def __new__(cls, *args):
+            if cls.replacement is not None:
+                return cls.replacement
+            return super().__new__(cls)
+
+    left = ReplacingSubclass(int, {"left": 1})
+    replacement = {"replacement": 2}
+    ReplacingSubclass.replacement = replacement
+    assert left | {"right": 3} is replacement
+    assert replacement == {"replacement": 2, "right": 3}
+    replacement.clear()
+    assert {"right": 3} | left is replacement
+    assert replacement == {"left": 1}
+    ReplacingSubclass.replacement = object()
+    with assert_raises(SystemError):
+        left | {}
+    with assert_raises(SystemError):
+        {} | left
+
+
+check_defaultdict_subclass_union()
