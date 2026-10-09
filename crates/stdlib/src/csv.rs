@@ -6,7 +6,7 @@ mod _csv {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyBaseExceptionRef, PyInt, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
@@ -88,12 +88,10 @@ mod _csv {
     }
 
     impl Constructor for PyDialect {
-        type Args = PyObjectRef;
+        type Args = FormatOptions;
 
-        fn py_new(_cls: &Py<PyType>, obj: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            let dialect = Self::try_from_object(vm, obj)?;
-            validate_dialect(vm, &dialect)?;
-            Ok(dialect)
+        fn py_new(_cls: &Py<PyType>, opts: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            opts.result(vm)
         }
     }
 
@@ -140,120 +138,37 @@ mod _csv {
         }
     }
 
-    /// Parses the delimiter from a Python object and returns its ASCII value.
-    ///
-    /// This function attempts to extract the 'delimiter' attribute from the given Python object and ensures that the attribute is a single-character string. If successful, it returns the ASCII value of the character. If the attribute is not a single-character string, an error is returned.
-    ///
-    /// # Arguments
-    ///
-    /// * `vm` - A reference to the VirtualMachine, used for executing Python code and manipulating Python objects.
-    /// * `obj` - A reference to the PyObjectRef from which the 'delimiter' attribute is to be parsed.
-    ///
-    /// # Returns
-    ///
-    /// If successful, returns a `PyResult<u8>` representing the ASCII value of the 'delimiter' attribute. If unsuccessful, returns a `PyResult` containing an error message.
-    ///
-    /// # Errors
-    ///
-    /// This function can return the following errors:
-    ///
-    /// * If the 'delimiter' attribute is not a single-character string, a type error is returned.
-    /// * If the 'obj' is not of string type and does not have a 'delimiter' attribute, a type error is returned.
-    fn parse_delimiter_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<u8> {
-        if let Ok(attr) = obj.get_attr("delimiter", vm) {
-            parse_delimiter_from_obj(vm, &attr)
-        } else {
-            match_class!(match obj.to_owned() {
-                s @ PyStr => {
-                    parse_single_char(&s, |len| {
-                        vm.new_type_error(format!(
-                            r#""delimiter" must be a unicode character, not a string of length {len}"#
-                        ))
-                    })
-                }
-                attr => {
-                    Err(vm.new_type_error(format!(
-                        r#""delimiter" must be a unicode character, not {}"#,
-                        attr.class().name()
-                    )))
-                }
-            })
+    fn parse_char(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        name: &str,
+        allow_none: bool,
+    ) -> PyResult<Option<u8>> {
+        if allow_none && vm.is_none(obj) {
+            return Ok(None);
         }
-    }
-
-    fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
-        match_class!(match obj.get_attr("quotechar", vm)? {
-            s @ PyStr => {
-                Ok(Some(parse_single_char(&s, |len| {
-                    new_csv_error(
-                        vm,
-                        format!(
-                            r#""quotechar" must be a unicode character or None, not a string of length {len}"#
-                        ),
-                    )
-                })?))
-            }
-            _n @ PyNone => {
-                Ok(None)
-            }
-            attr => {
-                Err(new_csv_error(
-                    vm,
-                    format!(
-                        r#""quotechar" must be a unicode character or None, not {}"#,
-                        attr.class().name()
-                    ),
-                ))
-            }
+        let expected = if allow_none {
+            "a unicode character or None"
+        } else {
+            "a unicode character"
+        };
+        let value = obj.downcast_ref::<PyStr>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                r#""{name}" must be {expected}, not {}"#,
+                obj.class().name()
+            ))
+        })?;
+        parse_single_char(value, |len| {
+            vm.new_type_error(format!(
+                r#""{name}" must be {expected}, not a string of length {len}"#
+            ))
         })
-    }
-
-    fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
-        match_class!(match obj.get_attr("escapechar", vm)? {
-            s @ PyStr => {
-                Ok(Some(parse_single_char(&s, |len| {
-                    new_csv_error(
-                        vm,
-                        format!(
-                            r#""escapechar" must be a unicode character or None, not a string of length {len}"#
-                        ),
-                    )
-                })?))
-            }
-            _n @ PyNone => {
-                Ok(None)
-            }
-            attr => {
-                Err(vm.new_type_error(format!(
-                    r#""escapechar" must be a unicode character or None, not {}"#,
-                    attr.class().name()
-                )))
-            }
-        })
+        .map(Some)
     }
 
     fn parse_lineterminator<'a>(vm: &VirtualMachine, s: &'a Py<PyStr>) -> PyResult<&'a str> {
         s.to_str()
             .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))
-    }
-
-    fn prase_lineterminator_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<String> {
-        match_class!(match obj.get_attr("lineterminator", vm)? {
-            s @ PyStr => {
-                // Store the full line terminator string. CPython accepts an
-                // arbitrary-length terminator; the manual writer paths emit it
-                // verbatim and the csv-core writer path appends it after a
-                // sentinel terminator (see `writerow`).
-                let value = parse_lineterminator(vm, &s)?;
-                Ok(value.to_owned())
-            }
-            attr => {
-                Err(vm.new_type_error(format!(
-                    r#""lineterminator" must be a string, not {}"#,
-                    attr.class().name()
-                )))
-            }
-        })
     }
 
     fn parse_single_char(
@@ -266,51 +181,6 @@ mod _csv {
             .exactly_one()
             .map_err(|_| error(s.char_len()))?;
         u8::try_from(ch.to_u32()).map_err(|_| error(s.char_len()))
-    }
-
-    fn prase_quoting_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<QuoteStyle> {
-        match_class!(match obj.get_attr("quoting", vm)? {
-            i @ PyInt => {
-                Ok(i.try_to_primitive::<isize>(vm)?
-                    .try_into()
-                    .map_err(|_| vm.new_type_error(r#"bad "quoting" value"#))?)
-            }
-            attr => {
-                Err(vm.new_type_error(format!(
-                    r#""quoting" must be string or None, not {}"#,
-                    attr.class().name()
-                )))
-            }
-        })
-    }
-
-    impl TryFromObject for PyDialect {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            let delimiter = parse_delimiter_from_obj(vm, &obj)?;
-            let quotechar = parse_quotechar_from_obj(vm, &obj)?;
-            let escapechar = parse_escapechar_from_obj(vm, &obj)?;
-            let doublequote = obj.get_attr("doublequote", vm)?.try_to_bool(vm)?;
-            let skipinitialspace = obj.get_attr("skipinitialspace", vm)?.try_to_bool(vm)?;
-            let lineterminator = prase_lineterminator_from_obj(vm, &obj)?;
-            let quoting = prase_quoting_from_obj(vm, &obj)?;
-
-            let strict = if let Ok(t) = obj.get_attr("strict", vm) {
-                t.try_to_bool(vm).unwrap_or(false)
-            } else {
-                false
-            };
-
-            Ok(Self {
-                delimiter,
-                quotechar,
-                escapechar,
-                doublequote,
-                skipinitialspace,
-                lineterminator,
-                quoting,
-                strict,
-            })
-        }
     }
 
     #[derive(FromArgs)]
@@ -493,78 +363,16 @@ mod _csv {
     }
 
     #[derive(Default)]
-    enum DialectItem {
-        Str(String),
-        Obj(PyDialect),
-        #[default]
-        None,
-    }
-
-    #[derive(Default)]
     struct FormatOptions {
-        dialect: DialectItem,
-        delimiter: Option<u8>,
-        quotechar: Option<Option<u8>>,
-        escapechar: Option<Option<u8>>,
-        doublequote: Option<bool>,
-        skipinitialspace: Option<bool>,
-        lineterminator: Option<String>,
-        quoting: Option<QuoteStyle>,
-        strict: Option<bool>,
-    }
-
-    /// prase a dialect item from a Python argument and returns a `DialectItem` or an `ArgumentError`.
-    ///
-    /// This function takes a reference to the VirtualMachine and a PyObjectRef as input and attempts to parse a dialect item from the provided Python argument. It returns a `DialectItem` if successful, or an `ArgumentError` if unsuccessful.
-    ///
-    /// # Arguments
-    ///
-    /// * `vm` - A reference to the VirtualMachine, used for executing Python code and manipulating Python objects.
-    /// * `obj` - The PyObjectRef from which the dialect item is to be parsed.
-    ///
-    /// # Returns
-    ///
-    /// If successful, returns a `Result<DialectItem, ArgumentError>` representing the parsed dialect item. If unsuccessful, returns an `ArgumentError`.
-    ///
-    /// # Errors
-    ///
-    /// This function can return the following errors:
-    ///
-    /// * If the provided object is a PyStr, it returns a `DialectItem::Str` containing the string value.
-    /// * If the provided object is PyNone, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
-    /// * If the provided object is a PyType, it attempts to create a PyDialect from the object and returns a `DialectItem::Obj` containing the PyDialect if successful. If unsuccessful, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
-    /// * If the provided object is none of the above types, it attempts to create a PyDialect from the object and returns a `DialectItem::Obj` containing the PyDialect if successful. If unsuccessful, it returns an `ArgumentError` with the message "InvalidKeywordArgument('dialect')".
-    fn prase_dialect_item_from_arg(
-        vm: &VirtualMachine,
-        obj: PyObjectRef,
-    ) -> Result<DialectItem, ArgumentError> {
-        match_class!(match obj {
-            s @ PyStr => {
-                let s = s.try_into_utf8(vm).map_err(ArgumentError::Exception)?;
-                Ok(DialectItem::Str(s.as_str().to_owned()))
-            }
-            PyNone => {
-                Err(ArgumentError::InvalidKeywordArgument("dialect".to_string()))
-            }
-            t @ PyType => {
-                let temp = t
-                    .as_object()
-                    .call(vec![], vm)
-                    .map_err(|_e| ArgumentError::InvalidKeywordArgument("dialect".to_string()))?;
-                Ok(DialectItem::Obj(
-                    PyDialect::try_from_object(vm, temp).map_err(|_| {
-                        ArgumentError::InvalidKeywordArgument("dialect".to_string())
-                    })?,
-                ))
-            }
-            obj => {
-                if let Ok(cur_dialect_item) = PyDialect::try_from_object(vm, obj) {
-                    Ok(DialectItem::Obj(cur_dialect_item))
-                } else {
-                    Err(ArgumentError::InvalidKeywordArgument("dialect".to_string()))
-                }
-            }
-        })
+        dialect: Option<PyObjectRef>,
+        delimiter: Option<PyObjectRef>,
+        doublequote: Option<PyObjectRef>,
+        escapechar: Option<PyObjectRef>,
+        lineterminator: Option<PyObjectRef>,
+        quotechar: Option<PyObjectRef>,
+        quoting: Option<PyObjectRef>,
+        skipinitialspace: Option<PyObjectRef>,
+        strict: Option<PyObjectRef>,
     }
 
     impl FromArgs for FormatOptions {
@@ -578,107 +386,16 @@ mod _csv {
         ]);
 
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-            let dialect = if let Some(dialect) = args.take_positional_keyword("dialect") {
-                prase_dialect_item_from_arg(vm, dialect)?
-            } else {
-                DialectItem::None
-            };
-
-            let mut res = Self {
-                dialect,
-                ..Default::default()
-            };
-
-            if let Some(delimiter) = args.kwargs.swap_remove("delimiter") {
-                res.delimiter = Some(parse_delimiter_from_obj(vm, &delimiter)?);
-            }
-
-            if let Some(escapechar) = args.kwargs.swap_remove("escapechar") {
-                res.escapechar = match_class!(match escapechar {
-                    s @ PyStr => Some(Some(parse_single_char(&s, |_| {
-                        vm.new_type_error(r#""escapechar" must be a 1-character string"#)
-                    })?)),
-                    PyNone => Some(None),
-                    _ => {
-                        return Err(ArgumentError::Exception(
-                            vm.new_type_error(r#""escapechar" must be a 1-character string"#),
-                        ));
-                    }
-                })
-            };
-
-            if let Some(lineterminator) = args.kwargs.swap_remove("lineterminator") {
-                let s = lineterminator.downcast_ref::<PyStr>().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        r#""lineterminator" must be a string, not {}"#,
-                        lineterminator.class().name()
-                    ))
-                })?;
-                let value = parse_lineterminator(vm, s)?;
-                res.lineterminator = Some(value.to_owned());
-            };
-
-            if let Some(doublequote) = args.kwargs.swap_remove("doublequote") {
-                res.doublequote = Some(
-                    doublequote
-                        .try_to_bool(vm)
-                        .map_err(|_| vm.new_type_error(r#""doublequote" must be a bool"#))?,
-                )
-            };
-
-            if let Some(skipinitialspace) = args.kwargs.swap_remove("skipinitialspace") {
-                res.skipinitialspace = Some(
-                    skipinitialspace
-                        .try_to_bool(vm)
-                        .map_err(|_| vm.new_type_error(r#""skipinitialspace" must be a bool"#))?,
-                )
-            };
-
-            if let Some(quoting) = args.kwargs.swap_remove("quoting") {
-                res.quoting = match_class!(match quoting {
-                    i @ PyInt =>
-                        Some(i.try_to_primitive::<isize>(vm)?.try_into().map_err(|_e| {
-                            ArgumentError::InvalidKeywordArgument("quoting".to_string())
-                        })?),
-                    _ => {
-                        // let msg = r#""quoting" must be a int enum"#;
-                        return Err(ArgumentError::InvalidKeywordArgument("quoting".to_string()));
-                    }
-                });
-            };
-
-            if let Some(quotechar) = args.kwargs.swap_remove("quotechar") {
-                res.quotechar = match_class!(match quotechar {
-                    s @ PyStr => Some(Some(parse_single_char(&s, |_| {
-                        vm.new_type_error(r#""quotechar" must be a 1-character string"#)
-                    })?)),
-                    PyNone => {
-                        if res
-                            .quoting
-                            .is_some_and(|quoting| quoting != QuoteStyle::None)
-                        {
-                            return Err(ArgumentError::Exception(
-                                vm.new_type_error("quotechar must be set if quoting enabled"),
-                            ));
-                        }
-                        Some(None)
-                    }
-                    _o => {
-                        return Err(
-                            rustpython_vm::function::ArgumentError::InvalidKeywordArgument(
-                                "quotechar".to_string(),
-                            ),
-                        );
-                    }
-                })
-            };
-
-            if let Some(strict) = args.kwargs.swap_remove("strict") {
-                res.strict = Some(
-                    strict
-                        .try_to_bool(vm)
-                        .map_err(|_| vm.new_type_error(r#""strict" must be a int enum"#))?,
-                )
+            let res = Self {
+                dialect: args.take_positional_keyword("dialect"),
+                delimiter: args.kwargs.swap_remove("delimiter"),
+                doublequote: args.kwargs.swap_remove("doublequote"),
+                escapechar: args.kwargs.swap_remove("escapechar"),
+                lineterminator: args.kwargs.swap_remove("lineterminator"),
+                quotechar: args.kwargs.swap_remove("quotechar"),
+                quoting: args.kwargs.swap_remove("quoting"),
+                skipinitialspace: args.kwargs.swap_remove("skipinitialspace"),
+                strict: args.kwargs.swap_remove("strict"),
             };
 
             if let Some(last_arg) = args.kwargs.pop() {
@@ -688,7 +405,6 @@ mod _csv {
                     vm.new_unexpected_keyword_type_error(None, &last_arg.0.to_string()),
                 ));
             }
-
             Ok(res)
         }
     }
@@ -748,60 +464,113 @@ mod _csv {
     }
 
     impl FormatOptions {
-        fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
-            macro_rules! check_and_fill {
-                ($res:ident, $e:ident) => {{
-                    if let Some(t) = self.$e {
-                        $res.$e = t;
-                    }
-                }};
+        fn result(mut self, vm: &VirtualMachine) -> PyResult<PyDialect> {
+            if let Some(obj) = self.dialect.take() {
+                let obj = if obj.downcast_ref::<PyStr>().is_some() {
+                    get_dialect(DialectName { name: obj }, vm)?
+                        .into_ref(&vm.ctx)
+                        .into()
+                } else {
+                    obj
+                };
+                // CPython ignores attribute lookup errors, but not errors converting
+                // the retrieved values. Read all non-overridden attributes first.
+                macro_rules! fill_from_dialect {
+                    ($($name:ident),* $(,)?) => {
+                        $(if self.$name.is_none() {
+                            self.$name = obj.get_attr(stringify!($name), vm).ok();
+                        })*
+                    };
+                }
+                fill_from_dialect!(
+                    delimiter,
+                    doublequote,
+                    escapechar,
+                    lineterminator,
+                    quotechar,
+                    quoting,
+                    skipinitialspace,
+                    strict,
+                );
+                self.dialect = Some(obj);
             }
 
-            check_and_fill!(res, delimiter);
-            // check_and_fill!(res, quotechar);
-            check_and_fill!(res, delimiter);
-            check_and_fill!(res, doublequote);
-            check_and_fill!(res, skipinitialspace);
-
-            if let Some(t) = self.escapechar {
-                res.escapechar = t;
+            let delimiter = match &self.delimiter {
+                Some(obj) => parse_char(vm, obj, "delimiter", false)?.unwrap(),
+                None => b',',
             };
-
-            if let Some(t) = self.quotechar {
-                res.quotechar = t;
+            let doublequote = match &self.doublequote {
+                Some(obj) => obj.try_to_bool(vm)?,
+                None => true,
             };
-
-            check_and_fill!(res, quoting);
-            if let Some(t) = &self.lineterminator {
-                res.lineterminator.clone_from(t);
+            let escapechar = match &self.escapechar {
+                Some(obj) => parse_char(vm, obj, "escapechar", true)?,
+                None => None,
             };
-            check_and_fill!(res, strict);
-            res
-        }
-
-        fn result(&self, vm: &VirtualMachine) -> PyResult<PyDialect> {
-            let dialect = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        Ok(self.update_py_dialect(dialect.clone()))
-                    } else {
-                        Err(new_csv_error(vm, format!("{name} is not registered.")))
-                    }
-                    // TODO: Maybe need to update the obj from HashMap
+            let lineterminator = match &self.lineterminator {
+                Some(obj) => {
+                    let value = obj.downcast_ref::<PyStr>().ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            r#""lineterminator" must be a string, not {}"#,
+                            obj.class().name()
+                        ))
+                    })?;
+                    // Store the full line terminator string. CPython accepts an
+                    // arbitrary-length terminator; the manual writer paths emit it
+                    // verbatim and the csv-core writer path appends it after a
+                    // sentinel terminator (see `writerow`).
+                    parse_lineterminator(vm, value)?.to_owned()
                 }
-                DialectItem::Obj(o) => Ok(self.update_py_dialect(o.clone())),
-                DialectItem::None => Ok(self.update_py_dialect(PyDialect {
-                    delimiter: b',',
-                    quotechar: Some(b'"'),
-                    escapechar: None,
-                    doublequote: true,
-                    skipinitialspace: false,
-                    lineterminator: "\r\n".to_owned(),
-                    quoting: QuoteStyle::Minimal,
-                    strict: false,
-                })),
-            }?;
+                None => "\r\n".to_owned(),
+            };
+            let quotechar = match &self.quotechar {
+                Some(obj) => parse_char(vm, obj, "quotechar", true)?,
+                None => Some(b'"'),
+            };
+            let quoting = match &self.quoting {
+                Some(obj) => {
+                    if !obj.class().is(vm.ctx.types.int_type) {
+                        return Err(vm.new_type_error(format!(
+                            r#""quoting" must be an integer, not {}"#,
+                            obj.class().name()
+                        )));
+                    }
+                    obj.downcast_ref::<PyInt>()
+                        .unwrap()
+                        .try_to_primitive::<i32>(vm)?
+                }
+                None => QuoteStyle::Minimal as i32,
+            };
+            let skipinitialspace = match &self.skipinitialspace {
+                Some(obj) => obj.try_to_bool(vm)?,
+                None => false,
+            };
+            let strict = match &self.strict {
+                Some(obj) => obj.try_to_bool(vm)?,
+                None => false,
+            };
+
+            // Validate the quoting value only after all field conversions.
+            let quoting = QuoteStyle::try_from(quoting as isize)
+                .map_err(|_| vm.new_type_error(r#"bad "quoting" value"#))?;
+            let quoting = if quotechar.is_none() && self.quoting.is_none() {
+                QuoteStyle::None
+            } else {
+                quoting
+            };
+            if quotechar.is_none() && quoting != QuoteStyle::None {
+                return Err(vm.new_type_error("quotechar must be set if quoting enabled"));
+            }
+            let dialect = PyDialect {
+                delimiter,
+                quotechar,
+                escapechar,
+                doublequote,
+                skipinitialspace,
+                lineterminator,
+                quoting,
+                strict,
+            };
             validate_dialect(vm, &dialect)?;
             Ok(dialect)
         }
