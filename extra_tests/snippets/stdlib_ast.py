@@ -69,12 +69,13 @@ import warnings
 
 def _cyclic_cases():
     # Box<Expr> descents
-    u = ast.UnaryOp(op=ast.Not(), lineno=0, col_offset=0)
+    u = ast.UnaryOp(op=ast.Not(), operand=None, lineno=0, col_offset=0)
     u.operand = u
     yield "UnaryOp", u
 
     b = ast.BinOp(
         op=ast.Add(),
+        left=None,
         right=ast.Constant(value=0, lineno=0, col_offset=0),
         lineno=0,
         col_offset=0,
@@ -82,11 +83,11 @@ def _cyclic_cases():
     b.left = b
     yield "BinOp", b
 
-    c = ast.Call(args=[], keywords=[], lineno=0, col_offset=0)
+    c = ast.Call(func=None, args=[], keywords=[], lineno=0, col_offset=0)
     c.func = c
     yield "Call", c
 
-    a = ast.Attribute(attr="x", ctx=ast.Load(), lineno=0, col_offset=0)
+    a = ast.Attribute(value=None, attr="x", ctx=ast.Load(), lineno=0, col_offset=0)
     a.value = a
     yield "Attribute", a
 

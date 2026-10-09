@@ -29,7 +29,7 @@ if sys.implementation.name == "rustpython":
     assert sys.version_info == (3, 15, 0, "alpha", 0)
     assert sys.hexversion == 0x030F00A0
     assert sys.version.startswith("3.15.0.alpha (")
-    assert sys.implementation.cache_tag == "rustpython-315"
+    assert sys.implementation.cache_tag == "cpython-315"
 
 assert sys.getfilesystemencoding() == "utf-8"
 assert sys.getfilesystemencodeerrors().startswith("surrogate")

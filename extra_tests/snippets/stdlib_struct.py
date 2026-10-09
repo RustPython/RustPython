@@ -78,19 +78,18 @@ assert struct.error.__module__ == "struct"
 assert struct.error.__name__ == "error"
 
 # Non-ASCII format string: error type matches CPython.
-# str → UnicodeEncodeError (encoding='ascii')
-# bytes → struct.error
+# str and bytes → ValueError
 try:
     struct.Struct("\udc00")
-except UnicodeEncodeError as e:
-    assert e.encoding == "ascii"
+except ValueError as e:
+    assert str(e) == "non-ASCII character in struct format"
 else:
-    raise AssertionError("expected UnicodeEncodeError")
+    raise AssertionError("expected ValueError")
 
-with assert_raises(UnicodeEncodeError):
+with assert_raises(ValueError):
     struct.Struct("한")
 
-with assert_raises(struct.error):
+with assert_raises(ValueError):
     struct.Struct(b"\xff")
 
 
@@ -128,7 +127,7 @@ assert s.unpack(b"\x00\x01\x00\x02") == (1, 2)
 
 # A format that cannot be read leaves the Struct as it was.
 for bad in ("\udc00", "$"):
-    with assert_raises((UnicodeEncodeError, struct.error)):
+    with assert_raises((ValueError, struct.error)):
         s.__init__(bad)
     assert s.format == ">hh"
     assert s.pack(1, 2) == b"\x00\x01\x00\x02"
@@ -145,8 +144,9 @@ assert BigShort().pack(12345) == b"\x30\x39"
 # Until __init__ runs there is no format to answer with.
 blank = struct.Struct.__new__(struct.Struct)
 assert blank.size == -1
+with assert_raises(AttributeError):
+    blank.format
 for call in (
-    lambda: blank.format,
     lambda: blank.pack(1),
     lambda: blank.unpack(b"aa"),
     lambda: blank.unpack_from(b"aaaa"),

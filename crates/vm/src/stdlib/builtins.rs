@@ -40,8 +40,8 @@ mod builtins {
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
     #[pyfunction]
-    fn abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._abs(&x)
+    fn abs(number: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._abs(&number)
     }
 
     #[pyfunction]
@@ -70,8 +70,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(number: ArgIndex) -> String {
-        let number = number.into_int_ref();
+    fn bin(integer: ArgIndex) -> String {
+        let number = integer.into_int_ref();
         let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
