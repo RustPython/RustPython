@@ -40,7 +40,7 @@ unsafe impl crate::object::Traverse for PySlice {
             out.push(start);
         }
         // stop is not Option, so it will be freed when payload is dropped
-        // (via drop_in_place on freelist pop, or Box::from_raw on dealloc)
+        // (before freelist caching, or during deallocation)
         if let Some(step) = self.step.take() {
             out.push(step);
         }
@@ -54,6 +54,7 @@ thread_local! {
 impl PyPayload for PySlice {
     const MAX_FREELIST: usize = 1;
     const HAS_FREELIST: bool = true;
+    const FREELIST_HAS_PAYLOAD: bool = false;
 
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -66,7 +67,7 @@ impl PyPayload for PySlice {
             .try_with(|fl| {
                 let mut list = fl.take();
                 let stored = if list.len() < Self::MAX_FREELIST {
-                    list.push(obj);
+                    unsafe { list.push(obj) };
                     true
                 } else {
                     false

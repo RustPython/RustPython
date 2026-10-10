@@ -737,7 +737,7 @@ impl PyMemberSpec {
 }
 
 // = PyMemberDescrObject
-#[pyclass(name = "member_descriptor", module = false)]
+#[pyclass(name = "member_descriptor", module = false, traverse = "manual")]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
@@ -745,6 +745,13 @@ pub struct PyMemberDescriptor {
     pub common: PyDescriptorOwned,
     pub member: PyMemberDef,
     pub access: MemberAccess,
+}
+
+// SAFETY: common.typ is owned; the other fields contain no owned Python objects.
+unsafe impl crate::object::Traverse for PyMemberDescriptor {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
+        tracer_fn(self.common.typ.as_object());
+    }
 }
 
 impl PyMemberDescriptor {

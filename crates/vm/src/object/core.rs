@@ -1012,7 +1012,7 @@ unsafe impl Link for WeakLink {
 }
 
 // PyWeakReference: each weakref holds a direct pointer to its referent.
-#[pyclass(name = "ReferenceType", module = "weakref")]
+#[pyclass(name = "ReferenceType", module = "weakref", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyWeak {
     pointers: Pointers<Py<Self>>,
@@ -1030,6 +1030,21 @@ cfg_select! {
         unsafe impl Sync for PyWeak {}
     }
     _ => {}
+}
+
+// SAFETY: the stripe lock protects the owned callback; wr_object is a weak pointer.
+unsafe impl Traverse for PyWeak {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+        let obj_ptr = self.wr_object.load(Ordering::Acquire);
+        if obj_ptr.is_null() {
+            return;
+        }
+        let _lock = weakref_lock::lock(obj_ptr as usize);
+        if !self.wr_object.load(Ordering::Relaxed).is_null() {
+            // SAFETY: the callback is read under the same lock used to consume it.
+            unsafe { (&*self.callback.get()).traverse(tracer_fn) };
+        }
+    }
 }
 
 impl PyWeak {
@@ -1244,9 +1259,11 @@ impl<T: PyPayload> Py<T> {
     /// object it points at until its own `Drop` unlinks it, and a thread
     /// walking that list reads the class off every node it passes, so the
     /// class has to outlive the payload.
-    unsafe fn drop_fields(ptr: *mut Self) {
+    unsafe fn drop_fields<const DROP_PAYLOAD: bool>(ptr: *mut Self) {
         unsafe {
-            core::ptr::drop_in_place(&raw mut (*ptr).payload);
+            if DROP_PAYLOAD {
+                core::ptr::drop_in_place(&raw mut (*ptr).payload);
+            }
             core::ptr::drop_in_place(&raw mut (*ptr).typ);
         }
     }
@@ -1257,8 +1274,15 @@ impl<T: PyPayload> Py<T> {
     /// # Safety
     /// `ptr` must be a valid pointer from `Py::new` and must not be used after this call.
     unsafe fn dealloc(ptr: *mut Self) {
+        unsafe { Self::dealloc_inner::<true>(ptr) };
+    }
+
+    // Freelist entries have already had their payload destroyed.
+    unsafe fn dealloc_inner<const DROP_PAYLOAD: bool>(ptr: *mut Self) {
         unsafe {
-            let (flags, member_count) = (*ptr).read_type_flags();
+            // Read the initialized header, including for cached allocations
+            // whose payload has already been destroyed.
+            let (flags, member_count) = (*(ptr as *const PyObject)).0.read_type_flags();
             let has_ext = flags.contains(&crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
             let has_weakref = flags.contains(&crate::types::PyTypeFlags::HAS_WEAKREF);
             // Objects published to lock-free caches keep their memory mapped
@@ -1290,7 +1314,7 @@ impl<T: PyPayload> Py<T> {
 
                 let alloc_ptr = (ptr as *mut u8).sub(inner_offset);
 
-                Self::drop_fields(ptr);
+                Self::drop_fields::<DROP_PAYLOAD>(ptr);
 
                 // Drop member cells, then ObjExt. WeakRefList is in front of the cells.
                 let mut cursor = alloc_ptr;
@@ -1318,10 +1342,10 @@ impl<T: PyPayload> Py<T> {
                 }
             } else if published {
                 let layout = core::alloc::Layout::new::<Self>();
-                Self::drop_fields(ptr);
+                Self::drop_fields::<DROP_PAYLOAD>(ptr);
                 crate::object::qsbr::free_delayed(ptr as *mut u8, layout);
             } else {
-                Self::drop_fields(ptr);
+                Self::drop_fields::<DROP_PAYLOAD>(ptr);
                 // The fields are gone; the box is only here to free the memory
                 // the matching `Box::new` in `new` allocated.
                 drop(Box::from_raw(ptr.cast::<core::mem::MaybeUninit<Self>>()));
@@ -1456,15 +1480,28 @@ impl<T: PyPayload + core::fmt::Debug> Py<T> {
 
 /// Thread-local freelist storage for reusing object allocations.
 ///
-/// Wraps a `Vec<*mut PyObject>`. On thread teardown, `Drop` frees raw
-/// `Py<T>` allocations without running payload destructors to avoid
-/// accessing already-destroyed thread-local storage (GC state, other freelists).
+/// Cached allocations retain their header, but not their payload. Payloads
+/// are destroyed before caching, while thread-local deallocation state is
+/// available. Thread teardown therefore only releases the allocation and its
+/// reference to the static base class.
 pub(crate) struct FreeList<T: PyPayload> {
     items: Vec<*mut PyObject>,
     _marker: core::marker::PhantomData<T>,
 }
 
 impl<T: PyPayload> FreeList<T> {
+    /// Cache a dead allocation after destroying its payload.
+    ///
+    /// # Safety
+    /// `ptr` must point to an untracked, unpublished, exact base-type `Py<T>`
+    /// with no outstanding payload borrows. Its payload must be initialized.
+    pub(crate) unsafe fn push(&mut self, ptr: *mut PyObject) {
+        debug_assert!(!T::FREELIST_HAS_PAYLOAD);
+        // Destruction can reenter allocation; publish the husk only afterwards.
+        unsafe { core::ptr::drop_in_place(&raw mut (*(ptr as *mut Py<T>)).payload) };
+        self.items.push(ptr);
+    }
+
     pub(crate) const fn new() -> Self {
         Self {
             items: Vec::new(),
@@ -1481,16 +1518,10 @@ impl<T: PyPayload> Default for FreeList<T> {
 
 impl<T: PyPayload> Drop for FreeList<T> {
     fn drop(&mut self) {
-        // During thread teardown, we cannot safely run destructors on cached
-        // objects because their Drop impls may access thread-local storage
-        // (GC state, other freelists) that is already destroyed.
-        // Instead, free just the raw allocation. The payload's heap fields
-        // (BigInt, PyObjectRef, etc.) are leaked, but this is bounded by
-        // MAX_FREELIST per type per thread.
         for ptr in self.items.drain(..) {
-            unsafe {
-                alloc::alloc::dealloc(ptr as *mut u8, core::alloc::Layout::new::<Py<T>>());
-            }
+            // The payload is gone and the remaining class reference points to
+            // a static base type, so no Python destruction can run here.
+            unsafe { Py::<T>::dealloc_inner::<false>(ptr as *mut Py<T>) };
         }
     }
 }
@@ -2824,8 +2855,10 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
             unsafe {
                 core::ptr::write(&mut (*inner).ref_count, RefCount::new());
                 (*inner).gc_bits.store(0, Ordering::Relaxed);
-                core::ptr::drop_in_place(&mut (*inner).payload);
-                core::ptr::write(&mut (*inner).payload, payload);
+                if T::FREELIST_HAS_PAYLOAD {
+                    core::ptr::drop_in_place(&raw mut (*inner).payload);
+                }
+                core::ptr::write(&raw mut (*inner).payload, payload);
                 // Freelist only stores exact base types (push-side filter),
                 // but subtypes sharing the same Rust payload (e.g. structseq)
                 // may pop entries. Update typ if it differs.
