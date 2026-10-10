@@ -1460,6 +1460,7 @@ macro_rules! dict_view {
             pub(crate) size: dict_inner::DictSize,
             /// As in `$iter_name`.
             changed: PyAtomic<bool>,
+            remaining: PyAtomic<usize>,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1473,8 +1474,10 @@ macro_rules! dict_view {
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
-                let position = size.entries_size.saturating_sub(1);
+                // usize::MAX represents the position before the first entry.
+                let position = size.entries_size.wrapping_sub(1);
                 $reverse_iter_name {
+                    remaining: Radium::new(size.used),
                     size,
                     changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
@@ -1516,8 +1519,8 @@ macro_rules! dict_view {
                 }
                 let internal = self.internal.lock();
                 match &internal.status {
-                    IterStatus::Active(dict) if dict.size() == self.size => {
-                        internal.rev_length_hint(|_| self.size.entries_size)
+                    IterStatus::Active(dict) if dict.size().used == self.size.used => {
+                        self.remaining.load(Ordering::Relaxed)
                     }
                     _ => 0,
                 }
@@ -1540,22 +1543,33 @@ macro_rules! dict_view {
                         // raising.
                         return (Err(mutated()), None);
                     }
-                    let entry =
-                        dict.entries
-                            .prev_entry_checked(internal.position, &zelf.size, $project_fn);
+                    let entry = loop {
+                        let size = dict.size();
+                        if size.used != zelf.size.used {
+                            break Err(dict_inner::DictChanged);
+                        }
+                        // Storage may change while preserving the number of keys.
+                        // Retry if it changes between the snapshot and the lookup.
+                        if let Ok(entry) =
+                            dict.entries
+                                .prev_entry_checked(internal.position, &size, $project_fn)
+                        {
+                            break Ok(entry);
+                        }
+                    };
                     match entry {
                         Err(dict_inner::DictChanged) => {
                             zelf.changed.store(true, Ordering::Relaxed);
                             (Err(mutated()), None)
                         }
                         Ok(Some((found_index, item))) => {
-                            let released = if found_index == 0 {
-                                internal.exhaust()
-                            } else {
-                                internal.position = found_index - 1;
-                                None
-                            };
-                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), released)
+                            // CPython 3.14 exposes the remaining count as size_t,
+                            // even after same-size key replacement yields extra entries.
+                            let remaining = zelf.remaining.load(Ordering::Relaxed);
+                            zelf.remaining
+                                .store(remaining.wrapping_sub(1), Ordering::Relaxed);
+                            internal.position = found_index.wrapping_sub(1);
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
                         Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
