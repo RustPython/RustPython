@@ -1455,17 +1455,15 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let i: usize = i
-                .wrapped_at(self.__len__())
-                .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
-
             let b = value_from_object(vm, value)?;
 
             self.try_writable(vm, |mmap| {
+                let i = i
+                    .wrapped_at(mmap.len())
+                    .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
                 mmap[i] = b;
-            })?;
-
-            Ok(())
+                Ok(())
+            })?
         }
 
         fn setitem_by_slice(
@@ -1474,43 +1472,37 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
-
             let bytes = bytes_from_object(vm, value)?;
 
-            if bytes.len() != slice_len {
-                return Err(vm.new_index_error("mmap slice assignment is wrong size"));
-            }
+            self.try_writable(vm, |mmap| {
+                let (range, step, slice_len) = slice.adjust_indices(mmap.len());
 
-            if slice_len == 0 {
-                // do nothing
-                Ok(())
-            } else if step == 1 {
-                self.try_writable(vm, |mmap| {
+                if bytes.len() != slice_len {
+                    return Err(vm.new_index_error("mmap slice assignment is wrong size"));
+                }
+
+                if slice_len == 0 {
+                    // do nothing
+                } else if step == 1 {
                     (&mut mmap[range])
                         .write(&bytes)
                         .map_err(|err| err.to_pyexception(vm))?;
-                    Ok(())
-                })?
-            } else {
-                let mut bi = 0; // bytes index
-                if step.is_negative() {
-                    for i in range.rev().step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
-                            mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
-                    }
                 } else {
-                    for i in range.step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
+                    let mut bi = 0; // bytes index
+                    if step.is_negative() {
+                        for i in range.rev().step_by(step.unsigned_abs()) {
                             mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
+                            bi += 1;
+                        }
+                    } else {
+                        for i in range.step_by(step.unsigned_abs()) {
+                            mmap[i] = bytes[bi];
+                            bi += 1;
+                        }
                     }
                 }
                 Ok(())
-            }
+            })?
         }
     }
 
