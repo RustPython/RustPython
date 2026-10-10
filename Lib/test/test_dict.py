@@ -1405,7 +1405,6 @@ class DictTest(unittest.TestCase):
         self.assertEqual(list(reversed(A(1, 0).__dict__)), ['x'])
         self.assertEqual(list(reversed(A(0, 1).__dict__)), ['y'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RuntimeError: dictionary changed size during iteration
     def test_reversed_dict_after_clear_and_restore(self):
         d = {}
         for i in range(1000):

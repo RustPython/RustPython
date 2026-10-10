@@ -36,7 +36,7 @@ pub mod module {
     use crate::{builtins::PyUtf8StrRef, utils::ToCString};
     use alloc::ffi::CString;
     use core::ffi::CStr;
-    use rustpython_host_env::os::ffi::OsStringExt;
+    use rustpython_host_env::os::{AT_FDCWD, ffi::OsStringExt};
     use rustpython_host_env::posix as host_posix;
     use std::{
         fs, io,
@@ -1184,33 +1184,39 @@ pub mod module {
 
     fn _chmod(
         path: OsPath,
-        dir_fd: DirFd<'_, 0>,
+        dir_fd: i32,
         mode: u32,
         follow_symlinks: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let [] = dir_fd.0;
-        #[cfg(all(
-            unix,
-            not(target_os = "redox"),
-            not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd"))
-        ))]
-        if !follow_symlinks {
+        #[cfg(target_os = "redox")]
+        let _ = dir_fd;
+        #[cfg(not(target_os = "redox"))]
+        if dir_fd != AT_FDCWD || !follow_symlinks {
             let err_path = path.clone();
             let c_path = path.into_cstring(vm)?;
+            let flags = if follow_symlinks {
+                0
+            } else {
+                libc::AT_SYMLINK_NOFOLLOW
+            };
             return rustpython_host_env::posix::fchmodat(
-                libc::AT_FDCWD,
+                dir_fd,
                 &c_path,
                 mode as libc::mode_t,
-                libc::AT_SYMLINK_NOFOLLOW,
+                flags,
             )
             .map_err(|err| {
                 let enotsup = err.raw_os_error() == Some(libc::EOPNOTSUPP)
                     || err.raw_os_error() == Some(libc::ENOTSUP);
-                if enotsup {
-                    vm.new_not_implemented_error(
-                        "chmod: follow_symlinks unavailable on this platform".to_owned(),
-                    )
+                if !follow_symlinks && enotsup {
+                    if dir_fd != AT_FDCWD {
+                        vm.new_value_error("chmod: cannot use dir_fd and follow_symlinks together")
+                    } else {
+                        vm.new_not_implemented_error(
+                            "chmod: follow_symlinks unavailable on this platform".to_owned(),
+                        )
+                    }
                 } else {
                     OSErrorBuilder::with_filename(&err, err_path, vm)
                 }
@@ -1232,6 +1238,31 @@ pub mod module {
         rustpython_host_env::posix::fchmod(fd, mode).map_err(|err| err.into_pyexception(vm))
     }
 
+    // Absolute paths ignore dir_fd, so even -1 must reach fchmodat unchanged.
+    #[cfg(not(target_os = "redox"))]
+    struct ChmodDirFd(i32);
+
+    #[cfg(not(target_os = "redox"))]
+    impl TryFromObject for ChmodDirFd {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            warn_if_bool_fd(&obj, vm)?;
+            let fd = obj.try_index_opt(vm).unwrap_or_else(|| {
+                Err(vm.new_type_error(format!(
+                    "argument should be integer or None, not {}",
+                    obj.class().name()
+                )))
+            })?;
+            i32::try_from(fd.as_bigint()).map(Self).map_err(|_| {
+                let message = if fd.as_bigint().sign() == malachite_bigint::Sign::Minus {
+                    "fd is less than minimum"
+                } else {
+                    "fd is greater than maximum"
+                };
+                vm.new_overflow_error(message)
+            })
+        }
+    }
+
     #[cfg(not(target_os = "redox"))]
     #[derive(FromArgs)]
     struct ChmodArgs<'fd> {
@@ -1239,8 +1270,8 @@ pub mod module {
         path: OsPathOrFd<'fd>,
         #[pyarg(any)]
         mode: u32,
-        #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, 0>,
+        #[pyarg(named, default, py_default = "None")]
+        dir_fd: Option<ChmodDirFd>,
         // CPython writes the platform expression; on posix it is always true.
         #[pyarg(named, default = true, py_default = "(os.name != 'nt')")]
         follow_symlinks: bool,
@@ -1255,10 +1286,11 @@ pub mod module {
             dir_fd,
             follow_symlinks,
         } = args;
+        let dir_fd = dir_fd.map_or(AT_FDCWD, |fd| fd.0);
         match path {
             OsPathOrFd::Path(path) => {
                 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
-                if !follow_symlinks && dir_fd == Default::default() {
+                if !follow_symlinks && dir_fd == AT_FDCWD {
                     return lchmod(LchmodArgs { path, mode }, vm);
                 }
                 _chmod(path, dir_fd, mode, follow_symlinks, vm)
@@ -1290,7 +1322,8 @@ pub mod module {
             dir_fd,
             follow_symlinks,
         } = args;
-        _chmod(path, dir_fd, mode, follow_symlinks, vm)
+        let [] = dir_fd.0;
+        _chmod(path, AT_FDCWD, mode, follow_symlinks, vm)
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -2194,8 +2227,8 @@ pub mod module {
         vec![
             SupportFunc::new(
                 "chmod",
-                Some(false),
-                Some(false),
+                Some(cfg!(not(target_os = "redox"))),
+                Some(cfg!(not(target_os = "redox"))),
                 Some(cfg!(any(
                     target_os = "macos",
                     target_os = "freebsd",

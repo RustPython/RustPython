@@ -1321,9 +1321,7 @@ impl Constructor for PyFunction {
         let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
         // Set function name if provided
         if let Some(name) = args.name.into_option() {
-            *func.name.lock() = name.clone();
-            // Also update qualname to match the name
-            *func.qualname.lock() = name;
+            *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {

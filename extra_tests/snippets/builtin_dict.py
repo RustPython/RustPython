@@ -378,6 +378,25 @@ assert it.__length_hint__() == 0
 assert_raises(StopIteration, next, it)
 assert it.__length_hint__() == 0
 
+# Reverse hints count live entries, including when storage has deleted slots.
+for reverse_iter in (
+    reversed,
+    lambda d: reversed(d.keys()),
+    lambda d: reversed(d.values()),
+    lambda d: reversed(d.items()),
+):
+    d = {0: 0, 1: 1, 2: 2, 3: 3}
+    del d[1]
+    it = reverse_iter(d)
+    for remaining in (3, 2, 1):
+        assert it.__length_hint__() == remaining
+        next(it)
+    assert it.__length_hint__() == 0
+    # Exhaustion is observed by next(), rather than the final successful yield.
+    d[4] = 4
+    assert_raises(RuntimeError, next, it)
+    assert it.__length_hint__() == 0
+
 # Test dictionary unpacking with non-mapping objects
 # This should raise TypeError for non-mapping objects
 with assert_raises(TypeError) as cm:

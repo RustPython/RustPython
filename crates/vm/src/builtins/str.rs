@@ -1245,19 +1245,29 @@ impl Py<PyStr> {
         }
 
         let s = zelf.as_wtf8();
-        let replaced = if count < 0 {
-            s.replace(old.as_wtf8(), new.as_wtf8())
+        let limit = if count < 0 {
+            usize::MAX
         } else {
-            let s_is_empty = s.is_empty();
-            let old_is_empty = old.is_empty();
-
-            if s_is_empty && !old_is_empty {
-                s.to_owned()
-            } else if s_is_empty && old_is_empty {
-                new.as_wtf8().to_owned()
-            } else {
-                s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
+            count as usize
+        };
+        let replaced = if old.is_empty() {
+            s.replacen(old.as_wtf8(), new.as_wtf8(), limit)
+        } else {
+            let mut matches = s.find_iter(old.as_wtf8()).take(limit);
+            let Some(first) = matches.next() else {
+                drop(matches);
+                return PyStr::result_unchanged(zelf, vm);
+            };
+            let mut result = Vec::with_capacity(s.len());
+            let mut last = 0;
+            for start in core::iter::once(first).chain(matches) {
+                result.extend_from_slice(&s.as_bytes()[last..start]);
+                result.extend_from_slice(new.as_bytes());
+                last = start + old.byte_len();
             }
+            result.extend_from_slice(&s.as_bytes()[last..]);
+            // SAFETY: A nonempty WTF-8 needle matches only at code point boundaries.
+            unsafe { Wtf8Buf::from_bytes_unchecked(result) }
         };
         vm.ctx.new_str(replaced)
     }

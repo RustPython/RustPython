@@ -366,7 +366,7 @@ impl PyModule {
         {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
+            if !result.downcastable::<PyDict>() {
                 return Err(vm.new_type_error(format!(
                     "__annotate__ returned non-dict of type '{}'",
                     result.class().name()

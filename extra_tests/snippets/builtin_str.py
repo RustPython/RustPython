@@ -430,6 +430,31 @@ for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
 assert "%x" % PercentInt(3) == "7"
 assert b"%o" % PercentInt(3) == b"7"
 
+
+def test_percent_character_subclasses():
+    for base, value, templates in (
+        (str, "ab", ("%c",)),
+        (bytes, b"ab", (b"%c", bytearray(b"%c"))),
+        (bytearray, b"ab", (b"%c", bytearray(b"%c"))),
+    ):
+
+        class Indexable(base):
+            def __index__(self):
+                raise AssertionError("%c must check the character length first")
+
+        for template in templates:
+            assert template % Indexable(value[:1]) == template % value[:1]
+            for text in (value[:0], value):
+                with assert_raises(TypeError) as expected:
+                    template % base(text)
+                with assert_raises(TypeError) as actual:
+                    template % Indexable(text)
+                assert str(actual.exception) == str(expected.exception)
+            assert template % PercentIndex() == template % 7
+
+
+test_percent_character_subclasses()
+
 assert (
     "%(first)s %(second)s" % {"second": "World!", "first": "Hello,"} == "Hello, World!"
 )
@@ -1099,6 +1124,23 @@ def test_replace_unchanged():
 
 
 test_replace_unchanged()
+
+
+def test_replace_missing_pattern():
+    for text in ("ordinary text", "\u00e1\u03b2\U0001f600", "a\ud800b\udfff"):
+        for count in (-1, 1, 10):
+            assert text.replace("\r", "replacement", count) is text
+            result = MyString(text).replace("\r", "replacement", count)
+            assert type(result) is str
+            assert result == text
+
+    # Continue the same search after the first match, including lone surrogates.
+    assert "ababa".replace("aba", "x") == "xba"
+    assert "\ud800x\ud800".replace("\ud800", "\udfff", 1) == "\udfffx\ud800"
+    assert "\ud800x\ud800".replace("\ud800", "\udfff") == "\udfffx\udfff"
+
+
+test_replace_missing_pattern()
 
 
 def test_expandtabs_zero_tabsize():

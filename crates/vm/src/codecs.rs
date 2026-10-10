@@ -261,6 +261,7 @@ impl CodecsRegistry {
     }
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
+        let original_encoding = encoding;
         let encoding = normalize_encoding_name(encoding);
         let search_path = {
             let inner = self.inner.read();
@@ -286,7 +287,7 @@ impl CodecsRegistry {
             }
         }
 
-        Err(vm.new_lookup_error(format!("unknown encoding: {encoding}")))
+        Err(vm.new_lookup_error(format!("unknown encoding: {original_encoding}")))
     }
 
     fn _lookup_text_encoding(

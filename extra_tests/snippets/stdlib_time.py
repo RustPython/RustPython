@@ -1,6 +1,8 @@
 import sys
 import time
 
+from testutils import assert_raises
+
 if sys.platform == "win32":
     # Record the native runtime before evaluating the range regression below.
     print("Windows time runtime:", sys.version, sys.implementation, sys.flags)
@@ -116,6 +118,29 @@ s = time.strftime("%Y-%m-%d-%H-%M-%S", x)
 # print(s)
 assert s == "1970-01-01-00-16-40"
 
+if sys.platform in ("linux", "darwin"):
+    import locale
+
+    old_locale = locale.setlocale(locale.LC_ALL)
+    try:
+        # Locale output must be Unicode even when the locale is not UTF-8.
+        # Keep LC_CTYPE and LC_TIME consistent for wcsftime on macOS.
+        # These locales are optional on the host running the snippet.
+        for time_locale in ("fr_FR.ISO8859-1", "fr_FR.UTF-8"):
+            try:
+                locale.setlocale(locale.LC_ALL, time_locale)
+            except locale.Error:
+                continue
+            february = (2024, 2, 1, 12, 0, 0, 3, 32, 0)
+            assert time.strftime("%B", february) == "février"
+            assert (
+                time.strftime("[%B] 🐍 \ud800\0%Y", february)
+                == "[février] 🐍 \ud800\0" + "2024"
+            )
+            assert time.strftime("%B" * 300, february) == "février" * 300
+    finally:
+        locale.setlocale(locale.LC_ALL, old_locale)
+
 if sys.platform != "wasi":
     # _strptime depends on time.tzname, which is not available on WASI yet.
     x2 = time.strptime(s, "%Y-%m-%d-%H-%M-%S")
@@ -186,6 +211,36 @@ perf_elapsed = time.perf_counter() - perf_start
 
 assert monotonic_elapsed >= 0.01
 assert perf_elapsed >= 0.01
+
+# Sleep validates signed nanoseconds before rejecting negative durations.
+for duration in (
+    2**63,
+    -(2**63) - 1,
+    2**34,
+    -(2**34),
+    2**63 / 1_000_000_000,
+    -1e10,
+    float("inf"),
+    -float("inf"),
+):
+    with assert_raises(OverflowError) as error:
+        time.sleep(duration)
+    assert str(error.exception) == "timestamp out of range for C PyTime_t"
+assert_raises(ValueError, time.sleep, float("nan"))
+
+
+class SleepTypeNamespace:
+    class Invalid:
+        pass
+
+
+for module, prefix in (("__main__", ""), ("sleep_test", "sleep_test.")):
+    SleepTypeNamespace.Invalid.__module__ = module
+    with assert_raises(TypeError) as error:
+        time.sleep(SleepTypeNamespace.Invalid())
+    assert str(error.exception) == (
+        f"'{prefix}SleepTypeNamespace.Invalid' object cannot be interpreted as an integer or float"
+    )
 
 # The optional second argument fills the fields that are not part of the
 # sequence.

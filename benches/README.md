@@ -42,9 +42,9 @@ Two things differ when the benchmarks run under CodSpeed:
 - The CPython comparison benchmarks are skipped. They are useful to compare RustPython against
   CPython locally, but CodSpeed tracks the evolution of RustPython itself, and running them would
   double the duration of an already slow instrumented run.
-- The microbenchmarks using `ITERATIONS` run with a single value instead of five. The criterion
-  benchmark id does not include the iteration count, so all five sizes are reported under the same
-  name.
+- The microbenchmarks using `ITERATIONS` run with a single value of 1,000 instead of five sizes.
+  CodSpeed retains the existing benchmark names; local runs include the iteration count in each
+  benchmark id.
 
 ### Adding a benchmark
 
@@ -53,6 +53,9 @@ in two ways:
 
 1. The time to parse the file to AST
 2. The time it takes to execute the file
+
+Execution includes compilation and runs each iteration with a fresh namespace whose `__name__`
+is `"__main__"`, so script entry points run in both RustPython and CPython.
 
 ### Adding a micro benchmark
 
@@ -73,7 +76,7 @@ len(a_list)
 ```
 
 Only `len(a_list)` will be timed. Setup or benchmarked code can optionally reference a variable called `ITERATIONS`. If
-present then the benchmark code will be invoked 5 times with `ITERATIONS` set to a value between 100 and 1,000. For
+present then the benchmark runs at five sizes: 100, 300, 500, 700 and 900 iterations locally. For
 example:
 
 ```python

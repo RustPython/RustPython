@@ -14,10 +14,13 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     use crate::builtins::PyBaseExceptionRef;
+    #[cfg(any(unix, windows))]
+    use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyFloat, PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
+        common::wtf8::{Wtf8Buf, wtf8_concat},
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
@@ -26,14 +29,10 @@ mod decl {
         PyRef,
         builtins::{PyNamespace, PyUtf8StrRef},
     };
-    #[cfg(any(unix, windows))]
-    use crate::{
-        common::wtf8::Wtf8Buf,
-        convert::{ToPyException, ToPyObject},
-    };
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
     use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
+    use num_traits::ToPrimitive;
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -128,21 +127,71 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = object.class().name().to_owned();
-        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_bytes() == b"negative duration"
-            {
-                return vm.new_value_error("sleep length must be non-negative");
+        let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
+        let nanoseconds = if let Some(float) = object.downcast_ref::<PyFloat>() {
+            let seconds = float.to_f64();
+            if seconds.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
-            if e.class().is(vm.ctx.exceptions.type_error) {
-                return vm.new_type_error(format!(
-                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
-                ));
+            // _PyTime_ROUND_TIMEOUT rounds away from zero.
+            let nanoseconds = seconds * SEC_TO_NS as f64;
+            let nanoseconds = if nanoseconds >= 0.0 {
+                nanoseconds.ceil()
+            } else {
+                nanoseconds.floor()
+            };
+            let minimum = i64::MIN as f64;
+            // The signed maximum rounds up to 2**63 as a double.
+            if !(minimum..-minimum).contains(&nanoseconds) {
+                return Err(overflow());
             }
-            e
-        })?;
+            nanoseconds as i64
+        } else {
+            let seconds = object.try_index(vm).or_else(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    Err(overflow())
+                } else if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    // CPython's %T reads stored type metadata, preserving surrogates.
+                    let class = object.class();
+                    let name = if let Some(heap_type) = &class.heaptype_ext {
+                        let qualname = heap_type.qualname.read().clone();
+                        let module = if let Some(dict) = class.attributes.as_dict() {
+                            dict.get_item_opt(identifier!(vm, __module__), vm)?
+                                .ok_or_else(|| vm.new_attribute_error("__module__"))?
+                        } else {
+                            class.__module__(vm)?
+                        };
+                        match module.downcast_ref::<PyStr>() {
+                            Some(module)
+                                if module.as_wtf8() != "builtins"
+                                    && module.as_wtf8() != "__main__" =>
+                            {
+                                wtf8_concat!(module.as_wtf8(), ".", qualname.as_wtf8())
+                            }
+                            _ => qualname.as_wtf8().to_owned(),
+                        }
+                    } else {
+                        Wtf8Buf::from(class.slot_name().to_owned())
+                    };
+                    Err(vm.new_type_error(wtf8_concat!(
+                        "'",
+                        name,
+                        "' object cannot be interpreted as an integer or float"
+                    )))
+                } else {
+                    Err(e)
+                }
+            })?;
+            seconds
+                .as_bigint()
+                .to_i64()
+                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
+                .ok_or_else(overflow)?
+        };
+        if nanoseconds < 0 {
+            return Err(vm.new_value_error("sleep length must be non-negative"));
+        }
+        let dur = Duration::from_nanos(nanoseconds as u64);
 
         #[cfg(unix)]
         {

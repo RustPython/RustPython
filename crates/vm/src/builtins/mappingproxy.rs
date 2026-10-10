@@ -5,12 +5,12 @@ use crate::{
     class::PyClassImpl,
     common::{hash, lock::LazyLock},
     convert::ToPyObject,
-    function::{ArgMapping, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgMapping, Either, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
-        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, Iterable,
-        PyComparisonOp, Representable,
+        AsMapping, AsNumber, AsSequence, Constructor, Hashable, Iterable, PyComparisonOp,
+        Representable,
     },
 };
 use rustpython_common::wtf8::{Wtf8Buf, wtf8_concat};
@@ -175,12 +175,30 @@ impl PyMappingProxy {
     Iterable,
     Constructor,
     AsSequence,
-    Comparable,
     Hashable,
     AsNumber,
     Representable
 ))]
 impl Py<PyMappingProxy> {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let zelf = zelf.downcast_ref::<PyMappingProxy>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "unexpected payload for {}",
+                op.method_name(&vm.ctx).as_str()
+            ))
+        })?;
+        let obj = zelf.to_object(vm)?;
+        // CPython parity (Objects/descrobject.c::mappingproxy_richcompare):
+        // delegate to PyObject_RichCompare on the underlying mapping.
+        obj.rich_compare(other.to_owned(), op, vm).map(Either::A)
+    }
+
     #[pymethod]
     fn get(
         &self,
@@ -235,23 +253,6 @@ impl Py<PyMappingProxy> {
             identifier!(vm, __reversed__).as_str(),
             (),
         )
-    }
-}
-
-impl Comparable for PyMappingProxy {
-    fn cmp(
-        zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        let obj = zelf.to_object(vm)?;
-        // CPython parity (Objects/descrobject.c::mappingproxy_richcompare):
-        // delegate to PyObject_RichCompare on the underlying mapping.
-        let res = obj.rich_compare(other.to_owned(), op, vm)?;
-        PyArithmeticValue::from_object(vm, res)
-            .map(|o| o.try_to_bool(vm))
-            .transpose()
     }
 }
 

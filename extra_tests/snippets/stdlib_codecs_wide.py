@@ -28,3 +28,39 @@ assert (
     _codecs.utf_32_ex_decode(b"\xff\xfe\x00\x00h\x00\x00\x00", "strict", 0, True)[0]
     == "h"
 )
+
+
+# Lookup errors preserve the requested spelling, while search hooks receive
+# the Python 3.14 normalized registry key.
+import codecs
+
+seen_encoding_names = []
+
+
+def record_unknown_encoding(name):
+    seen_encoding_names.append(name)
+    return None
+
+
+codecs.register(record_unknown_encoding)
+try:
+    for requested, normalized in (
+        ("NO Such  Codec!", "no_such_codec"),
+        ("x_ weird--Ω .Ab", "x_weird_.ab"),
+    ):
+        for lookup in (
+            codecs.lookup,
+            lambda name: codecs.encode("value", name),
+            lambda name: codecs.decode(b"value", name),
+            lambda name: "value".encode(name),
+            lambda name: b"value".decode(name),
+        ):
+            try:
+                lookup(requested)
+            except LookupError as error:
+                assert str(error) == "unknown encoding: " + requested
+            else:
+                assert False, "unknown encoding was accepted"
+            assert seen_encoding_names[-1] == normalized
+finally:
+    codecs.unregister(record_unknown_encoding)

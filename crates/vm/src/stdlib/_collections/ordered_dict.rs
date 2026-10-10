@@ -7,7 +7,7 @@ pub(crate) mod ordered_dict {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{
-            PyDict, PyGenericAlias, PyMappingProxy, PyTuple, PyTypeRef,
+            PyDict, PyGenericAlias, PyMappingProxy, PyStrRef, PyTuple, PyTypeRef,
             dict::{
                 PyDictItems, set_inner_number_or, set_inner_number_subtract, set_inner_number_xor,
                 set_item_view_number_xor, set_view_number_and,
@@ -27,6 +27,7 @@ pub(crate) mod ordered_dict {
             Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
     };
+    use rustpython_common::wtf8::Wtf8Buf;
     use std::collections::HashMap;
 
     const ODICT_ITER_REVERSED: u8 = 1;
@@ -977,6 +978,29 @@ pub(crate) mod ordered_dict {
         set_item_view_number_xor(a, b, is_item_view(a) && is_item_view(b), vm)
     }
 
+    fn ordered_view_repr(
+        view: &PyObject,
+        od: &PyRef<PyOrderedDict>,
+        kind: u8,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
+        let Some(_guard) = ReprGuard::enter(vm, view) else {
+            return Ok(vm.ctx.intern_str("...").to_owned());
+        };
+        // Snapshot the view before calling user-defined repr methods, which
+        // can mutate the underlying ordered dictionary.
+        let iterator = PyODictIter::new(od.clone(), kind).to_pyobject(vm);
+        let items = PyIter::try_from_object(vm, iterator)?
+            .iter::<PyObjectRef>(vm)?
+            .collect::<PyResult<Vec<_>>>()?;
+        let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
+        let mut result = Wtf8Buf::from(format!("{name}("));
+        result.push_wtf8(list_repr.as_wtf8());
+        result.push_str(")");
+        Ok(vm.ctx.new_str(result))
+    }
+
     #[pyattr]
     #[pyclass(name = "odict_keys", module = "builtins", unhashable = true, traverse)]
     #[derive(Debug, PyPayload)]
@@ -984,7 +1008,7 @@ pub(crate) mod ordered_dict {
         od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber))]
+    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber, Representable))]
     impl Py<PyODictKeys> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -1004,6 +1028,22 @@ pub(crate) mod ordered_dict {
                 }
             }
             Ok(true)
+        }
+    }
+
+    impl Representable for PyODictKeys {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            ordered_view_repr(
+                zelf.as_object(),
+                &zelf.od,
+                ODICT_ITER_KEYS,
+                "odict_keys",
+                vm,
+            )
+        }
+
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("use repr instead")
         }
     }
 
@@ -1077,7 +1117,7 @@ pub(crate) mod ordered_dict {
         od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsMapping))]
+    #[pyclass(with(Iterable, Comparable, AsMapping, Representable))]
     impl Py<PyODictValues> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -1088,6 +1128,22 @@ pub(crate) mod ordered_dict {
         #[pygetset]
         fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
             PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
+        }
+    }
+
+    impl Representable for PyODictValues {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            ordered_view_repr(
+                zelf.as_object(),
+                &zelf.od,
+                ODICT_ITER_VALUES,
+                "odict_values",
+                vm,
+            )
+        }
+
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("use repr instead")
         }
     }
 
@@ -1128,7 +1184,7 @@ pub(crate) mod ordered_dict {
         od: PyRef<PyOrderedDict>,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber))]
+    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber, Representable))]
     impl Py<PyOrderedDictItems> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -1160,6 +1216,22 @@ pub(crate) mod ordered_dict {
                 }
             }
             Ok(true)
+        }
+    }
+
+    impl Representable for PyOrderedDictItems {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            ordered_view_repr(
+                zelf.as_object(),
+                &zelf.od,
+                ODICT_ITER_ITEMS,
+                "odict_items",
+                vm,
+            )
+        }
+
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("use repr instead")
         }
     }
 

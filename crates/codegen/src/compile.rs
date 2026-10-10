@@ -9395,36 +9395,38 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    /// The called name of a `name(genexpr)` call, the shape
-    /// `maybe_optimize_function_call()` reserves a `skip_optimization` label
-    /// for. An `await` or an `async for` inside the generator does not
-    /// disqualify it: the inlined loop raises the same `TypeError` that
-    /// calling the builtin on an async generator would.
+    /// The called name of a synchronous `name(genexpr)` call, the shape
+    /// `maybe_optimize_function_call()` reserves a `skip_optimization` label for.
     fn cpython_genexpr_call_name<'a>(
-        &self,
+        &mut self,
         func: &'a ast::Expr,
         args: &ast::Arguments,
-    ) -> Option<&'a str> {
+    ) -> CompileResult<Option<&'a str>> {
         let ast::Expr::Name(ast::ExprName { id, .. }) = func else {
-            return None;
+            return Ok(None);
         };
-        let [ast::Expr::Generator(ast::ExprGenerator { .. })] = &args.args[..] else {
-            return None;
+        let [ast::Expr::Generator(ast::ExprGenerator { generators, .. })] = &args.args[..] else {
+            return Ok(None);
         };
         if !args.keywords.is_empty() {
-            return None;
+            return Ok(None);
         }
-        let table = self.current_symbol_table();
-        table.sub_tables.get(table.next_sub_table)?;
-        Some(id.as_str())
+        let Some(outermost) = generators.first() else {
+            return Ok(None);
+        };
+        let (comp_table, _) = self
+            .lookup_comprehension_symbol_table_after_skipped_nested_scopes_in_expr(
+                &outermost.iter,
+                ComprehensionType::Generator,
+            )?;
+        if comp_table.is_coroutine {
+            return Ok(None);
+        }
+        Ok(Some(id.as_str()))
     }
 
-    fn detect_builtin_generator_call(
-        &self,
-        func: &ast::Expr,
-        args: &ast::Arguments,
-    ) -> Option<BuiltinGeneratorCallKind> {
-        match self.cpython_genexpr_call_name(func, args)? {
+    fn detect_builtin_generator_call(&self, name: &str) -> Option<BuiltinGeneratorCallKind> {
+        match name {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
@@ -9615,6 +9617,11 @@ impl<'warnings> Compiler<'warnings> {
         let call_range = self.current_source_range;
         self.validate_keywords(&args.keywords)?;
         let uses_ex_call = self.call_uses_ex_call(args);
+        let genexpr_call_name = if uses_ex_call {
+            None
+        } else {
+            self.cpython_genexpr_call_name(func, args)?
+        };
 
         // Method call: obj → LOAD_ATTR_METHOD → [method, self_or_null] → args → CALL
         // Regular call: func → PUSH_NULL → args → CALL
@@ -9681,9 +9688,8 @@ impl<'warnings> Compiler<'warnings> {
                 self.emit_load_attr_method(idx);
                 self.compile_method_call_arguments(args, method_call_range, attr_access_range)?;
             }
-        } else if let Some(kind) = (!uses_ex_call)
-            .then(|| self.detect_builtin_generator_call(func, args))
-            .flatten()
+        } else if let Some(kind) =
+            genexpr_call_name.and_then(|name| self.detect_builtin_generator_call(name))
         {
             let skip_normal_call = self.new_block();
             self.check_caller(func)?;
@@ -9705,13 +9711,9 @@ impl<'warnings> Compiler<'warnings> {
             // `skip_normal_call`, even when `maybe_optimize_function_call()`
             // leaves it untargeted.
             let skip_normal_call = self.current_code_info().new_instr_sequence_label();
-            let genexpr_call_name = (!uses_ex_call)
-                .then(|| self.cpython_genexpr_call_name(func, args))
-                .flatten()
-                .is_some();
             self.check_caller(func)?;
             self.compile_expression(func)?;
-            if genexpr_call_name {
+            if genexpr_call_name.is_some() {
                 // CPython `maybe_optimize_function_call()` creates and uses
                 // `skip_optimization` for every name(genexpr) shape after
                 // loading the function, even when the name is not all/any/tuple.
@@ -20608,24 +20610,25 @@ def f(xs):
     }
 
     #[test]
-    fn builtin_any_async_genexpr_call_is_optimized_like_cpython() {
+    fn builtin_any_async_genexpr_call_is_not_optimized_like_cpython() {
         for source in [
             "async def f(xs):\n    return any(x async for x in xs)\n",
             "async def f(xs):\n    return any(await x for x in xs)\n",
+            "async def f(xs):\n    return any(x async for x in (lambda: xs)())\n",
+            "async def f(xs):\n    return any(await x for x in (y for y in xs))\n",
         ] {
             let code = compile_exec(source);
             let f = find_code(&code, "f").expect("missing function code");
 
             assert!(
-                has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
-                "maybe_optimize_function_call() guards any(genexpr) whether or not the \
-                 generator is a coroutine: {source}"
+                !has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
+                "coroutine generator expressions must use the ordinary call path: {source}"
             );
             assert!(
-                f.instructions
+                !f.instructions
                     .iter()
                     .any(|unit| matches!(unit.op, Instruction::ForIter { .. })),
-                "the guarded path inlines the loop: {source}"
+                "the ordinary call path must not inline an async generator loop: {source}"
             );
             assert!(
                 f.instructions

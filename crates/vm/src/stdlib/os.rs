@@ -206,9 +206,9 @@ pub(super) mod _os {
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
-            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
@@ -225,11 +225,12 @@ pub(super) mod _os {
         },
         vm::VirtualMachine,
     };
+    use core::hint::cold_path;
     #[cfg(not(windows))]
     use core::marker::PhantomData;
-    use core::{hint::cold_path, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::os::{FileTime, FileTimeSeconds};
     #[cfg(windows)]
     use rustpython_host_env::{nt as host_nt, windows::ToWideString};
 
@@ -1838,6 +1839,56 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
     }
 
+    fn file_time_seconds(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTimeSeconds> {
+        obj.try_index(vm)
+            .and_then(|value| value.try_to_primitive(vm))
+            .map_err(|err| {
+                if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    vm.new_overflow_error("timestamp out of range for platform time_t")
+                } else {
+                    err
+                }
+            })
+    }
+
+    fn file_time(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTime> {
+        if let Some(float) = obj.downcast_ref::<PyFloat>() {
+            let value = float.to_f64();
+            if value.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+            }
+            let mut seconds = value.trunc();
+            let mut nanoseconds = (value.fract() * 1_000_000_000.0).floor();
+            if nanoseconds < 0.0 {
+                nanoseconds += 1_000_000_000.0;
+                seconds -= 1.0;
+            }
+            let minimum = FileTimeSeconds::MIN as f64;
+            // The signed maximum rounds up when represented by f64.
+            if !(minimum..-minimum).contains(&seconds) {
+                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+            }
+            Ok(FileTime {
+                seconds: seconds as FileTimeSeconds,
+                nanoseconds: nanoseconds as libc::c_long,
+            })
+        } else {
+            let seconds = match file_time_seconds(obj, vm) {
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                    return Err(vm.new_type_error(format!(
+                        "argument must be int or float, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+                result => result?,
+            };
+            Ok(FileTime {
+                seconds,
+                nanoseconds: 0,
+            })
+        }
+    }
+
     #[pyfunction]
     fn utime(args: UtimeArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
@@ -1852,13 +1903,13 @@ pub(super) mod _os {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
                     vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
                 })?;
-                (a.try_into_value(vm)?, m.try_into_value(vm)?)
+                (file_time(&a, vm)?, file_time(&m, vm)?)
             }
             (None, Some(ns)) => {
                 let (a, m) = parse_tup(&ns)
                     .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
-                let ns_to_dur = |obj: PyObjectRef| {
+                let ns_to_time = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) = divmod
                         .downcast_ref::<PyTuple>()
@@ -1870,16 +1921,31 @@ pub(super) mod _os {
                                 divmod.class().name()
                             ))
                         })?;
-                    let secs = div.try_index(vm)?.try_to_primitive(vm)?;
-                    let ns = rem.try_index(vm)?.try_to_primitive(vm)?;
-                    Ok(Duration::new(secs, ns))
+                    let seconds = file_time_seconds(&div, vm)?;
+                    let rem = rem.try_index(vm)?;
+                    let nanoseconds = rem.try_to_primitive::<libc::c_long>(vm).map_err(|err| {
+                        if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                            vm.new_overflow_error("Python int too large to convert to C long")
+                        } else {
+                            err
+                        }
+                    })?;
+                    Ok(FileTime {
+                        seconds,
+                        nanoseconds,
+                    })
                 };
-                // TODO: do validation to make sure this doesn't.. underflow?
-                (ns_to_dur(a)?, ns_to_dur(m)?)
+                (ns_to_time(a)?, ns_to_time(m)?)
             }
             (None, None) => {
                 let now = SystemTime::now();
                 let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                let now = FileTime {
+                    seconds: now.as_secs().try_into().map_err(|_| {
+                        vm.new_overflow_error("timestamp out of range for platform time_t")
+                    })?,
+                    nanoseconds: now.subsec_nanos() as libc::c_long,
+                };
                 (now, now)
             }
             (Some(_), Some(_)) => {
@@ -1893,8 +1959,8 @@ pub(super) mod _os {
 
     fn utime_impl(
         path: OsPath,
-        acc: Duration,
-        modif: Duration,
+        acc: FileTime,
+        modif: FileTime,
         dir_fd: DirFd<'_, { UTIME_DIR_FD as usize }>,
         _follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -1934,8 +2000,15 @@ pub(super) mod _os {
                 ));
             }
 
-            crate::host_env::os::set_file_times(&path, acc, modif)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+            let wide_path = path.to_wide_cstring(vm)?;
+            host_nt::set_file_times(
+                &wide_path,
+                acc.seconds,
+                acc.nanoseconds.into(),
+                modif.seconds,
+                modif.nanoseconds.into(),
+            )
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
         }
     }
 
