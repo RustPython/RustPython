@@ -1464,6 +1464,7 @@ macro_rules! dict_view {
             pub(crate) size: dict_inner::DictSize,
             /// As in `$iter_name`.
             changed: PyAtomic<bool>,
+            remaining: PyAtomic<usize>,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1477,8 +1478,10 @@ macro_rules! dict_view {
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
-                let position = size.entries_size.saturating_sub(1);
+                // usize::MAX represents the position before the first entry.
+                let position = size.entries_size.wrapping_sub(1);
                 $reverse_iter_name {
+                    remaining: Radium::new(size.used),
                     size,
                     changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
@@ -1520,8 +1523,10 @@ macro_rules! dict_view {
                 }
                 let internal = self.internal.lock();
                 match &internal.status {
-                    IterStatus::Active(dict) if dict.size() == self.size => {
-                        internal.rev_length_hint(|_| self.size.entries_size)
+                    IterStatus::Active(dict)
+                        if dict.size().has_same_used_and_relocations(&self.size) =>
+                    {
+                        self.remaining.load(Ordering::Relaxed)
                     }
                     _ => 0,
                 }
@@ -1553,13 +1558,13 @@ macro_rules! dict_view {
                             (Err(mutated()), None)
                         }
                         Ok(Some((found_index, item))) => {
-                            let released = if found_index == 0 {
-                                internal.exhaust()
-                            } else {
-                                internal.position = found_index - 1;
-                                None
-                            };
-                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), released)
+                            // CPython 3.14 exposes the remaining count as size_t,
+                            // even after same-size key replacement yields extra entries.
+                            let remaining = zelf.remaining.load(Ordering::Relaxed);
+                            zelf.remaining
+                                .store(remaining.wrapping_sub(1), Ordering::Relaxed);
+                            internal.position = found_index.wrapping_sub(1);
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
                         Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
