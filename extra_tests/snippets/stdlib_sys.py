@@ -149,6 +149,17 @@ proc = subprocess.run(args, stdout=subprocess.PIPE, universal_newlines=True, env
 assert proc.stdout.rstrip() == "True"
 assert proc.returncode == 0, proc
 
+# -S must prevent the site import itself, not just its customizations.
+subprocess.run(
+    [
+        sys.executable,
+        "-S",
+        "-c",
+        "import sys; assert sys.flags.no_site; assert 'site' not in sys.modules",
+    ],
+    check=True,
+)
+
 assert sys._getframemodulename() == "__main__", sys._getframemodulename()
 
 
