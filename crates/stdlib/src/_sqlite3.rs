@@ -2722,9 +2722,15 @@ mod _sqlite3 {
             vm: &VirtualMachine,
         ) -> PyResult<c_int> {
             let mut index = index.try_to_primitive::<isize>(vm).map_err(|_| {
+                let class = object.class();
+                let type_name = class.slot_name();
+                let mut end = type_name.len().min(200);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
                 vm.new_index_error(format!(
                     "cannot fit '{}' into an index-sized integer",
-                    object.class().name()
+                    &type_name[..end]
                 ))
             })?;
             if index < 0 {

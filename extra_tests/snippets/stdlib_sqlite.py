@@ -113,6 +113,14 @@ with cx.blobopen("blobindices", "b", 1) as blob:
             with test.assertRaisesRegex(IndexError, message):
                 blob[index] = 0
 
+    for name, bounded_name in (("X" * 250, "X" * 200), ("€" * 67, "€" * 66)):
+        long_index = type(name, (), {"__index__": lambda self: sys.maxsize + 1})()
+        message = f"^cannot fit '{bounded_name}' into an index-sized integer$"
+        with test.assertRaisesRegex(IndexError, message):
+            blob[long_index]
+        with test.assertRaisesRegex(IndexError, message):
+            blob[long_index] = 0
+
     with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
         blob[BrokenBlobIndex()]
     with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
