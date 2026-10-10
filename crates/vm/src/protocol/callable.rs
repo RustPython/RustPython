@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyBoundMethod, PyFunction},
     function::{FuncArgs, IntoFuncArgs},
     types::{GenericMethod, VectorCallFunc},
-    {PyObject, PyObjectRef, PyResult, VirtualMachine},
+    {AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine},
 };
 
 impl PyObject {
@@ -78,6 +78,15 @@ impl<'a> PyCallable<'a> {
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
+        // The frozendict identity optimization belongs to the ordinary call path, not
+        // to __new__ or an explicit type.__call__. CALL_FUNCTION_EX reaches this path.
+        if self.obj.is(vm.ctx.types.frozendict_type)
+            && args.kwargs.is_empty()
+            && self.vectorcall.is_some()
+        {
+            let nargs = args.args.len();
+            return self.invoke_vectorcall(args.args, nargs, None, vm);
+        }
         if !vm.use_tracing.get() {
             return (self.call)(self.obj, args, vm);
         }

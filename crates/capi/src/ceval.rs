@@ -3,7 +3,7 @@ use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{CStr, c_char, c_int};
-use rustpython_vm::builtins::{PyCode, PyDict};
+use rustpython_vm::builtins::{PyAnyDictRef, PyCode};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{AsObject, PyObject, TryFromObject};
@@ -32,12 +32,15 @@ pub unsafe extern "C" fn PyEval_EvalCode(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
-        let globals = unsafe { globals.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let globals =
+            PyAnyDictRef::try_from_object(vm, unsafe { globals.assume_borrowed() }.to_owned())?;
         let locals = unsafe { locals.assume_borrowed_or_opt() }
             .map(|obj| ArgMapping::try_from_object(vm, obj.to_owned()))
             .transpose()?;
 
-        let scope = Scope::with_builtins(locals, globals.to_owned(), vm);
+        let locals = locals.or_else(|| Some(ArgMapping::from_anydict_exact(globals.clone())));
+        // Unlike Python's eval/exec, this API does not insert __builtins__.
+        let scope = Scope::new(locals, globals);
 
         vm.run_code_obj(code.to_owned(), scope)
     })

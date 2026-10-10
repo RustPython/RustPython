@@ -6,9 +6,10 @@ use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
-        PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyAnyDictRef, PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine,
+        PyDict, PyDictRef, PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList,
+        PyModule, PyProperty, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
+        PyType, PyUtf8Str,
         builtin_func::PyNativeFunction,
         descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
@@ -107,7 +108,7 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_globals() -> Option<PyDictRef> {
+pub fn current_globals() -> Option<PyAnyDictRef> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -922,7 +923,7 @@ pub struct InterpreterFrame {
     // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
     pub(crate) code: *const Py<PyCode>,
     pub(crate) func_obj: *const PyObject, // nullable
-    pub(crate) globals: *const Py<PyDict>,
+    pub(crate) globals: *const PyAnyDictRef,
     pub(crate) builtins: *const PyObject,
 
     /// Unified storage for local variables and evaluation stack.
@@ -982,7 +983,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new(
         code: &Py<PyCode>,
-        globals: &Py<PyDict>,
+        globals: &PyAnyDictRef,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         localsplus: LocalsPlus,
@@ -1026,7 +1027,7 @@ impl InterpreterFrame {
                 Some(obj) => obj as *const PyObject,
                 None => core::ptr::null(),
             },
-            globals: globals as *const Py<PyDict>,
+            globals: globals as *const PyAnyDictRef,
             builtins: builtins as *const PyObject,
             localsplus,
             locals,
@@ -1059,7 +1060,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new_on_datastack<'a>(
         code: &Py<PyCode>,
-        globals: &Py<PyDict>,
+        globals: &PyAnyDictRef,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         locals: FrameLocals,
@@ -1265,7 +1266,7 @@ impl InterpreterFrame {
         // Create a full FrameObject with its own InterpreterFrame copy.
         // The FrameObject owns references to the same objects (code, globals, etc).
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals: PyDictRef = self.globals().to_owned();
+        let globals = self.globals().clone();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1361,7 +1362,7 @@ impl InterpreterFrame {
     #[cold]
     fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals: PyDictRef = self.globals().to_owned();
+        let globals = self.globals().clone();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1418,7 +1419,7 @@ impl InterpreterFrame {
 
     /// Borrowed globals dict.
     #[inline(always)]
-    pub fn globals(&self) -> &Py<PyDict> {
+    pub fn globals(&self) -> &PyAnyDictRef {
         // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.globals }
     }
@@ -1533,7 +1534,7 @@ pub struct FrameObject {
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
     pub(crate) owned_code: Option<PyRef<PyCode>>,
-    pub(crate) owned_globals: Option<PyDictRef>,
+    pub(crate) owned_globals: Option<PyAnyDictRef>,
     pub(crate) owned_builtins: Option<PyObjectRef>,
     pub(crate) owned_func_obj: Option<PyObjectRef>,
 
@@ -1816,7 +1817,7 @@ impl FrameObject {
         let locals = match scope.locals {
             Some(locals) => FrameLocals::with_locals(locals),
             None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
-            None => FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone())),
+            None => FrameLocals::with_locals(ArgMapping::from_anydict_exact(scope.globals.clone())),
         };
 
         // Pointers are initially set from owned fields' references but will be
@@ -1852,7 +1853,7 @@ impl FrameObject {
     fn init_iframe_ptrs(self_: &Py<Self>) {
         let iframe = unsafe { self_.iframe_mut() };
         iframe.code = &**self_.owned_code.as_ref().unwrap() as *const Py<PyCode>;
-        iframe.globals = &**self_.owned_globals.as_ref().unwrap() as *const Py<PyDict>;
+        iframe.globals = self_.owned_globals.as_ref().unwrap() as *const PyAnyDictRef;
         iframe.builtins = &**self_.owned_builtins.as_ref().unwrap() as *const PyObject;
         iframe.func_obj = match &self_.owned_func_obj {
             Some(obj) => &**obj as *const PyObject,
@@ -2496,7 +2497,7 @@ impl Py<FrameObject> {
                 },
             )
         };
-        let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        let builtins_dict = if globals.as_object().class().is(vm.ctx.types.dict_type) {
             builtins
                 .downcast_ref_if_exact::<PyDict>(vm)
                 // SAFETY: downcast_ref_if_exact already verified exact type
@@ -2738,7 +2739,7 @@ fn exec_iframe<'a>(
             },
         )
     };
-    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+    let builtins_dict = if globals.as_object().class().is(vm.ctx.types.dict_type) {
         builtins
             .downcast_ref_if_exact::<PyDict>(vm)
             .map(|d| unsafe { PyExact::ref_unchecked(d) })
@@ -2930,7 +2931,7 @@ pub(crate) struct ExecutingFrame<'a> {
     code: &'a Py<PyCode>,
     localsplus: &'a mut LocalsPlus,
     locals: &'a FrameLocals,
-    globals: &'a Py<PyDict>,
+    globals: &'a PyAnyDictRef,
     builtins: &'a PyObject,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
     /// Only set when both globals and builtins are exact dict types (not
@@ -4549,15 +4550,10 @@ impl ExecutingFrame<'_> {
             }
             Instruction::DeleteName { namei: idx } => {
                 let name = self.code.names[idx.get(arg) as usize];
-                let res = self.locals.mapping(vm).ass_subscript(name, None, vm);
-
-                match res {
-                    Ok(()) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(name_error(name, vm));
-                    }
-                    Err(e) => return Err(e),
-                }
+                self.locals
+                    .mapping(vm)
+                    .ass_subscript(name, None, vm)
+                    .map_err(|_| name_error(name, vm))?;
                 Ok(None)
             }
             Instruction::DeleteSubscr => self.execute_delete_subscript(vm),
@@ -5152,7 +5148,7 @@ impl ExecutingFrame<'_> {
                 match result {
                     Ok(x) => self.push_value(x),
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        self.push_value(self.load_global_or_builtin(name, vm)?);
+                        self.push_value(self.load_name_global_or_builtin(name, vm)?);
                     }
                     Err(e) => return Err(e),
                 }
@@ -7941,9 +7937,9 @@ impl ExecutingFrame<'_> {
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if cached_version != 0
-                    && let Some(x) = self
-                        .globals
-                        .get_item_by_index_and_keys_version(cached_version, cached_index)
+                    && let Some(globals) = self.globals.as_mutable()
+                    && let Some(x) =
+                        globals.get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
                     self.push_value(x);
                     if (oparg & 1) != 0 {
@@ -7967,7 +7963,8 @@ impl ExecutingFrame<'_> {
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
                 if cached_globals_ver != 0
                     && cached_builtins_ver != 0
-                    && let Ok(current_globals_ver) = u16::try_from(self.globals.keys_version())
+                    && let Some(globals) = self.globals.as_mutable()
+                    && let Ok(current_globals_ver) = u16::try_from(globals.keys_version())
                     && cached_globals_ver == current_globals_ver
                     && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
                     && let Some(x) = builtins_dict
@@ -8439,7 +8436,12 @@ impl ExecutingFrame<'_> {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
-            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals) };
+            let globals = self
+                .globals
+                .as_object()
+                .downcast_ref::<PyDict>()
+                .expect("exact dict globals");
+            let globals_exact = unsafe { PyExact::ref_unchecked(globals) };
             globals_exact
                 .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
@@ -8450,14 +8452,27 @@ impl ExecutingFrame<'_> {
             if let Some(value) = self.globals.get_item_opt(name, vm)? {
                 return Ok(value);
             }
-            self.builtins.get_item(name, vm).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.key_error) {
-                    vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
-                } else {
-                    e
-                }
-            })
+            self.load_builtin(name, vm)
         }
+    }
+
+    fn load_name_global_or_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        // LOAD_NAME reads the stored global entries even for dict subclasses;
+        // LOAD_GLOBAL instead honors their __getitem__ implementation.
+        if let Some(value) = self.globals.inner_getitem_opt(name, vm)? {
+            return Ok(value);
+        }
+        self.load_builtin(name, vm)
+    }
+
+    fn load_builtin(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        self.builtins.get_item(name, vm).map_err(|e| {
+            if e.fast_isinstance(vm.ctx.exceptions.key_error) {
+                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
+            } else {
+                e
+            }
+        })
     }
 
     #[cfg_attr(feature = "flame-it", flame("FrameObject"))]
@@ -11679,7 +11694,7 @@ impl ExecutingFrame<'_> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             FrameLocals::lazy()
         } else {
-            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 func.globals.clone(),
             ))
         };
@@ -11745,7 +11760,7 @@ impl ExecutingFrame<'_> {
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             FrameLocals::lazy()
         } else {
-            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+            FrameLocals::with_locals(crate::function::ArgMapping::from_anydict_exact(
                 func.globals.clone(),
             ))
         };
@@ -11831,8 +11846,11 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
+        let Some(globals) = self.globals.as_mutable() else {
+            return;
+        };
         let name = self.code.names[(oparg >> 1) as usize];
-        let Ok(globals_version @ 1..) = u16::try_from(self.globals.assign_keys_version(vm)) else {
+        let Ok(globals_version @ 1..) = u16::try_from(globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -11844,7 +11862,7 @@ impl ExecutingFrame<'_> {
             return;
         };
 
-        if let Ok(Some(globals_hint)) = self.globals.hint_for_key(name, vm) {
+        if let Ok(Some(globals_hint)) = globals.hint_for_key(name, vm) {
             unsafe {
                 self.code
                     .instructions

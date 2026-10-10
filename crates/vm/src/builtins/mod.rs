@@ -20,7 +20,7 @@ pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
 pub(crate) mod dict;
-pub use dict::{PyDict, PyDictRef};
+pub use dict::{PyAnyDictRef, PyDict, PyDictRef, PyFrozenDict};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
