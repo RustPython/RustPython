@@ -77,3 +77,41 @@ if sys.platform == "win32":
     with assert_raises(ValueError):
         mapped.resize(4)
     assert mapped.closed
+
+
+# Assignment validates current storage after argument conversion, even if empty.
+with mmap.mmap(-1, 4) as mapped:
+    with assert_raises(ValueError):
+        mapped[4] = 256
+    mapped[0:0] = b""
+with assert_raises(ValueError):
+    mapped[0:0] = b""
+
+with mmap.mmap(-1, 4, access=mmap.ACCESS_READ) as mapped:
+    with assert_raises(TypeError):
+        mapped[0:0] = b""
+
+
+class CloseOnIndex:
+    def __init__(self, mapped):
+        self.mapped = mapped
+
+    def __index__(self):
+        self.mapped.close()
+        return 0
+
+
+for close_from in ("key", "value", "slice"):
+    mapped = mmap.mmap(-1, 4)
+    closer = CloseOnIndex(mapped)
+    try:
+        with assert_raises(ValueError):
+            if close_from == "key":
+                mapped[closer] = 0
+            elif close_from == "value":
+                mapped[0] = closer
+            else:
+                mapped[closer:0] = b""
+        assert mapped.closed
+    finally:
+        mapped.close()
