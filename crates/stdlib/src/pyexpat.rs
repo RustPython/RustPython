@@ -1051,6 +1051,10 @@ mod _pyexpat {
         fn make_name(&self, name: &xml::name::OwnedName) -> String {
             match (&self.namespace_separator, &name.namespace) {
                 (Some(sep), Some(ns)) => format!("{}{}{}", ns, sep, name.local_name),
+                (None, _) => match &name.prefix {
+                    Some(prefix) => format!("{prefix}:{}", name.local_name),
+                    None => name.local_name.clone(),
+                },
                 _ => name.local_name.clone(),
             }
         }
