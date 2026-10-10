@@ -253,7 +253,7 @@ impl CodecsRegistry {
     }
 
     pub(crate) fn register_manual(&self, name: &str, codec: PyCodec) {
-        let name = normalize_encoding_name(name);
+        let name = normalize_registry_name(name);
         self.inner
             .write()
             .search_cache
@@ -262,7 +262,7 @@ impl CodecsRegistry {
 
     pub fn lookup(&self, encoding: &str, vm: &VirtualMachine) -> PyResult<PyCodec> {
         let original_encoding = encoding;
-        let encoding = normalize_encoding_name(encoding);
+        let encoding = normalize_registry_name(encoding);
         let search_path = {
             let inner = self.inner.read();
             if let Some(codec) = inner.search_cache.get(encoding.as_ref()) {
@@ -308,7 +308,7 @@ impl CodecsRegistry {
     }
 
     pub fn forget(&self, encoding: &str) -> Option<PyCodec> {
-        let encoding = normalize_encoding_name(encoding);
+        let encoding = normalize_registry_name(encoding);
         self.inner.write().search_cache.remove(encoding.as_ref())
     }
 
@@ -621,6 +621,26 @@ impl FastCodec {
             None
         }
     }
+}
+
+fn normalize_registry_name(encoding: &str) -> Cow<'_, str> {
+    if !encoding
+        .bytes()
+        .any(|b| b.is_ascii_uppercase() || b == b' ')
+    {
+        return encoding.into();
+    }
+    encoding
+        .chars()
+        .map(|c| {
+            if c == ' ' {
+                '-'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect::<String>()
+        .into()
 }
 
 fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {

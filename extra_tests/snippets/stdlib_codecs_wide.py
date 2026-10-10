@@ -31,7 +31,7 @@ assert (
 
 
 # Lookup errors preserve the requested spelling, while search hooks receive
-# the Python 3.14 normalized registry key.
+# the Python 3.15 normalized registry key.
 import codecs
 
 seen_encoding_names = []
@@ -45,8 +45,8 @@ def record_unknown_encoding(name):
 codecs.register(record_unknown_encoding)
 try:
     for requested, normalized in (
-        ("NO Such  Codec!", "no_such_codec"),
-        ("x_ weird--Ω .Ab", "x_weird_.ab"),
+        ("NO Such  Codec!", "no-such--codec!"),
+        ("x_ weird--Ω .Ab", "x_-weird--Ω-.ab"),
     ):
         for lookup in (
             codecs.lookup,

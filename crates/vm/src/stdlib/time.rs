@@ -18,9 +18,9 @@ mod decl {
     use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyFloat, PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
-        common::wtf8::{Wtf8Buf, wtf8_concat},
+        common::wtf8::Wtf8Buf,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
@@ -128,8 +128,21 @@ mod decl {
         vm.audit("time.sleep", || (object.clone(),))?;
 
         let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
-        let nanoseconds = if let Some(float) = object.downcast_ref::<PyFloat>() {
-            let seconds = float.to_f64();
+        let nanoseconds = if object.number().is_index() {
+            let seconds = object.try_index(vm).map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    overflow()
+                } else {
+                    e
+                }
+            })?;
+            seconds
+                .as_bigint()
+                .to_i64()
+                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
+                .ok_or_else(overflow)?
+        } else {
+            let seconds = object.try_float(vm)?.to_f64();
             if seconds.is_nan() {
                 return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
@@ -146,47 +159,6 @@ mod decl {
                 return Err(overflow());
             }
             nanoseconds as i64
-        } else {
-            let seconds = object.try_index(vm).or_else(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
-                    Err(overflow())
-                } else if e.fast_isinstance(vm.ctx.exceptions.type_error) {
-                    // CPython's %T reads stored type metadata, preserving surrogates.
-                    let class = object.class();
-                    let name = if let Some(heap_type) = &class.heaptype_ext {
-                        let qualname = heap_type.qualname.read().clone();
-                        let module = if let Some(dict) = class.attributes.as_dict() {
-                            dict.get_item_opt(identifier!(vm, __module__), vm)?
-                                .ok_or_else(|| vm.new_attribute_error("__module__"))?
-                        } else {
-                            class.__module__(vm)?
-                        };
-                        match module.downcast_ref::<PyStr>() {
-                            Some(module)
-                                if module.as_wtf8() != "builtins"
-                                    && module.as_wtf8() != "__main__" =>
-                            {
-                                wtf8_concat!(module.as_wtf8(), ".", qualname.as_wtf8())
-                            }
-                            _ => qualname.as_wtf8().to_owned(),
-                        }
-                    } else {
-                        Wtf8Buf::from(class.slot_name().to_owned())
-                    };
-                    Err(vm.new_type_error(wtf8_concat!(
-                        "'",
-                        name,
-                        "' object cannot be interpreted as an integer or float"
-                    )))
-                } else {
-                    Err(e)
-                }
-            })?;
-            seconds
-                .as_bigint()
-                .to_i64()
-                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
-                .ok_or_else(overflow)?
         };
         if nanoseconds < 0 {
             return Err(vm.new_value_error("sleep length must be non-negative"));

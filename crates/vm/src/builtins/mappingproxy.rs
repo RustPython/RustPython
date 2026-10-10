@@ -193,9 +193,11 @@ impl Py<PyMappingProxy> {
                 op.method_name(&vm.ctx).as_str()
             ))
         })?;
+        if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        }
         let obj = zelf.to_object(vm)?;
-        // CPython parity (Objects/descrobject.c::mappingproxy_richcompare):
-        // delegate to PyObject_RichCompare on the underlying mapping.
+        // Equality comparisons preserve the underlying mapping's result.
         obj.rich_compare(other.to_owned(), op, vm).map(Either::A)
     }
 

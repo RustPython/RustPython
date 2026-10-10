@@ -25,10 +25,12 @@ assert A.__dict__.get("a", "default") is A.a
 assert A.__dict__.get("not here") is None
 
 
-# A mappingproxy must preserve arbitrary rich-comparison results unchanged.
+# A mappingproxy preserves arbitrary equality-comparison results unchanged.
 def check_mappingproxy_comparison_results():
     import operator
     from types import MappingProxyType
+
+    from testutils import assert_raises
 
     class Result:
         def __bool__(self):
@@ -58,14 +60,24 @@ def check_mappingproxy_comparison_results():
     for operation, reflected in (
         (operator.eq, "eq"),
         (operator.ne, "ne"),
+    ):
+        calls.clear()
+        assert operation(MappingProxyType(CustomMapping()), {}) is result
+        assert calls == [operation.__name__], calls
+        calls.clear()
+        assert operation(MappingProxyType({}), Compared()) is result
+        assert calls == [reflected], calls
+
+    for operation, reflected in (
         (operator.lt, "gt"),
         (operator.le, "ge"),
         (operator.gt, "lt"),
         (operator.ge, "le"),
     ):
         calls.clear()
-        assert operation(MappingProxyType(CustomMapping()), {}) is result
-        assert calls == [operation.__name__], calls
+        with assert_raises(TypeError):
+            operation(MappingProxyType(CustomMapping()), {})
+        assert calls == [], calls
         calls.clear()
         assert operation(MappingProxyType({}), Compared()) is result
         assert calls == [reflected], calls

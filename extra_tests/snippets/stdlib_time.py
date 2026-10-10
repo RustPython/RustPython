@@ -234,13 +234,39 @@ class SleepTypeNamespace:
         pass
 
 
-for module, prefix in (("__main__", ""), ("sleep_test", "sleep_test.")):
+for module in ("__main__", "sleep_test"):
     SleepTypeNamespace.Invalid.__module__ = module
     with assert_raises(TypeError) as error:
         time.sleep(SleepTypeNamespace.Invalid())
-    assert str(error.exception) == (
-        f"'{prefix}SleepTypeNamespace.Invalid' object cannot be interpreted as an integer or float"
-    )
+    assert str(error.exception) == "must be real number, not Invalid"
+
+
+class FloatSleepDuration:
+    def __float__(self):
+        return -0.5
+
+
+class IndexedSleepDuration(FloatSleepDuration):
+    def __index__(self):
+        return -1
+
+    def __float__(self):
+        raise AssertionError("sleep must prefer __index__")
+
+
+class InvalidIndexedSleepDuration(FloatSleepDuration):
+    def __index__(self):
+        raise TypeError("index conversion failed")
+
+
+for duration in (FloatSleepDuration(), IndexedSleepDuration()):
+    with assert_raises(ValueError) as error:
+        time.sleep(duration)
+    assert str(error.exception) == "sleep length must be non-negative"
+
+with assert_raises(TypeError) as error:
+    time.sleep(InvalidIndexedSleepDuration())
+assert str(error.exception) == "index conversion failed"
 
 # The optional second argument fills the fields that are not part of the
 # sequence.
