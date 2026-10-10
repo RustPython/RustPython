@@ -36,3 +36,28 @@ assert not issubclass(tuple, CustomInterface)
 assert isinstance(Concrete(), CustomInterface)
 assert isinstance(SubConcrete(), CustomInterface)
 assert not isinstance((), CustomInterface)
+
+
+class NoClassAttribute:
+    @property
+    def __class__(self):
+        raise AttributeError("no class attribute")
+
+
+instance = NoClassAttribute()
+assert not isinstance(instance, CustomInterface)
+CustomInterface.register(NoClassAttribute)
+assert isinstance(instance, CustomInterface)
+
+class_error = RuntimeError("class lookup failed")
+
+
+class BrokenClassAttribute:
+    @property
+    def __class__(self):
+        raise class_error
+
+
+with assert_raises(RuntimeError) as caught:
+    isinstance(BrokenClassAttribute(), CustomInterface)
+assert caught.exception is class_error
