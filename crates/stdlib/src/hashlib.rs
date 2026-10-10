@@ -8,7 +8,7 @@ pub(crate) use _hashlib::module_def;
 #[pymodule]
 pub(crate) mod _hashlib {
     use crate::vm::{
-        Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyBaseExceptionRef, PyBytes, PyFrozenSet, PyStr, PyType, PyTypeRef, PyUtf8StrRef,
             PyValueError,
@@ -67,11 +67,35 @@ pub(crate) mod _hashlib {
         dict.into()
     }
 
+    #[derive(Debug)]
+    struct HashName(PyUtf8StrRef);
+
+    impl TryFromObject for HashName {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            if !obj.downcastable::<PyStr>() {
+                let name = if vm.is_none(&obj) {
+                    "None".into()
+                } else {
+                    obj.class().slot_name()
+                };
+                let mut end = name.len().min(50);
+                while !name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                return Err(vm.new_type_error(format!(
+                    "new() argument 'name' must be str, not {}",
+                    &name[..end]
+                )));
+            }
+            PyUtf8StrRef::try_from_object(vm, obj).map(Self)
+        }
+    }
+
     #[derive(FromArgs, Debug)]
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(any)]
-        name: PyUtf8StrRef,
+        name: HashName,
         // Missing still allows the string keyword; b'' does not.
         #[pyarg(any, optional, py_default = "b''")]
         data: OptionalArg<ArgBytesLike>,
@@ -785,7 +809,7 @@ pub(crate) mod _hashlib {
     #[pyfunction(name = "new")]
     fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let data = resolve_data(args.data, args.string, vm)?;
-        match args.name.as_str().to_lowercase().as_str() {
+        match args.name.0.as_str().to_lowercase().as_str() {
             "md5" => Ok(new_fixed_hasher("md5", data).into_pyobject(vm)),
             "sha1" => Ok(new_fixed_hasher("sha1", data).into_pyobject(vm)),
             "sha224" => Ok(new_fixed_hasher("sha224", data).into_pyobject(vm)),
