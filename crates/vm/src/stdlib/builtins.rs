@@ -482,11 +482,21 @@ mod builtins {
             let builtins = globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?;
             if builtins.is_none() {
                 if globals.is_frozen() {
-                    return Err(
-                        vm.new_type_error("cannot assign __builtins__ to frozendict globals")
-                    );
+                    let builtins = crate::frame::current_builtins()
+                        .unwrap_or_else(|| vm.builtins.dict().into());
+                    globals
+                        .as_object()
+                        .set_item(identifier!(vm, __builtins__), builtins, vm)
+                        .map_err(|_| {
+                            vm.new_type_error("cannot assign __builtins__ to frozendict globals")
+                        })?;
+                } else {
+                    globals.set_item(
+                        identifier!(vm, __builtins__),
+                        vm.builtins.dict().into(),
+                        vm,
+                    )?;
                 }
-                globals.set_item(identifier!(vm, __builtins__), vm.builtins.dict().into(), vm)?;
             }
 
             let scope = crate::scope::Scope::new(Some(locals), globals);
@@ -658,6 +668,7 @@ mod builtins {
         func: &str,
         closure: Option<PyRef<PyTuple<PyCellRef>>>,
     ) -> PyResult {
+        let from_string = matches!(&source, Either::B(_));
         // Determine code object:
         let code_obj = match source {
             #[cfg(feature = "rustpython-compiler")]
@@ -681,6 +692,20 @@ mod builtins {
             return Err(vm.new_type_error(format!(
                 "code object passed to {func}() may not contain free variables"
             )));
+        }
+
+        // The source-string path repeats the stored-builtins check through the
+        // dictionary API, unlike direct evaluation of an existing code object.
+        if from_string
+            && scope.globals.is_frozen()
+            && scope
+                .globals
+                .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+                .is_none()
+        {
+            scope
+                .globals
+                .set_item(identifier!(vm, __builtins__), vm.builtins.dict().into(), vm)?;
         }
 
         // Run the code:

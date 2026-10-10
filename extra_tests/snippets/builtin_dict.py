@@ -1825,6 +1825,78 @@ frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
             self.assertIs(f.__globals__, ns)
             self.assertEqual(f(), 0)
 
+        def test_subclass_builtins_assignment_hook(self):
+            calls = []
+
+            class F(frozendict):
+                def __setitem__(self, key, value):
+                    calls.append((key, value))
+
+            for operation, source, mode, expected in (
+                (eval, "1", "eval", 1),
+                (exec, "pass", "exec", None),
+            ):
+                namespace = F()
+                calls.clear()
+                self.assertEqual(
+                    operation(compile(source, "<frozen-globals>", mode), namespace),
+                    expected,
+                )
+                self.assertEqual(calls, [("__builtins__", builtins.__dict__)])
+                self.assertNotIn("__builtins__", namespace)
+                calls.clear()
+                with self.assertRaisesRegex(
+                    TypeError, "frozendict object does not support item assignment"
+                ):
+                    operation(source, namespace)
+                self.assertEqual(calls, [("__builtins__", builtins.__dict__)])
+
+        def test_implicit_frozen_builtins_namespace_counts(self):
+            import _testinternalcapi
+
+            function = eval(
+                "lambda: len(())",
+                frozendict(__builtins__=frozendict(len=len)),
+            )
+            counts = _testinternalcapi.get_code_var_counts(function)
+            self.assertEqual(
+                counts["unbound"]["globals"],
+                {"total": 1, "numglobal": 0, "numbuiltin": 1, "numunknown": 0},
+            )
+            for argument in ("globalsns", "builtinsns"):
+                with self.assertRaises(TypeError):
+                    _testinternalcapi.get_code_var_counts(
+                        function, **{argument: frozendict()}
+                    )
+
+        def test_warning_context_reads_frozen_storage(self):
+            import warnings
+
+            class F(frozendict):
+                def __getitem__(self, key):
+                    if key in ("__warningregistry__", "__name__"):
+                        raise AssertionError("warning context must read stored entries")
+                    return super().__getitem__(key)
+
+            for has_registry in (False, True):
+                entries = dict(self.ns, warn=warnings.warn)
+                if has_registry:
+                    entries["__warningregistry__"] = {}
+                function = eval("lambda: warn('probe')", F(entries))
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    if has_registry:
+                        function()
+                        self.assertEqual(len(caught), 1)
+                        self.assertEqual(str(caught[0].message), "probe")
+                    else:
+                        with self.assertRaisesRegex(
+                            TypeError,
+                            "frozendict object does not support item assignment",
+                        ):
+                            function()
+                        self.assertEqual(caught, [])
+
         def test_frozen_builtins(self):
             ns = frozendict(__builtins__=frozendict({"len": len}))
             self.assertEqual(eval("(lambda: len([1, 2]))()", ns), 2)
@@ -2030,7 +2102,7 @@ frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
             FrozenTypeNamespaceTests,
         )
     )
-    assert frozen_suite.countTestCases() == 58
+    assert frozen_suite.countTestCases() == 61
     frozen_result = unittest.TextTestRunner(verbosity=2).run(frozen_suite)
     assert frozen_result.wasSuccessful()
     assert not frozen_result.skipped

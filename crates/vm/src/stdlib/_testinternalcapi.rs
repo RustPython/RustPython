@@ -186,7 +186,7 @@ mod _testinternalcapi {
             args.globalnames.into_option(),
             args.attrnames.into_option(),
             globalsns.as_ref(),
-            builtinsns.as_deref(),
+            builtinsns.as_ref(),
             vm,
         )?;
         counts_to_dict(&counts, vm)
@@ -215,7 +215,7 @@ mod _testinternalcapi {
             args.globalnames.into_option(),
             None,
             globalsns.as_ref(),
-            builtinsns.as_deref(),
+            builtinsns.as_ref(),
             vm,
         )?;
         if builtinsns.is_some() {
@@ -1128,12 +1128,12 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
 type CodeNamespaces = (
     PyRef<PyCode>,
     Option<crate::builtins::PyAnyDictRef>,
-    Option<PyRef<PyDict>>,
+    Option<crate::builtins::PyAnyDictRef>,
 );
 
 fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespaces> {
     if let Ok(func) = obj.to_owned().downcast::<PyFunction>() {
-        let builtins = func.builtins.clone().downcast::<PyDict>().ok();
+        let builtins = crate::builtins::PyAnyDictRef::from_object(&func.builtins);
         return Ok((
             (*func.code).to_owned(),
             Some(func.globals.clone()),
@@ -1288,7 +1288,7 @@ fn set_unbound_var_counts(
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
     globalsns: Option<&crate::builtins::PyAnyDictRef>,
-    builtinsns: Option<&Py<PyDict>>,
+    builtinsns: Option<&crate::builtins::PyAnyDictRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let globalnames = optional_set(globalnames, "globalnames", vm)?;
@@ -1325,7 +1325,7 @@ fn identify_unbound_names(
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
     globalsns: Option<&crate::builtins::PyAnyDictRef>,
-    builtinsns: Option<&Py<PyDict>>,
+    builtinsns: Option<&crate::builtins::PyAnyDictRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(UnboundCounts, i32)> {
     let mut seen_globals = HashSet::new();
