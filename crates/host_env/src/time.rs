@@ -682,7 +682,7 @@ pub fn mktime_tm_from_parts(parts: MktimeTmParts) -> Result<libc::tm, CheckedTmE
     Ok(tm)
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
 pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
     let fmt_c = CString::new(fmt).map_err(|_| CheckedTmError::EmbeddedNul)?;
     let mut size = 1024usize;
@@ -704,7 +704,42 @@ pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError
     }
 }
 
-#[cfg(windows)]
+// These Unix platforms provide wcsftime, which returns locale text as Unicode.
+// Keep the narrow fallback on other targets, including OpenBSD (%V is broken
+// in its wcsftime implementation; CPython also uses strftime there).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
+    if fmt.contains('\0') {
+        return Err(CheckedTmError::EmbeddedNul);
+    }
+    let fmt_wide: Vec<libc::wchar_t> = fmt
+        .chars()
+        .map(|ch| ch as libc::wchar_t)
+        .chain([0])
+        .collect();
+    let mut size = 1024usize;
+    let max_scale = 256usize.saturating_mul(fmt.len().max(1));
+    loop {
+        let mut out = vec![0 as libc::wchar_t; size];
+        let written = unsafe {
+            wcsftime(
+                out.as_mut_ptr(),
+                out.len(),
+                fmt_wide.as_ptr(),
+                tm as *const libc::tm,
+            )
+        };
+        if written > 0 || size >= max_scale {
+            return Ok(out[..written]
+                .iter()
+                .map(|ch| char::from_u32(*ch as u32).unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect());
+        }
+        size = size.saturating_mul(2);
+    }
+}
+
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 unsafe extern "C" {
     fn wcsftime(
         s: *mut libc::wchar_t,

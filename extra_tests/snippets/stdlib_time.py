@@ -94,6 +94,29 @@ s = time.strftime("%Y-%m-%d-%H-%M-%S", x)
 # print(s)
 assert s == "1970-01-01-00-16-40"
 
+if sys.platform in ("linux", "darwin"):
+    import locale
+
+    old_locale = locale.setlocale(locale.LC_ALL)
+    try:
+        # Locale output must be Unicode even when the locale is not UTF-8.
+        # Keep LC_CTYPE and LC_TIME consistent for wcsftime on macOS.
+        # These locales are optional on the host running the snippet.
+        for time_locale in ("fr_FR.ISO8859-1", "fr_FR.UTF-8"):
+            try:
+                locale.setlocale(locale.LC_ALL, time_locale)
+            except locale.Error:
+                continue
+            february = (2024, 2, 1, 12, 0, 0, 3, 32, 0)
+            assert time.strftime("%B", february) == "février"
+            assert (
+                time.strftime("[%B] 🐍 \ud800\0%Y", february)
+                == "[février] 🐍 \ud800\0" + "2024"
+            )
+            assert time.strftime("%B" * 300, february) == "février" * 300
+    finally:
+        locale.setlocale(locale.LC_ALL, old_locale)
+
 if sys.platform != "wasi":
     # _strptime depends on time.tzname, which is not available on WASI yet.
     x2 = time.strptime(s, "%Y-%m-%d-%H-%M-%S")
