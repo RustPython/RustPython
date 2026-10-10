@@ -762,12 +762,12 @@ pub fn fchmod(fd: BorrowedFd<'_>, mode: u32) -> std::io::Result<()> {
 #[cfg(target_os = "redox")]
 pub fn utimes(
     path: &Path,
-    acc: core::time::Duration,
-    modif: core::time::Duration,
+    acc: crate::os::FileTime,
+    modif: crate::os::FileTime,
 ) -> std::io::Result<()> {
-    let tv = |d: core::time::Duration| libc::timeval {
-        tv_sec: d.as_secs() as _,
-        tv_usec: d.subsec_micros() as _,
+    let tv = |time: crate::os::FileTime| libc::timeval {
+        tv_sec: time.seconds,
+        tv_usec: (time.nanoseconds / 1_000) as _,
     };
     nix::sys::stat::utimes(path, &tv(acc).into(), &tv(modif).into()).map_err(std::io::Error::from)
 }
@@ -776,13 +776,13 @@ pub fn utimes(
 pub fn set_file_times_at(
     dir_fd: i32,
     path: &CStr,
-    access: core::time::Duration,
-    modified: core::time::Duration,
+    access: crate::os::FileTime,
+    modified: crate::os::FileTime,
     follow_symlinks: bool,
 ) -> std::io::Result<()> {
-    let ts = |d: core::time::Duration| libc::timespec {
-        tv_sec: d.as_secs() as _,
-        tv_nsec: d.subsec_nanos() as _,
+    let ts = |time: crate::os::FileTime| libc::timespec {
+        tv_sec: time.seconds,
+        tv_nsec: time.nanoseconds as _,
     };
     let times = [ts(access), ts(modified)];
     let ret = unsafe {
