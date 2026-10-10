@@ -106,6 +106,11 @@ pub(crate) mod _thread {
 
     fn validate_acquire_args(args: AcquireArgs, vm: &VirtualMachine) -> PyResult<(bool, f64)> {
         let timeout = args.timeout.to_secs_f64();
+        // CPython checks the signed nanosecond range before acquire-specific restrictions.
+        let timeout_ns = timeout * 1_000_000_000.0;
+        if !(i64::MIN as f64..-(i64::MIN as f64)).contains(&timeout_ns) {
+            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
+        }
         if !args.blocking && timeout != -1.0 {
             return Err(vm.new_value_error("can't specify a timeout for a non-blocking call"));
         }
