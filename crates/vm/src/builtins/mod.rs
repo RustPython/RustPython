@@ -2,10 +2,6 @@
 //! 7 common PyRef type aliases are exposed - [`PyBytesRef`], [`PyDictRef`], [`PyIntRef`], [`PyListRef`], [`PyStrRef`], [`PyTypeRef`], [`PyTupleRef`]
 //! Do not add more PyRef type aliases. They will be rare enough to use directly `PyRef<T>`.
 
-pub(crate) mod anydict;
-pub use anydict::PyAnyDictRef;
-pub(crate) mod frozendict;
-pub use frozendict::PyFrozenDict;
 pub(crate) mod asyncgenerator;
 pub use asyncgenerator::PyAsyncGen;
 pub(crate) mod builtin_func;
@@ -24,7 +20,7 @@ pub use complex::PyComplex;
 pub(crate) mod coroutine;
 pub use coroutine::PyCoroutine;
 pub(crate) mod dict;
-pub use dict::{PyDict, PyDictRef};
+pub use dict::{PyAnyDictRef, PyDict, PyDictRef, PyFrozenDict};
 pub(crate) mod enumerate;
 pub use enumerate::PyEnumerate;
 pub(crate) mod filter;
