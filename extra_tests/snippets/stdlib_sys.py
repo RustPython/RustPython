@@ -184,6 +184,19 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         interpreter = Path(sys.executable).resolve()
+        # A framework build can also run its embedded app directly. Match the
+        # installed launcher's file identity before applying launcher semantics.
+        framework_base = (
+            Path(sys.base_prefix)
+            / "bin"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        )
+        framework_launcher = (
+            sys.platform == "darwin"
+            and bool(getattr(sys, "_framework", ""))
+            and framework_base.is_file()
+            and interpreter.samefile(framework_base)
+        )
         home = root / "home"
         home.mkdir()
         venv_env = dict(os.environ)
@@ -227,17 +240,20 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
             invocation = f"./bin/{kind}" if kind == "relative" else executable
             assert executable_paths(invocation, cwd=bin_dir.parent) == [
                 str(executable),
-                str(interpreter),
+                str(framework_base if framework_launcher else interpreter),
                 str(prefix),
             ]
 
-        # Without a venv, preserve the invoked symlink for both executable fields.
+        # Framework launchers preset their base; ordinary binaries keep argv[0].
         plain = root / "plain" / "python"
         plain.parent.mkdir()
         plain.symlink_to(interpreter)
-        assert executable_paths(plain)[:2] == [str(plain), str(plain)]
+        assert executable_paths(plain)[:2] == [
+            str(plain),
+            str(framework_base if framework_launcher else plain),
+        ]
 
-        # A copied executable still falls back to home/<invoked name>.
+        # Without a launcher preset, copies fall back to home/<invoked name>.
         copied = root / "copied" / "python"
         copied.parent.mkdir()
         shutil.copy2(interpreter, copied)
@@ -245,7 +261,7 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
         (copied.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
         assert executable_paths(copied) == [
             str(copied),
-            str(home / copied.name),
+            str(framework_base if framework_launcher else home / copied.name),
             str(copied.parent),
         ]
 
@@ -253,20 +269,21 @@ if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
         directory_alias = root / "directory-alias"
         directory_alias.symlink_to(copied.parent, target_is_directory=True)
         aliased_copy = directory_alias / copied.name
+        # The framework launcher canonicalizes its directory before dispatch.
         assert executable_paths(aliased_copy) == [
-            str(aliased_copy),
-            str(home / copied.name),
-            str(directory_alias),
+            str(copied if framework_launcher else aliased_copy),
+            str(framework_base if framework_launcher else home / copied.name),
+            str(copied.parent if framework_launcher else directory_alias),
         ]
 
-        # Resolving a final-component link must preserve aliases in its target.
+        # Without a launcher preset, final-link resolution preserves target aliases.
         target_link = root / "linked" / "python"
         target_link.parent.mkdir()
         (target_link.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
         target_link.symlink_to("../directory-alias/python")
         assert executable_paths(target_link) == [
             str(target_link),
-            str(aliased_copy),
+            str(framework_base if framework_launcher else aliased_copy),
             str(target_link.parent),
         ]
 
