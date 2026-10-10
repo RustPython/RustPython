@@ -1576,6 +1576,18 @@ impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
     }
 }
 
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::time::TimestampError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::FiletimeOutOfRange => {
+                vm.new_overflow_error("timestamp out of range for Windows FILETIME")
+            }
+            Self::Os(error) => error.to_pyexception(vm),
+        }
+    }
+}
+
 #[cfg(any(unix, windows))]
 impl ToPyException for rustpython_host_env::time::CheckedTmError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {

@@ -145,23 +145,84 @@ pub fn current_time_t() -> TimeT {
 }
 
 #[cfg(windows)]
-#[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn gmtime_from_timestamp(when: TimeT) -> std::io::Result<libc::tm> {
+#[derive(Debug)]
+pub enum TimestampError {
+    FiletimeOutOfRange,
+    Os(std::io::Error),
+}
+
+#[cfg(windows)]
+fn windows_filetime(when: TimeT, local: bool) -> Result<libc::tm, TimestampError> {
+    use windows_sys::Win32::{
+        Foundation::{FILETIME, SYSTEMTIME},
+        System::Time::{FileTimeToSystemTime, SystemTimeToTzSpecificLocalTime},
+    };
+
+    const SECS_BETWEEN_EPOCHS: i64 = 11_644_473_600;
+    if when < -SECS_BETWEEN_EPOCHS {
+        return Err(TimestampError::FiletimeOutOfRange);
+    }
+    // Only negative timestamps reach this fallback, so the FILETIME cannot overflow.
+    debug_assert!(when < 0);
+    let ticks = ((when + SECS_BETWEEN_EPOCHS) as u64) * 10_000_000;
+    let filetime = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    let mut utc = SYSTEMTIME::default();
+    if unsafe { FileTimeToSystemTime(&filetime, &mut utc) } == 0 {
+        return Err(TimestampError::Os(std::io::Error::last_os_error()));
+    }
+    let time = if local {
+        let mut result = SYSTEMTIME::default();
+        // Unlike FileTimeToLocalFileTime, this applies DST rules for the timestamp.
+        if unsafe { SystemTimeToTzSpecificLocalTime(core::ptr::null(), &utc, &mut result) } == 0 {
+            return Err(TimestampError::Os(std::io::Error::last_os_error()));
+        }
+        result
+    } else {
+        utc
+    };
+    const DAYS_BEFORE_MONTH: [i32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    let year = i32::from(time.wYear);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let yday = DAYS_BEFORE_MONTH[usize::from(time.wMonth - 1)] + i32::from(time.wDay) - 1
+        + i32::from(time.wMonth > 2 && leap);
+    Ok(libc::tm {
+        tm_year: year - 1900,
+        tm_mon: i32::from(time.wMonth) - 1,
+        tm_mday: i32::from(time.wDay),
+        tm_hour: i32::from(time.wHour),
+        tm_min: i32::from(time.wMinute),
+        tm_sec: i32::from(time.wSecond),
+        tm_wday: i32::from(time.wDayOfWeek),
+        tm_yday: yday,
+        tm_isdst: if local { -1 } else { 0 },
+    })
+}
+
+#[cfg(windows)]
+pub fn gmtime_from_timestamp(when: TimeT) -> Result<libc::tm, TimestampError> {
+    if when < 0 {
+        return windows_filetime(when, false);
+    }
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _gmtime64_s(out.as_mut_ptr(), &when) };
     if err != 0 {
-        return Err(crate::os::io_error_from_errno(err));
+        return Err(TimestampError::Os(crate::os::io_error_from_errno(err)));
     }
     Ok(unsafe { out.assume_init() })
 }
 
 #[cfg(windows)]
-#[cfg_attr(target_env = "musl", allow(deprecated))]
-pub fn localtime_from_timestamp(when: TimeT) -> std::io::Result<libc::tm> {
+pub fn localtime_from_timestamp(when: TimeT) -> Result<libc::tm, TimestampError> {
+    if when < 0 {
+        return windows_filetime(when, true);
+    }
     let mut out = core::mem::MaybeUninit::<libc::tm>::uninit();
     let err = unsafe { _localtime64_s(out.as_mut_ptr(), &when) };
     if err != 0 {
-        return Err(crate::os::io_error_from_errno(err));
+        return Err(TimestampError::Os(crate::os::io_error_from_errno(err)));
     }
     Ok(unsafe { out.assume_init() })
 }

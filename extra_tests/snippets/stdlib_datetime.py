@@ -3951,12 +3951,21 @@ def test_timestamp_errno():
             raise AssertionError(
                 "Windows localtime accepted a timestamp beyond the CRT range"
             )
-        try:
-            datetime_module.datetime.fromtimestamp(-86400, datetime_module.timezone.utc)
-        except OSError as error:
-            assert error.errno == errno.EINVAL
-        else:
-            raise AssertionError("Windows gmtime accepted an out-of-range timestamp")
+        assert datetime_module.datetime.fromtimestamp(
+            -86400, datetime_module.timezone.utc
+        ) == datetime_module.datetime(1969, 12, 31, tzinfo=datetime_module.timezone.utc)
+        assert datetime_module.datetime.fromtimestamp(
+            -11_644_473_600, datetime_module.timezone.utc
+        ) == datetime_module.datetime(1601, 1, 1, tzinfo=datetime_module.timezone.utc)
+        for zone in (None, datetime_module.timezone.utc):
+            try:
+                datetime_module.datetime.fromtimestamp(-11_644_473_601, zone)
+            except OverflowError as error:
+                assert str(error) == "timestamp out of range for Windows FILETIME"
+            else:
+                raise AssertionError(
+                    "pre-FILETIME datetime did not raise OverflowError"
+                )
 
 
 test_astimezone_subclass_state()
