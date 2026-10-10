@@ -2715,15 +2715,31 @@ mod _sqlite3 {
             }
         }
 
-        fn wrapped_index(index: PyIntRef, length: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
-            let mut index = index.try_to_primitive::<c_int>(vm)?;
+        fn wrapped_index(
+            index: PyIntRef,
+            object: &PyObject,
+            length: c_int,
+            vm: &VirtualMachine,
+        ) -> PyResult<c_int> {
+            let mut index = index.try_to_primitive::<isize>(vm).map_err(|_| {
+                let class = object.class();
+                let type_name = class.slot_name();
+                let mut end = type_name.len().min(200);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                vm.new_index_error(format!(
+                    "cannot fit '{}' into an index-sized integer",
+                    &type_name[..end]
+                ))
+            })?;
             if index < 0 {
-                index += length;
+                index += length as isize;
             }
-            if index < 0 || index >= length {
+            if index < 0 || index >= length as isize {
                 Err(vm.new_index_error("Blob index out of range"))
             } else {
-                Ok(index)
+                Ok(index as c_int)
             }
         }
 
@@ -2746,7 +2762,7 @@ mod _sqlite3 {
             let inner = self.inner(vm)?;
             if let Some(index) = needle.try_index_opt(vm) {
                 let blob_len = inner.blob.bytes();
-                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                let index = Self::wrapped_index(index?, needle, blob_len, vm)?;
                 let mut byte: u8 = 0;
                 let ret = inner.blob.read_single(&mut byte, index);
                 self.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
@@ -2800,7 +2816,7 @@ mod _sqlite3 {
                     )));
                 };
                 let blob_len = inner.blob.bytes();
-                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                let index = Self::wrapped_index(index?, needle, blob_len, vm)?;
                 // Mirror CPython ass_subscript_index: use PyLong_AsLong, treat any
                 // overflow (e.g. 2**65) as -1, then validate the [0, 255] range.
                 let val = int_val.as_bigint().to_i64().unwrap_or(-1);
