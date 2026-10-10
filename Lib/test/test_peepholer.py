@@ -743,7 +743,8 @@ class TestTranforms(BytecodeTestCase):
             eval("'%s%z' % (x,)", {'x': 1234})
         with self.assertRaisesRegex(ValueError, 'unsupported format character'):
             eval("'%s%z' % (x, 5)", {'x': 1234})
-        with self.assertRaisesRegex(TypeError, 'a real number is required, not str'):
+        with self.assertRaisesRegex(TypeError,
+                'format argument 1: %d requires a real number, not str'):
             eval("'%d' % (x,)", {'x': '1234'})
         with self.assertRaisesRegex(TypeError, 'an integer is required, not float'):
             eval("'%x' % (x,)", {'x': 1234.56})
