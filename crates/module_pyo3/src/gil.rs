@@ -30,8 +30,21 @@ use crate::errors::Pyo3ResultExt;
 pub(crate) fn with_gil<R>(vm: &VirtualMachine, f: impl for<'py> FnOnce(Python<'py>) -> R) -> R {
     vm.allow_threads(|| {
         ensure_cpython_initialized();
-        Python::attach(|py| vm.attach_for_callback(|| f(py)))
+        Python::attach(|py| {
+            // Copies queued by a result's destructor outlive that destructor.
+            let _flush = FlushDeferredDrops;
+            vm.attach_for_callback(|| f(py))
+        })
     })
+}
+
+/// Drops call copies after the closure that released their result returns.
+struct FlushDeferredDrops;
+
+impl Drop for FlushDeferredDrops {
+    fn drop(&mut self) {
+        crate::convert::flush_deferred_drops();
+    }
 }
 
 /// Run `f` on behalf of CPython code calling back into RustPython.

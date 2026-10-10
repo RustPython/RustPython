@@ -9,6 +9,7 @@ Requires the `pyo3` feature:
 import array
 import collections.abc
 import copy
+import gc
 import struct
 import sys
 import time
@@ -445,8 +446,59 @@ class BeLine(ctypes.BigEndianStructure):
     _fields_ = [("point", BePoint)]
 
 
-be = ctypes.cast(b"\x00\x00\x00\x01\x00\x00\x00\x02", ctypes.POINTER(BeLine))[0]
+payload = b"\x00\x00\x00\x01\x00\x00\x00\x02"
+pointer = ctypes.cast(payload, ctypes.POINTER(BeLine))
+# The copy the cast points into is kept by the pointer, not by a ctypes attribute.
+assert not hasattr(pointer, "_pyo3_keepalive")
+be = pointer[0]
 assert (be.point.x, be.point.y) == (1, 2)
+
+
+def read_cast_without_holding_pointer():
+    data = b"\x00\x00\x00\x01\x00\x00\x00\x02"
+    # The pointer proxy is temporary. The structure keeps the C pointer,
+    # and the copied bytes live as long as that pointer does.
+    value = ctypes.cast(data, ctypes.POINTER(BeLine))[0]
+    assert (value.point.x, value.point.y) == (1, 2)
+
+
+read_cast_without_holding_pointer()
+
+
+def buffer_export_ends_with_the_last_view():
+    a = array.array("i", range(4))
+    view = (ctypes.c_int * 4).from_buffer(a)
+    raised = False
+    try:
+        a.append(1)
+    except BufferError:
+        raised = True
+    assert raised
+    assert any(
+        (item.obj if isinstance(item, memoryview) else item) is a
+        for item in view._objects.values()
+    )
+    del view
+    gc.collect()
+    a.append(1)
+    assert list(a) == [0, 1, 2, 3, 1]
+    try:
+        ctypes.c_char.from_buffer(memoryview(bytearray(b"ab"))[::-1])
+    except TypeError as exc:
+        assert "not C contiguous" in str(exc)
+    else:
+        raise AssertionError("a reversed buffer was accepted")
+
+
+buffer_export_ends_with_the_last_view()
+
+
+@pyo3.wraps
+def same_object(a, b):
+    return a is b
+
+
+assert same_object(payload, payload)
 
 # Callback exceptions are reported through this interpreter's unraisable hook.
 caught = []
