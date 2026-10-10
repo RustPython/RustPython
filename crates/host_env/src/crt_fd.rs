@@ -348,8 +348,41 @@ pub fn close(fd: Owned) -> io::Result<()> {
     _close(fd.into_raw())
 }
 
+#[cfg(not(any(target_os = "freebsd", target_os = "linux")))]
 pub fn closerange(fd_low: Raw, fd_high: Raw) {
-    for fd in fd_low..fd_high {
+    close_range_slow(fd_low, fd_high);
+}
+
+// _Py_closerange
+#[cfg(any(target_os = "freebsd", target_os = "linux"))]
+pub fn closerange(fd_low: Raw, fd_high: Raw) {
+    // CPython clamps low to 0.
+    let fd_low = fd_low.max(0);
+    // close_range(2) is [low, high] whereas CPython's is [low, high).
+    if fd_high < fd_low {
+        return;
+    }
+    let high = fd_high - 1;
+
+    if close_range(fd_low as _, high as _) == -1
+        && io::Error::last_os_error().raw_os_error() == Some(libc::ENOSYS)
+    {
+        close_range_slow(fd_low, fd_high);
+    }
+}
+
+#[cfg(target_os = "freebsd")]
+fn close_range(low: ffi::c_uint, high: ffi::c_uint) -> ffi::c_int {
+    unsafe { libc::close_range(low, high, 0) as ffi::c_int }
+}
+
+#[cfg(target_os = "linux")]
+fn close_range(low: ffi::c_uint, high: ffi::c_uint) -> ffi::c_int {
+    unsafe { libc::syscall(libc::SYS_close_range, low, high, 0) as ffi::c_int }
+}
+
+fn close_range_slow(low: Raw, high: Raw) {
+    for fd in low..high {
         // The range can contain closed descriptors, so it cannot use Owned.
         let _ = _close(fd);
     }
