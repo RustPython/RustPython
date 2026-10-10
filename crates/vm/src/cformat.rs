@@ -386,8 +386,12 @@ pub(crate) fn cformat_bytes(
                     let key = mapping_key.unwrap();
                     let key = vm.ctx.new_bytes(key);
                     let value = values_obj.get_item(key.as_object(), vm)?;
-                    let part_result =
-                        spec_format_bytes(vm, &spec, value, FormatArgument::Mapping(&key))?;
+                    let part_result = spec_format_bytes(
+                        vm,
+                        &spec,
+                        value,
+                        FormatArgument::Mapping(key.as_object()),
+                    )?;
                     result.extend(part_result);
                 }
             }
@@ -497,8 +501,12 @@ pub(crate) fn cformat_string(
                     let key = mapping_key.unwrap();
                     let key = vm.ctx.new_str(key);
                     let value = values_obj.get_item(key.as_object(), vm)?;
-                    let part_result =
-                        spec_format_string(vm, &spec, value, FormatArgument::Mapping(&key))?;
+                    let part_result = spec_format_string(
+                        vm,
+                        &spec,
+                        value,
+                        FormatArgument::Mapping(key.as_object()),
+                    )?;
                     result.push_wtf8(&part_result);
                 }
             }
