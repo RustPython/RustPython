@@ -323,7 +323,7 @@ fn resolve_executable_symlinks(executable: &Path) -> Option<PathBuf> {
         let mut joined = PathBuf::from(std::ffi::OsStr::from_bytes(dirname));
         // Filesystem text uses UTF-8/surrogateescape; count characters, not bytes.
         let multiple_chars =
-            std::str::from_utf8(dirname).map_or(dirname.len() > 1, |s| s.chars().nth(1).is_some());
+            core::str::from_utf8(dirname).map_or(dirname.len() > 1, |s| s.chars().nth(1).is_some());
         if multiple_chars && !dirname.ends_with(b"/") {
             joined.as_mut_os_string().push("/");
         }
