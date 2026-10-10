@@ -1185,3 +1185,27 @@ def test_subscript_typeerror_message():
 
 
 test_subscript_typeerror_message()
+
+
+# Decimal conversion errors identify the consumed argument, including star arguments.
+for is_bytes in (False, True):
+    for conversion in "diu":
+        for template, values, context in (
+            ("%" + conversion, "bad", ""),
+            ("%" + conversion, ("bad",), " 1"),
+            ("%s %" + conversion, ("ok", "bad"), " 2"),
+            ("%*.*" + conversion, (5, 2, "bad"), " 3"),
+            ("%(value)" + conversion, {"value": "bad"}, " 'value'"),
+        ):
+            if is_bytes:
+                template = template.encode()
+                if isinstance(values, dict):
+                    values = {b"value": "bad"}
+                    context = " b'value'"
+                elif isinstance(values, tuple) and len(values) == 2:
+                    values = (b"ok", "bad")
+            with assert_raises(TypeError) as caught:
+                template % values
+            assert str(caught.exception) == (
+                f"format argument{context}: %{conversion} requires a real number, not str"
+            )
