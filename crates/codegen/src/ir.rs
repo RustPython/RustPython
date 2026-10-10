@@ -2227,14 +2227,13 @@ impl Blocks {
                 AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
                     match func.get(inst.arg) {
                         IntrinsicFunction1::ListToTuple => {
-                            if matches!(nextop, Some(Instruction::GetIter)) {
+                            if !fold_constant_intrinsic_list_to_tuple(
+                                metadata,
+                                &mut self[block_idx],
+                                i,
+                            )? && matches!(nextop, Some(Instruction::GetIter))
+                            {
                                 self[block_idx].instructions[i].set_to_nop();
-                            } else {
-                                fold_constant_intrinsic_list_to_tuple(
-                                    metadata,
-                                    &mut self[block_idx],
-                                    i,
-                                )?;
                             }
                         }
                         IntrinsicFunction1::UnaryPositive => {

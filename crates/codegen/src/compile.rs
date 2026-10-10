@@ -31365,6 +31365,33 @@ def f():
     }
 
     #[test]
+    fn large_constant_tuple_iterable_folds_before_get_iter() {
+        let source = format!(
+            "for x in ({},):\n    pass\n",
+            (0..31)
+                .map(|i| format!("'v{i}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let code = compile_exec(&source);
+        assert!(
+            code.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::GetIter))
+        );
+        assert!(!code.instructions.iter().any(|unit| matches!(
+            unit.op,
+            Instruction::BuildList { .. }
+                | Instruction::ListAppend { .. }
+                | Instruction::CallIntrinsic1 { .. }
+        )));
+        assert!(code.constants.iter().any(|constant| matches!(
+            constant,
+            ConstantData::Tuple { elements } if elements.len() == 31
+        )));
+    }
+
+    #[test]
     fn annotation_closure_uses_format_varname() {
         let code = compile_exec(
             "\
