@@ -384,8 +384,8 @@ pub(crate) fn cformat_bytes(
                 CFormatPart::Literal(literal) => result.extend(literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
                     let key = mapping_key.unwrap();
-                    let value = values_obj.get_item(&key, vm)?;
                     let key = vm.ctx.new_bytes(key);
+                    let value = values_obj.get_item(key.as_object(), vm)?;
                     let part_result =
                         spec_format_bytes(vm, &spec, value, FormatArgument::Mapping(&key))?;
                     result.extend(part_result);
@@ -495,8 +495,8 @@ pub(crate) fn cformat_string(
                 CFormatPart::Literal(literal) => result.push_wtf8(&literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
                     let key = mapping_key.unwrap();
-                    let value = values_obj.get_item(&key, vm)?;
                     let key = vm.ctx.new_str(key);
+                    let value = values_obj.get_item(key.as_object(), vm)?;
                     let part_result =
                         spec_format_string(vm, &spec, value, FormatArgument::Mapping(&key))?;
                     result.push_wtf8(&part_result);
