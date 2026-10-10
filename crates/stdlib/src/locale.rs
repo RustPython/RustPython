@@ -194,9 +194,7 @@ mod _locale {
     fn check_locale_name(locale: &str) -> bool {
         if let Some(dot_pos) = locale.find('.') {
             let encoding_part = &locale[dot_pos + 1..];
-            // Find the end of encoding (could be followed by '@' modifier)
-            let encoding_len = encoding_part.find('@').unwrap_or(encoding_part.len());
-            encoding_len <= MAX_CP_LEN
+            encoding_part.len() <= MAX_CP_LEN
         } else {
             true
         }
