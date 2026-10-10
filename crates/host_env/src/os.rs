@@ -606,6 +606,20 @@ pub fn seek_fd(
 }
 
 #[cfg(windows)]
+pub type FileTimeSeconds = libc::time64_t;
+#[cfg(any(unix, target_os = "wasi"))]
+#[cfg_attr(target_env = "musl", allow(deprecated))]
+pub type FileTimeSeconds = libc::time_t;
+
+/// Seconds and nanoseconds passed to filesystem timestamp operations.
+#[cfg(any(unix, windows, target_os = "wasi"))]
+#[derive(Clone, Copy)]
+pub struct FileTime {
+    pub seconds: FileTimeSeconds,
+    pub nanoseconds: libc::c_long,
+}
+
+#[cfg(windows)]
 fn filetime_from_duration(duration: Duration) -> FILETIME {
     let intervals = ((duration.as_secs() as i64 + 11644473600) * 10_000_000)
         + (duration.subsec_nanos() as i64 / 100);

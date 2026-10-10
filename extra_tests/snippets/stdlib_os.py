@@ -145,6 +145,11 @@ with TestWithTempDir() as tmpdir:
     assert os.write(fd, CONTENT2) == len(CONTENT2)
     os.close(fd)
 
+    # A valid negative access time must reach the invalid modification time.
+    for atime in (-1, -0.25):
+        assert_raises(TypeError, os.utime, fname, (atime, object()))
+    assert_raises(TypeError, os.utime, fname, ns=(-1, object()))
+
     fd = os.open(fname, os.O_WRONLY | os.O_APPEND)
     assert os.write(fd, CONTENT3) == len(CONTENT3)
     os.close(fd)
