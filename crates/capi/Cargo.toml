@@ -11,6 +11,10 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["ucd_3_2_0"]
+ucd_3_2_0 = ["rustpython-stdlib/ucd_3_2_0"]
+
 [dependencies]
 bitflags = { workspace = true }
 itertools = { workspace = true }

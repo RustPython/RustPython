@@ -679,10 +679,9 @@ mod decl {
                             // frames are still alive because the target thread
                             // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
@@ -703,10 +702,9 @@ mod decl {
                         }
                         all(not(unix), feature = "threading") => {
                             for (tid, slot) in &thread_frame_slots {
-                                let iframe_ptr = slot
-                                    .top_iframe
-                                    .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                let iframe_ptr =
+                                    slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
                                 write_thread_id(fd, *tid, false);
                                 if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");

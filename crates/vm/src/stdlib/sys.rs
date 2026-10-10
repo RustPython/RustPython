@@ -250,7 +250,7 @@ pub mod sys {
         target_os = "ios" => c"ios",
         windows => c"win32",
         target_os = "wasi" => c"wasi",
-        _ => c"unknown"
+        _ => c"unknown",
     };
 
     #[pyattr(name = "ps1")]

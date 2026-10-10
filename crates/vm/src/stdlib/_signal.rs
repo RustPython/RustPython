@@ -29,7 +29,7 @@ pub(crate) mod _signal {
             use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
             use std::os::fd::AsFd;
-        },
+        }
         _ => {}
     }
 
@@ -47,20 +47,26 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
 
             impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
-                fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
+                fn try_from_borrowed_object(
+                    vm: &VirtualMachine,
+                    obj: &'a crate::PyObject,
+                ) -> PyResult<Self> {
                     use num_traits::One;
 
                     let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
                     match fd.try_to_primitive::<usize>(vm) {
                         Ok(fd) => Ok(Self(fd as _)),
-                        Err(e) => if (-fd.as_bigint()).is_one() {
-                            Ok(Self(INVALID_WAKEUP))
-                        } else {
-                            Err(e)
-                        },
+                        Err(e) => {
+                            if (-fd.as_bigint()).is_one() {
+                                Ok(Self(INVALID_WAKEUP))
+                            } else {
+                                Err(e)
+                            }
+                        }
                     }
                 }
             }
@@ -347,9 +353,9 @@ pub(crate) mod _signal {
         // TODO: implement warn_on_full_buffer
         let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
-        windows => args.fd.0,
-        _ => args.fd,
-            };
+            windows => args.fd.0,
+            _ => args.fd,
+        };
 
         if !vm.is_main_thread() {
             return Err(vm.new_value_error(
@@ -426,12 +432,11 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
         let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
-            windows => {
-                |_| vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
+            windows => |_| {
+                vm.new_errno_error(libc::EINVAL, "Invalid argument")
+                    .upcast()
             },
-            _ => {
-                |msg| vm.new_value_error(msg)
-            }
+            _ => |msg| vm.new_value_error(msg),
         })?;
 
         vm.allow_threads(|| host_signal::raise_signal(signalnum.into()))
