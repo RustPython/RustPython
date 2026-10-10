@@ -3677,7 +3677,11 @@ fn mro_internal(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<i32> {
 
 /// Returns true if the two types have different instance layouts.
 fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
-    t1.slots.basicsize != t2.slots.basicsize || t1.slots.itemsize != t2.slots.itemsize
+    // Prefix member cells do not change basicsize, but still make a base
+    // solid: unrelated slotted bases cannot share the same member indexes.
+    t1.slots.basicsize != t2.slots.basicsize
+        || t1.slots.itemsize != t2.slots.itemsize
+        || t1.slots.member_count != t2.slots.member_count
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
