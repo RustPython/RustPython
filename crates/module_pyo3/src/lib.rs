@@ -154,6 +154,8 @@ mod _pyo3 {
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
+        // Before any wrapped class is created: its `tp_new` must be `type.__new__`.
+        crate::pyo3_type::install_class_creation(vm);
         module.set_attr("_state", Pyo3State::default().into_ref(&vm.ctx), vm)?;
         Ok(())
     }

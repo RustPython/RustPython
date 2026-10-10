@@ -18,6 +18,7 @@ pub(crate) use pyo3_ref::{
 
 #[pymodule(sub)]
 pub(crate) mod pyo3_ref {
+    use core::mem::ManuallyDrop;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -63,20 +64,29 @@ pub(crate) mod pyo3_ref {
     #[pyclass(module = "pyo3", name = "ref")]
     #[derive(PyPayload)]
     pub(crate) struct Pyo3Ref {
-        pub(crate) py_obj: pyo3::Py<pyo3::PyAny>,
+        /// Taken in `Drop` and released there. A field drop would defer the
+        /// decref until the next time this thread attaches, which is too late
+        /// for a buffer the C object still exports.
+        pub(crate) py_obj: ManuallyDrop<pyo3::Py<pyo3::PyAny>>,
         /// Address of the CPython object this proxy stands for.
         /// Zero when this value is not the cached proxy (the class's
         /// `_pyo3_cpython_type` holder, an exception origin).
         identity_key: usize,
         /// Address of the RustPython object, written once it exists.
         identity_ptr: AtomicUsize,
+        /// Copies for a call whose result cannot be weak-referenced.
+        /// Released with this proxy, after the C object: its destructor may
+        /// still read them. A weak-referenceable result keeps its copies
+        /// itself, so they outlive this proxy.
+        kept_copies: Mutex<Vec<pyo3::Py<pyo3::PyAny>>>,
     }
 
     /// CPython object address to the RustPython proxy address.
     ///
-    /// The proxy's `Drop` removes the entry, so a strong map does not leak.
-    /// The lock is held across the try-incref: the allocation is freed only
-    /// after `Drop` returns and releases the lock.
+    /// The proxy's `Drop` removes the entry before it releases the lock, so a
+    /// strong map does not leak. The allocation is freed only after `Drop`
+    /// returns. Callers hold this lock across the try-incref, so they never
+    /// read an entry whose removal has started.
     fn proxy_identity() -> std::sync::MutexGuard<'static, HashMap<usize, usize>> {
         static PROXY_IDENTITY: std::sync::LazyLock<Mutex<HashMap<usize, usize>>> =
             std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -119,13 +129,21 @@ pub(crate) mod pyo3_ref {
         fn drop(&mut self) {
             let key = self.identity_key;
             let ptr = self.identity_ptr.load(Ordering::Acquire);
-            if key == 0 || ptr == 0 {
-                return;
+            if key != 0 && ptr != 0 {
+                let mut map = proxy_identity();
+                if map.get(&key).copied() == Some(ptr) {
+                    map.remove(&key);
+                }
             }
-            let mut map = proxy_identity();
-            if map.get(&key).copied() == Some(ptr) {
-                map.remove(&key);
-            }
+            // Release the C object while `kept_copies` is still alive, and
+            // under the GIL, so a buffer view it owns runs its release now.
+            // With no interpreter on this thread the closure drops unattached
+            // and the decref waits for the next attach.
+            // SAFETY: `py_obj` is taken once. `ManuallyDrop` does not drop it again.
+            let py_obj = unsafe { ManuallyDrop::take(&mut self.py_obj) };
+            rustpython_vm::vm::thread::try_with_current_vm(move |vm| {
+                crate::gil::with_gil(vm, |_| drop(py_obj));
+            });
         }
     }
 
@@ -144,9 +162,10 @@ pub(crate) mod pyo3_ref {
     impl Pyo3Ref {
         pub(crate) const fn new(py_obj: pyo3::Py<pyo3::PyAny>) -> Self {
             Self {
-                py_obj,
+                py_obj: ManuallyDrop::new(py_obj),
                 identity_key: 0,
                 identity_ptr: AtomicUsize::new(0),
+                kept_copies: Mutex::new(Vec::new()),
             }
         }
 
@@ -154,10 +173,36 @@ pub(crate) mod pyo3_ref {
         pub(crate) fn tracked(py_obj: pyo3::Py<pyo3::PyAny>) -> Self {
             let identity_key = py_obj.as_ptr() as usize;
             Self {
-                py_obj,
+                py_obj: ManuallyDrop::new(py_obj),
                 identity_key,
                 identity_ptr: AtomicUsize::new(0),
+                kept_copies: Mutex::new(crate::convert::take_pending_copies(identity_key)),
             }
+        }
+
+        /// Take copies a call left for this object and keep them here.
+        fn retain_pending_copies(&self) {
+            let copies = crate::convert::take_pending_copies(self.identity_key);
+            self.append_kept_copies(copies);
+        }
+
+        fn append_kept_copies(&self, copies: Vec<pyo3::Py<pyo3::PyAny>>) {
+            if copies.is_empty() {
+                return;
+            }
+            self.kept_copies
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .extend(copies);
+        }
+
+        fn take_kept_copies(&self) -> Vec<pyo3::Py<pyo3::PyAny>> {
+            core::mem::take(
+                &mut *self
+                    .kept_copies
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner()),
+            )
         }
 
         /// The proxy already handed out for `obj`, if it is still alive.
@@ -175,6 +220,12 @@ pub(crate) mod pyo3_ref {
             let owned = unsafe { PyObject::try_to_owned_from_ptr(ptr as *mut PyObject) };
             if owned.is_none() {
                 map.remove(&key);
+            }
+            drop(map);
+            if let Some(proxy) = &owned
+                && let Some(payload) = proxy_payload(proxy)
+            {
+                payload.retain_pending_copies();
             }
             owned
         }
@@ -204,6 +255,12 @@ pub(crate) mod pyo3_ref {
                 unsafe { PyObject::try_to_owned_from_ptr(existing as *mut PyObject) }
             });
             if let Some(owner) = owner {
+                let copies = proxy_payload(&proxy)
+                    .map(Self::take_kept_copies)
+                    .unwrap_or_default();
+                if let Some(payload) = proxy_payload(&owner) {
+                    payload.append_kept_copies(copies);
+                }
                 drop(map);
                 drop(proxy);
                 return owner;
