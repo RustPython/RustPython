@@ -570,6 +570,67 @@ pub fn statvfs_fd(fd: i32) -> std::io::Result<StatVfsInfo> {
 }
 
 #[cfg(not(target_os = "redox"))]
+pub fn mkfifo(path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    let ret = unsafe { libc::mkfifo(path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_vendor = "apple")]
+type MkfifoAt = unsafe extern "C" fn(libc::c_int, *const libc::c_char, libc::mode_t) -> libc::c_int;
+
+#[cfg(target_vendor = "apple")]
+fn mkfifoat_symbol() -> Option<MkfifoAt> {
+    static MKFIFOAT: std::sync::OnceLock<Option<MkfifoAt>> = std::sync::OnceLock::new();
+    *MKFIFOAT.get_or_init(|| {
+        // mkfifoat was added in macOS 13 / iOS 16. Resolve it at runtime so
+        // ordinary mkfifo remains usable on older Apple systems.
+        let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"mkfifoat".as_ptr()) };
+        if symbol.is_null() {
+            None
+        } else {
+            // SAFETY: the system symbol has the MkfifoAt signature and stays
+            // loaded for the lifetime of the process.
+            Some(unsafe { core::mem::transmute::<*mut libc::c_void, MkfifoAt>(symbol) })
+        }
+    })
+}
+
+#[cfg(not(target_os = "redox"))]
+pub fn has_mkfifoat() -> bool {
+    #[cfg(target_vendor = "apple")]
+    {
+        mkfifoat_symbol().is_some()
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        !cfg!(target_os = "android")
+    }
+}
+
+#[cfg(not(any(target_os = "redox", target_os = "android")))]
+pub fn mkfifoat(dir_fd: i32, path: &CStr, mode: libc::mode_t) -> std::io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    let mkfifoat = mkfifoat_symbol().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "mkfifoat unavailable on this platform",
+        )
+    })?;
+    #[cfg(not(target_vendor = "apple"))]
+    let mkfifoat = libc::mkfifoat;
+    let ret = unsafe { mkfifoat(dir_fd, path.as_ptr(), mode) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os = "redox"))]
 pub fn mknod(path: &CStr, mode: libc::mode_t, device: libc::dev_t) -> std::io::Result<()> {
     let ret = unsafe { libc::mknod(path.as_ptr(), mode, device) };
     if ret == 0 {

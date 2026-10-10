@@ -1012,6 +1012,91 @@ pub mod module {
         }
     }
 
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    struct MkfifoPath(OsPath);
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    impl TryFromObject for MkfifoPath {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            crate::ospath::PathConverter::new()
+                .function("mkfifo")
+                .try_path(obj, vm)
+                .map(Self)
+        }
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    struct MkfifoMode(i32);
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    impl TryFromObject for MkfifoMode {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let mode = obj.try_index(vm)?;
+            i32::try_from(mode.as_bigint())
+                .map(Self)
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))
+        }
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[derive(FromArgs)]
+    struct MkfifoArgs {
+        #[pyarg(any)]
+        path: MkfifoPath,
+        #[pyarg(any, default = MkfifoMode(0o666), py_default = "438")]
+        mode: MkfifoMode,
+        #[pyarg(named, optional, py_default = "None")]
+        dir_fd: OptionalArg<PyObjectRef>,
+    }
+
+    #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+    #[pyfunction]
+    fn mkfifo(args: MkfifoArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let c_path = args.path.0.into_cstring(vm)?;
+        let mode = args.mode.0 as libc::mode_t;
+        // Keep a raw C int: even -1 is valid with an absolute path, for which
+        // mkfifoat ignores dir_fd. BorrowedFd cannot represent that value.
+        let dir_fd = match args.dir_fd {
+            OptionalArg::Present(fd) if !vm.is_none(&fd) => {
+                warn_if_bool_fd(&fd, vm)?;
+                let fd = fd.try_index_opt(vm).unwrap_or_else(|| {
+                    Err(vm.new_type_error(format!(
+                        "argument should be integer or None, not {}",
+                        fd.class().name()
+                    )))
+                })?;
+                let fd = i32::try_from(fd.as_bigint()).map_err(|_| {
+                    let message = if fd.as_bigint().sign() == malachite_bigint::Sign::Minus {
+                        "fd is less than minimum"
+                    } else {
+                        "fd is greater than maximum"
+                    };
+                    vm.new_overflow_error(message)
+                })?;
+                (fd != rustpython_host_env::os::AT_FDCWD).then_some(fd)
+            }
+            _ => None,
+        };
+        if dir_fd.is_some() && !host_posix::has_mkfifoat() {
+            return Err(vm.new_not_implemented_error("dir_fd unavailable on this platform"));
+        }
+
+        loop {
+            let result = vm.allow_threads(|| {
+                #[cfg(not(target_os = "android"))]
+                if let Some(dir_fd) = dir_fd {
+                    return host_posix::mkfifoat(dir_fd, &c_path, mode);
+                }
+                host_posix::mkfifo(&c_path, mode)
+            });
+            match result {
+                Ok(()) => return Ok(()),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => vm.check_signals()?,
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
+    }
+
     #[cfg(not(target_os = "redox"))]
     const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
 
@@ -2210,6 +2295,13 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
+            #[cfg(not(any(target_os = "redox", target_os = "wasi")))]
+            SupportFunc::new(
+                "mkfifo",
+                Some(false),
+                Some(host_posix::has_mkfifoat()),
+                Some(false),
+            ),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("mknod", Some(true), Some(MKNOD_DIR_FD), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
