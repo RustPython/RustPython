@@ -28,7 +28,9 @@ assert isinstance(sys.implementation.cache_tag, str)
 assert sys.version_info[:3] == (3, 15, 0)
 assert sys.hexversion >> 8 == 0x030F00
 assert sys.version.startswith("3.15.0")
-assert sys.implementation.cache_tag == "cpython-315"
+assert sys.implementation.cache_tag == (
+    f"{sys.implementation.name}-{sys.version_info.major}{sys.version_info.minor}"
+)
 
 assert sys.getfilesystemencoding() == "utf-8"
 assert sys.getfilesystemencodeerrors().startswith("surrogate")
