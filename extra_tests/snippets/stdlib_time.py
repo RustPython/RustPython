@@ -99,9 +99,10 @@ if sys.platform == "win32":
     # Leap-year accounting uses the historical date, including century rules.
     assert time.gmtime(-2_203_891_200).tm_yday == 60  # 1900-03-01
     assert time.gmtime(-2_330_035_200).tm_yday == 61  # 1896-03-01
-    for timestamp in (-86400, -43201, -1):
+    for timestamp in (-15_897_600, -86400, -43201, -1):
         local = time.localtime(timestamp)
         assert local.tm_isdst == -1
+        assert local[:6] == time.gmtime(timestamp + local.tm_gmtoff)[:6]
         assert time.ctime(timestamp) == time.asctime(local)
 
 x = time.gmtime(1000)
