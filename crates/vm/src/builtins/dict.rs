@@ -1519,7 +1519,9 @@ macro_rules! dict_view {
                 }
                 let internal = self.internal.lock();
                 match &internal.status {
-                    IterStatus::Active(dict) if dict.size().used == self.size.used => {
+                    IterStatus::Active(dict)
+                        if dict.size().has_same_used_and_relocations(&self.size) =>
+                    {
                         self.remaining.load(Ordering::Relaxed)
                     }
                     _ => 0,
@@ -1543,20 +1545,9 @@ macro_rules! dict_view {
                         // raising.
                         return (Err(mutated()), None);
                     }
-                    let entry = loop {
-                        let size = dict.size();
-                        if size.used != zelf.size.used {
-                            break Err(dict_inner::DictChanged);
-                        }
-                        // Storage may change while preserving the number of keys.
-                        // Retry if it changes between the snapshot and the lookup.
-                        if let Ok(entry) =
-                            dict.entries
-                                .prev_entry_checked(internal.position, &size, $project_fn)
-                        {
-                            break Ok(entry);
-                        }
-                    };
+                    let entry =
+                        dict.entries
+                            .prev_entry_checked(internal.position, &zelf.size, $project_fn);
                     match entry {
                         Err(dict_inner::DictChanged) => {
                             zelf.changed.store(true, Ordering::Relaxed);

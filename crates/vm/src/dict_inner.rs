@@ -184,6 +184,8 @@ impl IndexEntry {
 struct DictInner<T> {
     used: usize,
     filled: usize,
+    // Only private atomic relocations invalidate same-size reverse iteration.
+    relocation_epoch: u64,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
 }
@@ -210,7 +212,7 @@ impl<T: Clone> Clone for Dict<T> {
         }
         // Keep dense copies cheap, but do not carry mostly empty storage into
         // a new dictionary. pop_back can leave oversized indices without holes.
-        let inner = if inner.used >= inner.entries.len() - inner.entries.len() / 3
+        let mut inner = if inner.used >= inner.entries.len() - inner.entries.len() / 3
             && (inner.indices.len() <= 8 || inner.used >= inner.indices.len() / 4)
         {
             inner.clone()
@@ -218,6 +220,7 @@ impl<T: Clone> Clone for Dict<T> {
             let mut copy = DictInner {
                 used: inner.used,
                 filled: inner.used,
+                relocation_epoch: 0,
                 indices: Vec::new(),
                 entries: Vec::with_capacity(inner.used),
             };
@@ -226,6 +229,7 @@ impl<T: Clone> Clone for Dict<T> {
             copy.resize(inner.used * 2);
             copy
         };
+        inner.relocation_epoch = 0;
         Self {
             inner: PyRwLock::new(inner),
             keys_version: AtomicU32::new(0),
@@ -239,6 +243,7 @@ impl<T> Default for Dict<T> {
             inner: PyRwLock::new(DictInner {
                 used: 0,
                 filled: 0,
+                relocation_epoch: 0,
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
@@ -262,9 +267,16 @@ pub struct DictSize {
     pub entries_size: usize,
     pub used: usize,
     filled: usize,
+    relocation_epoch: u64,
 }
 
-/// The dict was resized under an iterator holding an older [`DictSize`].
+impl DictSize {
+    pub(crate) fn has_same_used_and_relocations(&self, other: &Self) -> bool {
+        self.used == other.used && self.relocation_epoch == other.relocation_epoch
+    }
+}
+
+/// The dict changed under an iterator holding an older [`DictSize`].
 #[derive(Debug)]
 pub(crate) struct DictChanged;
 
@@ -387,6 +399,7 @@ impl<T> DictInner<T> {
             entries_size: self.entries.len(),
             used: self.used,
             filled: self.filled,
+            relocation_epoch: self.relocation_epoch,
         }
     }
 
@@ -855,10 +868,12 @@ impl<T: Clone> Dict<T> {
 
     /// Install an owned table, releasing the old entries after unlocking.
     pub(crate) fn replace_contents(&self, other: Self) {
-        let replacement = other.inner.into_inner();
+        let mut replacement = other.inner.into_inner();
         let _removed = {
             let mut inner = self.write();
             self.invalidate_keys_version();
+            // Relocation history belongs to this dict, not the incoming table.
+            replacement.relocation_epoch = inner.relocation_epoch;
             core::mem::replace(&mut *inner, replacement)
         };
     }
@@ -1081,7 +1096,8 @@ impl<T: Clone> Dict<T> {
         }
     }
 
-    /// [`Self::next_entry_checked`] in reverse.
+    /// Step backward, validating the live size and private relocation history
+    /// under the same read guard. Ordinary same-size mutations may change layout.
     pub(crate) fn prev_entry_checked<R>(
         &self,
         mut position: EntryIndex,
@@ -1089,7 +1105,7 @@ impl<T: Clone> Dict<T> {
         project: impl FnOnce(&PyObject, &T) -> R,
     ) -> Result<Option<(usize, R)>, DictChanged> {
         let inner = self.read();
-        if inner.size() != *old {
+        if !inner.size().has_same_used_and_relocations(old) {
             return Err(DictChanged);
         }
         loop {
@@ -1462,6 +1478,7 @@ impl<T: Clone> Dict<T> {
                 // this critical section.
                 inner.entries.reserve(1);
                 self.invalidate_keys_version();
+                inner.relocation_epoch = inner.relocation_epoch.wrapping_add(1);
                 let entry = inner.entries[entry_index].take().unwrap();
                 let new_index = inner.entries.len();
                 inner.indices[entry.index] = unsafe {
@@ -1473,8 +1490,6 @@ impl<T: Clone> Dict<T> {
                 if holes >= 2 && holes >= inner.used {
                     // Moves do not increase `filled`, so ordinary insertion's
                     // resize threshold cannot bound their accumulated holes.
-                    // Two holes also ensure this operation changes DictSize,
-                    // allowing existing iterators to detect the relocation.
                     let indices_size = inner.indices.len();
                     inner.resize(indices_size);
                 }
