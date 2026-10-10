@@ -70,3 +70,51 @@ if sys.implementation.name == "rustpython":
     expected = b"t5i4 3l2b1" + data[10:]
     assert actual == expected, f"got {actual!r}, expected {expected!r}"
     blob.close()
+
+
+class BlobIndex:
+    def __init__(self, value):
+        self.value = value
+
+    def __index__(self):
+        return self.value
+
+
+class BlobInt(int):
+    pass
+
+
+class BrokenBlobIndex:
+    def __index__(self):
+        raise OverflowError("index conversion failed")
+
+
+cx.execute("CREATE TABLE blobindices(b BLOB)")
+cx.execute("INSERT INTO blobindices(b) VALUES (?)", (b"abc",))
+with cx.blobopen("blobindices", "b", 1) as blob:
+    assert blob[BlobIndex(-1)] == ord("c")
+    blob[BlobIndex(0)] = ord("A")
+    assert blob[0] == ord("A")
+
+    test = unittest.TestCase()
+    for index in (sys.maxsize, -sys.maxsize - 1):
+        with test.assertRaisesRegex(IndexError, "^Blob index out of range$"):
+            blob[index]
+        with test.assertRaisesRegex(IndexError, "^Blob index out of range$"):
+            blob[index] = 0
+
+    for value in (sys.maxsize + 1, -sys.maxsize - 2):
+        for index in (value, BlobInt(value), BlobIndex(value)):
+            message = (
+                f"^cannot fit '{type(index).__name__}' into an index-sized integer$"
+            )
+            with test.assertRaisesRegex(IndexError, message):
+                blob[index]
+            with test.assertRaisesRegex(IndexError, message):
+                blob[index] = 0
+
+    with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
+        blob[BrokenBlobIndex()]
+    with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
+        blob[BrokenBlobIndex()] = 0
+    assert blob[:] == b"Abc"
