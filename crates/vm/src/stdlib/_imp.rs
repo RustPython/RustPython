@@ -193,9 +193,21 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
-        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyDict, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        builtins::{
+            ModuleCreate, PyBytesRef, PyCode, PyDict, PyMemoryView, PyModule, PyStrRef,
+            PyUtf8StrRef,
+        },
         import, version,
+    };
+    use core::ffi::c_void;
+    use core::ptr::NonNull;
+    #[cfg(all(feature = "_capi", feature = "host_env", windows))]
+    use rustpython_host_env::ctypes::open_library;
+    #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
+    use rustpython_host_env::ctypes::{
+        dlopen_mode, insert_raw_library_handle, lookup_function_symbol_addr,
+        open_library_with_mode_raw,
     };
 
     use super::FrozenError;
@@ -220,8 +232,20 @@ mod _imp {
     use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
-    const fn extension_suffixes() -> Vec<PyObjectRef> {
-        Vec::new()
+    fn extension_suffixes(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        [
+            #[cfg(target_os = "macos")]
+            ".abi3t-darwin.so",
+            #[cfg(unix)]
+            ".abi3t.so",
+            #[cfg(unix)]
+            ".so",
+            #[cfg(windows)]
+            ".pyd",
+        ]
+        .into_iter()
+        .map(|suffix| vm.ctx.new_str(suffix).into())
+        .collect()
     }
 
     // CPython removes the name from its pending lazy-module registry here.
@@ -260,12 +284,12 @@ mod _imp {
         let name_str = name.as_str();
         if let Some(&def) = vm.state.module_defs.get(name_str) {
             // Phase 1: Create module (use create slot if provided, else default creation)
-            let module = if let Some(create) = def.slots.create {
-                // Custom module creation
-                create(vm, &spec, def)?
-            } else {
-                // Default module creation
-                PyModule::from_def(def).into_ref(&vm.ctx)
+            let module = match def.slots.create {
+                Some(ModuleCreate::Rust(create)) => create(vm, &spec, def)?,
+                Some(ModuleCreate::C(_)) => {
+                    return Err(vm.new_system_error("C module create slot is not supported here"));
+                }
+                None => PyModule::from_def(def).into_ref(&vm.ctx),
             };
 
             // Initialize module dict and methods
@@ -277,9 +301,7 @@ mod _imp {
             sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
-            if let Some(exec) = def.slots.exec {
-                exec(vm, &module)?;
-            }
+            def.exec_module(vm, &module)?;
 
             return Ok(module.into());
         }
@@ -295,6 +317,7 @@ mod _imp {
         _file: crate::function::OptionalArg<PyObjectRef>,
     }
 
+    #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
     #[pyfunction]
     fn create_dynamic(args: CreateDynamicArgs, vm: &VirtualMachine) -> PyResult {
         let name_obj = args.spec.get_attr("name", vm)?;
@@ -317,51 +340,71 @@ mod _imp {
             return Ok(module);
         }
 
-        #[cfg(all(feature = "host_env", any(unix, windows)))]
-        {
-            let origin_str = origin.as_str();
-            let short_name = name.as_str().rsplit('.').next().unwrap_or(name.as_str());
-            let export_func_name = format!("PyModExport_{short_name}");
+        let origin_str = origin.as_str();
+        let short_name = name.as_str().rsplit('.').next().unwrap_or(name.as_str());
+        let export_func_name = format!("PyModExport_{short_name}");
+        let export_func_name_c = format!("{export_func_name}\0");
 
-            #[cfg(unix)]
-            let handle_res = {
-                let mode = rustpython_host_env::ctypes::dlopen_mode(None);
-                rustpython_host_env::ctypes::open_library_with_mode(origin_str, mode)
-            };
-            #[cfg(windows)]
-            let handle_res = rustpython_host_env::ctypes::open_library(origin_str);
+        let handle = cfg_select! {
+            unix => {{
+                let mode = dlopen_mode(None);
+                open_library_with_mode_raw(origin_str, mode).map(insert_raw_library_handle)
+            }},
+            windows => {
+                open_library(origin_str).map_err(|err| err.to_string())
+            },
+        }
+        .map_err(|err| {
+            vm.new_import_error(
+                format!("cannot load dynamic module '{origin_str}': {err}"),
+                name.clone().into_wtf8(),
+            )
+        })?;
 
-            if let Ok(handle) = handle_res
-                && let Ok(export_fn_addr) = rustpython_host_env::ctypes::lookup_function_symbol_addr(
-                    handle,
-                    export_func_name.as_bytes(),
-                )
-                && export_fn_addr != 0
-            {
-                // abi3t PyModExport entry point
-                type ModExportFn = unsafe extern "C" fn() -> *mut crate::PyObject;
-                let export_fn: ModExportFn =
-                    unsafe { core::mem::transmute(export_fn_addr as *const ()) };
-                let mod_ptr = unsafe { export_fn() };
-                if let Some(mod_nonnull) = core::ptr::NonNull::new(mod_ptr) {
-                    let py_obj = unsafe { crate::PyObjectRef::from_raw(mod_nonnull) };
-                    return Ok(py_obj);
+        let export_fn_addr = lookup_function_symbol_addr(handle, export_func_name_c.as_bytes())
+            .or_else(|_err| {
+                cfg_select! {
+                    target_os = "macos" => {{
+                        let mangled = format!("_{export_func_name}");
+                        let mangled_c = format!("{mangled}\0");
+                        lookup_function_symbol_addr(handle, mangled_c.as_bytes())
+                    }}
+                    _ => Err(_err),
                 }
-            }
+            })
+            .map_err(|_| {
+                vm.new_import_error(
+                    format!(
+                        "dynamic module does not define module export function (PyModExport_{short_name})",
+                    ),
+                    name.clone().into_wtf8(),
+                )
+            })?;
+
+        unsafe extern "C" {
+            #[allow(improper_ctypes)]
+            /// This function is defined in the rustpython-capi crate.
+            fn PyModule_FromSlotsAndSpec(slots: *mut c_void, spec: *mut PyObject) -> *mut PyObject;
         }
 
-        Err(vm.new_import_error(
-            format!(
-                "dynamic module does not define module export function (PyModExport_{})",
-                name.as_str()
-            ),
-            name.into_wtf8(),
-        ))
+        let export_fn: unsafe extern "C" fn() -> *mut c_void =
+            unsafe { core::mem::transmute(export_fn_addr) };
+        let module_ptr = unsafe {
+            PyModule_FromSlotsAndSpec(export_fn(), args.spec.as_object().as_raw().cast_mut())
+        };
+        NonNull::new(module_ptr).map_or_else(
+            || Err(vm.take_raised_exception().unwrap()),
+            |ptr| unsafe { Ok(PyObjectRef::from_raw(ptr)) },
+        )
     }
 
     #[pyfunction]
-    fn exec_dynamic(_module: PyRef<PyModule>) -> i32 {
-        0
+    fn exec_dynamic(module: PyRef<PyModule>, vm: &VirtualMachine) -> PyResult<()> {
+        module
+            .def
+            .as_deref()
+            .ok_or_else(|| vm.new_system_error("Empty module"))?
+            .exec_module(vm, &module)
     }
 
     #[pyfunction]

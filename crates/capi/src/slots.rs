@@ -77,7 +77,7 @@ impl PySlot {
             }
             86 => PySlotKind::Module(PySlotModule::MultipleInterpreters(value_ptr)),
             87 => PySlotKind::Module(PySlotModule::Gil {
-                gil_used: !value_ptr.is_null(),
+                gil_used: value_ptr.is_null(),
             }),
             // 92 => Py_slot_subslots
             93 => PySlotKind::Type(PySlotType::Slots {

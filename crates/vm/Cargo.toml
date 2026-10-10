@@ -29,6 +29,7 @@ codegen = ["rustpython-codegen", "ast"]
 parser = ["ast"]
 serde = ["dep:serde"]
 wasmbind = ["rustpython-common/wasm_js", "jiff/js", "wasm-bindgen"]
+_capi = []
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
