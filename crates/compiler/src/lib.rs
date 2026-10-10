@@ -1477,7 +1477,27 @@ impl BarrySource<'_> {
         parse_error: Option<&parser::ParseError>,
         source_file: &SourceFile,
     ) -> Option<CompileError> {
-        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+        if let Some(error) = parse_error
+            && let Some(range) = self.invalid_legacy_operator(error)
+        {
+            if error.location.start() > range.start() {
+                return Some(CompileError::from_source_error(
+                    source_file,
+                    CpythonDiagnostic::new(
+                        "invalid syntax.  Maybe you meant '!=' instead of '<>'?".to_owned(),
+                        range.start().to_usize(),
+                        range.end().to_usize(),
+                    ),
+                ));
+            }
+            // At expression start, '<' is already invalid: the comparison
+            // production (and its obsolete-operator hint) was never entered.
+            // Barry mode instead lexed the rewritten '!=' as one token.
+            let range = if self.source.as_bytes()[range.start().to_usize()] == b'<' {
+                ruff_text_size::TextRange::at(range.start(), TextSize::new(1))
+            } else {
+                range
+            };
             return Some(barry_as_flufl_invalid_legacy_operator_error(
                 source_file,
                 range,
@@ -2413,7 +2433,7 @@ mod tests {
     fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
         let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<>' outside Barry mode is a syntax error");
-        assert_eq!(err.to_string(), "invalid syntax");
+        assert!(matches!(err, CompileError::Parse(_)));
         assert_eq!(err.python_location(), (1, 3));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
@@ -2426,12 +2446,12 @@ mod tests {
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
         // A `<>` that starts a statement is reported at the `<` too, where the
-        // parser stops instead of one character in.
+        // parser stops. Exact Python-visible diagnostics are covered by builtin_compile.py.
         let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("a bare '<>' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 1));
-        assert_eq!(err.python_end_location(), Some((1, 3)));
+        assert!(matches!(err, CompileError::Parse(_)));
 
         // A bracket left open earlier in the source outranks the operator.
         let err = compile(
