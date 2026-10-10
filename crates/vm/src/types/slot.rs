@@ -774,13 +774,21 @@ fn descr_get_wrapper(
     cls: Option<&PyObject>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    // A descriptor whose `__get__` is the descriptor itself resolves it by
-    // fetching `__get__` again, and none of that pushes a Python frame.
+    // slot_tp_descr_get calls the raw type attribute with all three arguments.
+    // Binding it first would omit self for builtin functions and incorrectly
+    // invoke the descriptor protocol of static/class/custom __get__ objects.
+    // Keep both the callable and self owned across user code that deletes them.
     vm.with_recursion(" while calling a Python object", || {
-        vm.call_special_method(
-            zelf,
-            identifier!(vm, __get__),
-            (obj.map(PyObject::to_owned), cls.map(PyObject::to_owned)),
+        let Some(get) = zelf.class().get_attr(identifier!(vm, __get__)) else {
+            return Ok(zelf.to_owned());
+        };
+        get.call(
+            (
+                zelf.to_owned(),
+                obj.map(PyObject::to_owned),
+                cls.map(PyObject::to_owned),
+            ),
+            vm,
         )
     })
 }

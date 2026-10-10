@@ -161,3 +161,35 @@ except RuntimeError as outer:
     with assert_raises(ValueError) as caught:
         RaisingAttributeHook().absent
     assert caught.exception.__context__ is outer
+
+
+# The descriptor slot calls the raw __get__ attribute without binding it first.
+class RawGetDescriptor:
+    __get__ = staticmethod(lambda *args: args)
+
+
+class RawGetOwner:
+    value = RawGetDescriptor()
+
+
+raw_descriptor = vars(RawGetOwner)["value"]
+raw_instance = RawGetOwner()
+assert raw_instance.value == (raw_descriptor, raw_instance, RawGetOwner)
+assert RawGetOwner.value == (raw_descriptor, None, RawGetOwner)
+
+
+class CallableGet:
+    def __get__(self, instance, owner):
+        raise AssertionError("__get__ must not be bound before the slot call")
+
+    def __call__(self, *args):
+        return args
+
+
+RawGetDescriptor.__get__ = CallableGet()
+assert raw_instance.value == (raw_descriptor, raw_instance, RawGetOwner)
+RawGetDescriptor.__get__ = classmethod(lambda *args: args)
+with assert_raises(TypeError):
+    raw_instance.value
+RawGetDescriptor.__get__ = lambda self, instance, owner: (self, instance, owner)
+assert raw_instance.value == (raw_descriptor, raw_instance, RawGetOwner)
