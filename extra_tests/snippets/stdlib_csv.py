@@ -493,9 +493,15 @@ def test_dialect_lookup_and_conversion_order():
                     events.append(name)
                     raise error_type(name)
 
-            result = construct(Missing())
-            assert tuple(getattr(result, field) for field in fields) == defaults
-            assert events == list(fields)
+            if error_type is AttributeError:
+                result = construct(Missing())
+                assert tuple(getattr(result, field) for field in fields) == defaults
+                assert events == list(fields)
+            else:
+                with assert_raises(error_type) as caught:
+                    construct(Missing())
+                assert caught.exception.args == ("delimiter",)
+                assert events == ["delimiter"]
         for dialect in (None, object(), _csv.Dialect(csv.excel)):
             result = construct(dialect)
             assert tuple(getattr(result, field) for field in fields) == defaults

@@ -1607,7 +1607,7 @@ impl VirtualMachine {
     /// ```no_run
     /// use rustpython_vm::Interpreter;
     /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
-    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-314.pyc").unwrap();
+    ///     let bytes = std::fs::read("__pycache__/<input>.rustpython-315.pyc").unwrap();
     ///     let main_scope = vm.new_scope_with_main().unwrap();
     ///     vm.run_pyc_bytes(&bytes, main_scope);
     /// });
@@ -2258,17 +2258,15 @@ impl VirtualMachine {
                 self.ctx.new_str(path).into(),
                 self,
             )?;
-            module_dict.set_item(identifier!(self, __cached__), self.ctx.none(), self)?;
         }
 
         let result = run(&module_dict);
 
         self.flush_io();
 
-        // Cleanup __file__ and __cached__ after execution
+        // Cleanup __file__ after execution
         if set_file_name {
             let _ = module_dict.del_item(identifier!(self, __file__), self);
-            let _ = module_dict.del_item(identifier!(self, __cached__), self);
         }
 
         result

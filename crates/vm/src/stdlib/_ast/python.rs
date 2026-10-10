@@ -13,7 +13,6 @@ pub(crate) mod _ast {
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
-        warn,
     };
     #[pyattr]
     #[pyclass(module = "ast", name = "AST")]
@@ -388,9 +387,9 @@ pub(crate) mod _ast {
                 if contains {
                     if !ast_replace_set_discard(&remaining_fields, &key_obj, vm)? {
                         return Err(vm.new_type_error(format!(
-                            "{} got multiple values for argument '{}'",
-                            zelf.class().name(),
-                            key
+                            "{} got multiple values for argument {}",
+                            zelf.class().fully_qualified_name(vm)?,
+                            key_obj.repr(vm)?
                         )));
                     }
                 } else {
@@ -410,19 +409,11 @@ pub(crate) mod _ast {
                         attributes.as_deref().unwrap()
                     };
                     if !attrs.sequence_unchecked().contains(&key_obj, vm)? {
-                        let message = vm.ctx.new_str(format!(
-                            "{}.__init__ got an unexpected keyword argument '{}'. \
-Support for arbitrary keyword arguments is deprecated and will be removed in Python 3.15.",
-                            zelf.class().name(),
-                            key
-                        ));
-                        warn::warn(
-                            message.into(),
-                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                            1,
-                            None,
-                            vm,
-                        )?;
+                        return Err(vm.new_type_error(format!(
+                            "{}.__init__ got an unexpected keyword argument {}",
+                            zelf.class().fully_qualified_name(vm)?,
+                            key_obj.repr(vm)?
+                        )));
                     }
                 }
 
@@ -438,7 +429,13 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                 let expr_ctx_type: PyObjectRef =
                     super::super::pyast::NodeExprContext::make_static_type().into();
 
-                for field in remaining_fields.elements() {
+                let mut missing = Vec::new();
+                // Render missing arguments in their declared positional order.
+                for i in 0..numfields {
+                    let field = fields_seq.get_item(i as isize, vm)?;
+                    if !ast_replace_set_discard(&remaining_fields, &field, vm)? {
+                        continue;
+                    }
                     if let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? {
                         if ftype.fast_isinstance(vm.ctx.types.union_type) {
                             // Optional field (T | None) — no default
@@ -457,38 +454,34 @@ Support for arbitrary keyword arguments is deprecated and will be removed in Pyt
                                 });
                             ast_set_attr(zelf, &field, load_instance, vm)?;
                         } else {
-                            // Required field missing: emit DeprecationWarning.
-                            let field_repr = field.repr(vm)?;
-                            let message = vm.ctx.new_str(format!(
-                                "{}.__init__ missing 1 required positional argument: {}. \
-This will become an error in Python 3.15.",
-                                zelf.class().name(),
-                                field_repr
-                            ));
-                            warn::warn(
-                                message.into(),
-                                Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                                1,
-                                None,
-                                vm,
-                            )?;
+                            missing.push(format!("'{}'", field.str(vm)?));
                         }
                     } else {
-                        let field_repr = field.repr(vm)?;
-                        let message = vm.ctx.new_str(format!(
-                            "Field {} is missing from {}._field_types. \
-This will become an error in Python 3.15.",
-                            field_repr,
-                            zelf.class().name()
-                        ));
-                        warn::warn(
-                            message.into(),
-                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
-                            1,
-                            None,
-                            vm,
-                        )?;
+                        return Err(vm.new_type_error(format!(
+                            "Field {} is missing from {}._field_types",
+                            field.repr(vm)?,
+                            zelf.class().fully_qualified_name(vm)?
+                        )));
                     }
+                }
+                if !missing.is_empty() {
+                    let count = missing.len();
+                    let names = match missing.as_slice() {
+                        [name] => name.clone(),
+                        [first, last] => format!("{first} and {last}"),
+                        names => format!(
+                            "{}, and {}",
+                            names[..count - 1].join(", "),
+                            names[count - 1]
+                        ),
+                    };
+                    return Err(vm.new_type_error(format!(
+                        "{}.__init__ missing {} required positional argument{}: {}",
+                        zelf.class().fully_qualified_name(vm)?,
+                        count,
+                        if count == 1 { "" } else { "s" },
+                        names
+                    )));
                 }
             }
 

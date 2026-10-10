@@ -60,10 +60,10 @@ jobs:
       # Both the third interpreter under test and the host pyperformance
       # itself runs on (it only runs under a real CPython; RustPython is just
       # the `--python` target it drives).
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: ./.github/actions/setup-python
         id: cpython
         with:
-          python-version: "3.14"
+          python-version: "3.15.0"
 
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

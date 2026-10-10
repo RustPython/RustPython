@@ -26,31 +26,44 @@ use crate::{
     stdlib::builtins,
 };
 
+enum FormatArgument<'a> {
+    Scalar,
+    Positional(usize),
+    Mapping(&'a PyObject),
+}
+
+impl FormatArgument<'_> {
+    fn description(&self, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(match self {
+            Self::Scalar => "format argument".to_owned(),
+            Self::Positional(index) => format!("format argument {index}"),
+            Self::Mapping(key) => format!("format argument {}", key.repr(vm)?),
+        })
+    }
+}
+
 fn format_decimal_object(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: &PyObject,
+    argument: FormatArgument<'_>,
 ) -> PyResult<String> {
-    let type_error = || {
-        vm.new_type_error(format!(
-            "%{} format: a real number is required, not {}",
-            spec.format_type.to_char(),
-            obj.class().slot_name()
-        ))
-    };
     // Decimal conversions prefer __int__; __index__ is only a fallback when absent.
-    let i = obj
-        .number()
-        .int(vm)
-        .or_else(|| obj.try_index_opt(vm))
-        .ok_or_else(type_error)?
-        .map_err(|error| {
-            if error.fast_isinstance(vm.ctx.exceptions.type_error) {
-                type_error()
-            } else {
-                error
-            }
-        })?;
+    let conversion = obj.number().int(vm).or_else(|| obj.try_index_opt(vm));
+    let i = match conversion {
+        Some(Ok(value)) => value,
+        Some(Err(error)) if !error.fast_isinstance(vm.ctx.exceptions.type_error) => {
+            return Err(error);
+        }
+        _ => {
+            return Err(vm.new_type_error(format!(
+                "{}: %{} requires a real number, not {}",
+                argument.description(vm)?,
+                spec.format_type.to_char(),
+                obj.class().slot_name()
+            )));
+        }
+    };
     check_int_to_str_digits(i.as_bigint(), vm)?;
     Ok(spec.format_number(i.as_bigint()))
 }
@@ -59,6 +72,7 @@ fn spec_format_bytes(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: PyObjectRef,
+    argument: FormatArgument<'_>,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
         CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
@@ -106,7 +120,7 @@ fn spec_format_bytes(
                     check_int_to_str_digits(&bigint, vm)?;
                     Ok(spec.format_number(&bigint).into_bytes())
                 } else {
-                    format_decimal_object(vm, spec, &obj).map(String::into_bytes)
+                    format_decimal_object(vm, spec, &obj, argument).map(String::into_bytes)
                 }
             }
             _ => {
@@ -188,6 +202,7 @@ fn spec_format_string(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: PyObjectRef,
+    argument: FormatArgument<'_>,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
         CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
@@ -217,7 +232,7 @@ fn spec_format_string(
                     check_int_to_str_digits(&bigint, vm)?;
                     Ok(spec.format_number(&bigint).into())
                 } else {
-                    format_decimal_object(vm, spec, &obj).map(Into::into)
+                    format_decimal_object(vm, spec, &obj, argument).map(Into::into)
                 }
             }
             _ => {
@@ -379,8 +394,14 @@ pub(crate) fn cformat_bytes(
                 CFormatPart::Literal(literal) => result.extend(literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
                     let key = mapping_key.unwrap();
-                    let value = values_obj.get_item(&key, vm)?;
-                    let part_result = spec_format_bytes(vm, &spec, value)?;
+                    let key = vm.ctx.new_bytes(key);
+                    let value = values_obj.get_item(key.as_object(), vm)?;
+                    let part_result = spec_format_bytes(
+                        vm,
+                        &spec,
+                        value,
+                        FormatArgument::Mapping(key.as_object()),
+                    )?;
                     result.extend(part_result);
                 }
             }
@@ -392,7 +413,7 @@ pub(crate) fn cformat_bytes(
     // tuple
     let mut slice_iter;
     let mut once_iter;
-    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+    let value_iter: &mut dyn Iterator<Item = &PyObject> =
         if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
             slice_iter = tup.as_slice().iter().map(|v| &**v);
             &mut slice_iter
@@ -400,6 +421,9 @@ pub(crate) fn cformat_bytes(
             once_iter = core::iter::once(values_obj);
             &mut once_iter
         };
+    let argument_index = core::cell::Cell::new(0);
+    let mut value_iter = value_iter.inspect(|_| argument_index.set(argument_index.get() + 1));
+    let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
 
     for (_, part) in format {
         match part {
@@ -417,7 +441,12 @@ pub(crate) fn cformat_bytes(
                     return Err(vm.new_type_error("not enough arguments for format string"));
                 };
 
-                let part_result = spec_format_bytes(vm, &spec, value.to_owned())?;
+                let argument = if is_tuple {
+                    FormatArgument::Positional(argument_index.get())
+                } else {
+                    FormatArgument::Scalar
+                };
+                let part_result = spec_format_bytes(vm, &spec, value.to_owned(), argument)?;
                 result.extend(part_result);
             }
         }
@@ -479,8 +508,15 @@ pub(crate) fn cformat_string(
             match part {
                 CFormatPart::Literal(literal) => result.push_wtf8(&literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
-                    let value = values_obj.get_item(&mapping_key.unwrap(), vm)?;
-                    let part_result = spec_format_string(vm, &spec, value)?;
+                    let key = mapping_key.unwrap();
+                    let key = vm.ctx.new_str(key);
+                    let value = values_obj.get_item(key.as_object(), vm)?;
+                    let part_result = spec_format_string(
+                        vm,
+                        &spec,
+                        value,
+                        FormatArgument::Mapping(key.as_object()),
+                    )?;
                     result.push_wtf8(&part_result);
                 }
             }
@@ -492,7 +528,7 @@ pub(crate) fn cformat_string(
     // tuple
     let mut slice_iter;
     let mut once_iter;
-    let mut value_iter: &mut dyn Iterator<Item = &PyObject> =
+    let value_iter: &mut dyn Iterator<Item = &PyObject> =
         if let Some(tup) = values_obj.downcast_ref::<tuple::PyTuple>() {
             slice_iter = tup.as_slice().iter().map(|v| &**v);
             &mut slice_iter
@@ -500,6 +536,9 @@ pub(crate) fn cformat_string(
             once_iter = core::iter::once(values_obj);
             &mut once_iter
         };
+    let argument_index = core::cell::Cell::new(0);
+    let mut value_iter = value_iter.inspect(|_| argument_index.set(argument_index.get() + 1));
+    let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
 
     for (_, part) in format {
         match part {
@@ -517,7 +556,12 @@ pub(crate) fn cformat_string(
                     return Err(vm.new_type_error("not enough arguments for format string"));
                 };
 
-                let part_result = spec_format_string(vm, &spec, value.to_owned())?;
+                let argument = if is_tuple {
+                    FormatArgument::Positional(argument_index.get())
+                } else {
+                    FormatArgument::Scalar
+                };
+                let part_result = spec_format_string(vm, &spec, value.to_owned(), argument)?;
                 result.push_wtf8(&part_result);
             }
         }

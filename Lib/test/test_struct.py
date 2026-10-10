@@ -622,7 +622,7 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertEqual(s.pack(1, 2), packed)
         self.assertEqual(s.unpack(packed), (1, 2))
 
-        with self.assertRaises(UnicodeEncodeError):
+        with self.assertRaises(ValueError):
             s.__init__('\udc00')
         self.assertEqual(s.format, '>hh')
         self.assertEqual(s.pack(1, 2), packed)
@@ -882,7 +882,7 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaises(RuntimeError, S.pack_into, spam, 1)
         self.assertRaises(RuntimeError, S.unpack, spam)
         self.assertRaises(RuntimeError, S.unpack_from, spam)
-        self.assertRaises(RuntimeError, getattr, S, 'format')
+        self.assertRaises(AttributeError, getattr, S, 'format')
         self.assertRaises(RuntimeError, S.__sizeof__)
         self.assertRaises(RuntimeError, repr, S)
         self.assertEqual(S.size, -1)

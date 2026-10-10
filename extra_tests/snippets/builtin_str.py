@@ -411,7 +411,10 @@ for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
     for value in (None, TypeError("conversion failed")):
         with assert_raises(TypeError) as cm:
             template % PercentInt(value)
-        assert str(cm.exception).endswith("a real number is required, not PercentInt")
+        conversion = chr(template[-1]) if isinstance(template, bytes) else template[-1]
+        assert str(cm.exception) == (
+            f"format argument: %{conversion} requires a real number, not PercentInt"
+        )
     assert_raises(
         RuntimeError, template.__mod__, PercentInt(RuntimeError("conversion failed"))
     )
@@ -1224,3 +1227,27 @@ def test_subscript_typeerror_message():
 
 
 test_subscript_typeerror_message()
+
+
+# Decimal conversion errors identify the consumed argument, including star arguments.
+for is_bytes in (False, True):
+    for conversion in "diu":
+        for template, values, context in (
+            ("%" + conversion, "bad", ""),
+            ("%" + conversion, ("bad",), " 1"),
+            ("%s %" + conversion, ("ok", "bad"), " 2"),
+            ("%*.*" + conversion, (5, 2, "bad"), " 3"),
+            ("%(value)" + conversion, {"value": "bad"}, " 'value'"),
+        ):
+            if is_bytes:
+                template = template.encode()
+                if isinstance(values, dict):
+                    values = {b"value": "bad"}
+                    context = " b'value'"
+                elif isinstance(values, tuple) and len(values) == 2:
+                    values = (b"ok", "bad")
+            with assert_raises(TypeError) as caught:
+                template % values
+            assert str(caught.exception) == (
+                f"format argument{context}: %{conversion} requires a real number, not str"
+            )

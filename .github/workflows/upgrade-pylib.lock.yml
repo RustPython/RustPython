@@ -24,7 +24,7 @@
 # Pick an out-of-sync Python library from the todo list and upgrade it
 # by running `scripts/update_lib quick`, then open a pull request.
 #
-# frontmatter-hash: 3129480d6628afe028911bb8b31b6bb3b5eb251e395f00ed0677922cd21727cb
+# frontmatter-hash: bf5b6c1bf4e49141df567a8ff69cce1fc96faa991e1cc353ed6a77aa7c2ba719
 
 name: "Upgrade Python Library"
 "on":
@@ -44,7 +44,7 @@ run-name: "Upgrade Python Library"
 
 env:
   ISSUE_ID: "6839"
-  PYTHON_VERSION: v3.14.3
+  PYTHON_VERSION: v3.15.0
 
 # Cache configuration from frontmatter was processed and added to the main job steps
 
@@ -109,7 +109,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.14'
+          python-version: '3.15'
       - name: Create gh-aw temp directory
         run: bash /opt/gh-aw/actions/create_gh_aw_tmp_dir.sh
       # Cache configuration from frontmatter processed below
@@ -118,8 +118,6 @@ jobs:
         with:
           key: cpython-lib-${{ env.PYTHON_VERSION }}
           path: cpython
-          restore-keys: |
-            cpython-lib-
       - name: Configure Git credentials
         env:
           REPO_NAME: ${{ github.repository }}

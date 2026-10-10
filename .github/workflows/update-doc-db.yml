@@ -8,7 +8,7 @@ on:
       python-version:
         description: Target python version to generate doc db for
         type: string
-        default: "3.14.7"
+        default: "3.15.0"
       base-ref:
         description: Base branch to create the update branch from
         type: string
@@ -35,8 +35,9 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             crates/doc
+            .github/actions/setup-python
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: ./.github/actions/setup-python
         with:
           python-version: ${{ inputs.python-version }}
 

@@ -473,12 +473,11 @@ mod _csv {
                 } else {
                     obj
                 };
-                // CPython ignores attribute lookup errors, but not errors converting
-                // the retrieved values. Read all non-overridden attributes first.
+                // Read all non-overridden attributes before converting their values.
                 macro_rules! fill_from_dialect {
                     ($($name:ident),* $(,)?) => {
                         $(if self.$name.is_none() {
-                            self.$name = obj.get_attr(stringify!($name), vm).ok();
+                            self.$name = vm.get_attribute_opt(&obj, stringify!($name))?;
                         })*
                     };
                 }

@@ -25,9 +25,9 @@ assert mapped.find(b"") == 0
 assert mapped.rfind(b"") == 3
 assert mapped.find(b"", 1, 2) == 1
 assert mapped.rfind(b"", 1, 2) == 2
-# offsets past the end are clamped and negative ones count from the end
-assert mapped.find(b"", 5) == 3
-assert mapped.rfind(b"", 5) == 3
+# starts past the end find nothing and negative offsets count from the end
+assert mapped.find(b"", 5) == -1
+assert mapped.rfind(b"", 5) == -1
 assert mapped.find(b"", -1) == 2
 assert mapped.rfind(b"", 0, -1) == 2
 # an inverted range holds nothing, not even the empty subsequence

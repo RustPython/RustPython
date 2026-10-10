@@ -854,9 +854,16 @@ mod mmap {
 
         fn get_find_range(&self, options: &FindOptions) -> (usize, usize) {
             let size = self.__len__();
-            let start = options
-                .start
-                .map_or_else(|| self.pos(), |start| start.saturated_at(size));
+            let start = options.start.map_or_else(
+                || self.pos(),
+                |start| {
+                    if start < 0 {
+                        start.saturated_at(size)
+                    } else {
+                        start as usize
+                    }
+                },
+            );
             let end = options.end.map_or(size, |end| end.saturated_at(size));
             (start, end)
         }

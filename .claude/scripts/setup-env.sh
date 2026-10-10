@@ -16,7 +16,7 @@ if [ "$(printf '%s\n' "3.13" "$CURRENT_PY" | sort -V | head -1)" != "3.13" ]; th
     echo "Upgrading python3 default to 3.13..."
     # Find best available Python >= 3.13
     TARGET=""
-    for ver in python3.14 python3.13; do
+    for ver in python3.15 python3.14 python3.13; do
         if command -v "$ver" &>/dev/null; then
             TARGET=$(command -v "$ver")
             break
@@ -38,13 +38,17 @@ else
     echo "python3 already >= 3.13: $(python3 --version)"
 fi
 
-# 2. Clone CPython source if not present (needed for scripts/update_lib)
-if [ ! -d "cpython" ]; then
-    echo "Cloning CPython v3.14.3 (shallow)..."
-    git clone --depth 1 --branch v3.14.3 https://github.com/python/cpython.git cpython
-    echo "CPython source ready."
+# 2. Ensure the CPython source matches the target (needed for scripts/update_lib)
+PYTHON_VERSION="v3.15.0"
+if [ ! -e "cpython" ]; then
+    git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython.git cpython
+elif [ ! -d "cpython/.git" ] || [ ! -d "cpython/Lib" ] ||
+    [ "$(git -C cpython rev-parse HEAD)" != "$(git -C cpython rev-parse --verify "$PYTHON_VERSION^{commit}" 2>/dev/null)" ] ||
+    [ -n "$(git -C cpython status --porcelain)" ]; then
+    echo "ERROR: cpython must be a clean checkout of $PYTHON_VERSION. Move the existing directory aside and rerun." >&2
+    exit 1
 else
-    echo "CPython source already present."
+    echo "CPython $PYTHON_VERSION source already present."
 fi
 
 echo "=== Setup complete ==="

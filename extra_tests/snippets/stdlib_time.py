@@ -75,15 +75,37 @@ if sys.platform == "win32":
     import errno
 
     for converter in (time.gmtime, time.localtime, time.ctime):
-        # Python 3.14 preserves UCRT conversion failures as OSError. Use a
-        # negative timestamp below gmtime's near-epoch allowance in UCRT.
-        for timestamp in (-86400, 2**40, 2**63 - 1, -(2**63), -float(2**63)):
+        # Non-negative timestamps still use UCRT and preserve errno.
+        for timestamp in (2**40, 2**63 - 1):
             try:
                 converter(timestamp)
             except OSError as error:
                 assert error.errno == errno.EINVAL, (converter, timestamp, error)
             else:
                 raise AssertionError("UCRT timestamp failure did not raise OSError")
+
+        # Negative timestamps use FILETIME, whose epoch is 1601-01-01.
+        for timestamp in (-11_644_473_601, -(2**63), -float(2**63)):
+            try:
+                converter(timestamp)
+            except OverflowError as error:
+                assert str(error) == "timestamp out of range for Windows FILETIME"
+            else:
+                raise AssertionError(
+                    "pre-FILETIME timestamp did not raise OverflowError"
+                )
+
+    assert time.gmtime(-11_644_473_600) == (1601, 1, 1, 0, 0, 0, 0, 1, 0)
+    assert time.gmtime(-86400) == (1969, 12, 31, 0, 0, 0, 2, 365, 0)
+    assert time.gmtime(-1) == (1969, 12, 31, 23, 59, 59, 2, 365, 0)
+    # Leap-year accounting uses the historical date, including century rules.
+    assert time.gmtime(-2_203_891_200).tm_yday == 60  # 1900-03-01
+    assert time.gmtime(-2_330_035_200).tm_yday == 61  # 1896-03-01
+    for timestamp in (-15_897_600, -86400, -43201, -1):
+        local = time.localtime(timestamp)
+        assert local.tm_isdst == -1
+        assert local[:6] == time.gmtime(timestamp + local.tm_gmtoff)[:6]
+        assert time.ctime(timestamp) == time.asctime(local)
 
 x = time.gmtime(1000)
 

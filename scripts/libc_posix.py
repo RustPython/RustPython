@@ -8,7 +8,7 @@ import urllib.request
 
 import tomllib
 
-CPYTHON_VERSION = "3.14"
+CPYTHON_VERSION = "3.15"
 
 CONSTS_PATTERN = re.compile(r"\b_*[A-Z]+(?:_+[A-Z]+)*_*\b")
 

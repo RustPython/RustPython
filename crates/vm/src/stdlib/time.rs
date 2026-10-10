@@ -1353,7 +1353,25 @@ mod platform {
             (info.standard_bias, &info.standard_name)
         };
 
-        let gmtoff = -(info.bias + bias) * 60;
+        let gmtoff = if when < 0 {
+            // FILETIME marks historical DST as unknown. Derive the offset from
+            // the converted wall time rather than treating unknown as standard.
+            let wall_time = jiff::civil::DateTime::new(
+                (tm.tm_year + 1900) as i16,
+                (tm.tm_mon + 1) as i8,
+                tm.tm_mday as i8,
+                tm.tm_hour as i8,
+                tm.tm_min as i8,
+                tm.tm_sec as i8,
+                0,
+            )
+            .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC))
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for Windows FILETIME"))?;
+            i32::try_from(wall_time.timestamp().as_second() - when)
+                .map_err(|_| vm.new_overflow_error("timezone offset out of range"))?
+        } else {
+            -(info.bias + bias) * 60
+        };
 
         Ok(struct_time_from_tm(vm, tm, name, gmtoff))
     }
