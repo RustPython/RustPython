@@ -91,6 +91,60 @@ assert Counter("abracadabra").most_common(1) == [("a", 5)]
 ordered = OrderedDict()
 _count_elements(ordered, "bab")
 assert list(ordered.items()) == [("b", 2), ("a", 1)]
+
+
+# OrderedDict views show their contents in insertion order, including recursion.
+def check_ordered_dict_view_repr():
+    ordered = OrderedDict([("b", 2), ("a", 1)])
+    for method, contents in (
+        ("keys", "['b', 'a']"),
+        ("values", "[2, 1]"),
+        ("items", "[('b', 2), ('a', 1)]"),
+    ):
+        assert repr(getattr(OrderedDict(), method)()) == "odict_" + method + "([])"
+        assert (
+            repr(getattr(ordered, method)()) == "odict_" + method + "(" + contents + ")"
+        )
+
+    recursive = OrderedDict()
+    values = recursive.values()
+    items = recursive.items()
+    recursive["self"] = values
+    assert repr(values) == "odict_values([...])"
+    recursive["self"] = items
+    assert repr(items) == "odict_items([('self', ...)])"
+
+    # Repr must snapshot the contents before arbitrary repr code mutates them.
+    for method in ("keys", "values", "items"):
+
+        class MutatingRepr:
+            def __repr__(self):
+                ordered.clear()
+                return "mutated"
+
+        item = MutatingRepr()
+        ordered = OrderedDict([(item, item), ("tail", "last")])
+        expected = {
+            "keys": "odict_keys([mutated, 'tail'])",
+            "values": "odict_values([mutated, 'last'])",
+            "items": "odict_items([(mutated, mutated), ('tail', 'last')])",
+        }
+        assert repr(getattr(ordered, method)()) == expected[method]
+        assert not ordered
+
+    class BadRepr:
+        def __repr__(self):
+            raise ValueError("view repr")
+
+    ordered = OrderedDict([(BadRepr(), BadRepr())])
+    for method in ("keys", "values", "items"):
+        with assert_raises(ValueError) as caught:
+            repr(getattr(ordered, method)())
+        assert str(caught.exception) == "view repr"
+
+
+check_ordered_dict_view_repr()
+
 factory = defaultdict(lambda: 100)
 _count_elements(factory, "a")
 assert factory == {"a": 1}
