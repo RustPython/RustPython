@@ -5742,7 +5742,6 @@ class PicklingTests(unittest.TestCase):
                     objcopy2 = deepcopy(objcopy)
                     self._assert_is_copy(obj, objcopy2)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_issue24097(self):
         # Slot name is freed inside __getattr__ and is later used.
         class S(str):  # Not interned

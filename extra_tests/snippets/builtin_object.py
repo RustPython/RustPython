@@ -161,3 +161,46 @@ except RuntimeError as outer:
     with assert_raises(ValueError) as caught:
         RaisingAttributeHook().absent
     assert caught.exception.__context__ is outer
+
+
+# object.__getstate__ reads names from a cached __slotnames__ list
+class NonStrSlotName:
+    __slotnames__ = [1]
+
+
+with assert_raises(TypeError) as caught:
+    NonStrSlotName().__getstate__()
+assert str(caught.exception) == "attribute name must be string, not 'int'"
+
+
+class GrowingSlotNames:
+    __slotnames__ = ["a", "b"]
+
+    def __getattr__(self, name):
+        if name == "a":
+            GrowingSlotNames.__slotnames__.append("c")
+            return 1
+        raise AttributeError(name)
+
+
+with assert_raises(RuntimeError):
+    GrowingSlotNames().__getstate__()
+
+
+class RaisingSlot:
+    __slotnames__ = ["x"]
+
+    def __getattr__(self, name):
+        raise ValueError("boom")
+
+
+with assert_raises(ValueError):
+    RaisingSlot().__getstate__()
+
+
+class MissingSlot:
+    __slotnames__ = ["x", "y"]
+    y = 2
+
+
+assert MissingSlot().__getstate__() == (None, {"y": 2})
