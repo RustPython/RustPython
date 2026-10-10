@@ -28,6 +28,69 @@ if os.name == "posix" and sys.implementation.name == "rustpython":
     stat_rejects_negative_file_descriptors()
 
 
+def chmod_supports_directory_descriptors():
+    import errno
+    import tempfile
+
+    assert os.chmod in os.supports_dir_fd
+    assert os.chmod in os.supports_fd
+    with tempfile.TemporaryDirectory() as directory:
+        filename = os.path.join(directory, "file")
+        with open(filename, "wb"):
+            pass
+        dir_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.chmod("file", 0o640, dir_fd=dir_fd)
+            assert stat.S_IMODE(os.stat(filename).st_mode) == 0o640
+
+            # Absolute paths ignore even an invalid directory descriptor.
+            os.chmod(path=filename, mode=0o600, dir_fd=-1)
+            assert stat.S_IMODE(os.stat(filename).st_mode) == 0o600
+
+            class DirectoryDescriptor:
+                def __index__(self):
+                    return dir_fd
+
+            os.chmod(b"file", 0o640, dir_fd=DirectoryDescriptor())
+            assert stat.S_IMODE(os.stat(filename).st_mode) == 0o640
+            with assert_raises(OSError) as error:
+                os.chmod("file", 0o600, dir_fd=-1)
+            assert error.exception.errno == errno.EBADF
+            assert error.exception.filename == "file"
+            for invalid, message in (
+                (-(2**31) - 1, "fd is less than minimum"),
+                (2**31, "fd is greater than maximum"),
+            ):
+                with assert_raises(OverflowError) as error:
+                    os.chmod(filename, 0o600, dir_fd=invalid)
+                assert str(error.exception) == message
+
+            link = os.path.join(directory, "link")
+            os.symlink("file", link)
+            os.chmod("link", 0o600, dir_fd=dir_fd)
+            assert stat.S_IMODE(os.stat(filename).st_mode) == 0o600
+            for path, options, error_type, message in (
+                (link, {}, NotImplementedError, "follow_symlinks unavailable"),
+                (
+                    "link",
+                    {"dir_fd": dir_fd},
+                    ValueError,
+                    "cannot use dir_fd and follow_symlinks together",
+                ),
+            ):
+                try:
+                    os.chmod(path, 0o640, follow_symlinks=False, **options)
+                except error_type as error:
+                    assert message in str(error)
+                assert stat.S_IMODE(os.stat(filename).st_mode) == 0o600
+        finally:
+            os.close(dir_fd)
+
+
+if os.name == "posix" and hasattr(os, "fchmod"):
+    chmod_supports_directory_descriptors()
+
+
 fd = os.open("README.md", os.O_RDONLY)
 assert fd > 0
 
