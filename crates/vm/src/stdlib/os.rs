@@ -199,7 +199,10 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 
 #[pymodule(sub, name = "posix")]
 pub(super) mod _os {
-    use super::{DirFd, DstDirFd, FollowSymlinks, RawMode, SrcDirFd, SupportFunc};
+    use super::{
+        AT_FDCWD, DefaultDirFd, DirFd, DirFdKeyword, DstDirFd, FollowSymlinks, RawMode, SrcDirFd,
+        SupportFunc, warn_if_bool_fd,
+    };
     #[cfg(not(windows))]
     use crate::exceptions;
     use crate::host_env::fileutils::StatStruct;
@@ -212,9 +215,11 @@ pub(super) mod _os {
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
-        convert::{IntoPyException, ToPyObject},
+        convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, ArgumentError, FromArgs, FsPath, FuncArgs, Param,
+        },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
@@ -275,20 +280,57 @@ pub(super) mod _os {
         crt_fd::closerange(fd_low, fd_high);
     }
 
+    // Signal callbacks can close this descriptor between open attempts.
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    struct OpenDirFd(crt_fd::Raw);
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    impl FromArgs for OpenDirFd {
+        const PARAMS: Option<&'static [Param]> = Some(DefaultDirFd::PARAMS);
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            let fd = match args.take_keyword("dir_fd") {
+                Some(o) if vm.is_none(&o) => AT_FDCWD,
+                None => AT_FDCWD,
+                Some(o) => {
+                    warn_if_bool_fd(&o, vm).map_err(Into::<ArgumentError>::into)?;
+                    let fd = o.try_index_opt(vm).unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                            "argument should be integer or None, not {}",
+                            o.class().name()
+                        )))
+                    })?;
+                    fd.try_to_primitive(vm)?
+                }
+            };
+            if fd == -1 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF)
+                    .to_pyexception(vm)
+                    .into());
+            }
+            if !OPEN_DIR_FD && fd != AT_FDCWD {
+                return Err(vm
+                    .new_not_implemented_error("dir_fd unavailable on this platform")
+                    .into());
+            }
+            Ok(Self(fd))
+        }
+    }
+
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[derive(FromArgs)]
-    struct OpenArgs<'fd> {
+    struct OpenArgs {
         path: OsPath,
         flags: i32,
         #[pyarg(any, default = 0o777)]
         mode: i32,
         #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { OPEN_DIR_FD as usize }>,
+        dir_fd: OpenDirFd,
     }
 
     #[pyfunction]
-    fn open(args: OpenArgs<'_>, vm: &VirtualMachine) -> PyResult<crt_fd::Owned> {
-        os_open(args.path, args.flags, args.mode, args.dir_fd, vm)
+    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<crt_fd::Owned> {
+        os_open(args.path, args.flags, args.mode, args.dir_fd.0, vm)
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
@@ -296,34 +338,50 @@ pub(super) mod _os {
         name: OsPath,
         flags: i32,
         mode: i32,
-        dir_fd: DirFd<'_, { OPEN_DIR_FD as usize }>,
+        dir_fd: crt_fd::Raw,
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Owned> {
+        use crate::host_env::os::ErrorExt;
+
         #[cfg(windows)]
-        let fd = {
-            let [] = dir_fd.0;
-            let name = name.to_wide_cstring(vm)?;
-            let flags = flags | crate::host_env::os::O_NOINHERIT;
-            crt_fd::wopen(&name, flags, mode)
-        };
+        let raw_name = name.to_wide_cstring(vm)?;
         #[cfg(not(windows))]
-        let fd = {
-            let name = name.clone().into_cstring(vm)?;
-            #[cfg(not(target_os = "wasi"))]
-            let flags = flags | crate::host_env::os::O_CLOEXEC;
-            #[cfg(not(target_os = "redox"))]
-            if let Some(dir_fd) = dir_fd.get_opt() {
-                crt_fd::openat(dir_fd, &name, flags, mode)
-            } else {
-                crt_fd::open(&name, flags, mode)
+        let raw_name = name.clone().into_cstring(vm)?;
+        #[cfg(windows)]
+        let flags = flags | crate::host_env::os::O_NOINHERIT;
+        #[cfg(all(not(windows), not(target_os = "wasi")))]
+        let flags = flags | crate::host_env::os::O_CLOEXEC;
+
+        loop {
+            let fd = vm.allow_threads(|| {
+                #[cfg(windows)]
+                {
+                    let _ = dir_fd;
+                    crt_fd::wopen(&raw_name, flags, mode)
+                }
+                #[cfg(not(windows))]
+                {
+                    #[cfg(not(target_os = "redox"))]
+                    if dir_fd != AT_FDCWD {
+                        crt_fd::openat_raw(dir_fd, &raw_name, flags, mode)
+                    } else {
+                        crt_fd::open(&raw_name, flags, mode)
+                    }
+                    #[cfg(target_os = "redox")]
+                    {
+                        let _ = dir_fd;
+                        crt_fd::open(&raw_name, flags, mode)
+                    }
+                }
+            });
+            match fd {
+                Ok(fd) => return Ok(fd),
+                Err(err) if err.posix_errno() == libc::EINTR => vm.check_signals()?,
+                Err(err) => {
+                    return Err(OSErrorBuilder::with_filename_from_errno(&err, name, vm));
+                }
             }
-            #[cfg(target_os = "redox")]
-            {
-                let [] = dir_fd.0;
-                crt_fd::open(&name, flags, mode)
-            }
-        };
-        fd.map_err(|err| OSErrorBuilder::with_filename_from_errno(&err, name, vm))
+        }
     }
 
     #[derive(FromArgs)]

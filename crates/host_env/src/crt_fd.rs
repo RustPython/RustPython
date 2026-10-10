@@ -331,7 +331,13 @@ pub fn wopen(path: &widestring::WideCStr, flags: i32, mode: i32) -> io::Result<O
 
 #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
 pub fn openat(dir: Borrowed<'_>, path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
-    cvt_fd(unsafe { c::openat(dir.as_raw(), path.as_ptr(), flags, mode) })
+    openat_raw(dir.as_raw(), path, flags, mode)
+}
+
+#[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
+// Accept a descriptor number without asserting it stays open across calls.
+pub fn openat_raw(dir: Raw, path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
+    cvt_fd(unsafe { c::openat(dir, path.as_ptr(), flags, mode) })
 }
 
 pub fn fsync(fd: Borrowed<'_>) -> io::Result<()> {
