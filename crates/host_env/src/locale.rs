@@ -3,6 +3,53 @@ use core::{ffi::CStr, ptr};
 
 pub use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
 
+// CPython uses the wide-character APIs after btowc() on Apple platforms.
+// Darwin's wint_t is int; libc does not expose these declarations.
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    fn btowc(ch: libc::c_int) -> libc::c_int;
+    fn iswalnum(ch: libc::c_int) -> libc::c_int;
+    fn towlower(ch: libc::c_int) -> libc::c_int;
+    fn towupper(ch: libc::c_int) -> libc::c_int;
+}
+
+/// Classify a byte using the current LC_CTYPE locale.
+pub fn byte_isalnum(ch: u8) -> bool {
+    // ctype functions require EOF or an unsigned-char value, never a signed byte.
+    #[cfg(not(target_vendor = "apple"))]
+    unsafe {
+        libc::isalnum(ch.into()) != 0
+    }
+    #[cfg(target_vendor = "apple")]
+    unsafe {
+        iswalnum(btowc(ch.into())) != 0
+    }
+}
+
+/// Lowercase a byte using the current LC_CTYPE locale.
+pub fn byte_tolower(ch: u8) -> u32 {
+    #[cfg(not(target_vendor = "apple"))]
+    unsafe {
+        libc::tolower(ch.into()) as u32
+    }
+    #[cfg(target_vendor = "apple")]
+    unsafe {
+        towlower(btowc(ch.into())) as u32
+    }
+}
+
+/// Uppercase a byte using the current LC_CTYPE locale.
+pub fn byte_toupper(ch: u8) -> u32 {
+    #[cfg(not(target_vendor = "apple"))]
+    unsafe {
+        libc::toupper(ch.into()) as u32
+    }
+    #[cfg(target_vendor = "apple")]
+    unsafe {
+        towupper(btowc(ch.into())) as u32
+    }
+}
+
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
 pub use libc::LC_MESSAGES;
 
