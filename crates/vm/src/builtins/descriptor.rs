@@ -2064,7 +2064,7 @@ impl Callable for PyWrapper {
 impl Py<PyWrapper> {
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-        let getattr = vm.builtins.get_attr("getattr", vm)?;
+        let getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         let args = vm.ctx.new_tuple(vec![
             self.typ.to_owned().into(),
             self.name.to_owned().into(),
