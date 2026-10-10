@@ -2,7 +2,7 @@
 //!
 //! RustPython and CPython each have a lock that a thread must hold to run
 //! Python code: RustPython's attached thread state (which a stop-the-world
-//! request waits on) and CPython's GIL. A thread that blocks on one while
+//! request waits on) and the GIL. A thread that blocks on one while
 //! holding the other can deadlock against a thread doing the opposite, so:
 //!
 //! - both are held only to move objects across ([`with_gil`],
