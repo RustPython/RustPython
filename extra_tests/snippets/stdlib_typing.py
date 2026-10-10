@@ -63,3 +63,24 @@ try:
     repr(nested)
 except RecursionError:
     pass
+
+
+# Eager aliases without a caller module never inspect their aliased value.
+alias_module_lookups = []
+
+
+class AliasModuleValue:
+    @property
+    def __module__(self):
+        alias_module_lookups.append(True)
+        return "unexpected_value_module"
+
+
+for alias_value in (int, AliasModuleValue()):
+    alias_namespace = {"value": alias_value}
+    exec(
+        "from typing import TypeAliasType; alias = TypeAliasType('Alias', value)",
+        alias_namespace,
+    )
+    assert alias_namespace["alias"].__module__ is None
+assert alias_module_lookups == []
