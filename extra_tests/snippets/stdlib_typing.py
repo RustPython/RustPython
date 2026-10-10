@@ -63,3 +63,9 @@ try:
     repr(nested)
 except RecursionError:
     pass
+
+
+# Python 3.14.8 retains ParamSpec bounds without converting or validating them.
+assert ParamSpec("Unbounded").__bound__ is None
+for bound in (None, "int", "not valid Python!", (int, str), object()):
+    assert ParamSpec("BoundSpec", bound=bound).__bound__ is bound

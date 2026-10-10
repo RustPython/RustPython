@@ -95,6 +95,12 @@ class MockTest(unittest.TestCase):
                          "children not initialised incorrectly")
 
 
+    def test_return_value_property_metadata(self):
+        self.assertEqual(Mock.return_value.__doc__,
+                         "The value to be returned when the mock is called.")
+        self.assertIsNone(Mock.return_value.fdel)
+
+
     def test_return_value_in_constructor(self):
         mock = Mock(return_value=None)
         self.assertIsNone(mock.return_value,
