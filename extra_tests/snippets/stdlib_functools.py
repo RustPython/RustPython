@@ -1,8 +1,12 @@
 import gc
 import weakref
+from _functools import _lru_cache_wrapper
 from functools import cache, cmp_to_key, lru_cache, partial, reduce
 
 from testutils import assert_raises
+
+# Cached wrappers support method-descriptor lookup and binding.
+assert _lru_cache_wrapper.__flags__ & (1 << 17)
 
 
 class Squares:
