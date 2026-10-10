@@ -9,6 +9,16 @@ for error, kwargs in (
     (ValueError, {"blocking": False, "timeout": 1}),
     (ValueError, {"timeout": -2}),
     (OverflowError, {"timeout": _thread.TIMEOUT_MAX + 1}),
+    (OverflowError, {"blocking": False, "timeout": 2**63 / 1e9}),
+    (OverflowError, {"blocking": False, "timeout": -9_223_372_037}),
+    (OverflowError, {"timeout": -9_223_372_037}),
+    (OverflowError, {"blocking": False, "timeout": float("inf")}),
+    (OverflowError, {"timeout": float("inf")}),
+    (OverflowError, {"blocking": False, "timeout": float("-inf")}),
+    (OverflowError, {"timeout": float("-inf")}),
+    (ValueError, {"timeout": -(2**63) / 1e9}),
+    (ValueError, {"blocking": False, "timeout": 4_294_968}),
+    (ValueError, {"timeout": -4_294_968}),
 ):
     lock = _thread.RLock()
     assert lock.acquire()
