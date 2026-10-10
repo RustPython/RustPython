@@ -114,7 +114,8 @@ mod math {
                 if error.fast_isinstance(vm.ctx.exceptions.overflow_error)
                     && let Some(index) = x.try_index_opt(vm)
                 {
-                    return integer_log(&index?);
+                    let index = index?;
+                    return integer_log(&index);
                 }
                 return Err(error);
             }
