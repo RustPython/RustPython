@@ -3172,7 +3172,7 @@ impl VirtualMachine {
     pub fn eval_get_builtin(&self, name: &'static PyStrInterned) -> PyResult {
         let builtins =
             crate::frame::current_builtins().unwrap_or_else(|| self.builtins.dict().into());
-        if let Some(dict) = builtins.downcast_ref::<PyDict>() {
+        if let Some(dict) = builtins.downcast_ref_if_exact::<PyDict>(self) {
             match dict.get_item_opt(name, self)? {
                 Some(value) => Ok(value),
                 None => Err(self.new_attribute_error(name.to_string())),

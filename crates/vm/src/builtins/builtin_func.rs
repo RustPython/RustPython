@@ -215,7 +215,7 @@ impl PyNativeFunction {
             .as_ref()
             .filter(|bound| !bound.class().is_subtype(vm.ctx.types.module_type))
         {
-            let getattr = vm.builtins.get_attr("getattr", vm)?;
+            let getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
             Ok(vm
                 .new_tuple((getattr, (bound.clone(), zelf.value.name)))
                 .into())
