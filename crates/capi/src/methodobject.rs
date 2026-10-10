@@ -11,16 +11,6 @@ use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
 define_py_check!(exact fn PyCFunction_CheckExact, types.builtin_function_or_method_type);
 
-// Removed from the public API in 3.13, but retained in the stable ABI.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyCFunction_Call(
-    callable: *mut PyObject,
-    args: *mut PyObject,
-    kwargs: *mut PyObject,
-) -> *mut PyObject {
-    unsafe { crate::abstract_::PyObject_Call(callable, args, kwargs) }
-}
-
 #[repr(C)]
 #[derive(Debug)]
 pub struct PyMethodDef {
