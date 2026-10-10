@@ -46,7 +46,9 @@ runs:
             print(f"pythonLocation={sys.base_prefix}", file=env)
             if sys.platform == "linux":
                 lib = os.path.join(sys.base_prefix, "lib")
-                print(f"LD_LIBRARY_PATH={lib}:{os.environ.get('LD_LIBRARY_PATH', '')}", file=env)
+                previous = os.environ.get("LD_LIBRARY_PATH")
+                lib_path = os.pathsep.join([lib, previous] if previous else [lib])
+                print(f"LD_LIBRARY_PATH={lib_path}", file=env)
         if sys.platform == "win32":
             with open(os.environ["GITHUB_PATH"], "a") as path:
                 print(sys.base_prefix, file=path)
