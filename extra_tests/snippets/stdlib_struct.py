@@ -184,3 +184,21 @@ assert struct.pack("<H", ClearFormats()) == b"\x2a\x00"
 buffer = bytearray(2)
 struct.pack_into("<H", buffer, 0, ClearFormats())
 assert buffer == b"\x2a\x00"
+
+
+# Struct's format is positional-or-keyword, including inherited initialization.
+class KeywordStruct(struct.Struct):
+    pass
+
+
+for cls in (struct.Struct, KeywordStruct):
+    for fmt in (">h", b">h"):
+        s = cls(format=fmt)
+        assert s.format == ">h"
+        assert s.pack(7) == b"\x00\x07"
+        s.__init__(format=">hh")
+        assert s.unpack(b"\x00\x01\x00\x02") == (1, 2)
+        with assert_raises(struct.error):
+            s.__init__(format="$")
+        assert s.format == ">hh"
+        assert s.pack(1, 2) == b"\x00\x01\x00\x02"
