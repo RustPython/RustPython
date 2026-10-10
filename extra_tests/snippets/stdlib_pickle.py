@@ -9,3 +9,7 @@ memo = unpickler.memo.copy()
 assert list(memo) == [1, 7]
 assert memo[1] is left
 assert memo[7] is left
+
+# Slot wrapper descriptors reduce to lookup on their defining class.
+assert object.__str__.__reduce__() == (getattr, (object, "__str__"))
+assert _pickle.loads(_pickle.dumps(object.__str__)) is object.__str__

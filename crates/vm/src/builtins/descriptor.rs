@@ -2062,6 +2062,16 @@ impl Callable for PyWrapper {
     flags(DISALLOW_INSTANTIATION)
 )]
 impl Py<PyWrapper> {
+    #[pymethod]
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
+        let getattr = vm.builtins.get_attr("getattr", vm)?;
+        let args = vm.ctx.new_tuple(vec![
+            self.typ.to_owned().into(),
+            self.name.to_owned().into(),
+        ]);
+        Ok(vm.ctx.new_tuple(vec![getattr, args.into()]).into())
+    }
+
     #[pygetset]
     fn __qualname__(&self) -> String {
         format!("{}.{}", self.typ.name(), self.name)
