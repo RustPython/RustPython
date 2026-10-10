@@ -155,10 +155,12 @@ impl Py<PyMethodDescriptor> {
     fn __reduce__(
         &self,
         vm: &VirtualMachine,
-    ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, &'static str)) {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
-        let classname = vm.builtins.get_attr(&self.common.typ.__name__(vm), vm).ok();
-        (builtins_getattr, (classname, self.method.name))
+    ) -> PyResult<(PyObjectRef, (PyTypeRef, &'static str))> {
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
+        Ok((
+            builtins_getattr,
+            (self.common.typ.to_owned(), self.method.name),
+        ))
     }
 }
 
@@ -851,7 +853,7 @@ impl Py<PyMemberDescriptor> {
 
     #[pymethod]
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok(vm
             .ctx
             .new_tuple(vec![
@@ -2181,7 +2183,7 @@ impl Py<PyMethodWrapper> {
 
     #[pymethod]
     fn __reduce__(zelf: PyRef<PyMethodWrapper>, vm: &VirtualMachine) -> PyResult {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok(vm
             .ctx
             .new_tuple(vec![
