@@ -359,7 +359,7 @@ pub fn closerange(fd_low: Raw, fd_high: Raw) {
     // CPython clamps low to 0.
     let fd_low = fd_low.max(0);
     // close_range(2) is [low, high] whereas CPython's is [low, high).
-    if fd_high < fd_low {
+    if fd_high <= fd_low {
         return;
     }
     let high = fd_high - 1;
