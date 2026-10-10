@@ -1,6 +1,7 @@
 import itertools
 import os
 import stat
+import subprocess
 import sys
 import time
 
@@ -26,6 +27,40 @@ def stat_rejects_negative_file_descriptors():
 # Keep the original RustPython-only coverage: CPython treats -1 as a path sentinel.
 if os.name == "posix" and sys.implementation.name == "rustpython":
     stat_rejects_negative_file_descriptors()
+
+
+# Run in a child: a broken empty-range implementation can close every descriptor.
+subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        """
+import errno
+import os
+
+sentinel = os.open(os.devnull, os.O_RDONLY)
+for low, high in ((0, 0), (-1, 0), (sentinel, sentinel),
+                  (sentinel + 1, sentinel), (-2, -1)):
+    os.closerange(low, high)
+    os.fstat(sentinel)
+
+target = os.open(os.devnull, os.O_RDONLY)
+other = os.open(os.devnull, os.O_RDONLY)
+os.closerange(target, target + 1)
+os.fstat(sentinel)
+os.fstat(other)
+try:
+    os.fstat(target)
+except OSError as exc:
+    assert exc.errno == errno.EBADF
+else:
+    raise AssertionError("closerange did not close its single descriptor")
+os.close(other)
+os.close(sentinel)
+""",
+    ],
+    check=True,
+)
 
 
 fd = os.open("README.md", os.O_RDONLY)
