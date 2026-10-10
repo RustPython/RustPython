@@ -558,7 +558,10 @@ pub(crate) fn subs_parameters(
             if let Some(iparam) = tuple_index(parameters.as_slice(), arg) {
                 subst.call((arg_items[iparam].clone(),), vm)?
             } else {
-                subs_tvars(arg.clone(), parameters, &arg_items, vm)?
+                return Err(vm.new_type_error(format!(
+                    "argument {} with __typing_subst__ was not found in __parameters__",
+                    arg.repr(vm)?
+                )));
             }
         } else {
             subs_tvars(arg.clone(), parameters, &arg_items, vm)?
