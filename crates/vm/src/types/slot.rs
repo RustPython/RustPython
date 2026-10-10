@@ -1262,7 +1262,7 @@ impl PyType {
                         attr.class().is(ctx.types.wrapper_descriptor_type)
                             && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
                                 descr.name.as_str() == "__add__"
-                                    && self.fast_issubclass(descr.typ)
+                                    && self.mro.read().iter().any(|cls| cls.is(descr.typ))
                                     && matches!(descr.wrapped, SlotFunc::SeqConcat(_))
                             })
                     });
