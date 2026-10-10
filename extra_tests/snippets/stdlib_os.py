@@ -570,3 +570,128 @@ assert os.stat_result(tuple(range(10))).st_atime == 7
 assert os.stat_result(tuple(range(10)), {"st_atime": 1.5}).st_atime == 1.5
 with assert_raises(TypeError):
     os.stat_result(tuple(range(10)), ["st_atime"])
+
+
+def mkfifo_paths_and_directory_descriptors():
+    import errno
+    import inspect
+    import tempfile
+    import warnings
+
+    assert str(inspect.signature(os.mkfifo)) == "(path, mode=438, *, dir_fd=None)"
+    assert os.mkfifo not in os.supports_fd
+    assert os.mkfifo not in os.supports_follow_symlinks
+    if sys.platform.startswith("linux"):
+        assert os.mkfifo in os.supports_dir_fd
+
+    class Path:
+        def __init__(self, value):
+            self.value = value
+
+        def __fspath__(self):
+            return self.value
+
+    class Index:
+        def __init__(self, value):
+            self.value = value
+
+        def __index__(self):
+            return self.value
+
+    class BadIndex:
+        def __index__(self):
+            raise RuntimeError("mkfifo index marker")
+
+    # Never open a FIFO: creating, inspecting and unlinking it cannot wait for
+    # another process to connect. All paths belong to this temporary directory.
+    with tempfile.TemporaryDirectory(prefix="rustpython-mkfifo-") as directory:
+        path = os.path.join(directory, "fifo")
+        for value in (path, os.fsencode(path), Path(path), Path(os.fsencode(path))):
+            assert os.mkfifo(path=value, mode=0) is None
+            info = os.stat(path)
+            assert stat.S_ISFIFO(info.st_mode)
+            assert stat.S_IMODE(info.st_mode) == 0
+            with assert_raises(FileExistsError) as error:
+                os.mkfifo(value)
+            assert error.exception.errno == errno.EEXIST
+            assert error.exception.filename is None
+            os.unlink(path)
+
+        assert os.mkfifo(path, dir_fd=None) is None
+        assert stat.S_ISFIFO(os.stat(path).st_mode)
+        assert stat.S_IMODE(os.stat(path).st_mode) & ~0o666 == 0
+        os.unlink(path)
+
+        for value in (None, 1.5):
+            assert_raises(TypeError, os.mkfifo, path, value)
+        for value in (2**31, -(2**31) - 1, 2**100, -(2**100)):
+            with assert_raises(OverflowError) as error:
+                os.mkfifo(path, value)
+            assert str(error.exception) == "Python int too large to convert to C int"
+            with assert_raises(OverflowError) as error:
+                os.mkfifo(path, dir_fd=value)
+            expected = (
+                "fd is greater than maximum" if value > 0 else "fd is less than minimum"
+            )
+            assert str(error.exception) == expected
+        for value in (1.5, "fd"):
+            assert_raises(TypeError, os.mkfifo, path, dir_fd=value)
+        for value in (None, 1):
+            with assert_raises(TypeError) as error:
+                os.mkfifo(value)
+            expected = "NoneType" if value is None else "int"
+            assert str(error.exception) == (
+                "mkfifo: path should be string, bytes or os.PathLike, not " + expected
+            )
+        assert_raises(TypeError, os.mkfifo, Path(None))
+        for value in (path + "\0", os.fsencode(path) + b"\0"):
+            with assert_raises(ValueError) as error:
+                os.mkfifo(value)
+            assert str(error.exception) == "mkfifo: embedded null character in path"
+        assert_raises(TypeError, os.mkfifo, path, 0o600, None)
+        for options in ({"mode": BadIndex()}, {"dir_fd": BadIndex()}):
+            with assert_raises(RuntimeError) as error:
+                os.mkfifo(path, **options)
+            assert str(error.exception) == "mkfifo index marker"
+        with assert_raises(FileNotFoundError) as error:
+            os.mkfifo(os.path.join(directory, "missing", "fifo"))
+        assert error.exception.errno == errno.ENOENT
+        assert error.exception.filename is None
+
+        directory_fd = os.open(directory, os.O_RDONLY)
+        try:
+            if os.mkfifo in os.supports_dir_fd:
+                assert (
+                    os.mkfifo(Path(b"fifo"), Index(0o600), dir_fd=Index(directory_fd))
+                    is None
+                )
+                assert stat.S_ISFIFO(os.stat(path).st_mode)
+                assert stat.S_IMODE(os.stat(path).st_mode) & ~0o600 == 0
+                os.unlink(path)
+                for value in (-1, -(2**31)):
+                    assert os.mkfifo(path, dir_fd=value) is None
+                    assert stat.S_ISFIFO(os.stat(path).st_mode)
+                    os.unlink(path)
+                with assert_raises(OSError) as error:
+                    os.mkfifo("fifo", dir_fd=-1)
+                assert error.exception.errno == errno.EBADF
+                assert error.exception.filename is None
+                with warnings.catch_warnings(record=True) as records:
+                    warnings.simplefilter("always")
+                    assert os.mkfifo(path, dir_fd=True) is None
+                assert len(records) == 1
+                assert records[0].category is RuntimeWarning
+                assert str(records[0].message) == "bool is used as a file descriptor"
+                os.unlink(path)
+            else:
+                with assert_raises(NotImplementedError) as error:
+                    os.mkfifo(path, dir_fd=directory_fd)
+                assert str(error.exception) == "dir_fd unavailable on this platform"
+        finally:
+            os.close(directory_fd)
+
+
+if sys.platform.startswith("linux"):
+    assert hasattr(os, "mkfifo")
+if hasattr(os, "mkfifo"):
+    mkfifo_paths_and_directory_descriptors()
