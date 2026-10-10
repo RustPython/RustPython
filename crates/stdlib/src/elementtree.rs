@@ -578,7 +578,21 @@ pub(crate) mod _elementtree {
 
         #[pymethod]
         fn remove(zelf: &Py<Self>, subelement: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            check_element(&subelement, vm)?;
+            if !subelement.downcastable::<Self>() {
+                let name = if vm.is_none(&subelement) {
+                    "None".into()
+                } else {
+                    subelement.class().slot_name()
+                };
+                let mut end = name.len().min(50);
+                while !name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                return Err(vm.new_type_error(format!(
+                    "remove() argument must be xml.etree.ElementTree.Element, not {}",
+                    &name[..end]
+                )));
+            }
             // Identity first, then equality, the way `element_remove` does;
             // the equality test can run arbitrary code, so the lock is
             // dropped for it and the list re-read afterwards.
