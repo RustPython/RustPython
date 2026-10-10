@@ -67,6 +67,58 @@ barry_code = compile("x = 1", "<test>", "exec", flags=barry_flag)
 compile("from __future__ import barry_as_FLUFL\nx = 1\n", "<test>", "exec")
 assert barry_code.co_flags & barry_flag
 
+
+# Keep Python-visible obsolete-operator diagnostics in Python coverage.
+for source, message, locations in (
+    (
+        "2 <> 3\n",
+        "invalid syntax.  Maybe you meant '!=' instead of '<>'?",
+        (1, 3, 1, 5),
+    ),
+    ("<>\n", "invalid syntax", (1, 1, 1, 2)),
+    ("2 <;\n", "invalid syntax", (1, 4, 1, 5)),
+    ("2 <<> 3\n", "invalid syntax", (1, 5, 1, 6)),
+    ("(2 <<> 3)\n", "invalid syntax", (1, 6, 1, 7)),
+    ("# <>\n2 <<> 3\n", "invalid syntax", (2, 5, 2, 6)),
+    ("(\n2 <> 3\n", "'(' was never closed", (1, 1, 1, 0)),
+):
+    try:
+        compile(source, "<test>", "exec")
+    except SyntaxError as error:
+        assert error.msg == message
+        assert (
+            error.lineno,
+            error.offset,
+            error.end_lineno,
+            error.end_offset,
+        ) == locations
+    else:
+        raise AssertionError("expected an obsolete-operator syntax error")
+
+assert eval(compile("2 <> 3", "<test>", "eval", flags=barry_flag))
+
+for source, locations in (
+    ("<>\n", (1, 1, 1, 3)),
+    ("2 <<> 3\n", (1, 5, 1, 6)),
+    ("(2 <<> 3)\n", (1, 6, 1, 7)),
+):
+    try:
+        compile(source, "<test>", "exec", flags=barry_flag)
+    except SyntaxError as error:
+        assert error.msg == "invalid syntax"
+        assert (
+            error.lineno,
+            error.offset,
+            error.end_lineno,
+            error.end_offset,
+        ) == locations
+    else:
+        raise AssertionError("expected an invalid operator syntax error")
+
+for flags in (0, barry_flag):
+    compile("2 << 3", "<test>", "exec", flags=flags)
+    compile('"<>"', "<test>", "exec", flags=flags)
+
 n = ast.parse('x = "# type: int"\n', type_comments=True)
 assert n.body[0].type_comment is None
 n = ast.parse("x = '# type: int'\n", type_comments=True)
