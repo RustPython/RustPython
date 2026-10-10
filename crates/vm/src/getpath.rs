@@ -299,12 +299,69 @@ fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str) -> String {
     }
 }
 
+/// Resolve final-component links without resolving directory aliases (ref: getpath.c).
+#[cfg(unix)]
+fn resolve_executable_symlinks(executable: &Path) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut path = executable.to_path_buf();
+    // CPython rejects 40 successful hops, matching the Linux 4.2 kernel limit.
+    for _ in 0..40 {
+        let Ok(target) = std::fs::read_link(&path) else {
+            return Some(path);
+        };
+        if target.is_absolute() {
+            path = target;
+            continue;
+        }
+
+        // Match getpath.c's raw dirname join, then normalize lexically without
+        // resolving directory symlinks or losing a double-leading-slash root.
+        let bytes = path.as_os_str().as_bytes();
+        let end = bytes.iter().rposition(|&b| b == b'/');
+        let dirname = &bytes[..end.unwrap_or(bytes.len())];
+        let mut joined = PathBuf::from(std::ffi::OsStr::from_bytes(dirname));
+        // Filesystem text uses UTF-8/surrogateescape; count characters, not bytes.
+        let multiple_chars =
+            std::str::from_utf8(dirname).map_or(dirname.len() > 1, |s| s.chars().nth(1).is_some());
+        if multiple_chars && !dirname.ends_with(b"/") {
+            joined.as_mut_os_string().push("/");
+        }
+        joined.as_mut_os_string().push(target.as_os_str());
+        let bytes = joined.as_os_str().as_bytes();
+        let double_root = bytes.starts_with(b"//") && !bytes.starts_with(b"///");
+        path.clear();
+        for component in joined.components() {
+            if component == std::path::Component::ParentDir
+                && !path.as_os_str().is_empty()
+                && !path.ends_with("..")
+            {
+                path.pop();
+            } else if component != std::path::Component::CurDir {
+                path.push(component.as_os_str());
+            }
+        }
+        if double_root {
+            path = Path::new("//").join(path.strip_prefix("/").ok()?);
+        }
+    }
+    None
+}
+
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    // If in venv and we have home, construct base_executable from home
+    // If in venv and we have home, prefer the actual target of a symlink.
     if let (Some(exe), Some(home)) = (executable, home_dir)
         && let Some(exe_name) = exe.file_name()
     {
+        #[cfg(unix)]
+        if let Some(resolved) = resolve_executable_symlinks(exe)
+            && !resolved.as_os_str().is_empty()
+            && resolved.as_os_str() != exe.as_os_str()
+        {
+            return resolved.to_string_lossy().into_owned();
+        }
+
         let base = home.join(exe_name);
         return base.to_string_lossy().into_owned();
     }

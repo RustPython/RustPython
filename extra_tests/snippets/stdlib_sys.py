@@ -1,7 +1,10 @@
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
+from pathlib import Path
 
 from testutils import assert_raises
 
@@ -174,3 +177,115 @@ finally:
         del os.environ["PYTHONBREAKPOINT"]
     else:
         os.environ["PYTHONBREAKPOINT"] = saved_breakpoint_env
+
+
+# A venv's symlink target takes precedence over home/<invoked name>.
+if os.name == "posix" and sys.platform not in ("wasi", "emscripten"):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        interpreter = Path(sys.executable).resolve()
+        home = root / "home"
+        home.mkdir()
+        venv_env = dict(os.environ)
+        for name in ("PYTHONHOME", "PYTHONEXECUTABLE", "__PYVENV_LAUNCHER__"):
+            venv_env.pop(name, None)
+        # Keep startup imports available even with the synthetic home directory.
+        venv_env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        path_code = (
+            "import sys; print(sys.executable); "
+            "print(sys._base_executable); print(sys.prefix)"
+        )
+
+        def executable_paths(executable, *, cwd=None, env=venv_env):
+            result = subprocess.run(
+                [str(executable), "-B", "-S", "-c", path_code],
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            assert result.returncode == 0, result.stderr
+            return result.stdout.splitlines()
+
+        for kind in ("absolute", "relative", "chain"):
+            bin_dir = root / kind / "bin"
+            bin_dir.mkdir(parents=True)
+            # Exercise both parent and adjacent pyvenv.cfg discovery.
+            prefix = bin_dir if kind == "chain" else bin_dir.parent
+            (prefix / "pyvenv.cfg").write_text(f"home = {home}\n")
+            executable = bin_dir / kind
+            # This regular file must never be preferred to a symlink's target.
+            (home / kind).touch()
+            if kind == "absolute":
+                executable.symlink_to(interpreter)
+            elif kind == "relative":
+                executable.symlink_to(os.path.relpath(interpreter, bin_dir))
+            else:
+                (bin_dir / "target").symlink_to(interpreter)
+                executable.symlink_to("target")
+            invocation = f"./bin/{kind}" if kind == "relative" else executable
+            assert executable_paths(invocation, cwd=bin_dir.parent) == [
+                str(executable),
+                str(interpreter),
+                str(prefix),
+            ]
+
+        # Without a venv, preserve the invoked symlink for both executable fields.
+        plain = root / "plain" / "python"
+        plain.parent.mkdir()
+        plain.symlink_to(interpreter)
+        assert executable_paths(plain)[:2] == [str(plain), str(plain)]
+
+        # A copied executable still falls back to home/<invoked name>.
+        copied = root / "copied" / "python"
+        copied.parent.mkdir()
+        shutil.copy2(interpreter, copied)
+        (home / copied.name).touch()
+        (copied.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
+        assert executable_paths(copied) == [
+            str(copied),
+            str(home / copied.name),
+            str(copied.parent),
+        ]
+
+        # A directory alias does not turn a copied executable into a symlink.
+        directory_alias = root / "directory-alias"
+        directory_alias.symlink_to(copied.parent, target_is_directory=True)
+        aliased_copy = directory_alias / copied.name
+        assert executable_paths(aliased_copy) == [
+            str(aliased_copy),
+            str(home / copied.name),
+            str(directory_alias),
+        ]
+
+        # Resolving a final-component link must preserve aliases in its target.
+        target_link = root / "linked" / "python"
+        target_link.parent.mkdir()
+        (target_link.parent / "pyvenv.cfg").write_text(f"home = {home}\n")
+        target_link.symlink_to("../directory-alias/python")
+        assert executable_paths(target_link) == [
+            str(target_link),
+            str(aliased_copy),
+            str(target_link.parent),
+        ]
+
+        # macOS framework builds use a framework-derived base for overrides.
+        if sys.platform == "linux":
+            # Relative targets also preserve a double-leading-slash directory.
+            double_target = root / "double-target"
+            double_target.symlink_to("directory-alias/python")
+            target_link.unlink()
+            target_link.symlink_to("/" + str(double_target))
+            assert executable_paths(target_link) == [
+                str(target_link),
+                "/" + str(aliased_copy),
+                str(target_link.parent),
+            ]
+
+            override_env = dict(venv_env, __PYVENV_LAUNCHER__=str(executable))
+            assert executable_paths(plain, env=override_env) == [
+                str(executable),
+                str(plain),
+                str(prefix),
+            ]
