@@ -2179,7 +2179,6 @@ class ReTests(unittest.TestCase):
         # with ignore case.
         self.assertEqual(re.fullmatch('[a-c]+', 'ABC', re.I).span(), (0, 3))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertTrue(re.match(b'\xc5', b'\xe5', re.L|re.I))\n AssertionError: None is not true
     @unittest.skipIf(linked_to_musl(), "musl libc issue, bpo-46390")
     @unittest.skipIf(sys.platform.startswith("sunos"),
                      "test doesn't work on Solaris, gh-91214")
