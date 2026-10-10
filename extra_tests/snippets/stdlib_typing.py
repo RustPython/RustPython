@@ -63,3 +63,31 @@ try:
     repr(nested)
 except RecursionError:
     pass
+
+
+# Python 3.14.8 retains ParamSpec bounds without converting or validating them.
+assert ParamSpec("Unbounded").__bound__ is None
+for bound in (None, "int", "not valid Python!", (int, str), object()):
+    assert ParamSpec("BoundSpec", bound=bound).__bound__ is bound
+
+
+# GenericAlias rejects parameters added after its parameter tuple was cached.
+from types import GenericAlias
+
+
+class LateParameter:
+    def __repr__(self):
+        return "late_parameter"
+
+
+first = LateParameter()
+first.__typing_subst__ = lambda value: value
+late = LateParameter()
+alias = GenericAlias(dict, (first, late))
+assert alias.__parameters__ == (first,)
+late.__typing_subst__ = lambda value: value
+with assert_raises(TypeError) as caught:
+    alias[0]
+assert str(caught.exception) == (
+    "argument late_parameter with __typing_subst__ was not found in __parameters__"
+)
