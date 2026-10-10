@@ -1,6 +1,8 @@
 import sys
 import time
 
+from testutils import assert_raises
+
 if sys.platform == "win32":
     # Record the native runtime before evaluating the range regression below.
     print("Windows time runtime:", sys.version, sys.implementation, sys.flags)
@@ -164,6 +166,36 @@ perf_elapsed = time.perf_counter() - perf_start
 
 assert monotonic_elapsed >= 0.01
 assert perf_elapsed >= 0.01
+
+# Sleep validates signed nanoseconds before rejecting negative durations.
+for duration in (
+    2**63,
+    -(2**63) - 1,
+    2**34,
+    -(2**34),
+    2**63 / 1_000_000_000,
+    -1e10,
+    float("inf"),
+    -float("inf"),
+):
+    with assert_raises(OverflowError) as error:
+        time.sleep(duration)
+    assert str(error.exception) == "timestamp out of range for C PyTime_t"
+assert_raises(ValueError, time.sleep, float("nan"))
+
+
+class SleepTypeNamespace:
+    class Invalid:
+        pass
+
+
+for module, prefix in (("__main__", ""), ("sleep_test", "sleep_test.")):
+    SleepTypeNamespace.Invalid.__module__ = module
+    with assert_raises(TypeError) as error:
+        time.sleep(SleepTypeNamespace.Invalid())
+    assert str(error.exception) == (
+        f"'{prefix}SleepTypeNamespace.Invalid' object cannot be interpreted as an integer or float"
+    )
 
 # The optional second argument fills the fields that are not part of the
 # sequence.
