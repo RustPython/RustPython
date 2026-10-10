@@ -61,7 +61,6 @@ mod _sqlite3 {
             PyInt, PyIntRef, PyModule, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyTypeRef, PyUtf8Str, PyUtf8StrRef,
         },
-        convert::IntoObject,
         function::{
             ArgCallable, ArgIterable, FsPath, FuncArgs, KwArgs, OptionalArg, PyComparisonValue,
             PySetterValue, TimeoutSeconds,

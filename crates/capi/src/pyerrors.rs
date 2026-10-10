@@ -5,7 +5,6 @@ use core::convert::Infallible;
 use core::ffi::{c_char, c_int};
 use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTraceback, PyTuple, PyType};
-use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
 use rustpython_vm::{AsObject, PyResult};
 

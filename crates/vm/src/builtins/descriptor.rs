@@ -541,12 +541,6 @@ impl MemberCell for core::sync::atomic::AtomicU32 {}
 // One object pointer. Readonly members may be a plain pointer. Writable
 // members are an atomic cell: `PyAtomicRef<PyObject>` when the pointer is
 // never null, or `PyAtomicRef<Option<PyObject>>` when it may be.
-impl MemberLayout for PyObjectRef {
-    const KIND: MemberKind = MemberKind::Object;
-}
-impl MemberLayout for Option<PyObjectRef> {
-    const KIND: MemberKind = MemberKind::Object;
-}
 impl MemberLayout for crate::object::PyObjectCell {
     const KIND: MemberKind = MemberKind::Object;
     const ATOMIC: bool = true;
