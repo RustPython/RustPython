@@ -1,5 +1,18 @@
 from typing import get_type_hints
 
+# Future f-string annotations canonicalize fields, not their literal padding.
+for formatted, expected in (
+    ("f'{ value }'", "f'{value}'"),
+    ("f'{ value = }'", "f' value = {value!r}'"),
+    ("f'{ value : >8}'", "f'{value: >8}'"),
+    ("f'{ {1, 2} }'", "f'{ {1, 2}}'"),
+):
+    formatted_code = compile(
+        "from __future__ import annotations\nx: " + formatted, "<test>", "exec"
+    )
+    assert expected in formatted_code.co_consts
+
+
 def func(s: str) -> int:
     return int(s)
 
