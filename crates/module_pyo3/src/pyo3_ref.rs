@@ -11,6 +11,10 @@
 //! `pyo3.proxy` (or `pyo3.callable_ref` when the object is callable). That
 //! proxy still forwards every protocol, and `proxy.__class__` is the wrapper
 //! of the CPython class, so `isinstance` keeps working.
+//!
+//! The generic proxy defines `__complex__`, because `complex()` looks that
+//! method up on the type and a class that cannot carry the payload has no
+//! wrapper to copy it from.
 
 pub(crate) use pyo3_ref::{
     Pyo3Ref, binary_op, buffer_method, call_method, memoryview_from_cpython,
@@ -357,6 +361,13 @@ pub(crate) mod pyo3_ref {
         #[pymethod]
         fn __bytes__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
             zelf.base.call_method("__bytes__", &[], vm)
+        }
+
+        // `complex()` looks this up on the type. There is no wrapper to copy
+        // the wrapped class's method onto.
+        #[pymethod]
+        fn __complex__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            conversion(zelf.as_object(), "complex", vm)
         }
 
         #[pymethod]

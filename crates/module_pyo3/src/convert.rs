@@ -12,17 +12,24 @@
 //! RustPython objects going to CPython are handled by what CPython code
 //! expects of them:
 //! - `list`, `dict`, `set`, `frozenset`, `bytearray` and the exact immutable
-//!   built-ins above are copied as that exact built-in;
+//!   built-ins above are copied as that exact built-in. C code checks these
+//!   types with `PyList_Check` and the like, which a proxy would fail; in
+//!   exchange, changes CPython makes to a copied `list`, `dict`, `set` or
+//!   `bytearray` never reach the RustPython original;
 //! - a subclass of `int`, `float`, `complex`, `str` or `bytes` is copied as a
 //!   value of that built-in, from the stored contents rather than `__str__`
 //!   or `__int__`. C code accepts the concrete type before any protocol, and
 //!   no layout is both that built-in and a proxy;
 //! - other buffers are exposed through a `memoryview` sharing their memory;
-//! - anything else that is callable, a data descriptor, or supports
-//!   `__index__`, `__float__` or `__complex__` becomes a `rustpython.object`
-//!   proxy whose class carries exactly those protocols: callable, then data
-//!   descriptor, then whichever of the number protocols the object has. A
-//!   protocol the object lacks is not added;
+//! - anything else that is callable, a data descriptor, or supports a number
+//!   protocol becomes a `rustpython.object` proxy. With no number protocol, a
+//!   callable uses the callable class and a data descriptor the descriptor
+//!   class. With a number protocol, the proxy class carries exactly the slots
+//!   the wrapped class defines — `__index__`, `__float__`, `__complex__`,
+//!   unary `- + ~ abs`, and `+ - * / // % ** @ & | ^ << >>` with their
+//!   reflected forms — and nothing it lacks, plus `__call__` or `__set__`
+//!   when the object is also callable or a data descriptor. One class is
+//!   cached per set of those slots;
 //! - anything else is pickled and unpickled in CPython when possible (so a
 //!   `datetime` arrives as a CPython `datetime`), and proxied otherwise.
 //!
@@ -97,10 +104,12 @@ pub(crate) fn to_cpython<'py>(
         || obj.class().slots.descr_get.load().is_some()
         || has_number_protocol(obj, vm)
     {
-        return Ok(RustPythonObject::wrap(py, obj.to_owned(), vm));
+        return RustPythonObject::wrap(py, obj.to_owned(), vm).to_pyresult(vm);
     }
-    Ok(pickle_to_cpython(py, obj, vm)
-        .unwrap_or_else(|| RustPythonObject::wrap(py, obj.to_owned(), vm)))
+    if let Some(pickled) = pickle_to_cpython(py, obj, vm) {
+        return Ok(pickled);
+    }
+    RustPythonObject::wrap(py, obj.to_owned(), vm).to_pyresult(vm)
 }
 
 fn to_rustpython_inner(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {

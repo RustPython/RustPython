@@ -30,7 +30,7 @@
 //! ```
 //!
 //! [`borrow_module`] makes a CPython module importable under its own name,
-//! e.g. to use CPython's `_ctypes` in place of RustPython's.
+//! e.g. to use the embedded `_ctypes` in place of this interpreter's.
 
 #![allow(clippy::module_inception)]
 
@@ -54,7 +54,8 @@ pub fn module_def(ctx: &Context) -> &'static PyModuleDef {
 }
 
 /// Import the CPython module `name` and register it in `sys.modules`, so
-/// that RustPython code importing `name` gets CPython's implementation.
+/// that RustPython code importing `name` gets the embedded implementation.
+/// An existing entry is replaced.
 pub fn borrow_module(name: &str, vm: &VirtualMachine) -> PyResult<()> {
     vm.import("pyo3", 0)?;
     let module = _pyo3::import_module_impl(name, vm)?;
@@ -176,9 +177,9 @@ mod _pyo3 {
     /// `@pyo3.wraps`: run the decorated function in CPython.
     ///
     /// The function's source is compiled in CPython once, when decorating, as
-    /// a function of its own module-less namespace: it sees CPython's
-    /// built-ins, not the globals of the module defining it. Arguments and
-    /// the result cross as in any other call into CPython.
+    /// a function of its own module-less namespace: it sees the embedded
+    /// interpreter's built-ins, not the globals of the module defining it.
+    /// Arguments and the result cross as in any other call into CPython.
     #[pyattr]
     #[pyclass(module = "pyo3", name = "wraps", traverse)]
     #[derive(Debug, PyPayload)]

@@ -526,6 +526,180 @@ assert caught[0].err_msg == (
 )
 assert caught[0].object is None
 
+# Generic proxies of complex subclasses answer complex().
+
+
+@pyo3.wraps
+def complex_subclass(value):
+    class C(complex):
+        pass
+
+    return C(value)
+
+
+@pyo3.wraps
+def complex_override(value):
+    class C(complex):
+        def __complex__(self):
+            return value
+
+    return C(0j)
+
+
+assert complex(complex_subclass(3 + 4j)) == 3 + 4j
+assert complex(complex_override(9 + 8j)) == 9 + 8j
+
+
+# A proxy carries only the number slots its class defines.
+
+
+@pyo3.wraps
+def proxy_hasattr(obj, name):
+    return hasattr(obj, name)
+
+
+@pyo3.wraps
+def same_proxy_class(a, b):
+    return type(a) is type(b)
+
+
+def _local_addable():
+    class P:
+        def __init__(self, v):
+            self.v = v
+
+        def __add__(self, other):
+            return P(self.v + other.v)
+
+    return P
+
+
+def _local_callable_addable():
+    class C:
+        def __init__(self, v):
+            self.v = v
+
+        def __call__(self):
+            return self.v
+
+        def __add__(self, other):
+            return C(self.v + other.v)
+
+    return C
+
+
+def _local_reflected():
+    class R:
+        def __init__(self, v):
+            self.v = v
+
+        def __radd__(self, other):
+            return R(other + self.v)
+
+    return R
+
+
+def _local_caller():
+    class Caller:
+        def __call__(self):
+            return 7
+
+    return Caller
+
+
+class _Mul:
+    def __init__(self, v):
+        self.v = v
+
+    def __mul__(self, other):
+        return _Mul(self.v * other)
+
+
+class _Div:
+    def __init__(self, v):
+        self.v = v
+
+    def __truediv__(self, other):
+        return _Div(self.v / other)
+
+
+class _Neg:
+    def __init__(self, v):
+        self.v = v
+
+    def __neg__(self):
+        return _Neg(-self.v)
+
+
+class _Pow:
+    def __init__(self, v):
+        self.v = v
+
+    def __pow__(self, other, modulo=None):
+        if modulo is None:
+            return _Pow(self.v**other)
+        return _Pow(pow(self.v, other, modulo))
+
+
+_operator = pyo3.import_module("operator")
+_P = _local_addable()
+assert proxy_hasattr(_P(1), "__add__") is True
+assert proxy_hasattr(_P(1), "__radd__") is False
+assert proxy_hasattr(_P(1), "__sub__") is False
+assert _operator.add(_P(1), _P(2)).v == 3
+assert same_proxy_class(_P(1), _P(2)) is True
+
+_C = _local_callable_addable()
+assert proxy_hasattr(_C(1), "__add__") is True
+assert proxy_hasattr(_C(1), "__call__") is True
+assert proxy_hasattr(_C(1), "__sub__") is False
+_added = _operator.add(_C(1), _C(2))
+assert _added.v == 3 and _added() == 3
+assert _operator.call(_C(5)) == 5
+assert same_proxy_class(_P(1), _C(1)) is False
+
+_R = _local_reflected()
+assert proxy_hasattr(_R(1), "__add__") is False
+assert proxy_hasattr(_R(1), "__radd__") is True
+assert _operator.add(10, _R(3)).v == 13
+assert same_proxy_class(_P(1), _R(1)) is False
+
+_Caller = _local_caller()
+assert proxy_hasattr(_Caller(), "__add__") is False
+assert proxy_hasattr(_Caller(), "__call__") is True
+assert _operator.call(_Caller()) == 7
+
+assert proxy_hasattr(IndexLike(), "__index__") is True
+assert proxy_hasattr(IndexLike(), "__add__") is False
+assert proxy_hasattr(IndexLike(), "__float__") is False
+assert _operator.index(IndexLike()) == 2
+assert proxy_hasattr(FloatLike(), "__float__") is True
+assert proxy_hasattr(FloatLike(), "__add__") is False
+assert same_proxy_class(IndexLike(), IndexLike()) is True
+assert same_proxy_class(IndexLike(), FloatLike()) is False
+
+assert proxy_hasattr(_Mul(3), "__mul__") is True
+assert proxy_hasattr(_Mul(3), "__add__") is False
+assert _operator.mul(_Mul(3), 4).v == 12
+assert proxy_hasattr(_Div(8), "__truediv__") is True
+assert proxy_hasattr(_Div(8), "__floordiv__") is False
+assert _operator.truediv(_Div(8), 2).v == 4
+assert proxy_hasattr(_Neg(4), "__neg__") is True
+assert proxy_hasattr(_Neg(4), "__pos__") is False
+assert _operator.neg(_Neg(4)).v == -4
+assert proxy_hasattr(_Pow(2), "__pow__") is True
+assert proxy_hasattr(_Pow(2), "__rpow__") is False
+assert _operator.pow(_Pow(2), 3).v == 8
+
+
+@pyo3.wraps
+def c_pow(obj, exp, mod):
+    return pow(obj, exp, mod)
+
+
+assert c_pow(_Pow(2), 10, 1000).v == 24
+
+
 # numpy, when available
 
 try:
