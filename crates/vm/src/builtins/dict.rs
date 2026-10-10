@@ -136,6 +136,10 @@ impl PyDict {
         self.entries.items()
     }
 
+    pub(crate) fn items_with_hashes_vec(&self) -> Vec<(PyObjectRef, PyObjectRef, PyHash)> {
+        self.entries.items_with_hashes()
+    }
+
     fn merge_object_with_override(
         &self,
         other: PyObjectRef,

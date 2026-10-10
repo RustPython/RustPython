@@ -213,3 +213,50 @@ with assert_raises(TypeError):
     f(1,2,3,4,5,f=6)
 with assert_raises(TypeError):
     f(1,2,3,4,5,6)
+
+
+def test_keyword_dict_stored_hashes():
+    class Keyword(str):
+        def __hash__(self):
+            assert not getattr(self, "hashed", False), "keyword was rehashed"
+            self.hashed = True
+            return str.__hash__(self)
+
+    def accept(*, value):
+        return value
+
+    source = {Keyword("value"): 42}
+    assert accept(**source) == 42
+    with assert_raises(TypeError) as raised:
+        accept(value=1, **source)
+    assert str(raised.exception).endswith(
+        "got multiple values for keyword argument 'value'"
+    )
+
+    class NonString:
+        def __hash__(self):
+            assert not getattr(self, "hashed", False), "non-string key was rehashed"
+            self.hashed = True
+            return 0
+
+    source = {NonString(): 42}
+    with assert_raises(TypeError) as raised:
+        accept(**source)
+    assert str(raised.exception) == "keywords must be strings"
+
+    failure = RuntimeError("keyword comparison failed")
+
+    class BadEquality(str):
+        __hash__ = str.__hash__
+
+        def __eq__(self, other):
+            raise failure
+
+    left = {BadEquality("value"): 1}
+    right = {BadEquality("value"): 2}
+    with assert_raises(RuntimeError) as raised:
+        accept(**left, **right)
+    assert raised.exception is failure
+
+
+test_keyword_dict_stored_hashes()
