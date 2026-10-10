@@ -479,11 +479,7 @@ mod builtins {
                 ),
             };
 
-            let builtins = if globals.is_frozen() {
-                globals.get_item_opt(identifier!(vm, __builtins__), vm)?
-            } else {
-                globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?
-            };
+            let builtins = globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?;
             if builtins.is_none() {
                 if globals.is_frozen() {
                     return Err(

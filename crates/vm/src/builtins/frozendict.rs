@@ -429,11 +429,6 @@ fn vectorcall_frozendict(
 
 pub(crate) fn init(ctx: &'static Context) {
     PyFrozenDict::extend_class(ctx, ctx.types.frozendict_type);
-    if let Some(doc) = ctx.types.dict_type.get_attr(identifier!(ctx, __doc__)) {
-        ctx.types
-            .frozendict_type
-            .set_attr(identifier!(ctx, __doc__), doc);
-    }
     ctx.types
         .frozendict_type
         .slots
