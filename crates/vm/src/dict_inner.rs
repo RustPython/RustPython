@@ -581,7 +581,8 @@ impl<T: Clone> Dict<T> {
     /// Store a key.
     ///
     /// `hash` must be computed for `key` or read from [`Self::keys_with_hashes`]
-    /// or [`Self::next_entry_with_hash`] on a container holding this same key.
+    /// or [`Self::items_with_hashes`] or [`Self::next_entry_with_hash`] on a
+    /// container holding this same key.
     /// A wrong hash lands the entry in a bucket no lookup probes, silently
     /// losing the key.
     pub(crate) fn insert<K>(
@@ -1179,6 +1180,14 @@ impl<T: Clone> Dict<T> {
             .entries
             .iter()
             .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone())))
+            .collect()
+    }
+
+    pub(crate) fn items_with_hashes(&self) -> Vec<(PyObjectRef, T, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.value.clone(), v.hash)))
             .collect()
     }
 

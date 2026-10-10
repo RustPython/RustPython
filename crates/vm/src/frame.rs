@@ -4623,11 +4623,11 @@ impl ExecutingFrame<'_> {
                     let src_dict = source
                         .downcast_ref::<PyDict>()
                         .expect("exact dict must have a PyDict payload");
-                    // Snapshot under a single read lock so a mutation of `source`
-                    // triggered by `dict.set_item` (e.g. via a target subclass, or
-                    // aliasing) can't be observed mid-iteration.
-                    for (key, value) in src_dict.items_vec() {
-                        if dict.contains_key(&*key, vm) {
+                    // Preserve stored hashes: copying an exact dict must not call
+                    // a key's __hash__ before the callable receives its arguments.
+                    // Snapshot under one lock before any equality callbacks run.
+                    for (key, value, hash) in src_dict.items_with_hashes_vec() {
+                        if dict.contains_known_hash(&key, hash, vm)? {
                             let key_str = key.str(vm)?;
                             return Err(vm.new_type_error(format!(
                                 "{} got multiple values for keyword argument '{}'",
@@ -4635,7 +4635,7 @@ impl ExecutingFrame<'_> {
                                 key_str.as_wtf8()
                             )));
                         }
-                        dict.set_item(&*key, value, vm)?;
+                        dict.set_item_known_hash(&key, hash, value, vm)?;
                     }
                     return Ok(None);
                 } else {
