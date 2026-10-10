@@ -671,9 +671,21 @@ fn generate_class_def(
         checks: member_checks,
     } = extras.member_table;
 
+    let native_layout = if is_repr_transparent {
+        base.as_ref().map(|base| {
+            quote! {
+                const NATIVE_LAYOUT_ID: ::core::any::TypeId =
+                    <#base as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID;
+            }
+        })
+    } else {
+        None
+    };
+
     let tokens = quote! {
         impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
+            #native_layout
             const MODULE_NAME: Option<&'static str> = #module_name;
             const TP_NAME: &'static str = #module_class_name;
             const DOC: ::rustpython_vm::function::ItemDoc = #doc;
@@ -905,9 +917,14 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
             impl ::rustpython_vm::PyPayload for #ident {
                 const PAYLOAD_TYPE_ID: ::core::any::TypeId = <#base_type as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
+                fn supports_native_layout(layout: ::core::any::TypeId) -> bool {
+                    layout == <Self as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID
+                        || <#base_type as ::rustpython_vm::PyPayload>::supports_native_layout(layout)
+                }
+
                 #[inline]
                 unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                    <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().payload().slots.basicsize && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                    obj.supports_native_layout(<Self as ::rustpython_vm::class::PyClassDef>::NATIVE_LAYOUT_ID) && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
                 }
 
                 fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {

@@ -553,6 +553,7 @@ pub(crate) fn impl_pystruct_sequence(
                 const ATTR_DOCS: &'static [&'static str] = #attr_names;
             }}
             const BASICSIZE: usize = 0;
+            const NATIVE_LAYOUT_ID: ::core::any::TypeId = ::core::any::TypeId::of::<::rustpython_vm::builtins::PyTuple>();
             const UNHASHABLE: bool = false;
 
             type Base = ::rustpython_vm::builtins::PyTuple;
@@ -577,9 +578,14 @@ pub(crate) fn impl_pystruct_sequence(
         impl ::rustpython_vm::PyPayload for #pytype_ident {
             const PAYLOAD_TYPE_ID: ::core::any::TypeId = <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::PAYLOAD_TYPE_ID;
 
+            fn supports_native_layout(layout: ::core::any::TypeId) -> bool {
+                <::rustpython_vm::builtins::PyTuple as ::rustpython_vm::PyPayload>::supports_native_layout(layout)
+            }
+
             #[inline]
             unsafe fn validate_downcastable_from(obj: &::rustpython_vm::PyObject) -> bool {
-                obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+                obj.supports_native_layout(::core::any::TypeId::of::<::rustpython_vm::builtins::PyTuple>())
+                    && obj.class().fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
             }
 
             fn class(_ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {

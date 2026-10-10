@@ -970,6 +970,9 @@ impl PyType {
         ctx: &Context,
         defer_mro: bool,
     ) -> Result<PyRef<Self>, String> {
+        if slots.native_layout_id.is_none() {
+            slots.native_layout_id = base.slots.native_layout_id;
+        }
         let mro = if defer_mro {
             // Leave tp_mro unset so a custom metaclass mro() sees __mro__ is None.
             Vec::new()
@@ -3802,7 +3805,8 @@ pub(crate) fn compatible_for_assignment(
         (None, None) => true,
         _ => false,
     };
-    let compatible = newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
+    let compatible = old_to.slots.native_layout_id == new_to.slots.native_layout_id
+        && (newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase)));
     if compatible {
         return Ok(());
     }
