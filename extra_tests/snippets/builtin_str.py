@@ -427,6 +427,31 @@ for template in ("%d", "%i", "%u", b"%d", b"%i", b"%u"):
 assert "%x" % PercentInt(3) == "7"
 assert b"%o" % PercentInt(3) == b"7"
 
+
+def test_percent_character_subclasses():
+    for base, value, templates in (
+        (str, "ab", ("%c",)),
+        (bytes, b"ab", (b"%c", bytearray(b"%c"))),
+        (bytearray, b"ab", (b"%c", bytearray(b"%c"))),
+    ):
+
+        class Indexable(base):
+            def __index__(self):
+                raise AssertionError("%c must check the character length first")
+
+        for template in templates:
+            assert template % Indexable(value[:1]) == template % value[:1]
+            for text in (value[:0], value):
+                with assert_raises(TypeError) as expected:
+                    template % base(text)
+                with assert_raises(TypeError) as actual:
+                    template % Indexable(text)
+                assert str(actual.exception) == str(expected.exception)
+            assert template % PercentIndex() == template % 7
+
+
+test_percent_character_subclasses()
+
 assert (
     "%(first)s %(second)s" % {"second": "World!", "first": "Hello,"} == "Hello, World!"
 )

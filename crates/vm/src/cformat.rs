@@ -142,21 +142,7 @@ fn spec_format_bytes(
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: bytes `%c` accepts a single byte or any object
             // with `__index__` in range(256).
-            if let Some(b) = obj.downcast_ref::<PyBytes>() {
-                if b.as_bytes().len() == 1 {
-                    return Ok(spec.format_char(b.as_bytes()[0]));
-                }
-            } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
-                let buf = ba.borrow_buf();
-                if buf.len() == 1 {
-                    return Ok(spec.format_char(buf[0]));
-                }
-            }
-            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
-                i.to_owned()
-            } else if let Some(int_result) = obj.try_index_opt(vm) {
-                int_result?
-            } else {
+            let type_error = || {
                 // A bytes-like argument that is not one byte long is named by
                 // its length rather than by its type.
                 let what = if let Some(b) = obj.downcast_ref::<PyBytes>() {
@@ -166,9 +152,29 @@ fn spec_format_bytes(
                 } else {
                     obj.class().name().to_string()
                 };
-                return Err(vm.new_type_error(format!(
+                vm.new_type_error(format!(
                     "%c requires an integer in range(256) or a single byte, not {what}"
-                )));
+                ))
+            };
+            if let Some(b) = obj.downcast_ref::<PyBytes>() {
+                if b.as_bytes().len() == 1 {
+                    return Ok(spec.format_char(b.as_bytes()[0]));
+                }
+                return Err(type_error());
+            } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
+                let buf = ba.borrow_buf();
+                if buf.len() == 1 {
+                    return Ok(spec.format_char(buf[0]));
+                }
+                drop(buf);
+                return Err(type_error());
+            }
+            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
+                i.to_owned()
+            } else if let Some(int_result) = obj.try_index_opt(vm) {
+                int_result?
+            } else {
+                return Err(type_error());
             };
             let ch = int
                 .try_to_primitive::<u8>(vm)
@@ -238,25 +244,29 @@ fn spec_format_string(
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: `%c` accepts a single-char str or any object with
             // `__index__` (the latter via PyNumber_Index dispatch).
-            if let Some(s) = obj.downcast_ref::<PyStr>()
-                && let Ok(ch) = s.as_wtf8().code_points().exactly_one()
-            {
-                return Ok(spec.format_char(ch));
-            }
-            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
-                i.to_owned()
-            } else if let Some(int_result) = obj.try_index_opt(vm) {
-                int_result?
-            } else {
+            let type_error = || {
                 // A string argument that is not one character long is named by
                 // its length rather than by its type.
                 let what = match obj.downcast_ref::<PyStr>() {
                     Some(s) => format!("a string of length {}", s.char_len()),
                     None => obj.class().name().to_string(),
                 };
-                return Err(vm.new_type_error(format!(
+                vm.new_type_error(format!(
                     "%c requires an int or a unicode character, not {what}"
-                )));
+                ))
+            };
+            if let Some(s) = obj.downcast_ref::<PyStr>() {
+                if let Ok(ch) = s.as_wtf8().code_points().exactly_one() {
+                    return Ok(spec.format_char(ch));
+                }
+                return Err(type_error());
+            }
+            let int = if let Some(i) = obj.downcast_ref::<PyInt>() {
+                i.to_owned()
+            } else if let Some(int_result) = obj.try_index_opt(vm) {
+                int_result?
+            } else {
+                return Err(type_error());
             };
             let ch = int
                 .as_bigint()
