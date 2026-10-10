@@ -66,3 +66,18 @@ if sys.implementation.name == "rustpython":
         deep_alias = list[deep_alias]
     with assert_raises(RecursionError):
         hash(deep_alias)
+
+
+# FunctionType preserves the code qualified name when a name is supplied.
+def outer():
+    def nested():
+        pass
+
+    return nested
+
+
+original = outer()
+for name in ("renamed", ""):
+    function = types.FunctionType(original.__code__, globals(), name)
+    assert function.__name__ == name
+    assert function.__qualname__ == "outer.<locals>.nested"
