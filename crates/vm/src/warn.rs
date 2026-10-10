@@ -201,7 +201,7 @@ pub(crate) fn get_source_line(
     };
 
     let module_name = if let Some(dict) = module_globals.downcast_ref::<PyDict>() {
-        match dict.get_item_opt(identifier!(vm, __name__), vm)? {
+        match dict.inner_getitem_opt(identifier!(vm, __name__), vm)? {
             Some(name) => name,
             None => return Ok(None),
         }
