@@ -1,10 +1,14 @@
-use crate::{VirtualMachine, builtins::PyDictRef, function::ArgMapping};
+use crate::{
+    VirtualMachine,
+    builtins::{PyAnyDictRef, PyDictRef},
+    function::ArgMapping,
+};
 use alloc::fmt;
 
 #[derive(Clone)]
 pub struct Scope {
     pub locals: Option<ArgMapping>,
-    pub globals: PyDictRef,
+    pub globals: PyAnyDictRef,
 }
 
 impl fmt::Debug for Scope {
@@ -17,8 +21,11 @@ impl fmt::Debug for Scope {
 impl Scope {
     #[inline]
     #[must_use]
-    pub const fn new(locals: Option<ArgMapping>, globals: PyDictRef) -> Self {
-        Self { locals, globals }
+    pub fn new(locals: Option<ArgMapping>, globals: impl Into<PyAnyDictRef>) -> Self {
+        Self {
+            locals,
+            globals: globals.into(),
+        }
     }
 
     pub fn with_builtins(

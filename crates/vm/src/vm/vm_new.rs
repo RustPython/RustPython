@@ -83,15 +83,16 @@ impl VirtualMachine {
     }
 
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
-        let scope = self.new_scope_with_builtins();
-        let main_module = self.new_module("__main__", scope.globals.clone(), None);
+        let globals = self.ctx.new_dict();
+        let scope = Scope::with_builtins(None, globals.clone(), self);
+        let main_module = self.new_module("__main__", globals.clone(), None);
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",
             main_module.into(),
             self,
         )?;
-        self.set_main_builtin_importer(&scope.globals)?;
+        self.set_main_builtin_importer(&globals)?;
 
         Ok(scope)
     }
