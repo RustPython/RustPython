@@ -814,7 +814,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
 
         if let Some(format_spec) = &interpolation.format_spec {
             self.p(":")?;
-            self.unparse_tstring_body(&format_spec.elements)?;
+            self.unparse_fstring_body(&format_spec.elements)?;
         }
 
         self.p("}")
