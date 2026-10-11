@@ -43,22 +43,26 @@ def _run_missing_type_params_regression():
 
 _run_missing_type_params_regression()
 
+# GenericAlias construction is lazy. Python 3.15 walks nested lists and tuples
+# when parameters are first needed, including during subscription.
+self_referential = []
+self_referential.append(self_referential)
+alias = list[self_referential]
+with assert_raises(RecursionError):
+    alias.__parameters__
+with assert_raises(RecursionError):
+    alias[int]
+
+nested = [0]
+for _ in range(100_000):
+    nested = [nested]
+alias = list[nested]
+with assert_raises(RecursionError):
+    alias.__parameters__
+with assert_raises(RecursionError):
+    alias[int]
+
 if sys.implementation.name == "rustpython":
-    # __parameters__ is computed when the alias is built, and the walk descends
-    # into every list and tuple argument, so a self-referential or deeply
-    # nested argument must be caught. CPython, which also runs this snippet,
-    # does not walk into plain lists at all.
-    self_referential = []
-    self_referential.append(self_referential)
-    with assert_raises(RecursionError):
-        list[self_referential]
-
-    nested = [0]
-    for _ in range(100_000):
-        nested = [nested]
-    with assert_raises(RecursionError):
-        list[nested]
-
     # hashing an alias walks the same shape. Release inlining of the hash
     # slot needs more depth than debug to trip the native stack guard.
     deep_alias = int
