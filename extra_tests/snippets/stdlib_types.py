@@ -53,16 +53,18 @@ with assert_raises(RecursionError):
 with assert_raises(RecursionError):
     alias[int]
 
-nested = [0]
-for _ in range(100_000):
-    nested = [nested]
-alias = list[nested]
-with assert_raises(RecursionError):
-    alias.__parameters__
-with assert_raises(RecursionError):
-    alias[int]
-
 if sys.implementation.name == "rustpython":
+    # Finite-depth stack exhaustion depends on the interpreter build and OS stack.
+    # Keep this native stress case separate from the shared cyclic contract above.
+    nested = [0]
+    for _ in range(100_000):
+        nested = [nested]
+    alias = list[nested]
+    with assert_raises(RecursionError):
+        alias.__parameters__
+    with assert_raises(RecursionError):
+        alias[int]
+
     # hashing an alias walks the same shape. Release inlining of the hash
     # slot needs more depth than debug to trip the native stack guard.
     deep_alias = int
