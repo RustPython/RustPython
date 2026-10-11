@@ -67,6 +67,38 @@ class TestAsync(unittest.TestCase):
 class TestExtractPatches(unittest.TestCase):
     """Tests for extract_patches function."""
 
+    def test_class_conditional_method_markers_are_preserved(self):
+        code = """class Owner:
+    if enabled:
+        @unittest.expectedFailure  # TODO: RUSTPYTHON
+        def test_value(self):
+            return 42
+"""
+        patches = extract_patches(code)
+        self.assertIn("test_value", patches["Owner"])
+        clean = code.replace(
+            "        @unittest.expectedFailure  # TODO: RUSTPYTHON\n", ""
+        )
+        result = apply_patches(clean, patches)
+        self.assertIn("        @unittest.expectedFailure", result)
+        method = list(iter_tests(ast.parse(result)))[0][1]
+        self.assertEqual(method.col_offset, 8)
+        self.assertEqual(ast.dump(method.body[0]), "Return(value=Constant(value=42))")
+
+    def test_nested_class_markers_do_not_target_module_names(self):
+        code = """class Container:
+    class Target:
+        @unittest.expectedFailure  # TODO: RUSTPYTHON
+        def test_value(self):
+            pass
+def factory():
+    class Target:
+        @unittest.expectedFailure  # TODO: RUSTPYTHON
+        def test_value(self):
+            pass
+"""
+        self.assertEqual(extract_patches(code), {})
+
     def test_extract_expected_failure(self):
         """Test extracting @unittest.expectedFailure decorator."""
         code = f"""
@@ -176,6 +208,106 @@ class TestFoo(unittest.TestCase):
 
 class TestApplyPatches(unittest.TestCase):
     """Tests for apply_patches function."""
+
+    def test_conditional_class_existing_method(self):
+        code = """import unittest
+if enabled:
+    class TestConditional:
+        def test_value(self):
+            assert 1 + 1 == 2
+"""
+        result = apply_patches(
+            code,
+            {
+                "TestConditional": {
+                    "test_value": [
+                        PatchSpec(
+                            UtMethod.ExpectedFailureIf, "condition", "known limitation"
+                        )
+                    ]
+                }
+            },
+        )
+        original = list(iter_tests(ast.parse(code)))[0][1]
+        updated = list(iter_tests(ast.parse(result)))[0][1]
+        self.assertEqual(ast.dump(original.body[0]), ast.dump(updated.body[0]))
+        self.assertEqual(updated.col_offset, 8)
+        self.assertIn("        @unittest.expectedFailureIf", result)
+
+    def test_conditional_class_inherited_override(self):
+        code = """import unittest
+class Parent:
+    async def test_value(self):
+        return 42
+if enabled:
+    class Child(Parent):
+        pass
+"""
+        result = apply_patches(
+            code, {"Child": {"test_value": [PatchSpec(UtMethod.ExpectedSuccess)]}}
+        )
+        methods = list(iter_tests(ast.parse(result)))
+        self.assertEqual([cls.name for cls, _ in methods], ["Parent", "Child"])
+        self.assertIsInstance(methods[1][1], ast.AsyncFunctionDef)
+        self.assertIn("        return await super().test_value()", result)
+        self.assertIn("        @unittest.expectedSuccess", result)
+
+    def test_duplicate_conditional_class_names_are_rejected(self):
+        code = """if enabled:
+    class Duplicate:
+        pass
+else:
+    class Duplicate:
+        pass
+"""
+        with self.assertRaisesRegex(ValueError, "Ambiguous.*Duplicate"):
+            apply_patches(
+                code,
+                {"Duplicate": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}},
+            )
+
+    def test_local_class_names_do_not_shadow_module_class(self):
+        code = """import unittest
+class Target:
+    def test_value(self):
+        return 1
+class Container:
+    class Target:
+        def test_value(self):
+            return 2
+def factory():
+    class Target:
+        def test_value(self):
+            return 3
+"""
+        result = apply_patches(
+            code, {"Target": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}}
+        )
+        tree = ast.parse(result)
+        targets = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "Target"
+        ]
+        self.assertEqual(
+            [len(node.body[0].decorator_list) for node in targets], [1, 0, 0]
+        )
+
+    def test_duplicate_conditional_method_names_are_rejected(self):
+        code = """class Owner:
+    if enabled:
+        def test_value(self):
+            return 1
+    else:
+        def test_value(self):
+            return 2
+"""
+        with self.assertRaisesRegex(
+            ValueError, "Ambiguous method name: Owner.test_value"
+        ):
+            apply_patches(
+                code, {"Owner": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}}
+            )
 
     def test_apply_expected_failure(self):
         """Test applying @unittest.expectedFailure."""
