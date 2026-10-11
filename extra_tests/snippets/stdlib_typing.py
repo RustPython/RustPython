@@ -89,3 +89,25 @@ for alias_value in (int, AliasModuleValue()):
     )
     assert alias_namespace["alias"].__module__ is None
 assert alias_module_lookups == []
+
+
+# GenericAlias rejects parameters added after its parameter tuple was cached.
+from types import GenericAlias
+
+
+class LateParameter:
+    def __repr__(self):
+        return "late_parameter"
+
+
+first = LateParameter()
+first.__typing_subst__ = lambda value: value
+late = LateParameter()
+alias = GenericAlias(dict, (first, late))
+assert alias.__parameters__ == (first,)
+late.__typing_subst__ = lambda value: value
+with assert_raises(TypeError) as caught:
+    alias[0]
+assert str(caught.exception) == (
+    "argument late_parameter with __typing_subst__ was not found in __parameters__"
+)
