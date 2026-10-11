@@ -15,24 +15,53 @@
 //! nothing that class lacks. One proxy class is cached for each distinct set
 //! of those slots, together with whether the object is callable or a data
 //! descriptor, so the number of classes stays bounded as instances come and
-//! go. An object with no number protocol still uses the callable class, the
-//! data descriptor class, or this base class. An object that has a number
-//! protocol keeps `__call__` or `__set__` on that same proxy class when it is
+//! go. An object that publishes no extra dunder and has no number protocol
+//! still uses the callable class, the data descriptor class, or this base
+//! class. An object that has a number protocol, or that publishes extra
+//! dunders, keeps `__call__` or `__set__` on that same proxy class when it is
 //! callable or a data descriptor.
+//!
+//! The sequence length slot reads `__len__`. Sequence item access with a
+//! negative index adds that length first. Subscripting from Python passes the
+//! index through unchanged.
+//!
+//! A dunder that is not one of those slots is published on the proxy class
+//! when the wrapped class defines it as a plain function. The first class in
+//! the MRO that defines the name decides: a later base does not put the name
+//! back, and `None` or any other non-method opts it out. A name only `object`
+//! defines stays unpublished. A name the class itself defines is published
+//! even when `object` also has it, including `__reduce__`, `__reduce_ex__`,
+//! `__format__`, `__sizeof__`, `__dir__` and `__getstate__`. Lookup on the
+//! proxy class finds that function, and a call receives the wrapped object as
+//! its first argument. Lookup on an instance binds that object, so the call's
+//! other arguments follow it. The name is absent when the class does not
+//! define it. A data descriptor is not published: reading it from an instance
+//! still runs the descriptor and returns its value. Classes that publish the
+//! same names share a proxy class, so the cache stays bounded by classes
+//! rather than instances. The name set of one RustPython class is remembered
+//! with that class's version tag and the versions of its bases. A modification
+//! clears the tag, so the record no longer matches. The record stores no
+//! strong reference to the class and the map is capped. The sequence length
+//! slot is installed once; waiting for that install releases the GIL.
 
+use alloc::collections::BTreeMap;
 use alloc::ffi::CString;
-use core::cell::RefCell;
+use alloc::sync::Arc;
+use core::cell::{Cell, RefCell};
 use core::ffi::{c_char, c_int, c_void};
 use core::ops::Deref;
+use core::sync::atomic::Ordering;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, Once};
+
+use pyo3::sync::{MutexExt, OnceExt};
 
 use pyo3::exceptions::{PyBufferError, PyTypeError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
 use pyo3::type_object::PyTypeInfo;
-use pyo3::types::{PyDict, PyMemoryView, PyString, PyTuple, PyType};
+use pyo3::types::{PyDict, PyMemoryView, PyString, PyTuple, PyType, PyTypeMethods};
 use rustpython_vm::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStrRef,
@@ -133,11 +162,13 @@ impl RustPythonObject {
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        ensure_sequence_length(py);
         let bits = proxy_bits(&obj, vm);
+        let specials = cached_published_specials(py, &obj, vm);
         let base = Self {
             obj: DropAttached::new(obj),
         };
-        if (bits & !(CALL | DESCR)) == 0 {
+        if specials.is_empty() && (bits & !(CALL | DESCR)) == 0 {
             if (bits & CALL) != 0 {
                 Bound::new(py, (RustPythonCallable, base)).map(Bound::into_any)
             } else if (bits & DESCR) != 0 {
@@ -146,7 +177,7 @@ impl RustPythonObject {
                 Bound::new(py, base).map(Bound::into_any)
             }
         } else {
-            let ty = proxy_type(py, bits)?;
+            let ty = proxy_type(py, &ProxyKey { bits, specials })?;
             push_pending(base);
             let _guard = PendingGuard;
             ty.call0()
@@ -566,57 +597,540 @@ impl Drop for PendingGuard {
     }
 }
 
-static PROXY_TYPES: LazyLock<Mutex<HashMap<u64, Py<PyType>>>> =
+/// Number, call, and descriptor bits, plus the dunder names published on top.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct ProxyKey {
+    bits: u64,
+    specials: Arc<[Box<str>]>,
+}
+
+static PROXY_TYPES: LazyLock<Mutex<HashMap<ProxyKey, Py<PyType>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn proxy_type(py: Python<'_>, bits: u64) -> pyo3::PyResult<Bound<'_, PyType>> {
-    if let Some(ty) = lookup_proxy_type(py, bits) {
+fn proxy_type<'py>(py: Python<'py>, key: &ProxyKey) -> pyo3::PyResult<Bound<'py, PyType>> {
+    if let Some(ty) = lookup_proxy_type(py, key) {
         return Ok(ty);
     }
-    let created = create_proxy_type(py, bits)?;
+    let created = create_proxy_type(py, key)?;
     // Hold the lock only while updating the map. Creating the type runs
     // Python and can re-enter this function.
     let stored = {
         let mut types = PROXY_TYPES.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some(existing) = types.get(&bits) {
+        if let Some(existing) = types.get(key) {
             existing.clone_ref(py)
         } else {
             let stored = created.unbind();
-            types.insert(bits, stored.clone_ref(py));
+            types.insert(key.clone(), stored.clone_ref(py));
             stored
         }
     };
     Ok(stored.into_bound(py))
 }
 
-fn lookup_proxy_type(py: Python<'_>, bits: u64) -> Option<Bound<'_, PyType>> {
+fn lookup_proxy_type<'py>(py: Python<'py>, key: &ProxyKey) -> Option<Bound<'py, PyType>> {
     let ty = {
         let types = PROXY_TYPES.lock().unwrap_or_else(|err| err.into_inner());
-        types.get(&bits).map(|ty| ty.clone_ref(py))
+        types.get(key).map(|ty| ty.clone_ref(py))
     };
     ty.map(|ty| ty.into_bound(py))
 }
 
-fn create_proxy_type(py: Python<'_>, bits: u64) -> pyo3::PyResult<Bound<'_, PyType>> {
+fn create_proxy_type<'py>(py: Python<'py>, key: &ProxyKey) -> pyo3::PyResult<Bound<'py, PyType>> {
     let type_ctor = py.import("builtins")?.getattr("type")?;
-    let name = format!("number_{bits:x}");
+    let name = if key.specials.is_empty() {
+        format!("number_{:x}", key.bits)
+    } else {
+        format!("proxy_{:x}_{}", key.bits, key.specials.len())
+    };
     let base = RustPythonObject::type_object(py);
     let ty = type_ctor.call1((name, (base,), PyDict::new(py)))?;
     let ty = ty.cast::<PyType>()?.clone();
     ty.setattr("__module__", "rustpython")?;
     for method in NUMBER_METHODS {
-        if (bits & method.bit) != 0 {
+        if (key.bits & method.bit) != 0 {
             install_method(&ty, method.name, &method.def.0)?;
         }
     }
-    if (bits & CALL) != 0 {
+    if (key.bits & CALL) != 0 {
         install_method(&ty, "__call__", &CALL_DEF.0)?;
     }
-    if (bits & DESCR) != 0 {
+    if (key.bits & DESCR) != 0 {
         install_method(&ty, "__set__", &SET_DEF.0)?;
         install_method(&ty, "__delete__", &DELETE_DEF.0)?;
     }
+    // Names installed above live in this class's own dict. A name inherited
+    // from `object` does not, and the wrapped class's method has to replace it.
+    // SAFETY: `ty` is a ready heap type. `tp_dict` is its own namespace,
+    // borrowed from the type. Null means the type has no namespace. The
+    // borrowed pointer stays valid while `ty` is held.
+    let namespace = unsafe {
+        let dict = (*ty.as_type_ptr()).tp_dict;
+        if dict.is_null() {
+            None
+        } else {
+            Some(Bound::from_borrowed_ptr(ty.py(), dict))
+        }
+    };
+    for name in key.specials.iter() {
+        if let Some(namespace) = &namespace
+            && namespace.contains(name.as_ref())?
+        {
+            continue;
+        }
+        install_special(&ty, name)?;
+    }
+    install_sequence_length(&ty);
     Ok(ty)
+}
+
+thread_local! {
+    static SEQUENCE_SLOT_INSTALLING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Clears [`SEQUENCE_SLOT_INSTALLING`] if slot installation re-enters.
+struct SequenceSlotInstallGuard;
+
+impl Drop for SequenceSlotInstallGuard {
+    fn drop(&mut self) {
+        SEQUENCE_SLOT_INSTALLING.with(|installing| installing.set(false));
+    }
+}
+
+fn ensure_sequence_length(py: Python<'_>) {
+    static ONCE: Once = Once::new();
+    // `type_object` can run while this install is in progress. Waiting on the
+    // same `Once` from that call would panic, and waiting while attached can
+    // deadlock the thread that holds the `Once` and needs the GIL.
+    if ONCE.is_completed() || SEQUENCE_SLOT_INSTALLING.with(Cell::get) {
+        return;
+    }
+    ONCE.call_once_py_attached(py, || {
+        SEQUENCE_SLOT_INSTALLING.with(|installing| installing.set(true));
+        let _guard = SequenceSlotInstallGuard;
+        install_sequence_length(&RustPythonObject::type_object(py));
+        install_sequence_length(&RustPythonCallable::type_object(py));
+        install_sequence_length(&RustPythonDataDescriptor::type_object(py));
+    });
+}
+
+fn install_sequence_length(ty: &Bound<'_, PyType>) {
+    // SAFETY: `ty` is a heap type. Its sequence slot struct is writable.
+    // `PyMapping_Size` reads the mapping length and does not call this slot,
+    // so the length function cannot recurse through itself.
+    unsafe {
+        let seq = (*ty.as_type_ptr()).tp_as_sequence;
+        if seq.is_null() || (*seq).sq_length.is_some() {
+            return;
+        }
+        (*seq).sq_length = Some(proxy_sequence_length);
+    }
+}
+
+unsafe extern "C" fn proxy_sequence_length(obj: *mut ffi::PyObject) -> ffi::Py_ssize_t {
+    unsafe { ffi::PyMapping_Size(obj) }
+}
+
+/// How many class name-sets to remember. Dead classes are not retained; an
+/// entry is only an id, versions, and the names.
+const SPECIALS_CACHE_CAP: usize = 1024;
+
+type RpClass = rustpython_vm::Py<rustpython_vm::builtins::PyType>;
+
+struct CachedSpecials {
+    versions: Arc<[(usize, u32)]>,
+    specials: Arc<[Box<str>]>,
+}
+
+static CLASS_SPECIALS: LazyLock<Mutex<HashMap<usize, CachedSpecials>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_published_specials(
+    py: Python<'_>,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> Arc<[Box<str>]> {
+    let class = obj.class();
+    let id = class.get_id();
+    if let Some(specials) = lookup_cached_specials(py, class, id, vm) {
+        return specials;
+    }
+    if !ensure_mro_versions(class, vm) {
+        return published_specials(class, vm);
+    }
+    let Some(versions) = mro_versions(class, vm) else {
+        return published_specials(class, vm);
+    };
+    let specials = published_specials(class, vm);
+    let Some(after) = mro_versions(class, vm) else {
+        return specials;
+    };
+    if versions != after {
+        return specials;
+    }
+    store_cached_specials(py, id, versions, Arc::clone(&specials));
+    specials
+}
+
+fn lookup_cached_specials(
+    py: Python<'_>,
+    class: &RpClass,
+    id: usize,
+    vm: &VirtualMachine,
+) -> Option<Arc<[Box<str>]>> {
+    let found = {
+        let cache = CLASS_SPECIALS
+            .lock_py_attached(py)
+            .unwrap_or_else(|err| err.into_inner());
+        cache
+            .get(&id)
+            .map(|entry| (Arc::clone(&entry.versions), Arc::clone(&entry.specials)))
+    };
+    let (versions, specials) = found?;
+    mro_versions_match(class, vm, &versions).then_some(specials)
+}
+
+fn store_cached_specials(
+    py: Python<'_>,
+    id: usize,
+    versions: Arc<[(usize, u32)]>,
+    specials: Arc<[Box<str>]>,
+) {
+    let mut cache = CLASS_SPECIALS
+        .lock_py_attached(py)
+        .unwrap_or_else(|err| err.into_inner());
+    if !cache.contains_key(&id) && cache.len() >= SPECIALS_CACHE_CAP {
+        let stale = cache.keys().next().copied();
+        if let Some(stale) = stale
+            && stale != id
+        {
+            cache.remove(&stale);
+        }
+    }
+    cache.insert(id, CachedSpecials { versions, specials });
+}
+
+/// Return this class's version tag, assigning one when the tag is clear.
+///
+/// A modification clears the tag. Zero means both "never assigned" and
+/// "already cleared", so nothing is cached under zero.
+fn ensure_version(class: &RpClass, vm: &VirtualMachine) -> u32 {
+    class.assign_version_tag(vm)
+}
+
+fn ensure_mro_versions(class: &RpClass, vm: &VirtualMachine) -> bool {
+    let classes = class.mro_collect();
+    for cls in &classes {
+        if cls.is(vm.ctx.types.object_type) {
+            continue;
+        }
+        if ensure_version(cls, vm) == 0 {
+            return false;
+        }
+    }
+    true
+}
+
+fn mro_versions(class: &RpClass, vm: &VirtualMachine) -> Option<Arc<[(usize, u32)]>> {
+    let mro = class.mro.read();
+    let mut versions = Vec::new();
+    for cls in mro.iter() {
+        if cls.is(vm.ctx.types.object_type) {
+            continue;
+        }
+        let version = cls.tp_version_tag.load(Ordering::Acquire);
+        if version == 0 {
+            return None;
+        }
+        versions.push((cls.get_id(), version));
+    }
+    Some(Arc::from(versions))
+}
+
+fn mro_versions_match(class: &RpClass, vm: &VirtualMachine, versions: &[(usize, u32)]) -> bool {
+    let mro = class.mro.read();
+    let mut index = 0;
+    for cls in mro.iter() {
+        if cls.is(vm.ctx.types.object_type) {
+            continue;
+        }
+        let Some(&(id, version)) = versions.get(index) else {
+            return false;
+        };
+        if cls.get_id() != id || cls.tp_version_tag.load(Ordering::Acquire) != version {
+            return false;
+        }
+        index += 1;
+    }
+    index == versions.len()
+}
+
+/// Dunder functions defined on `class`, excluding slots this proxy fills.
+///
+/// The first defining class in the MRO wins. `object` is not a defining
+/// class: names only it has are not published, and a name this class defines
+/// is published even when `object` also has it.
+fn published_specials(class: &RpClass, vm: &VirtualMachine) -> Arc<[Box<str>]> {
+    let mut decision = BTreeMap::new();
+    for cls in class.mro_collect() {
+        if cls.is(vm.ctx.types.object_type) {
+            continue;
+        }
+        for (key, value) in cls.attributes.entries() {
+            let Some(key) = key.downcast_ref::<rustpython_vm::builtins::PyStr>() else {
+                continue;
+            };
+            let Some(text) = key.to_str() else {
+                continue;
+            };
+            if !is_dunder(text) || is_proxy_slot(text) {
+                continue;
+            }
+            decision
+                .entry(text.to_owned())
+                .or_insert_with(|| publishes_as_method(&value, vm));
+        }
+    }
+    decision
+        .into_iter()
+        .filter_map(|(name, publish)| publish.then(|| name.into_boxed_str()))
+        .collect()
+}
+
+fn is_dunder(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() > 4 && bytes.starts_with(b"__") && bytes.ends_with(b"__")
+}
+
+/// Slots the proxy class already fills, and names that belong to the proxy
+/// type itself rather than to the wrapped instance.
+fn is_proxy_slot(name: &str) -> bool {
+    matches!(
+        name,
+        "__abs__"
+            | "__add__"
+            | "__aenter__"
+            | "__aexit__"
+            | "__aiter__"
+            | "__and__"
+            | "__anext__"
+            | "__annotations__"
+            | "__await__"
+            | "__base__"
+            | "__bases__"
+            | "__bool__"
+            | "__buffer__"
+            | "__bytes__"
+            | "__call__"
+            | "__class__"
+            | "__class_getitem__"
+            | "__complex__"
+            | "__contains__"
+            | "__delattr__"
+            | "__delete__"
+            | "__delitem__"
+            | "__dict__"
+            | "__divmod__"
+            | "__doc__"
+            | "__enter__"
+            | "__eq__"
+            | "__exit__"
+            | "__float__"
+            | "__floordiv__"
+            | "__ge__"
+            | "__get__"
+            | "__getattr__"
+            | "__getattribute__"
+            | "__getitem__"
+            | "__gt__"
+            | "__hash__"
+            | "__iadd__"
+            | "__iand__"
+            | "__ifloordiv__"
+            | "__ilshift__"
+            | "__imatmul__"
+            | "__imod__"
+            | "__imul__"
+            | "__index__"
+            | "__init__"
+            | "__init_subclass__"
+            | "__instancecheck__"
+            | "__int__"
+            | "__invert__"
+            | "__ior__"
+            | "__ipow__"
+            | "__irshift__"
+            | "__isub__"
+            | "__iter__"
+            | "__itruediv__"
+            | "__ixor__"
+            | "__le__"
+            | "__len__"
+            | "__lshift__"
+            | "__lt__"
+            | "__matmul__"
+            | "__mod__"
+            | "__module__"
+            | "__mro__"
+            | "__mro_entries__"
+            | "__mul__"
+            | "__name__"
+            | "__ne__"
+            | "__neg__"
+            | "__new__"
+            | "__next__"
+            | "__or__"
+            | "__orig_bases__"
+            | "__parameters__"
+            | "__pos__"
+            | "__pow__"
+            | "__prepare__"
+            | "__qualname__"
+            | "__radd__"
+            | "__rand__"
+            | "__rdivmod__"
+            | "__release_buffer__"
+            | "__repr__"
+            | "__rfloordiv__"
+            | "__rlshift__"
+            | "__rmatmul__"
+            | "__rmod__"
+            | "__rmul__"
+            | "__ror__"
+            | "__rpow__"
+            | "__rrshift__"
+            | "__rshift__"
+            | "__rsub__"
+            | "__rtruediv__"
+            | "__rxor__"
+            | "__set__"
+            | "__setattr__"
+            | "__setitem__"
+            | "__slots__"
+            | "__str__"
+            | "__sub__"
+            | "__subclasscheck__"
+            | "__subclasshook__"
+            | "__subclasses__"
+            | "__text_signature__"
+            | "__truediv__"
+            | "__weakref__"
+            | "__xor__"
+    )
+}
+
+fn publishes_as_method(value: &PyObject, vm: &VirtualMachine) -> bool {
+    if value.class().slots.descr_set.load().is_some() {
+        return false;
+    }
+    let cls = value.class();
+    let function =
+        cls.is(vm.ctx.types.function_type) || cls.is(vm.ctx.types.builtin_function_or_method_type);
+    if cls.slots.descr_get.load().is_some() {
+        return function;
+    }
+    function || value.is_callable()
+}
+
+/// A plain function published on a proxy class.
+///
+/// The callable's `self` would be the closure data, so it cannot also bind
+/// the instance. A descriptor does both: lookup on the class returns this
+/// callable, and lookup on an instance returns one that already holds the
+/// instance.
+#[pyo3::pyclass(module = "rustpython", name = "published_method", frozen)]
+struct PublishedMethod {
+    name: String,
+}
+
+#[pyo3::pymethods]
+impl PublishedMethod {
+    fn __get__<'py>(
+        slf: &Bound<'py, Self>,
+        instance: Option<&Bound<'py, PyAny>>,
+        _owner: Option<&Bound<'py, PyAny>>,
+    ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        match instance.filter(|instance| !instance.is_none()) {
+            Some(instance) => {
+                let bound = BoundPublished {
+                    name: slf.borrow().name.clone(),
+                    instance: instance.clone().unbind(),
+                };
+                Ok(Bound::new(slf.py(), bound)?.into_any())
+            }
+            None => Ok(slf.clone().into_any()),
+        }
+    }
+
+    #[pyo3(signature = (*args, **kwargs))]
+    fn __call__<'py>(
+        slf: &Bound<'py, Self>,
+        args: &Bound<'py, PyTuple>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        let name = slf.borrow().name.clone();
+        call_published(&name, args, kwargs)
+    }
+}
+
+/// [`PublishedMethod`] bound to one proxy instance.
+#[pyo3::pyclass(module = "rustpython", name = "bound_published_method", frozen)]
+struct BoundPublished {
+    name: String,
+    instance: Py<PyAny>,
+}
+
+#[pyo3::pymethods]
+impl BoundPublished {
+    #[pyo3(signature = (*args, **kwargs))]
+    fn __call__<'py>(
+        slf: &Bound<'py, Self>,
+        args: &Bound<'py, PyTuple>,
+        kwargs: Option<&Bound<'py, PyDict>>,
+    ) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        let (name, instance) = {
+            let this = slf.borrow();
+            (this.name.clone(), this.instance.clone_ref(py))
+        };
+        let mut elements = Vec::with_capacity(args.len() + 1);
+        elements.push(instance);
+        elements.extend(args.iter().map(|item| item.clone().unbind()));
+        let full = PyTuple::new(py, elements)?;
+        call_published(&name, &full, kwargs)
+    }
+}
+
+fn install_special(ty: &Bound<'_, PyType>, name: &str) -> pyo3::PyResult<()> {
+    let func = Bound::new(
+        ty.py(),
+        PublishedMethod {
+            name: name.to_owned(),
+        },
+    )?;
+    ty.setattr(name, func)
+}
+
+fn call_published<'py>(
+    name: &str,
+    args: &Bound<'py, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> pyo3::PyResult<Bound<'py, PyAny>> {
+    if PyTupleMethods::len(args) == 0 {
+        return Err(PyTypeError::new_err(format!(
+            "{name}() missing the wrapped object"
+        )));
+    }
+    let instance = args.get_item(0)?;
+    let proxy = instance.cast::<RustPythonObject>()?;
+    let rest = PyTupleMethods::get_slice(args, 1, PyTupleMethods::len(args));
+    proxy.borrow().run_for_cpython(
+        args.py(),
+        |vm| {
+            let name = vm.ctx.new_str(name);
+            Ok((name, args_to_rustpython(&rest, kwargs, vm)?))
+        },
+        |obj, (name, call_args), vm| obj.get_attr(&name, vm)?.call_with_args(call_args, vm),
+    )
 }
 
 fn install_method(

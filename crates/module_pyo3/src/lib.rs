@@ -16,9 +16,25 @@
 //! slots come from the methods the class actually defines. Classes that
 //! cannot be laid out that way stay generic proxies, and `proxy.__class__`
 //! is still the wrapped class. A wrapper's metaclass is the wrapper of the
-//! CPython metaclass, or `pyo3.pyo3_type` when that metaclass is `type`.
+//! CPython metaclass. When that metaclass is `type`, the class is itself a
+//! metaclass, and the class is immutable, the wrapper's metaclass is `type`
+//! too and the immutable-type flag is copied from the wrapped class. A
+//! mutable metaclass keeps `pyo3.pyo3_type`, so reads and writes on the
+//! wrapper reach the wrapped class. Every other class whose metaclass is
+//! `type` uses `pyo3.pyo3_type`.
 //! See [`convert`] for what crosses by value and what by reference,
 //! [`pyo3_type`] for classes, and [`errors`] for exceptions.
+//!
+//! `copy.copy` and `copy.deepcopy` of an embedded object call the embedded
+//! `copy` module. `pickle` stores `pyo3.load_embedded` and the bytes the
+//! embedded `pickle` produced; loading unpickles there and converts the
+//! result back. See [`pyo3_ref`].
+//!
+//! A RustPython object handed across publishes the non-slot dunder methods
+//! its class defines. The first definition in the MRO wins, and a name only
+//! `object` defines stays unpublished. Its sequence length is its `__len__`.
+//! See [`rustpython_object`]. Embedded `warnings.showwarning` is delivered to
+//! this interpreter while a thread is running it. See [`cpython_init`].
 //!
 //! `pyo3.wraps` instead runs a whole function in CPython:
 //!
@@ -95,6 +111,9 @@ mod _pyo3 {
         types: PyMutex<HashMap<usize, (pyo3::Py<pyo3::PyAny>, PyTypeRef)>>,
         /// Tuple subclass passed to `sys.unraisablehook`. One per interpreter.
         unraisable_args: PyMutex<Option<PyTypeRef>>,
+        /// `mro` of metaclass wrappers whose own metaclass is `type`.
+        /// One descriptor, shared; it binds the class it is read from.
+        published_mro_method: PyMutex<Option<PyObjectRef>>,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
@@ -139,6 +158,20 @@ mod _pyo3 {
             *slot = Some(ty.clone());
             ty
         }
+
+        pub(crate) fn cached_published_mro_method(&self) -> Option<PyObjectRef> {
+            self.published_mro_method.lock().clone()
+        }
+
+        /// Remember `method` unless another thread stored one first.
+        pub(crate) fn store_published_mro_method(&self, method: PyObjectRef) -> PyObjectRef {
+            let mut slot = self.published_mro_method.lock();
+            if let Some(existing) = slot.clone() {
+                return existing;
+            }
+            *slot = Some(method.clone());
+            method
+        }
     }
 
     pub(crate) fn module_state(vm: &VirtualMachine) -> PyResult<PyRef<Pyo3State>> {
@@ -165,6 +198,22 @@ mod _pyo3 {
     #[pyfunction]
     fn import_module(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         import_module_impl(name.as_str(), vm)
+    }
+
+    /// Unpickle `data` with the embedded interpreter's `pickle` and convert the result.
+    ///
+    /// Embedded objects reduce to this function plus the bytes that
+    /// interpreter's `pickle.dumps` produced. Protocol 5 buffers are included
+    /// in those bytes. The failure of an object that cannot be pickled is the
+    /// embedded failure, converted.
+    #[pyfunction]
+    fn load_embedded(data: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        with_gil(vm, |py| {
+            let pickle = run_cpython(vm, || py.import("pickle"))?;
+            let data = to_cpython(py, &data, vm)?;
+            let result = run_cpython(vm, || pickle.call_method1("loads", (data,)))?;
+            to_rustpython(&result, vm)
+        })
     }
 
     pub(crate) fn import_module_impl(name: &str, vm: &VirtualMachine) -> PyResult {
