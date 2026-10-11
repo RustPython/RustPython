@@ -9,22 +9,31 @@
 //! Exceptions that C code cannot propagate are reported through the embedded
 //! interpreter's `sys.unraisablehook`. When this thread is running RustPython,
 //! that hook is handed to RustPython's `sys.unraisablehook`.
+//!
+//! Warnings go the same way. The embedded `warnings.showwarning` is handed to
+//! this interpreter's `warnings.showwarning` while a RustPython thread is
+//! running, so a recorder installed here observes them. The embedded filters
+//! still decide whether `showwarning` is called. If the function here raises,
+//! that exception propagates to the embedded caller. With no RustPython thread,
+//! or if delivery is already in progress, the embedded function runs.
 
+use core::cell::Cell;
 use core::ffi::CStr;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyAnyMethods, PyCFunction, PyDict, PyTuple};
+use pyo3::types::{PyAnyMethods, PyCFunction, PyDict, PyTuple, PyType as CPythonType};
 use rustpython_vm::{
     AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-    builtins::{PyTuple as RustPyTuple, PyType},
+    builtins::{PyStr, PyTuple as RustPyTuple, PyType},
+    function::{FuncArgs, KwArgs},
     types::{AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots},
 };
 
 use crate::_pyo3::module_state;
 use crate::convert::to_rustpython;
-use crate::errors::cpython_exc_to_rustpython;
+use crate::errors::{cpython_exc_to_rustpython, matching_builtin_type, rustpython_exc_to_cpython};
 use crate::gil::run_rustpython;
 
 /// Initialize CPython on first use and install the unraisable forwarder.
@@ -37,6 +46,7 @@ pub(crate) fn ensure_cpython_initialized() {
     static INIT: Once = Once::new();
     INIT.call_once(initialize_cpython);
     install_unraisable_hook();
+    install_warning_hook();
 }
 
 fn initialize_cpython() {
@@ -89,6 +99,138 @@ fn install_unraisable_hook() {
 fn set_unraisable_hook(py: Python<'_>) -> pyo3::PyResult<()> {
     let hook = PyCFunction::new_closure(py, Some(c"unraisablehook"), None, unraisable_hook)?;
     py.import("sys")?.setattr("unraisablehook", hook)
+}
+
+static ORIGINAL_SHOWWARNING: OnceLock<Py<PyAny>> = OnceLock::new();
+
+std::thread_local! {
+    static IN_SHOWWARNING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Set while a warning is being delivered, so a nested report uses the
+/// embedded function instead of calling back into the same delivery.
+struct ShowwarningGuard;
+
+impl ShowwarningGuard {
+    fn enter() -> Option<Self> {
+        IN_SHOWWARNING.with(|flag| {
+            if flag.get() {
+                None
+            } else {
+                flag.set(true);
+                Some(Self)
+            }
+        })
+    }
+}
+
+impl Drop for ShowwarningGuard {
+    fn drop(&mut self) {
+        IN_SHOWWARNING.with(|flag| flag.set(false));
+    }
+}
+
+fn install_warning_hook() {
+    static HOOK: Once = Once::new();
+    HOOK.call_once(|| {
+        Python::attach(|py| {
+            if let Err(err) = set_warning_hook(py) {
+                panic!("failed to install the embedded warning hook: {err}");
+            }
+        });
+    });
+}
+
+fn set_warning_hook(py: Python<'_>) -> pyo3::PyResult<()> {
+    let warnings = py.import("warnings")?;
+    let original = warnings.getattr("showwarning")?;
+    let _ = ORIGINAL_SHOWWARNING.set(original.unbind());
+    let hook = PyCFunction::new_closure(py, Some(c"showwarning"), None, showwarning_hook)?;
+    warnings.setattr("showwarning", hook)
+}
+
+fn showwarning_hook(
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> pyo3::PyResult<()> {
+    let Some(_guard) = ShowwarningGuard::enter() else {
+        return call_original_showwarning(args, kwargs);
+    };
+    let py = args.py();
+    let forwarded = rustpython_vm::vm::thread::try_with_current_vm(|vm| {
+        vm.attach_for_callback(|| forward_showwarning(py, args, kwargs, vm))
+    });
+    match forwarded {
+        Some(result) => result,
+        None => call_original_showwarning(args, kwargs),
+    }
+}
+
+fn forward_showwarning(
+    py: Python<'_>,
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+    vm: &VirtualMachine,
+) -> pyo3::PyResult<()> {
+    let call_args =
+        showwarning_args(args, kwargs, vm).map_err(|err| rustpython_exc_to_cpython(py, err, vm))?;
+    run_rustpython(py, || {
+        let warnings = vm.import("warnings", 0)?;
+        let show = warnings.get_attr("showwarning", vm)?;
+        show.call(call_args, vm)?;
+        Ok(())
+    })
+    .map_err(|err| rustpython_exc_to_cpython(py, err, vm))
+}
+
+fn showwarning_args(
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+    vm: &VirtualMachine,
+) -> PyResult<FuncArgs> {
+    let positional = args
+        .iter()
+        .enumerate()
+        .map(|(index, arg)| showwarning_value(index == 1, &arg, vm))
+        .collect::<PyResult<Vec<_>>>()?;
+    let kwargs = kwargs
+        .into_iter()
+        .flatten()
+        .map(|(key, value)| {
+            let key = to_rustpython(&key, vm)?;
+            let key = key
+                .downcast_ref::<PyStr>()
+                .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+            let is_category = key.to_str() == Some("category");
+            let value = showwarning_value(is_category, &value, vm)?;
+            Ok((key.as_wtf8().to_owned(), value))
+        })
+        .collect::<PyResult<KwArgs>>()?;
+    Ok(FuncArgs::new(positional, kwargs))
+}
+
+/// `category` is a warning class. Hand this interpreter's class across so a
+/// filter or recorder here sees the class it already imported.
+fn showwarning_value(category: bool, value: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
+    if category
+        && let Ok(ty) = value.cast::<CPythonType>()
+        && let Some(mapped) = matching_builtin_type(ty, vm)
+        && mapped.fast_issubclass(vm.ctx.exceptions.warning)
+    {
+        return Ok(mapped.into());
+    }
+    to_rustpython(value, vm)
+}
+
+fn call_original_showwarning(
+    args: &Bound<'_, PyTuple>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> pyo3::PyResult<()> {
+    let Some(original) = ORIGINAL_SHOWWARNING.get() else {
+        return Ok(());
+    };
+    original.bind(args.py()).call(args, kwargs)?;
+    Ok(())
 }
 
 /// What happened to one unraisable exception.
