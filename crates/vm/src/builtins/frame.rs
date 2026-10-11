@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
+use super::{PyAnyDictRef, PyAsyncGen, PyCode, PyCoroutine, PyGenerator, PyIntRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
@@ -668,7 +668,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    pub fn f_globals(&self) -> PyDictRef {
+    pub fn f_globals(&self) -> PyAnyDictRef {
         self.iframe().globals().to_owned()
     }
 

@@ -340,7 +340,7 @@ impl SharedValue {
                 // Stateless functions have no globals, so `__main__` is used,
                 // just like for builtins such as exec().
                 let globals = vm.main_namespace()?;
-                Ok(PyFunction::new(code, globals, vm)?.into_pyobject(vm))
+                Ok(PyFunction::new(code, globals.into(), vm)?.into_pyobject(vm))
             }
             Self::Pickled(data) => pickle_loads(&data, vm),
         }
@@ -763,7 +763,12 @@ pub(crate) fn walk_instructions(
 
 /// `_PyFunction_VerifyStateless`.
 fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
-    // `__globals__` is a dict by construction, so only the builtins are checked.
+    let globals = func.globals.as_mutable().ok_or_else(|| {
+        vm.new_type_error(format!(
+            "unsupported globals {}",
+            render_repr(func.globals.as_object(), vm)
+        ))
+    })?;
     let builtins = func.builtins.downcast_ref::<PyDict>().ok_or_else(|| {
         vm.new_type_error(format!(
             "unsupported builtins {}",
@@ -786,7 +791,7 @@ fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyRe
     {
         return Err(vm.new_value_error("closures not supported"));
     }
-    verify_stateless(&func.code, Some((&func.globals, builtins)), vm)
+    verify_stateless(&func.code, Some((globals, builtins)), vm)
 }
 
 /// `verify_script`: a script takes no arguments and returns only None.
