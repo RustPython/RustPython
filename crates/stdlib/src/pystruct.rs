@@ -289,10 +289,17 @@ pub(crate) mod _struct {
         }
     }
 
-    impl Initializer for PyStruct {
-        type Args = IntoStructFormatBytes;
+    #[derive(FromArgs)]
+    struct StructArgs {
+        #[pyarg(any)]
+        format: IntoStructFormatBytes,
+    }
 
-        fn init(zelf: &Py<Self>, fmt: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    impl Initializer for PyStruct {
+        type Args = StructArgs;
+
+        fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let fmt = args.format;
             // The format is read before anything is replaced, so a format that
             // cannot be read leaves the object as it was.
             let spec = fmt.format_spec(vm)?;
