@@ -722,6 +722,24 @@ impl PyType {
         })
     }
 
+    /// Assign a version tag if this type does not have one.
+    ///
+    /// Takes the type lock. Returns the tag, or 0 when no valid tag can be assigned.
+    pub fn assign_version_tag(&self, vm: &VirtualMachine) -> u32 {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
+        }
+        Self::with_type_lock(vm, || {
+            let version = self.tp_version_tag.load(Ordering::Acquire);
+            if version == 0 {
+                self.assign_version_tag_inner()
+            } else {
+                version
+            }
+        })
+    }
+
     /// Invalidate this type's version tag and cascade to all subclasses.
     fn modified_inner(&self) {
         let old_version = self.tp_version_tag.load(Ordering::Acquire);
