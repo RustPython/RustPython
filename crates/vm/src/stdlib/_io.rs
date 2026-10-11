@@ -3568,17 +3568,6 @@ mod _io {
 
         #[pygetset(setter, name = "_CHUNK_SIZE")]
         fn set_chunksize(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
-            let PySetterValue::Assign(object_value) = value else {
-                let type_name = self.class().slot_name();
-                let mut end = type_name.len().min(100);
-                while !type_name.is_char_boundary(end) {
-                    end -= 1;
-                }
-                return Err(vm.new_attribute_error(format!(
-                    "attribute '_CHUNK_SIZE' of '{}' objects cannot be deleted",
-                    &type_name[..end]
-                )));
-            };
             {
                 let textio = self.lock(vm)?;
                 if self.buffer.deref().is_none() {
@@ -3587,6 +3576,9 @@ mod _io {
                 drop(textio);
             }
 
+            let PySetterValue::Assign(object_value) = value else {
+                return Err(vm.new_attribute_error("cannot delete attribute"));
+            };
             let integer = object_value.try_index(vm)?;
 
             let chunk_size = integer.try_to_primitive::<isize>(vm).map_err(|_| {

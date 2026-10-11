@@ -166,12 +166,14 @@ expect_value_error(
     "underlying buffer has been detached",
     lambda: setattr(detached_textio, "_CHUNK_SIZE", 16),
 )
-for wrapper in (textio, uninitialized_textio, detached_textio):
-    with assert_raises(AttributeError) as error:
+for wrapper, error_type, message in (
+    (textio, AttributeError, "cannot delete attribute"),
+    (uninitialized_textio, ValueError, "I/O operation on uninitialized object"),
+    (detached_textio, ValueError, "underlying buffer has been detached"),
+):
+    with assert_raises(error_type) as error:
         del wrapper._CHUNK_SIZE
-    assert str(error.exception) == (
-        "attribute '_CHUNK_SIZE' of '_io.TextIOWrapper' objects cannot be deleted"
-    )
+    assert str(error.exception) == message
 
 
 for wrapper_name in ("ChunkWrapper", "€" * 34):
@@ -179,10 +181,7 @@ for wrapper_name in ("ChunkWrapper", "€" * 34):
     wrapper = wrapper_type(BytesIO())
     with assert_raises(AttributeError) as error:
         del wrapper._CHUNK_SIZE
-    displayed_name = wrapper_name.encode("utf-8")[:100].decode("utf-8", "ignore")
-    assert str(error.exception) == (
-        f"attribute '_CHUNK_SIZE' of '{displayed_name}' objects cannot be deleted"
-    )
+    assert str(error.exception) == "cannot delete attribute"
     wrapper.close()
 
 
