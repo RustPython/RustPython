@@ -130,21 +130,7 @@ impl PyGenericAlias {
     }
 
     fn parameters(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-        let cached = self.parameters.lock().clone();
-        if let Some(parameters) = cached {
-            return Ok(parameters);
-        }
-        // Attribute lookup can re-enter this alias. Compute without the lock,
-        // then replace even a cache populated by the re-entrant lookup.
-        let parameters = make_parameters(&self.args, vm);
-        let previous = core::mem::replace(
-            &mut *self.parameters.lock(),
-            parameters.as_ref().ok().cloned(),
-        );
-        // A failed outer lookup clears the cache populated by a nested lookup too.
-        // Cached parameters can own objects with Python finalizers.
-        drop(previous);
-        parameters
+        cached_parameters(&self.parameters, &self.args, vm)
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -328,6 +314,25 @@ impl Py<PyGenericAlias> {
     ) -> PyResult {
         Err(vm.new_type_error("issubclass() argument 2 cannot be a parameterized generic"))
     }
+}
+
+pub(crate) fn cached_parameters(
+    cache: &PyMutex<Option<PyTupleRef>>,
+    args: &Py<PyTuple>,
+    vm: &VirtualMachine,
+) -> PyResult<PyTupleRef> {
+    let cached = cache.lock().clone();
+    if let Some(parameters) = cached {
+        return Ok(parameters);
+    }
+    // Attribute lookup can re-enter this alias or union. Compute without the
+    // lock, then replace even a cache populated by the re-entrant lookup.
+    let parameters = make_parameters(args, vm);
+    let previous = core::mem::replace(&mut *cache.lock(), parameters.as_ref().ok().cloned());
+    // A failed outer lookup clears the cache populated by a nested lookup too.
+    // Cached parameters can own objects with Python finalizers.
+    drop(previous);
+    parameters
 }
 
 pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
