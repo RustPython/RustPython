@@ -4394,8 +4394,6 @@ class AbstractPickleTests:
     def test_fast_save_enter_set(self):
         self.fast_save_enter(lambda i: set([i]))
 
-    # TODO: RUSTPYTHON; frozendict support: https://github.com/RustPython/RustPython/pull/8951
-    @unittest.expectedFailure
     def test_fast_save_enter_frozendict(self):
         if self.py_version < (3, 15):
             self.skipTest('need frozendict')
@@ -4443,8 +4441,6 @@ class AbstractPickleTests:
                                 depth=FAST_NESTING_LIMIT+1,
                                 compare_equal=False)
 
-    # TODO: RUSTPYTHON; frozendict support: https://github.com/RustPython/RustPython/pull/8951
-    @unittest.expectedFailure
     def test_deep_nested_struct_frozendict(self):
         if self.py_version < (3, 15):
             self.skipTest('need frozendict')
