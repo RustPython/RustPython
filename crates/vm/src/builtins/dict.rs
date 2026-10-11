@@ -41,9 +41,18 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
     match key.key_hash(vm) {
+        // Exact `TypeError` only: a `__hash__` raising a subclass must
+        // propagate unchanged, matching CPython's exact-type check.
         Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
             let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
-            let message = exc.as_object().str(vm)?;
+            // Match BaseException_str without the diagnostic formatter's
+            // fallback: an argument's failing __str__/__repr__ must propagate.
+            let args = exc.args();
+            let message = match args.as_slice() {
+                [] => vm.ctx.empty_str.to_owned(),
+                [arg] => arg.str(vm)?,
+                _ => args.as_object().str(vm)?,
+            };
             Err(vm.new_type_error(format!(
                 "cannot use '{name}' as a {mapping_name} key ({message})"
             )))
@@ -520,22 +529,7 @@ impl PyDict {
     /// Hashing up front also means a `__hash__` that fails only intermittently
     /// is still reported.
     fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
-        match key.key_hash(vm) {
-            Ok(hash) => Ok(hash),
-            // Exact `TypeError` only: a `__hash__` raising a *subclass* of
-            // `TypeError` (e.g. a user `MyTypeError`) must propagate unchanged,
-            // matching CPython's exact-type check.
-            Err(cause) if cause.class().is(vm.ctx.exceptions.type_error) => {
-                let message = cause.as_object().str(vm)?;
-                let key = key.to_pyobject(vm);
-                let name = key.class().fully_qualified_name(vm)?;
-                let err =
-                    vm.new_type_error(format!("cannot use '{name}' as a dict key ({message})"));
-                err.set_cause(Some(cause));
-                Err(err)
-            }
-            Err(other) => Err(other),
-        }
+        key_hash(key, "dict", vm)
     }
 
     /// Set item variant which can be called with multiple
