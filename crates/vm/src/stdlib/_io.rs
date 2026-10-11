@@ -762,10 +762,13 @@ mod _io {
                             )));
                         }
                         let n = n as usize;
-                        let mut bytes = b.borrow_buf_mut();
-                        bytes.truncate(n);
-                        // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
-                        bytes.clone().to_pyobject(vm)
+                        let mut inner = b.try_resizable(vm)?;
+                        let bytes = &mut inner.elements;
+                        bytes
+                            .try_reserve_exact(n.saturating_sub(bytes.len()))
+                            .map_err(|_| vm.no_memory_error())?;
+                        bytes.resize(n, 0);
+                        core::mem::take(bytes).to_pyobject(vm)
                     }
                 })
             } else {

@@ -225,12 +225,24 @@ impl ByteInnerNewOptions {
     /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
     /// it is.
     pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        match (self.source, self.encoding, self.errors) {
+        self.get_inner_with_zero_count(from_object, vm)
+            .map(|(inner, _)| inner)
+    }
+
+    pub(crate) fn get_inner_with_zero_count(
+        self,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyBytesInner, bool)> {
+        let mut zero_count = false;
+        let inner = match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(&index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm).inspect(|inner| {
+                            zero_count = inner.elements.is_empty();
+                        }),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -266,7 +278,8 @@ impl ByteInnerNewOptions {
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
                 Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned()))
             }
-        }
+        }?;
+        Ok((inner, zero_count))
     }
 }
 

@@ -173,11 +173,6 @@ impl PyByteArray {
     fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
-    #[inline]
-    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
-        self.inner.write()
-    }
-
     fn __len__(&self) -> usize {
         self.borrow_buf().len()
     }
@@ -781,9 +776,18 @@ impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
 
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_inner(bytearray_from_object, vm)?;
-        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        // Reject exports and clear existing contents before converting source.
+        zelf.try_resizable(vm)?.elements.clear();
+        // Conversion can call Python, so do not hold the lock across it and
+        // check again for exports acquired by a callback or another thread.
+        let (mut inner, zero_count) =
+            options.get_inner_with_zero_count(bytearray_from_object, vm)?;
+        // A zero integer count performs no further writes, including when its
+        // __index__ callback changed this bytearray or acquired an export.
+        if zero_count {
+            return Ok(());
+        }
+        core::mem::swap(&mut *zelf.try_resizable(vm)?, &mut inner);
         Ok(())
     }
 }
@@ -841,9 +845,11 @@ impl AsBuffer for PyByteArray {
     }
 
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        // Keep the length stable until PyBuffer::new retains the export.
+        let inner = zelf.inner();
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.__len__(), false),
+            BufferDescriptor::simple(inner.elements.len(), false),
             &BUFFER_METHODS,
         ))
     }
@@ -855,7 +861,12 @@ impl BufferResizeGuard for PyByteArray {
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         // An export is a borrow someone else still holds, so it is answered
         // before the lock rather than by waiting on it.
-        (self.exports.load(Ordering::SeqCst) == 0).then(|| self.inner.write())
+        if self.exports.load(Ordering::SeqCst) != 0 {
+            return None;
+        }
+        let inner = self.inner.write();
+        // An export may have been acquired while we waited for the lock.
+        (self.exports.load(Ordering::SeqCst) == 0).then_some(inner)
     }
 }
 
@@ -907,7 +918,7 @@ impl AsSequence for PyByteArray {
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, &value, vm)
                 } else {
-                    zelf.borrow_buf_mut().delitem_by_index(vm, i)
+                    zelf.try_resizable(vm)?.elements.delitem_by_index(vm, i)
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {
