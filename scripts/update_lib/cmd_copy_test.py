@@ -74,6 +74,15 @@ def copy_test(source: str, destination: str, qualified_name: str) -> str:
         raise ValueError("Source and destination indentation differs")
     source_lines = source.splitlines(keepends=True)
     destination_lines = destination.splitlines(keepends=True)
+    # AST equality omits comments, including project marker rationales. Require
+    # the complete decorator block to match before replacing the definition.
+    if (
+        source_lines[src_start : src.lineno - 1]
+        != destination_lines[dst_start : dst.lineno - 1]
+    ):
+        raise ValueError(
+            "Source and destination decorator text differs; preserve markers explicitly"
+        )
     definition = source_lines[src_start:src_end]
     result = "".join(
         destination_lines[:dst_start] + definition + destination_lines[dst_end:]
