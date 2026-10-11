@@ -68,6 +68,12 @@ impl Constructor for PyMappingProxy {
 }
 
 impl PyMappingProxy {
+    pub(crate) fn from_any_dict(dict: super::PyAnyDictRef) -> Self {
+        Self {
+            mapping: MappingProxyInner::Mapping(ArgMapping::new(dict.into())),
+        }
+    }
+
     pub fn from_object(mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         if mapping.mapping_unchecked().check()
             && !mapping.downcastable::<PyList>()

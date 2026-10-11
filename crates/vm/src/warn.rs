@@ -762,12 +762,19 @@ fn setup_context(
                 d.downcast::<crate::builtins::PyDict>()
                     .map_err(|_| vm.new_type_error("sys.__dict__ is not a dictionary"))
             })?;
-        (globals, vm.ctx.intern_str("<sys>"), 0)
+        (globals.into(), vm.ctx.intern_str("<sys>"), 0)
     };
 
-    let registry = match globals.get_item("__warningregistry__", vm) {
-        Ok(r) => r,
-        Err(_) => {
+    let get_global = |name: &str| {
+        if globals.is_frozen() {
+            globals.inner_getitem_opt(name, vm)
+        } else {
+            Ok(globals.get_item(name, vm).ok())
+        }
+    };
+    let registry = match get_global("__warningregistry__")? {
+        Some(r) => r,
+        None => {
             let r = vm.ctx.new_dict();
             globals.set_item("__warningregistry__", r.clone().into(), vm)?;
             r.into()
@@ -775,8 +782,6 @@ fn setup_context(
     };
 
     // Setup module.
-    let module = globals
-        .get_item("__name__", vm)
-        .unwrap_or_else(|_| vm.new_pyobj("<string>"));
+    let module = get_global("__name__")?.unwrap_or_else(|| vm.new_pyobj("<string>"));
     Ok((filename.to_owned(), lineno, Some(module), registry))
 }
