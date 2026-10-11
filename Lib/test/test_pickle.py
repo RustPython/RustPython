@@ -107,6 +107,10 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_c_methods(self):
         return super().test_c_methods()
 
+    @unittest.expectedFailureIf(sys.getrecursionlimit() == 256, "TODO: RUSTPYTHON; default debug recursion limit is 256")
+    def test_deep_nested_struct_frozendict(self):
+        return super().test_deep_nested_struct_frozendict()
+
 
 
 
@@ -408,6 +412,10 @@ if has_c_implementation:
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
 
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
+
     class CPersPicklerTests(PyPersPicklerTests):
         pickler = _pickle.Pickler
         unpickler = _pickle.Unpickler
@@ -420,6 +428,10 @@ if has_c_implementation:
     class CDumpPickle_LoadPickle(PyPicklerTests):
         pickler = _pickle.Pickler
         unpickler = pickle._Unpickler
+
+        @unittest.expectedSuccess  # TODO: RUSTPYTHON; native pickler passes at the default debug recursion limit
+        def test_deep_nested_struct_frozendict(self):
+            return super().test_deep_nested_struct_frozendict()
 
     class DumpPickle_CLoadPickle(PyPicklerTests):
         pickler = pickle._Pickler
