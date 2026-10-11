@@ -502,6 +502,9 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
+            # CPython's installed py.exe reports its own version, not RustPython's.
+            # Keep the remaining launcher integration tests and runtime version checks.
+            - '--ignore test.test_launcher.TestLauncher.test_version'
           env_polluting_tests: []
           skips: []
           timeout: 50
