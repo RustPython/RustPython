@@ -30,10 +30,10 @@ if sys.platform == "win32":
     assert_raises(ValueError, _winapi.ReportEvent, 0, 0, 0, 0, "message\0")
     assert_raises(TypeError, _winapi.ReportEvent, 0, 0, 0, 0, None)
     for index, bits in ((1, 16), (2, 16), (3, 32)):
-        for invalid in (-1, 1 << bits):
+        for invalid, exception in ((-1, ValueError), (1 << bits, OverflowError)):
             arguments = [0, 0, 0, 0, "message\0"]
             arguments[index] = invalid
-            assert_raises(OverflowError, _winapi.ReportEvent, *arguments)
+            assert_raises(exception, _winapi.ReportEvent, *arguments)
         arguments = [0, 0, 0, 0, "message\0"]
         arguments[index] = "invalid integer"
         assert_raises(TypeError, _winapi.ReportEvent, *arguments)
