@@ -49,6 +49,7 @@ mod _sqlite3 {
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,
         lock::{PyMappedMutexGuard, PyMutex, PyMutexGuard},
+        refcount::{try_defer_drop, with_deferred_drops},
         static_cell,
     };
     use rustpython_vm::{
@@ -515,7 +516,11 @@ mod _sqlite3 {
             let context = SqliteContext::from(context);
             let (cls, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
             let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
-            let instance = context.aggregate_context::<*const PyObject>();
+            let instance = context.aggregate_context(true);
+            if instance.is_null() {
+                unsafe { sqlite3_result_error_nomem(context.ctx) };
+                return;
+            }
             if unsafe { (*instance).is_null() } {
                 match cls.call((), vm) {
                     Ok(obj) => unsafe { *instance = obj.into_raw().as_ptr() },
@@ -536,12 +541,22 @@ mod _sqlite3 {
         unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
             let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let instance = context.aggregate_context::<*const PyObject>();
-            let Some(instance) = (unsafe { (*instance).as_ref() }) else {
+            let instance = context.aggregate_context(false);
+            if instance.is_null() {
+                return;
+            }
+            // xFinal releases the reference acquired by xStep, even if the
+            // query or finalize() fails. Clear the slot before calling Python.
+            let object = unsafe { instance.replace(core::ptr::null()) };
+            let Some(object) = NonNull::new(object.cast_mut()) else {
                 return;
             };
+            let instance = unsafe { PyObjectRef::from_raw(object) };
 
-            Self::callback_result_from_method(context, instance, "finalize", vm);
+            Self::callback_result_from_method(context, &instance, "finalize", vm);
+            // __del__ and weakref callbacks must run after the caller releases
+            // its cursor, statement and connection locks.
+            try_defer_drop(move || drop(instance));
         }
 
         unsafe extern "C" fn collation_callback(
@@ -579,8 +594,10 @@ mod _sqlite3 {
         unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
             let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
-            let instance = context.aggregate_context::<*const PyObject>();
-            let instance = unsafe { &**instance };
+            let instance = context.aggregate_context(false);
+            let Some(instance) = (unsafe { instance.as_ref().and_then(|obj| obj.as_ref()) }) else {
+                return;
+            };
 
             Self::callback_result_from_method(context, instance, "value", vm);
         }
@@ -593,8 +610,10 @@ mod _sqlite3 {
             let context = SqliteContext::from(context);
             let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
             let args = unsafe { core::slice::from_raw_parts(argv, argc as usize) };
-            let instance = context.aggregate_context::<*const PyObject>();
-            let instance = unsafe { &**instance };
+            let instance = context.aggregate_context(false);
+            let Some(instance) = (unsafe { instance.as_ref().and_then(|obj| obj.as_ref()) }) else {
+                return;
+            };
 
             Self::call_method_with_args(context, instance, "inverse", args, vm);
         }
@@ -995,44 +1014,50 @@ mod _sqlite3 {
         type Args = ConnectArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
+            with_deferred_drops(|| {
+                let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
 
-            // Reset factories to their defaults, matching CPython's behavior.
-            zelf.reset_factories(vm);
+                // Reset factories to their defaults, matching CPython's behavior.
+                zelf.reset_factories(vm);
 
-            if was_initialized {
-                zelf.drop_db(vm)?;
-            }
+                if was_initialized {
+                    zelf.drop_db(vm)?;
+                }
 
-            // Attempt to open the new database before mutating other state so failures leave
-            // the connection uninitialized (and subsequent operations raise ProgrammingError).
-            let db = Self::initialize_db(&args, vm)?;
+                // Attempt to open the new database before mutating other state so failures leave
+                // the connection uninitialized (and subsequent operations raise ProgrammingError).
+                let db = Self::initialize_db(&args, vm)?;
 
-            let ConnectArgs {
-                detect_types,
-                isolation_level,
-                check_same_thread,
-                autocommit,
-                ..
-            } = args;
+                let ConnectArgs {
+                    detect_types,
+                    isolation_level,
+                    check_same_thread,
+                    autocommit,
+                    ..
+                } = args;
 
-            zelf.detect_types.store(detect_types, Ordering::Relaxed);
-            zelf.check_same_thread
-                .store(check_same_thread, Ordering::Relaxed);
-            *zelf.autocommit.lock() = autocommit;
-            *zelf.thread_ident.lock() = std::thread::current().id();
-            let _ = unsafe { zelf.isolation_level.swap(isolation_level.0) };
+                zelf.detect_types.store(detect_types, Ordering::Relaxed);
+                zelf.check_same_thread
+                    .store(check_same_thread, Ordering::Relaxed);
+                *zelf.autocommit.lock() = autocommit;
+                *zelf.thread_ident.lock() = std::thread::current().id();
+                let _ = unsafe { zelf.isolation_level.swap(isolation_level.0) };
 
-            let mut guard = zelf.db.lock();
-            *guard = Some(db);
-            Radium::store(&zelf.initialized, true, Ordering::Release);
-            Ok(())
+                let mut guard = zelf.db.lock();
+                *guard = Some(db);
+                Radium::store(&zelf.initialized, true, Ordering::Release);
+                Ok(())
+            })
         }
     }
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
         fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::drop_db_inner(self, vm))
+        }
+
+        fn drop_db_inner(&self, vm: &VirtualMachine) -> PyResult<()> {
             let mut guard = self.db.lock();
             let rollback_result = if let Some(db) = guard.as_ref()
                 && *self.autocommit.lock() == AutocommitMode::Disabled
@@ -1129,6 +1154,14 @@ mod _sqlite3 {
             args: BlobOpenArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Blob>> {
+            with_deferred_drops(|| Self::blobopen_inner(zelf, args, vm))
+        }
+
+        fn blobopen_inner(
+            zelf: PyRef<Self>,
+            args: BlobOpenArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Blob>> {
             let table = args.table.to_cstring(vm)?;
             let column = args.column.to_cstring(vm)?;
             let name = args.name.to_cstring(vm)?;
@@ -1170,6 +1203,10 @@ mod _sqlite3 {
 
         #[pymethod]
         fn commit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::commit_inner(zelf, vm))
+        }
+
+        fn commit_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             let db = zelf.db_lock(vm)?;
             let mode = *zelf.autocommit.lock();
             match mode {
@@ -1184,6 +1221,10 @@ mod _sqlite3 {
 
         #[pymethod]
         fn rollback(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::rollback_inner(zelf, vm))
+        }
+
+        fn rollback_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             let db = zelf.db_lock(vm)?;
             let mode = *zelf.autocommit.lock();
             match mode {
@@ -1317,6 +1358,14 @@ mod _sqlite3 {
             args: CreateFunctionArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            with_deferred_drops(|| Self::create_function_inner(zelf, args, vm))
+        }
+
+        fn create_function_inner(
+            zelf: &Py<Self>,
+            args: CreateFunctionArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
             let flags = if args.deterministic {
                 SQLITE_UTF8 | SQLITE_DETERMINISTIC
@@ -1358,6 +1407,14 @@ mod _sqlite3 {
             args: CreateAggregateArgs,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            with_deferred_drops(|| Self::create_aggregate_inner(zelf, args, vm))
+        }
+
+        fn create_aggregate_inner(
+            zelf: &Py<Self>,
+            args: CreateAggregateArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
             let db = zelf.db_lock(vm)?;
             check_num_params(&db, args.narg, "n_arg", vm)?;
@@ -1390,6 +1447,15 @@ mod _sqlite3 {
 
         #[pymethod]
         fn create_collation(
+            zelf: &Py<Self>,
+            name: PyUtf8StrRef,
+            callable: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            with_deferred_drops(|| Self::create_collation_inner(zelf, name, callable, vm))
+        }
+
+        fn create_collation_inner(
             zelf: &Py<Self>,
             name: PyUtf8StrRef,
             callable: PyObjectRef,
@@ -1435,6 +1501,18 @@ mod _sqlite3 {
 
         #[pymethod]
         fn create_window_function(
+            zelf: &Py<Self>,
+            name: PyStrRef,
+            narg: c_int,
+            aggregate_class: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            with_deferred_drops(|| {
+                Self::create_window_function_inner(zelf, name, narg, aggregate_class, vm)
+            })
+        }
+
+        fn create_window_function_inner(
             zelf: &Py<Self>,
             name: PyStrRef,
             narg: c_int,
@@ -1679,6 +1757,14 @@ mod _sqlite3 {
         }
         #[pygetset(setter)]
         fn set_autocommit(zelf: &Py<Self>, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::set_autocommit_inner(zelf, val, vm))
+        }
+
+        fn set_autocommit_inner(
+            zelf: &Py<Self>,
+            val: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = zelf.db_lock(vm)?;
             *zelf.autocommit.lock() = mode;
@@ -1913,6 +1999,15 @@ mod _sqlite3 {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            with_deferred_drops(|| Self::execute_inner(zelf, sql, parameters, vm))
+        }
+
+        fn execute_inner(
+            zelf: PyRef<Self>,
+            sql: PyUtf8StrRef,
+            parameters: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
             let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
@@ -1995,6 +2090,15 @@ mod _sqlite3 {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
+            with_deferred_drops(|| Self::executemany_inner(zelf, sql, seq_of_params, vm))
+        }
+
+        fn executemany_inner(
+            zelf: PyRef<Self>,
+            sql: PyUtf8StrRef,
+            seq_of_params: ArgIterable,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
             let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
@@ -2067,6 +2171,14 @@ mod _sqlite3 {
 
         #[pymethod]
         fn executescript(
+            zelf: PyRef<Self>,
+            script: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            with_deferred_drops(|| Self::executescript_inner(zelf, script, vm))
+        }
+
+        fn executescript_inner(
             zelf: PyRef<Self>,
             script: PyUtf8StrRef,
             vm: &VirtualMachine,
@@ -2146,6 +2258,10 @@ mod _sqlite3 {
 
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::close_inner(zelf, vm))
+        }
+
+        fn close_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Check if __init__ was called
             let mut guard = zelf.inner.lock();
 
@@ -2299,6 +2415,12 @@ mod _sqlite3 {
     impl SelfIter for Cursor {}
     impl IterNext for Cursor {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            with_deferred_drops(|| Self::next_inner(zelf, vm))
+        }
+    }
+
+    impl Cursor {
+        fn next_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             // Check if connection is closed first, and if so, clear statement to release file lock
             if zelf.connection.is_closed() {
                 let mut guard = zelf.inner.lock();
@@ -2576,7 +2698,7 @@ mod _sqlite3 {
 
     impl Drop for BlobInner {
         fn drop(&mut self) {
-            unsafe { sqlite3_blob_close(self.blob.blob) };
+            with_deferred_drops(|| unsafe { sqlite3_blob_close(self.blob.blob) });
         }
     }
 
@@ -2584,7 +2706,9 @@ mod _sqlite3 {
     impl Blob {
         #[pymethod]
         fn close(zelf: &Py<Self>) {
-            zelf.inner.lock().take();
+            with_deferred_drops(|| {
+                zelf.inner.lock().take();
+            });
         }
 
         fn ensure_connection_open(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -2742,6 +2866,10 @@ mod _sqlite3 {
         }
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+            with_deferred_drops(|| Self::subscript_inner(self, needle, vm))
+        }
+
+        fn subscript_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
             self.ensure_connection_open(vm)?;
             let inner = self.inner(vm)?;
             if let Some(index) = needle.try_index_opt(vm) {
@@ -2780,6 +2908,15 @@ mod _sqlite3 {
         }
 
         fn ass_subscript(
+            &self,
+            needle: &PyObject,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            with_deferred_drops(|| Self::ass_subscript_inner(self, needle, value, vm))
+        }
+
+        fn ass_subscript_inner(
             &self,
             needle: &PyObject,
             value: Option<PyObjectRef>,
@@ -3042,7 +3179,7 @@ mod _sqlite3 {
     impl Drop for Sqlite {
         fn drop(&mut self) {
             // Use sqlite3_close_v2 for safe closing even with active statements
-            unsafe { sqlite3_close_v2(self.raw.db) };
+            with_deferred_drops(|| unsafe { sqlite3_close_v2(self.raw.db) });
         }
     }
 
@@ -3261,9 +3398,11 @@ mod _sqlite3 {
 
     impl Drop for SqliteStatement {
         fn drop(&mut self) {
-            unsafe {
+            // A cursor may be dropped without an explicit close(). Nesting
+            // preserves any outer scope that still owns SQLite locks.
+            with_deferred_drops(|| unsafe {
                 sqlite3_finalize(self.raw.st);
-            }
+            });
         }
     }
 
@@ -3591,10 +3730,13 @@ mod _sqlite3 {
             unsafe { sqlite3_user_data(self.ctx).cast() }
         }
 
-        fn aggregate_context<T>(self) -> *mut T {
-            unsafe {
-                sqlite3_aggregate_context(self.ctx, core::mem::size_of::<T>() as c_int).cast()
-            }
+        fn aggregate_context(self, create: bool) -> *mut *const PyObject {
+            let size = if create {
+                core::mem::size_of::<*const PyObject>() as c_int
+            } else {
+                0
+            };
+            unsafe { sqlite3_aggregate_context(self.ctx, size).cast() }
         }
 
         fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &CStr) {
