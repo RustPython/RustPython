@@ -23,7 +23,7 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, FuncArgs, PyComparisonValue, PySsize},
+    function::{ArgBytesLike, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -924,15 +924,17 @@ impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
 
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        let source_is_missing = matches!(&options.source, OptionalArg::Missing);
         // Reject exports and clear existing contents before converting source.
         zelf.try_resizable(vm)?.elements = Vec::new();
         // Conversion can call Python, so do not hold the lock across it and
         // check again for exports acquired by a callback or another thread.
         let (mut inner, zero_count) =
             options.get_inner_with_zero_count(bytearray_from_object, vm)?;
-        // A zero integer count performs no further writes, including when its
-        // __index__ callback changed this bytearray or acquired an export.
-        if zero_count {
+        // Missing sources and zero integer counts perform no further writes.
+        // Argument validation above still rejects encoding/errors without a
+        // source; a zero __index__ callback may have changed or exported self.
+        if source_is_missing || zero_count {
             return Ok(());
         }
         core::mem::swap(&mut *zelf.try_resizable(vm)?, &mut inner);

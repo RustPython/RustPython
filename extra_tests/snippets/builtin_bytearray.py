@@ -1504,3 +1504,52 @@ def test_bytearray_callback_exports():
 
 
 test_bytearray_callback_exports()
+
+
+def test_bytearray_missing_source_init():
+    from testutils import assert_raises
+
+    for initial in (b"", b"previous contents"):
+        value = bytearray(initial)
+        assert value.__init__() is None
+        assert value == b""
+        assert value.__alloc__() == 0
+
+        for kwargs, message in (
+            ({"encoding": "utf-8"}, "encoding without a string argument"),
+            ({"errors": "strict"}, "errors without a string argument"),
+            (
+                {"encoding": "utf-8", "errors": "strict"},
+                "encoding without a string argument",
+            ),
+        ):
+            value = bytearray(initial)
+            with assert_raises(TypeError) as caught:
+                value.__init__(**kwargs)
+            assert str(caught.exception) == message
+            assert value == b""
+            assert value.__alloc__() == 0
+
+        for kwargs in (
+            {},
+            {"encoding": "utf-8"},
+            {"errors": "strict"},
+            {"encoding": "utf-8", "errors": "strict"},
+        ):
+            value = bytearray(initial)
+            with memoryview(value) as view:
+                with assert_raises(BufferError):
+                    value.__init__(**kwargs)
+                assert value == initial
+                assert view.tobytes() == initial
+            assert value.__init__() is None
+            assert value == b""
+
+        # Explicit None is a source and must still go through conversion.
+        value = bytearray(initial)
+        with assert_raises(TypeError):
+            value.__init__(None)
+        assert value == b""
+
+
+test_bytearray_missing_source_init()
