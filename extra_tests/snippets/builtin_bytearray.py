@@ -913,3 +913,643 @@ for i in range(-1, 2, 1):
 empty = bytearray()
 empty *= sys.maxsize
 assert empty == bytearray()
+
+
+def test_bytearray_exports():
+    """Resizing paths must respect outstanding bytearray exports."""
+
+    import io
+
+    from testutils import assert_raises
+
+    for args in ((), (b"abc",), (b"x",), (b"",), (object(),)):
+        value = bytearray(b"abc")
+        with memoryview(value) as view:
+            with assert_raises(BufferError):
+                value.__init__(*args)
+            assert value == b"abc"
+            assert view.tobytes() == b"abc"
+        value.__init__(b"released")
+        assert value == b"released"
+
+    value = bytearray(b"abc")
+    with assert_raises(TypeError):
+        value.__init__(object())
+    assert value == b""
+    value = bytearray(b"abc")
+    value.__init__(value)
+    assert value == b""
+
+    class ExportDuringInit:
+        def __init__(self, count, payload=b""):
+            self.count = count
+            self.payload = payload
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            value.extend(self.payload)
+            self.view = memoryview(value)
+            return self.count
+
+    value = bytearray(b"abc")
+    source = ExportDuringInit(2)
+    with assert_raises(BufferError):
+        value.__init__(source)
+    assert value == b""
+    assert source.view.tobytes() == b""
+    assert source.calls == 1
+    source.view.release()
+    value.extend(b"released")
+    assert value == b"released"
+
+    value = bytearray(b"abc")
+    source = ExportDuringInit(0)
+    value.__init__(source)
+    assert value == b""
+    assert source.view.tobytes() == b""
+    source.view.release()
+
+    value = bytearray(b"abc")
+    source = ExportDuringInit(0, b"xy")
+    value.__init__(source)
+    assert value == b"xy"
+    assert source.view.tobytes() == b"xy"
+    assert source.calls == 1
+    source.view.release()
+
+    class FailingIndex:
+        def __index__(self):
+            assert value == b""
+            raise ValueError("conversion failed")
+
+    value = bytearray(b"abc")
+    with assert_raises(ValueError):
+        value.__init__(FailingIndex())
+    assert value == b""
+
+    for key in (0, slice(0, 1)):
+        value = bytearray(b"abc")
+        with memoryview(value) as view:
+            with assert_raises(BufferError):
+                del value[key]
+            assert view.tobytes() == b"abc"
+        del value[key]
+        assert value == b"bc"
+
+    class Reader(io.RawIOBase):
+        def __init__(self, count, retain, payload=b"abcd"):
+            self.count = count
+            self.retain = retain
+            self.payload = payload
+
+        def readinto(self, buffer):
+            buffer[:] = self.payload
+            self.buffer = buffer
+            if self.retain:
+                self.view = memoryview(buffer)
+            return self.count
+
+    for count in (0, 2, 4):
+        reader = Reader(count, False)
+        assert reader.read(4) == b"abcd"[:count]
+        assert reader.buffer == b""
+
+        reader = Reader(count, True)
+        with assert_raises(BufferError):
+            reader.read(4)
+        assert reader.view.tobytes() == b"abcd"
+        reader.view.release()
+        reader.buffer.clear()
+
+    for count in (-1, 5):
+        reader = Reader(count, True)
+        with assert_raises(ValueError):
+            reader.read(4)
+        assert reader.view.tobytes() == b"abcd"
+        reader.view.release()
+
+    reader = Reader(None, True)
+    assert reader.read(4) is None
+    assert reader.view.tobytes() == b"abcd"
+    reader.view.release()
+
+    # The callback can shrink the temporary buffer, so slicing by the original
+    # requested size without checking the current buffer is not safe.
+    reader = Reader(2, False, b"xy")
+    assert reader.read(4) == b"xy"
+    assert reader.buffer == b""
+
+    reader = Reader(4, False, b"xy")
+    result = reader.read(4)
+    assert len(result) == 4
+    assert result[:2] == b"xy"
+    # The contents of the newly grown region are unspecified by CPython.
+    assert reader.buffer == b""
+
+
+test_bytearray_exports()
+
+
+def test_bytearray_threading():
+    """Acquiring a bytearray export must be atomic with respect to resizing."""
+
+    import threading
+
+    def exercise_exports():
+        payload = b"x" * 65536
+        value = bytearray(payload)
+        barrier = threading.Barrier(3, timeout=5)
+        errors = []
+
+        def worker(operation):
+            try:
+                for _ in range(256):
+                    barrier.wait()
+                    operation()
+                    barrier.wait()
+            except BaseException as exc:
+                errors.append(exc)
+                barrier.abort()
+
+        def resize():
+            try:
+                value.clear()
+                value.extend(payload)
+            except BufferError:
+                pass
+
+        def decode():
+            result = value.decode("ascii")
+            assert result in ("", "x" * len(payload))
+
+        def export():
+            with memoryview(value) as view:
+                size = len(view)
+                assert size in (0, len(payload))
+                # The acquired export keeps its original length and contents even
+                # if the resizing thread runs between these two reads.
+                assert view.tobytes() == payload[:size]
+                assert len(view) == size
+
+        threads = [
+            threading.Thread(target=worker, args=(operation,), daemon=True)
+            for operation in (resize, decode, export)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert not any(thread.is_alive() for thread in threads), "worker did not finish"
+        if errors:
+            raise errors[0]
+
+    exercise_exports()
+
+
+test_bytearray_threading()
+
+
+def test_bytearray_init_exports():
+    """Initializer storage and integer-deletion ordering with buffer exports."""
+
+    from testutils import assert_raises
+
+    class Zero:
+        def __init__(self, value):
+            self.value = value
+            self.observations = []
+
+        def __index__(self):
+            self.observations.append((len(self.value), self.value.__alloc__()))
+            return 0
+
+    # Final CPython rejects even an empty exported initializer before conversion.
+    for kind in ("missing", "integer", "callback"):
+        value = bytearray()
+        source = Zero(value)
+        with memoryview(value) as view:
+            with assert_raises(BufferError):
+                if kind == "missing":
+                    value.__init__()
+                elif kind == "integer":
+                    value.__init__(0)
+                else:
+                    value.__init__(source)
+            assert value == b""
+            assert view.tobytes() == b""
+            assert source.observations == []
+
+    # Clearing an initializer must release its old storage before callbacks and
+    # before the successful zero-count early return.
+    for kind in ("missing", "integer", "callback"):
+        value = bytearray(b"x" * 64)
+        source = Zero(value)
+        assert value.__alloc__() > 0
+        if kind == "missing":
+            value.__init__()
+        elif kind == "integer":
+            value.__init__(0)
+        else:
+            value.__init__(source)
+            assert source.observations == [(0, 0)]
+        assert value == b""
+        assert value.__alloc__() == 0
+
+    # An invalid integer index is rejected before checking whether resizing is
+    # blocked, and neither error path may alter the exported bytes.
+    for initial, indices in ((b"abc", (3, -4)), (b"", (0, -1))):
+        for index in indices:
+            value = bytearray(initial)
+            with memoryview(value) as view:
+                try:
+                    del value[index]
+                except IndexError as exc:
+                    assert str(exc) == "bytearray index out of range"
+                else:
+                    raise AssertionError("invalid index was accepted")
+                assert value == initial
+                assert view.tobytes() == initial
+
+    for index in (0, -1):
+        value = bytearray(b"abc")
+        with memoryview(value) as view:
+            with assert_raises(BufferError):
+                del value[index]
+            assert view.tobytes() == b"abc"
+        del value[index]
+        assert value == (b"bc" if index == 0 else b"ab")
+
+
+test_bytearray_init_exports()
+
+
+def test_bytearray_concat_exports():
+    import operator
+
+    from testutils import assert_raises
+
+    for concat in (operator.add, operator.concat, bytearray.__add__):
+        target = bytearray(b"a")
+        events = []
+
+        class ReentrantBuffer:
+            def __buffer__(self, flags):
+                events.append("acquire")
+                with assert_raises(BufferError):
+                    target.__init__(object())
+                with assert_raises(BufferError):
+                    target.append(120)
+                target[0] = ord("A")
+                return memoryview(b"b")
+
+            def __release_buffer__(self, view):
+                events.append("release")
+                # The left operand's export must already have been released.
+                target.append(99)
+
+        assert concat(target, ReentrantBuffer()) == bytearray(b"Ab")
+        assert events == ["acquire", "release"]
+        assert target == bytearray(b"Ac")
+        target.append(100)
+
+        class FailingBuffer:
+            def __buffer__(self, flags):
+                raise ValueError("buffer acquisition failed")
+
+        with assert_raises(TypeError) as error:
+            concat(target, FailingBuffer())
+        assert str(error.exception) == "can't concat FailingBuffer to bytearray"
+        target.append(101)
+
+        events = []
+
+        class Left(bytearray):
+            def __buffer__(self, flags):
+                events.append("left acquire")
+                return memoryview(b"L")
+
+            def __release_buffer__(self, view):
+                events.append("left release")
+
+        class Right:
+            def __buffer__(self, flags):
+                events.append("right acquire")
+                return memoryview(b"R")
+
+            def __release_buffer__(self, view):
+                events.append("right release")
+
+        assert concat(Left(b"ignored"), Right()) == bytearray(b"LR")
+        assert events == [
+            "left acquire",
+            "right acquire",
+            "left release",
+            "right release",
+        ]
+
+        events = []
+        with assert_raises(TypeError) as error:
+            concat(Left(), FailingBuffer())
+        assert str(error.exception) == "can't concat FailingBuffer to Left"
+        assert events == ["left acquire", "left release"]
+
+        class FailingLeft(bytearray):
+            def __buffer__(self, flags):
+                events.append("left acquire")
+                raise ValueError("left acquisition failed")
+
+        events = []
+        with assert_raises(TypeError) as error:
+            concat(FailingLeft(), Right())
+        assert str(error.exception) == "can't concat Right to FailingLeft"
+        assert events == ["left acquire"]
+
+
+test_bytearray_concat_exports()
+
+
+def test_bytearray_callback_exports():
+    import operator
+
+    from testutils import assert_raises
+
+    def check_comparison():
+        for compare, expected in (
+            (operator.eq, False),
+            (operator.ne, True),
+            (operator.lt, True),
+            (operator.le, True),
+            (operator.gt, False),
+            (operator.ge, False),
+        ):
+            target = bytearray(b"a")
+            events = []
+
+            class Other:
+                def __buffer__(self, flags):
+                    events.append("acquire")
+                    with assert_raises(BufferError):
+                        target.__init__(object())
+                    target[0] = ord("A")
+                    return memoryview(b"B")
+
+                def __release_buffer__(self, view):
+                    events.append("release")
+                    target[0] = ord("Z")
+                    target.append(99)
+
+            assert compare(target, Other()) is expected
+            assert target == b"Zc"
+            assert events == ["acquire", "release"]
+
+        events = []
+
+        class Left(bytearray):
+            def __buffer__(self, flags):
+                events.append("acquire")
+                return memoryview(b"L")
+
+            def __release_buffer__(self, view):
+                events.append("release")
+
+        left = Left(b"ignored")
+        assert left.__eq__(left) is True
+        assert events == ["acquire", "acquire", "release", "release"]
+        events.clear()
+        assert left.__eq__(object()) is NotImplemented
+        assert events == []
+
+        class Failing:
+            def __buffer__(self, flags):
+                raise ValueError("no buffer")
+
+        assert left.__eq__(Failing()) is NotImplemented
+        assert events == ["acquire", "release"]
+        left.append(0)
+
+    def check_search():
+        for method, expected in (
+            ("find", 0),
+            ("index", 0),
+            ("rfind", 2),
+            ("rindex", 2),
+            ("count", 2),
+        ):
+            target = bytearray(b"xxx")
+            events = []
+
+            class Needle:
+                def __buffer__(self, flags):
+                    events.append("acquire")
+                    with assert_raises(BufferError):
+                        target.__init__(object())
+                    target[:] = b"aba"
+                    return memoryview(b"a")
+
+                def __release_buffer__(self, view):
+                    events.append("release")
+                    with assert_raises(BufferError):
+                        target.append(0)
+                    target[:] = b"zzz"
+
+            assert getattr(target, method)(Needle()) == expected
+            assert target == b"zzz"
+            assert events == ["acquire", "release"]
+            target.append(0)
+
+            target = bytearray(b"xxx")
+
+            class IndexNeedle:
+                def __index__(self):
+                    with assert_raises(BufferError):
+                        target.__init__(object())
+                    target[:] = b"aba"
+                    return ord("a")
+
+            assert getattr(target, method)(IndexNeedle()) == expected
+
+        target = bytearray(b"ab")
+
+        class Start:
+            def __index__(self):
+                target.extend(b"ab")
+                return 1
+
+        assert target.count(ord("a"), Start()) == 1
+        assert target == b"abab"
+
+    def check_affixes():
+        for method in ("startswith", "endswith"):
+            target = bytearray(b"aaa")
+            events = []
+
+            class Affix:
+                def __init__(self, value, after):
+                    self.value = value
+                    self.after = after
+
+                def __buffer__(self, flags):
+                    events.append(self.value)
+                    with assert_raises(BufferError):
+                        target.__init__(object())
+                    target[0] = target[0]
+                    return memoryview(self.value)
+
+                def __release_buffer__(self, view):
+                    events.append("release")
+                    with assert_raises(BufferError):
+                        target.append(0)
+                    target[:] = self.after
+
+            class Unvisited:
+                def __buffer__(self, flags):
+                    raise AssertionError("tuple must short-circuit")
+
+            assert getattr(target, method)(
+                (Affix(b"x", b"yyy"), Affix(b"y", b"zzz"), Unvisited())
+            )
+            assert target == b"zzz"
+            assert events == [b"x", "release", b"y", "release"]
+            target.append(0)
+
+            target = bytearray(b"aaa")
+            events.clear()
+            assert getattr(target, method)(Affix(b"a", b"zzz"))
+            assert target == b"zzz"
+            assert events == [b"a", "release"]
+
+            events.clear()
+            assert not getattr(target, method)(Affix(b"z", b"aaa"), 100)
+            assert events == [b"z", "release"]
+            with assert_raises(TypeError):
+                getattr(target, method)((Affix(b"x", b"aaa"), object()))
+            target.append(0)
+
+            class BytesAffix(bytes):
+                def __buffer__(self, flags):
+                    raise AssertionError("bytes subclasses use their stored bytes")
+
+            assert getattr(bytearray(b"a"), method)(BytesAffix(b"a"))
+
+    def check_translate():
+        target = bytearray(b"x")
+        table = bytearray(range(256))
+        events = []
+
+        class Table:
+            def __buffer__(self, flags):
+                events.append("table acquire")
+                target.__init__(b"a")
+                return memoryview(table)
+
+            def __release_buffer__(self, view):
+                events.append("table release")
+                target.__init__(b"t")
+
+        class Delete:
+            def __buffer__(self, flags):
+                events.append("delete acquire")
+                with assert_raises(BufferError):
+                    table.append(0)
+                table[ord("a")] = ord("b")
+                target.__init__(b"aa")
+                return memoryview(b"")
+
+            def __release_buffer__(self, view):
+                events.append("delete release")
+                target.__init__(b"d")
+
+        assert target.translate(Table(), delete=Delete()) == b"bb"
+        assert target == b"d"
+        assert events == [
+            "table acquire",
+            "delete acquire",
+            "table release",
+            "delete release",
+        ]
+        table.append(0)
+        table.pop()
+        events.clear()
+
+        class BadDelete:
+            def __buffer__(self, flags):
+                events.append("delete failure")
+                with assert_raises(BufferError):
+                    table.append(0)
+                raise ValueError("bad delete")
+
+        with assert_raises(ValueError):
+            target.translate(Table(), delete=BadDelete())
+        assert events == ["table acquire", "delete failure", "table release"]
+        table.append(0)
+
+    def check_padding():
+        for method in ("center", "ljust", "rjust"):
+            target = bytearray(b"x")
+            assert getattr(target, method)(3, target) == b"xxx"
+
+            class Width:
+                def __index__(self):
+                    target.__init__(b"y")
+                    return 3
+
+            assert getattr(target, method)(Width(), target) == b"yyy"
+
+    check_comparison()
+    check_search()
+    check_affixes()
+    check_translate()
+    check_padding()
+
+
+test_bytearray_callback_exports()
+
+
+def test_bytearray_missing_source_init():
+    from testutils import assert_raises
+
+    for initial in (b"", b"previous contents"):
+        value = bytearray(initial)
+        assert value.__init__() is None
+        assert value == b""
+        assert value.__alloc__() == 0
+
+        for kwargs, message in (
+            ({"encoding": "utf-8"}, "encoding without a string argument"),
+            ({"errors": "strict"}, "errors without a string argument"),
+            (
+                {"encoding": "utf-8", "errors": "strict"},
+                "encoding without a string argument",
+            ),
+        ):
+            value = bytearray(initial)
+            with assert_raises(TypeError) as caught:
+                value.__init__(**kwargs)
+            assert str(caught.exception) == message
+            assert value == b""
+            assert value.__alloc__() == 0
+
+        for kwargs in (
+            {},
+            {"encoding": "utf-8"},
+            {"errors": "strict"},
+            {"encoding": "utf-8", "errors": "strict"},
+        ):
+            value = bytearray(initial)
+            with memoryview(value) as view:
+                with assert_raises(BufferError):
+                    value.__init__(**kwargs)
+                assert value == initial
+                assert view.tobytes() == initial
+            assert value.__init__() is None
+            assert value == b""
+
+        # Explicit None is a source and must still go through conversion.
+        value = bytearray(initial)
+        with assert_raises(TypeError):
+            value.__init__(None)
+        assert value == b""
+
+
+test_bytearray_missing_source_init()
