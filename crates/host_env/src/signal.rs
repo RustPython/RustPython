@@ -396,12 +396,27 @@ pub fn wakeup_fd_is_socket(fd: libc::SOCKET) -> io::Result<bool> {
 }
 
 #[cfg(windows)]
+pub struct WakeupSendError(pub i32);
+
+#[cfg(windows)]
+impl WakeupSendError {
+    pub fn is_would_block(&self) -> bool {
+        self.0 == windows_sys::Win32::Networking::WinSock::WSAEWOULDBLOCK
+    }
+
+    // Only convert to an allocating error outside the OS signal handler.
+    pub fn into_io_error(self) -> io::Error {
+        io::Error::from_raw_os_error(self.0)
+    }
+}
+
+#[cfg(windows)]
 pub fn notify_signal(
     signum: i32,
     wakeup_fd: libc::SOCKET,
     wakeup_is_socket: bool,
     sigint_event: Option<isize>,
-) {
+) -> Option<WakeupSendError> {
     if signum == libc::SIGINT
         && let Some(handle) = sigint_event
     {
@@ -411,23 +426,31 @@ pub fn notify_signal(
     }
 
     if wakeup_fd == INVALID_SOCKET {
-        return;
+        return None;
     }
 
     let sigbyte = signum as u8;
     if wakeup_is_socket {
-        unsafe {
-            let _ = windows_sys::Win32::Networking::WinSock::send(
+        let result = unsafe {
+            windows_sys::Win32::Networking::WinSock::send(
                 wakeup_fd,
                 &sigbyte as *const u8 as *const _,
                 1,
                 0,
-            );
+            )
+        };
+        if result < 0 {
+            Some(WakeupSendError(unsafe {
+                windows_sys::Win32::Networking::WinSock::WSAGetLastError()
+            }))
+        } else {
+            None
         }
     } else {
         unsafe {
             let _ = libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1);
         }
+        None
     }
 }
 
