@@ -1931,6 +1931,7 @@ mod _socket {
                     .recv_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
+            buffer.shrink_to_fit();
             Ok(buffer)
         }
 
@@ -1984,6 +1985,7 @@ mod _socket {
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
             })?;
             unsafe { buffer.set_len(n) };
+            buffer.shrink_to_fit();
             Ok((
                 buffer,
                 get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
@@ -2239,13 +2241,15 @@ mod _socket {
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
 
-            let msg = zelf
+            let mut msg = zelf
                 .sock_op(vm, SockWaitKind::Read, || {
                     let sock = zelf.sock_snapshot()?;
                     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
                     host_socket::recvmsg(fd, bufsize, ancbufsize, flags)
                 })
                 .map_err(|e| e.into_pyexception(vm))?;
+
+            msg.data.shrink_to_fit();
 
             // Build ancdata list
             let ancdata = Self::parse_ancillary_data(&msg.ancdata, vm);
