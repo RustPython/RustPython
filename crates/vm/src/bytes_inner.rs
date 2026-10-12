@@ -225,12 +225,24 @@ impl ByteInnerNewOptions {
     /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
     /// it is.
     pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        match (self.source, self.encoding, self.errors) {
+        self.get_inner_with_zero_count(from_object, vm)
+            .map(|(inner, _)| inner)
+    }
+
+    pub(crate) fn get_inner_with_zero_count(
+        self,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyBytesInner, bool)> {
+        let mut zero_count = false;
+        let inner = match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
                 if let Some(index_result) = obj.try_index_opt(vm) {
                     match index_result {
-                        Ok(index) => Self::get_value_from_size(&index, vm),
+                        Ok(index) => Self::get_value_from_size(&index, vm).inspect(|inner| {
+                            zero_count = inner.elements.is_empty();
+                        }),
                         Err(e) => {
                             // Only propagate non-TypeError exceptions
                             // TypeError means the object doesn't support __index__, so fall back
@@ -266,7 +278,8 @@ impl ByteInnerNewOptions {
             (OptionalArg::Present(_), OptionalArg::Missing, OptionalArg::Present(_)) => {
                 Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned()))
             }
-        }
+        }?;
+        Ok((inner, zero_count))
     }
 }
 
@@ -302,7 +315,7 @@ impl ByteInnerSub {
         }
     }
 
-    fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub(crate) fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         Ok(match self {
             Self::Buffer(buffer) => buffer.elements,
             Self::Byte(int) => vec![int.as_bigint().byte_or(vm)?],
@@ -321,6 +334,15 @@ pub struct ByteInnerFindOptions {
 }
 
 impl ByteInnerFindOptions {
+    pub(crate) fn parts(&self, len: usize) -> (&PyObject, core::ops::Range<usize>) {
+        let range = anystr::adjust_indices(
+            self.start.as_ref().map(AsRef::as_ref),
+            self.end.as_ref().map(AsRef::as_ref),
+            len,
+        );
+        (&self.sub, range)
+    }
+
     pub fn get_value(
         self,
         len: usize,
@@ -347,7 +369,7 @@ pub struct ByteInnerPaddingOptions {
 }
 
 impl ByteInnerPaddingOptions {
-    fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
+    pub(crate) fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
         let fillchar = {
             let v = self.fillchar;
             try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
@@ -368,9 +390,9 @@ impl ByteInnerPaddingOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerTranslateOptions {
     #[pyarg(positional)]
-    table: Option<PyObjectRef>,
+    pub(crate) table: Option<PyObjectRef>,
     #[pyarg(any, default = b"")]
-    delete: PyObjectRef,
+    pub(crate) delete: PyObjectRef,
 }
 
 impl ByteInnerTranslateOptions {
@@ -708,6 +730,16 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
+        self.pad_with(width, fillchar, pad, vm)
+    }
+
+    pub(crate) fn pad_with(
+        &self,
+        width: isize,
+        fillchar: u8,
+        pad: PadFn,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let len = self.len();
         if len as isize >= width {
             return Ok(Vec::from(&self.elements[..]));
@@ -783,7 +815,10 @@ impl PyBytesInner {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (table, delete) = options.get_value(vm)?;
+        Ok(self.translate_with(&table, &delete))
+    }
 
+    pub(crate) fn translate_with(&self, table: &[u8], delete: &[u8]) -> Vec<u8> {
         let mut res = if delete.is_empty() {
             Vec::with_capacity(self.elements.len())
         } else {
@@ -796,7 +831,7 @@ impl PyBytesInner {
             }
         }
 
-        Ok(res)
+        res
     }
 
     pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
