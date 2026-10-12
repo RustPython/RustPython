@@ -918,10 +918,43 @@ impl AsSequence for PyByteArray {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).__len__())),
             concat: atomic_func!(|seq, other, vm| {
-                PyByteArray::sequence_downcast(seq)
-                    .inner()
-                    .concat(other, vm)
-                    .map(|x| PyByteArray::from(x).into_pyobject(vm))
+                let concat_error = || {
+                    vm.new_type_error(format!(
+                        "can't concat {} to {}",
+                        other.class().name(),
+                        seq.obj.class().name()
+                    ))
+                };
+                // Protect the left operand before the right buffer callback,
+                // without holding either operand's lock across Python calls.
+                let left = PyBuffer::from_object(vm, seq.obj, BufferFlags::SIMPLE)
+                    .map_err(|_| concat_error())?;
+                let right = match PyBuffer::from_object(vm, other, BufferFlags::SIMPLE) {
+                    Ok(buffer) => buffer,
+                    Err(_) => {
+                        let error = concat_error();
+                        drop(left);
+                        return Err(error);
+                    }
+                };
+                let result = (|| {
+                    let len = left
+                        .desc
+                        .len
+                        .checked_add(right.desc.len)
+                        .ok_or_else(|| vm.no_memory_error())?;
+                    let mut bytes = Vec::new();
+                    bytes
+                        .try_reserve_exact(len)
+                        .map_err(|_| vm.no_memory_error())?;
+                    left.append_to(&mut bytes);
+                    right.append_to(&mut bytes);
+                    Ok(PyByteArray::from(bytes).into_pyobject(vm))
+                })();
+                // Buffer release can run Python too; all slice guards are gone.
+                drop(left);
+                drop(right);
+                result
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 PyByteArray::sequence_downcast(seq)
