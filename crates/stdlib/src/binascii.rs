@@ -1,4 +1,6 @@
-// spell-checker:ignore hexlify unhexlify uuencodes rlecode rledecode
+// spell-checker:ignore hexlify unhexlify uuencodes rlecode rledecode ABCDEFGHIJKLMNPQRSTUVXYZ abcdefhijklmpqr
+
+mod base_n;
 
 pub(super) use decl::crc32;
 pub(crate) use decl::module_def;
@@ -8,7 +10,7 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef};
 
 #[pymodule(name = "binascii")]
 mod decl {
-    use super::new_binascii_error;
+    use super::{base_n, new_binascii_error};
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyBytesRef, PyDict, PyModule, PyTypeRef},
@@ -30,23 +32,47 @@ mod decl {
                 "a2b_base64($module, data, /, *, strict_mode=<unrepresentable>, padded=True, alphabet=BASE64_ALPHABET, ignorechars=<unrepresentable>, canonical=False)\n--\n\nDecode a line of base64 data.",
             ),
         );
-        let function = DECODE.build_bound_function(&vm.ctx, module.to_owned().into());
-        function
-            .as_object()
-            .set_attr("__module__", vm.ctx.new_str("binascii"), vm)?;
-        module.dict().set_item("a2b_base64", function.into(), vm)?;
+        const DECODE32: &PyMethodDef = &PyMethodDef::new_const(
+            "a2b_base32",
+            a2b_base32,
+            PyMethodFlags::empty(),
+            ItemDoc::static_text(
+                "a2b_base32($module, data, /, *, padded=True, alphabet=BASE32_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of base32 data.",
+            ),
+        );
+        const DECODE85: &PyMethodDef = &PyMethodDef::new_const(
+            "a2b_base85",
+            a2b_base85,
+            PyMethodFlags::empty(),
+            ItemDoc::static_text(
+                "a2b_base85($module, data, /, *, alphabet=BASE85_ALPHABET, ignorechars=b'', canonical=False)\n--\n\nDecode a line of Base85 data.",
+            ),
+        );
+        for (name, definition) in [
+            ("a2b_base64", DECODE),
+            ("a2b_base32", DECODE32),
+            ("a2b_base85", DECODE85),
+        ] {
+            let function = definition.build_bound_function(&vm.ctx, module.to_owned().into());
+            function
+                .as_object()
+                .set_attr("__module__", vm.ctx.new_str("binascii"), vm)?;
+            module.dict().set_item(name, function.into(), vm)?;
+        }
         Ok(())
     }
 
     fn reverse_table(
         module: &Py<PyModule>,
         alphabet: &PyBytesRef,
+        size: usize,
+        padchar: Option<u8>,
         vm: &VirtualMachine,
     ) -> PyResult<[u8; 256]> {
-        let bytes: &[u8; 64] = alphabet
-            .as_bytes()
-            .try_into()
-            .map_err(|_| vm.new_value_error("alphabet must have length 64"))?;
+        let bytes = alphabet.as_bytes();
+        if bytes.len() != size {
+            return Err(vm.new_value_error(format!("alphabet must have length {size}")));
+        }
         let cache = module
             .native_state()
             .ok_or_else(|| vm.new_runtime_error("Missing binascii state"))?
@@ -60,13 +86,60 @@ mod decl {
                 .and_then(|value| value.as_bytes().try_into().ok())
                 .ok_or_else(|| vm.new_runtime_error("Broken binascii cache"));
         }
-        let table = binascii::base64_reverse_table(bytes);
+        let table = base_n::reverse_table(bytes, padchar);
         cache.set_item(
             alphabet.as_object(),
             vm.ctx.new_bytes(table.to_vec()).into(),
             vm,
         )?;
         Ok(table)
+    }
+
+    #[pyattr(name = "CRYPT_ALPHABET")]
+    fn crypt_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".to_vec())
+    }
+
+    #[pyattr(name = "UU_ALPHABET")]
+    fn uu_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(
+            b" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_".to_vec(),
+        )
+    }
+
+    #[pyattr(name = "BINHEX_ALPHABET")]
+    fn binhex_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(
+            b"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr".to_vec(),
+        )
+    }
+
+    #[pyattr(name = "BASE85_ALPHABET")]
+    fn base85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~".to_vec())
+    }
+
+    #[pyattr(name = "ASCII85_ALPHABET")]
+    fn ascii85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstu".to_vec())
+    }
+
+    #[pyattr(name = "Z85_ALPHABET")]
+    fn z85_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx.new_bytes(b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#".to_vec())
+    }
+
+    #[pyattr(name = "BASE32_ALPHABET")]
+    fn base32_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".to_vec())
+    }
+
+    #[pyattr(name = "BASE32HEX_ALPHABET")]
+    fn base32hex_alphabet(vm: &VirtualMachine) -> PyBytesRef {
+        vm.ctx
+            .new_bytes(b"0123456789ABCDEFGHIJKLMNOPQRSTUV".to_vec())
     }
 
     #[pyattr(name = "Error", once)]
@@ -107,12 +180,24 @@ mod decl {
         Ok(data.with_ref(|bytes| binascii::hexlify(bytes, sep, bytes_per_sep)))
     }
 
+    #[derive(FromArgs)]
+    struct UnhexlifyArgs {
+        #[pyarg(positional)]
+        hexstr: ArgAsciiBuffer,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+    }
+
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(hexstr: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        hexstr
-            .with_ref(binascii::unhexlify)
-            .map_err(|e| new_binascii_error(e, vm))
+    fn unhexlify(args: UnhexlifyArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let ignorechars = ignored_argument(&args.ignorechars);
+        let result = args
+            .hexstr
+            .with_ref(|data| base_n::decode_hex(data, &ignorechars));
+        drop(args.hexstr);
+        drop(args.ignorechars);
+        base_n_result(result, vm)
     }
 
     #[derive(FromArgs)]
@@ -192,7 +277,7 @@ mod decl {
             const DEFAULT_TABLE: [u8; 256] =
                 binascii::base64_reverse_table(binascii::BASE64_ALPHABET);
             let table = match &alphabet {
-                OptionalArg::Present(value) => reverse_table(&module, value, vm)?,
+                OptionalArg::Present(value) => reverse_table(&module, value, 64, Some(b'='), vm)?,
                 OptionalArg::Missing => DEFAULT_TABLE,
             };
             let mut ignored = [false; 256];
@@ -270,6 +355,287 @@ mod decl {
         drop(data);
         drop(alphabet);
         result
+    }
+
+    fn base_n_result(
+        result: Result<Vec<u8>, base_n::Error>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        result.map_err(|error| match error {
+            base_n::Error::InvalidAlphabet(size) => {
+                vm.new_value_error(format!("alphabet must have length {size}"))
+            }
+            base_n::Error::Codec(message) => vm.new_exception_msg(error_type(vm), message.into()),
+            base_n::Error::Memory => vm.no_memory_error(),
+        })
+    }
+
+    fn encoder_alphabet(
+        argument: &OptionalArg<ArgBytesLike>,
+        default: &[u8],
+    ) -> Result<Vec<u8>, base_n::Error> {
+        match argument {
+            OptionalArg::Present(value) => {
+                value.with_ref(|bytes| base_n::copy_alphabet(bytes, default.len()))
+            }
+            OptionalArg::Missing => base_n::copy_alphabet(default, default.len()),
+        }
+    }
+
+    fn ignored_argument(argument: &OptionalArg<ArgBytesLike>) -> [bool; 256] {
+        match argument {
+            OptionalArg::Present(value) => value.with_ref(base_n::ignored),
+            OptionalArg::Missing => [false; 256],
+        }
+    }
+
+    fn canonical_argument(
+        argument: &OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        match argument {
+            OptionalArg::Present(value) => value.try_to_bool(vm),
+            OptionalArg::Missing => Ok(false),
+        }
+    }
+
+    #[derive(FromArgs)]
+    struct B2aBase32Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, optional, py_default = "BASE32_ALPHABET")]
+        alphabet: OptionalArg<ArgBytesLike>,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bBase32Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = ArgIntoBool::TRUE, py_default = "True")]
+        padded: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "BASE32_ALPHABET")]
+        alphabet: OptionalArg<PyBytesRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    fn a2b_base32(
+        module: PyRef<PyModule>,
+        args: A2bBase32Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let A2bBase32Args {
+            data,
+            padded,
+            alphabet,
+            ignorechars,
+            canonical,
+        } = args;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let table = match &alphabet {
+                OptionalArg::Present(value) => reverse_table(&module, value, 32, Some(b'='), vm)?,
+                OptionalArg::Missing => base_n::reverse_table(base_n::BASE32, Some(b'=')),
+            };
+            let ignore = ignored_argument(&ignorechars);
+            let result = data.with_ref(|data| {
+                base_n::decode32(data, &table, &ignore, padded.into_bool(), canonical)
+            });
+            base_n_result(result, vm)
+        })();
+        // Match Argument Clinic cleanup: release data before auxiliary exports.
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_base32(args: B2aBase32Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aBase32Args {
+            data,
+            padded,
+            wrapcol,
+            alphabet,
+        } = args;
+        let result = encoder_alphabet(&alphabet, base_n::BASE32).and_then(|alphabet_bytes| {
+            data.with_ref(|data| {
+                base_n::encode32(data, padded.into_bool(), wrapcol, &alphabet_bytes)
+            })
+        });
+        drop(data);
+        drop(alphabet);
+        base_n_result(result, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct B2aBase85Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        pad: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, optional, py_default = "BASE85_ALPHABET")]
+        alphabet: OptionalArg<ArgBytesLike>,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bBase85Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, optional, py_default = "BASE85_ALPHABET")]
+        alphabet: OptionalArg<PyBytesRef>,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    fn a2b_base85(
+        module: PyRef<PyModule>,
+        args: A2bBase85Args,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let A2bBase85Args {
+            data,
+            alphabet,
+            ignorechars,
+            canonical,
+        } = args;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let table = match &alphabet {
+                OptionalArg::Present(value) => reverse_table(&module, value, 85, None, vm)?,
+                OptionalArg::Missing => base_n::reverse_table(base_n::BASE85, None),
+            };
+            let ignore = ignored_argument(&ignorechars);
+            let result = data.with_ref(|data| {
+                base_n::decode85(data, &table, &ignore, canonical, false, false, false)
+            });
+            base_n_result(result, vm)
+        })();
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_base85(args: B2aBase85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aBase85Args {
+            data,
+            pad,
+            wrapcol,
+            alphabet,
+        } = args;
+        let result = encoder_alphabet(&alphabet, base_n::BASE85).and_then(|alphabet_bytes| {
+            data.with_ref(|data| {
+                base_n::encode85(
+                    data,
+                    pad.into_bool(),
+                    wrapcol,
+                    &alphabet_bytes,
+                    false,
+                    false,
+                    false,
+                )
+            })
+        });
+        drop(data);
+        drop(alphabet);
+        base_n_result(result, vm)
+    }
+
+    #[derive(FromArgs)]
+    struct B2aAscii85Args {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        foldspaces: ArgIntoBool,
+        #[pyarg(named, default = 0)]
+        wrapcol: usize,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        pad: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        adobe: ArgIntoBool,
+    }
+
+    #[derive(FromArgs)]
+    struct A2bAscii85Args {
+        #[pyarg(positional)]
+        data: ArgAsciiBuffer,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        foldspaces: ArgIntoBool,
+        #[pyarg(named, default = ArgIntoBool::FALSE, py_default = "False")]
+        adobe: ArgIntoBool,
+        #[pyarg(named, optional, py_default = "b''")]
+        ignorechars: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, optional, py_default = "False")]
+        canonical: OptionalArg<PyObjectRef>,
+    }
+
+    #[pyfunction]
+    fn a2b_ascii85(args: A2bAscii85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let A2bAscii85Args {
+            data,
+            foldspaces,
+            adobe,
+            ignorechars,
+            canonical,
+        } = args;
+        let result = (|| {
+            // This is the last Clinic conversion. Keep acquired exports alive
+            // and reach ordered cleanup even when __bool__ raises.
+            let canonical = canonical_argument(&canonical, vm)?;
+            let ignore = ignored_argument(&ignorechars);
+            let result = data.with_ref(|data| {
+                base_n::decode85(
+                    data,
+                    &base_n::reverse_table(base_n::ASCII85, None),
+                    &ignore,
+                    canonical,
+                    true,
+                    foldspaces.into_bool(),
+                    adobe.into_bool(),
+                )
+            });
+            base_n_result(result, vm)
+        })();
+        drop(data);
+        drop(ignorechars);
+        result
+    }
+
+    #[pyfunction]
+    fn b2a_ascii85(args: B2aAscii85Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let B2aAscii85Args {
+            data,
+            foldspaces,
+            wrapcol,
+            pad,
+            adobe,
+        } = args;
+        let result = data.with_ref(|data| {
+            base_n::encode85(
+                data,
+                pad.into_bool(),
+                wrapcol,
+                base_n::ASCII85,
+                true,
+                foldspaces.into_bool(),
+                adobe.into_bool(),
+            )
+        });
+        base_n_result(result, vm)
     }
 
     #[derive(FromArgs)]
