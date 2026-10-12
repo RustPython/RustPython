@@ -140,12 +140,33 @@ impl PyByteArray {
 
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
-            SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.delitem_by_index(vm, i),
+            SequenceIndex::Int(i) => self.delitem_by_index(i, vm),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
                 self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
             }
         }
+    }
+
+    fn delitem_by_index(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
+        // Validate before export rejection when the bytes are available without
+        // waiting. A codec callback may already hold a read guard with a writer
+        // queued, so a blocking read here could deadlock before that rejection.
+        let valid = self
+            .inner
+            .try_read()
+            .map(|inner| inner.elements.wrap_index(index).is_some());
+        if valid == Some(false) {
+            return Err(vm.new_index_error("bytearray index out of range"));
+        }
+        let mut inner = self.try_resizable(vm)?;
+        // Another thread may have resized the bytearray between the locks.
+        let index = inner
+            .elements
+            .wrap_index(index)
+            .ok_or_else(|| vm.new_index_error("bytearray index out of range"))?;
+        inner.elements.remove(index);
+        Ok(())
     }
 
     fn irepeat(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
@@ -777,7 +798,7 @@ impl Initializer for PyByteArray {
 
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // Reject exports and clear existing contents before converting source.
-        zelf.try_resizable(vm)?.elements.clear();
+        zelf.try_resizable(vm)?.elements = Vec::new();
         // Conversion can call Python, so do not hold the lock across it and
         // check again for exports acquired by a callback or another thread.
         let (mut inner, zero_count) =
@@ -918,7 +939,7 @@ impl AsSequence for PyByteArray {
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, &value, vm)
                 } else {
-                    zelf.try_resizable(vm)?.elements.delitem_by_index(vm, i)
+                    zelf.delitem_by_index(i, vm)
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {
