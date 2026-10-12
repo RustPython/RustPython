@@ -768,7 +768,8 @@ mod _winapi {
         if size > 0 {
             let result = host_winapi::peek_named_pipe(handle.0, Some(size as u32))
                 .map_err(|e| e.to_pyexception(vm))?;
-            let buf = result.data.unwrap_or_default();
+            let mut buf = result.data.unwrap_or_default();
+            buf.shrink_to_fit();
             let bytes: PyObjectRef = vm.ctx.new_bytes(buf).into();
             Ok(vm
                 .ctx
@@ -886,9 +887,10 @@ mod _winapi {
             return Ok(result.into());
         }
 
-        let result = vm
+        let mut result = vm
             .allow_threads(|| host_winapi::read_file(handle.0, size))
             .map_err(|e| e.to_pyexception(vm))?;
+        result.data.shrink_to_fit();
         Ok(vm
             .ctx
             .new_tuple(vec![

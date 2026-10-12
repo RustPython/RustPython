@@ -6949,6 +6949,7 @@ mod winconsoleio {
             }
 
             buf.truncate(read_len);
+            buf.shrink_to_fit();
             Ok(vm.ctx.new_bytes(buf).into())
         }
 
