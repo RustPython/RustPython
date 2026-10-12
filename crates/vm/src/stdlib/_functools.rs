@@ -842,7 +842,7 @@ mod _functools {
 
     #[pyclass(
         with(Constructor, Callable, GetDescriptor),
-        flags(HAS_DICT, HAS_WEAKREF)
+        flags(HAS_DICT, HAS_WEAKREF, METHOD_DESCRIPTOR)
     )]
     impl Py<PyLruCacheWrapper> {
         #[pymethod]

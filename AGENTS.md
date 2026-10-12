@@ -4,7 +4,7 @@ This document provides guidelines for AI coding agents (GitHub Copilot, Claude C
 
 ## Project Overview
 
-RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0+ compatibility. The project aims to provide:
+RustPython is a Python 3 interpreter written in Rust, targeting Python 3.15 with compatibility work in progress. The project aims to provide:
 
 - A complete Python-3 environment entirely in Rust (not CPython bindings)
 - A clean implementation without compatibility hacks

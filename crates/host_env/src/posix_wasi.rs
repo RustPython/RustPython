@@ -1,5 +1,5 @@
 use alloc::ffi::CString;
-use core::{ffi::CStr, time::Duration};
+use core::ffi::CStr;
 use rustix::fd::AsFd;
 use std::{ffi::OsStr, io, path::Path};
 
@@ -14,13 +14,13 @@ pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> io::Result<crate::fileutils::
 pub fn set_file_times_at(
     dir_fd: i32,
     path: &CStr,
-    access: Duration,
-    modified: Duration,
+    access: crate::os::FileTime,
+    modified: crate::os::FileTime,
     follow_symlinks: bool,
 ) -> io::Result<()> {
-    let ts = |d: Duration| libc::timespec {
-        tv_sec: d.as_secs() as _,
-        tv_nsec: d.subsec_nanos() as _,
+    let ts = |time: crate::os::FileTime| libc::timespec {
+        tv_sec: time.seconds,
+        tv_nsec: time.nanoseconds as _,
     };
     let times = [ts(access), ts(modified)];
     unsafe {

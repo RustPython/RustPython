@@ -170,7 +170,7 @@ class TimeTestCase(unittest.TestCase):
         # Improved exception #81267
         with self.assertRaises(TypeError) as errmsg:
             time.sleep([])
-        self.assertIn("integer or float", str(errmsg.exception))
+        self.assertIn("real number", str(errmsg.exception))
 
     def test_sleep(self):
         for value in [-0.0, 0, 0.0, 1e-100, 1e-9, 1e-6, 1, 1.2]:
@@ -498,12 +498,13 @@ class TimeTestCase(unittest.TestCase):
     def test_mktime(self):
         # Issue #1726687
         for t in (-2, -1, 0, 1):
+            t_struct = time.localtime(t)
             try:
-                tt = time.localtime(t)
+                t1 = time.mktime(t_struct)
             except (OverflowError, OSError):
                 pass
             else:
-                self.assertEqual(time.mktime(tt), t)
+                self.assertEqual(t1, t)
 
     # Issue #13309: passing extreme values to mktime() or localtime()
     # borks the glibc's internal timezone data.

@@ -19,7 +19,7 @@ else:
     raise AssertionError("len() should not accept keyword arguments")
 
 assert str(inspect.signature(len)) == "(obj, /)"
-assert str(inspect.signature(abs)) == "(x, /)"
+assert str(inspect.signature(abs)) == "(number, /)"
 assert str(inspect.signature(hash)) == "(obj, /)"
 assert str(inspect.signature(chr)) == "(i, /)"
 assert str(inspect.signature(callable)) == "(obj, /)"
@@ -37,7 +37,7 @@ assert breakpoint_kinds == [
 ], breakpoint_kinds
 
 # Parameter names follow CPython, so signatures are directly comparable.
-assert str(inspect.signature(bin)) == "(number, /)"
+assert str(inspect.signature(bin)) == "(integer, /)"
 assert str(inspect.signature(ord)) == "(character, /)"
 assert str(inspect.signature(divmod)) == "(x, y, /)"
 assert str(inspect.signature(hasattr)) == "(obj, name, /)"

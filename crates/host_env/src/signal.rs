@@ -46,37 +46,63 @@ mod wasm {
     pub const SIGSEGV: i32 = 11;
     pub const SIGTERM: i32 = 15;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Handler {
+        Default,
+        Ignore,
+        Custom(sighandler_t),
+    }
+
     unsafe extern "C" {
-        fn signal(signum: i32, handler: sighandler_t) -> sighandler_t;
+        #[link_name = "signal"]
+        fn c_signal(signum: i32, handler: sighandler_t) -> sighandler_t;
+        #[link_name = "__SIG_IGN"]
+        fn c_sig_ign(signum: i32);
+        #[link_name = "__SIG_ERR"]
+        fn c_sig_err(signum: i32);
         fn raise(signum: i32) -> i32;
+    }
+
+    impl Handler {
+        fn as_raw(self) -> sighandler_t {
+            match self {
+                Self::Default => 0,
+                Self::Ignore => c_sig_ign as *const () as sighandler_t,
+                Self::Custom(handler) => handler,
+            }
+        }
+
+        fn from_raw(handler: sighandler_t) -> io::Result<Self> {
+            // wasi-libc uses function pointers for SIG_IGN and SIG_ERR because
+            // table index 1 is also a valid custom Wasm function pointer.
+            if handler == c_sig_err as *const () as sighandler_t {
+                Err(io::Error::last_os_error())
+            } else if handler == 0 {
+                Ok(Self::Default)
+            } else if handler == c_sig_ign as *const () as sighandler_t {
+                Ok(Self::Ignore)
+            } else {
+                Ok(Self::Custom(handler))
+            }
+        }
     }
 
     /// # Safety
     ///
     /// The caller must ensure `signalnum` is a valid platform signal number.
-    pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
-        let handler = unsafe { signal(signalnum, SIG_IGN) };
-        if handler == SIG_ERR {
-            None
-        } else {
-            unsafe { signal(signalnum, handler) };
-            Some(handler)
-        }
+    pub unsafe fn probe_handler(signalnum: i32) -> Option<Handler> {
+        let handler = unsafe { install_handler(signalnum, Handler::Ignore) }.ok()?;
+        unsafe { install_handler(signalnum, handler) }.ok()?;
+        Some(handler)
     }
 
     /// # Safety
     ///
     /// The caller must ensure `signalnum` is a valid platform signal number and
-    /// `handler` is accepted by the platform signal ABI.
-    pub unsafe fn install_handler(
-        signalnum: i32,
-        handler: sighandler_t,
-    ) -> io::Result<sighandler_t> {
-        let old = unsafe { signal(signalnum, handler) };
-        if old == SIG_ERR {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(old)
+    /// a custom `handler` is accepted by the platform signal ABI.
+    pub unsafe fn install_handler(signalnum: i32, handler: Handler) -> io::Result<Handler> {
+        let old = unsafe { c_signal(signalnum, handler.as_raw()) };
+        Handler::from_raw(old)
     }
 
     pub fn raise_signal(signalnum: i32) -> io::Result<()> {

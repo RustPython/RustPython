@@ -502,6 +502,9 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
+            # CPython's installed py.exe reports its own version, not RustPython's.
+            # Keep the remaining launcher integration tests and runtime version checks.
+            - '--ignore test.test_launcher.TestLauncher.test_version'
           env_polluting_tests: []
           skips: []
           timeout: 50
@@ -781,18 +784,14 @@ jobs:
       - name: prek run
         run: prek run --show-diff-on-failure --color=always --all-files
 
-      - name: Get target CPython version
-        id: cpython-version
-        run: |
-          version=$(cat .python-version)
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Clone CPython
+      - name: Clone CPython opcode metadata source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
-          ref: "v${{ steps.cpython-version.outputs.version }}"
+          # RustPython still uses the 3.14 bytecode format; this source is only
+          # for opcode metadata, independent of the 3.15 runtime target.
+          ref: "v3.14.7"
           persist-credentials: false
 
       - name: prek run (manual stage)

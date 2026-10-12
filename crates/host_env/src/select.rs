@@ -36,9 +36,61 @@ pub mod platform {
 #[allow(non_snake_case)]
 #[cfg(windows)]
 pub mod platform {
-    pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
+    pub use WinSock::{SOCKET as RawFd, TIMEVAL as timeval};
     use std::io;
     use windows_sys::Win32::Networking::WinSock;
+
+    // Match CPython's Windows capacity. WinSock uses fd_count to determine
+    // the array length; the windows-sys declaration has the SDK default of 64.
+    pub const FD_SETSIZE: u32 = 512;
+
+    #[allow(non_camel_case_types)]
+    #[repr(C)]
+    pub struct fd_set {
+        fd_count: u32,
+        fd_array: [RawFd; FD_SETSIZE as usize],
+    }
+
+    const _: () = {
+        assert!(core::mem::align_of::<fd_set>() == core::mem::align_of::<WinSock::FD_SET>());
+        assert!(
+            core::mem::offset_of!(fd_set, fd_count)
+                == core::mem::offset_of!(WinSock::FD_SET, fd_count)
+        );
+        assert!(
+            core::mem::offset_of!(fd_set, fd_array)
+                == core::mem::offset_of!(WinSock::FD_SET, fd_array)
+        );
+        assert!(
+            core::mem::size_of::<fd_set>()
+                == core::mem::offset_of!(fd_set, fd_array)
+                    + FD_SETSIZE as usize * core::mem::size_of::<RawFd>()
+        );
+    };
+
+    /// # Safety
+    ///
+    /// Every non-null set must point to an initialized fd_set, and timeout
+    /// must be null or point to an initialized timeval.
+    pub unsafe fn select(
+        nfds: i32,
+        readfds: *mut fd_set,
+        writefds: *mut fd_set,
+        errorfds: *mut fd_set,
+        timeout: *const timeval,
+    ) -> i32 {
+        // fd_set is a count followed by a caller-sized SOCKET array. Both
+        // layouts have the same alignment and offset of the array.
+        unsafe {
+            WinSock::select(
+                nfds,
+                readfds.cast(),
+                writefds.cast(),
+                errorfds.cast(),
+                timeout,
+            )
+        }
+    }
 
     /// # Safety
     ///
@@ -71,8 +123,8 @@ pub mod platform {
     ///
     /// `set` must be a valid mutable pointer to an initialized WinSock fd_set.
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
-        use WinSock::__WSAFDIsSet;
-        unsafe { __WSAFDIsSet(fd as _, set) != 0 }
+        let set = unsafe { &*set };
+        set.fd_array[..set.fd_count as usize].contains(&fd)
     }
 
     #[must_use]

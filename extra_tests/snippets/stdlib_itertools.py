@@ -569,3 +569,82 @@ class Watched:
 with assert_raises(OverflowError):
     itertools.product(Watched(), repeat=2**62)
 assert ran == []
+
+
+# compress consumes data, then the selector, then tests the selector's truth.
+def check_compress_consumption():
+    events = []
+
+    def tracked(name, values):
+        for value in values:
+            events.append(name)
+            yield value
+        events.append(name + " exhausted")
+
+    class Selector:
+        def __init__(self, value):
+            self.value = value
+
+        def __bool__(self):
+            events.append("bool")
+            return self.value
+
+    assert list(
+        itertools.compress(
+            tracked("data", [1, 2]),
+            tracked("selectors", [Selector(False), Selector(True), Selector(True)]),
+        )
+    ) == [2]
+    assert events == [
+        "data",
+        "selectors",
+        "bool",
+        "data",
+        "selectors",
+        "bool",
+        "data exhausted",
+    ], events
+
+    events.clear()
+    data = tracked("data", [1, 2, 3])
+    assert list(itertools.compress(data, tracked("selectors", [True]))) == [1]
+    assert events == ["data", "selectors", "data", "selectors exhausted"], events
+    assert next(data) == 3
+
+    events.clear()
+    assert (
+        list(itertools.compress(tracked("data", []), tracked("selectors", [True])))
+        == []
+    )
+    assert events == ["data exhausted"], events
+
+    def failing(name):
+        events.append(name)
+        raise ValueError(name)
+        yield
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(failing("data"), tracked("selectors", [True])))
+    assert str(caught.exception) == "data"
+    assert events == ["data"], events
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(tracked("data", [1]), failing("selectors")))
+    assert str(caught.exception) == "selectors"
+    assert events == ["data", "selectors"], events
+
+    class BadSelector:
+        def __bool__(self):
+            events.append("bool")
+            raise ValueError("truth")
+
+    events.clear()
+    with assert_raises(ValueError) as caught:
+        next(itertools.compress(tracked("data", [1]), [BadSelector()]))
+    assert str(caught.exception) == "truth"
+    assert events == ["data", "bool"], events
+
+
+check_compress_consumption()

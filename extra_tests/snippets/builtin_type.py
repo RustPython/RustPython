@@ -748,3 +748,53 @@ with warnings.catch_warnings():
     warnings.simplefilter("error")
     with assert_raises(RuntimeWarning):
         type("NonStringKeyRaises", (), {6: 7})
+
+
+class Left:
+    __slots__ = ("left",)
+
+
+class Right:
+    __slots__ = ("right",)
+
+
+with assert_raises(TypeError):
+
+    class Conflict(Left, Right):
+        pass
+
+
+with assert_raises(TypeError):
+
+    class ReverseConflict(Right, Left):
+        pass
+
+
+class Empty:
+    __slots__ = ()
+
+
+class Compatible(Left, Empty):
+    pass
+
+
+value = Compatible()
+value.left = 42
+assert value.left == 42
+
+
+class FirstChild(Left):
+    __slots__ = ()
+
+
+class SecondChild(Left):
+    __slots__ = ()
+
+
+class Diamond(FirstChild, SecondChild):
+    pass
+
+
+value = Diamond()
+value.left = 43
+assert value.left == 43

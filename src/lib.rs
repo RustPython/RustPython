@@ -311,8 +311,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     // Import site first, before setting sys.path[0]
     // This matches CPython's behavior where site.removeduppaths() runs
     // before sys.path[0] is set, preventing '' from being converted to cwd
-    let site_result = vm.import("site", 0);
-    if site_result.is_err() {
+    if vm.state.config.settings.import_site && vm.import("site", 0).is_err() {
         warn!(
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
              environment variable",

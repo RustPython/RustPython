@@ -391,15 +391,44 @@ pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
 
-#[inline]
-pub(crate) fn is_loc_alnum(ch: u32) -> bool {
-    // FIXME: Ignore the locales
-    u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
+/// Byte classification and case conversion in the current locale.
+///
+/// Callbacks keep host APIs outside this `no_std` engine. They are called while
+/// matching, rather than cached in a compiled pattern, so a locale change also
+/// affects existing patterns and scanners. Without host callbacks, matching uses
+/// the ASCII rules of the C locale.
+#[derive(Debug, Clone, Copy)]
+pub struct Locale {
+    pub is_alnum: fn(u8) -> bool,
+    pub to_lower: fn(u8) -> u32,
+    pub to_upper: fn(u8) -> u32,
 }
 
-#[inline]
-pub(crate) fn is_loc_word(ch: u32) -> bool {
-    ch == UNDERSCORE || is_loc_alnum(ch)
+impl Default for Locale {
+    fn default() -> Self {
+        Self {
+            is_alnum: |ch| ch.is_ascii_alphanumeric(),
+            to_lower: |ch| ch.to_ascii_lowercase() as u32,
+            to_upper: |ch| ch.to_ascii_uppercase() as u32,
+        }
+    }
+}
+
+impl Locale {
+    #[inline]
+    pub(crate) fn is_word(self, ch: u32) -> bool {
+        ch == UNDERSCORE || u8::try_from(ch).is_ok_and(self.is_alnum)
+    }
+
+    #[inline]
+    pub(crate) fn lower(self, ch: u32) -> u32 {
+        u8::try_from(ch).map_or(ch, self.to_lower)
+    }
+
+    #[inline]
+    pub(crate) fn upper(self, ch: u32) -> u32 {
+        u8::try_from(ch).map_or(ch, self.to_upper)
+    }
 }
 
 #[inline]
@@ -411,18 +440,6 @@ pub(crate) const fn is_linebreak(ch: u32) -> bool {
 #[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch).map_or(ch, |x| x.to_ascii_lowercase() as u32)
-}
-
-#[inline]
-pub(crate) fn lower_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    lower_ascii(ch)
-}
-
-#[inline]
-pub(crate) fn upper_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    u8::try_from(ch).map_or(ch, |x| x.to_ascii_uppercase() as u32)
 }
 
 #[inline]

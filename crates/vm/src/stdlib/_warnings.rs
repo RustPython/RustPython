@@ -100,15 +100,12 @@ mod _warnings {
         category: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyTypeRef>> {
+        if message.fast_isinstance(vm.ctx.exceptions.warning) {
+            return Ok(Some(message.class().to_owned()));
+        }
         let cat_obj = match category {
             Some(c) if !vm.is_none(&c) => c,
-            _ => {
-                return Ok(if message.fast_isinstance(vm.ctx.exceptions.warning) {
-                    Some(message.class().to_owned())
-                } else {
-                    None // will default to UserWarning in warn_explicit
-                });
-            }
+            _ => return Ok(None), // will default to UserWarning in warn_explicit
         };
 
         let cat = PyTypeRef::try_from_object(vm, cat_obj.clone()).map_err(|_| {

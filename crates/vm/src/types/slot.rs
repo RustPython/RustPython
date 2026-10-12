@@ -452,6 +452,11 @@ macro_rules! number_binary_op_wrapper {
         |a, b, vm| vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
     };
 }
+// binary_op1 needs one function address across slot updates and deletions.
+fn number_add_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __add__), (b.to_owned(),))
+}
+
 macro_rules! number_binary_right_op_wrapper {
     ($name:ident) => {
         |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
@@ -774,13 +779,21 @@ fn descr_get_wrapper(
     cls: Option<&PyObject>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    // A descriptor whose `__get__` is the descriptor itself resolves it by
-    // fetching `__get__` again, and none of that pushes a Python frame.
+    // slot_tp_descr_get calls the raw type attribute with all three arguments.
+    // Binding it first would omit self for builtin functions and incorrectly
+    // invoke the descriptor protocol of static/class/custom __get__ objects.
+    // Keep both the callable and self owned across user code that deletes them.
     vm.with_recursion(" while calling a Python object", || {
-        vm.call_special_method(
-            zelf,
-            identifier!(vm, __get__),
-            (obj.map(PyObject::to_owned), cls.map(PyObject::to_owned)),
+        let Some(get) = zelf.class().get_attr(identifier!(vm, __get__)) else {
+            return Ok(zelf.to_owned());
+        };
+        get.call(
+            (
+                zelf.to_owned(),
+                obj.map(PyObject::to_owned),
+                cls.map(PyObject::to_owned),
+            ),
+            vm,
         )
     })
 }
@@ -888,7 +901,7 @@ impl PyType {
         name: &'static PyStrInterned,
         ctx: &Context,
     ) {
-        use crate::builtins::descriptor::SlotFunc;
+        use crate::builtins::descriptor::{PyWrapper, SlotFunc};
 
         // Helper macro for main slots
         macro_rules! update_main_slot {
@@ -1250,13 +1263,31 @@ impl PyType {
                         number_binary_right_op_wrapper!(__radd__),
                         NumBinary
                     )
-                } else {
-                    update_sub_slot!(
-                        as_number,
-                        add,
-                        number_binary_op_wrapper!(__add__),
-                        NumBinary
-                    )
+                }
+                let native_concat = self
+                    .get_attr(identifier!(ctx, __add__))
+                    .is_some_and(|attr| {
+                        attr.class().is(ctx.types.wrapper_descriptor_type)
+                            && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
+                                descr.name.as_str() == "__add__"
+                                    && self.mro.read().iter().any(|cls| cls.is(descr.typ))
+                                    && matches!(descr.wrapped, SlotFunc::SeqConcat(_))
+                            })
+                    });
+                if native_concat {
+                    // Native sequence addition stays in sq_concat unless nb_add
+                    // already participates or __radd__ needs its shared dispatcher.
+                    // Like CPython's resolve_slotdups, preserve an existing numeric
+                    // wrapper when an override is replaced or deleted.
+                    let needs_numeric = self.slots.as_number.add.load().is_some()
+                        || self.slots.as_sequence.concat.load().is_none()
+                        || self.get_attr(identifier!(ctx, __radd__)).is_some();
+                    self.slots
+                        .as_number
+                        .add
+                        .store(needs_numeric.then_some(number_add_wrapper));
+                } else if name.as_str() == "__add__" {
+                    update_sub_slot!(as_number, add, number_add_wrapper, NumBinary)
                 }
             }
             SlotAccessor::NbInplaceAdd => {

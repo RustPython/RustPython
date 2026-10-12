@@ -14,10 +14,13 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     use crate::builtins::PyBaseExceptionRef;
+    #[cfg(any(unix, windows))]
+    use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
+        common::wtf8::Wtf8Buf,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
         types::{PyStructSequence, PyStructSequenceData, struct_sequence_new},
     };
@@ -26,14 +29,10 @@ mod decl {
         PyRef,
         builtins::{PyNamespace, PyUtf8StrRef},
     };
-    #[cfg(any(unix, windows))]
-    use crate::{
-        common::wtf8::Wtf8Buf,
-        convert::{ToPyException, ToPyObject},
-    };
     use core::time::Duration;
     #[cfg(not(any(unix, windows)))]
     use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
+    use num_traits::ToPrimitive;
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -128,21 +127,43 @@ mod decl {
     fn sleep(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         vm.audit("time.sleep", || (object.clone(),))?;
 
-        let seconds_type_name = object.class().name().to_owned();
-        let dur = object.try_into_value::<Duration>(vm).map_err(|e| {
-            if e.class().is(vm.ctx.exceptions.value_error)
-                && let Some(s) = e.args().as_slice().first().and_then(|arg| arg.str(vm).ok())
-                && s.as_bytes() == b"negative duration"
-            {
-                return vm.new_value_error("sleep length must be non-negative");
+        let overflow = || vm.new_overflow_error("timestamp out of range for C PyTime_t");
+        let nanoseconds = if object.number().is_index() {
+            let seconds = object.try_index(vm).map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    overflow()
+                } else {
+                    e
+                }
+            })?;
+            seconds
+                .as_bigint()
+                .to_i64()
+                .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
+                .ok_or_else(overflow)?
+        } else {
+            let seconds = object.try_float(vm)?.to_f64();
+            if seconds.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
-            if e.class().is(vm.ctx.exceptions.type_error) {
-                return vm.new_type_error(format!(
-                    "'{seconds_type_name}' object cannot be interpreted as an integer or float"
-                ));
+            // _PyTime_ROUND_TIMEOUT rounds away from zero.
+            let nanoseconds = seconds * SEC_TO_NS as f64;
+            let nanoseconds = if nanoseconds >= 0.0 {
+                nanoseconds.ceil()
+            } else {
+                nanoseconds.floor()
+            };
+            let minimum = i64::MIN as f64;
+            // The signed maximum rounds up to 2**63 as a double.
+            if !(minimum..-minimum).contains(&nanoseconds) {
+                return Err(overflow());
             }
-            e
-        })?;
+            nanoseconds as i64
+        };
+        if nanoseconds < 0 {
+            return Err(vm.new_value_error("sleep length must be non-negative"));
+        }
+        let dur = Duration::from_nanos(nanoseconds as u64);
 
         #[cfg(unix)]
         {
@@ -914,7 +935,9 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                if secs < libc::time_t::MIN as f64 || secs > libc::time_t::MAX as f64 {
+                let minimum = libc::time_t::MIN as f64;
+                // The signed maximum rounds up when represented by f64.
+                if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
@@ -1248,6 +1271,7 @@ mod platform {
     use crate::{
         PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyUtf8StrRef},
+        convert::ToPyException,
     };
     use core::time::Duration;
     use rustpython_host_env::time as host_time;
@@ -1281,8 +1305,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::gmtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::gmtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
         Ok(struct_time_from_tm(vm, tm, "UTC", 0))
     }
 
@@ -1290,8 +1314,8 @@ mod platform {
         when: host_time::TimeT,
         vm: &VirtualMachine,
     ) -> PyResult<StructTimeData> {
-        let tm = host_time::localtime_from_timestamp(when)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))?;
+        let tm =
+            host_time::localtime_from_timestamp(when).map_err(|error| error.to_pyexception(vm))?;
 
         // Get timezone info from Windows API
         let info = get_tz_info();
@@ -1301,7 +1325,25 @@ mod platform {
             (info.standard_bias, &info.standard_name)
         };
 
-        let gmtoff = -(info.bias + bias) * 60;
+        let gmtoff = if when < 0 {
+            // FILETIME marks historical DST as unknown. Derive the offset from
+            // the converted wall time rather than treating unknown as standard.
+            let wall_time = jiff::civil::DateTime::new(
+                (tm.tm_year + 1900) as i16,
+                (tm.tm_mon + 1) as i8,
+                tm.tm_mday as i8,
+                tm.tm_hour as i8,
+                tm.tm_min as i8,
+                tm.tm_sec as i8,
+                0,
+            )
+            .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC))
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for Windows FILETIME"))?;
+            i32::try_from(wall_time.timestamp().as_second() - when)
+                .map_err(|_| vm.new_overflow_error("timezone offset out of range"))?
+        } else {
+            -(info.bias + bias) * 60
+        };
 
         Ok(struct_time_from_tm(vm, tm, name, gmtoff))
     }

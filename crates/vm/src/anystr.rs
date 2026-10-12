@@ -47,6 +47,19 @@ pub(crate) struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
+    pub(crate) fn parts(&self, len: usize) -> (&PyObject, Option<Range<usize>>) {
+        let range = if self.start.is_some() || self.end.is_some() {
+            Some(adjust_indices(
+                self.start.as_ref().map(AsRef::as_ref),
+                self.end.as_ref().map(AsRef::as_ref),
+                len,
+            ))
+        } else {
+            None
+        };
+        (&self.affix, range)
+    }
+
     pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
             Some(adjust_indices(

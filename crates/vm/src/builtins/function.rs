@@ -1321,9 +1321,7 @@ impl Constructor for PyFunction {
         let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
         // Set function name if provided
         if let Some(name) = args.name.into_option() {
-            *func.name.lock() = name.clone();
-            // Also update qualname to match the name
-            *func.qualname.lock() = name;
+            *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {
@@ -1472,9 +1470,9 @@ impl Py<PyBoundMethod> {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
-        let func_self = self.object.clone();
         let func_name = self.function.get_attr("__name__", vm)?;
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
+        let func_self = self.object.clone();
         Ok((builtins_getattr, (func_self, func_name)))
     }
 

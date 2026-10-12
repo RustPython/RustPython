@@ -747,7 +747,7 @@ impl PyMemoryView {
         let format_str = format.as_str();
         let Some(dest_char) = Self::native_fmtchar(format_str) else {
             return Err(vm.new_value_error(
-                "memoryview: destination format must be a native single character format prefixed with an optional '@'",
+                "memoryview: destination format must be a native format prefixed with an optional '@'",
             ));
         };
         // One side has to be bytes. Casting between two item types would

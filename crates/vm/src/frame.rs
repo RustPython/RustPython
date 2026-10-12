@@ -6,9 +6,10 @@ use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBaseObject, PyCode, PyCoroutine, PyDict, PyDictRef,
-        PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule, PyProperty,
-        PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType, PyUtf8Str,
+        PyBaseException, PyBaseExceptionRef, PyBaseObject, PyBytes, PyCode, PyCoroutine, PyDict,
+        PyDictRef, PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList, PyModule,
+        PyProperty, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback, PyType,
+        PyUtf8Str,
         builtin_func::PyNativeFunction,
         descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
@@ -3098,7 +3099,7 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
 }
 
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
-type BinaryOpExtendAction = fn(&PyObject, &PyObject, &VirtualMachine) -> Option<PyObjectRef>;
+type BinaryOpExtendAction = fn(&PyObject, &PyObject, &VirtualMachine) -> Option<PyResult>;
 
 struct BinaryOpExtendSpecializationDescr {
     oparg: bytecode::BinaryOperator,
@@ -3159,10 +3160,10 @@ struct FusedBoolJump {
 macro_rules! bitwise_longs_action {
     ($name:ident, $op:tt) => {
         #[inline]
-        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyResult> {
             let lhs_val = compact_int_from_obj(lhs, vm)?;
             let rhs_val = compact_int_from_obj(rhs, vm)?;
-            Some(vm.ctx.new_int(lhs_val $op rhs_val).into())
+            Some(Ok(vm.ctx.new_int(lhs_val $op rhs_val).into()))
         }
     };
 }
@@ -3184,10 +3185,10 @@ fn nonzero_float_compactlong_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualM
 macro_rules! float_long_action {
     ($name:ident, $op:tt) => {
         #[inline]
-        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyResult> {
             let lhs_val = exact_float_from_obj(lhs, vm)?;
             let rhs_val = compact_int_from_obj(rhs, vm)?;
-            Some(vm.ctx.new_float(lhs_val $op rhs_val as f64).into())
+            Some(Ok(vm.ctx.new_float(lhs_val $op rhs_val as f64).into()))
         }
     };
 }
@@ -3210,10 +3211,10 @@ fn nonzero_compactlong_float_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualM
 macro_rules! long_float_action {
     ($name:ident, $op:tt) => {
         #[inline]
-        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        fn $name(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyResult> {
             let lhs_val = compact_int_from_obj(lhs, vm)?;
             let rhs_val = exact_float_from_obj(rhs, vm)?;
-            Some(vm.ctx.new_float(lhs_val as f64 $op rhs_val).into())
+            Some(Ok(vm.ctx.new_float(lhs_val as f64 $op rhs_val).into()))
         }
     };
 }
@@ -3222,7 +3223,108 @@ long_float_action!(compactlong_float_subtract, -);
 long_float_action!(compactlong_float_multiply, *);
 long_float_action!(compactlong_float_true_div, /);
 
+fn sequence_int_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    (lhs.downcast_ref_if_exact::<PyStr>(vm).is_some()
+        || lhs.downcast_ref_if_exact::<PyBytes>(vm).is_some()
+        || lhs.downcast_ref_if_exact::<PyTuple>(vm).is_some())
+        && rhs.downcast_ref_if_exact::<PyInt>(vm).is_some()
+}
+
+fn int_sequence_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
+    sequence_int_guard(rhs, lhs, vm)
+}
+
+fn exact_sequence_int_guard<T: PyPayload>(
+    lhs: &PyObject,
+    rhs: &PyObject,
+    vm: &VirtualMachine,
+) -> bool {
+    lhs.downcast_ref_if_exact::<T>(vm).is_some() && rhs.downcast_ref_if_exact::<PyInt>(vm).is_some()
+}
+
+fn exact_int_sequence_guard<T: PyPayload>(
+    lhs: &PyObject,
+    rhs: &PyObject,
+    vm: &VirtualMachine,
+) -> bool {
+    exact_sequence_int_guard::<T>(rhs, lhs, vm)
+}
+
+fn sequence_int_multiply(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyResult> {
+    let count = rhs.downcast_ref_if_exact::<PyInt>(vm)?;
+    // CPython 3.15's specialized repetition uses PyLong_AsSsize_t, unlike
+    // the generic sequence dispatch's PyNumber_AsSsize_t conversion.
+    Some(match count.as_bigint().to_isize() {
+        Some(count) => lhs.sequence_unchecked().repeat(count, vm),
+        None => Err(vm.new_overflow_error("Python int too large to convert to C ssize_t")),
+    })
+}
+
+fn int_sequence_multiply(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> Option<PyResult> {
+    sequence_int_multiply(rhs, lhs, vm)
+}
+
 static BINARY_OP_EXTEND_DESCRIPTORS: &[BinaryOpExtendSpecializationDescr] = &[
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_sequence_int_guard::<PyStr>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_int_sequence_guard::<PyStr>,
+        action: int_sequence_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_sequence_int_guard::<PyStr>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_int_sequence_guard::<PyStr>,
+        action: int_sequence_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_sequence_int_guard::<PyBytes>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_int_sequence_guard::<PyBytes>,
+        action: int_sequence_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_sequence_int_guard::<PyBytes>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_int_sequence_guard::<PyBytes>,
+        action: int_sequence_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_sequence_int_guard::<PyTuple>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::Multiply,
+        guard: exact_int_sequence_guard::<PyTuple>,
+        action: int_sequence_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_sequence_int_guard::<PyTuple>,
+        action: sequence_int_multiply,
+    },
+    BinaryOpExtendSpecializationDescr {
+        oparg: bytecode::BinaryOperator::InplaceMultiply,
+        guard: exact_int_sequence_guard::<PyTuple>,
+        action: int_sequence_multiply,
+    },
     // long-long arithmetic
     BinaryOpExtendSpecializationDescr {
         oparg: bytecode::BinaryOperator::Or,
@@ -4623,11 +4725,11 @@ impl ExecutingFrame<'_> {
                     let src_dict = source
                         .downcast_ref::<PyDict>()
                         .expect("exact dict must have a PyDict payload");
-                    // Snapshot under a single read lock so a mutation of `source`
-                    // triggered by `dict.set_item` (e.g. via a target subclass, or
-                    // aliasing) can't be observed mid-iteration.
-                    for (key, value) in src_dict.items_vec() {
-                        if dict.contains_key(&*key, vm) {
+                    // Preserve stored hashes: copying an exact dict must not call
+                    // a key's __hash__ before the callable receives its arguments.
+                    // Snapshot under one lock before any equality callbacks run.
+                    for (key, value, hash) in src_dict.items_with_hashes_vec() {
+                        if dict.contains_known_hash(&key, hash, vm)? {
                             let key_str = key.str(vm)?;
                             return Err(vm.new_type_error(format!(
                                 "{} got multiple values for keyword argument '{}'",
@@ -4635,7 +4737,7 @@ impl ExecutingFrame<'_> {
                                 key_str.as_wtf8()
                             )));
                         }
-                        dict.set_item(&*key, value, vm)?;
+                        dict.set_item_known_hash(&key, hash, value, vm)?;
                     }
                     return Ok(None);
                 } else {
@@ -6522,7 +6624,7 @@ impl ExecutingFrame<'_> {
                 {
                     self.pop_stackref();
                     self.pop_stackref();
-                    self.push_value(result);
+                    self.push_value(result?);
                     Ok(None)
                 } else {
                     self.execute_bin_op(vm, op)
@@ -10661,6 +10763,11 @@ impl ExecutingFrame<'_> {
                     && b.downcast_ref_if_exact::<PyFloat>(vm).is_some()
                 {
                     Some(Instruction::BinaryOpMultiplyFloat)
+                } else if (sequence_int_guard(a, b, vm) || int_sequence_guard(a, b, vm))
+                    && let Some(descr) = self.binary_op_extended_specialization(op, a, b, vm)
+                {
+                    cached_extend_descr = Some(descr);
+                    Some(Instruction::BinaryOpExtend)
                 } else {
                     None
                 }

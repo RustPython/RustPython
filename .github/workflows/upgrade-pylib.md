@@ -28,7 +28,7 @@ engine: copilot
 
 runtimes:
   python:
-    version: "3.14"
+    version: "3.15"
 
 tools:
   bash:
@@ -48,11 +48,9 @@ safe-outputs:
 cache:
   key: cpython-lib-${{ env.PYTHON_VERSION }}
   path: cpython
-  restore-keys:
-    - cpython-lib-
 
 env:
-  PYTHON_VERSION: "v3.14.7"
+  PYTHON_VERSION: "v3.15.0"
   ISSUE_ID: "6839"
 ---
 
@@ -65,10 +63,15 @@ You are an automated maintenance agent for RustPython, a Python 3 interpreter wr
 The CPython source may already be cached. Check if the `cpython` directory exists and has the correct version:
 
 ```bash
-if [ -d "cpython/Lib" ]; then
-    echo "CPython cache hit, skipping clone"
-else
+if [ ! -e "cpython" ]; then
     git clone --depth 1 --branch "$PYTHON_VERSION" https://github.com/python/cpython.git cpython
+elif [ ! -d "cpython/.git" ] || [ ! -d "cpython/Lib" ] ||
+    [ "$(git -C cpython rev-parse HEAD)" != "$(git -C cpython rev-parse --verify "$PYTHON_VERSION^{commit}" 2>/dev/null)" ] ||
+    [ -n "$(git -C cpython status --porcelain)" ]; then
+    echo "ERROR: cpython must be a clean checkout of $PYTHON_VERSION. Move the existing directory aside and rerun." >&2
+    exit 1
+else
+    echo "CPython $PYTHON_VERSION source already present."
 fi
 ```
 
