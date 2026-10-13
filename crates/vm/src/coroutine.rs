@@ -495,6 +495,32 @@ impl Coro {
         }
     }
 
+    /// Clear a created generator frame without resuming its body.
+    pub(crate) fn clear_frame(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if self.closed.load() {
+            return Ok(());
+        }
+        if self.running.compare_exchange(false, true).is_err() {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
+        let claim = RunningGuard(self);
+        if self.closed.load() {
+            return Ok(());
+        }
+        if self.started() {
+            return Err(vm.new_runtime_error("cannot clear a suspended frame"));
+        }
+        self.closed.store(true);
+        // Closed owners cannot resume. Publish that state and release the
+        // running claim before a warning hook can observe or clear us again.
+        drop(claim);
+        if jen.class().is(vm.ctx.types.coroutine_type) {
+            crate::warn::warn_unawaited_coroutine(jen, &self.qualname(), vm);
+        }
+        self.clear_except_code();
+        Ok(())
+    }
+
     /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
     /// than at its start.
     pub(crate) fn started(&self) -> bool {
