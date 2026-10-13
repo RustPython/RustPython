@@ -2125,3 +2125,106 @@ frozendict(**kwargs) -> new immutable dictionary initialized with the name=value
     frozen_result = unittest.TextTestRunner(verbosity=2).run(frozen_suite)
     assert frozen_result.wasSuccessful()
     assert not frozen_result.skipped
+
+
+# Final 3.15 rewrites exact hash TypeError without an explicit cause, and
+# propagates formatting failures instead of replacing them with diagnostics.
+def check_mapping_hash_error_context():
+    class SpecialTypeError(TypeError):
+        pass
+
+    for mapping_type in (dict, frozendict):
+        for case in (
+            "plain",
+            "empty",
+            "multiple",
+            "bad_str",
+            "bad_repr",
+            "subclass",
+            "subclass_bad_str",
+            "list",
+        ):
+            for handled in (False, True):
+                for operation in ("getitem", "get", "contains"):
+                    callback_error = RuntimeError("format failed")
+                    callbacks = []
+
+                    class BadText:
+                        def __str__(self):
+                            callbacks.append("str")
+                            raise callback_error
+
+                        def __repr__(self):
+                            callbacks.append("repr")
+                            raise callback_error
+
+                    args = {
+                        "plain": ("hash failed",),
+                        "empty": (),
+                        "multiple": ("one", 2),
+                        "bad_str": (BadText(),),
+                        "bad_repr": ("one", BadText()),
+                        "subclass": ("hash failed",),
+                        "subclass_bad_str": (BadText(),),
+                        "list": (),
+                    }[case]
+                    error_type = (
+                        SpecialTypeError if case.startswith("subclass") else TypeError
+                    )
+                    original = error_type(*args)
+                    outer = ValueError("outer")
+
+                    class Key:
+                        def __hash__(self):
+                            raise original
+
+                    key = [] if case == "list" else Key()
+                    mapping = mapping_type()
+
+                    def invoke():
+                        try:
+                            if operation == "getitem":
+                                mapping[key]
+                            elif operation == "get":
+                                mapping.get(key)
+                            else:
+                                key in mapping
+                        except Exception as error:
+                            assert error.__cause__ is None
+                            assert error.__context__ is (outer if handled else None)
+                            assert error.__suppress_context__ is False
+                            if case.startswith("subclass"):
+                                assert error is original
+                                assert callbacks == []
+                            elif case in ("bad_str", "bad_repr"):
+                                assert error is callback_error
+                                assert callbacks == [
+                                    "str" if case == "bad_str" else "repr"
+                                ]
+                            else:
+                                assert type(error) is TypeError
+                                assert error is not original
+                                name = "list" if case == "list" else Key.__qualname__
+                                message = {
+                                    "plain": "hash failed",
+                                    "empty": "",
+                                    "multiple": "('one', 2)",
+                                    "list": "unhashable type: 'list'",
+                                }[case]
+                                assert str(error) == (
+                                    f"cannot use '{name}' as a {mapping_type.__name__} key ({message})"
+                                )
+                        else:
+                            raise AssertionError("hash failure was not propagated")
+
+                    if handled:
+                        try:
+                            raise outer
+                        except ValueError:
+                            invoke()
+                    else:
+                        invoke()
+
+
+if hasattr(builtins, "frozendict"):
+    check_mapping_hash_error_context()

@@ -1,7 +1,7 @@
 use super::IntoFuncArgs;
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyAnyDictRef, PyDictRef, iter::PySequenceIterator},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyAnyDict, PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping},
@@ -157,7 +157,7 @@ impl ArgMapping {
 
     #[inline(always)]
     #[must_use]
-    pub fn from_anydict_exact(dict: PyAnyDictRef) -> Self {
+    pub fn from_anydict_exact(dict: PyRef<PyAnyDict>) -> Self {
         Self { obj: dict.into() }
     }
 

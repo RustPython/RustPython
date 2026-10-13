@@ -1,5 +1,5 @@
 use super::{
-    PyAnyDictRef, PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned,
+    PyAnyDict, PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned,
     PyStrRef, PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
@@ -1798,8 +1798,14 @@ impl Constructor for PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyAnyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyObjectRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
+        let Some(dict) = PyAnyDict::from_object(&dict) else {
+            return Err(vm.new_type_error(format!(
+                "type.__new__() argument 3 must be dict or frozendict, not {}",
+                dict.class().fully_qualified_name(vm)?
+            )));
+        };
 
         let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1849,7 +1855,7 @@ impl Constructor for PyType {
             let copied = vm.ctx.new_dict();
             // Like dict.copy(), an empty table bypasses subclass hooks.
             if !dict.is_empty() {
-                copied.merge_object(dict.into(), vm)?;
+                copied.merge_object(dict.to_owned().into(), vm)?;
             }
             copied
         };

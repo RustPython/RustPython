@@ -2,7 +2,7 @@
 mod jit;
 
 use super::{
-    PyAnyDictRef, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
+    PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyList, PyModule, PyStr,
     PyStrRef, PyTuple, PyTupleRef, PyType, object,
 };
 use crate::common::hash::PyHash;
@@ -66,7 +66,7 @@ fn format_missing_args(
 pub struct PyFunction {
     pub(crate) code: PyAtomicRef<PyCode>,
     #[pymember(name = "__globals__")]
-    pub(crate) globals: PyAnyDictRef,
+    pub(crate) globals: PyRef<PyAnyDict>,
     #[pymember(name = "__builtins__")]
     pub(crate) builtins: PyObjectRef,
     #[pymember(name = "__closure__")]
@@ -179,7 +179,7 @@ impl PyFunction {
     #[inline]
     pub(crate) fn new(
         code: PyRef<PyCode>,
-        globals: PyAnyDictRef,
+        globals: PyRef<PyAnyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let name = PyMutex::new(code.obj_name.to_owned());
