@@ -252,10 +252,10 @@ mod decl {
     #[cfg(any(unix, windows))]
     fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
         // Get all threads' frame stacks from the shared registry
-        // unix: stop-the-world so every other thread is parked at a safepoint
+        // Stop the world so every other thread is parked at a safepoint
         // and its frame chain is quiescent and alive while we walk it (matches
         // faulthandler.dump_traceback running with the GIL held).
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         {
             use core::sync::atomic::Ordering;
             let current_tid = rustpython_vm::stdlib::_thread::get_ident();
@@ -294,49 +294,6 @@ mod decl {
                     }
                     puts(fd, "\n");
                 }
-            }
-
-            // Now dump current thread from its live frame chain
-            // (includes stack-allocated iframes without FrameObject).
-            write_thread_id(fd, current_tid, true);
-            dump_live_frames(fd);
-        }
-
-        #[cfg(all(not(unix), feature = "threading"))]
-        {
-            let current_tid = rustpython_vm::stdlib::_thread::get_ident();
-            let registry = vm.state.thread_frames.lock();
-
-            // Dump non-current threads using top_iframe, which includes
-            // both FrameObject and stack-allocated frames.
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for (&tid, slot) in registry.iter() {
-                if tid == current_tid {
-                    continue;
-                }
-
-                let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
-                    as *const rustpython_vm::frame::InterpreterFrame;
-                write_thread_id(fd, tid, false);
-                if iframe_ptr.is_null() {
-                    puts(fd, "  <no Python frame>\n");
-                } else {
-                    let mut cur = iframe_ptr;
-                    let mut depth = 0;
-                    while !cur.is_null() && depth < 100 {
-                        let iframe = unsafe { &*cur };
-                        dump_iframe(fd, iframe);
-                        depth += 1;
-                        cur = iframe.previous();
-                    }
-                    if depth >= 100 && !cur.is_null() {
-                        puts(fd, "  ...\n");
-                    }
-                }
-                puts(fd, "\n");
             }
 
             // Now dump current thread from its live frame chain
