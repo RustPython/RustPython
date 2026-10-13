@@ -717,6 +717,14 @@ mod decl {
     impl Constructor for PyItertoolsGrouper {
         type Args = GrouperArgs;
 
+        // The new grouper becomes the parent's current grouper.
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let args: Self::Args = args.bind_for(vm, crate::function::Callee::of::<Self>(vm))?;
+            let grouper = Self::py_new(&cls, args, vm)?.into_ref_with_type(vm, cls)?;
+            grouper.groupby.state.lock().grouper = Some(grouper.downgrade(None, vm)?);
+            Ok(grouper.into())
+        }
+
         fn py_new(
             _cls: &Py<PyType>,
             Self::Args { parent, tgtkey }: Self::Args,
