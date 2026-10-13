@@ -822,6 +822,10 @@ impl super::Opcode {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
+            Self::BuildListFromArg => (
+                2, // TODO: Differs from CPython `None`
+                1, // TODO: Differs from CPython `None`
+            ),
             Self::InstrumentedEndFor => (2, 3),
             Self::InstrumentedPopIter => (0, 2),
             Self::InstrumentedEndSend => (1, 3),

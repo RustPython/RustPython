@@ -680,6 +680,7 @@ define_opcodes!(
         UnpackSequenceList = 216,
         UnpackSequenceTuple = 217,
         UnpackSequenceTwoTuple = 218,
+        BuildListFromArg = 219,
         InstrumentedEndFor = 233,
         InstrumentedPopIter = 234,
         InstrumentedEndSend = 235,

@@ -314,6 +314,10 @@ pub struct CompileOpts {
     pub dont_imply_dedent: bool,
     /// Recursion limit used by compiler tree walks, matching Py_EnterRecursiveCall.
     pub recursion_limit: usize,
+    /// Emit `BUILD_LIST_FROM_ARG` for a list comprehension with one
+    /// generator and no `if`, sizing the result from the iterator's length
+    /// hint. Off by default: the opcode is not part of the CPython set.
+    pub build_list_from_arg: bool,
 }
 
 impl Default for CompileOpts {
@@ -326,6 +330,7 @@ impl Default for CompileOpts {
             future_features: bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: 1000,
+            build_list_from_arg: false,
         }
     }
 }
@@ -10712,6 +10717,24 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
+    /// ast.ListComp.build_container_and_load_iter: one generator, no ifs,
+    /// not an `async for`. The iterator is already on the stack; BUILD_LIST_FROM_ARG
+    /// sizes the list from its length hint.
+    fn listcomp_uses_build_list_from_arg(
+        &self,
+        init_collection: Option<&AnyInstruction>,
+        generators: &[ast::Comprehension],
+    ) -> bool {
+        self.opts.build_list_from_arg
+            && matches!(
+                init_collection,
+                Some(AnyInstruction::Real(Instruction::BuildList { .. }))
+            )
+            && generators.len() == 1
+            && generators[0].ifs.is_empty()
+            && !generators[0].is_async
+    }
+
     #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_comprehension(
         &mut self,
@@ -10845,8 +10868,15 @@ impl<'warnings> Compiler<'warnings> {
             None
         };
 
+        // ast.ListComp.build_container_and_load_iter: one generator and no
+        // ifs loads the iterator first, then BUILD_LIST_FROM_ARG.
+        let use_build_list_from_arg =
+            self.listcomp_uses_build_list_from_arg(init_collection.as_ref(), generators);
+
         // Create empty object of proper type:
-        if let Some(init_collection) = init_collection {
+        if let Some(init_collection) = init_collection
+            && !use_build_list_from_arg
+        {
             self._emit(init_collection, OpArg::new(0), BlockIdx::NULL)
         }
 
@@ -10895,6 +10925,9 @@ impl<'warnings> Compiler<'warnings> {
                         emit!(self, Instruction::GetAiter);
                     } else {
                         emit!(self, Instruction::GetIter { mode: 0 });
+                    }
+                    if use_build_list_from_arg {
+                        emit!(self, Instruction::BuildListFromArg);
                     }
                 }
             } else {
@@ -11217,8 +11250,14 @@ impl<'warnings> Compiler<'warnings> {
                 None
             };
 
-            // Step 4: Create the collection (list/set/dict)
-            if let Some(init_collection) = init_collection {
+            // Step 4: Create the collection (list/set/dict).
+            // BUILD_LIST_FROM_ARG pops the iterator, pushes the list, then
+            // the iterator: the same stack as BUILD_LIST 0; SWAP 2.
+            let use_build_list_from_arg =
+                self.listcomp_uses_build_list_from_arg(init_collection.as_ref(), generators);
+            if use_build_list_from_arg {
+                emit!(self, Instruction::BuildListFromArg);
+            } else if let Some(init_collection) = init_collection {
                 self._emit(init_collection, OpArg::new(0), BlockIdx::NULL);
                 // SWAP to get iterator on top
                 emit!(self, Instruction::Swap { i: 2 });
@@ -17550,6 +17589,39 @@ def f(self):
             "CPython codegen_push_inlined_comprehension_locals() emits SETUP_FINALLY before BUILD_LIST, so the virtual cleanup table starts at BUILD_LIST with saved locals depth; build_list_idx={build_list_idx}, entries={entries:?}, instructions={:?}",
             f.instructions
         );
+    }
+
+    #[test]
+    fn listcomp_build_list_from_arg_option() {
+        let has = |source: &str, build_list_from_arg: bool| {
+            let code = compile_exec_with_options(
+                source,
+                CompileOpts {
+                    build_list_from_arg,
+                    ..CompileOpts::default()
+                },
+            );
+            let f = find_code(&code, "f").expect("missing f");
+            (
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::BuildListFromArg)),
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
+            )
+        };
+        let single = "def f(n):\n    return [i for i in range(n)]\n";
+        // (BUILD_LIST_FROM_ARG, BUILD_LIST)
+        assert_eq!(has(single, false), (false, true));
+        assert_eq!(has(single, true), (true, false));
+        for source in [
+            "def f(xs):\n    return [x for x in xs if x]\n",
+            "def f(xss):\n    return [x for xs in xss for x in xs]\n",
+            "async def f(xs):\n    return [x async for x in xs]\n",
+        ] {
+            assert_eq!(has(source, true), (false, true), "source={source:?}");
+        }
     }
 
     #[test]
