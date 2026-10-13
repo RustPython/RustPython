@@ -6,7 +6,7 @@ mod grp {
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyListRef, PyUtf8StrRef},
-        convert::{IntoPyException, ToPyObject},
+        convert::ToPyObject,
         exceptions,
         function::ArgIndex,
         types::PyStructSequence,
@@ -54,17 +54,14 @@ mod grp {
         let gr_gid = gid.as_bigint();
         let gid = host_grp::gid_t::try_from(gr_gid).ok();
         let group = gid
-            .map(host_grp::getgrgid)
-            .transpose()
-            .map_err(|err| err.into_pyexception(vm))?
-            .flatten();
-        let group = group.ok_or_else(|| {
-            vm.new_key_error(
-                vm.ctx
-                    .new_str(format!("getgrgid: group id {gr_gid} not found"))
-                    .into(),
-            )
-        })?;
+            .and_then(|gid| host_grp::getgrgid(gid).ok().flatten())
+            .ok_or_else(|| {
+                vm.new_key_error(
+                    vm.ctx
+                        .new_str(format!("getgrgid: group id {gr_gid} not found"))
+                        .into(),
+                )
+            })?;
         Ok(GroupData::from_group(group, vm))
     }
 
@@ -82,8 +79,7 @@ mod grp {
             return Err(exceptions::nul_char_error(vm));
         }
         let gr_name = name.as_str();
-        let group = host_grp::getgrnam(gr_name).map_err(|err| err.into_pyexception(vm))?;
-        let group = group.ok_or_else(|| {
+        let group = host_grp::getgrnam(gr_name).ok().flatten().ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
                     .new_str(format!("getgrnam: group name {gr_name} not found"))
