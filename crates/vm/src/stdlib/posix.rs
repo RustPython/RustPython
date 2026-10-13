@@ -1214,6 +1214,7 @@ pub mod module {
             match vm.allow_threads(|| rustpython_host_env::posix::pread(fd, &mut buffer, offset)) {
                 Ok(n) => {
                     buffer.truncate(n);
+                    buffer.shrink_to_fit();
                     return Ok(vm.ctx.new_bytes(buffer));
                 }
                 Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
@@ -2976,6 +2977,7 @@ pub mod module {
             .map_err(|_| vm.new_last_os_error())?;
             buf.set_len(len);
         }
+        buf.shrink_to_fit();
         Ok(buf)
     }
 

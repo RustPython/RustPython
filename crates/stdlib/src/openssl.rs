@@ -3706,6 +3706,7 @@ mod _ssl {
                 }
 
                 buf.truncate(nbytes as usize);
+                buf.shrink_to_fit();
                 Ok(buf)
             }
         }
