@@ -567,11 +567,7 @@ jobs:
       - name: Run CPython tests
         run: |
           # shellcheck disable=SC2086
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            target/release/rustpython -u scripts/diagnostics/manager_9088/preserve_manager_stdout.py --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
-          else
-            target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
-          fi
+          target/release/rustpython -u -m test --slow-ci -j "$CORES" $EXTRA_TEST_ARGS $SKIPS
         timeout-minutes: ${{ matrix.timeout }}
         shell: bash
         env:
@@ -643,18 +639,6 @@ jobs:
       - name: Check whats_left is not broken
         shell: bash
         run: python -I scripts/whats_left.py --rustpython target/release/rustpython
-
-      # Temporary #9088 observation only. Remove with the capture launcher
-      # after the existing canonical manager worker's stalled method is known.
-      - name: Preserve canonical Windows manager worker output
-        timeout-minutes: 2
-        if: ${{ always() && runner.os == 'Windows' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-manager-capture-${{ github.run_id }}-${{ github.run_attempt }}
-          path: scripts/diagnostics/manager_9088/capture/manager-worker-*.log
-          if-no-files-found: warn
-          retention-days: 7
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
