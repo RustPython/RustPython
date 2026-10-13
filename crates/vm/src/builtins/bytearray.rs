@@ -1,6 +1,6 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
+    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, ByteOr, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -317,6 +317,16 @@ impl PyByteArray {
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Exact builtins cannot call Python while preparing the needle. The
+        // read lock alone protects their search; a temporary export would make
+        // a concurrent resize fail instead of waiting for that lock.
+        if let Some(bytes) = needle.downcast_ref_if_exact::<PyBytes>(vm) {
+            return Ok(self.borrow_buf().contains_str(bytes.as_bytes()));
+        }
+        if let Some(int) = needle.downcast_ref_if_exact::<PyInt>(vm) {
+            let byte = int.as_bigint().byte_or(vm)?;
+            return Ok(self.borrow_buf().contains(&byte));
+        }
         // Converting the needle runs Python, which must not resize this bytearray.
         self.exports.fetch_add(1, Ordering::Release);
         scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
