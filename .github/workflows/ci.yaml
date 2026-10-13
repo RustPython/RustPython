@@ -551,6 +551,7 @@ jobs:
 
       # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
+        id: manager_diagnostic_build
         run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
@@ -639,6 +640,38 @@ jobs:
       - name: Check whats_left is not broken
         shell: bash
         run: python -I scripts/whats_left.py --rustpython target/release/rustpython
+
+      # Temporary #9088 diagnostic. Remove with scripts/diagnostics/manager_9088
+      # after the Windows manager failure is localized; canonical tests stay above.
+      - name: Diagnose first Windows manager barrier method
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.manager_diagnostic_build.outcome == 'success' && hashFiles('target/release/rustpython.exe') != '' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          & target/release/rustpython.exe -E -S -B -u scripts/diagnostics/manager_9088/windows_job_bound.py barrier-abort
+          exit $LASTEXITCODE
+
+      - name: Diagnose bounded Windows manager pool methods
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.manager_diagnostic_build.outcome == 'success' && hashFiles('target/release/rustpython.exe') != '' }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          & target/release/rustpython.exe -E -S -B -u scripts/diagnostics/manager_9088/windows_job_bound.py pool-ordinary
+          exit $LASTEXITCODE
+
+      - name: Preserve Windows manager diagnostic evidence
+        timeout-minutes: 2
+        if: ${{ always() && runner.os == 'Windows' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-manager-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            scripts/diagnostics/manager_9088/barrier-abort.log
+            scripts/diagnostics/manager_9088/barrier-abort.json
+            scripts/diagnostics/manager_9088/pool-ordinary.log
+            scripts/diagnostics/manager_9088/pool-ordinary.json
+          if-no-files-found: warn
+          retention-days: 7
 
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
