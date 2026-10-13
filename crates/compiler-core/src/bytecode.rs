@@ -35,6 +35,7 @@ pub use crate::bytecode::{
 
 mod instruction;
 mod opcode_metadata;
+pub mod public_metadata;
 
 pub mod oparg;
 
@@ -286,12 +287,16 @@ impl PyCodeLocationInfoKind {
 pub trait Constant: Sized + Clone {
     type Name: AsRef<str>;
 
+    /// An immutable owner whose element view remains valid while borrowed.
+    type TupleOwner: Clone + AsRef<[Self]>;
+
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self>;
 }
 
 impl Constant for ConstantData {
     type Name = String;
+    type TupleOwner = Box<[Self]>;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         match self {
@@ -373,19 +378,59 @@ impl ConstantBag for BasicBag {
 }
 
 #[derive(Clone)]
-pub struct Constants<C: Constant>(Box<[C]>);
+pub struct Constants<C: Constant>(ConstantStorage<C>);
+
+#[derive(Clone)]
+enum ConstantStorage<C: Constant> {
+    Boxed(Box<[C]>),
+    Tuple(C::TupleOwner),
+}
+
+impl<C: Constant> Constants<C> {
+    pub fn from_tuple(owner: C::TupleOwner) -> Self {
+        Self(ConstantStorage::Tuple(owner))
+    }
+
+    pub fn tuple_owner(&self) -> Option<&C::TupleOwner> {
+        match &self.0 {
+            ConstantStorage::Tuple(owner) => Some(owner),
+            ConstantStorage::Boxed(_) => None,
+        }
+    }
+
+    /// Consume boxed elements without adding another lasting element owner.
+    /// An immutable tuple must be copied when its elements are taken out.
+    pub fn into_boxed(self) -> Box<[C]> {
+        match self.0 {
+            ConstantStorage::Boxed(elements) => elements,
+            ConstantStorage::Tuple(owner) => owner.as_ref().into(),
+        }
+    }
+}
 
 impl<C: Constant> Deref for Constants<C> {
     type Target = [C];
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        match &self.0 {
+            ConstantStorage::Boxed(elements) => elements,
+            ConstantStorage::Tuple(owner) => owner.as_ref(),
+        }
     }
 }
 
 impl<C: Constant> DerefMut for Constants<C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        if let ConstantStorage::Tuple(owner) = &self.0 {
+            // Allocate and clone before releasing the old owner. No published
+            // tuple is ever mutated, even when it has only one current owner.
+            let elements = owner.as_ref().into();
+            self.0 = ConstantStorage::Boxed(elements);
+        }
+        match &mut self.0 {
+            ConstantStorage::Boxed(elements) => elements,
+            ConstantStorage::Tuple(_) => unreachable!(),
+        }
     }
 }
 
@@ -393,19 +438,19 @@ impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
-        &self.0[consti.as_usize()]
+        &self.deref()[consti.as_usize()]
     }
 }
 
 impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
     fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
-        &mut self.0[consti.as_usize()]
+        &mut self.deref_mut()[consti.as_usize()]
     }
 }
 
 impl<C: Constant> FromIterator<C> for Constants<C> {
     fn from_iter<T: IntoIterator<Item = C>>(iter: T) -> Self {
-        Self(iter.into_iter().collect())
+        Self(ConstantStorage::Boxed(iter.into_iter().collect()))
     }
 }
 
@@ -734,12 +779,39 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
+    /// Apply final 3.15 GET_ITER mode fixups before code publication.
+    /// Python/specialize.c:fixup_getiter normalizes every nonzero mode.
+    pub fn normalize_get_iter(&mut self, flags: CodeFlags) {
+        let units = self.units.get_mut();
+        let mut index = 0;
+        while index < units.len() {
+            let unit = &mut units[index];
+            if matches!(unit.op, Instruction::GetIter { .. }) && unit.arg != 0.into() {
+                let mode = if flags.intersects(CodeFlags::COROUTINE | CodeFlags::ITERABLE_COROUTINE)
+                {
+                    2
+                } else {
+                    3
+                };
+                unit.arg = mode.into();
+            }
+            index += 1 + unit.op.cache_entries();
+        }
+    }
+
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
         for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
+    }
+
+    /// Number of code units, without borrowing the live mutable instruction slice.
+    /// Constructors and Clone keep the out-of-line counter array at this length.
+    #[must_use]
+    pub fn unit_count(&self) -> usize {
+        self.adaptive_counters.len()
     }
 
     /// Replace the opcode at `index` in-place without changing the arg byte.

@@ -68,9 +68,10 @@ pub const RUSTPYTHON_VERSION: &str = const {
     }
 };
 
-// Must be aligned to Lib/importlib/_bootstrap_external.py
-// Matches CPython 3.14 (Include/internal/pycore_magic_number.h).
-pub const PYC_MAGIC_NUMBER: u16 = 3627;
+// Private, non-distributable reconstruction ABI. This is not CPython's magic.
+// Change token and tag together for every incompatible development format.
+pub const PYC_MAGIC_NUMBER: u16 = 0xDA16;
+pub const PYC_CACHE_TAG: &str = "rustpython-315-devabi2";
 
 // CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
 // This protects against text-mode file reads

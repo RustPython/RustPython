@@ -242,7 +242,14 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAiter => {
+                    Instruction::GetIter { .. } => {
+                        next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
+                        next_stack = push_value(next_stack, Kind::Iterator as i64);
+                        if next_i < stacks.len() {
+                            stacks[next_i] = next_stack;
+                        }
+                    }
+                    Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
@@ -254,19 +261,13 @@ pub(crate) mod stack_analysis {
                         if next_i < stacks.len() {
                             stacks[next_i] = body_stack;
                         }
-                        // Exhaustion path: relative forward from after_caches
-                        let mut j = next_i + oparg as usize;
-                        if j < instructions.len() {
-                            let target_op =
-                                instructions[j].op.to_base().unwrap_or(instructions[j].op);
-                            if matches!(target_op, Instruction::EndFor) {
-                                j += 1;
-                            }
-                        }
+                        // CPython models the target END_FOR with the yielded-value slot.
+                        let j = next_i + oparg as usize;
                         if j < stacks.len() && stacks[j] == UNINITIALIZED {
-                            stacks[j] = next_stack;
+                            stacks[j] = body_stack;
                         }
                     }
+
                     Instruction::EndAsyncFor => {
                         next_stack = pop_value(pop_value(next_stack));
                         if next_i < stacks.len() {
@@ -630,6 +631,11 @@ impl Py<FrameObject> {
             let mut cur = crate::vm::thread::get_current_frame();
             while !cur.is_null() {
                 if core::ptr::eq(cur, prev) {
+                    // SAFETY: cur was found on this thread's live active chain.
+                    let cur = unsafe { crate::frame::first_complete_iframe(cur) };
+                    if cur.is_null() {
+                        return None;
+                    }
                     let iframe_ref = unsafe { &*cur };
                     let fo = iframe_ref.materialize(vm);
                     return Some(fo.to_owned());
@@ -652,6 +658,11 @@ impl Py<FrameObject> {
             // return and free the stack-allocated iframe at any time.
             vm.state.stop_the_world.stop_the_world(&vm.state);
             scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+            // SAFETY: the world is stopped, preserving the live chain.
+            let prev = unsafe { crate::frame::first_complete_iframe(prev) };
+            if prev.is_null() {
+                return None;
+            }
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {
@@ -659,7 +670,7 @@ impl Py<FrameObject> {
             }
             // Slow path: copy the whole chain, linked through retained_back.
             // SAFETY: the world is stopped, so the owning thread is parked.
-            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
+            let fo = unsafe { prev_ref.materialize_complete_detached_chain(vm) };
             return Some(fo);
         }
 

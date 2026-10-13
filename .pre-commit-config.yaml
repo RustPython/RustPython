@@ -43,7 +43,7 @@ repos:
       - id: generate-rs-opcode-metadata
         name: generate rust opcode metadata
         entry: python3 tools/opcode_metadata/generate_rs_opcode_metadata.py
-        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
+        files: '^(crates/compiler-core/src/bytecode/(instruction|opcode_metadata)\.rs|tools/opcode_metadata/.*)$'
         pass_filenames: false
         language: system
         require_serial: true
@@ -51,14 +51,25 @@ repos:
         stages:
           - manual
 
-      - id: generate-py-opcode-metadata
-        name: generate python opcode metadata
-        entry: python3 tools/opcode_metadata/generate_py_opcode_metadata.py
-        files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
+      - id: verify-py-opcode-metadata
+        name: verify canonical python opcode metadata
+        entry: python3 tools/opcode_metadata/verify_py_opcode_metadata.py
+        files: '^(Lib/(opcode|_opcode_metadata|dis)\.py|tools/opcode_metadata/.*)$'
         pass_filenames: false
         language: system
         require_serial: true
         priority: 1 # so rustfmt runs first
+        stages:
+          - manual
+
+      - id: check-public-opcode-metadata
+        name: check public opcode metadata
+        entry: python3 tools/opcode_metadata/generate_public_metadata.py --check
+        files: '^(crates/compiler-core/src/bytecode/public_metadata\.rs|tools/opcode_metadata/.*)$'
+        pass_filenames: false
+        language: system
+        require_serial: true
+        priority: 1
         stages:
           - manual
 

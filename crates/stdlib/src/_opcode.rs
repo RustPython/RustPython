@@ -4,15 +4,11 @@ pub(crate) use _opcode::module_def;
 mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyInt, PyIntRef},
-        bytecode::{AnyOpcode, oparg},
+        bytecode::{oparg, public_metadata::PublicOpcode},
     };
 
-    fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
-        u16::try_from(raw)
-            .map_err(|_| ())?
-            .try_into()
-            .map_err(|_| ())
+    fn try_from_i32(raw: i32) -> Option<PublicOpcode> {
+        PublicOpcode::from_i32(raw)
     }
 
     // prepare specialization
@@ -25,114 +21,102 @@ mod _opcode {
     #[derive(FromArgs)]
     struct StackEffectArgs {
         #[pyarg(positional)]
-        opcode: PyIntRef,
+        opcode: PyObjectRef,
         #[pyarg(positional, optional)]
         oparg: Option<PyObjectRef>,
         #[pyarg(named, optional)]
         jump: Option<PyObjectRef>,
     }
 
+    // Convert only after FromArgs has checked arity and keywords, so rejected
+    // calls never invoke __index__. Keep these C API diagnostics local.
+    fn opcode_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+        let value = obj.try_index(vm)?;
+        i32::try_from(value.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int"))
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::unnecessary_cast)]
+    fn operand_int(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<i32> {
+        let value = obj.try_index(vm)?;
+        let value = core::ffi::c_long::try_from(value.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        // Final _opcode.c narrows PyLong_AsLong's result to C int. This is the
+        // explicit low-bit policy for supported two's-complement target ABIs;
+        // it does not imply portable C signed-arithmetic overflow semantics.
+        Ok(value as i32)
+    }
+
     #[pyfunction]
     fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let oparg = args.oparg.map_or(Ok(0), |v| {
-            if !v.fast_isinstance(vm.ctx.types.int_type) {
-                return Err(vm.new_type_error(format!(
-                    "'{}' object cannot be interpreted as an integer",
-                    v.class().name()
-                )));
-            }
-            v.downcast_ref::<PyInt>()
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        v.class().name()
-                    ))
-                })?
-                .try_to_primitive::<u32>(vm)
-        })?;
-
-        let jump: Option<bool> = match args.jump {
-            Some(v) => {
-                if vm.is_none(&v) {
-                    None
-                } else {
-                    Some(v.try_to_bool(vm).map_err(|_| {
-                        vm.new_value_error("stack_effect: jump must be False, True or None")
-                    })?)
-                }
-            }
+        // Retain every original argument owner through conversion, validation,
+        // effect selection and local error construction. Outer native transport
+        // and result wrapping keep their existing ownership behavior.
+        let opcode = opcode_int(&args.opcode, vm)?;
+        let oparg = match args.oparg.as_ref() {
+            Some(value) if !vm.is_none(value) => operand_int(value, vm)?,
+            _ => 0,
+        };
+        let jump = match args.jump.as_ref() {
             None => None,
+            Some(value) if vm.is_none(value) => None,
+            Some(value) if value.is(&vm.ctx.true_value) => Some(true),
+            Some(value) if value.is(&vm.ctx.false_value) => Some(false),
+            Some(_) => {
+                return Err(vm.new_value_error("stack_effect: jump must be False, True or None"));
+            }
         };
-
-        let instr = args
-            .opcode
-            .try_to_primitive::<u16>(vm)
-            .and_then(|v| {
-                AnyOpcode::try_from(v)
-                    .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
-            })
-            .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
-
-        // Raise ValueError if specialized.
-        if instr.real().is_some_and(|op| op.deopt().is_some()) {
-            return Err(vm.new_value_error("invalid opcode or oparg"));
-        }
-
-        let effect = match jump {
-            Some(true) => instr.stack_effect_jump(oparg),
-            Some(false) => instr.stack_effect(oparg),
-            // jump=None: max of both paths (CPython convention)
-            None => instr
-                .stack_effect(oparg)
-                .max(instr.stack_effect_jump(oparg)),
-        };
-        Ok(effect)
+        PublicOpcode::from_i32(opcode)
+            // Preserve the signed C-int bit pattern at the generated API's
+            // existing u32 boundary; it immediately reinterprets it as i32.
+            .and_then(|opcode| opcode.stack_effect(oparg.cast_unsigned(), jump))
+            .ok_or_else(|| vm.new_value_error("invalid opcode or oparg"))
     }
 
     #[derive(FromArgs)]
     struct OpcodeArg {
         #[pyarg(any)]
-        opcode: i32,
+        opcode: PyObjectRef,
     }
 
     #[pyfunction]
-    fn is_valid(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok()
+    fn is_valid(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some())
     }
 
     #[pyfunction]
-    fn has_arg(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_arg())
+    fn has_arg(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_arg()))
     }
 
     #[pyfunction]
-    fn has_const(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_const())
+    fn has_const(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_const()))
     }
 
     #[pyfunction]
-    fn has_name(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_name())
+    fn has_name(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_name()))
     }
 
     #[pyfunction]
-    fn has_jump(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_jump())
+    fn has_jump(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_jump()))
     }
 
     #[pyfunction]
-    fn has_free(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_free())
+    fn has_free(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_free()))
     }
 
     #[pyfunction]
-    fn has_local(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.has_local())
+    fn has_local(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.has_local()))
     }
 
     #[pyfunction]
-    fn has_exc(OpcodeArg { opcode }: OpcodeArg) -> bool {
-        try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
+    fn has_exc(OpcodeArg { opcode }: OpcodeArg, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(try_from_i32(opcode_int(&opcode, vm)?).is_some_and(|op| op.is_block_push()))
     }
 
     #[pyfunction]

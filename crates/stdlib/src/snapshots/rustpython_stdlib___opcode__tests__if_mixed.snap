@@ -5,5 +5,5 @@ expression: "dis(r#\"\nif (True and False) or (False and True):\n    pass\n\"#)"
 ---
   0           RESUME                   0
 
-  1           LOAD_CONST               1 (None)
+  1           LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE

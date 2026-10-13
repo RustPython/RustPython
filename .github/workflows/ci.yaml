@@ -789,9 +789,8 @@ jobs:
         with:
           repository: python/cpython
           path: cpython
-          # RustPython still uses the 3.14 bytecode format; this source is only
-          # for opcode metadata, independent of the 3.15 runtime target.
-          ref: "v3.14.7"
+          # Exact final source shared by all opcode metadata checks.
+          ref: "d220409a13b77de7a6c30abe16ea90db01528edc" # v3.15.0
           persist-credentials: false
 
       - name: prek run (manual stage)
