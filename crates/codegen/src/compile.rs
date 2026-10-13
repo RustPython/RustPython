@@ -32613,7 +32613,7 @@ def f(g, kwargs, ns):
     }
 
     #[test]
-    fn large_constant_list_iterable_keeps_streaming_list_build() {
+    fn large_constant_list_iterable_folds_to_tuple_like_cpython() {
         let source = format!(
             "def f():\n    for x in [{}]:\n        pass\n",
             (0..=STACK_USE_GUIDELINE)
@@ -32624,19 +32624,47 @@ def f(g, kwargs, ns):
         let code = compile_exec(&source);
         let f = find_code(&code, "f").expect("missing function code");
 
+        // Final CPython folds the stack-limited BUILD_LIST/LIST_APPEND sequence
+        // before GET_ITER, preserving every constant in its original order.
+        let tuple_loads = f
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    match &f.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))] {
+                        ConstantData::Tuple { elements } => Some(elements),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tuple_loads.len(), 1);
+        let elements = tuple_loads[0];
+        assert_eq!(
+            elements.len(),
+            usize::try_from(STACK_USE_GUIDELINE + 1).unwrap()
+        );
+        for (i, element) in elements.iter().enumerate() {
+            assert!(matches!(
+                element,
+                ConstantData::Str { value } if value.to_string() == format!("v{i}")
+            ));
+        }
         assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
-            "large list iterable should keep CPython streaming BUILD_LIST form, got instructions={:?}",
+            !f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BuildList { .. } | Instruction::ListAppend { .. }
+            )),
+            "constant iterable should use the folded tuple, got instructions={:?}",
             f.instructions
         );
-        assert!(
+        assert_eq!(
             f.instructions
                 .iter()
-                .any(|unit| matches!(unit.op, Instruction::ListAppend { .. })),
-            "large list iterable should use LIST_APPEND streaming form, got instructions={:?}",
-            f.instructions
+                .filter(|unit| matches!(unit.op, Instruction::GetIter { .. }))
+                .count(),
+            1
         );
     }
 
