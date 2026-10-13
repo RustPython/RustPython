@@ -77,6 +77,7 @@ jobs:
             ':examples/**' \
             ':benches/**' \
             ':example_projects/**' \
+            ':extra_tests/snippets/**' \
             ':.github/workflows/ci.yaml' \
           ; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -762,7 +763,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@2085657ab2c7f48c58edcc767fba576f63bea76b # v1.77.0
+        uses: reviewdog/action-actionlint@1758727be30241166609dad4c97588b6ad411f32 # v1.79.1
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
@@ -775,7 +776,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+        uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
         with:
           cache: false
           show-verbose-logs: false
@@ -1008,10 +1009,71 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
-      # Passing snippets under wasm32-wasip1.
-      WASM_WASI_SNIPPETS: >-
-        stdlib_random
-        stdlib_time
+      # extra_tests/snippets files that still fail or hang under wasm32-wasip1;
+      # every other snippet is discovered and run automatically.
+      WASM_WASI_SNIPPET_EXCLUDE: >-
+        builtin_bytearray
+        builtin_bytes
+        builtin_hash
+        builtin_int
+        builtin_iter
+        builtin_list
+        builtin_map
+        builtin_memoryview
+        builtin_open
+        builtin_posixshmem
+        builtin_slice
+        builtin_str
+        builtin_thread
+        cli_int_max_str_digits
+        protocol_index_argument
+        recursion
+        stdlib_ast
+        stdlib_asyncio
+        stdlib_collections_deque
+        stdlib_contextvars
+        stdlib_ctypes
+        stdlib_ctypes_byvalue
+        stdlib_ctypes_calls
+        stdlib_ctypes_from_buffer
+        stdlib_genericalias
+        stdlib_io
+        stdlib_io_blocking_buffer
+        stdlib_itertools
+        stdlib_json
+        stdlib_mmap
+        stdlib_multiprocessing_condition
+        stdlib_multiprocessing_fork_sharer
+        stdlib_multiprocessing_sharedctypes
+        stdlib_os
+        stdlib_pwd
+        stdlib_queue_signal
+        stdlib_select
+        stdlib_socket
+        stdlib_sqlite
+        stdlib_ssl
+        stdlib_ssl_short_recv
+        stdlib_struct
+        stdlib_subinterpreters
+        stdlib_subprocess
+        stdlib_sys
+        stdlib_sys_audit
+        stdlib_threading_current_frames
+        stdlib_threading_gc_frame_race
+        stdlib_threading_gc_import
+        stdlib_threading_generator
+        stdlib_threading_set_repr
+        stdlib_threading_type_cache
+        stdlib_thread_native_id
+        stdlib_types
+        stdlib_typing
+        stdlib_urllib_https_misaligned_recv
+        stdlib_zoneinfo_cache
+        syntax_async
+        syntax_async_comprehension
+        syntax_deep_nesting
+        vm_frame_locals
+        xfail_assert
       # Passing Lib/test files under wasm32-wasip1
       WASM_WASI_TEST_FILES: >-
         test_int
@@ -1074,9 +1136,14 @@ jobs:
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
         run: |
-          for name in $WASM_WASI_SNIPPETS; do
-            echo "::group::extra_tests/snippets/${name}.py"
-            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/${name}.py"
+          exclude=" $WASM_WASI_SNIPPET_EXCLUDE "
+          for path in extra_tests/snippets/*.py; do
+            name=$(basename "$path" .py)
+            case "$exclude" in
+              *" $name "*) continue ;;
+            esac
+            echo "::group::${path}"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/${path}"
             echo "::endgroup::"
           done
       - name: run cpython unittest
