@@ -203,8 +203,14 @@ fn spec_format_string(
     spec: &CFormatSpec,
     obj: PyObjectRef,
     argument: FormatArgument<'_>,
+    format_start: usize,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
+        CFormatType::Unsupported { ch, .. } if ch.to_char_lossy().is_ascii_alphabetic() => Err(vm
+            .new_value_error(format!(
+                "unsupported format %{} at position {format_start}",
+                ch.to_char_lossy(),
+            ))),
         CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
             "unsupported format character '{}' ({:#x}) at index {index}",
             ch.to_char_lossy(),
@@ -245,15 +251,27 @@ fn spec_format_string(
                     Ok(spec.format_number(i.as_bigint()).into())
                 } else {
                     Err(vm.new_type_error(format!(
-                        "%{} format: an integer is required, not {}",
+                        "{}: %{} requires an integer, not {}",
+                        argument.description(vm)?,
                         spec.format_type.to_char(),
-                        obj.class().name()
+                        obj.class().slot_name()
                     )))
                 }
             }
         },
         CFormatType::Float(_) => {
-            let value = ArgIntoFloat::try_from_object(vm, obj)?;
+            let value = match ArgIntoFloat::try_from_object(vm, obj.clone()) {
+                Ok(value) => value,
+                Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                    return Err(vm.new_type_error(format!(
+                        "{}: %{} requires a real number, not {}",
+                        argument.description(vm)?,
+                        spec.format_type.to_char(),
+                        obj.class().slot_name()
+                    )));
+                }
+                Err(error) => return Err(error),
+            };
             Ok(spec.format_float(value.into()).into())
         }
         CFormatType::Character(CCharacterType::Character) => {
@@ -504,7 +522,7 @@ pub(crate) fn cformat_string(
         }
 
         // dict
-        for (_, part) in format {
+        for (format_start, part) in format {
             match part {
                 CFormatPart::Literal(literal) => result.push_wtf8(&literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
@@ -516,6 +534,7 @@ pub(crate) fn cformat_string(
                         &spec,
                         value,
                         FormatArgument::Mapping(key.as_object()),
+                        format_start,
                     )?;
                     result.push_wtf8(&part_result);
                 }
@@ -540,7 +559,7 @@ pub(crate) fn cformat_string(
     let mut value_iter = value_iter.inspect(|_| argument_index.set(argument_index.get() + 1));
     let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
 
-    for (_, part) in format {
+    for (format_start, part) in format {
         match part {
             CFormatPart::Literal(literal) => result.push_wtf8(&literal),
             CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
@@ -561,7 +580,8 @@ pub(crate) fn cformat_string(
                 } else {
                     FormatArgument::Scalar
                 };
-                let part_result = spec_format_string(vm, &spec, value.to_owned(), argument)?;
+                let part_result =
+                    spec_format_string(vm, &spec, value.to_owned(), argument, format_start)?;
                 result.push_wtf8(&part_result);
             }
         }

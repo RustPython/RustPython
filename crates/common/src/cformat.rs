@@ -20,6 +20,7 @@ pub enum CFormatErrorType {
     MissingModuloSign,
     UnsupportedFormatChar(CodePoint),
     IncompleteFormat,
+    StrayModulo,
     WidthTooBig,
     PrecisionTooBig,
     // Unimplemented,
@@ -39,6 +40,7 @@ impl fmt::Display for CFormatError {
         match self.typ {
             CFormatErrorType::UnmatchedKeyParentheses => write!(f, "incomplete format key"),
             CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            CFormatErrorType::StrayModulo => write!(f, "stray % at position {}", self.index),
             CFormatErrorType::UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
@@ -832,8 +834,20 @@ impl<S> CFormatStrOrBytes<S> {
 
                     let spec =
                         CFormatSpecKeyed::parse(iter, context).map_err(|err| CFormatError {
-                            typ: err.0,
-                            index: err.1,
+                            typ: if context == CFormatContext::Str
+                                && err.0 == CFormatErrorType::IncompleteFormat
+                            {
+                                CFormatErrorType::StrayModulo
+                            } else {
+                                err.0
+                            },
+                            index: if context == CFormatContext::Str
+                                && err.0 == CFormatErrorType::IncompleteFormat
+                            {
+                                index
+                            } else {
+                                err.1
+                            },
                         })?;
 
                     parts.push((index, CFormatPart::Spec(spec)));
@@ -842,8 +856,16 @@ impl<S> CFormatStrOrBytes<S> {
                     }
                 } else {
                     return Err(CFormatError {
-                        typ: CFormatErrorType::IncompleteFormat,
-                        index: index + 1,
+                        typ: if context == CFormatContext::Str {
+                            CFormatErrorType::StrayModulo
+                        } else {
+                            CFormatErrorType::IncompleteFormat
+                        },
+                        index: if context == CFormatContext::Str {
+                            index
+                        } else {
+                            index + 1
+                        },
                     });
                 }
             } else {
@@ -991,8 +1013,8 @@ mod tests {
         assert_eq!(
             "Hello %".parse::<CFormatString>(),
             Err(CFormatError {
-                typ: CFormatErrorType::IncompleteFormat,
-                index: 7
+                typ: CFormatErrorType::StrayModulo,
+                index: 6
             })
         );
     }

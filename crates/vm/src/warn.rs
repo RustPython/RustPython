@@ -336,22 +336,38 @@ fn update_registry(
     already_warned(registry, &altkey, true, vm)
 }
 
-fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> PyObjectRef {
-    match filename.byte_len() {
-        0 => vm.new_pyobj("<unknown>"),
-        len if len >= 3 && filename.as_bytes().ends_with(b".py") => {
-            vm.new_pyobj(&filename.as_wtf8()[..len - 3])
-        }
-        _ => filename.as_object().to_owned(),
+fn check_module_matched(
+    pattern: &PyObject,
+    module: Option<&PyObject>,
+    filename: &Py<PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    if let Some(module) = module {
+        return check_matched(pattern, module, vm);
     }
+    if vm.is_none(pattern) {
+        return Ok(true);
+    }
+    if pattern.class().is(vm.ctx.types.str_type) {
+        return Ok(false);
+    }
+    let warnings = vm.import("_py_warnings", 0)?;
+    vm.call_method(
+        &warnings,
+        "_match_filename",
+        (pattern.to_owned(), filename.to_owned()),
+    )?
+    .is_true(vm)
 }
 
 /// Search a filters list for a matching action.
+#[allow(clippy::too_many_arguments)]
 fn filter_search(
     category: &PyObject,
     text: &PyObject,
     lineno: usize,
-    module: &PyObject,
+    module: Option<&PyObject>,
+    filename: &Py<PyStr>,
     filters: &PyListRef,
     list_name: &str,
     vm: &VirtualMachine,
@@ -380,7 +396,7 @@ fn filter_search(
         }
         let good_msg = check_matched(&tmp_item.as_slice()[1], text, vm)?;
         let is_subclass = category.is_subclass(&tmp_item.as_slice()[2], vm)?;
-        let good_mod = check_matched(&tmp_item.as_slice()[3], module, vm)?;
+        let good_mod = check_module_matched(&tmp_item.as_slice()[3], module, filename, vm)?;
         let ln: usize = tmp_item.as_slice()[4]
             .try_int(vm)
             .map_or(0, |v| v.as_u32_mask() as _);
@@ -397,7 +413,8 @@ fn get_filter(
     category: &PyObject,
     text: &PyObject,
     lineno: usize,
-    module: &PyObject,
+    module: Option<&PyObject>,
+    filename: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> PyResult {
     if let Some(context_filters) = get_warnings_context_filters(vm)? {
@@ -406,6 +423,7 @@ fn get_filter(
             text,
             lineno,
             module,
+            filename,
             &context_filters,
             "_warnings_context _filters",
             vm,
@@ -416,7 +434,9 @@ fn get_filter(
     }
 
     let filters = get_warnings_filters(vm)?;
-    if let Some(action) = filter_search(category, text, lineno, module, &filters, "filters", vm)? {
+    if let Some(action) = filter_search(
+        category, text, lineno, module, filename, &filters, "filters", vm,
+    )? {
         return Ok(action);
     }
     get_default_action(vm)
@@ -504,9 +524,9 @@ pub fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // Normalize module. None → silent return (late-shutdown safety).
-    let module = module.unwrap_or_else(|| normalize_module(&filename, vm));
-    if vm.is_none(&module) {
+    // Explicit None remains a late-shutdown silent return. An omitted module
+    // is matched against the filename by the canonical warnings helper.
+    if module.as_ref().is_some_and(|module| vm.is_none(module)) {
         return Ok(());
     }
 
@@ -543,7 +563,14 @@ pub fn warn_explicit(
     }
 
     // Get filter action
-    let action = get_filter(category.as_object(), text.as_object(), lineno, &module, vm)?;
+    let action = get_filter(
+        category.as_object(),
+        text.as_object(),
+        lineno,
+        module.as_deref(),
+        &filename,
+        vm,
+    )?;
     let action_str = PyStrRef::try_from_object(vm, action)
         .map_err(|_| vm.new_type_error("action must be a string"))?;
 
