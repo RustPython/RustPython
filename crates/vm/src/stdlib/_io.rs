@@ -520,7 +520,7 @@ mod _io {
 
     #[pyclass(
         with(IterNext, Iterable, Destructor),
-        flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+        flags(BASETYPE, HAS_DICT, HAS_WEAKREF, HEAPTYPE)
     )]
     impl _IOBase {
         #[pymethod]

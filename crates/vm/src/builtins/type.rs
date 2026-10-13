@@ -1219,7 +1219,7 @@ impl PyType {
         // Note: inherit_slots is called in PyClassImpl::init_class after
         // slots are fully initialized by make_slots()
 
-        Self::set_new(&new_type.slots, new_type.base.deref());
+        Self::set_new(&new_type.slots, new_type.base.deref(), false);
         Self::set_alloc(&new_type.slots, new_type.base.deref());
 
         let weakref_type = super::PyWeak::static_type();
@@ -1271,7 +1271,7 @@ impl PyType {
             self.update_slot::<true>(attr_name, ctx);
         }
 
-        Self::set_new(&self.slots, self.base.deref());
+        Self::set_new(&self.slots, self.base.deref(), true);
         Self::set_alloc(&self.slots, self.base.deref());
     }
 
@@ -1295,11 +1295,38 @@ impl PyType {
         }
     }
 
-    fn set_new(slots: &PyTypeSlots, base: Option<&Py<Self>>) {
+    /// type_ready_set_new: a static type with no tp_new whose base is object
+    /// gets DISALLOW_INSTANTIATION and keeps tp_new unset. Heap types inherit
+    /// the base's tp_new. A static type that inherits a non-NULL tp_new must
+    /// have the same basicsize as that base, because the inherited function
+    /// allocates the base payload. Heap types, including native types flagged
+    /// HEAPTYPE, reuse the base payload like classes created at runtime.
+    fn set_new(slots: &PyTypeSlots, base: Option<&Py<Self>>, heap: bool) {
+        let is_heap = heap || slots.flags.has_feature(PyTypeFlags::HEAPTYPE);
+
+        if !is_heap
+            && slots.new.load().is_none()
+            && base.is_some_and(|b| core::ptr::eq(b, object::PyBaseObject::static_type()))
+        {
+            slots.flags.insert(PyTypeFlags::DISALLOW_INSTANTIATION);
+        }
+
         if slots.flags.has_feature(PyTypeFlags::DISALLOW_INSTANTIATION) {
-            slots.new.store(None)
+            slots.new.store(None);
         } else if slots.new.load().is_none() {
-            slots.new.store(base.and_then(|base| base.slots.new.load()))
+            let inherited = base.and_then(|base| base.slots.new.load());
+            if !is_heap
+                && inherited.is_some()
+                && let Some(base) = base
+                && slots.basicsize != base.slots.basicsize
+            {
+                panic!(
+                    "static type '{}' inherits tp_new from '{}' but basicsize {} != {}; \
+                     the inherited tp_new allocates the base payload",
+                    slots.name, base.slots.name, slots.basicsize, base.slots.basicsize
+                );
+            }
+            slots.new.store(inherited);
         }
     }
 
@@ -1312,7 +1339,7 @@ impl PyType {
     }
 
     pub(crate) fn finalize_bootstrap_static(typ: &Py<Self>) {
-        Self::set_new(&typ.slots, typ.base.deref());
+        Self::set_new(&typ.slots, typ.base.deref(), false);
         Self::set_alloc(&typ.slots, typ.base.deref());
     }
 
