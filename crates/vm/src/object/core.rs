@@ -2911,7 +2911,10 @@ where
         // the object's class or MRO since this typed reference was constructed.
         let ptr = self.ptr.cast();
         core::mem::forget(self);
-        PyRef { ptr }
+        PyRef {
+            ptr,
+            marker: PhantomData,
+        }
     }
     #[inline]
     #[must_use]
