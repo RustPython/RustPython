@@ -3725,6 +3725,7 @@ dependencies = [
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
+ "static_assertions",
 ]
 
 [[package]]
