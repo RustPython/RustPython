@@ -2585,6 +2585,7 @@ class TestMonitoringAtShutdown(unittest.TestCase):
         script_helper.run_test_script(script)
 
 
+@unittest.skip("TODO: RUSTPYTHON; no _testcapi, and setUp leaves the tool ids in use when its import fails")
 class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
 
     class Scope:
@@ -2599,9 +2600,9 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
             self._testcapi.monitoring_exit_scope()
 
     def setUp(self):
-        self._testcapi = import_helper.import_module("_testcapi")
         super(TestCApiEventGeneration, self).setUp()
 
+        self._testcapi = import_helper.import_module("_testcapi")
         capi = self._testcapi
 
         self.codelike = capi.CodeLike(2)

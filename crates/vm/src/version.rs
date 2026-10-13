@@ -68,11 +68,9 @@ pub const RUSTPYTHON_VERSION: &str = const {
     }
 };
 
-// Private, non-distributable reconstruction ABI. This is not CPython's magic.
-// Change the token for every incompatible development format. The public
-// cache tag identifies the implementation/version; magic rejects stale ABIs.
-pub const PYC_MAGIC_NUMBER: u16 = 0xDA16;
-pub const PYC_CACHE_TAG: &str = concat!("rustpython-", env!("MAJOR_CPY"), env!("MINOR_CPY"));
+// Must be aligned to Lib/importlib/_bootstrap_external.py
+// Matches CPython 3.15 (Include/internal/pycore_magic_number.h).
+pub const PYC_MAGIC_NUMBER: u16 = 3666;
 
 // CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
 // This protects against text-mode file reads

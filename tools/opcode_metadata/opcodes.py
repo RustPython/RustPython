@@ -38,8 +38,6 @@ class OpcodeInfo:
 
                 res[family_name].append(member_name)
 
-        if "LoadConstImmortal" in names:
-            res["LoadConst"].extend(["LoadConstImmortal", "LoadConstMortal"])
         return dict(res)
 
     def __iter__(self):
@@ -83,11 +81,7 @@ def iter_opcodes(text: str, override_confs: OverrideConfs) -> Iterable[Opcode]:
         cpython_name = opcode.cpython_name
 
         kwargs = {}
-        if instr := analysis.instructions.get(
-            "LOAD_CONST"
-            if rust_name in ("LoadConstImmortal", "LoadConstMortal")
-            else cpython_name
-        ):
+        if instr := analysis.instructions.get(cpython_name):
             kwargs["properties"] = properties_with_pseudo_flags(instr)
             kwargs["family"] = getattr(instr, "family", None)
             kwargs["cache_entry"] = getattr(instr, "size", -1)

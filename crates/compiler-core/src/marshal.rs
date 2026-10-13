@@ -554,14 +554,12 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
     Ok(value)
 }
 
-/// Actual surviving code-field objects from the public marshal stream.
-/// Execution bytecode is deliberately excluded: exported co_code is a separate
-/// lazy cache, not the input byte object's retained identity.
-pub struct CodeFieldObjects<V> {
-    pub constants: V,
+/// Object-valued code fields as read from the stream (`r_object` TYPE_CODE).
+pub struct CodeFields<V> {
+    pub consts: V,
     pub names: V,
-    pub localsplus_names: V,
-    pub localsplus_kinds: V,
+    pub localsplusnames: V,
+    pub localspluskinds: V,
     pub linetable: V,
     pub exceptiontable: V,
 }
@@ -592,22 +590,13 @@ pub trait MarshalBag: Copy {
 
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value;
 
+    /// Construct a code object. `fields` holds the objects read for the
+    /// object-valued fields that `code` was decoded from.
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value>;
-
-    /// Construct a runtime code object while retaining the exact values read
-    /// from ``co_consts``. Compiler bags ignore this second channel; runtime
-    /// bags use it for marshalable values (lists, dicts, sets, recursive
-    /// containers) that their compiler constant representation cannot hold.
-    fn make_code_with_constants(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        _constants: Vec<Self::Value>,
-    ) -> Result<Self::Value> {
-        self.make_code(code)
-    }
 
     /// Decode the public `co_code` byte string into the execution-oriented
     /// instruction storage.
@@ -618,34 +607,6 @@ pub trait MarshalBag: Copy {
     /// default remains the strict compiler representation.
     fn code_units_from_bytes(&self, code_bytes: &[u8]) -> Result<CodeUnits> {
         CodeUnits::try_from(code_bytes)
-    }
-
-    /// Construct a runtime code object while retaining both its exact public
-    /// `co_code` bytes and the exact values read from `co_consts`.
-    ///
-    /// The default ignores the redundant byte spelling because ordinary
-    /// compiler code is represented losslessly by `CodeUnits`.  Runtime bags
-    /// that accepted otherwise unrepresentable opcode bytes in
-    /// [`MarshalBag::code_units_from_bytes`] can preserve them here.
-    fn make_code_with_constants_and_bytes(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        constants: Vec<Self::Value>,
-        _code_bytes: Vec<u8>,
-    ) -> Result<Self::Value> {
-        self.make_code_with_constants(code, constants)
-    }
-
-    /// Preserve actual field owners in runtime bags. Existing overrides keep
-    /// their original hook chain through the default implementation.
-    fn make_code_with_fields(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        constants: Vec<Self::Value>,
-        code_bytes: Vec<u8>,
-        _fields: CodeFieldObjects<Self::Value>,
-    ) -> Result<Self::Value> {
-        self.make_code_with_constants_and_bytes(code, constants, code_bytes)
     }
 
     fn make_stop_iter(&self) -> Result<Self::Value>;
@@ -810,6 +771,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        _fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value> {
         Ok(self.make_code(code))
     }
@@ -1077,15 +1039,13 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         linetable,
         exceptiontable,
     };
-    bag.make_code_with_fields(
+    bag.make_code(
         code,
-        constant_values,
-        code_bytes,
-        CodeFieldObjects {
-            constants: consts_value,
+        CodeFields {
+            consts: consts_value,
             names: names_value,
-            localsplus_names: localsplusnames_value,
-            localsplus_kinds: kinds_value,
+            localsplusnames: localsplusnames_value,
+            localspluskinds: kinds_value,
             linetable: linetable_value,
             exceptiontable: exceptiontable_value,
         },
@@ -1518,35 +1478,6 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
 pub fn serialize_code_with<W: Write, C: Constant, E>(
     buf: &mut W,
     code: &CodeObject<C>,
-    write_constant: impl FnMut(&mut W, &C) -> core::result::Result<(), E>,
-) -> core::result::Result<(), E> {
-    serialize_code_with_fields(buf, code, |_, _| Ok(false), write_constant)
-}
-
-/// Object-valued code fields that a runtime can route through its common writer.
-/// Filename emission intentionally remains in the legacy scalar sequence.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CodeField {
-    Bytecode,
-    Constants,
-    Names,
-    LocalsPlusNames,
-    LocalsPlusKinds,
-    Name,
-    Qualname,
-    LineTable,
-    ExceptionTable,
-}
-
-/// Serialize code with optional actual-object field routing.
-///
-/// Returning true means the callback completely wrote that field. A false
-/// result selects the legacy compiler/frozen representation. The callback runs
-/// before any fallback bytes or temporary name vectors are computed.
-pub fn serialize_code_with_fields<W: Write, C: Constant, E>(
-    buf: &mut W,
-    code: &CodeObject<C>,
-    mut write_field: impl FnMut(&mut W, CodeField) -> core::result::Result<bool, E>,
     mut write_constant: impl FnMut(&mut W, &C) -> core::result::Result<(), E>,
 ) -> core::result::Result<(), E> {
     // 1–5: scalar fields
@@ -1557,80 +1488,57 @@ pub fn serialize_code_with_fields<W: Write, C: Constant, E>(
     buf.write_u32(code.flags.bits());
 
     // 6: co_code (TYPE_STRING) — bytecode already uses flat localsplus indices
-    if !write_field(buf, CodeField::Bytecode)? {
-        let bytecode = code.instructions.original_bytes();
-        buf.write_u8(Type::Bytes as u8);
-        write_vec(buf, &bytecode);
-    }
+    let bytecode = code.instructions.original_bytes();
+    buf.write_u8(Type::Bytes as u8);
+    write_vec(buf, &bytecode);
 
     // 7: co_consts (TYPE_TUPLE)
-    if !write_field(buf, CodeField::Constants)? {
-        buf.write_u8(Type::Tuple as u8);
-        write_len(buf, code.constants.len());
-        for constant in &*code.constants {
-            write_constant(buf, constant)?;
-        }
+    buf.write_u8(Type::Tuple as u8);
+    write_len(buf, code.constants.len());
+    for constant in &*code.constants {
+        write_constant(buf, constant)?;
     }
 
     // 8: co_names (tuple of strings)
-    if !write_field(buf, CodeField::Names)? {
-        write_marshal_name_tuple(buf, &code.names);
-    }
+    write_marshal_name_tuple(buf, &code.names);
 
     // 9: co_localsplusnames — varnames ++ cell_only ++ freevars
-    if !write_field(buf, CodeField::LocalsPlusNames)? {
-        let cell_only_names: Vec<&str> = code
-            .cellvars
-            .iter()
-            .filter(|cv| !code.varnames.iter().any(|v| v.as_ref() == cv.as_ref()))
-            .map(|cv| cv.as_ref())
-            .collect();
-        let total_lp_count = code.varnames.len() + cell_only_names.len() + code.freevars.len();
-        buf.write_u8(Type::Tuple as u8);
-        write_len(buf, total_lp_count);
-        for n in &code.varnames {
-            write_marshal_str(buf, n.as_ref());
-        }
-        for &n in &cell_only_names {
-            write_marshal_str(buf, n);
-        }
-        for n in &code.freevars {
-            write_marshal_str(buf, n.as_ref());
-        }
+    let cell_only_names: Vec<&str> = code
+        .cellvars
+        .iter()
+        .filter(|cv| !code.varnames.iter().any(|v| v.as_ref() == cv.as_ref()))
+        .map(|cv| cv.as_ref())
+        .collect();
+    let total_lp_count = code.varnames.len() + cell_only_names.len() + code.freevars.len();
+    buf.write_u8(Type::Tuple as u8);
+    write_len(buf, total_lp_count);
+    for n in &code.varnames {
+        write_marshal_str(buf, n.as_ref());
     }
-
+    for &n in &cell_only_names {
+        write_marshal_str(buf, n);
+    }
+    for n in &code.freevars {
+        write_marshal_str(buf, n.as_ref());
+    }
     // 10: co_localspluskinds — use the stored kinds directly
-    if !write_field(buf, CodeField::LocalsPlusKinds)? {
-        buf.write_u8(Type::Bytes as u8);
-        write_vec(buf, &code.localspluskinds);
-    }
+    buf.write_u8(Type::Bytes as u8);
+    write_vec(buf, &code.localspluskinds);
 
     // 11: co_filename
     write_marshal_str(buf, code.source_path.as_ref());
     // 12: co_name
-    if !write_field(buf, CodeField::Name)? {
-        write_marshal_str(buf, code.obj_name.as_ref());
-    }
-
+    write_marshal_str(buf, code.obj_name.as_ref());
     // 13: co_qualname
-    if !write_field(buf, CodeField::Qualname)? {
-        write_marshal_str(buf, code.qualname.as_ref());
-    }
-
+    write_marshal_str(buf, code.qualname.as_ref());
     // 14: co_firstlineno
     buf.write_u32(code.first_line_number.map_or(0, |x| x.get() as _));
     // 15: co_linetable
-    if !write_field(buf, CodeField::LineTable)? {
-        buf.write_u8(Type::Bytes as u8);
-        write_vec(buf, &code.linetable);
-    }
-
+    buf.write_u8(Type::Bytes as u8);
+    write_vec(buf, &code.linetable);
     // 16: co_exceptiontable
-    if !write_field(buf, CodeField::ExceptionTable)? {
-        buf.write_u8(Type::Bytes as u8);
-        write_vec(buf, &code.exceptiontable);
-    }
-
+    buf.write_u8(Type::Bytes as u8);
+    write_vec(buf, &code.exceptiontable);
     Ok(())
 }
 
@@ -1969,7 +1877,7 @@ mod tests {
     use super::*;
     use crate::bytecode::{BasicBag, ConstantData};
 
-    pub(super) fn hex_to_bytes(hex: &str) -> Vec<u8> {
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
         (0..hex.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
@@ -2077,201 +1985,5 @@ mod tests {
         assert_eq!(code.names.len(), 1);
         assert_eq!(code.names[0].as_str(), "x");
         assert_eq!(code.constants.len(), 2);
-    }
-}
-
-#[cfg(test)]
-mod field_hook_tests {
-    use super::tests::hex_to_bytes;
-    use super::*;
-    use core::cell::Cell;
-
-    #[derive(Clone, Copy)]
-    struct HookBag<'a>(&'a Cell<u8>);
-
-    impl MarshalBag for HookBag<'_> {
-        type Value = ();
-        type ConstantBag = BasicBag;
-        fn make_bool(&self, _: bool) {}
-        fn make_none(&self) {}
-        fn make_ellipsis(&self) {}
-        fn make_float(&self, _: f64) {}
-        fn make_complex(&self, _: Complex64) {}
-        fn make_str(&self, _: &Wtf8) {}
-        fn make_bytes(&self, _: &[u8]) {}
-        fn make_int(&self, _: BigInt) {}
-        fn make_tuple(&self, _: impl Iterator<Item = ()>) {}
-        fn make_code(&self, _: CodeObject) -> Result<()> {
-            assert_eq!(self.0.get(), 3);
-            self.0.set(7);
-            Ok(())
-        }
-        fn make_code_with_constants(&self, code: CodeObject, constants: Vec<()>) -> Result<()> {
-            assert_eq!(self.0.get(), 1);
-            assert_eq!(constants.len(), 2);
-            self.0.set(3);
-            self.make_code(code)
-        }
-        fn make_code_with_constants_and_bytes(
-            &self,
-            code: CodeObject,
-            constants: Vec<()>,
-            bytes: Vec<u8>,
-        ) -> Result<()> {
-            assert_eq!(self.0.get(), 0);
-            assert_eq!(bytes, [1, 2]);
-            self.0.set(1);
-            self.make_code_with_constants(code, constants)
-        }
-        fn make_stop_iter(&self) -> Result<()> {
-            Err(MarshalError::BadType)
-        }
-        fn make_list(&self, _: impl Iterator<Item = ()>) -> Result<()> {
-            Err(MarshalError::BadType)
-        }
-        fn make_set(&self, _: impl Iterator<Item = ()>) -> Result<()> {
-            Err(MarshalError::BadType)
-        }
-        fn make_frozenset(&self, _: impl Iterator<Item = ()>) -> Result<()> {
-            Err(MarshalError::BadType)
-        }
-        fn make_dict(&self, _: impl Iterator<Item = ((), ())>) -> Result<()> {
-            Err(MarshalError::BadType)
-        }
-        fn constant_bag(self) -> BasicBag {
-            BasicBag
-        }
-    }
-
-    fn writer_fixture() -> CodeObject {
-        CodeObject {
-            instructions: CodeUnits::try_from(&[][..]).unwrap(),
-            locations: Box::new([]),
-            flags: CodeFlags::empty(),
-            posonlyarg_count: 0,
-            arg_count: 0,
-            kwonlyarg_count: 0,
-            source_path: "code_storage.py".into(),
-            first_line_number: None,
-            max_stackdepth: 1,
-            obj_name: "sample".into(),
-            qualname: "sample".into(),
-            constants: core::iter::empty().collect(),
-            names: Box::new([]),
-            varnames: Box::new([]),
-            cellvars: Box::new([]),
-            freevars: Box::new([]),
-            localspluskinds: Box::new([]),
-            linetable: Box::new([]),
-            exceptiontable: Box::new([]),
-        }
-    }
-
-    #[test]
-    fn code_field_default_preserves_complete_legacy_bytes() {
-        // Complete compiler/frozen payload from the pre-routing field sequence.
-        let code = writer_fixture();
-        let expected = hex_to_bytes(
-            "0000000000000000000000000100000000000000730000000028000000002800000000280000000073000000007a0f636f64655f73746f726167652e70797a0673616d706c657a0673616d706c650000000073000000007300000000",
-        );
-        let mut bytes = Vec::new();
-        serialize_code(&mut bytes, &code);
-        assert_eq!(bytes, expected);
-        let mut visited = Vec::new();
-        bytes.clear();
-        serialize_code_with_fields(
-            &mut bytes,
-            &code,
-            |_, field| {
-                visited.push(field);
-                Ok::<_, ()>(false)
-            },
-            |_, _| panic!("empty fixture has no constants"),
-        )
-        .unwrap();
-        assert_eq!(bytes, expected);
-        assert_eq!(
-            visited,
-            [
-                CodeField::Bytecode,
-                CodeField::Constants,
-                CodeField::Names,
-                CodeField::LocalsPlusNames,
-                CodeField::LocalsPlusKinds,
-                CodeField::Name,
-                CodeField::Qualname,
-                CodeField::LineTable,
-                CodeField::ExceptionTable
-            ]
-        );
-    }
-
-    #[test]
-    fn code_field_error_stops_before_fallback_and_later_fields() {
-        let code = writer_fixture();
-        let mut bytes = Vec::new();
-        let mut visited = Vec::new();
-        let result = serialize_code_with_fields(
-            &mut bytes,
-            &code,
-            |buf, field| {
-                visited.push(field);
-                if field == CodeField::Constants {
-                    return Err(17);
-                }
-                buf.write_u8(0xaa);
-                Ok(true)
-            },
-            |_, _| panic!("handled field must not reach constant fallback"),
-        );
-        assert_eq!(result, Err(17));
-        assert_eq!(visited, [CodeField::Bytecode, CodeField::Constants]);
-        assert_eq!(
-            &bytes[..20],
-            &hex_to_bytes("0000000000000000000000000100000000000000")
-        );
-        assert_eq!(&bytes[20..], &[0xaa]);
-    }
-
-    #[test]
-    fn actual_fields_default_preserves_existing_hook_chain() {
-        let code = CodeObject {
-            instructions: CodeUnits::try_from(&[][..]).unwrap(),
-            locations: Box::new([]),
-            flags: CodeFlags::empty(),
-            posonlyarg_count: 0,
-            arg_count: 0,
-            kwonlyarg_count: 0,
-            source_path: "code_storage.py".into(),
-            first_line_number: None,
-            max_stackdepth: 1,
-            obj_name: "sample".into(),
-            qualname: "sample".into(),
-            constants: core::iter::empty().collect(),
-            names: Box::new([]),
-            varnames: Box::new([]),
-            cellvars: Box::new([]),
-            freevars: Box::new([]),
-            localspluskinds: Box::new([]),
-            linetable: Box::new([]),
-            exceptiontable: Box::new([]),
-        };
-        let calls = Cell::new(0);
-        HookBag(&calls)
-            .make_code_with_fields(
-                code,
-                alloc::vec![(), ()],
-                alloc::vec![1, 2],
-                CodeFieldObjects {
-                    constants: (),
-                    names: (),
-                    localsplus_names: (),
-                    localsplus_kinds: (),
-                    linetable: (),
-                    exceptiontable: (),
-                },
-            )
-            .unwrap();
-        assert_eq!(calls.get(), 7);
     }
 }

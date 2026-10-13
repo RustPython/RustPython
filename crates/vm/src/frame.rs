@@ -106,7 +106,8 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
     Some(iframe.materialize(vm).to_owned())
 }
 
-/// Find the first complete frame on a live raw execution chain.
+/// `_PyFrame_GetFirstComplete`: the first complete frame on a live raw
+/// execution chain.
 ///
 /// # Safety
 /// Every non-null pointer traversed must belong to a live active frame chain
@@ -118,7 +119,7 @@ pub(crate) unsafe fn first_complete_iframe(
     while !current.is_null() {
         // SAFETY: the caller guarantees the chain remains alive.
         let frame = unsafe { &*current };
-        if !frame.is_incomplete_for_trace() {
+        if !frame.is_incomplete() {
             break;
         }
         current = frame.previous();
@@ -1191,38 +1192,17 @@ impl InterpreterFrame {
         Some((base, total_bytes))
     }
 
-    /// CPython's incomplete-frame boundary for legacy tracing. Generator
-    /// frames are complete even before their first resume. This VM temporarily
-    /// changes their owner to Thread while executing, so also recognize the
-    /// owning generator's back-reference during that interval.
-    pub(crate) fn is_incomplete_for_trace(&self) -> bool {
+    /// `_PyFrame_IsIncomplete`. A generator frame is complete even before its
+    /// first resume. Its owner is temporarily Thread while it executes, so the
+    /// owning generator's back-reference is checked too.
+    pub(crate) fn is_incomplete(&self) -> bool {
         if FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire)) == FrameOwner::Generator
             || self.generator.load().is_some()
         {
             return false;
         }
-        let instructions = &self.code().instructions;
-        let lasti = self.lasti.load(Relaxed) as usize;
-        let mut index = 0;
-        while index < instructions.len() {
-            let unit = instructions.read_unit(index);
-            if matches!(
-                unit.op,
-                Instruction::Resume { .. }
-                    | Instruction::ResumeCheck
-                    | Instruction::InstrumentedResume
-            ) && u32::from(u8::from(unit.arg)) & ResumeContext::LOCATION_MASK
-                != ResumeLocation::AtGenExprStart.as_u32()
-            {
-                // lasti is one past the in-flight instruction. At RESUME
-                // itself, lasti == index + 1 and the frame is complete.
-                return lasti <= index;
-            }
-            // Prefixes before the first traceable RESUME are uninstrumented.
-            // Skip inline cache payloads rather than decoding them as opcodes.
-            index += 1 + unit.op.cache_entries();
-        }
-        true
+        // lasti is one past the in-flight instruction.
+        (self.lasti.load(Relaxed) as usize) <= self.code().first_traceable
     }
 
     /// Get the last instruction index.
@@ -3751,7 +3731,7 @@ impl ExecutingFrame<'_> {
         if !vm.use_tracing.get() {
             return Ok(());
         }
-        let trace_is_set = if self.iframe().is_incomplete_for_trace() {
+        let trace_is_set = if self.iframe().is_incomplete() {
             // Legacy tracing resolves PyEval_GetFrame to the first complete
             // caller while sys.monitoring continues to use this code object.
             current_complete_frame_for_trace(vm).is_some_and(|frame| {
@@ -4006,9 +3986,9 @@ impl ExecutingFrame<'_> {
                 prev_op = op_byte;
             }
             if PREPARE_GENERATOR && matches!(op, Instruction::ReturnGenerator) {
-                // CPython copies the eager frame at RETURN_GENERATOR with its
-                // instruction pointer advanced to POP_TOP. Iterator pairs from
-                // generator expressions must survive the execution borrow too.
+                // The generator takes over the frame with its instruction
+                // pointer advanced to POP_TOP. The iterator pair a generator
+                // expression pushed must outlive this execution borrow.
                 self.localsplus.promote_stack();
                 break Ok(None);
             }
@@ -5084,36 +5064,19 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::GetIter { mode } => {
-                // Include/internal/pycore_opcode_utils.h GET_ITER_YIELD_FROM_*.
-                const GET_ITER_ORDINARY: u32 = 0;
-                const GET_ITER_YIELD_FROM: u32 = 1;
-                const GET_ITER_YIELD_FROM_NO_CHECK: u32 = 2;
-                const GET_ITER_YIELD_FROM_CORO_CHECK: u32 = 3;
-
+                // _PyEval_GetIter
                 let iterable = self.pop_value();
-                let mode = mode.get(arg);
-                let iter = if mode != GET_ITER_ORDINARY
-                    && iterable.class().is(vm.ctx.types.coroutine_type)
-                {
-                    // Code construction resolves the compiler-only mode 1
-                    // using CO_COROUTINE / CO_ITERABLE_COROUTINE.
-                    let reject_coroutine = match mode {
-                        GET_ITER_YIELD_FROM_CORO_CHECK => true,
-                        GET_ITER_YIELD_FROM_NO_CHECK => false,
-                        GET_ITER_YIELD_FROM => !self.code.flags.intersects(
-                            bytecode::CodeFlags::COROUTINE
-                                | bytecode::CodeFlags::ITERABLE_COROUTINE,
-                        ),
-                        _ => false,
-                    };
-                    if reject_coroutine {
+                let yield_from = mode.get(arg);
+                debug_assert_ne!(yield_from, bytecode::oparg::GET_ITER_YIELD_FROM);
+                let iter = if yield_from != 0 && iterable.class().is(vm.ctx.types.coroutine_type) {
+                    if yield_from == bytecode::oparg::GET_ITER_YIELD_FROM_CORO_CHECK {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
                     }
                     iterable
                 } else {
-                    PyIter::try_from_object(vm, iterable)?.into()
+                    iterable.get_iter(vm)?.into()
                 };
                 self.push_value(iter);
                 self.push_null();
@@ -5275,18 +5238,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadConst { consti } => {
                 self.push_value(self.code.constants[consti.get(arg)].clone().into());
-                // Mirror CPython's LOAD_CONST family transition. RustPython does
-                // not currently distinguish immortal constants at runtime.
-                let instr_idx = self.lasti() as usize - 1;
-                unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadConstMortal);
-                }
-                Ok(None)
-            }
-            Instruction::LoadConstMortal | Instruction::LoadConstImmortal => {
-                self.push_value(self.code.constants[u32::from(arg).into()].clone().into());
                 Ok(None)
             }
             Instruction::LoadCommonConstant { idx } => {

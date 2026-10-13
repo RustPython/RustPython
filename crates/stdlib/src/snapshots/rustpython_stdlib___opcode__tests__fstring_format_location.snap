@@ -1,0 +1,32 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef simple(self):\n    return f'{self.value}'\n\ndef spec(x):\n    return f'{x!r:>3}'\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:26            LOAD_CONST               0 (<code object simple at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:26            MAKE_FUNCTION
+1:0-2:26            STORE_NAME               0 (simple)
+
+4:0-5:22            LOAD_CONST               1 (<code object spec at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:22            MAKE_FUNCTION
+4:0-5:22            STORE_NAME               1 (spec)
+4:0-5:22            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:22            RETURN_VALUE
+
+Disassembly of <code object simple at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:14-2:18            LOAD_FAST_BORROW         0 (self)
+2:14-2:24            LOAD_ATTR                0 (value)
+2:13-2:25            FORMAT_SIMPLE
+2:4-2:26             RETURN_VALUE
+
+Disassembly of <code object spec at 0xdeadbeef, file "<?>", line 4>:
+4:0-4:0              RESUME                   0
+
+5:14-5:15            LOAD_FAST_BORROW         0 (x)
+5:13-5:21            CONVERT_VALUE            2 (repr)
+5:18-5:20            LOAD_CONST               0 ('>3')
+5:13-5:21            FORMAT_WITH_SPEC
+5:4-5:22             RETURN_VALUE

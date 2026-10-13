@@ -42,6 +42,37 @@ impl FormatArgument<'_> {
     }
 }
 
+/// `FORMAT_ERROR` for an argument of the wrong type.
+fn wrong_type_error(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    obj: &PyObject,
+    argument: FormatArgument<'_>,
+    required: &str,
+) -> PyResult<PyBaseExceptionRef> {
+    Ok(vm.new_type_error(format!(
+        "{}: %{} requires {required}, not {}",
+        argument.description(vm)?,
+        spec.format_type.to_char(),
+        obj.class().slot_name()
+    )))
+}
+
+fn format_float_arg(
+    vm: &VirtualMachine,
+    spec: &CFormatSpec,
+    obj: PyObjectRef,
+    argument: FormatArgument<'_>,
+) -> PyResult<f64> {
+    match ArgIntoFloat::try_from_object(vm, obj.clone()) {
+        Ok(value) => Ok(value.into()),
+        Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
+            Err(wrong_type_error(vm, spec, &obj, argument, "a real number")?)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn format_decimal_object(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
@@ -55,17 +86,28 @@ fn format_decimal_object(
         Some(Err(error)) if !error.fast_isinstance(vm.ctx.exceptions.type_error) => {
             return Err(error);
         }
-        _ => {
-            return Err(vm.new_type_error(format!(
-                "{}: %{} requires a real number, not {}",
-                argument.description(vm)?,
-                spec.format_type.to_char(),
-                obj.class().slot_name()
-            )));
-        }
+        _ => return Err(wrong_type_error(vm, spec, obj, argument, "a real number")?),
     };
     check_int_to_str_digits(i.as_bigint(), vm)?;
     Ok(spec.format_number(i.as_bigint()))
+}
+
+fn unsupported_format_error(
+    ch: CodePoint,
+    index: usize,
+    format_start: usize,
+    vm: &VirtualMachine,
+) -> PyBaseExceptionRef {
+    let c = ch.to_char_lossy();
+    let msg = if c.is_ascii_alphabetic() {
+        format!("unsupported format %{c} at position {format_start}")
+    } else {
+        format!(
+            "unsupported format character '{c}' ({:#x}) at index {index}",
+            ch.to_u32()
+        )
+    };
+    vm.new_value_error(msg)
 }
 
 fn spec_format_bytes(
@@ -76,16 +118,9 @@ fn spec_format_bytes(
     format_start: usize,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, .. } if ch.to_char_lossy().is_ascii_alphabetic() => Err(vm
-            .new_value_error(format!(
-                "unsupported format %{} at position {format_start}",
-                ch.to_char_lossy(),
-            ))),
-        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
-            "unsupported format character '{}' ({:#x}) at index {index}",
-            ch.to_char_lossy(),
-            ch.to_u32(),
-        ))),
+        CFormatType::Unsupported { ch, index } => {
+            Err(unsupported_format_error(*ch, *index, format_start, vm))
+        }
         // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
         // %a for strings (not %r)
         CFormatType::String(CFormatConversion::Repr | CFormatConversion::Ascii) => {
@@ -138,26 +173,13 @@ fn spec_format_bytes(
                     let i = int_result?;
                     Ok(spec.format_number(i.as_bigint()).into_bytes())
                 } else {
-                    Err(vm.new_type_error(format!(
-                        "%{} format: an integer is required, not {}",
-                        spec.format_type.to_char(),
-                        obj.class().name()
-                    )))
+                    Err(wrong_type_error(vm, spec, &obj, argument, "an integer")?)
                 }
             }
         },
         CFormatType::Float(_) => {
-            let class = obj.class().to_owned();
-            let value = ArgIntoFloat::try_from_object(vm, obj).map_err(|e| {
-                if e.fast_isinstance(vm.ctx.exceptions.type_error) {
-                    // formatfloat in bytesobject.c generates its own specific exception
-                    // text in this case, mirror it here.
-                    vm.new_type_error(format!("float argument required, not {}", class.name()))
-                } else {
-                    e
-                }
-            })?;
-            Ok(spec.format_float(value.into()).into_bytes())
+            let value = format_float_arg(vm, spec, obj, argument)?;
+            Ok(spec.format_float(value).into_bytes())
         }
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: bytes `%c` accepts a single byte or any object
@@ -212,16 +234,9 @@ fn spec_format_string(
     format_start: usize,
 ) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
-        CFormatType::Unsupported { ch, .. } if ch.to_char_lossy().is_ascii_alphabetic() => Err(vm
-            .new_value_error(format!(
-                "unsupported format %{} at position {format_start}",
-                ch.to_char_lossy(),
-            ))),
-        CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
-            "unsupported format character '{}' ({:#x}) at index {index}",
-            ch.to_char_lossy(),
-            ch.to_u32(),
-        ))),
+        CFormatType::Unsupported { ch, index } => {
+            Err(unsupported_format_error(*ch, *index, format_start, vm))
+        }
         CFormatType::String(conversion) => {
             let result = match conversion {
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.as_wtf8().to_owned(),
@@ -256,29 +271,13 @@ fn spec_format_string(
                     let i = int_result?;
                     Ok(spec.format_number(i.as_bigint()).into())
                 } else {
-                    Err(vm.new_type_error(format!(
-                        "{}: %{} requires an integer, not {}",
-                        argument.description(vm)?,
-                        spec.format_type.to_char(),
-                        obj.class().slot_name()
-                    )))
+                    Err(wrong_type_error(vm, spec, &obj, argument, "an integer")?)
                 }
             }
         },
         CFormatType::Float(_) => {
-            let value = match ArgIntoFloat::try_from_object(vm, obj.clone()) {
-                Ok(value) => value,
-                Err(error) if error.fast_isinstance(vm.ctx.exceptions.type_error) => {
-                    return Err(vm.new_type_error(format!(
-                        "{}: %{} requires a real number, not {}",
-                        argument.description(vm)?,
-                        spec.format_type.to_char(),
-                        obj.class().slot_name()
-                    )));
-                }
-                Err(error) => return Err(error),
-            };
-            Ok(spec.format_float(value.into()).into())
+            let value = format_float_arg(vm, spec, obj, argument)?;
+            Ok(spec.format_float(value).into())
         }
         CFormatType::Character(CCharacterType::Character) => {
             // CPython parity: `%c` accepts a single-char str or any object with

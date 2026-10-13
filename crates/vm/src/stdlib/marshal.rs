@@ -124,7 +124,7 @@ mod decl {
 
     struct WriterRefEntry {
         idx: u32,
-        // Keep the address valid until this whole per-write table is dropped.
+        // The table holds a reference, as w_ref does, so the id stays unique.
         _owner: PyObjectRef,
         /// Set between `reserve` and `complete` for the object kinds whose
         /// immutable representation cannot be rebuilt from a back-reference.
@@ -241,10 +241,9 @@ mod decl {
             || obj.is(PyStopIteration::static_type())
             || obj.downcast_ref::<crate::builtins::PyEllipsis>().is_some();
 
-        // Observe actual ownership before lookup/reservation, as w_ref does.
-        // This only selects a wire representation: it does not grant exclusive
-        // access, and concurrent ownership changes can change the observation.
-        // Interned exact strings stay reference-tracked even when unique.
+        // If it has only one reference, it definitely isn't shared. But
+        // TYPE_REF is always used for interned strings, to keep PYC files as
+        // stable as possible.
         let use_ref = refs.is_some()
             && !is_singleton
             && (obj.strong_count() != 1
@@ -404,25 +403,35 @@ mod decl {
                 return Err(vm.new_value_error("marshalling code objects is disallowed"));
             }
             buf.write_u8(b'c');
-            // Keep this real getter owner through every field and error path.
-            let bytecode = co.co_code(vm);
-            marshal::serialize_code_with_fields(
-                buf,
-                &co.code,
-                |buf, field| {
-                    write_object_depth(
-                        buf,
-                        co.marshal_field(field, &bytecode),
-                        refs,
-                        version,
-                        allow_code,
-                        vm,
-                        depth - 1,
-                    )?;
-                    Ok(true)
-                },
-                |_, _| Err(vm.new_runtime_error("unhandled runtime code field")),
-            )?;
+            let code = &co.code;
+            for value in [
+                code.arg_count,
+                code.posonlyarg_count,
+                code.kwonlyarg_count,
+                code.max_stackdepth,
+                code.flags.bits(),
+            ] {
+                buf.write_u32(value);
+            }
+            let co_code = co.get_code(vm);
+            let mut write_field = |buf: &mut Vec<u8>, field: &PyObject| {
+                write_object_depth(buf, field, refs, version, allow_code, vm, depth - 1)
+            };
+            for field in [
+                co_code.as_object(),
+                co.co_consts().as_object(),
+                co.co_names.as_object(),
+                co.co_localsplusnames.as_object(),
+                co.co_localspluskinds.as_object(),
+                co.source_path().as_object(),
+                co.co_name.as_object(),
+                code.qualname.as_object(),
+            ] {
+                write_field(buf, field)?;
+            }
+            buf.write_u32(code.first_line_number.map_or(0, |n| n.get() as u32));
+            write_field(buf, co.co_linetable.as_object())?;
+            write_field(buf, co.co_exceptiontable.as_object())?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
@@ -618,21 +627,10 @@ mod decl {
             unsafe { tuple.payload.set_marshal_item(index, value) };
             Ok(())
         }
-        fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {
-            if !self.allow_code {
-                return Err(self.remember_python_error(
-                    self.vm
-                        .new_value_error("unmarshalling code objects is disallowed"),
-                ));
-            }
-            Ok(crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into())
-        }
-        fn make_code_with_fields(
+        fn make_code(
             &self,
             code: CodeObject,
-            constants: Vec<Self::Value>,
-            _code_bytes: Vec<u8>,
-            fields: marshal::CodeFieldObjects<Self::Value>,
+            fields: marshal::CodeFields<Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
             if !self.allow_code {
                 return Err(self.remember_python_error(
@@ -640,10 +638,7 @@ mod decl {
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            // The actual tuple in fields is the surviving owner. Discard the
-            // compatibility channel's temporary child references first.
-            drop(constants);
-            let code = PyCode::from_marshaled_fields(code, fields, &self.vm.ctx)?;
+            let code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
             Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
@@ -936,53 +931,5 @@ mod decl {
             }
         }
         Ok(())
-    }
-    #[cfg(test)]
-    mod writer_tests {
-        use super::*;
-
-        #[test]
-        fn reservation_owns_once_until_table_drop() {
-            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-                let object: PyObjectRef = vm.ctx.new_list(vec![]).into();
-                let mut table = WriterRefTable::new();
-                let mut bytes = Vec::new();
-                assert_eq!(object.strong_count(), 1);
-                assert_eq!(table.try_ref(&mut bytes, &object), Ok(false));
-                table.reserve(&object, false);
-                assert_eq!(object.strong_count(), 2);
-                assert_eq!(table.try_ref(&mut bytes, &object), Ok(true));
-                assert_eq!(object.strong_count(), 2);
-                drop(table);
-                assert_eq!(object.strong_count(), 1);
-            });
-        }
-
-        #[cfg(feature = "compiler")]
-        #[test]
-        fn constants_tuple_consumes_its_own_depth() {
-            crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
-                let code = vm
-                    .compile("1234567", crate::compiler::Mode::Eval, "writer_depth.py")
-                    .unwrap();
-                assert_eq!(code.constants.len(), 1);
-                assert!(code.names.is_empty());
-                assert!(code.varnames.is_empty());
-                for (depth, succeeds) in [(2, false), (3, true)] {
-                    let mut bytes = Vec::new();
-                    let mut refs = Some(WriterRefTable::new());
-                    let result = write_object_depth(
-                        &mut bytes,
-                        code.as_object(),
-                        &mut refs,
-                        6,
-                        true,
-                        vm,
-                        depth,
-                    );
-                    assert_eq!(result.is_ok(), succeeds);
-                }
-            });
-        }
     }
 }

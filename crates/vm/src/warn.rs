@@ -100,14 +100,33 @@ impl WarningsState {
 
 /// None matches everything; plain strings do exact comparison;
 /// regex objects use .match().
-fn check_matched(obj: &PyObject, arg: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+fn check_matched(
+    obj: &PyObject,
+    arg: Option<&PyObject>,
+    arg2: Option<&Py<PyStr>>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    // A 'None' filter always matches
     if vm.is_none(obj) {
         return Ok(true);
     }
+    // An internal plain text default filter must match exactly
     if obj.class().is(vm.ctx.types.str_type) {
-        return obj.rich_compare_bool(arg, crate::types::PyComparisonOp::Eq, vm);
+        return match arg {
+            Some(arg) => obj.rich_compare_bool(arg, crate::types::PyComparisonOp::Eq, vm),
+            None => Ok(false),
+        };
     }
-    let result = vm.call_method(obj, "match", (arg.to_owned(),))?;
+    // Otherwise assume a regex filter and call its match() method
+    let result = match arg {
+        Some(arg) => vm.call_method(obj, "match", (arg.to_owned(),))?,
+        None => {
+            let match_filename = vm
+                .import("_py_warnings", 0)?
+                .get_attr("_match_filename", vm)?;
+            match_filename.call((obj.to_owned(), arg2.map(|f| f.to_owned())), vm)?
+        }
+    };
     result.is_true(vm)
 }
 
@@ -336,30 +355,6 @@ fn update_registry(
     already_warned(registry, &altkey, true, vm)
 }
 
-fn check_module_matched(
-    pattern: &PyObject,
-    module: Option<&PyObject>,
-    filename: &Py<PyStr>,
-    vm: &VirtualMachine,
-) -> PyResult<bool> {
-    if let Some(module) = module {
-        return check_matched(pattern, module, vm);
-    }
-    if vm.is_none(pattern) {
-        return Ok(true);
-    }
-    if pattern.class().is(vm.ctx.types.str_type) {
-        return Ok(false);
-    }
-    let warnings = vm.import("_py_warnings", 0)?;
-    vm.call_method(
-        &warnings,
-        "_match_filename",
-        (pattern.to_owned(), filename.to_owned()),
-    )?
-    .is_true(vm)
-}
-
 /// Search a filters list for a matching action.
 #[allow(clippy::too_many_arguments)]
 fn filter_search(
@@ -394,9 +389,9 @@ fn filter_search(
                 action.class().name()
             )));
         }
-        let good_msg = check_matched(&tmp_item.as_slice()[1], text, vm)?;
+        let good_msg = check_matched(&tmp_item.as_slice()[1], Some(text), None, vm)?;
         let is_subclass = category.is_subclass(&tmp_item.as_slice()[2], vm)?;
-        let good_mod = check_module_matched(&tmp_item.as_slice()[3], module, filename, vm)?;
+        let good_mod = check_matched(&tmp_item.as_slice()[3], module, Some(filename), vm)?;
         let ln: usize = tmp_item.as_slice()[4]
             .try_int(vm)
             .map_or(0, |v| v.as_u32_mask() as _);
@@ -524,8 +519,10 @@ pub fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // Explicit None remains a late-shutdown silent return. An omitted module
-    // is matched against the filename by the canonical warnings helper.
+    // module can be None if a warning is emitted late during Python shutdown.
+    // In this case, the Python warnings module was probably unloaded, filters
+    // are no more available to choose as action. It is safer to ignore the
+    // warning and do nothing.
     if module.as_ref().is_some_and(|module| vm.is_none(module)) {
         return Ok(());
     }

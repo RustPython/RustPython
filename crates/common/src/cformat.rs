@@ -19,7 +19,6 @@ pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
     UnsupportedFormatChar(CodePoint),
-    IncompleteFormat,
     StrayModulo,
     WidthTooBig,
     PrecisionTooBig,
@@ -39,7 +38,6 @@ impl fmt::Display for CFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.typ {
             CFormatErrorType::UnmatchedKeyParentheses => write!(f, "incomplete format key"),
-            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
             CFormatErrorType::StrayModulo => write!(f, "stray % at position {}", self.index),
             CFormatErrorType::UnsupportedFormatChar(c) => write!(
                 f,
@@ -646,7 +644,7 @@ where
 {
     let (index, c) = iter.next().ok_or_else(|| {
         (
-            CFormatErrorType::IncompleteFormat,
+            CFormatErrorType::StrayModulo,
             iter.peek().map_or(0, |x| x.0),
         )
     })?;
@@ -833,21 +831,14 @@ impl<S> CFormatStrOrBytes<S> {
                     }
 
                     let spec =
-                        CFormatSpecKeyed::parse(iter, context).map_err(|err| CFormatError {
-                            typ: if context == CFormatContext::Str
-                                && err.0 == CFormatErrorType::IncompleteFormat
-                            {
-                                CFormatErrorType::StrayModulo
-                            } else {
-                                err.0
-                            },
-                            index: if context == CFormatContext::Str
-                                && err.0 == CFormatErrorType::IncompleteFormat
-                            {
+                        CFormatSpecKeyed::parse(iter, context).map_err(|(typ, err_index)| {
+                            // A stray % is reported at the position of the %.
+                            let index = if typ == CFormatErrorType::StrayModulo {
                                 index
                             } else {
-                                err.1
-                            },
+                                err_index
+                            };
+                            CFormatError { typ, index }
                         })?;
 
                     parts.push((index, CFormatPart::Spec(spec)));
@@ -856,16 +847,8 @@ impl<S> CFormatStrOrBytes<S> {
                     }
                 } else {
                     return Err(CFormatError {
-                        typ: if context == CFormatContext::Str {
-                            CFormatErrorType::StrayModulo
-                        } else {
-                            CFormatErrorType::IncompleteFormat
-                        },
-                        index: if context == CFormatContext::Str {
-                            index
-                        } else {
-                            index + 1
-                        },
+                        typ: CFormatErrorType::StrayModulo,
+                        index,
                     });
                 }
             } else {

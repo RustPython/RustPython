@@ -333,10 +333,8 @@ define_opcodes!(
         FormatWithSpec = 13,
         GetAiter = 14,
         GetAnext = 15,
-        GetIter { mode: Arg<u32> } = 70,
-        Reserved = 17,
         GetLen = 16,
-        GetYieldFromIter = 219,
+        Reserved = 17,
         InterpreterExit = 18,
         LoadBuildClass = 19,
         LoadLocals = 20,
@@ -441,6 +439,7 @@ define_opcodes!(
         GetAwaitable {
             r#where: Arg<u32>,
         } = 69,
+        GetIter { mode: Arg<u32> } = 70,
         ImportFrom {
             namei: Arg<oparg::NameIdx>,
         } = 71,
@@ -603,6 +602,7 @@ define_opcodes!(
         BinaryOpSubscrListSlice = 138,
         BinaryOpSubscrStrInt = 139,
         BinaryOpSubscrTupleInt = 140,
+        BinaryOpSubscrUstrInt = 141,
         BinaryOpSubtractFloat = 142,
         BinaryOpSubtractInt = 143,
         CallAllocAndEnterInit = 144,
@@ -612,6 +612,8 @@ define_opcodes!(
         CallBuiltinFast = 148,
         CallBuiltinFastWithKeywords = 149,
         CallBuiltinO = 150,
+        CallExNonPyGeneral = 151,
+        CallExPy = 152,
         CallIsinstance = 153,
         CallKwBoundMethod = 154,
         CallKwNonPy = 155,
@@ -637,6 +639,9 @@ define_opcodes!(
         ForIterList = 175,
         ForIterRange = 176,
         ForIterTuple = 177,
+        ForIterVirtual = 178,
+        GetIterSelf = 179,
+        GetIterVirtual = 180,
         JumpBackwardJit = 181,
         JumpBackwardNoJit = 182,
         LoadAttrClass = 183,
@@ -652,14 +657,15 @@ define_opcodes!(
         LoadAttrProperty = 193,
         LoadAttrSlot = 194,
         LoadAttrWithHint = 195,
-        LoadConstImmortal = 220,
-        LoadConstMortal = 221,
         LoadGlobalBuiltin = 196,
         LoadGlobalModule = 197,
         LoadSuperAttrAttr = 198,
         LoadSuperAttrMethod = 199,
         ResumeCheck = 200,
+        ResumeCheckJit = 201,
+        SendAsyncGen = 202,
         SendGen = 203,
+        SendVirtual = 204,
         StoreAttrInstanceValue = 205,
         StoreAttrSlot = 206,
         StoreAttrWithHint = 207,
@@ -696,6 +702,7 @@ define_opcodes!(
         InstrumentedJumpBackward = 252,
         InstrumentedLine = 253,
         EnterExecutor = 254,
+        TraceRecord = 255,
     }
 );
 
@@ -1342,7 +1349,6 @@ const _: () = assert!(core::mem::size_of::<PseudoInstruction>() == 2);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec;
 
     #[test]
     fn eval_break_flags_match_cpython_jump_metadata() {
@@ -1428,74 +1434,11 @@ mod tests {
     #[test]
     fn const_flags_match_cpython_opcode_metadata() {
         assert!(Opcode::LoadConst.has_const());
-        assert!(Opcode::LoadConstImmortal.has_const());
-        assert!(Opcode::LoadConstMortal.has_const());
         assert!(!Opcode::LoadSmallInt.has_const());
         assert!(!Opcode::Nop.has_const());
 
         assert!(!PseudoOpcode::LoadClosure.has_const());
         assert!(!AnyInstruction::from(PseudoOpcode::Jump).has_const());
-    }
-
-    include!("target_stack_cases.rs");
-
-    #[test]
-    fn get_iter_modes_normalize_before_publication() {
-        use crate::bytecode::{CodeFlags, CodeUnit, CodeUnits};
-        for flags in [
-            CodeFlags::empty(),
-            CodeFlags::COROUTINE,
-            CodeFlags::ITERABLE_COROUTINE,
-        ] {
-            for input in 0..=3u8 {
-                let mut units = CodeUnits::from(vec![
-                    CodeUnit::new(Opcode::GetIter.as_instruction(), input.into()),
-                    CodeUnit::new(Opcode::Cache.as_instruction(), 0.into()),
-                    CodeUnit::new(Opcode::ReturnValue.as_instruction(), 0.into()),
-                ]);
-                units.normalize_get_iter(flags);
-                let expected = if input == 0 {
-                    0
-                } else if flags.is_empty() {
-                    3
-                } else {
-                    2
-                };
-                assert_eq!(u8::from(units[0].arg), expected);
-                assert_eq!(units[1].op.as_opcode(), Opcode::Cache);
-                assert_eq!(units[2].op.as_opcode(), Opcode::ReturnValue);
-            }
-        }
-    }
-
-    #[test]
-    fn private_load_const_exports_as_public_opcode() {
-        use crate::bytecode::{CodeUnit, CodeUnits};
-        for opcode in [Opcode::LoadConstImmortal, Opcode::LoadConstMortal] {
-            let units = CodeUnits::from(vec![CodeUnit::new(opcode.as_instruction(), 7.into())]);
-            assert_eq!(units.original_bytes(), vec![Opcode::LoadConst.as_u8(), 7]);
-        }
-    }
-
-    #[test]
-    fn supported_stack_contract_matches_pinned_c_metadata() {
-        let mut checked = 0;
-        for &(opcode, arg, popped, pushed) in TARGET_STACK_CASES {
-            let Ok(op) = AnyOpcode::try_from(opcode) else {
-                continue;
-            };
-            let actual = match op {
-                AnyOpcode::Real(op) => op.stack_effect_info(arg),
-                AnyOpcode::Pseudo(op) => op.stack_effect_info(arg),
-            };
-            assert_eq!(
-                (actual.popped(), actual.pushed()),
-                (popped, pushed),
-                "opcode {opcode}, argument {arg}"
-            );
-            checked += 1;
-        }
-        assert_eq!(checked, 3290, "supported C stack contract coverage changed");
     }
 
     #[test]
@@ -1535,15 +1478,16 @@ mod tests {
         assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
     }
 
-    /// Independent match reference for the pinned final 3.15 cache/deopt contract.
-    /// Keep exhaustive numeric iteration below to check generated lookup tables.
+    /// Snapshot of the chained `match` implementations that `Opcode::deopt`
+    /// and `Opcode::cache_entries` used before they were rewritten as table
+    /// lookups. Exists only to pin the observable behavior of the table
+    /// lookups against the logic they replaced.
     mod reference {
         use super::Opcode;
 
         pub(super) const fn deopt(op: Opcode) -> Option<Opcode> {
             Some(match op {
-                Opcode::ResumeCheck => Opcode::Resume,
-                Opcode::LoadConstMortal | Opcode::LoadConstImmortal => Opcode::LoadConst,
+                Opcode::ResumeCheck | Opcode::ResumeCheckJit => Opcode::Resume,
                 Opcode::ToBoolAlwaysTrue
                 | Opcode::ToBoolBool
                 | Opcode::ToBoolInt
@@ -1561,12 +1505,13 @@ mod tests {
                 | Opcode::BinaryOpSubscrListSlice
                 | Opcode::BinaryOpSubscrTupleInt
                 | Opcode::BinaryOpSubscrStrInt
+                | Opcode::BinaryOpSubscrUstrInt
                 | Opcode::BinaryOpSubscrDict
                 | Opcode::BinaryOpSubscrGetitem
                 | Opcode::BinaryOpExtend
                 | Opcode::BinaryOpInplaceAddUnicode => Opcode::BinaryOp,
                 Opcode::StoreSubscrDict | Opcode::StoreSubscrListInt => Opcode::StoreSubscr,
-                Opcode::SendGen => Opcode::Send,
+                Opcode::SendGen | Opcode::SendAsyncGen | Opcode::SendVirtual => Opcode::Send,
                 Opcode::UnpackSequenceTwoTuple
                 | Opcode::UnpackSequenceTuple
                 | Opcode::UnpackSequenceList => Opcode::UnpackSequence,
@@ -1596,7 +1541,9 @@ mod tests {
                 Opcode::ForIterList
                 | Opcode::ForIterTuple
                 | Opcode::ForIterRange
-                | Opcode::ForIterGen => Opcode::ForIter,
+                | Opcode::ForIterGen
+                | Opcode::ForIterVirtual => Opcode::ForIter,
+                Opcode::GetIterSelf | Opcode::GetIterVirtual => Opcode::GetIter,
                 Opcode::CallBoundMethodExactArgs
                 | Opcode::CallPyExactArgs
                 | Opcode::CallType1
@@ -1620,6 +1567,7 @@ mod tests {
                 Opcode::CallKwBoundMethod | Opcode::CallKwPy | Opcode::CallKwNonPy => {
                     Opcode::CallKw
                 }
+                Opcode::CallExPy | Opcode::CallExNonPyGeneral => Opcode::CallFunctionEx,
                 _ => return None,
             })
         }

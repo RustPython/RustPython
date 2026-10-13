@@ -828,25 +828,31 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
-    // Final 3.15 bytecode loads None through LOAD_COMMON_CONSTANT, so it
-    // need not appear in co_consts. Walk decoded operands rather than looking
-    // one raw code unit back, which can lose EXTENDED_ARG bits.
-    let mut previous_loads_none = false;
-    for (_, op, arg) in walk_instructions(code) {
-        if matches!(op, Instruction::ExtendedArg) {
+    let units = &code.instructions;
+    // Look up None in co_consts.
+    let none_index = code
+        .constants
+        .iter()
+        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None));
+    // We don't worry about EXTENDED_ARG for now.
+    for (at, op, _) in walk_instructions(code) {
+        if !matches!(op, Instruction::ReturnValue) {
             continue;
         }
-        if matches!(op, Instruction::ReturnValue) && !previous_loads_none {
-            return false;
+        debug_assert_ne!(at, 0);
+        let prev_op = units.read_op(at - 1).deoptimize();
+        let prev_arg = u32::from(u8::from(units.read_arg(at - 1)));
+        if matches!(prev_op, Instruction::LoadCommonConstant { .. })
+            && prev_arg == u32::from(CommonConstant::None)
+        {
+            continue;
         }
-        previous_loads_none = match op {
-            Instruction::LoadCommonConstant { idx } => idx.get(arg) == CommonConstant::None,
-            Instruction::LoadConst { consti } => code
-                .constants
-                .get(usize::from(consti.get(arg)))
-                .is_some_and(|value| matches!(value.borrow_constant(), BorrowedConstant::None)),
-            _ => false,
-        };
+        if matches!(prev_op, Instruction::LoadConst { .. })
+            && none_index.is_some_and(|none_index| prev_arg as usize == none_index)
+        {
+            continue;
+        }
+        return false;
     }
     true
 }

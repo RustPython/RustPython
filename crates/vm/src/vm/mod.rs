@@ -2690,8 +2690,9 @@ impl VirtualMachine {
         self.with_frame_impl::<true, R, F>(frame, f)
     }
 
-    /// Generator construction runs an incomplete frame whose caller link must
-    /// not escape. RETURN_GENERATOR copies the frame with previous=NULL in CPython.
+    /// Run the incomplete frame of a generator being created. Its caller link
+    /// must not escape, as RETURN_GENERATOR copies the frame with
+    /// `previous = NULL`.
     pub(crate) fn with_generator_frame<R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
         &self,
         frame: FrameObjectRef,
@@ -3079,7 +3080,7 @@ impl VirtualMachine {
         if result.is_err()
             && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
-                || if frame.iframe().is_incomplete_for_trace() {
+                || if frame.iframe().is_incomplete() {
                     crate::frame::current_complete_frame_for_trace(self).is_some_and(|visible| {
                         visible
                             .iframe()

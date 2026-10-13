@@ -1170,10 +1170,6 @@ class CodeTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             c2 == c3
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; co_lnotab intentionally not implemented (deprecated since 3.12)
-    def test_co_lnotab_is_deprecated(self):
-        return super().test_co_lnotab_is_deprecated()
-
 def isinterned(s):
     return s is sys.intern(('_' + s + '_')[1:-1])
 

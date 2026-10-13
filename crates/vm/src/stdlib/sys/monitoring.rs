@@ -9,9 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
-const INSTRUMENTED_EVENTS_COUNT: usize = 11;
-const LOCAL_EVENTS_COUNT: usize = 16;
-const UNGROUPED_EVENTS_COUNT: usize = 18;
+const UNGROUPED_EVENTS_COUNT: usize = 16;
 
 /// Event identifier (`PY_MONITORING_EVENT_*`), stored in `tstate->what_event`.
 /// `None` on the VM field is the `< 0` sentinel (not in a monitoring callback).
@@ -205,6 +203,11 @@ fn parse_single_event(event: i32, vm: &VirtualMachine) -> PyResult<usize> {
     Ok(event_id)
 }
 
+/// `PY_MONITORING_IS_INSTRUMENTED_EVENT`
+const fn is_instrumented_event(event_id: usize) -> bool {
+    event_id <= MonitoringEvent::StopIteration as usize
+}
+
 fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyResult<u32> {
     let kind = if local {
         "local event set"
@@ -233,7 +236,7 @@ fn normalize_event_set(event_set: i32, local: bool, vm: &VirtualMachine) -> PyRe
         event_set |= MonitoringEvent::BranchLeft.mask() | MonitoringEvent::BranchRight.mask();
     }
 
-    if local && event_set >= (1 << LOCAL_EVENTS_COUNT) {
+    if local && event_set >= (1 << UNGROUPED_EVENTS_COUNT) {
         return Err(vm.new_value_error(format!("invalid local event set 0x{event_set:x}")));
     }
 
@@ -280,23 +283,6 @@ fn opcode_event_is_active(
     events: u32,
 ) -> bool {
     event_for_opcode(op, oparg).is_some_and(|ev| events & ev.mask() != 0)
-}
-
-/// Walk real instructions, skipping specialization CACHE payloads.
-/// Cache slots may contain pointer bits that are not valid opcodes.
-fn for_each_instruction(
-    code: &Py<PyCode>,
-    mut f: impl FnMut(usize, rustpython_compiler_core::bytecode::Instruction, u8),
-) {
-    let len = code.code.instructions.len();
-    let mut i = 0;
-    while i < len {
-        let op = code.code.instructions.read_op(i);
-        let oparg = code.code.instructions.read_arg(i).as_u8();
-        let caches = op.deoptimize().cache_entries();
-        f(i, op, oparg);
-        i += 1 + caches;
-    }
 }
 
 /// Rewrite a code object's bytecode in-place with layered instrumentation.
@@ -403,23 +389,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     data.line_opcodes.resize(len, 0);
     data.per_instruction_opcodes.resize(len, 0);
 
-    // Find _co_firsttraceable: index of first RESUME instruction
-    let mut first_traceable = None;
-    for_each_instruction(code, |i, op, oparg| {
-        if first_traceable.is_none()
-            && u32::from(oparg) & crate::bytecode::oparg::ResumeContext::LOCATION_MASK
-                != crate::bytecode::oparg::ResumeLocation::AtGenExprStart.as_u32()
-            && matches!(
-                op,
-                Instruction::Resume { .. }
-                    | Instruction::ResumeCheck
-                    | Instruction::InstrumentedResume
-            )
-        {
-            first_traceable = Some(i);
-        }
-    });
-    let first_traceable = first_traceable.unwrap_or(0);
+    let first_traceable = code.first_traceable;
 
     // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
     // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
@@ -906,12 +876,11 @@ fn fire(
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
             if disable_sentinel.as_ref().is_some_and(|d| result.is(d)) {
-                if event_id < INSTRUMENTED_EVENTS_COUNT {
+                if is_instrumented_event(event_id) {
                     let mut state = vm.state.monitoring.lock();
                     state.disabled.insert((code_id, offset as usize, tool));
-                } else if event_id < LOCAL_EVENTS_COUNT {
-                    // Non-instrumented events disable their local registration
-                    // for this code object, leaving global events active.
+                } else if event_id < UNGROUPED_EVENTS_COUNT {
+                    // Other (non-instrumented) event: disable for this code object.
                     let mut state = vm.state.monitoring.lock();
                     if let Some(events) = state.local_events.get_mut(&(tool, code_id)) {
                         *events &= !event_mask;

@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, DerefMut, Index, IndexMut},
+    ops::{Deref, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -35,7 +35,6 @@ pub use crate::bytecode::{
 
 mod instruction;
 mod opcode_metadata;
-pub mod public_metadata;
 
 pub mod oparg;
 
@@ -287,8 +286,8 @@ impl PyCodeLocationInfoKind {
 pub trait Constant: Sized + Clone {
     type Name: AsRef<str>;
 
-    /// An immutable owner whose element view remains valid while borrowed.
-    type TupleOwner: Clone + AsRef<[Self]>;
+    /// Storage of a code object's constants (`co_consts`).
+    type Tuple: Clone + Deref<Target = [Self]> + FromIterator<Self>;
 
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self>;
@@ -296,7 +295,7 @@ pub trait Constant: Sized + Clone {
 
 impl Constant for ConstantData {
     type Name = String;
-    type TupleOwner = Box<[Self]>;
+    type Tuple = Box<[Self]>;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         match self {
@@ -378,33 +377,15 @@ impl ConstantBag for BasicBag {
 }
 
 #[derive(Clone)]
-pub struct Constants<C: Constant>(ConstantStorage<C>);
-
-#[derive(Clone)]
-enum ConstantStorage<C: Constant> {
-    Boxed(Box<[C]>),
-    Tuple(C::TupleOwner),
-}
+pub struct Constants<C: Constant>(C::Tuple);
 
 impl<C: Constant> Constants<C> {
-    pub fn from_tuple(owner: C::TupleOwner) -> Self {
-        Self(ConstantStorage::Tuple(owner))
+    pub const fn new(tuple: C::Tuple) -> Self {
+        Self(tuple)
     }
 
-    pub fn tuple_owner(&self) -> Option<&C::TupleOwner> {
-        match &self.0 {
-            ConstantStorage::Tuple(owner) => Some(owner),
-            ConstantStorage::Boxed(_) => None,
-        }
-    }
-
-    /// Consume boxed elements without adding another lasting element owner.
-    /// An immutable tuple must be copied when its elements are taken out.
-    pub fn into_boxed(self) -> Box<[C]> {
-        match self.0 {
-            ConstantStorage::Boxed(elements) => elements,
-            ConstantStorage::Tuple(owner) => owner.as_ref().into(),
-        }
+    pub const fn as_tuple(&self) -> &C::Tuple {
+        &self.0
     }
 }
 
@@ -412,25 +393,7 @@ impl<C: Constant> Deref for Constants<C> {
     type Target = [C];
 
     fn deref(&self) -> &Self::Target {
-        match &self.0 {
-            ConstantStorage::Boxed(elements) => elements,
-            ConstantStorage::Tuple(owner) => owner.as_ref(),
-        }
-    }
-}
-
-impl<C: Constant> DerefMut for Constants<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        if let ConstantStorage::Tuple(owner) = &self.0 {
-            // Allocate and clone before releasing the old owner. No published
-            // tuple is ever mutated, even when it has only one current owner.
-            let elements = owner.as_ref().into();
-            self.0 = ConstantStorage::Boxed(elements);
-        }
-        match &mut self.0 {
-            ConstantStorage::Boxed(elements) => elements,
-            ConstantStorage::Tuple(_) => unreachable!(),
-        }
+        &self.0
     }
 }
 
@@ -438,19 +401,13 @@ impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
-        &self.deref()[consti.as_usize()]
-    }
-}
-
-impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
-    fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
-        &mut self.deref_mut()[consti.as_usize()]
+        &self.0[consti.as_usize()]
     }
 }
 
 impl<C: Constant> FromIterator<C> for Constants<C> {
     fn from_iter<T: IntoIterator<Item = C>>(iter: T) -> Self {
-        Self(ConstantStorage::Boxed(iter.into_iter().collect()))
+        Self(iter.into_iter().collect())
     }
 }
 
@@ -779,23 +736,24 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
-    /// Apply final 3.15 GET_ITER mode fixups before code publication.
-    /// Python/specialize.c:fixup_getiter normalizes every nonzero mode.
-    pub fn normalize_get_iter(&mut self, flags: CodeFlags) {
+    /// `fixup_getiter` applied to every `GET_ITER` by `_PyCode_Quicken`.
+    ///
+    /// The compiler can't know if `types.coroutine()` will be called, so a
+    /// yield-from `GET_ITER` is resolved when the code object is created.
+    pub fn fixup_get_iter(&mut self, flags: CodeFlags) {
+        let mode = if flags.intersects(CodeFlags::COROUTINE | CodeFlags::ITERABLE_COROUTINE) {
+            oparg::GET_ITER_YIELD_FROM_NO_CHECK
+        } else {
+            oparg::GET_ITER_YIELD_FROM_CORO_CHECK
+        };
+        let mut i = 0;
         let units = self.units.get_mut();
-        let mut index = 0;
-        while index < units.len() {
-            let unit = &mut units[index];
-            if matches!(unit.op, Instruction::GetIter { .. }) && unit.arg != 0.into() {
-                let mode = if flags.intersects(CodeFlags::COROUTINE | CodeFlags::ITERABLE_COROUTINE)
-                {
-                    2
-                } else {
-                    3
-                };
-                unit.arg = mode.into();
+        while i < units.len() {
+            let unit = &mut units[i];
+            if matches!(unit.op, Instruction::GetIter { .. }) && u8::from(unit.arg) != 0 {
+                unit.arg = (mode as u8).into();
             }
-            index += 1 + unit.op.cache_entries();
+            i += 1 + unit.op.cache_entries();
         }
     }
 
@@ -805,13 +763,6 @@ impl CodeUnits {
         for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
-    }
-
-    /// Number of code units, without borrowing the live mutable instruction slice.
-    /// Constructors and Clone keep the out-of-line counter array at this length.
-    #[must_use]
-    pub fn unit_count(&self) -> usize {
-        self.adaptive_counters.len()
     }
 
     /// Replace the opcode at `index` in-place without changing the arg byte.
@@ -1009,11 +960,20 @@ impl CodeUnits {
     /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
     /// base variants via `deoptimize()` and all CACHE entries are zeroed.
     pub fn original_bytes(&self) -> Vec<u8> {
+        self.original_bytes_with(|_, op| op)
+    }
+
+    /// [`Self::original_bytes`], with `resolve` first replacing the opcode at
+    /// an index, e.g. an instrumentation placeholder by its original opcode.
+    pub fn original_bytes_with(
+        &self,
+        resolve: impl Fn(usize, Instruction) -> Instruction,
+    ) -> Vec<u8> {
         let len = self.len();
         let mut out = Vec::with_capacity(len * 2);
         let mut i = 0;
         while i < len {
-            let op = self.read_op(i).deoptimize();
+            let op = resolve(i, self.read_op(i)).deoptimize();
             let arg = self.read_arg(i);
             let caches = op.cache_entries();
             out.push(u8::from(op));

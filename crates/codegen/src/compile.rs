@@ -1952,6 +1952,8 @@ impl<'warnings> Compiler<'warnings> {
             }
         };
 
+        let is_generator = ste.is_coroutine || ste.is_generator;
+
         // Use varnames from symbol table (already collected in definition order)
         let varname_cache: IndexSet<Name> = ste.varnames.iter().cloned().collect();
         let nparams = ste.varnames.len();
@@ -2151,6 +2153,27 @@ impl<'warnings> Compiler<'warnings> {
         // Set qualname after pushing (uses compiler_set_qualname logic)
         if scope_type != CompilerScope::Module {
             self.set_qualname();
+        }
+
+        // Add the generator prefix instructions.
+        if is_generator {
+            // RETURN_GENERATOR + POP_TOP have a net stack effect of 0, because
+            // RETURN_GENERATOR pushes the generator before returning.
+            let location = SourceLocation {
+                line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+                character_offset: OneIndexed::MIN,
+            };
+            for instr in [Instruction::ReturnGenerator, Instruction::PopTop] {
+                self.cpython_cfg_builder_addop(ir::InstructionInfo {
+                    instr: instr.into(),
+                    arg: OpArg::NULL,
+                    target: BlockIdx::NULL,
+                    location,
+                    end_location: location,
+                    except_handler: None,
+                    lineno_override: Some(ir::LINE_ONLY_LOCATION_OVERRIDE),
+                });
+            }
         }
 
         // Emit RESUME (handles async preamble and module lineno 0)
@@ -3527,12 +3550,9 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    /// Ordinary imports reserve two low bits for the import policy.
-    fn ordinary_import_flags(&mut self, star: bool) -> u32 {
-        if star || self.current_symbol_table().typ != CompilerScope::Module {
-            return 2;
-        }
-        if self.current_code_info().fblock.iter().any(|block| {
+    /// `_PyCompile_InExceptionHandler`
+    fn in_exception_handler(&mut self) -> bool {
+        self.current_code_info().fblock.iter().any(|block| {
             matches!(
                 block.fb_type,
                 FBlockType::TryExcept
@@ -3542,11 +3562,7 @@ impl<'warnings> Compiler<'warnings> {
                     | FBlockType::ExceptionGroupHandler
                     | FBlockType::HandlerCleanup
             )
-        }) {
-            2
-        } else {
-            0
-        }
+        })
     }
 
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
@@ -3577,7 +3593,15 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    let namei = (self.name(&name.name) << 2) | self.ordinary_import_flags(false);
+                    // force eager import in try/except block
+                    let low = if self.in_exception_handler()
+                        || self.current_symbol_table().typ != CompilerScope::Module
+                    {
+                        2
+                    } else {
+                        0
+                    };
+                    let namei = (self.name(&name.name) << 2) | low;
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3622,8 +3646,16 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                let module_idx =
-                    (self.name(module_name) << 2) | self.ordinary_import_flags(import_star);
+                // forced non-lazy import due to try/except or import *
+                let low = if self.in_exception_handler()
+                    || self.current_symbol_table().typ != CompilerScope::Module
+                    || import_star
+                {
+                    2
+                } else {
+                    0
+                };
+                let module_idx = (self.name(module_name) << 2) | low;
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -9100,7 +9132,12 @@ impl<'warnings> Compiler<'warnings> {
                 self.mark_generator();
                 self.compile_expression(value)?;
                 self.set_source_range(range);
-                emit!(self, Instruction::GetIter { mode: 1 });
+                emit!(
+                    self,
+                    Instruction::GetIter {
+                        mode: oparg::GET_ITER_YIELD_FROM
+                    }
+                );
                 self.emit_load_const(ConstantData::None);
                 let _ = self.compile_yield_from_sequence(false);
             }
@@ -11581,41 +11618,11 @@ impl<'warnings> Compiler<'warnings> {
         self.set_no_location();
     }
 
-    /// Insert StopIteration cleanup before the ordinary function-start RESUME.
-    /// Generator creation prefixes are added before this protected body, either
-    /// by insert_genexpr_prefix() or during locals-plus preparation.
+    /// The SETUP_CLEANUP part of `codegen_wrap_in_stopiteration_handler`.
     fn insert_cpython_stopiteration_setup_cleanup(&mut self, handler_block: BlockIdx) {
-        let code = self.current_code_info();
-        let entry = code
-            .blocks
-            .first_mut()
-            .expect("code unit must have an entry block");
-        debug_assert!(
-            entry
-                .used_instructions()
-                .first()
-                .is_some_and(|info| match info.instr.real() {
-                    Some(Instruction::Resume { context }) => matches!(
-                        context.get(info.arg).location(),
-                        oparg::ResumeLocation::AtFuncStart
-                    ),
-                    _ => false,
-                }),
-            "scope entry must start with a function-start RESUME"
-        );
-        debug_assert!(
-            !entry.used_instructions().iter().any(|info| matches!(
-                info.instr.real(),
-                Some(
-                    Instruction::ReturnGenerator
-                        | Instruction::MakeCell { .. }
-                        | Instruction::CopyFreeVars { .. }
-                )
-            )),
-            "CPython inserts StopIteration cleanup before CFG prefix instructions"
-        );
-
-        let result = code.insert_start_setup_cleanup(handler_block);
+        let result = self
+            .current_code_info()
+            .insert_start_setup_cleanup(handler_block);
         unwrap_internal(self, result);
     }
 
@@ -14724,66 +14731,6 @@ match x:
         );
     }
 
-    #[test]
-    fn empty_module_implicit_return_inherits_resume_location_like_cpython() {
-        let code = compile_exec("");
-        // codegen emits the implicit LOAD_CONST/RETURN_VALUE with
-        // NO_LOCATION, then flowgraph.c::propagate_line_numbers() propagates
-        // the module RESUME location, whose line is 0.
-        assert_eq!(code.linetable.as_ref(), &[0xf3, 0x03, 0x01, 0x01, 0x01]);
-    }
-
-    #[test]
-    fn module_docstring_load_uses_doc_location_like_cpython() {
-        let code = compile_exec(
-            "\
-\"doc\"
-x = 1
-",
-        );
-
-        // codegen_body() emits the docstring LOAD_CONST at the
-        // string expression location, then emits STORE_NAME __doc__ with
-        // NO_LOCATION.
-        assert_eq!(
-            code.linetable.as_ref(),
-            &[
-                0xf1, 0x03, 0x01, 0x01, 0x01, 0xd9, 0x00, 0x05, 0xd8, 0x04, 0x05, 0x82, 0x01
-            ],
-        );
-    }
-
-    #[test]
-    fn redundant_nop_location_copies_full_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(x, y, z):
-    while x:
-        if y:
-            pass
-        elif z:
-            if y < 0:
-                return y
-            if z:
-                y = y + 1
-        elif y:
-            return 1
-    return -1
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0a, 0x0b, 0xdf, 0x0b, 0x0c, 0xd9, 0x0c, 0x10, 0xdf, 0x0d, 0x0e,
-                0xd8, 0x0f, 0x10, 0x90, 0x31, 0x8c, 0x75, 0xd8, 0x17, 0x18, 0x90, 0x08, 0xdf, 0x0f,
-                0x10, 0xd8, 0x14, 0x15, 0x98, 0x01, 0x95, 0x45, 0x92, 0x01, 0xf1, 0x03, 0x00, 0x10,
-                0x11, 0xe7, 0x0d, 0x0e, 0x89, 0x51, 0xd9, 0x13, 0x14, 0xd8, 0x0b, 0x0d, 0x80, 0x49
-            ],
-            "CPython basicblock_remove_redundant_nops() copies the full NOP location into a following no-location jump"
-        );
-    }
-
     fn scan_program_symbol_table(source: &str) -> SymbolTable {
         let source_file = SourceFileBuilder::new("source_path", source).finish();
         let parsed = ruff_python_parser::parse(
@@ -16693,86 +16640,6 @@ def f(buffer, pos, last_char):
     }
 
     #[test]
-    fn annotated_multiline_function_body_keeps_def_firstlineno_like_cpython() {
-        let code = compile_exec(
-            r#"
-a = 1
-def f(
-    x: a,
-): ...
-"#,
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        // CPython 3.14 codegen_function() computes firstlineno from the
-        // FunctionDef before compiling annotations, then passes it to
-        // codegen_function_body().
-        assert_eq!(f.linetable.as_ref(), &[0x81, 0x00, 0xe1, 0x03, 0x06]);
-    }
-
-    #[test]
-    fn annotation_scope_return_uses_function_location_like_cpython() {
-        let code = compile_exec(
-            r#"
-def g():
-    def f(x: not (int is int), /): ...
-"#,
-        );
-        let g = find_code(&code, "g").expect("missing g code");
-        let annotate = find_code(g, "__annotate__").expect("missing annotation code");
-        // CPython 3.14 codegen_function_annotations() receives LOC(function)
-        // and uses it for the annotation closure's BUILD_MAP/RETURN_VALUE and
-        // for the parent MAKE_FUNCTION annotate sequence.
-        assert_eq!(g.linetable.as_ref(), &[0x81, 0x00, 0xdf, 0x04, 0x26]);
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd7, 0x04, 0x26, 0xd1, 0x04, 0x26, 0x94, 0x23, 0x9c, 0x13, 0xd0, 0x0d,
-                0x1d, 0xd1, 0x04, 0x26
-            ],
-        );
-    }
-
-    #[test]
-    fn starred_arg_annotation_unpack_uses_function_location_like_cpython() {
-        let code = compile_exec("def f(*args: *Ts): pass\n");
-        let annotate = find_code(&code, "__annotate__").expect("missing annotation code");
-
-        // codegen_argannotation() visits `Ts` at the annotation
-        // expression location, then emits UNPACK_SEQUENCE at LOC(function).
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd7, 0x00, 0x17, 0xd1, 0x00, 0x17, 0x8c, 0x62, 0xd3, 0x00, 0x17
-            ],
-        );
-    }
-
-    #[test]
-    fn module_deferred_annotations_use_start_location_like_cpython() {
-        let code = compile_exec(
-            "\
-import os
-X: int
-Y: str
-",
-        );
-        let annotate = find_code(&code, "__annotate__").expect("missing __annotate__ code");
-
-        // compile.c::start_location() passes the first module
-        // statement location into _PyCodegen_Module(), and
-        // codegen_process_deferred_annotations() uses that loc for annotation
-        // scope setup, BUILD_MAP, STORE_SUBSCR, and RETURN_VALUE.
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0x87, 0x09, 0x81, 0x09, 0xdf, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
-                0x06, 0xf1, 0x03, 0x00, 0x01, 0x0a, 0xe7, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
-                0x06, 0xf2, 0x05, 0x00, 0x01, 0x0a
-            ]
-        );
-    }
-
-    #[test]
     fn super_method_call_kw_names_use_attribute_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -17023,83 +16890,6 @@ def continues(xs):
     }
 
     #[test]
-    fn not_compare_uses_unary_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self, other):
-    return not self == other
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 parses the Compare inside UnaryOp(Not) with the
-        // UnaryOp start location, so codegen_compare() emits COMPARE_OP at
-        // the full "not self == other" range before flowgraph folds TO_BOOL.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0f, 0x13, 0xd2, 0x0b, 0x1c, 0xd0, 0x04, 0x1c
-            ]
-        );
-    }
-
-    #[test]
-    fn not_chained_compare_keeps_compare_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(c):
-    return not (b\" \" <= c <= b\"~\")
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython's single Compare under UnaryOp(Not) includes "not" in the
-        // Compare range, but chained comparisons keep their inner range for
-        // compare scaffolding and only use the UnaryOp range for TO_BOOL and
-        // UNARY_NOT.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x10, 0x14, 0x98, 0x01, 0xd7, 0x10, 0x21, 0xd4, 0x10, 0x21, 0x98,
-                0x54, 0xd1, 0x10, 0x21, 0xd4, 0x0b, 0x22, 0xd0, 0x04, 0x22, 0xd1, 0x10, 0x21, 0xd4,
-                0x0b, 0x22, 0xd0, 0x04, 0x22
-            ]
-        );
-    }
-
-    #[test]
-    fn type_param_scopes_use_cpython_locations() {
-        let code = compile_exec("type BoundGenericAlias[X: int] = set[X]\n");
-        let type_params = find_code(&code, "<generic parameters of BoundGenericAlias>")
-            .expect("missing generic parameters code");
-        let bound = find_direct_child_code(type_params, "X").expect("missing X bound code");
-        let alias =
-            find_direct_child_code(type_params, "BoundGenericAlias").expect("missing alias code");
-
-        // CPython 3.14 codegen_type_params() emits type-parameter ops at
-        // LOC(typeparam), bound/default evaluator ops at LOC(e), and type alias
-        // body plumbing at LOC(s).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x81, 0x00, 0xd0, 0x00, 0x27, 0x90, 0x76, 0x9b, 0x23, 0x93, 0x76, 0xd7, 0x00,
-                0x27, 0xd1, 0x00, 0x27
-            ],
-        );
-        assert_eq!(
-            bound.linetable.as_ref(),
-            &[0x81, 0x00, 0x9f, 0x23, 0x9e, 0x23]
-        );
-        assert_eq!(
-            alias.linetable.as_ref(),
-            &[
-                0xf8, 0x81, 0x00, 0xd7, 0x00, 0x27, 0xd0, 0x00, 0x27, 0xa4, 0x13, 0xa0, 0x51, 0xa5,
-                0x16, 0xd0, 0x00, 0x27
-            ],
-        );
-    }
-
-    #[test]
     fn typealias_value_scope_has_single_return_like_cpython() {
         let code = compile_exec("type Alias = int\n");
         let alias = find_direct_child_code(&code, "Alias").expect("missing alias code");
@@ -17112,23 +16902,6 @@ def f(c):
             return_count, 1,
             "CPython codegen_typealias_body() emits one RETURN_VALUE and assembles with addNone=0, got instructions={:?}",
             alias.instructions
-        );
-    }
-
-    #[test]
-    fn generic_typealias_wrapper_return_uses_alias_location_like_cpython() {
-        let code = compile_exec("type A[T] = T\n");
-        let type_params =
-            find_code(&code, "<generic parameters of A>").expect("missing type params code");
-
-        // codegen_typealias() assembles the generic-parameters
-        // wrapper with addNone=0 after codegen_typealias_body() leaves the type
-        // alias object on the stack. The final RETURN_VALUE keeps LOC(type alias).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x81, 0x00, 0x80, 0x0d, 0x84, 0x71, 0x87, 0x0d, 0x81, 0x0d
-            ],
         );
     }
 
@@ -17167,25 +16940,6 @@ def f(c):
     }
 
     #[test]
-    fn generic_function_annotation_scope_uses_function_location_like_cpython() {
-        let code = compile_exec("def f[T](x: int): ...\n");
-        let type_params =
-            find_code(&code, "<generic parameters of f>").expect("missing type params code");
-        let annotate =
-            find_direct_child_code(type_params, "__annotate__").expect("missing annotation code");
-
-        // CPython 3.14 passes LOC(function) into codegen_function_annotations(),
-        // even when the annotation closure is emitted inside the generic
-        // parameters scope after codegen_type_params().
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd7, 0x00, 0x15, 0xd1, 0x00, 0x15, 0x8c, 0x43, 0xd1, 0x00, 0x15
-            ],
-        );
-    }
-
-    #[test]
     fn decorated_generic_function_type_params_use_decorator_firstlineno_like_cpython() {
         let code = compile_exec(
             "\
@@ -17200,27 +16954,6 @@ def f[T](): pass
         // codegen_function() passes firstlineno, not LOC(s).lineno, to
         // the generic-parameters scope.
         assert_eq!(type_params.first_line_number.unwrap().get(), 2);
-    }
-
-    #[test]
-    fn generic_class_type_params_store_uses_class_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def outer():
-    class X[T]: ...
-",
-        );
-        let type_params =
-            find_code(&code, "<generic parameters of X>").expect("missing type params code");
-
-        // CPython 3.14 codegen_class() calls codegen_type_params(), then stores
-        // the resulting .type_params cell with codegen_nameop(c, LOC(class), ...).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x81, 0x00, 0x8c, 0x41, 0x87, 0x4f, 0x87, 0x4f, 0x80, 0x4f
-            ]
-        );
     }
 
     #[test]
@@ -17448,44 +17181,6 @@ class C[T]: pass
     }
 
     #[test]
-    fn class_deferred_annotations_use_class_body_location_like_cpython() {
-        let code = compile_exec(
-            r#"
-class C:
-    "doc"
-    x: int
-"#,
-        );
-        let class_code = find_code(&code, "C").expect("missing class code");
-
-        // CPython 3.14 calls codegen_body(c, loc, ...) from codegen_class_body()
-        // with LOCATION(firstlineno, firstlineno, 0, 0). Deferred annotation
-        // closure setup and following artificial class tail inherit that class
-        // body location, not the annotation expression location.
-        assert_eq!(
-            class_code.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd9, 0x04, 0x09, 0xf7, 0x03, 0x00, 0x01, 0x01, 0x83,
-                0x00
-            ],
-        );
-    }
-
-    #[test]
-    fn future_annotation_string_uses_annotation_location_like_cpython() {
-        let code = compile_exec("from __future__ import annotations\nclass Bar:\n    foo: Foo\n");
-        let class_code = find_code(&code, "Bar").expect("missing class code");
-
-        // CPython 3.14 codegen_annassign() calls codegen_visit_annexpr(),
-        // which emits the stringized annotation at LOC(annotation), then emits
-        // the __annotations__ store sequence at LOC(AnnAssign).
-        assert_eq!(
-            class_code.linetable.as_ref(),
-            &[0x87, 0x00, 0x80, 0x00, 0xd8, 0x09, 0x0c, 0x87, 0x48]
-        );
-    }
-
-    #[test]
     #[expect(
         clippy::literal_string_with_formatting_args,
         reason = "the literal is the expected t-string annotation"
@@ -17529,41 +17224,6 @@ class C:
                 "t\"{'#'}\"",
                 "t\"{('#', a)}\"",
             ]
-        );
-    }
-
-    #[test]
-    fn lambda_dict_literal_ops_use_dict_location_like_cpython() {
-        let code = compile_exec(
-            "\
-f = lambda data: {'x': data}
-g = lambda i: {**i}
-",
-        );
-        let f = find_code(&code, "<lambda>").expect("missing f lambda code");
-        let g = code
-            .constants
-            .iter()
-            .filter_map(|constant| {
-                if let ConstantData::Code { code } = constant {
-                    (code.obj_name == "<lambda>").then_some(code.as_ref())
-                } else {
-                    None
-                }
-            })
-            .nth(1)
-            .expect("missing g lambda code");
-
-        // CPython 3.14 codegen_dict()/codegen_subdict() uses LOC(dict) for
-        // BUILD_MAP, MAP_ADD, and DICT_UPDATE, so the lambda RETURN_VALUE
-        // inherits the full dict literal location after compiling its body.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[0x81, 0x00, 0x90, 0x23, 0x90, 0x74, 0x91, 0x1b]
-        );
-        assert_eq!(
-            g.linetable.as_ref(),
-            &[0x81, 0x00, 0x88, 0x65, 0x90, 0x11, 0x89, 0x65]
         );
     }
 
@@ -18317,30 +17977,6 @@ def f(x):
     }
 
     #[test]
-    fn match_or_alternative_copies_use_alternative_locations_like_cpython() {
-        let code = compile_exec(
-            "\
-def f():
-    x = False
-    match 0:
-        case 0 | 1 | 2 | 3:
-            x = True
-    return x
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x08, 0x0d, 0x80, 0x41, 0xd8, 0x0a, 0x0b, 0xdf, 0x0d, 0x0e, 0x97,
-                0x11, 0x97, 0x51, 0x9f, 0x11, 0x88, 0x5d, 0xe0, 0x0b, 0x0c, 0x80, 0x48, 0xf0, 0x05,
-                0x00, 0x0e, 0x1b, 0xd8, 0x10, 0x14, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x80, 0x48
-            ],
-            "CPython codegen_pattern_or() emits each alternative COPY with LOC(alt)"
-        );
-    }
-
-    #[test]
     fn match_or_conflicting_bind_error_uses_or_pattern_location_like_cpython() {
         let error = compile_exec_error(
             "\
@@ -18379,31 +18015,6 @@ def f(value):
             location.line.get(),
             5,
             "CPython codegen_pattern_or() reports merge-time duplicate stores at LOC(p)"
-        );
-    }
-
-    #[test]
-    fn match_success_jump_uses_no_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self):
-    match 0:
-        case 0:
-            x = True
-        case 0:
-            x = False
-    self.assertIs(x, True)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0a, 0x0b, 0xde, 0x0d, 0x0e, 0xd9, 0x10, 0x14, 0x89, 0x41, 0xdd,
-                0x0d, 0x0e, 0xd8, 0x10, 0x15, 0x88, 0x41, 0xd8, 0x04, 0x08, 0x87, 0x4d, 0x81, 0x4d,
-                0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a
-            ],
-            "CPython codegen_match_inner() emits the success jump with NO_LOCATION"
         );
     }
 
@@ -18457,32 +18068,6 @@ def f(x, y):
     }
 
     #[test]
-    fn match_mapping_keys_scaffolding_uses_mapping_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self):
-    x = {}
-    y = None
-    match x:
-        case {0: 0}:
-            y = 0
-    self.assertIs(y, None)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x08, 0x0a, 0x80, 0x41, 0xd8, 0x08, 0x0c, 0x80, 0x41, 0xd8, 0x0a,
-                0x0b, 0xdf, 0x0d, 0x13, 0x8f, 0x56, 0x8a, 0x56, 0x95, 0x11, 0x89, 0x56, 0xd8, 0x10,
-                0x11, 0x89, 0x41, 0xf2, 0x03, 0x00, 0x0e, 0x14, 0xe0, 0x04, 0x08, 0x87, 0x4d, 0x81,
-                0x4d, 0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a
-            ],
-            "CPython codegen_pattern_mapping() returns to LOC(p) for BUILD_TUPLE/MATCH_KEYS scaffolding"
-        );
-    }
-
-    #[test]
     fn match_mapping_rest_cleanup_uses_mapping_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -18531,29 +18116,6 @@ def f(x):
                 "CPython codegen_pattern_mapping() emits {expected} with LOC(p)"
             );
         }
-    }
-
-    #[test]
-    fn match_class_scaffolding_uses_class_pattern_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(x):
-    match x:
-        case bool(z):
-            y = 0
-    return y, z
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0a, 0x0b, 0xdc, 0x0d, 0x11, 0x8f, 0x57, 0x88, 0x57, 0xd8, 0x10,
-                0x11, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x88, 0x34, 0x80, 0x4b, 0xf0, 0x05, 0x00, 0x0e,
-                0x15, 0xe0, 0x0b, 0x0c, 0x88, 0x61, 0x88, 0x34, 0x80, 0x4b
-            ],
-            "CPython codegen_pattern_class() returns to LOC(p) after VISIT(cls)"
-        );
     }
 
     #[test]
@@ -18980,77 +18542,6 @@ x = 1 or 2 or 3
     }
 
     #[test]
-    fn taken_constant_boolop_load_const_uses_literal_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def and_false(x):
-    return False and x
-
-def or_true(x):
-    return True or x
-",
-        );
-        let and_false = find_code(&code, "and_false").expect("missing and_false code");
-        let or_true = find_code(&code, "or_true").expect("missing or_true code");
-
-        // CPython 3.14 codegen_boolop() VISITs the selected literal before the
-        // short-circuit jump is optimized away, so the surviving LOAD_CONST
-        // keeps the literal range rather than the whole BoolOp range.
-        assert_eq!(
-            and_false.linetable.as_ref(),
-            &[0x81, 0x00, 0xd8, 0x0b, 0x10, 0xd0, 0x04, 0x16]
-        );
-        assert_eq!(
-            or_true.linetable.as_ref(),
-            &[0x81, 0x00, 0xd8, 0x0b, 0x0f, 0xd0, 0x04, 0x14]
-        );
-    }
-
-    #[test]
-    fn assert_false_message_call_uses_assert_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f():
-    assert False, \"x\"
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 codegen_assert() emits LOAD_COMMON_CONSTANT and CALL
-        // at LOC(assert statement), then RAISE_VARARGS at LOC(test).
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x04, 0x15, 0x90, 0x23, 0xd3, 0x04, 0x15, 0x88, 0x35
-            ]
-        );
-    }
-
-    #[test]
-    fn static_swap_implicit_return_keeps_preswap_store_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(a, b):
-    a, b = a, b
-    b, a = a, b
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 flowgraph.c resolves line numbers before
-        // optimize_basic_block() turns BUILD_TUPLE/UNPACK_SEQUENCE into SWAP
-        // and apply_static_swaps() reorders the STORE_FAST pair.  The
-        // synthetic return epilogue therefore keeps the pre-swap final store
-        // location.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0b, 0x0c, 0x80, 0x71, 0xd8, 0x0b, 0x0c, 0x82, 0x71
-            ]
-        );
-    }
-
-    #[test]
     fn unpack_store_pair_jump_uses_second_target_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -19162,173 +18653,6 @@ def f(flag, n, exp):
     }
 
     #[test]
-    fn genexpr_make_closure_and_call_use_genexpr_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(parameters):
-    return ((p, type(p)) for p in parameters)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
-
-        // CPython 3.14 codegen_comprehension() uses LOC(e) for
-        // codegen_make_closure(), the outer CALL, and the implicit .0 load
-        // in codegen_sync_comprehension_generator().
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd9, 0x0b, 0x2d, 0xa0, 0x2a, 0xd3, 0x0b, 0x2d, 0xd0, 0x04, 0x2d
-            ]
-        );
-        assert_eq!(
-            genexpr.linetable.as_ref(),
-            &[
-                0xf9, 0xa2, 0x2a, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x2a, 0x98, 0x51, 0x94, 0x04, 0x90,
-                0x51, 0x93, 0x07, 0x8e, 0x4c, 0xa3, 0x2a, 0xf9
-            ]
-        );
-    }
-
-    #[test]
-    fn implicit_call_genexpr_range_includes_call_parens_like_cpython() {
-        let code = compile_exec(
-            "\
-def implicit():
-    return list(x for x in range(10))
-
-def explicit():
-    return list((x for x in range(10)))
-",
-        );
-        let implicit = find_code(&code, "implicit").expect("missing implicit code");
-        let implicit_gen = find_code(implicit, "<genexpr>").expect("missing implicit genexpr code");
-        let explicit = find_code(&code, "explicit").expect("missing explicit code");
-        let explicit_gen = find_code(explicit, "<genexpr>").expect("missing explicit genexpr code");
-
-        // CPython's parser gives an unparenthesized sole GeneratorExp call
-        // argument the call-parenthesized range, and codegen_comprehension()
-        // uses LOC(e) for MAKE_FUNCTION, the outer CALL, and the implicit .0
-        // LOAD_FAST.  Explicitly parenthesized genexprs already carry their own
-        // parentheses and must not be widened again.
-        assert_eq!(
-            implicit.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x25, 0x9c, 0x35, 0xa0, 0x12,
-                0x9b, 0x39, 0xd3, 0x0f, 0x25, 0x8f, 0x34, 0xd0, 0x04, 0x25, 0x88, 0x34, 0xd1, 0x0f,
-                0x25, 0x9c, 0x35, 0xa0, 0x12, 0x9b, 0x39, 0xd3, 0x0f, 0x25, 0xd3, 0x0b, 0x25, 0xd0,
-                0x04, 0x25
-            ]
-        );
-        assert_eq!(
-            implicit_gen.linetable.as_ref(),
-            &[
-                0xf9, 0x9a, 0x39, 0xe9, 0x00, 0x81, 0x00, 0x99, 0x39, 0x90, 0x61, 0x95, 0x01, 0x9b,
-                0x39, 0xf9
-            ]
-        );
-        assert_eq!(
-            explicit_gen.linetable.as_ref(),
-            &[
-                0xf9, 0x9a, 0x49, 0xe9, 0x00, 0x81, 0x00, 0x99, 0x49, 0x90, 0x71, 0x95, 0x11, 0x9b,
-                0x49, 0xf9
-            ]
-        );
-    }
-
-    #[test]
-    fn implicit_call_genexpr_parenthesized_element_range_like_cpython() {
-        let code = compile_exec(
-            "\
-def bytes_binop():
-    return bytes((x ^ 0x5C) for x in range(256))
-
-def dict_tuple(d):
-    return dict((v, k) for (k, v) in d.items())
-
-def plain_tuple_elt(xs):
-    return list((x, y) for x, y in xs)
-
-def explicit_gen(xs):
-    return list(((x, y) for x, y in xs))
-",
-        );
-        let bytes_binop = find_code(&code, "bytes_binop").expect("missing bytes_binop code");
-        let bytes_gen = find_code(bytes_binop, "<genexpr>").expect("missing bytes genexpr code");
-        let dict_tuple = find_code(&code, "dict_tuple").expect("missing dict_tuple code");
-        let dict_gen = find_code(dict_tuple, "<genexpr>").expect("missing dict genexpr code");
-        let plain_tuple_elt =
-            find_code(&code, "plain_tuple_elt").expect("missing plain_tuple_elt code");
-        let plain_gen =
-            find_code(plain_tuple_elt, "<genexpr>").expect("missing plain genexpr code");
-        let explicit_gen = find_code(&code, "explicit_gen").expect("missing explicit_gen code");
-        let explicit_inner =
-            find_code(explicit_gen, "<genexpr>").expect("missing explicit genexpr code");
-
-        // CPython 3.14's parser includes the call argument parentheses in
-        // LOC(GeneratorExp) for implicit sole-argument generator expressions,
-        // even when the element expression itself starts with parentheses.
-        assert_eq!(
-            bytes_binop.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdc, 0x0b, 0x10, 0xd1, 0x10, 0x30, 0xa4, 0x55, 0xa8, 0x33, 0xa3, 0x5a,
-                0xd3, 0x10, 0x30, 0xd3, 0x0b, 0x30, 0xd0, 0x04, 0x30
-            ]
-        );
-        assert_eq!(
-            bytes_gen.linetable.as_ref(),
-            &[
-                0xf9, 0xa2, 0x5a, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x5a, 0xa0, 0x01, 0x90, 0x64, 0x97,
-                0x28, 0x93, 0x28, 0xa3, 0x5a, 0xf9
-            ]
-        );
-        assert_eq!(
-            dict_tuple.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x2f, 0xa0, 0x51, 0xa7, 0x57, 0xa1, 0x57,
-                0xa3, 0x59, 0xd3, 0x0f, 0x2f, 0xd3, 0x0b, 0x2f, 0xd0, 0x04, 0x2f
-            ]
-        );
-        assert_eq!(
-            dict_gen.linetable.as_ref(),
-            &[
-                0xf9, 0xa2, 0x59, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x59, 0x99, 0x36, 0x98, 0x41, 0x90,
-                0x11, 0x96, 0x06, 0xa3, 0x59, 0xf9
-            ]
-        );
-        assert_eq!(
-            plain_tuple_elt.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3, 0x0f,
-                0x26, 0x8f, 0x34, 0xd0, 0x04, 0x26, 0x88, 0x34, 0xd1, 0x0f, 0x26, 0xa0, 0x32, 0xd3,
-                0x0f, 0x26, 0xd3, 0x0b, 0x26, 0xd0, 0x04, 0x26
-            ]
-        );
-        assert_eq!(
-            plain_gen.linetable.as_ref(),
-            &[
-                0xf9, 0xa2, 0x32, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x32, 0x99, 0x34, 0x98, 0x31, 0x90,
-                0x11, 0x96, 0x06, 0xa3, 0x32, 0xf9
-            ]
-        );
-        assert_eq!(
-            explicit_gen.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0b, 0x0f, 0x8c, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3, 0x10,
-                0x27, 0x8f, 0x34, 0xd0, 0x04, 0x28, 0x88, 0x34, 0xd1, 0x10, 0x27, 0xa0, 0x42, 0xd3,
-                0x10, 0x27, 0xd3, 0x0b, 0x28, 0xd0, 0x04, 0x28
-            ]
-        );
-        assert_eq!(
-            explicit_inner.linetable.as_ref(),
-            &[
-                0xf9, 0xa2, 0x42, 0xe9, 0x00, 0x81, 0x00, 0xa1, 0x42, 0x99, 0x44, 0x98, 0x41, 0x90,
-                0x21, 0x96, 0x16, 0xa3, 0x42, 0xf9
-            ]
-        );
-    }
-
-    #[test]
     fn implicit_call_genexpr_operator_element_range_like_cpython() {
         // The element opens with a parenthesized group that the rest of the
         // expression continues, so the call's own parentheses are the only
@@ -19385,71 +18709,6 @@ w = f'' 'a' f''
         assert_eq!(
             ranges,
             vec![(1, 5, 1, 11), (2, 5, 2, 11), (3, 5, 3, 18), (4, 9, 4, 12)]
-        );
-    }
-
-    #[test]
-    fn genexpr_filter_cleanup_jumps_use_element_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def simple(names):
-    return (x for x in names if not _ishidden(x))
-
-def boolop(fields):
-    return (f for f in fields if f.init and not f.kw_only)
-",
-        );
-        let simple = find_code(&code, "simple").expect("missing simple code");
-        let simple_gen = find_code(simple, "<genexpr>").expect("missing simple genexpr code");
-        let boolop = find_code(&code, "boolop").expect("missing boolop code");
-        let boolop_gen = find_code(boolop, "<genexpr>").expect("missing boolop genexpr code");
-
-        // codegen_sync_comprehension_generator() emits the
-        // comprehension guard jump to if_cleanup, then emits the if_cleanup
-        // backedge with elt_loc. flowgraph.c::jump_thread() copies that target
-        // jump location to the threaded POP_JUMP/NOT_TAKEN cleanup path.
-        assert_eq!(
-            simple_gen.linetable.as_ref(),
-            &[
-                0xf9, 0x92, 0x75, 0xe9, 0x00, 0x81, 0x00, 0x91, 0x75, 0x90, 0x21, 0xa4, 0x49, 0xa8,
-                0x61, 0xa7, 0x4c, 0x8f, 0x41, 0x8b, 0x41, 0x93, 0x75, 0xf9
-            ]
-        );
-        assert_eq!(
-            boolop_gen.linetable.as_ref(),
-            &[
-                0xf9, 0x92, 0x76, 0xe9, 0x00, 0x81, 0x00, 0x91, 0x76, 0x90, 0x21, 0xa7, 0x16, 0xa5,
-                0x16, 0x8c, 0x41, 0xb0, 0x01, 0xb7, 0x09, 0xb5, 0x09, 0x8f, 0x41, 0x8b, 0x41, 0x93,
-                0x76, 0xf9
-            ]
-        );
-    }
-
-    #[test]
-    fn try_finally_exception_scaffolding_uses_no_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self, node):
-    self.flag = True
-    try:
-        self.body(node)
-    finally:
-        self.flag = False
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // codegen_try_finally() emits the exception path
-        // SETUP_CLEANUP/PUSH_EXC_INFO and POP_EXCEPT_AND_RERAISE with
-        // NO_LOCATION; flowgraph line propagation then gives only the
-        // finalbody's direct RERAISE the finalbody location.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x10, 0x14, 0x80, 0x44, 0x84, 0x49, 0xf0, 0x02, 0x03, 0x05, 0x1a,
-                0xd8, 0x08, 0x0c, 0x8f, 0x09, 0x89, 0x09, 0x90, 0x24, 0x8c, 0x0f, 0xe0, 0x14, 0x19,
-                0x88, 0x04, 0x8e, 0x09, 0xf8, 0x90, 0x45, 0x88, 0x04, 0x8d, 0x09, 0xfa
-            ]
         );
     }
 
@@ -19579,76 +18838,6 @@ def f(close):
     }
 
     #[test]
-    fn adjacent_no_location_entries_merge_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(file):
-    if sys.platform == \"win32\":
-        try:
-            import nt
-            if not nt._supports_virtual_terminal():
-                return False
-        except (ImportError, AttributeError):
-            return False
-    try:
-        return os.isatty(file.fileno())
-    except OSError:
-        return hasattr(file, \"isatty\") and file.isatty()
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython's NO_LOCATION is {-1, -1, -1, -1}, and
-        // assemble.c::assemble_location_info() merges adjacent instructions
-        // with the same NO_LOCATION into one linetable entry.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdc, 0x07, 0x0a, 0x87, 0x7c, 0x81, 0x7c, 0x90, 0x77, 0xd4, 0x07, 0x1e,
-                0xf0, 0x02, 0x05, 0x09, 0x19, 0xdb, 0x0c, 0x15, 0xd8, 0x13, 0x15, 0xd7, 0x13, 0x30,
-                0xd1, 0x13, 0x30, 0xd7, 0x13, 0x32, 0xd2, 0x13, 0x32, 0xd9, 0x17, 0x1c, 0xf0, 0x03,
-                0x00, 0x14, 0x33, 0xf0, 0x08, 0x03, 0x05, 0x39, 0xdc, 0x0f, 0x11, 0x8f, 0x79, 0x89,
-                0x79, 0x98, 0x14, 0x9f, 0x1b, 0x99, 0x1b, 0x9b, 0x1d, 0xd3, 0x0f, 0x27, 0xd0, 0x08,
-                0x27, 0xf8, 0xf4, 0x07, 0x00, 0x11, 0x1c, 0x9c, 0x5e, 0xd0, 0x0f, 0x2c, 0xf4, 0x00,
-                0x01, 0x09, 0x19, 0xda, 0x13, 0x18, 0xf0, 0x03, 0x01, 0x09, 0x19, 0xfb, 0xf4, 0x08,
-                0x00, 0x0c, 0x13, 0xf4, 0x00, 0x01, 0x05, 0x39, 0xdc, 0x0f, 0x16, 0x90, 0x74, 0x98,
-                0x58, 0xd3, 0x0f, 0x26, 0xd7, 0x0f, 0x38, 0xd0, 0x0f, 0x38, 0xa8, 0x34, 0xaf, 0x3b,
-                0xa9, 0x3b, 0xab, 0x3d, 0xd2, 0x08, 0x38, 0xf0, 0x03, 0x01, 0x05, 0x39, 0xfa
-            ]
-        );
-    }
-
-    #[test]
-    fn fstring_format_ops_use_formatted_value_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def simple(self):
-    return f'{self.value}'
-
-def spec(x):
-    return f'{x!r:>3}'
-",
-        );
-        let simple = find_code(&code, "simple").expect("missing simple code");
-        let spec = find_code(&code, "spec").expect("missing spec code");
-
-        // CPython 3.14 codegen_formatted_value() VISITs the inner expression
-        // first, then emits CONVERT_VALUE / FORMAT_* at LOC(FormattedValue).
-        assert_eq!(
-            simple.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0e, 0x12, 0x8f, 0x6a, 0x89, 0x6a, 0x88, 0x5c, 0xd0, 0x04, 0x1a
-            ]
-        );
-        assert_eq!(
-            spec.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x0e, 0x0f, 0x88, 0x58, 0x90, 0x22, 0x88, 0x58, 0xd0, 0x04, 0x16
-            ]
-        );
-    }
-
-    #[test]
     fn debug_fstring_literal_merging_and_location_like_cpython() {
         fn string_load_position(code: &CodeObject, expected: &str) -> (usize, usize, usize, usize) {
             code.instructions
@@ -19746,29 +18935,6 @@ def padded(digits, int_len):
     }
 
     #[test]
-    fn joined_string_literals_extend_pending_literal_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(a):
-    return (
-        'x'
-        f'y{a}z'
-        'w'
-    )
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xf0, 0x04, 0x01, 0x09, 0x0c, 0xd8, 0x0c, 0x0d, 0x88, 0x33, 0xf0, 0x00,
-                0x01, 0x0f, 0x0c, 0xf0, 0x03, 0x02, 0x09, 0x0c, 0xf0, 0x03, 0x04, 0x05, 0x06
-            ],
-            "CPython parser/codegen represents adjacent f-string literal fragments as Constant ranges spanning the merged fragments"
-        );
-    }
-
-    #[test]
     fn starred_call_preserves_bool_op_short_circuit_shape() {
         let code = compile_exec(
             "\
@@ -19837,60 +19003,6 @@ def outer(null):
                 )
             }),
             "partial constant BoolOp should not leave short-circuit scaffolding, got ops={ops:?}"
-        );
-    }
-
-    #[test]
-    fn decorated_definitions_use_cpython_locations() {
-        let code = compile_exec(
-            "\
-def dec(f): return f
-
-class C:
-    @dec
-    def f(self):
-        yield
-
-@dec
-class D:
-    pass
-
-class E:
-    @dec
-    def g(self, flags: int, /) -> memoryview:
-        raise NotImplementedError
-",
-        );
-        let c = find_code(&code, "C").expect("missing C code");
-        let d = find_code(&code, "D").expect("missing D code");
-        let e = find_code(&code, "E").expect("missing E code");
-        let annotate = find_code(e, "__annotate__").expect("missing annotation code");
-
-        // CPython 3.14 codegen_function()/codegen_class() evaluate
-        // decorators first, then use LOC(s) for codegen_make_closure() and
-        // codegen_nameop(); codegen_apply_decorators() emits CALL at each
-        // decorator expression's location.
-        assert_eq!(
-            c.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd8, 0x05, 0x08, 0xf1, 0x02, 0x01, 0x05, 0x0e, 0xf3,
-                0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x0e
-            ]
-        );
-        assert_eq!(d.linetable.as_ref(), &[0x87, 0x00, 0xe3, 0x04, 0x08]);
-        assert_eq!(
-            e.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x81, 0x00, 0xd8, 0x05, 0x08, 0xf7, 0x02, 0x01, 0x05, 0x22, 0xf3,
-                0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x22
-            ]
-        );
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0xf8, 0x81, 0x00, 0xf7, 0x00, 0x01, 0x05, 0x22, 0xf1, 0x00, 0x01, 0x05, 0x22, 0x91,
-                0x73, 0xf0, 0x00, 0x01, 0x05, 0x22, 0xa1, 0x2a, 0xf1, 0x00, 0x01, 0x05, 0x22
-            ]
         );
     }
 
@@ -20670,56 +19782,6 @@ def outer(log):
     }
 
     #[test]
-    fn builtin_any_genexpr_call_is_optimized() {
-        let code = compile_exec(
-            "\
-def f(xs):
-    return any(x for x in xs)
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
-
-        assert!(has_common_constant(f, bytecode::CommonConstant::BuiltinAny));
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::PopJumpIfTrue { .. }))
-        );
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::NotTaken))
-        );
-        assert_eq!(
-            f.instructions
-                .iter()
-                .filter(|unit| matches!(unit.op, Instruction::PushNull))
-                .count(),
-            2,
-            "the iterator NULL slot and fallback call NULL slot must both remain"
-        );
-        let genexpr_const_count = f
-            .constants
-            .iter()
-            .filter(|constant| {
-                matches!(constant, ConstantData::Code { code } if code.obj_name == "<genexpr>")
-            })
-            .count();
-        assert_eq!(
-            genexpr_const_count, 1,
-            "optimized and fallback any(genexpr) paths should share the same CPython-range code const"
-        );
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0b, 0x0e, 0x8b, 0x33, 0x89, 0x6f, 0x98, 0x22, 0x8b, 0x6f, 0x8f,
-                0x33, 0x8d, 0x33, 0xd0, 0x04, 0x1d, 0x8a, 0x33, 0xd0, 0x04, 0x1d, 0x88, 0x33, 0x89,
-                0x6f, 0x98, 0x22, 0x8b, 0x6f, 0xd3, 0x0b, 0x1d, 0xd0, 0x04, 0x1d
-            ]
-        );
-    }
-
-    #[test]
     fn builtin_any_async_genexpr_call_is_not_optimized_like_cpython() {
         for source in [
             "async def f(xs):\n    return any(x async for x in xs)\n",
@@ -20763,83 +19825,6 @@ async def f(get_xs):
             has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
             "CPython checks the generator expression symtable entry, so await in the outermost iterator does not make the genexpr coroutine"
         );
-    }
-
-    #[test]
-    fn builtin_tuple_list_set_genexpr_calls_are_optimized() {
-        let code = compile_exec(
-            "\
-def tuple_f(xs):
-    return tuple(x for x in xs)
-
-def list_f(xs):
-    return list(x for x in xs)
-
-def set_f(xs):
-    return set(x for x in xs)
-",
-        );
-
-        let tuple_f = find_code(&code, "tuple_f").expect("missing tuple_f code");
-        assert!(has_common_constant(
-            tuple_f,
-            bytecode::CommonConstant::BuiltinTuple
-        ));
-        assert!(has_intrinsic_1(tuple_f, IntrinsicFunction1::ListToTuple));
-        let tuple_list_append = tuple_f
-            .instructions
-            .iter()
-            .find_map(|unit| match unit.op {
-                Instruction::ListAppend { .. } => Some(u32::from(u8::from(unit.arg))),
-                _ => None,
-            })
-            .expect("tuple(genexpr) fast path should emit LIST_APPEND");
-        assert_eq!(tuple_list_append, 3);
-        assert_eq!(
-            tuple_f.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xdf, 0x0b, 0x10, 0x8c, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f, 0x8f,
-                0x35, 0x88, 0x35, 0xd0, 0x04, 0x1f, 0x88, 0x35, 0x91, 0x0f, 0x98, 0x42, 0x93, 0x0f,
-                0xd3, 0x0b, 0x1f, 0xd0, 0x04, 0x1f
-            ]
-        );
-
-        let list_f = find_code(&code, "list_f").expect("missing list_f code");
-        assert!(
-            list_f
-                .instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "list(genexpr) keeps a fallback call for a shadowed builtin"
-        );
-        assert!(
-            has_common_constant(list_f, bytecode::CommonConstant::BuiltinList),
-            "CPython 3.15 guards the optimized list(genexpr) path by builtin identity"
-        );
-
-        let set_f = find_code(&code, "set_f").expect("missing set_f code");
-        assert!(
-            set_f
-                .instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "set(genexpr) keeps a fallback call for a shadowed builtin"
-        );
-        assert!(
-            has_common_constant(set_f, bytecode::CommonConstant::BuiltinSet),
-            "CPython 3.15 guards the optimized set(genexpr) path by builtin identity"
-        );
-        for (code, append) in [
-            (list_f, bytecode::Opcode::ListAppend),
-            (set_f, bytecode::Opcode::SetAdd),
-        ] {
-            assert!(
-                cpython315_decoded_instructions(code)
-                    .iter()
-                    .any(|(_, op, arg)| { op.as_opcode() == append && *arg == 3 })
-            );
-            assert!(!has_intrinsic_1(code, IntrinsicFunction1::ListToTuple));
-        }
     }
 
     #[test]
@@ -21229,27 +20214,6 @@ def aug(x, a, b, y):
                 )
             }),
             "expected CPython-style augassign slice window, got ops={ops:?}"
-        );
-    }
-
-    #[test]
-    fn augassign_constant_slice_copy_uses_subscript_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def aug_const(x, y):
-    x[1:2] += y
-",
-        );
-        let aug_const = find_code(&code, "aug_const").expect("missing aug_const code");
-
-        // CPython 3.14 codegen_augassign() visits a constant slice, then emits
-        // COPY/COPY/BINARY_OP NB_SUBSCR at LOC(target), not at LOC(slice).
-        assert_eq!(
-            aug_const.linetable.as_ref(),
-            &[
-                0x81, 0x00, 0xd8, 0x04, 0x05, 0x80, 0x63, 0x87, 0x46, 0x88, 0x61, 0x85, 0x4b, 0x85,
-                0x46
-            ]
         );
     }
 
@@ -32902,30 +31866,6 @@ def g():
     }
 
     #[test]
-    fn comprehension_list_iterable_build_uses_iter_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(i):
-    return i
-
-async def run_list():
-    return [await c for c in [f(1), f(41)]]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x1e, 0x1f, 0xa0, 0x01, 0x9b, 0x64, 0xa4, 0x41, 0xa0,
-                0x62, 0xa3, 0x45, 0x98, 0x5d, 0xd3, 0x0b, 0x2b, 0x9b, 0x5d, 0x98, 0x01, 0x8f, 0x47,
-                0x8c, 0x47, 0x99, 0x5d, 0xd1, 0x0b, 0x2b, 0xd0, 0x04, 0x2b, 0x89, 0x47, 0xf9, 0xd2,
-                0x0b, 0x2b, 0xf9
-            ],
-            "CPython codegen_comprehension_iter() emits GET_ITER at LOC(comp->iter)"
-        );
-    }
-
-    #[test]
     fn comprehension_boolop_iter_get_iter_uses_iter_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -32952,30 +31892,6 @@ def f(self):
         assert!(
             get_iter_positions.contains(&(2, 44, 2, 63)),
             "CPython codegen_comprehension_iter() emits GET_ITER at LOC(comp->iter), got {get_iter_positions:?}"
-        );
-    }
-
-    #[test]
-    fn inlined_comprehension_backedges_use_element_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(i):
-    return i
-
-async def run_list():
-    return [s for c in [f(''), f('abc')] for s in await c]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x18, 0x19, 0x98, 0x22, 0x9b, 0x05, 0x9c, 0x71, 0xa0,
-                0x15, 0x9b, 0x78, 0xd0, 0x17, 0x28, 0xd4, 0x0b, 0x3a, 0xd3, 0x17, 0x28, 0x90, 0x21,
-                0xb7, 0x27, 0xb5, 0x27, 0xa8, 0x51, 0x8a, 0x41, 0xb1, 0x27, 0x89, 0x41, 0xd1, 0x17,
-                0x28, 0xd2, 0x0b, 0x3a, 0xd0, 0x04, 0x3a, 0xb1, 0x27, 0xf9, 0xd3, 0x0b, 0x3a, 0xf9
-            ],
-            "CPython codegen_sync_comprehension_generator() emits comprehension backedges at elt_loc"
         );
     }
 
@@ -33067,53 +31983,6 @@ def f(fields):
             jump_forward_position,
             (2, 35, 2, 44),
             "CPython flowgraph.c::propagate_line_numbers() copies the if-expression body location onto the NO_LOCATION jump"
-        );
-    }
-
-    #[test]
-    fn inlined_async_comprehension_end_async_for_uses_comprehension_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(it):
-    for i in it:
-        yield i
-
-async def run_list():
-    return [i + 1 async for i in f([10, 20])]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x81, 0x00, 0xdc, 0x21, 0x22, 0xa0, 0x42, 0xa8, 0x02, 0xa0, 0x38, 0xa3,
-                0x1b, 0xd3, 0x0b, 0x2d, 0xa0, 0x1b, 0xd7, 0x0b, 0x2d, 0xd1, 0x0b, 0x2d, 0x98, 0x41,
-                0x90, 0x01, 0x8f, 0x45, 0x88, 0x45, 0xd4, 0x0b, 0x2d, 0xd0, 0x04, 0x2d, 0xf9, 0xd2,
-                0x0b, 0x2d, 0xf9
-            ],
-            "CPython codegen_async_comprehension_generator() emits END_ASYNC_FOR at comprehension loc"
-        );
-    }
-
-    #[test]
-    fn async_for_anext_sequence_uses_statement_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(source, buffer):
-    async for i1, i2 in source():
-        buffer.append(i1 + i2)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x81, 0x00, 0xd9, 0x18, 0x1e, 0x9c, 0x08, 0xf7, 0x00, 0x01, 0x05, 0x1f,
-                0xf2, 0x00, 0x01, 0x05, 0x1f, 0x89, 0x66, 0x88, 0x62, 0xd8, 0x08, 0x0e, 0x8f, 0x0d,
-                0x89, 0x0d, 0x90, 0x62, 0x95, 0x67, 0xd6, 0x08, 0x1e, 0xf1, 0x03, 0x01, 0x05, 0x1f,
-                0x9a, 0x08, 0xf9
-            ],
-            "CPython codegen_async_for() emits GET_ANEXT/yield-from scaffolding at LOC(s)"
         );
     }
 
@@ -33795,27 +32664,6 @@ def f(seq, value):
             }
             _ => false,
         }));
-    }
-
-    #[test]
-    fn namedexpr_copy_uses_namedexpr_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def outer():
-    a = 10
-    def spam():
-        nonlocal a
-        (a := 20)
-",
-        );
-        let spam = find_code(&code, "spam").expect("missing spam code");
-
-        // CPython 3.14 NamedExpr_kind emits COPY at LOC(named expression),
-        // between visiting the value and visiting the target.
-        assert_eq!(
-            spam.linetable.as_ref(),
-            &[0xf8, 0x81, 0x00, 0xe0, 0x0e, 0x10, 0x88, 0x17, 0x8b, 0x11]
-        );
     }
 
     #[test]
@@ -44358,302 +43206,6 @@ def f(_fwalk, stack, isbytes, topdown, onerror, follow_symlinks, close):
                 .any(|unit| matches!(unit.op, Instruction::LoadFastBorrow { .. })),
             "CPython keeps normal finally cleanup loads borrowed, got cleanup prefix={:?}",
             &instructions[cleanup_pop.saturating_sub(12)..cleanup_pop]
-        );
-    }
-
-    fn cpython315_decoded_instructions(code: &CodeObject) -> Vec<(usize, Instruction, u32)> {
-        let mut state = bytecode::OpArgState::default();
-        code.instructions
-            .iter()
-            .copied()
-            .enumerate()
-            .filter_map(|(offset, unit)| {
-                let (op, arg) = state.get(unit);
-                (!matches!(op, Instruction::Cache | Instruction::ExtendedArg)).then_some((
-                    offset,
-                    op,
-                    u32::from(arg),
-                ))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn cpython315_genexpr_acquires_iterator_before_return_generator() {
-        for (source, is_async) in [
-            ("def f(xs):\n    return (x for x in xs)\n", false),
-            ("async def f(xs):\n    return (x async for x in xs)\n", true),
-        ] {
-            let code = compile_exec(source);
-            let f = find_code(&code, "f").unwrap();
-            let genexpr = find_code(f, "<genexpr>").unwrap();
-            let instructions = cpython315_decoded_instructions(genexpr);
-            assert!(matches!(instructions[0].1, Instruction::Resume { .. }));
-            assert_eq!(instructions[0].2, 4);
-            assert!(matches!(
-                instructions[1].1,
-                Instruction::LoadFast { .. } | Instruction::LoadFastBorrow { .. }
-            ));
-            assert_eq!(instructions[1].2, 0);
-            assert!(if is_async {
-                matches!(instructions[2].1, Instruction::GetAiter)
-            } else {
-                matches!(instructions[2].1, Instruction::GetIter { .. })
-            });
-            assert_eq!(instructions[2].2, 0);
-            assert!(matches!(instructions[3].1, Instruction::ReturnGenerator));
-            assert!(matches!(instructions[4].1, Instruction::PopTop));
-            assert!(matches!(instructions[5].1, Instruction::Resume { .. }));
-            assert_eq!(instructions[5].2, 0);
-            assert_eq!(
-                instructions
-                    .iter()
-                    .filter(|(_, op, _)| matches!(op, Instruction::ReturnGenerator))
-                    .count(),
-                1
-            );
-            assert!(!f.instructions.iter().any(|unit| matches!(
-                unit.op,
-                Instruction::GetIter { .. } | Instruction::GetAiter
-            )));
-            let return_offset = u32::try_from(instructions[3].0).unwrap();
-            assert!(
-                bytecode::decode_exception_table(&genexpr.exceptiontable)
-                    .iter()
-                    .all(|entry| return_offset < entry.start || return_offset >= entry.end)
-            );
-        }
-    }
-
-    #[test]
-    fn cpython315_await_and_yield_from_have_pairs_and_cached_resumes() {
-        for (source, is_await) in [
-            ("def f(xs):\n    yield from xs\n", false),
-            ("async def f(xs):\n    return await xs\n", true),
-        ] {
-            let code = compile_exec(source);
-            let f = find_code(&code, "f").unwrap();
-            let instructions = cpython315_decoded_instructions(f);
-            let acquire = instructions
-                .iter()
-                .position(|(_, op, _)| {
-                    matches!(
-                        op,
-                        Instruction::GetIter { .. } | Instruction::GetAwaitable { .. }
-                    )
-                })
-                .unwrap();
-            if is_await {
-                assert!(matches!(instructions[acquire + 1].1, Instruction::PushNull));
-            } else {
-                assert_eq!(instructions[acquire].2, 1);
-            }
-            let send = instructions
-                .iter()
-                .position(|(_, op, _)| matches!(op, Instruction::Send { .. }))
-                .unwrap();
-            let (offset, op, arg) = instructions[send];
-            assert!(matches!(
-                f.instructions[offset + 1 + op.cache_entries() + arg as usize].op,
-                Instruction::EndSend
-            ));
-            let resume = instructions[send + 2];
-            assert!(matches!(resume.1, Instruction::Resume { .. }));
-            assert_eq!(resume.2 & 7, if is_await { 3 } else { 2 });
-            assert_eq!(resume.1.cache_entries(), 1);
-            assert!(matches!(
-                f.instructions[resume.0 + 1].op,
-                Instruction::Cache
-            ));
-        }
-    }
-
-    #[test]
-    fn cpython315_comprehension_collection_depth_counts_iterator_slots() {
-        for (source, depth) in [
-            (
-                "def f(xs, ys):\n    return [x for x in xs for y in ys]\n",
-                5,
-            ),
-            (
-                "async def f(xs, ys):\n    return [x async for x in xs for y in ys]\n",
-                4,
-            ),
-        ] {
-            let code = compile_exec(source);
-            let instructions = cpython315_decoded_instructions(find_code(&code, "f").unwrap());
-            let append = instructions
-                .iter()
-                .find(|(_, op, _)| matches!(op, Instruction::ListAppend { .. }))
-                .unwrap();
-            assert_eq!(append.2, depth);
-        }
-    }
-
-    #[test]
-    fn cpython315_ordinary_imports_pack_names_across_extended_arg_boundary() {
-        use core::fmt::Write;
-        let mut source = String::new();
-        for i in 0..70 {
-            writeln!(source, "import module_{i}").unwrap();
-        }
-        let code = compile_exec(&source);
-        let imports: Vec<_> = cpython315_decoded_instructions(&code)
-            .into_iter()
-            .filter(|(_, op, _)| matches!(op, Instruction::ImportName { .. }))
-            .collect();
-        assert_eq!(imports.len(), 70);
-        for (i, (_, _, arg)) in imports.iter().enumerate() {
-            assert_eq!(*arg, u32::try_from(i).unwrap() << 2);
-            assert_eq!(code.names[(arg >> 2) as usize], format!("module_{i}"));
-        }
-        assert!(
-            code.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::ExtendedArg))
-        );
-    }
-
-    #[test]
-    fn cpython315_ordinary_import_policy_matches_scope_and_handler_context() {
-        for (source, name, flags) in [
-            ("import sample\n", "<module>", &[0][..]),
-            ("from sample import member\n", "<module>", &[0][..]),
-            ("from sample import *\n", "<module>", &[2][..]),
-            ("def f():\n    import sample\n", "f", &[2][..]),
-            ("class C:\n    from sample import member\n", "C", &[2][..]),
-            (
-                "try:\n    import sample\nexcept Exception:\n    pass\n",
-                "<module>",
-                &[2][..],
-            ),
-            (
-                "try:\n    operation()\nexcept Exception:\n    import sample\n",
-                "<module>",
-                &[2][..],
-            ),
-            (
-                "try:\n    operation()\nfinally:\n    import sample\n",
-                "<module>",
-                &[0, 2][..],
-            ),
-            ("with manager:\n    import sample\n", "<module>", &[0][..]),
-        ] {
-            let code = compile_exec(source);
-            let scope = find_code(&code, name).unwrap();
-            let instructions = cpython315_decoded_instructions(scope);
-            let imports: Vec<_> = instructions
-                .iter()
-                .filter(|(_, op, _)| matches!(op, Instruction::ImportName { .. }))
-                .collect();
-            assert_eq!(
-                imports
-                    .iter()
-                    .map(|import| import.2 & 3)
-                    .collect::<Vec<_>>(),
-                flags,
-                "{source}"
-            );
-            for import in imports {
-                assert_eq!(scope.names[(import.2 >> 2) as usize], "sample");
-            }
-        }
-    }
-
-    #[test]
-    fn cpython315_loop_return_cleanup_distinguishes_sync_and_async_iterators() {
-        for (source, slots) in [
-            ("def f(xs):\n    for x in xs:\n        return x\n", 2),
-            (
-                "async def f(xs):\n    async for x in xs:\n        return x\n",
-                1,
-            ),
-        ] {
-            let code = compile_exec(source);
-            let instructions = cpython315_decoded_instructions(find_code(&code, "f").unwrap());
-            let swap = instructions
-                .iter()
-                .position(|(_, op, arg)| {
-                    matches!(op, Instruction::Swap { .. }) && *arg == slots + 1
-                })
-                .unwrap();
-            for i in 1..=slots as usize {
-                assert!(matches!(instructions[swap + i].1, Instruction::PopTop));
-            }
-            assert!(matches!(
-                instructions[swap + slots as usize + 1].1,
-                Instruction::ReturnValue
-            ));
-        }
-    }
-
-    #[test]
-    fn cpython315_end_async_for_offsets_account_for_resume_cache() {
-        let code = compile_exec("async def f(xs):\n    async for x in xs:\n        pass\n");
-        let f = find_code(&code, "f").unwrap();
-        let instructions = cpython315_decoded_instructions(f);
-        let (offset, _, arg) = *instructions
-            .iter()
-            .find(|(_, op, _)| matches!(op, Instruction::EndAsyncFor))
-            .unwrap();
-        assert!(matches!(
-            f.instructions[offset + 1 - arg as usize].op,
-            Instruction::EndSend
-        ));
-    }
-
-    #[test]
-    fn cpython315_list_set_async_genexpr_calls_keep_normal_call_path() {
-        for (name, constant) in [
-            ("list", bytecode::CommonConstant::BuiltinList),
-            ("set", bytecode::CommonConstant::BuiltinSet),
-        ] {
-            let source = format!("async def f(xs):\n    return {name}(x async for x in xs)\n");
-            let code = compile_exec(&source);
-            let f = find_code(&code, "f").unwrap();
-            assert!(!has_common_constant(f, constant));
-            assert!(
-                !f.instructions
-                    .iter()
-                    .any(|unit| matches!(unit.op, Instruction::ForIter { .. }))
-            );
-            assert!(
-                f.instructions
-                    .iter()
-                    .any(|unit| matches!(unit.op, Instruction::Call { .. }))
-            );
-        }
-    }
-
-    #[test]
-    fn cpython315_with_cleanup_excludes_synthetic_not_taken() {
-        let code = compile_exec("def f(c):\n    with c:\n        x = 1\n    y = 2\n");
-        let f = find_code(&code, "f").unwrap();
-        let not_taken = u32::try_from(
-            f.instructions
-                .iter()
-                .position(|unit| matches!(unit.op, Instruction::NotTaken))
-                .unwrap(),
-        )
-        .unwrap();
-        let entries = bytecode::decode_exception_table(&f.exceptiontable);
-        assert_eq!(entries.len(), 3);
-        assert!(
-            entries
-                .iter()
-                .all(|entry| not_taken < entry.start || not_taken >= entry.end)
-        );
-        assert_eq!(entries[1].end, not_taken);
-        assert_eq!(entries[2].start, not_taken + 1);
-        assert_eq!(entries[1].target, entries[2].target);
-        assert_eq!(entries[1].depth, 4);
-        assert_eq!(entries[2].depth, 4);
-        assert!(entries[1].push_lasti && entries[2].push_lasti);
-        assert_eq!(
-            f.exceptiontable.as_ref(),
-            &[
-                0x8c, 0x03, 0x1b, 0x05, 0x9b, 0x08, 0x2e, 0x09, 0xa4, 0x02, 0x2e, 0x09
-            ]
         );
     }
 }

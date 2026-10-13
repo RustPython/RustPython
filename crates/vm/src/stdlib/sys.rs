@@ -668,7 +668,7 @@ pub mod sys {
         const NAME: &str = "rustpython";
 
         // Keep implementation-specific bytecode caches separate.
-        let cache_tag = version::PYC_CACHE_TAG;
+        let cache_tag = format!("{NAME}-{}{}", version::MAJOR, version::MINOR);
         let ctx = &vm.ctx;
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),

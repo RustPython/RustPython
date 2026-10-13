@@ -256,18 +256,18 @@ pub(crate) mod stack_analysis {
                         }
                     }
                     Instruction::ForIter { .. } => {
-                        // Fall-through (iteration continues): pushes the next value
-                        let body_stack = push_value(next_stack, Kind::Object as i64);
+                        // Both the body and the END_FOR target start with the
+                        // next value pushed.
+                        let target_stack = push_value(next_stack, Kind::Object as i64);
                         if next_i < stacks.len() {
-                            stacks[next_i] = body_stack;
+                            stacks[next_i] = target_stack;
                         }
-                        // CPython models the target END_FOR with the yielded-value slot.
                         let j = next_i + oparg as usize;
-                        if j < stacks.len() && stacks[j] == UNINITIALIZED {
-                            stacks[j] = body_stack;
+                        if j < stacks.len() {
+                            debug_assert!(stacks[j] == UNINITIALIZED || stacks[j] == target_stack);
+                            stacks[j] = target_stack;
                         }
                     }
-
                     Instruction::EndAsyncFor => {
                         next_stack = pop_value(pop_value(next_stack));
                         if next_i < stacks.len() {

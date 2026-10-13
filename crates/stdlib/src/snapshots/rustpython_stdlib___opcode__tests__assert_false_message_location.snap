@@ -1,0 +1,19 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f():\n    assert False, \"x\"\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:21            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:21            MAKE_FUNCTION
+1:0-2:21            STORE_NAME               0 (f)
+1:0-2:21            LOAD_COMMON_CONSTANT     7 (None)
+1:0-2:21            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:4-2:21             LOAD_COMMON_CONSTANT     0 (AssertionError)
+2:18-2:21            LOAD_CONST               1 ('x')
+2:4-2:21             CALL                     0
+2:11-2:16            RAISE_VARARGS            1

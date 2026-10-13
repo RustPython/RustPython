@@ -2448,7 +2448,6 @@ impl Blocks {
                         | Instruction::GetAnext
                         | Instruction::GetLen
                         | Instruction::GetIter { .. }
-                        | Instruction::GetYieldFromIter
                         | Instruction::ImportFrom { .. }
                         | Instruction::MatchKeys
                         | Instruction::MatchMapping
@@ -4038,6 +4037,7 @@ impl CodeInfo {
         }
     }
 
+    /// Insert SETUP_CLEANUP just after the initial RETURN_GENERATOR; POP_TOP.
     pub(crate) fn insert_start_setup_cleanup(
         &mut self,
         handler_block: BlockIdx,
@@ -4047,9 +4047,20 @@ impl CodeInfo {
             &mut self.instr_sequence,
             handler_block,
         )?;
+        let seq = &self.instr_sequence;
+        let opcode_at = |i: usize| seq.instrs[i].info.instr.real();
+        let mut resume = 0;
+        while !matches!(opcode_at(resume), Some(Instruction::ReturnGenerator)) {
+            resume += 1;
+            debug_assert!(resume < seq.instr_used);
+        }
+        resume += 1;
+        debug_assert!(matches!(opcode_at(resume), Some(Instruction::PopTop)));
+        resume += 1;
+        debug_assert!(resume < seq.instr_used);
         instruction_sequence_insert_instruction(
             &mut self.instr_sequence,
-            0,
+            resume,
             InstructionInfo {
                 instr: PseudoOpcode::SetupCleanup.into(),
                 arg: instruction_sequence_label_oparg(handler_label),
@@ -4062,6 +4073,8 @@ impl CodeInfo {
         )
     }
 
+    /// Insert `RESUME`, `LOAD_FAST 0` and the outermost `GET_ITER` (or
+    /// `GET_AITER`) before RETURN_GENERATOR.
     pub(crate) fn insert_genexpr_prefix(
         &mut self,
         mut iterator: InstructionInfo,
@@ -4075,17 +4088,7 @@ impl CodeInfo {
         let mut load = iterator;
         load.instr_set_op1(Opcode::LoadFast.into(), OpArg::new(0));
         iterator.arg = OpArg::new(0);
-        let mut return_generator = InstructionInfo::empty();
-        return_generator.instr_set_op0(Instruction::ReturnGenerator.into());
-        return_generator.location.line = self.metadata.firstlineno;
-        return_generator.end_location.line = self.metadata.firstlineno;
-        return_generator.lineno_override = Some(LINE_ONLY_LOCATION_OVERRIDE);
-        let mut pop = return_generator;
-        pop.instr_set_op0(Instruction::PopTop.into());
-        for (i, info) in [resume, load, iterator, return_generator, pop]
-            .into_iter()
-            .enumerate()
-        {
+        for (i, info) in [resume, load, iterator].into_iter().enumerate() {
             instruction_sequence_insert_instruction(&mut self.instr_sequence, i, info)?;
         }
         Ok(())
@@ -4196,7 +4199,7 @@ fn optimized_cfg_to_instruction_sequence(
     blocks.convert_pseudo_conditional_jumps()?;
     let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
-    let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
+    let nlocalsplus = prepare_localsplus(metadata, blocks)?;
     // Pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
@@ -4418,49 +4421,12 @@ fn insert_prefix_instructions(
     blocks: &mut Blocks,
     cellfixedoffsets: &[i32],
     nfreevars: usize,
-    flags: CodeFlags,
 ) -> crate::InternalResult<()> {
     debug_assert!(!blocks.is_empty());
     let entry = &mut blocks[0];
     let ncellvars = metadata.cellvars.len();
     let firstlineno = metadata.firstlineno;
     debug_assert!(firstlineno.get() > 0);
-
-    if is_generator(flags)
-        && !entry
-            .used_instructions()
-            .iter()
-            .any(|info| matches!(info.instr.real(), Some(Instruction::ReturnGenerator)))
-    {
-        let location = SourceLocation {
-            line: firstlineno,
-            character_offset: OneIndexed::MIN,
-        };
-        entry.basicblock_insert_instruction(
-            0,
-            InstructionInfo {
-                instr: Instruction::ReturnGenerator.into(),
-                arg: OpArg::new(0),
-                target: BlockIdx::NULL,
-                location,
-                end_location: location,
-                except_handler: None,
-                lineno_override: Some(LINE_ONLY_LOCATION_OVERRIDE),
-            },
-        )?;
-        entry.basicblock_insert_instruction(
-            1,
-            InstructionInfo {
-                instr: Instruction::PopTop.into(),
-                arg: OpArg::new(0),
-                target: BlockIdx::NULL,
-                location,
-                end_location: location,
-                except_handler: None,
-                lineno_override: Some(LINE_ONLY_LOCATION_OVERRIDE),
-            },
-        )?;
-    }
 
     if ncellvars > 0 {
         let nvars = metadata.varnames.len() + ncellvars;
@@ -4515,7 +4481,6 @@ fn insert_prefix_instructions(
 fn prepare_localsplus(
     metadata: &CodeUnitMetadata,
     blocks: &mut Blocks,
-    flags: CodeFlags,
 ) -> crate::InternalResult<usize> {
     let nlocals = metadata.varnames.len();
     let ncellvars = metadata.cellvars.len();
@@ -4530,7 +4495,7 @@ fn prepare_localsplus(
     let mut cellfixedoffsets = build_cellfixedoffsets(metadata)?;
 
     // This must be called before fix_cell_offsets().
-    insert_prefix_instructions(metadata, blocks, &cellfixedoffsets, nfreevars, flags)?;
+    insert_prefix_instructions(metadata, blocks, &cellfixedoffsets, nfreevars)?;
 
     let numdropped = fix_cell_offsets(metadata, blocks, &mut cellfixedoffsets);
     nlocalsplus -= numdropped;
@@ -5969,7 +5934,7 @@ impl CodeInfo {
         ));
 
         let _max_stackdepth = self.blocks.calculate_stackdepth()?;
-        let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks, self.flags)?;
+        let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks)?;
         convert_pseudo_ops(&mut self.blocks)?;
         trace.push((
             "after_convert_pseudo_ops".to_owned(),
@@ -7110,8 +7075,6 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                     }
                     last_yield_except_depth = -1;
                 }
-            } else if matches!(instr.real(), Some(Instruction::ReturnGenerator)) {
-                blocks[bi].instructions[i].except_handler = None;
             } else {
                 blocks[bi].instructions[i].except_handler = handler;
             }
@@ -7952,70 +7915,6 @@ mod tests {
     }
 
     #[test]
-    fn constant_sequence_loads_use_cpython_opcode_has_const_metadata() {
-        let mut metadata = CodeUnitMetadata {
-            name: "<module>".to_owned(),
-            qualname: Some("<module>".to_owned()),
-            consts: Default::default(),
-            names: IndexSet::default(),
-            varnames: IndexSet::default(),
-            cellvars: IndexSet::default(),
-            freevars: IndexSet::default(),
-            fast_hidden: IndexMap::default(),
-            fast_hidden_final: IndexSet::default(),
-            argcount: 0,
-            posonlyargcount: 0,
-            kwonlyargcount: 0,
-            firstlineno: OneIndexed::MIN,
-        };
-        let (left, _) = metadata
-            .consts
-            .insert_full(ConstantData::Str { value: "a".into() });
-        let (right, _) = metadata
-            .consts
-            .insert_full(ConstantData::Str { value: "b".into() });
-
-        let mut immortal = test_instr(Instruction::Nop, 90);
-        immortal.instr = Opcode::LoadConstImmortal.into();
-        immortal.arg = OpArg::new(left as u32);
-        let mut mortal = test_instr(Instruction::Nop, 90);
-        mortal.instr = Opcode::LoadConstMortal.into();
-        mortal.arg = OpArg::new(right as u32);
-        let mut build = test_instr(Opcode::BuildTuple.into(), 90);
-        build.arg = OpArg::new(2);
-        let mut block = Block::default();
-        for info in [immortal, mortal, build] {
-            test_block_push(&mut block, info);
-        }
-
-        assert!(
-            fold_tuple_of_constants(&mut metadata, &mut block, 2)
-                .expect("fold_tuple_of_constants succeeds")
-        );
-
-        // CPython `loads_const()` accepts every `OPCODE_HAS_CONST` opcode, not
-        // just canonical LOAD_CONST, so LOAD_CONST_IMMORTAL/MORTAL participate
-        // in constant-sequence folding.
-        assert!(matches!(
-            block.instructions[0].instr.real(),
-            Some(Instruction::Nop)
-        ));
-        assert!(matches!(
-            block.instructions[1].instr.real(),
-            Some(Instruction::Nop)
-        ));
-        let folded = &block.instructions[2];
-        assert!(matches!(
-            folded.instr.real(),
-            Some(Instruction::LoadConst { .. })
-        ));
-        assert!(matches!(
-            &metadata.consts[u32::from(folded.arg) as usize],
-            ConstantData::Tuple { elements } if elements.len() == 2
-        ));
-    }
-
-    #[test]
     fn empty_tuple_repeat_folds_negative_count_like_cpython() {
         let folded = const_folding_safe_multiply(
             &ConstantData::Tuple {
@@ -8212,129 +8111,5 @@ mod tests {
             .expect("valid conditional jump chain");
 
         assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(2));
-    }
-
-    #[test]
-    fn cpython315_common_constants_lower_and_round_trip_without_numeric_aliasing() {
-        use oparg::CommonConstant;
-        for (constant, common) in [
-            (ConstantData::None, CommonConstant::None),
-            (
-                ConstantData::Str {
-                    value: Wtf8Buf::new(),
-                },
-                CommonConstant::EmptyStr,
-            ),
-            (ConstantData::Boolean { value: true }, CommonConstant::True),
-            (
-                ConstantData::Boolean { value: false },
-                CommonConstant::False,
-            ),
-            (int_const(-1), CommonConstant::MinusOne),
-        ] {
-            let mut metadata = test_code_info(Block::default()).metadata;
-            metadata.consts.insert_full(constant.clone());
-            let mut block = Block::default();
-            test_block_push(&mut block, test_instr(Opcode::LoadConst.into(), 1));
-            basicblock_optimize_load_const(&mut metadata, &mut block).unwrap();
-            let info = block.instructions[0];
-            assert_eq!(info.instr.real_opcode(), Some(Opcode::LoadCommonConstant));
-            assert_eq!(u32::from(info.arg), u32::from(common));
-            assert_eq!(get_const_value(&metadata, &info), Some(constant.clone()));
-            assert_eq!(
-                load_const_truthiness(info.instr.expect_real(), info.arg, &metadata),
-                Some(constant.truthiness())
-            );
-        }
-        for constant in [
-            int_const(0),
-            int_const(1),
-            ConstantData::Float { value: -1.0 },
-        ] {
-            assert!(
-                !test_instr(Opcode::LoadConst.into(), 1)
-                    .maybe_instr_make_load_common_const(&constant)
-            );
-        }
-    }
-
-    #[test]
-    fn cpython315_get_iter_tracks_both_stack_slots_for_borrow_analysis() {
-        let mut block = Block::default();
-        for (op, arg) in [
-            (Opcode::LoadFast, 0),
-            (Opcode::GetIter, 0),
-            (Opcode::Swap, 2),
-            (Opcode::PopTop, 0),
-            (Opcode::PopTop, 0),
-        ] {
-            let mut info = test_instr(op.into(), 1);
-            info.arg = OpArg::new(arg);
-            test_block_push(&mut block, info);
-        }
-        let mut code = test_code_info(block);
-        code.blocks.optimize_load_fast().unwrap();
-        assert_eq!(
-            code.blocks[0].instructions[0].instr.real_opcode(),
-            Some(Opcode::LoadFastBorrow)
-        );
-    }
-
-    #[test]
-    fn cpython315_end_send_preserves_result_borrow_and_consumes_iterator_pair() {
-        let mut block = Block::default();
-        for (op, arg) in [
-            (
-                Opcode::LoadCommonConstant,
-                u32::from(oparg::CommonConstant::None),
-            ),
-            (Opcode::PushNull, 0),
-            (Opcode::LoadFast, 0),
-            (Opcode::EndSend, 0),
-            (Opcode::PopTop, 0),
-        ] {
-            let mut info = test_instr(op.into(), 1);
-            info.arg = OpArg::new(arg);
-            test_block_push(&mut block, info);
-        }
-        let mut code = test_code_info(block);
-        assert_eq!(code.blocks.calculate_stackdepth().unwrap(), 3);
-        code.blocks.optimize_load_fast().unwrap();
-        assert_eq!(
-            code.blocks[0].instructions[2].instr.real_opcode(),
-            Some(Opcode::LoadFastBorrow)
-        );
-    }
-
-    #[test]
-    fn cpython315_redundant_nop_compaction_clears_vacated_metadata() {
-        let handler = ExceptHandlerInfo {
-            handler_block: BlockIdx::new(2),
-            preserve_lasti: true,
-        };
-        let mut block = Block::default();
-        for _ in 0..2 {
-            let mut nop = test_instr(Instruction::Nop, 10);
-            nop.lineno_override = Some(NO_LOCATION_OVERRIDE);
-            nop.target = BlockIdx::new(1);
-            nop.except_handler = Some(handler);
-            test_block_push(&mut block, nop);
-        }
-        let mut jump = test_instr(Opcode::PopJumpIfTrue.into(), 10);
-        jump.target = BlockIdx::new(1);
-        jump.except_handler = Some(handler);
-        test_block_push(&mut block, jump);
-        let mut blocks = Blocks::from([block, Block::default(), Block::default()]);
-        assert_eq!(blocks.basicblock_remove_redundant_nops(BlockIdx::new(0)), 2);
-        assert_eq!(blocks[0].instructions[0].target, jump.target);
-        assert_eq!(blocks[0].instructions[0].except_handler, Some(handler));
-        for slot in &blocks[0].instructions[1..3] {
-            assert_eq!(slot.target, BlockIdx::NULL);
-            assert_eq!(slot.except_handler, None);
-        }
-        blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
-        let not_taken = &blocks[0].instructions[1];
-        assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
-        assert_eq!(not_taken.except_handler, None);
     }
 }

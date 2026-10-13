@@ -342,6 +342,11 @@ oparg_enum!(
     }
 );
 
+/// Values used in the oparg for `GET_ITER`.
+pub const GET_ITER_YIELD_FROM: u32 = 1;
+pub const GET_ITER_YIELD_FROM_NO_CHECK: u32 = 2;
+pub const GET_ITER_YIELD_FROM_CORO_CHECK: u32 = 3;
+
 pub type NameIdx = u32;
 
 impl OpArgType for u32 {}
@@ -916,10 +921,10 @@ newtype_oparg!(
 );
 
 impl ResumeContext {
-    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h)
+    /// [CPython `RESUME_OPARG_LOCATION_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h#L92)
     pub const LOCATION_MASK: u32 = 0x7;
 
-    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h)
+    /// [CPython `RESUME_OPARG_DEPTH1_MASK`](https://github.com/python/cpython/blob/v3.15.0/Include/internal/pycore_opcode_utils.h#L93)
     pub const DEPTH1_MASK: u32 = 0x8;
 
     #[must_use]
@@ -957,7 +962,8 @@ pub enum ResumeLocation {
     AfterYieldFrom,
     /// After an `await` expression.
     AfterAwait,
-    /// Eager iterator acquisition before generator-expression creation.
+    /// Start of a generator expression, before its outermost iterator is
+    /// acquired and the generator is created.
     AtGenExprStart,
 }
 

@@ -1,4 +1,0 @@
-# Private legacy instruction. The compiler must never emit this opcode.
-[GetYieldFromIter.stack_effect]
-popped = "1"
-pushed = "1"
