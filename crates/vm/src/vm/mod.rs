@@ -2687,6 +2687,24 @@ impl VirtualMachine {
         frame: FrameObjectRef,
         f: F,
     ) -> PyResult<R> {
+        self.with_frame_impl::<true, R, F>(frame, f)
+    }
+
+    /// Generator construction runs an incomplete frame whose caller link must
+    /// not escape. RETURN_GENERATOR copies the frame with previous=NULL in CPython.
+    pub(crate) fn with_generator_frame<R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
+        &self,
+        frame: FrameObjectRef,
+        f: F,
+    ) -> PyResult<R> {
+        self.with_frame_impl::<false, R, F>(frame, f)
+    }
+
+    fn with_frame_impl<const RETAIN_BACK: bool, R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
+        &self,
+        frame: FrameObjectRef,
+        f: F,
+    ) -> PyResult<R> {
         self.check_recursive_call("")?;
 
         // Every entry, not every eighth. The margin only has to cover what a
@@ -2732,7 +2750,7 @@ impl VirtualMachine {
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
-        if !old_chain.is_null() {
+        if RETAIN_BACK && !old_chain.is_null() {
             let strong = frame.as_object().strong_count();
             // Only set retained_back if someone else holds a reference (escaped)
             // AND the caller already has a FrameObject. Materializing the caller
@@ -2743,8 +2761,11 @@ impl VirtualMachine {
             if strong > 1 {
                 let mut guard = frame.iframe().cold().retained_back.lock();
                 if guard.is_none() {
-                    let prev_iframe = unsafe { &*old_chain };
-                    if let Some(fo) = prev_iframe.frame_obj() {
+                    // SAFETY: old_chain remains live until this synchronous entry exits.
+                    let visible = unsafe { crate::frame::first_complete_iframe(old_chain) };
+                    if let Some(prev_iframe) = unsafe { visible.as_ref() }
+                        && let Some(fo) = prev_iframe.frame_obj()
+                    {
                         *guard = Some(fo.to_owned());
                     }
                 }
@@ -2870,8 +2891,9 @@ impl VirtualMachine {
                 // The slots above are the last write this thread makes into
                 // the frame object, so it is now readable from anywhere.
                 fo.iframe().detach();
-                if !old_chain.is_null() {
-                    let prev_iframe = unsafe { &*old_chain };
+                // SAFETY: old_chain belongs to this still-active thread chain.
+                let visible = unsafe { crate::frame::first_complete_iframe(old_chain) };
+                if let Some(prev_iframe) = unsafe { visible.as_ref() } {
                     let back_fo = prev_iframe.materialize_chain(self);
                     *fo.iframe().cold().retained_back.lock() = Some(back_fo);
                 }
@@ -3057,10 +3079,19 @@ impl VirtualMachine {
         if result.is_err()
             && self.use_tracing.get()
             && (!self.is_none(&self.profile_func.borrow())
-                || frame
-                    .iframe()
-                    .cold_opt()
-                    .is_some_and(|c| c.trace.lock().is_some()))
+                || if frame.iframe().is_incomplete_for_trace() {
+                    crate::frame::current_complete_frame_for_trace(self).is_some_and(|visible| {
+                        visible
+                            .iframe()
+                            .cold_opt()
+                            .is_some_and(|c| c.trace.lock().is_some())
+                    })
+                } else {
+                    frame
+                        .iframe()
+                        .cold_opt()
+                        .is_some_and(|c| c.trace.lock().is_some())
+                })
         {
             let ret_result = self.trace_event_what(
                 TraceEvent::Return,

@@ -1,8 +1,10 @@
 //! Infamous code object. The python class `code`
 
+mod compile_cache;
+
 use super::descriptor::{MemberKind, MemberLayout};
 use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
-use crate::common::lock::PyMutex;
+use crate::common::lock::{OnceCell, PyMutex};
 #[cfg(feature = "host_env")]
 use crate::convert::ToPyException;
 use crate::{
@@ -154,11 +156,11 @@ pub struct ReplaceArgs {
     #[pyarg(named, optional)]
     co_firstlineno: OptionalArg<u32>,
     #[pyarg(named, optional)]
-    co_consts: OptionalArg<Vec<PyObjectRef>>,
+    co_consts: OptionalArg<PyTupleRef>,
     #[pyarg(named, optional)]
     co_name: OptionalArg<PyStrRef>,
     #[pyarg(named, optional)]
-    co_names: OptionalArg<Vec<PyObjectRef>>,
+    co_names: OptionalArg<PyTupleRef>,
     #[pyarg(named, optional)]
     co_flags: OptionalArg<u32>,
     #[pyarg(named, optional)]
@@ -256,7 +258,22 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
     })
 }
 
+/// Immutable tuple backing for runtime constants. Construction is private so
+/// the only exposed slice always borrows a real tuple owner.
+#[derive(Clone)]
+pub struct LiteralTupleOwner(PyTupleRef);
+
+impl AsRef<[Literal]> for LiteralTupleOwner {
+    fn as_ref(&self) -> &[Literal] {
+        let elements = self.0.as_slice();
+        // SAFETY: Literal is transparent over PyObjectRef and accepts every
+        // Python object. The immutable slice cannot outlive this tuple owner.
+        unsafe { &*(elements as *const [PyObjectRef] as *const [Literal]) }
+    }
+}
+
 impl Constant for Literal {
+    type TupleOwner = LiteralTupleOwner;
     type Name = &'static PyStrInterned;
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         borrow_obj_constant(&self.0)
@@ -357,6 +374,15 @@ pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
     fn into_code_object(self, vm: &VirtualMachine) -> CodeObject;
+
+    /// Finalize runtime fields before publication. Basic compilation overrides
+    /// this to share one private pool; frozen and Literal routes keep defaults.
+    fn into_pycode(self, vm: &VirtualMachine) -> PyCode
+    where
+        Self: Sized,
+    {
+        PyCode::new(self.into_code_object(vm), &vm.ctx)
+    }
 }
 
 impl IntoCodeObject for CodeObject {
@@ -367,7 +393,13 @@ impl IntoCodeObject for CodeObject {
 
 impl IntoCodeObject for bytecode::CodeObject {
     fn into_code_object(self, vm: &VirtualMachine) -> CodeObject {
-        self.map_bag(PyVmBag(vm))
+        // Raw callers receive pooled constants/nested bodies, but no promise
+        // of root assembly-field identity; use into_pycode for that boundary.
+        compile_cache::into_code_object(self, vm)
+    }
+
+    fn into_pycode(self, vm: &VirtualMachine) -> PyCode {
+        compile_cache::into_pycode(self, vm)
     }
 }
 
@@ -398,11 +430,26 @@ pub struct PyCode {
     #[pymember(name = "co_name", path = "obj_name")]
     #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
+    // Logical code fields are finalized by `new`. Execution may specialize or
+    // instrument instructions, but must not change the canonical public bytes.
+    // Callers replacing logical bytecode must construct a new PyCode instead.
     pub code: CodeObject,
+    /// Canonical bytes captured before execution can instrument the code.
+    canonical_code: Box<[u8]>,
+    /// The stable Python object exposed by co_code, allocated on first access.
+    code_bytes: OnceCell<PyBytesRef>,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
     /// Derived once so frame-local proxy operations do not repeatedly scan
     /// merged cell variables.
     localsplus_names: Box<[&'static PyStrInterned]>,
+    names_tuple: PyTupleRef,
+    localsplus_names_tuple: PyTupleRef,
+    localsplus_kinds_bytes: PyBytesRef,
+    linetable_bytes: PyBytesRef,
+    exceptiontable_bytes: PyBytesRef,
+    varnames_tuple: OnceCell<PyTupleRef>,
+    cellvars_tuple: OnceCell<PyTupleRef>,
+    freevars_tuple: OnceCell<PyTupleRef>,
     #[pymember(name = "co_filename")]
     source_path: AtomicPtr<PyStrInterned>,
     #[pymember(name = "co_nlocals")]
@@ -511,7 +558,53 @@ impl MemberLayout for CodeFlags {
 }
 
 impl PyCode {
-    pub fn new(code: CodeObject) -> Self {
+    /// Borrow the actual finalized owner, without reconstructing field values.
+    /// The caller keeps its canonical bytecode getter owner through the write.
+    pub(crate) fn marshal_field<'a>(
+        &'a self,
+        field: rustpython_compiler_core::marshal::CodeField,
+        bytecode: &'a PyBytesRef,
+    ) -> &'a PyObject {
+        use rustpython_compiler_core::marshal::CodeField;
+        match field {
+            CodeField::Bytecode => bytecode.as_object(),
+            CodeField::Constants => self
+                .code
+                .constants
+                .tuple_owner()
+                .expect("finalized constants")
+                .0
+                .as_object(),
+            CodeField::Names => self.names_tuple.as_object(),
+            CodeField::LocalsPlusNames => self.localsplus_names_tuple.as_object(),
+            CodeField::LocalsPlusKinds => self.localsplus_kinds_bytes.as_object(),
+            CodeField::Name => self.code.obj_name.as_object(),
+            CodeField::Qualname => self.code.qualname.as_object(),
+            CodeField::LineTable => self.linetable_bytes.as_object(),
+            CodeField::ExceptionTable => self.exceptiontable_bytes.as_object(),
+        }
+    }
+
+    /// Finalize a pristine code object before publishing it to the runtime.
+    ///
+    /// The input must not be cloned from an already instrumented PyCode:
+    /// generic monitoring wrappers need side tables that CodeObject does not
+    /// carry. Python `replace` reconstructs from canonical bytes instead.
+    pub fn new(mut code: CodeObject, ctx: &Context) -> Self {
+        if code.constants.tuple_owner().is_none() {
+            let boxed = core::mem::replace(&mut code.constants, core::iter::empty().collect());
+            let tuple = ctx.new_tuple(
+                boxed
+                    .into_boxed()
+                    .into_vec()
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect(),
+            );
+            code.constants = bytecode::Constants::from_tuple(LiteralTupleOwner(tuple));
+        }
+        code.instructions.normalize_get_iter(code.flags);
+        let canonical_code = code.instructions.original_bytes().into_boxed_slice();
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
         let nlocals = i32::try_from(code.varnames.len()).unwrap_or(i32::MAX);
         let localsplus_names = {
@@ -547,8 +640,28 @@ impl PyCode {
                     | Instruction::InstrumentedEndAsyncFor
             )
         });
+        let names_tuple = ctx.new_tuple(code.names.iter().map(|name| name.to_object()).collect());
+        let localsplus_names_tuple = ctx.new_tuple(
+            localsplus_names
+                .iter()
+                .map(|name| name.to_object())
+                .collect(),
+        );
+        let localsplus_kinds_bytes = ctx.new_bytes(code.localspluskinds.to_vec());
+        let linetable_bytes = ctx.new_bytes(code.linetable.to_vec());
+        let exceptiontable_bytes = ctx.new_bytes(code.exceptiontable.to_vec());
         Self {
             code,
+            names_tuple,
+            localsplus_names_tuple,
+            localsplus_kinds_bytes,
+            linetable_bytes,
+            exceptiontable_bytes,
+            varnames_tuple: OnceCell::new(),
+            cellvars_tuple: OnceCell::new(),
+            freevars_tuple: OnceCell::new(),
+            canonical_code,
+            code_bytes: OnceCell::new(),
             localsplus_names,
             source_path: AtomicPtr::new(sp),
             nlocals,
@@ -556,6 +669,65 @@ impl PyCode {
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
             has_exc_handling,
+        }
+    }
+
+    /// Attach validated public-reader fields before publication. Superseded
+    /// boxed constants are dropped before the returned code can be observed.
+    pub(crate) fn from_marshaled_fields(
+        mut code: CodeObject,
+        fields: rustpython_compiler_core::marshal::CodeFieldObjects<PyObjectRef>,
+        ctx: &Context,
+    ) -> Result<Self, rustpython_compiler_core::marshal::MarshalError> {
+        use rustpython_compiler_core::marshal::MarshalError;
+        let constants = fields
+            .constants
+            .downcast::<super::PyTuple>()
+            .map_err(|_| MarshalError::BadType)?;
+        let names = fields
+            .names
+            .downcast::<super::PyTuple>()
+            .map_err(|_| MarshalError::BadType)?;
+        let locals = fields
+            .localsplus_names
+            .downcast::<super::PyTuple>()
+            .map_err(|_| MarshalError::BadType)?;
+        let kinds = fields
+            .localsplus_kinds
+            .downcast::<super::PyBytes>()
+            .map_err(|_| MarshalError::BadType)?;
+        let lines = fields
+            .linetable
+            .downcast::<super::PyBytes>()
+            .map_err(|_| MarshalError::BadType)?;
+        let exceptions = fields
+            .exceptiontable
+            .downcast::<super::PyBytes>()
+            .map_err(|_| MarshalError::BadType)?;
+        code.constants = bytecode::Constants::from_tuple(LiteralTupleOwner(constants));
+        let mut result = Self::new(code, ctx);
+        result.retain_normalized_names(names, Some(locals));
+        result.localsplus_kinds_bytes = kinds;
+        result.linetable_bytes = lines;
+        result.exceptiontable_bytes = exceptions;
+        Ok(result)
+    }
+
+    fn retain_normalized_names(&mut self, names: PyTupleRef, locals: Option<PyTupleRef>) {
+        let matches = |tuple: &PyTupleRef, canonical: &[&'static PyStrInterned]| {
+            tuple.len() == canonical.len()
+                && tuple
+                    .iter()
+                    .zip(canonical)
+                    .all(|(item, name)| item.is(*name))
+        };
+        if matches(&names, &self.code.names) {
+            self.names_tuple = names;
+        }
+        if let Some(locals) = locals
+            && matches(&locals, &self.localsplus_names)
+        {
+            self.localsplus_names_tuple = locals;
         }
     }
 
@@ -580,11 +752,19 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
+        PyRef::new_ref(
+            Self::new(code, &vm.ctx),
+            vm.ctx.types.code_type.to_owned(),
+            None,
+        )
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
-        Self::new_ref_with_bag(vm, code.map_bag(PyVmBag(vm)))
+        PyRef::new_ref(
+            code.into_pycode(vm),
+            vm.ctx.types.code_type.to_owned(),
+            None,
+        )
     }
 
     pub fn new_ref_from_frozen<B: AsRef<[u8]>>(
@@ -884,16 +1064,7 @@ impl Constructor for PyCode {
         let instructions = CodeUnits::try_from(bytecode_bytes)
             .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
-        // Convert constants
-        let constants = args
-            .consts
-            .as_slice()
-            .iter()
-            .map(|obj| {
-                // Convert PyObject to Literal constant. For now, just wrap it
-                Literal(obj.clone())
-            })
-            .collect();
+        let constants = bytecode::Constants::from_tuple(LiteralTupleOwner(args.consts));
 
         // Create locations (start and end pairs)
         let row = if args.firstlineno > 0 {
@@ -955,7 +1126,10 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(Self::new(code))
+        let mut result = Self::new(code, &vm.ctx);
+        result.linetable_bytes = args.linetable;
+        result.exceptiontable_bytes = args.exceptiontable;
+        Ok(result)
     }
 }
 
@@ -973,12 +1147,12 @@ impl PyCode {
 impl Py<PyCode> {
     #[pygetset]
     pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let cellvars = self
-            .cellvars
-            .iter()
-            .map(|name| name.to_pyobject(vm))
-            .collect();
-        vm.ctx.new_tuple(cellvars)
+        self.cellvars_tuple
+            .get_or_init(|| {
+                vm.ctx
+                    .new_tuple(self.cellvars.iter().map(|name| name.to_object()).collect())
+            })
+            .clone()
     }
 
     #[pygetset]
@@ -987,68 +1161,109 @@ impl Py<PyCode> {
     }
 
     #[pygetset]
-    fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
-        vm.ctx.new_tuple(consts)
+    fn co_consts(&self) -> PyTupleRef {
+        self.code
+            .constants
+            .tuple_owner()
+            .expect("finalized constants")
+            .0
+            .clone()
     }
 
     #[pygetset]
-    fn co_names(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let names = self
-            .code
-            .names
-            .deref()
-            .iter()
-            .map(|name| name.to_pyobject(vm))
-            .collect();
-        vm.ctx.new_tuple(names)
+    fn co_names(&self) -> PyTupleRef {
+        self.names_tuple.clone()
     }
 
     #[pygetset]
     pub fn co_varnames(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
-        vm.ctx.new_tuple(varnames)
+        self.varnames_tuple
+            .get_or_init(|| {
+                vm.ctx.new_tuple(
+                    self.code
+                        .varnames
+                        .iter()
+                        .map(|name| name.to_object())
+                        .collect(),
+                )
+            })
+            .clone()
     }
 
     #[pygetset]
     pub fn co_code(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        vm.ctx.new_bytes(self.code.instructions.original_bytes())
+        self.code_bytes
+            .get_or_init(|| vm.ctx.new_bytes(self.canonical_code.to_vec()))
+            .clone()
     }
 
     #[pygetset]
-    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // Return current (possibly quickened/specialized) bytecode
-        let bytes = unsafe {
-            core::slice::from_raw_parts(
-                self.code.instructions.as_ptr() as *const u8,
-                self.code.instructions.len() * 2,
-            )
+    pub fn _co_code_adaptive(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        let incompatible = || vm.new_value_error("incompatible adaptive bytecode layout");
+        let legacy =
+            || vm.new_value_error("legacy private GET_YIELD_FROM_ITER has no public 3.15 encoding");
+        let (canonical, []) = self.canonical_code.as_chunks::<2>() else {
+            return Err(incompatible());
         };
-        vm.ctx.new_bytes(bytes.to_vec())
+        let instructions = &self.code.instructions;
+        if canonical.len() != instructions.unit_count() {
+            return Err(incompatible());
+        }
+        let mut bytes = Vec::with_capacity(self.canonical_code.len());
+        let mut index = 0;
+        while index < canonical.len() {
+            let base = Instruction::try_from(canonical[index][0]).map_err(|_| incompatible())?;
+            if matches!(base, Instruction::GetYieldFromIter) {
+                return Err(legacy());
+            }
+            let next = index
+                .checked_add(1 + base.cache_entries())
+                .filter(|&next| next <= canonical.len())
+                .ok_or_else(incompatible)?;
+            // Boundaries come only from this code's immutable canonical backing.
+            // Never decode a cache payload or use a live monitoring wrapper's width.
+            let op = match instructions.read_op(index) {
+                op @ (Instruction::LoadConstImmortal | Instruction::LoadConstMortal) => {
+                    op.deoptimize()
+                }
+                Instruction::GetYieldFromIter => return Err(legacy()),
+                op => op,
+            };
+            bytes.push(u8::from(op));
+            bytes.push(u8::from(instructions.read_arg(index)));
+            for cache in index + 1..next {
+                bytes.extend_from_slice(&instructions.read_cache_u16(cache).to_ne_bytes());
+            }
+            index = next;
+        }
+        // Per-cell atomic observation, not a coherent cross-thread snapshot.
+        // This does not repair the interpreter's other live-storage access paths.
+        Ok(vm.ctx.new_bytes(bytes))
     }
 
     #[pygetset]
     pub fn co_freevars(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let names = self
-            .code
-            .freevars
-            .deref()
-            .iter()
-            .map(|name| name.to_pyobject(vm))
-            .collect();
-        vm.ctx.new_tuple(names)
+        self.freevars_tuple
+            .get_or_init(|| {
+                vm.ctx.new_tuple(
+                    self.code
+                        .freevars
+                        .iter()
+                        .map(|name| name.to_object())
+                        .collect(),
+                )
+            })
+            .clone()
     }
 
     #[pygetset]
-    pub fn co_linetable(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // Return the actual linetable from the code object
-        vm.ctx.new_bytes(self.code.linetable.to_vec())
+    pub fn co_linetable(&self) -> PyBytesRef {
+        self.linetable_bytes.clone()
     }
 
     #[pygetset]
-    pub fn co_exceptiontable(&self, vm: &VirtualMachine) -> crate::builtins::PyBytesRef {
-        // Return the actual exception table from the code object
-        vm.ctx.new_bytes(self.code.exceptiontable.to_vec())
+    pub fn co_exceptiontable(&self) -> PyBytesRef {
+        self.exceptiontable_bytes.clone()
     }
 
     // spell-checker: ignore lnotab
@@ -1380,7 +1595,13 @@ impl Py<PyCode> {
 
         let constants = match co_consts {
             OptionalArg::Present(constants) => constants,
-            OptionalArg::Missing => self.code.constants.iter().map(|x| x.0.clone()).collect(),
+            OptionalArg::Missing => self
+                .code
+                .constants
+                .tuple_owner()
+                .expect("finalized constants")
+                .0
+                .clone(),
         };
 
         let obj_name = match co_name {
@@ -1390,13 +1611,7 @@ impl Py<PyCode> {
 
         let names = match co_names {
             OptionalArg::Present(names) => names,
-            OptionalArg::Missing => self
-                .code
-                .names
-                .deref()
-                .iter()
-                .map(|name| name.to_pyobject(vm))
-                .collect(),
+            OptionalArg::Missing => self.names_tuple.clone(),
         };
 
         let flags = CodeFlags::from_bits_truncate(match co_flags {
@@ -1427,7 +1642,10 @@ impl Py<PyCode> {
                 CodeUnits::try_from(code_bytes.as_bytes())
                     .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
-            OptionalArg::Missing => self.code.instructions.clone(),
+            // Live instructions may contain monitoring wrappers whose original
+            // opcodes exist only in the source code object's side tables.
+            OptionalArg::Missing => CodeUnits::try_from(self.canonical_code.as_ref())
+                .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?,
         };
 
         let intern_all = |objs: Vec<PyObjectRef>, field: &str| -> PyResult<Box<[_]>> {
@@ -1482,15 +1700,13 @@ impl Py<PyCode> {
 
         // Handle linetable and exceptiontable
         let linetable = match co_linetable {
-            OptionalArg::Present(linetable) => linetable.as_bytes().to_vec().into_boxed_slice(),
-            OptionalArg::Missing => self.code.linetable.clone(),
+            OptionalArg::Present(linetable) => linetable,
+            OptionalArg::Missing => self.linetable_bytes.clone(),
         };
 
         let exceptiontable = match co_exceptiontable {
-            OptionalArg::Present(exceptiontable) => {
-                exceptiontable.as_bytes().to_vec().into_boxed_slice()
-            }
-            OptionalArg::Missing => self.code.exceptiontable.clone(),
+            OptionalArg::Present(exceptiontable) => exceptiontable,
+            OptionalArg::Missing => self.exceptiontable_bytes.clone(),
         };
 
         let new_code = CodeObject {
@@ -1508,17 +1724,21 @@ impl Py<PyCode> {
             // FIXME: invalid locations. Actually locations is a duplication of linetable.
             // It can be removed once we move every other code to use linetable only.
             locations: self.code.locations.clone(),
-            constants: constants.into_iter().map(Literal).collect(),
-            names: intern_all(names, "co_names")?,
+            constants: bytecode::Constants::from_tuple(LiteralTupleOwner(constants)),
+            names: intern_all(names.as_slice().to_vec(), "co_names")?,
             varnames,
             cellvars,
             freevars,
             localspluskinds,
-            linetable,
-            exceptiontable,
+            linetable: linetable.as_bytes().into(),
+            exceptiontable: exceptiontable.as_bytes().into(),
         };
 
-        Ok(PyCode::new(new_code))
+        let mut result = PyCode::new(new_code, &vm.ctx);
+        result.retain_normalized_names(names, None);
+        result.linetable_bytes = linetable;
+        result.exceptiontable_bytes = exceptiontable;
+        Ok(result)
     }
 
     #[pymethod]
@@ -1639,4 +1859,54 @@ impl<'a> LineTableReader<'a> {
 
 pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn tuple_constants_share_owner_and_copy_on_write() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let child: PyObjectRef = vm.ctx.new_list(vec![]).into();
+            assert_eq!(child.strong_count(), 1);
+            let owner = vm.ctx.new_tuple(vec![child.clone()]);
+            let mut constants = bytecode::Constants::from_tuple(LiteralTupleOwner(owner.clone()));
+            assert_eq!(child.strong_count(), 2);
+            let shared = constants.clone();
+            assert_eq!(child.strong_count(), 2);
+            constants[bytecode::oparg::ConstIdx::from_u32(0)] = Literal(vm.ctx.none());
+            assert!(constants.tuple_owner().is_none());
+            assert!(shared[bytecode::oparg::ConstIdx::from_u32(0)].0.is(&child));
+            assert!(owner.as_slice()[0].is(&child));
+            assert_eq!(child.strong_count(), 2);
+            drop(shared);
+            drop(owner);
+            assert_eq!(child.strong_count(), 1);
+        });
+    }
+
+    #[cfg(feature = "compiler")]
+    #[test]
+    fn published_code_has_one_constant_owner_representation() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let compiled = vm
+                .compile("pass", crate::compiler::Mode::Exec, "code_storage.py")
+                .unwrap();
+            let child: PyObjectRef = vm.ctx.new_list(vec![]).into();
+            let mut raw = compiled.code.clone();
+            raw.constants = core::iter::once(Literal(child.clone())).collect();
+            assert_eq!(child.strong_count(), 2);
+            let code = PyCode::new(raw, &vm.ctx);
+            assert_eq!(child.strong_count(), 2);
+            let owner = code.code.constants.tuple_owner().unwrap().0.clone();
+            let cloned = code.code.clone();
+            assert_eq!(child.strong_count(), 2);
+            drop(code);
+            drop(cloned);
+            assert_eq!(child.strong_count(), 2);
+            drop(owner);
+            assert_eq!(child.strong_count(), 1);
+        });
+    }
 }

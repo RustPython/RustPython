@@ -1,0 +1,242 @@
+[
+  {
+    "name": "empty",
+    "source": "",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "assignment",
+    "source": "x = 1\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "expression",
+    "source": "a + 2",
+    "mode": "eval",
+    "flags": 0
+  },
+  {
+    "name": "interactive",
+    "source": "1 + 2\n",
+    "mode": "single",
+    "flags": 0
+  },
+  {
+    "name": "function",
+    "source": "def f(a, /, b=2, *, c=3):\n    return a + b * c\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "closure",
+    "source": "def outer(x):\n    def inner(y):\n        return x + y\n    return inner\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "branch_loop",
+    "source": "def f(xs):\n    total = 0\n    for x in xs:\n        if x:\n            total += x\n    return total\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "exception",
+    "source": "def f(x):\n    try:\n        return 1 / x\n    except ZeroDivisionError:\n        return None\n    finally:\n        x = 0\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "comprehension",
+    "source": "xs = [x * x for x in range(4) if x]\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "generator",
+    "source": "def f(xs):\n    yield from xs\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "coroutine",
+    "source": "async def f(g):\n    return await g()\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "class",
+    "source": "class C:\n    value = 1\n    def f(self):\n        return self.value\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "constants",
+    "source": "a = (-0.0, 0.0, 2j, b'abc', 'abc', (1, 2))\nb = (1, 2)\nc = x in {'a', 'b'}\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "doc_assert",
+    "source": "\"module doc\"\ndef f(x):\n    \"function doc\"\n    assert x\n    return __debug__\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "future_annotations",
+    "source": "def f(x: T) -> U:\n    return x\n",
+    "mode": "exec",
+    "flags": 16777216
+  },
+  {
+    "name": "formatting",
+    "source": "result = f\"{value!r:>10}\"\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "template",
+    "source": "result = t\"value={value}\"\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "matching",
+    "source": "match value:\n    case [a, b]:\n        result = a + b\n    case _:\n        result = None\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "yield_plain",
+    "source": "def f():\n    yield 1\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "import_module",
+    "source": "import os\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "import_function",
+    "source": "def f():\n    import os\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "import_handler",
+    "source": "try:\n    import os\nexcept ImportError:\n    import sys\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "genexpr_list",
+    "source": "def f(xs):\n    return list(x + 1 for x in xs if x)\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "genexpr_set",
+    "source": "def f(xs):\n    return set(x + 1 for x in xs if x)\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "genexpr_tuple",
+    "source": "def f(xs):\n    return tuple(x + 1 for x in xs if x)\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "async_genexpr",
+    "source": "async def f(xs):\n    return list(x async for x in xs)\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "borrow_locals",
+    "source": "def f(a, b):\n    return a, b, a\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "exception_alias",
+    "source": "try:\n    work()\nexcept Exception as error:\n    result = error\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "assembly_siblings",
+    "source": "def left():\n    return 1\ndef right():\n    return 1\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_if_ors",
+    "source": "if True or False or False:\n    pass",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_if_ands",
+    "source": "if True and False and False:\n    pass",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_if_mixed",
+    "source": "if (True and False) or (False and True):\n    pass",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_nested_bool_op",
+    "source": "x = Test() and False or False",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_const_no_op",
+    "source": "x = not True",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_constant_true_if_pass_keeps_line_anchor_nop",
+    "source": "if 1:\n    pass",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_nested_double_async_with",
+    "source": "async def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "dis_bare_function_annotations_check_attribute_and_subscript_expressions",
+    "source": "def f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "cache_nested_constants",
+    "source": "def outer():\n def left(x):\n  return x + 12345678901234567890\n def right(x):\n  return x + 12345678901234567890\n return left, right\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "cache_sibling_exception_fields",
+    "source": "def left(x):\n try:\n  return x + 12345678901234567890\n except TypeError:\n  return ('payload !', b'bytes !')\ndef right(x):\n try:\n  return x + 12345678901234567890\n except TypeError:\n  return ('payload !', b'bytes !')\n",
+    "mode": "exec",
+    "flags": 0
+  },
+  {
+    "name": "cache_frozenset_siblings",
+    "source": "def left(x):\n return x in {12345678901234567890, 98765432109876543210}\ndef right(x):\n return x in {12345678901234567890, 98765432109876543210}\n",
+    "mode": "exec",
+    "flags": 0
+  }
+]

@@ -404,8 +404,10 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
 
     // Find _co_firsttraceable: index of first RESUME instruction
     let mut first_traceable = None;
-    for_each_instruction(code, |i, op, _| {
+    for_each_instruction(code, |i, op, oparg| {
         if first_traceable.is_none()
+            && u32::from(oparg) & crate::bytecode::oparg::ResumeContext::LOCATION_MASK
+                != crate::bytecode::oparg::ResumeLocation::AtGenExprStart.as_u32()
             && matches!(
                 op,
                 Instruction::Resume { .. }
@@ -421,7 +423,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     // Phase 4: Place regular INSTRUMENTED_* opcodes whose event is active.
     // Walk by cache_entries so specialized CACHE payloads are not decoded as opcodes.
     {
-        let mut i = 0;
+        let mut i = first_traceable;
         while i < len {
             let op = code.code.instructions.read_op(i);
             let oparg = code.code.instructions.read_arg(i).as_u8();
