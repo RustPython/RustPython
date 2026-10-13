@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
-const LOCAL_EVENTS_COUNT: usize = 11;
+const INSTRUMENTED_EVENTS_COUNT: usize = 11;
+const LOCAL_EVENTS_COUNT: usize = 16;
 const UNGROUPED_EVENTS_COUNT: usize = 18;
 
 /// Event identifier (`PY_MONITORING_EVENT_*`), stored in `tstate->what_event`.
@@ -905,10 +906,21 @@ fn fire(
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
             if disable_sentinel.as_ref().is_some_and(|d| result.is(d)) {
-                // Only local events (event_id < LOCAL_EVENTS_COUNT) can be disabled.
-                // Non-local events (RAISE, EXCEPTION_HANDLED, PY_UNWIND, etc.)
-                // cannot be disabled per code object.
-                if event_id >= LOCAL_EVENTS_COUNT {
+                if event_id < INSTRUMENTED_EVENTS_COUNT {
+                    let mut state = vm.state.monitoring.lock();
+                    state.disabled.insert((code_id, offset as usize, tool));
+                } else if event_id < LOCAL_EVENTS_COUNT {
+                    // Non-instrumented events disable their local registration
+                    // for this code object, leaving global events active.
+                    let mut state = vm.state.monitoring.lock();
+                    if let Some(events) = state.local_events.get_mut(&(tool, code_id)) {
+                        *events &= !event_mask;
+                        if *events == 0 {
+                            state.local_events.remove(&(tool, code_id));
+                        }
+                    }
+                    update_events_mask(vm, &state);
+                } else {
                     // Remove the callback.
                     let mut state = vm.state.monitoring.lock();
                     state.callbacks.remove(&(tool, event_id));
@@ -917,8 +929,6 @@ fn fire(
                         EVENT_NAMES[event_id]
                     )));
                 }
-                let mut state = vm.state.monitoring.lock();
-                state.disabled.insert((code_id, offset as usize, tool));
             }
         }
         Ok(())
@@ -1073,6 +1083,12 @@ pub(crate) fn fire_raise(
     )
 }
 
+/// End suppression when the exception reaches a handler or escapes a frame,
+/// independently of whether either lifecycle event has a registered callback.
+pub(crate) fn reset_reraise_pending() {
+    RERAISE_PENDING.with(|f| f.set(false));
+}
+
 /// Only fires if no RERAISE has been fired since the last EXCEPTION_HANDLED,
 /// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
@@ -1104,7 +1120,7 @@ pub(crate) fn fire_exception_handled(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
+    reset_reraise_pending();
     fire(
         vm,
         MonitoringEvent::ExceptionHandled,
@@ -1120,7 +1136,7 @@ pub(crate) fn fire_py_unwind(
     offset: u32,
     exception: &PyObject,
 ) -> PyResult<()> {
-    RERAISE_PENDING.with(|f| f.set(false));
+    reset_reraise_pending();
     fire(
         vm,
         MonitoringEvent::PyUnwind,

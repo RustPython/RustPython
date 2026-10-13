@@ -4171,6 +4171,7 @@ impl ExecutingFrame<'_> {
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
                         Ok(Some(result)) => break Ok(Some(result)),
                         Err(exception) => {
+                            monitoring::reset_reraise_pending();
                             // Fire PY_UNWIND: exception escapes this frame
                             let exception = if vm.state.monitoring_events.load()
                                 & MonitoringEvent::PyUnwind.mask()
@@ -4454,6 +4455,7 @@ impl ExecutingFrame<'_> {
             }
             Ok(Some(result)) => Ok(result),
             Err(exception) => {
+                monitoring::reset_reraise_pending();
                 // Fire PY_UNWIND: exception escapes the generator frame.
                 let exception =
                     if vm.state.monitoring_events.load() & MonitoringEvent::PyUnwind.mask() != 0 {
@@ -8922,6 +8924,7 @@ impl ExecutingFrame<'_> {
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
+                    monitoring::reset_reraise_pending();
                     // Fire EXCEPTION_HANDLED before setting up handler.
                     // If the callback raises, the handler is NOT set up and the
                     // new exception propagates instead.
