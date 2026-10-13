@@ -2904,15 +2904,16 @@ where
     T::Base: core::fmt::Debug,
 {
     /// Converts this reference to the base type (ownership transfer).
-    /// # Safety
-    /// T and T::Base must have compatible layouts in size_of::<T::Base>() bytes.
     #[inline]
     #[must_use]
     pub fn into_base(self) -> PyRef<T::Base> {
-        let obj: PyObjectRef = self.into();
-        match obj.downcast() {
-            Ok(base_ref) => base_ref,
-            Err(_) => unsafe { core::hint::unreachable_unchecked() },
+        // PySubclass establishes the physical prefix; Python may have changed
+        // the object's class or MRO since this typed reference was constructed.
+        let ptr = self.ptr.cast();
+        core::mem::forget(self);
+        PyRef {
+            ptr,
+            marker: PhantomData,
         }
     }
     #[inline]
@@ -2934,9 +2935,8 @@ impl<T: crate::class::PySubclass> Py<T> {
     /// Converts `&Py<T>` to `&Py<T::Base>`.
     #[inline]
     pub fn to_base(&self) -> &Py<T::Base> {
-        debug_assert!(self.as_object().downcast_ref::<T::Base>().is_some());
-        // SAFETY: T is #[repr(transparent)] over T::Base,
-        // so Py<T> and Py<T::Base> have the same layout.
+        // SAFETY: PySubclass guarantees a valid base prefix with matching
+        // payload offsets and compatible object alignment.
         unsafe { &*(self as *const Self as *const Py<T::Base>) }
     }
 
@@ -3408,6 +3408,37 @@ mod tests {
             drop(untyped);
             assert_eq!(drops.load(core::sync::atomic::Ordering::SeqCst), 1);
         }
+    }
+
+    #[test]
+    fn native_base_conversions_ignore_python_mro() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let class = vm.ctx.new_class(
+                None,
+                "HiddenOSErrorBase",
+                vm.ctx.exceptions.os_error.to_owned(),
+                Default::default(),
+            );
+            let marker: PyObjectRef = vm.ctx.new_int(42).into();
+            let error = vm.new_os_subtype_error(class.clone(), None, marker.clone());
+            // A custom MRO can omit native bases without changing the allocation.
+            *class.mro.write() = vec![class.clone(), vm.ctx.types.object_type.to_owned()];
+            assert!(
+                !error
+                    .as_object()
+                    .downcastable::<crate::exceptions::types::PyException>()
+            );
+
+            assert!(error.to_base().to_base().get_arg(0).unwrap().is(&marker));
+            assert!(
+                error
+                    .into_base()
+                    .into_base()
+                    .get_arg(0)
+                    .unwrap()
+                    .is(&marker)
+            );
+        });
     }
 
     #[test]
