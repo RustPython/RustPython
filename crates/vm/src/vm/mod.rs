@@ -198,20 +198,39 @@ pub(crate) struct StopTheWorldTransaction {
 }
 
 #[cfg(feature = "threading")]
-static STW_TRANSACTION: AtomicBool = AtomicBool::new(false);
+static STW_TRANSACTION: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(feature = "threading")]
+static NEXT_STW_REQUESTER: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(feature = "threading")]
+thread_local! {
+    // OS thread IDs can be reused after a requester exits, even while another
+    // thread still owes its matching restart. Logical IDs are never reused.
+    static STW_REQUESTER: u64 = NEXT_STW_REQUESTER
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .expect("stop-the-world requester IDs exhausted");
+}
 
 #[cfg(feature = "threading")]
 impl StopTheWorldTransaction {
     pub(crate) fn acquire() -> Self {
+        let requester = STW_REQUESTER.with(|id| *id);
         loop {
-            if STW_TRANSACTION
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                return Self { _private: () };
+            match STW_TRANSACTION.compare_exchange(
+                0,
+                requester,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Self { _private: () },
+                Err(owner) => assert_ne!(
+                    owner, requester,
+                    "stop-the-world transactions cannot be nested on the same thread"
+                ),
             }
             let wait = || {
-                while STW_TRANSACTION.load(Ordering::Acquire) {
+                while STW_TRANSACTION.load(Ordering::Acquire) != 0 {
                     std::thread::yield_now();
                 }
             };
@@ -228,7 +247,7 @@ impl StopTheWorldTransaction {
 #[cfg(feature = "threading")]
 impl Drop for StopTheWorldTransaction {
     fn drop(&mut self) {
-        STW_TRANSACTION.store(false, Ordering::Release);
+        STW_TRANSACTION.store(0, Ordering::Release);
     }
 }
 
@@ -460,6 +479,8 @@ impl StopTheWorldState {
     /// Public calls own one process-wide transaction until the matching start.
     /// The caller must finish stop before invoking start, including when those
     /// calls occur on different threads; concurrent duplicate starts are invalid.
+    /// Transactions are non-reentrant: a nested stop on the requesting thread
+    /// panics before changing any stop state or releasing the outer transaction.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
         let transaction = StopTheWorldTransaction::acquire();
         self.stop_with_transaction(state, &transaction);
