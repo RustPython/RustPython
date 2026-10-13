@@ -15,7 +15,7 @@ use crate::{
     },
     bytecode::{
         BorrowedConstant, CodeFlags, Constant, Instruction,
-        oparg::{OpArg, OpArgState},
+        oparg::{CommonConstant, OpArg, OpArgState},
     },
     protocol::PyBuffer,
 };
@@ -828,47 +828,25 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
-    let units = &code.instructions;
-    let Some(last) = units.len().checked_sub(1) else {
-        return true;
-    };
-    // The last instruction either returns or raises. We can take advantage
-    // of that for a quick exit.
-    let final_op = units.read_op(last).deoptimize();
-
-    // Look up None in co_consts.
-    let Some(none_index) = code
-        .constants
-        .iter()
-        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None))
-    else {
-        // None wasn't there, which means there was no implicit return,
-        // "return", or "return None".
-
-        // That means there must be an explicit return (non-None), or it only
-        // raises.
-        if matches!(final_op, Instruction::ReturnValue) {
-            // It was an explicit return (non-None).
+    // Final 3.15 bytecode loads None through LOAD_COMMON_CONSTANT, so it
+    // need not appear in co_consts. Walk decoded operands rather than looking
+    // one raw code unit back, which can lose EXTENDED_ARG bits.
+    let mut previous_loads_none = false;
+    for (_, op, arg) in walk_instructions(code) {
+        if matches!(op, Instruction::ExtendedArg) {
+            continue;
+        }
+        if matches!(op, Instruction::ReturnValue) && !previous_loads_none {
             return false;
         }
-        // It must end with a raise then. We still have to walk the bytecode
-        // to see if there's any explicit return (non-None).
-        return !walk_instructions(code).any(|(_, op, _)| matches!(op, Instruction::ReturnValue));
-    };
-    // Walk the bytecode, looking for RETURN_VALUE.
-    for (at, op, _) in walk_instructions(code) {
-        if !matches!(op, Instruction::ReturnValue) {
-            continue;
-        }
-        // Ignore it if it returns None.
-        if let Some(prev) = at.checked_sub(1)
-            && matches!(units.read_op(prev).deoptimize(), Instruction::LoadConst { .. })
-            // We don't worry about EXTENDED_ARG for now.
-            && usize::from(u8::from(units.read_arg(prev))) == none_index
-        {
-            continue;
-        }
-        return false;
+        previous_loads_none = match op {
+            Instruction::LoadCommonConstant { idx } => idx.get(arg) == CommonConstant::None,
+            Instruction::LoadConst { consti } => code
+                .constants
+                .get(usize::from(consti.get(arg)))
+                .is_some_and(|value| matches!(value.borrow_constant(), BorrowedConstant::None)),
+            _ => false,
+        };
     }
     true
 }

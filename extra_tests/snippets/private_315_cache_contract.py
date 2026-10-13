@@ -11,12 +11,14 @@ from pathlib import Path
 
 if sys.implementation.name == "rustpython":
     assert external.MAGIC_NUMBER == bytes((0x16, 0xDA, 13, 10))
-    assert sys.implementation.cache_tag == "rustpython-315-devabi2"
+    assert sys.implementation.cache_tag == (
+        f"{sys.implementation.name}-{sys.version_info.major}{sys.version_info.minor}"
+    )
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         source = root / "cache_subject.py"
-        source.write_text("value = 41\n", encoding="ascii")
+        source.write_text("value = 41\n", encoding="ascii", newline="\n")
         code = compile("value = 42\n", "byte_exact/cache_subject.py", "exec")
         stat = source.stat()
         headers = [
@@ -98,7 +100,7 @@ if sys.implementation.name == "rustpython":
                             raise AssertionError("foreign ZIP cache accepted")
 
         # Explicit py_compile writes under -B; all writers must use the private token.
-        source.write_text("value = 41\n", encoding="ascii")
+        source.write_text("value = 41\n", encoding="ascii", newline="\n")
         explicit = root / "explicit.pyc"
         previous = sys.dont_write_bytecode
         sys.dont_write_bytecode = True

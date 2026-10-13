@@ -69,9 +69,10 @@ pub const RUSTPYTHON_VERSION: &str = const {
 };
 
 // Private, non-distributable reconstruction ABI. This is not CPython's magic.
-// Change token and tag together for every incompatible development format.
+// Change the token for every incompatible development format. The public
+// cache tag identifies the implementation/version; magic rejects stale ABIs.
 pub const PYC_MAGIC_NUMBER: u16 = 0xDA16;
-pub const PYC_CACHE_TAG: &str = "rustpython-315-devabi2";
+pub const PYC_CACHE_TAG: &str = concat!("rustpython-", env!("MAJOR_CPY"), env!("MINOR_CPY"));
 
 // CPython format: magic_number | ('\r' << 16) | ('\n' << 24)
 // This protects against text-mode file reads
