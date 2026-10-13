@@ -4,7 +4,7 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyAnyDictRef, PyDict, PyFrozenDict};
+use rustpython_vm::builtins::{PyAnyDict, PyDict, PyFrozenDict};
 use rustpython_vm::{AsObject, Py, PyPayload, PyResult, VirtualMachine};
 
 define_py_check!(fn PyDict_Check, types.dict_type);
@@ -13,8 +13,8 @@ define_py_check!(fn PyDictKeys_Check, types.dict_keys_type);
 define_py_check!(fn PyDictValues_Check, types.dict_values_type);
 define_py_check!(fn PyDictItems_Check, types.dict_items_type);
 
-fn any_dict(dict: &PyObject, vm: &VirtualMachine) -> PyResult<PyAnyDictRef> {
-    PyAnyDictRef::from_object(dict)
+fn any_dict<'a>(dict: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a PyAnyDict> {
+    PyAnyDict::from_object(dict)
         .ok_or_else(|| vm.new_system_error("bad argument to internal function"))
 }
 
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn PyDict_SetItemString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_GetItem(dict: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let Some(dict) = PyAnyDictRef::from_object(unsafe { dict.assume_borrowed() }) else {
+        let Some(dict) = PyAnyDict::from_object(unsafe { dict.assume_borrowed() }) else {
             return core::ptr::null_mut();
         };
         let key = unsafe { key.assume_borrowed() };
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn PyDict_GetItemString(
         let Ok(key) = (unsafe { key.try_as_str(vm) }) else {
             return core::ptr::null_mut();
         };
-        let Some(dict) = PyAnyDictRef::from_object(unsafe { dict.assume_borrowed() }) else {
+        let Some(dict) = PyAnyDict::from_object(unsafe { dict.assume_borrowed() }) else {
             return core::ptr::null_mut();
         };
 
@@ -347,7 +347,7 @@ pub unsafe extern "C" fn PyDict_Next(
     value: *mut *mut PyObject,
 ) -> c_int {
     with_vm(|_vm| {
-        let Some(dict) = PyAnyDictRef::from_object(unsafe { dict.assume_borrowed() }) else {
+        let Some(dict) = PyAnyDict::from_object(unsafe { dict.assume_borrowed() }) else {
             return false;
         };
         let index = unsafe { *pos } as usize;

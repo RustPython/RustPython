@@ -68,7 +68,7 @@ impl Constructor for PyMappingProxy {
 }
 
 impl PyMappingProxy {
-    pub(crate) fn from_any_dict(dict: super::PyAnyDictRef) -> Self {
+    pub(crate) fn from_any_dict(dict: PyRef<super::PyAnyDict>) -> Self {
         Self {
             mapping: MappingProxyInner::Mapping(ArgMapping::new(dict.into())),
         }

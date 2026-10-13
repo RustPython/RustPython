@@ -185,8 +185,8 @@ mod _testinternalcapi {
             &mut counts,
             args.globalnames.into_option(),
             args.attrnames.into_option(),
-            globalsns.as_ref(),
-            builtinsns.as_ref(),
+            globalsns.as_deref(),
+            builtinsns.as_deref(),
             vm,
         )?;
         counts_to_dict(&counts, vm)
@@ -214,8 +214,8 @@ mod _testinternalcapi {
             &mut counts,
             args.globalnames.into_option(),
             None,
-            globalsns.as_ref(),
-            builtinsns.as_ref(),
+            globalsns.as_deref(),
+            builtinsns.as_deref(),
             vm,
         )?;
         if builtinsns.is_some() {
@@ -1127,13 +1127,14 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
 
 type CodeNamespaces = (
     PyRef<PyCode>,
-    Option<crate::builtins::PyAnyDictRef>,
-    Option<crate::builtins::PyAnyDictRef>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
 );
 
 fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespaces> {
     if let Ok(func) = obj.to_owned().downcast::<PyFunction>() {
-        let builtins = crate::builtins::PyAnyDictRef::from_object(&func.builtins);
+        let builtins =
+            crate::builtins::PyAnyDict::from_object(&func.builtins).map(ToOwned::to_owned);
         return Ok((
             (*func.code).to_owned(),
             Some(func.globals.clone()),
@@ -1287,8 +1288,8 @@ fn set_unbound_var_counts(
     counts: &mut VarCounts,
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
-    globalsns: Option<&crate::builtins::PyAnyDictRef>,
-    builtinsns: Option<&crate::builtins::PyAnyDictRef>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let globalnames = optional_set(globalnames, "globalnames", vm)?;
@@ -1324,8 +1325,8 @@ fn identify_unbound_names(
     code: &Py<PyCode>,
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
-    globalsns: Option<&crate::builtins::PyAnyDictRef>,
-    builtinsns: Option<&crate::builtins::PyAnyDictRef>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<(UnboundCounts, i32)> {
     let mut seen_globals = HashSet::new();

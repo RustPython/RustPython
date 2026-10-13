@@ -3,10 +3,10 @@ use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{CStr, c_char, c_int};
-use rustpython_vm::builtins::{PyAnyDictRef, PyCode};
+use rustpython_vm::builtins::{PyAnyDict, PyCode};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
-use rustpython_vm::{AsObject, PyObject, TryFromObject};
+use rustpython_vm::{AsObject, PyObject, PyRef, TryFromObject};
 use rustpython_vm::{PyObjectRef, version};
 
 #[unsafe(no_mangle)]
@@ -32,8 +32,10 @@ pub unsafe extern "C" fn PyEval_EvalCode(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
-        let globals =
-            PyAnyDictRef::try_from_object(vm, unsafe { globals.assume_borrowed() }.to_owned())?;
+        let globals = PyRef::<PyAnyDict>::try_from_object(
+            vm,
+            unsafe { globals.assume_borrowed() }.to_owned(),
+        )?;
         let locals = unsafe { locals.assume_borrowed_or_opt() }
             .map(|obj| ArgMapping::try_from_object(vm, obj.to_owned()))
             .transpose()?;

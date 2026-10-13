@@ -41,9 +41,17 @@ pub(crate) fn key_hash<K: DictKey + ?Sized>(
     vm: &VirtualMachine,
 ) -> PyResult<PyHash> {
     match key.key_hash(vm) {
+        // Exact TypeError only: exception subclasses retain their identity.
         Err(exc) if exc.class().is(vm.ctx.exceptions.type_error) => {
             let name = key.to_pyobject(vm).class().fully_qualified_name(vm)?;
-            let message = exc.as_object().str(vm)?;
+            // Match BaseException_str without the diagnostic formatter's
+            // fallback: argument __str__/__repr__ failures must propagate.
+            let args = exc.args();
+            let message = match args.as_slice() {
+                [] => vm.ctx.empty_str.to_owned(),
+                [arg] => arg.str(vm)?,
+                _ => args.as_object().str(vm)?,
+            };
             Err(vm.new_type_error(format!(
                 "cannot use '{name}' as a {mapping_name} key ({message})"
             )))
@@ -61,71 +69,108 @@ pub struct PyDict {
 }
 pub type PyDictRef = PyRef<PyDict>;
 
-/// A checked reference to a dict or frozendict, preserving the object's mutability.
-/// Its single-pointer layout also supports readonly object members such as __globals__.
+/// A borrowed view of a dict or frozendict, including subclasses.
+///
+/// This is an erased header view, not a shared payload layout. Every payload
+/// access downcasts to the actual alternative, preserving its mutability.
 #[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct PyAnyDictRef(PyObjectRef);
-
-impl super::descriptor::MemberLayout for PyAnyDictRef {
-    const KIND: super::descriptor::MemberKind = super::descriptor::MemberKind::Object;
+pub struct PyAnyDict {
+    object: PyObject,
 }
 
-unsafe impl Traverse for PyAnyDictRef {
+// SAFETY: this owner contributes exactly one strong reference to the object.
+unsafe impl Traverse for PyRef<PyAnyDict> {
     fn traverse(&self, tracer: &mut TraverseFn<'_>) {
-        self.0.traverse(tracer);
+        tracer(self.as_object());
     }
 }
 
-impl Borrow<PyObject> for PyAnyDictRef {
-    fn borrow(&self) -> &PyObject {
-        &self.0
-    }
-}
-
-impl From<PyDictRef> for PyAnyDictRef {
-    fn from(dict: PyDictRef) -> Self {
-        Self(dict.into())
-    }
-}
-impl From<PyRef<PyFrozenDict>> for PyAnyDictRef {
-    fn from(dict: PyRef<PyFrozenDict>) -> Self {
-        Self(dict.into())
-    }
-}
-impl From<PyAnyDictRef> for PyObjectRef {
-    fn from(dict: PyAnyDictRef) -> Self {
-        dict.0
-    }
-}
-impl crate::convert::ToPyObject for PyAnyDictRef {
+impl crate::convert::ToPyObject for PyRef<PyAnyDict> {
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        self.into()
+        self.into_object()
     }
 }
-impl TryFromObject for PyAnyDictRef {
-    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Self::from_object(&obj).ok_or_else(|| {
-            vm.new_type_error(format!(
+
+impl Borrow<PyObject> for PyAnyDict {
+    fn borrow(&self) -> &PyObject {
+        &self.object
+    }
+}
+
+impl Borrow<PyAnyDict> for PyRef<PyAnyDict> {
+    fn borrow(&self) -> &PyAnyDict {
+        self
+    }
+}
+
+impl ToOwned for PyAnyDict {
+    type Owned = PyRef<Self>;
+
+    fn to_owned(&self) -> PyRef<Self> {
+        // SAFETY: this borrowed view already guarantees a dictionary payload.
+        unsafe { PyRef::<Self>::from_object_unchecked(self.object.to_owned()) }
+    }
+}
+
+impl From<PyDictRef> for PyRef<PyAnyDict> {
+    fn from(dict: PyDictRef) -> Self {
+        // SAFETY: the typed owner guarantees the dict alternative.
+        unsafe { Self::from_object_unchecked(dict.into()) }
+    }
+}
+
+impl From<PyRef<PyFrozenDict>> for PyRef<PyAnyDict> {
+    fn from(dict: PyRef<PyFrozenDict>) -> Self {
+        // SAFETY: the typed owner guarantees the frozendict alternative.
+        unsafe { Self::from_object_unchecked(dict.into()) }
+    }
+}
+
+impl From<PyRef<PyAnyDict>> for PyObjectRef {
+    fn from(dict: PyRef<PyAnyDict>) -> Self {
+        dict.into_object()
+    }
+}
+
+// SAFETY: the transparent PyRef owner has the same layout as PyObjectRef.
+// A successful check proves the actual dict or frozendict payload invariant.
+unsafe impl crate::convert::TransmuteFromObject for PyRef<PyAnyDict> {
+    fn check(vm: &VirtualMachine, obj: &PyObject) -> PyResult<()> {
+        if PyAnyDict::from_object(obj).is_some() {
+            Ok(())
+        } else {
+            Err(vm.new_type_error(format!(
                 "expected dict or frozendict, got {}",
                 obj.class().name()
-            ))
-        })
+            )))
+        }
     }
 }
 
-impl PyAnyDictRef {
-    pub fn from_object(obj: &PyObject) -> Option<Self> {
-        (obj.downcastable::<PyDict>() || obj.downcastable::<PyFrozenDict>())
-            .then(|| Self(obj.to_owned()))
+impl TryFromObject for PyRef<PyAnyDict> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        <Self as crate::convert::TransmuteFromObject>::check(vm, &obj)?;
+        // SAFETY: the shared checker proved the union view's payload invariant.
+        Ok(unsafe { Self::from_object_unchecked(obj) })
+    }
+}
+
+impl PyAnyDict {
+    pub fn from_object(obj: &PyObject) -> Option<&Self> {
+        if obj.downcast_ref::<PyDict>().is_some() || obj.downcast_ref::<PyFrozenDict>().is_some() {
+            // SAFETY: PyAnyDict is transparent over PyObject and the payload was checked.
+            Some(unsafe { &*(obj as *const PyObject).cast::<Self>() })
+        } else {
+            None
+        }
     }
 
     pub(crate) fn as_mutable(&self) -> Option<&Py<PyDict>> {
-        self.0.downcast_ref()
+        self.object.downcast_ref()
     }
 
     pub(crate) fn is_frozen(&self) -> bool {
-        self.0.downcastable::<PyFrozenDict>()
+        self.object.downcastable::<PyFrozenDict>()
     }
 
     // The raw payload is private: callers outside the VM cannot use it to mutate a frozendict.
@@ -133,7 +178,7 @@ impl PyAnyDictRef {
         if let Some(dict) = self.as_mutable() {
             dict
         } else {
-            &self.0.downcast_ref::<PyFrozenDict>().unwrap().dict
+            &self.object.downcast_ref::<PyFrozenDict>().unwrap().dict
         }
     }
 
@@ -187,7 +232,7 @@ impl PyAnyDictRef {
         if let Some(dict) = self.as_mutable() {
             dict.inner_getitem_opt(key, vm)
         } else {
-            self.0
+            self.object
                 .downcast_ref::<PyFrozenDict>()
                 .unwrap()
                 .inner_getitem_opt(key, vm)
@@ -201,10 +246,10 @@ impl PyAnyDictRef {
         if let Some(dict) = self.as_mutable() {
             return dict.get_item_opt(key, vm);
         }
-        if self.0.class().is(vm.ctx.types.frozendict_type) {
+        if self.object.class().is(vm.ctx.types.frozendict_type) {
             return self.inner_getitem_opt(key, vm);
         }
-        match self.0.get_item(key, vm) {
+        match self.object.get_item(key, vm) {
             Ok(value) => Ok(Some(value)),
             Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.key_error) => Ok(None),
             Err(exc) => Err(exc),
@@ -214,7 +259,7 @@ impl PyAnyDictRef {
         if let Some(dict) = self.as_mutable() {
             dict.get_item(key, vm)
         } else {
-            self.0.get_item(key, vm)
+            self.object.get_item(key, vm)
         }
     }
     pub fn contains_key<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> bool {
@@ -240,7 +285,7 @@ impl PyAnyDictRef {
     }
 }
 
-impl<'a> IntoIterator for &'a PyAnyDictRef {
+impl<'a> IntoIterator for &'a PyAnyDict {
     type Item = (PyObjectRef, PyObjectRef);
     type IntoIter = DictIter<'a>;
     fn into_iter(self) -> Self::IntoIter {
@@ -354,7 +399,7 @@ impl PyDict {
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(other_dict) = PyAnyDictRef::from_object(&other)
+        if let Some(other_dict) = PyAnyDict::from_object(&other)
             && other_dict.uses_builtin_iter(vm)
         {
             return self.merge_dict(other_dict.as_dict(), override_existing, vm);
@@ -520,22 +565,7 @@ impl PyDict {
     /// Hashing up front also means a `__hash__` that fails only intermittently
     /// is still reported.
     fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
-        match key.key_hash(vm) {
-            Ok(hash) => Ok(hash),
-            // Exact `TypeError` only: a `__hash__` raising a *subclass* of
-            // `TypeError` (e.g. a user `MyTypeError`) must propagate unchanged,
-            // matching CPython's exact-type check.
-            Err(cause) if cause.class().is(vm.ctx.exceptions.type_error) => {
-                let message = cause.as_object().str(vm)?;
-                let key = key.to_pyobject(vm);
-                let name = key.class().fully_qualified_name(vm)?;
-                let err =
-                    vm.new_type_error(format!("cannot use '{name}' as a dict key ({message})"));
-                err.set_cause(Some(cause));
-                Err(err)
-            }
-            Err(other) => Err(other),
-        }
+        key_hash(key, "dict", vm)
     }
 
     /// Set item variant which can be called with multiple
@@ -945,7 +975,7 @@ impl Comparable for PyDict {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| match PyAnyDictRef::from_object(other) {
+        op.eq_only(|| match PyAnyDict::from_object(other) {
             Some(other) => {
                 zelf.payload
                     .compare_entries(other.as_dict(), PyComparisonOp::Eq, true, vm)
@@ -1411,7 +1441,7 @@ impl PyFrozenDict {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(other_dict) = PyAnyDictRef::from_object(&other)
+        if let Some(other_dict) = PyAnyDict::from_object(&other)
             && other_dict.uses_builtin_iter(vm)
         {
             return dict.merge_dict(other_dict.as_dict(), true, vm);
@@ -1436,8 +1466,7 @@ impl PyFrozenDict {
     }
 
     pub(crate) fn union(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let (Some(left), Some(right)) =
-            (PyAnyDictRef::from_object(a), PyAnyDictRef::from_object(b))
+        let (Some(left), Some(right)) = (PyAnyDict::from_object(a), PyAnyDict::from_object(b))
         else {
             return Ok(vm.ctx.not_implemented());
         };
@@ -1649,7 +1678,7 @@ impl Comparable for PyFrozenDict {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        op.eq_only(|| match PyAnyDictRef::from_object(other) {
+        op.eq_only(|| match PyAnyDict::from_object(other) {
             Some(other) => zelf
                 .dict
                 .compare_entries(other.as_dict(), PyComparisonOp::Eq, true, vm),
@@ -1803,7 +1832,7 @@ impl ExactSizeIterator for DictIter<'_> {
 trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     type ReverseIter: PyPayload + core::fmt::Debug;
 
-    fn dict(&self) -> &PyAnyDictRef;
+    fn dict(&self) -> &PyAnyDict;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
     fn __len__(&self) -> usize {
@@ -1832,11 +1861,11 @@ macro_rules! dict_view {
         #[pyclass(module = false, name = $class_name, unhashable = $unhashable, traverse)]
         #[derive(Debug)]
         pub(crate) struct $name {
-            pub(crate) dict: PyAnyDictRef,
+            pub(crate) dict: PyRef<PyAnyDict>,
         }
 
         impl $name {
-            pub(crate) fn new(dict: PyAnyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 $name { dict }
             }
         }
@@ -1844,7 +1873,7 @@ macro_rules! dict_view {
         impl DictView for $name {
             type ReverseIter = $reverse_iter_name;
 
-            fn dict(&self) -> &PyAnyDictRef {
+            fn dict(&self) -> &PyAnyDict {
                 &self.dict
             }
 
@@ -1907,7 +1936,7 @@ macro_rules! dict_view {
             /// from then on.
             #[pytraverse(skip)]
             changed: PyAtomic<bool>,
-            pub(crate) internal: PyMutex<PositionIterInternal<PyAnyDictRef>>,
+            pub(crate) internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
         }
 
         impl PyPayload for $iter_name {
@@ -1918,7 +1947,7 @@ macro_rules! dict_view {
         }
 
         impl $iter_name {
-            pub(crate) fn new(dict: PyAnyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 $iter_name {
                     size: dict.size(),
                     changed: Radium::new(false),
@@ -2014,7 +2043,7 @@ macro_rules! dict_view {
             changed: PyAtomic<bool>,
             #[pytraverse(skip)]
             remaining: PyAtomic<usize>,
-            internal: PyMutex<PositionIterInternal<PyAnyDictRef>>,
+            internal: PyMutex<PositionIterInternal<PyRef<PyAnyDict>>>,
         }
 
         impl PyPayload for $reverse_iter_name {
@@ -2025,7 +2054,7 @@ macro_rules! dict_view {
         }
 
         impl $reverse_iter_name {
-            pub(crate) fn new(dict: PyAnyDictRef) -> Self {
+            pub(crate) fn new(dict: PyRef<PyAnyDict>) -> Self {
                 let size = dict.size();
                 // usize::MAX represents the position before the first entry.
                 let position = size.entries_size.wrapping_sub(1);
@@ -2261,7 +2290,7 @@ impl PyDictKeys {
 
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from_any_dict(zelf.dict().clone())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -2324,7 +2353,7 @@ impl PyDictItems {
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from_any_dict(zelf.dict().clone())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -2386,7 +2415,7 @@ impl AsNumber for PyDictItems {
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from_any_dict(zelf.dict().clone())
+        PyMappingProxy::from_any_dict(zelf.dict().to_owned())
     }
 }
 
@@ -2606,4 +2635,79 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_frozendict));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anydict_reference_layout_and_ownership() {
+        static_assertions::assert_not_impl_any!(PyAnyDict: PyPayload);
+        static_assertions::assert_type_eq_all!(
+            <PyAnyDict as crate::object::PyRefTarget>::Target,
+            PyAnyDict
+        );
+        static_assertions::assert_eq_size!(PyRef<PyAnyDict>, PyObjectRef, Option<PyRef<PyAnyDict>>);
+        static_assertions::assert_eq_align!(PyRef<PyAnyDict>, PyObjectRef);
+        static_assertions::assert_eq_size!(PyAnyDict, PyObject);
+        static_assertions::assert_eq_align!(PyAnyDict, PyObject);
+        #[cfg(feature = "threading")]
+        static_assertions::assert_impl_all!(PyRef<PyAnyDict>: Send, Sync);
+        #[cfg(not(feature = "threading"))]
+        static_assertions::assert_not_impl_any!(PyRef<PyAnyDict>: Send, Sync);
+
+        let ctx = Context::genesis();
+        let dict: PyRef<PyAnyDict> = PyDict::default().into_ref(ctx).into();
+        let frozen: PyRef<PyAnyDict> = PyFrozenDict::from_dict(PyDict::default())
+            .into_ref(ctx)
+            .into();
+        for owner in [dict, frozen] {
+            let object = owner.as_object() as *const PyObject;
+            assert_eq!(owner.as_object().strong_count(), 1);
+            let borrowed = PyAnyDict::from_object(owner.as_object()).unwrap();
+            assert!(core::ptr::eq(borrowed.as_object(), object));
+            assert_eq!(owner.as_object().strong_count(), 1);
+            assert_eq!(borrowed.as_mutable().is_none(), borrowed.is_frozen());
+            let copy = borrowed.to_owned();
+            assert_eq!(owner.as_object().strong_count(), 2);
+            let clone = owner.clone();
+            assert_eq!(owner.as_object().strong_count(), 3);
+            let erased = clone.into_object();
+            assert_eq!(erased.strong_count(), 3);
+            assert!(core::ptr::eq(&*erased, object));
+            let mut visited = 0;
+            owner.traverse(&mut |edge| {
+                assert!(core::ptr::eq(edge, object));
+                visited += 1;
+            });
+            assert_eq!(visited, 1);
+            drop(copy);
+            drop(owner);
+            assert_eq!(erased.strong_count(), 1);
+        }
+    }
+
+    #[test]
+    fn anydict_checked_reference_conversion() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let dict = PyDict::default().into_pyobject(vm);
+            let frozen = PyFrozenDict::from_dict(PyDict::default()).into_pyobject(vm);
+            for object in [dict, frozen] {
+                let owner = PyRef::<PyAnyDict>::try_from_object(vm, object.clone()).unwrap();
+                assert_eq!(object.strong_count(), 2);
+                assert!(core::ptr::eq(owner.as_object(), &*object));
+                let erased: PyObjectRef = owner.into();
+                assert_eq!(object.strong_count(), 2);
+                assert!(core::ptr::eq(&*erased, &*object));
+                drop(erased);
+                assert_eq!(object.strong_count(), 1);
+            }
+            let unrelated: PyObjectRef = vm.ctx.new_int(1000).into();
+            assert!(PyAnyDict::from_object(&unrelated).is_none());
+            let error = PyRef::<PyAnyDict>::try_from_object(vm, unrelated.clone()).unwrap_err();
+            assert!(error.fast_isinstance(vm.ctx.exceptions.type_error));
+            assert_eq!(unrelated.strong_count(), 1);
+        });
+    }
 }

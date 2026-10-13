@@ -11,7 +11,7 @@ mod builtins {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyAnyDictRef, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyAnyDict, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
@@ -462,7 +462,7 @@ mod builtins {
                 Some(globals) => {
                     validate_globals_dict(&globals, vm, func_name)?;
 
-                    let globals = PyAnyDictRef::try_from_object(vm, globals)?;
+                    let globals = PyRef::<PyAnyDict>::try_from_object(vm, globals)?;
                     (
                         globals.clone(),
                         self.locals
@@ -754,7 +754,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn globals(vm: &VirtualMachine) -> PyAnyDictRef {
+    fn globals(vm: &VirtualMachine) -> PyRef<PyAnyDict> {
         vm.current_globals()
     }
 

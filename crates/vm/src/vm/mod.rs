@@ -24,7 +24,7 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyAnyDictRef, PyBaseExceptionRef, PyBaseObject, PyDict, PyFrozenSet, PyInt, PyList,
+        self, PyAnyDict, PyBaseExceptionRef, PyBaseObject, PyDict, PyFrozenSet, PyInt, PyList,
         PyModule, PySet, PyStr, PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned,
         PyWeak,
         code::PyCode,
@@ -3157,7 +3157,7 @@ impl VirtualMachine {
             .locals(self)
     }
 
-    pub fn current_globals(&self) -> PyAnyDictRef {
+    pub fn current_globals(&self) -> PyRef<PyAnyDict> {
         let ptr = crate::vm::thread::get_current_frame();
         if !ptr.is_null() {
             return unsafe { (*ptr).globals().to_owned() };

@@ -6,10 +6,10 @@ use crate::{
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, PyStackRef,
     TryFromObject, VirtualMachine,
     builtins::{
-        PyAnyDictRef, PyBaseException, PyBaseExceptionRef, PyBaseObject, PyBytes, PyCode,
-        PyCoroutine, PyDict, PyDictRef, PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation,
-        PyList, PyModule, PyProperty, PySet, PySlice, PyStr, PyStrInterned, PyTemplate,
-        PyTraceback, PyType, PyUtf8Str,
+        PyAnyDict, PyBaseException, PyBaseExceptionRef, PyBaseObject, PyBytes, PyCode, PyCoroutine,
+        PyDict, PyDictRef, PyFloat, PyFrozenSet, PyGenerator, PyInt, PyInterpolation, PyList,
+        PyModule, PyProperty, PySet, PySlice, PyStr, PyStrInterned, PyTemplate, PyTraceback,
+        PyType, PyUtf8Str,
         builtin_func::PyNativeFunction,
         descriptor::{PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
@@ -108,7 +108,7 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
-pub fn current_globals() -> Option<PyAnyDictRef> {
+pub fn current_globals() -> Option<PyRef<PyAnyDict>> {
     let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
@@ -923,7 +923,7 @@ pub struct InterpreterFrame {
     // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
     pub(crate) code: *const Py<PyCode>,
     pub(crate) func_obj: *const PyObject, // nullable
-    pub(crate) globals: *const PyAnyDictRef,
+    pub(crate) globals: *const PyAnyDict,
     pub(crate) builtins: *const PyObject,
 
     /// Unified storage for local variables and evaluation stack.
@@ -983,7 +983,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new(
         code: &Py<PyCode>,
-        globals: &PyAnyDictRef,
+        globals: &PyAnyDict,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         localsplus: LocalsPlus,
@@ -1027,7 +1027,7 @@ impl InterpreterFrame {
                 Some(obj) => obj as *const PyObject,
                 None => core::ptr::null(),
             },
-            globals: globals as *const PyAnyDictRef,
+            globals: globals as *const PyAnyDict,
             builtins: builtins as *const PyObject,
             localsplus,
             locals,
@@ -1060,7 +1060,7 @@ impl InterpreterFrame {
     #[inline(always)]
     pub(crate) unsafe fn new_on_datastack<'a>(
         code: &Py<PyCode>,
-        globals: &PyAnyDictRef,
+        globals: &PyAnyDict,
         builtins: &PyObject,
         func_obj: Option<&PyObject>,
         locals: FrameLocals,
@@ -1266,7 +1266,7 @@ impl InterpreterFrame {
         // Create a full FrameObject with its own InterpreterFrame copy.
         // The FrameObject owns references to the same objects (code, globals, etc).
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals = self.globals().clone();
+        let globals = self.globals().to_owned();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1362,7 +1362,7 @@ impl InterpreterFrame {
     #[cold]
     fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();
-        let globals = self.globals().clone();
+        let globals = self.globals().to_owned();
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
@@ -1419,7 +1419,7 @@ impl InterpreterFrame {
 
     /// Borrowed globals dict.
     #[inline(always)]
-    pub fn globals(&self) -> &PyAnyDictRef {
+    pub fn globals(&self) -> &PyAnyDict {
         // SAFETY: established by `new` / `init_iframe_ptrs`.
         unsafe { &*self.globals }
     }
@@ -1534,7 +1534,7 @@ pub struct FrameObject {
     // raw pointers. Wrapped in Option so Traverse::clear can release them,
     // allowing GC cycle collection to reclaim referenced objects.
     pub(crate) owned_code: Option<PyRef<PyCode>>,
-    pub(crate) owned_globals: Option<PyAnyDictRef>,
+    pub(crate) owned_globals: Option<PyRef<PyAnyDict>>,
     pub(crate) owned_builtins: Option<PyObjectRef>,
     pub(crate) owned_func_obj: Option<PyObjectRef>,
 
@@ -1853,7 +1853,7 @@ impl FrameObject {
     fn init_iframe_ptrs(self_: &Py<Self>) {
         let iframe = unsafe { self_.iframe_mut() };
         iframe.code = &**self_.owned_code.as_ref().unwrap() as *const Py<PyCode>;
-        iframe.globals = self_.owned_globals.as_ref().unwrap() as *const PyAnyDictRef;
+        iframe.globals = &**self_.owned_globals.as_ref().unwrap() as *const PyAnyDict;
         iframe.builtins = &**self_.owned_builtins.as_ref().unwrap() as *const PyObject;
         iframe.func_obj = match &self_.owned_func_obj {
             Some(obj) => &**obj as *const PyObject,
@@ -2931,7 +2931,7 @@ pub(crate) struct ExecutingFrame<'a> {
     code: &'a Py<PyCode>,
     localsplus: &'a mut LocalsPlus,
     locals: &'a FrameLocals,
-    globals: &'a PyAnyDictRef,
+    globals: &'a PyAnyDict,
     builtins: &'a PyObject,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
     /// Only set when both globals and builtins are exact dict types (not
