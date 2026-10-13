@@ -2251,14 +2251,17 @@ impl Blocks {
                 AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
                     match func.get(inst.arg) {
                         IntrinsicFunction1::ListToTuple => {
-                            if matches!(nextop, Some(Instruction::GetIter { .. })) {
+                            fold_constant_sequence_into_load_const(
+                                metadata,
+                                &mut self[block_idx],
+                                i,
+                            )?;
+                            if matches!(
+                                self[block_idx].instructions[i].instr.real(),
+                                Some(Instruction::CallIntrinsic1 { .. })
+                            ) && matches!(nextop, Some(Instruction::GetIter { .. }))
+                            {
                                 self[block_idx].instructions[i].set_to_nop();
-                            } else {
-                                fold_constant_intrinsic_list_to_tuple(
-                                    metadata,
-                                    &mut self[block_idx],
-                                    i,
-                                )?;
                             }
                         }
                         IntrinsicFunction1::UnaryPositive => {
@@ -2266,6 +2269,16 @@ impl Blocks {
                         }
                         _ => {}
                     }
+                }
+                AnyInstruction::Real(
+                    Instruction::ListAppend { .. } | Instruction::SetAdd { .. },
+                ) if u32::from(inst.arg) == 1
+                    && matches!(
+                        nextop,
+                        Some(Instruction::GetIter { .. } | Instruction::ContainsOp { .. })
+                    ) =>
+                {
+                    fold_constant_sequence_into_load_const(metadata, &mut self[block_idx], i)?;
                 }
                 AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
                     fold_const_binop(metadata, &mut self[block_idx], i)?;
@@ -5456,20 +5469,24 @@ fn fold_tuple_of_constants(
     Ok(true)
 }
 
-fn fold_constant_intrinsic_list_to_tuple(
+fn fold_constant_sequence_into_load_const(
     metadata: &mut CodeUnitMetadata,
     block: &mut Block,
     i: usize,
 ) -> crate::InternalResult<bool> {
-    let Some(Instruction::CallIntrinsic1 { func }) = block.instructions[i].instr.real() else {
-        return Ok(false);
+    let (intrinsic, is_set) = match block.instructions[i].instr.real() {
+        Some(Instruction::CallIntrinsic1 { func })
+            if func.get(block.instructions[i].arg) == IntrinsicFunction1::ListToTuple =>
+        {
+            (true, false)
+        }
+        Some(Instruction::ListAppend { .. }) => (false, false),
+        Some(Instruction::SetAdd { .. }) => (false, true),
+        _ => return Ok(false),
     };
-    if func.get(block.instructions[i].arg) != IntrinsicFunction1::ListToTuple {
-        return Ok(false);
-    }
 
     let mut consts_found = 0usize;
-    let mut expect_append = true;
+    let mut expect_append = intrinsic;
     let mut pos = i;
     while let Some(prev) = pos.checked_sub(1) {
         pos = prev;
@@ -5478,9 +5495,12 @@ fn fold_constant_intrinsic_list_to_tuple(
             continue;
         }
 
-        if matches!(instr.instr.real(), Some(Instruction::BuildList { .. }))
-            && u32::from(instr.arg) == 0
-        {
+        let is_start = if is_set {
+            matches!(instr.instr.real(), Some(Instruction::BuildSet { .. }))
+        } else {
+            matches!(instr.instr.real(), Some(Instruction::BuildList { .. }))
+        };
+        if is_start && u32::from(instr.arg) == 0 {
             if !expect_append {
                 return Ok(false);
             }
@@ -5489,7 +5509,8 @@ fn fold_constant_intrinsic_list_to_tuple(
             elements
                 .try_reserve_exact(consts_found)
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-            for idx in (pos..i).rev() {
+            let end = if intrinsic { i } else { i + 1 };
+            for idx in (pos..end).rev() {
                 if matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
                     continue;
                 }
@@ -5506,15 +5527,22 @@ fn fold_constant_intrinsic_list_to_tuple(
             instr_make_load_const(
                 metadata,
                 &mut block.instructions[i],
-                ConstantData::Tuple { elements },
+                if is_set {
+                    ConstantData::Frozenset { elements }
+                } else {
+                    ConstantData::Tuple { elements }
+                },
             )?;
             return Ok(true);
         }
 
         if expect_append {
-            if !matches!(instr.instr.real(), Some(Instruction::ListAppend { .. }))
-                || u32::from(instr.arg) != 1
-            {
+            let is_append = if is_set {
+                matches!(instr.instr.real(), Some(Instruction::SetAdd { .. }))
+            } else {
+                matches!(instr.instr.real(), Some(Instruction::ListAppend { .. }))
+            };
+            if !is_append || u32::from(instr.arg) != 1 {
                 return Ok(false);
             }
         } else {

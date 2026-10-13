@@ -427,7 +427,6 @@ pub struct PyCode {
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
     #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
-    #[pymember(name = "co_name", path = "obj_name")]
     #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
     // Logical code fields are finalized by `new`. Execution may specialize or
@@ -436,6 +435,8 @@ pub struct PyCode {
     pub code: CodeObject,
     /// Canonical bytes captured before execution can instrument the code.
     canonical_code: Box<[u8]>,
+    /// Preserve a public co_name subclass; exact strings use the interned owner.
+    name_owner: Option<PyStrRef>,
     /// The stable Python object exposed by co_code, allocated on first access.
     code_bytes: OnceCell<PyBytesRef>,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
@@ -578,7 +579,7 @@ impl PyCode {
             CodeField::Names => self.names_tuple.as_object(),
             CodeField::LocalsPlusNames => self.localsplus_names_tuple.as_object(),
             CodeField::LocalsPlusKinds => self.localsplus_kinds_bytes.as_object(),
-            CodeField::Name => self.code.obj_name.as_object(),
+            CodeField::Name => self.name_object(),
             CodeField::Qualname => self.code.qualname.as_object(),
             CodeField::LineTable => self.linetable_bytes.as_object(),
             CodeField::ExceptionTable => self.exceptiontable_bytes.as_object(),
@@ -661,6 +662,7 @@ impl PyCode {
             cellvars_tuple: OnceCell::new(),
             freevars_tuple: OnceCell::new(),
             canonical_code,
+            name_owner: None,
             code_bytes: OnceCell::new(),
             localsplus_names,
             source_path: AtomicPtr::new(sp),
@@ -737,6 +739,18 @@ impl PyCode {
         // localspluskinds, whose length is kept equal to localsplus_names by
         // every CodeObject construction path.
         self.localsplus_names[index]
+    }
+
+    fn name_object(&self) -> &PyObject {
+        self.name_owner
+            .as_ref()
+            .map_or_else(|| self.code.obj_name.as_object(), |name| name.as_object())
+    }
+
+    fn retain_name_subclass(&mut self, name: PyStrRef, ctx: &Context) {
+        if !name.class().is(ctx.types.str_type) {
+            self.name_owner = Some(name);
+        }
     }
 
     pub fn source_path(&self) -> &'static PyStrInterned {
@@ -912,7 +926,7 @@ impl Comparable for PyCode {
             let other = class_or_notimplemented!(Self, other);
             let a = &zelf.code;
             let b = &other.code;
-            let eq = a.obj_name == b.obj_name
+            let eq = vm.bool_eq(zelf.name_object(), other.name_object())?
                 && a.arg_count == b.arg_count
                 && a.posonlyarg_count == b.posonlyarg_count
                 && a.kwonlyarg_count == b.kwonlyarg_count
@@ -951,7 +965,7 @@ impl Hashable for PyCode {
         let code = &zelf.code;
         // Hash a tuple of key attributes, matching CPython's code_hash
         let tuple = vm.ctx.new_tuple(vec![
-            vm.ctx.new_str(code.obj_name.as_str()).into(),
+            zelf.name_object().to_owned(),
             vm.ctx.new_int(code.arg_count).into(),
             vm.ctx.new_int(code.posonlyarg_count).into(),
             vm.ctx.new_int(code.kwonlyarg_count).into(),
@@ -1127,6 +1141,7 @@ impl Constructor for PyCode {
         };
 
         let mut result = Self::new(code, &vm.ctx);
+        result.retain_name_subclass(args.name, &vm.ctx);
         result.linetable_bytes = args.linetable;
         result.exceptiontable_bytes = args.exceptiontable;
         Ok(result)
@@ -1158,6 +1173,13 @@ impl Py<PyCode> {
     #[pygetset]
     fn co_firstlineno(&self) -> u32 {
         self.code.first_line_number.map_or(0, |n| n.get() as _)
+    }
+
+    #[pygetset]
+    fn co_name(&self) -> PyStrRef {
+        self.name_owner
+            .clone()
+            .unwrap_or_else(|| self.code.obj_name.to_owned())
     }
 
     #[pygetset]
@@ -1606,7 +1628,7 @@ impl Py<PyCode> {
 
         let obj_name = match co_name {
             OptionalArg::Present(obj_name) => obj_name,
-            OptionalArg::Missing => self.code.obj_name.to_owned(),
+            OptionalArg::Missing => self.co_name(),
         };
 
         let names = match co_names {
@@ -1735,6 +1757,7 @@ impl Py<PyCode> {
         };
 
         let mut result = PyCode::new(new_code, &vm.ctx);
+        result.retain_name_subclass(obj_name, &vm.ctx);
         result.retain_normalized_names(names, None);
         result.linetable_bytes = linetable;
         result.exceptiontable_bytes = exceptiontable;
