@@ -2599,9 +2599,9 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
             self._testcapi.monitoring_exit_scope()
 
     def setUp(self):
+        self._testcapi = import_helper.import_module("_testcapi")
         super(TestCApiEventGeneration, self).setUp()
 
-        self._testcapi = import_helper.import_module("_testcapi")
         capi = self._testcapi
 
         self.codelike = capi.CodeLike(2)
