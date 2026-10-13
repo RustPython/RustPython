@@ -1,18 +1,18 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
+    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
-    anystr::{self, AnyStr},
+    anystr::{self, AnyStr, StringRange},
     atomic_func,
     byte::{bytearray_extend_from_object, bytearray_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, ByteOr, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -65,6 +65,21 @@ impl PyPayload for PyByteArray {
     }
 }
 
+// Acquisitions can call Python, and releases must follow acquisition order.
+// No bytearray lock may be held when this owner is dropped.
+#[derive(Default)]
+struct ByteArrayBuffers {
+    first: Option<PyBuffer>,
+    second: Option<PyBuffer>,
+}
+
+impl Drop for ByteArrayBuffers {
+    fn drop(&mut self) {
+        drop(self.first.take());
+        drop(self.second.take());
+    }
+}
+
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &'static Context) {
     PyByteArray::extend_class(context, context.types.bytearray_type);
@@ -90,6 +105,105 @@ impl PyByteArray {
 
     pub fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
         PyDetachingRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
+    }
+
+    fn with_export<R>(&self, f: impl FnOnce(usize) -> R) -> R {
+        self.exports.fetch_add(1, Ordering::Release);
+        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        // Reading the length also waits for any earlier resize to finish.
+        f(self.__len__())
+    }
+
+    fn buffer_snapshot(buffer: &PyBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(buffer.desc.len)
+            .map_err(|_| vm.no_memory_error())?;
+        buffer.append_to(&mut bytes);
+        Ok(bytes)
+    }
+
+    fn search_exported<R>(
+        &self,
+        options: ByteInnerFindOptions,
+        search: impl FnOnce(&[u8], &[u8], core::ops::Range<usize>) -> R,
+        vm: &VirtualMachine,
+    ) -> PyResult<R> {
+        self.with_export(|len| {
+            let (sub, range) = options.parts(len);
+            let buffer = if sub.check_buffer() {
+                Some(PyBuffer::from_object(vm, sub, BufferFlags::SIMPLE)?)
+            } else {
+                None
+            };
+            let needle = match &buffer {
+                Some(buffer) => Self::buffer_snapshot(buffer, vm)?,
+                None => ByteInnerSub::try_from_object(vm, sub.to_owned())?.into_vec(vm)?,
+            };
+            let result = search(&self.borrow_buf(), &needle, range);
+            drop(buffer);
+            Ok(result)
+        })
+    }
+
+    fn starts_ends_with(
+        &self,
+        options: anystr::StartsEndsWithArgs,
+        ends: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.with_export(|len| {
+            let (affix, range) = options.parts(len);
+            let tailmatch = |item: &PyObject| -> PyResult<bool> {
+                // bytes subclasses use their bytes directly, as in tailmatch.
+                let buffer = if item.downcast_ref::<PyBytes>().is_some() {
+                    None
+                } else {
+                    Some(PyBuffer::from_object(vm, item, BufferFlags::SIMPLE)?)
+                };
+                let needle = match &buffer {
+                    Some(buffer) => Self::buffer_snapshot(buffer, vm)?,
+                    None => item.downcast_ref::<PyBytes>().unwrap().as_bytes().to_vec(),
+                };
+                let result = {
+                    let bytes = self.borrow_buf();
+                    let slice = match &range {
+                        Some(range) if !range.is_normal() => None,
+                        Some(range) => bytes.get(range.clone()),
+                        None => Some(&*bytes),
+                    };
+                    slice.is_some_and(|slice| {
+                        if ends {
+                            slice.ends_with(&needle)
+                        } else {
+                            slice.starts_with(&needle)
+                        }
+                    })
+                };
+                drop(buffer);
+                Ok(result)
+            };
+            if let Some(tuple) = affix.downcast_ref::<PyTuple>() {
+                for item in tuple {
+                    if tailmatch(item)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            } else {
+                tailmatch(affix).map_err(|error| {
+                    if error.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        vm.new_type_error(format!(
+                            "{} first arg must be bytes or a tuple of bytes, not {}",
+                            if ends { "endswith" } else { "startswith" },
+                            affix.class().name()
+                        ))
+                    } else {
+                        error
+                    }
+                })
+            }
+        })
     }
 
     fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
@@ -140,12 +254,33 @@ impl PyByteArray {
 
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object::<NameBytearray>(vm, needle)? {
-            SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.delitem_by_index(vm, i),
+            SequenceIndex::Int(i) => self.delitem_by_index(i, vm),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
                 self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
             }
         }
+    }
+
+    fn delitem_by_index(&self, index: isize, vm: &VirtualMachine) -> PyResult<()> {
+        // Validate before export rejection when the bytes are available without
+        // waiting. A codec callback may already hold a read guard with a writer
+        // queued, so a blocking read here could deadlock before that rejection.
+        let valid = self
+            .inner
+            .try_read()
+            .map(|inner| inner.elements.wrap_index(index).is_some());
+        if valid == Some(false) {
+            return Err(vm.new_index_error("bytearray index out of range"));
+        }
+        let mut inner = self.try_resizable(vm)?;
+        // Another thread may have resized the bytearray between the locks.
+        let index = inner
+            .elements
+            .wrap_index(index)
+            .ok_or_else(|| vm.new_index_error("bytearray index out of range"))?;
+        inner.elements.remove(index);
+        Ok(())
     }
 
     fn irepeat(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
@@ -173,11 +308,6 @@ impl PyByteArray {
     fn inner(&self) -> PyDetachingRwLockReadGuard<'_, PyBytesInner> {
         self.inner.read()
     }
-    #[inline]
-    fn inner_mut(&self) -> PyDetachingRwLockWriteGuard<'_, PyBytesInner> {
-        self.inner.write()
-    }
-
     fn __len__(&self) -> usize {
         self.borrow_buf().len()
     }
@@ -187,6 +317,21 @@ impl PyByteArray {
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Exact builtins cannot call Python while preparing the needle. The
+        // read lock alone protects their search; a temporary export would make
+        // a concurrent resize fail instead of waiting for that lock.
+        if let Some(bytes) = needle.downcast_ref_if_exact::<PyBytes>(vm) {
+            return Ok(self.borrow_buf().contains_str(bytes.as_bytes()));
+        }
+        let int = if needle.class().is(vm.ctx.types.bool_type) {
+            needle.downcast_ref::<PyInt>()
+        } else {
+            needle.downcast_ref_if_exact::<PyInt>(vm)
+        };
+        if let Some(int) = int {
+            let byte = int.as_bigint().byte_or(vm)?;
+            return Ok(self.borrow_buf().contains(&byte));
+        }
         // Converting the needle runs Python, which must not resize this bytearray.
         self.exports.fetch_add(1, Ordering::Release);
         scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
@@ -496,7 +641,11 @@ impl Py<PyByteArray> {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().center(options, vm)?.into())
+        let (width, fillchar) = options.get_value("center", vm)?;
+        Ok(self
+            .inner()
+            .pad_with(width, fillchar, AnyStr::py_center, vm)?
+            .into())
     }
 
     #[pymethod]
@@ -505,7 +654,11 @@ impl Py<PyByteArray> {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().ljust(options, vm)?.into())
+        let (width, fillchar) = options.get_value("ljust", vm)?;
+        Ok(self
+            .inner()
+            .pad_with(width, fillchar, AnyStr::py_ljust, vm)?
+            .into())
     }
 
     #[pymethod]
@@ -514,14 +667,20 @@ impl Py<PyByteArray> {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().rjust(options, vm)?.into())
+        let (width, fillchar) = options.get_value("rjust", vm)?;
+        Ok(self
+            .inner()
+            .pad_with(width, fillchar, AnyStr::py_rjust, vm)?
+            .into())
     }
 
     #[pymethod]
     fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
-        self.inner().count(options, vm)
+        self.search_exported(
+            options,
+            |bytes, needle, range| bytes.py_count(needle, range, |h, n| h.find_iter(n).count()),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -539,19 +698,7 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let borrowed = self.borrow_buf();
-        let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
-        substr.py_starts_ends_with(
-            &affix,
-            "endswith",
-            "bytes",
-            |s, x: PyBytesInner| s.ends_with(x.as_bytes()),
-            vm,
-        )
+        self.starts_ends_with(options, true, vm)
     }
 
     #[pymethod]
@@ -560,19 +707,7 @@ impl Py<PyByteArray> {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let borrowed = self.borrow_buf();
-        let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
-        substr.py_starts_ends_with(
-            &affix,
-            "startswith",
-            "bytes",
-            |s, x: PyBytesInner| s.starts_with(x.as_bytes()),
-            vm,
-        )
+        self.starts_ends_with(options, false, vm)
     }
 
     /// Converting the needle runs Python, which must not resize this
@@ -586,9 +721,11 @@ impl Py<PyByteArray> {
     where
         F: Fn(&[u8], &[u8]) -> Option<usize>,
     {
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
-        self.inner().find(options, find, vm)
+        self.search_exported(
+            options,
+            |bytes, needle, range| bytes.py_find(needle, range, find),
+            vm,
+        )
     }
 
     #[pymethod]
@@ -621,7 +758,28 @@ impl Py<PyByteArray> {
         options: ByteInnerTranslateOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().translate(options, vm)?.into())
+        let mut buffers = ByteArrayBuffers::default();
+        if let Some(table) = &options.table {
+            let buffer = PyBuffer::from_object(vm, table, BufferFlags::SIMPLE)?;
+            if buffer.desc.len != 256 {
+                return Err(vm.new_value_error("translation table must be 256 characters long"));
+            }
+            buffers.first = Some(buffer);
+        }
+        buffers.second = Some(PyBuffer::from_object(
+            vm,
+            &options.delete,
+            BufferFlags::SIMPLE,
+        )?);
+        // Both acquisition callbacks finish before any input bytes are read.
+        let table = match &buffers.first {
+            Some(buffer) => PyByteArray::buffer_snapshot(buffer, vm)?,
+            None => (0..=u8::MAX).collect(),
+        };
+        let delete = PyByteArray::buffer_snapshot(buffers.second.as_ref().unwrap(), vm)?;
+        let result = self.inner().translate_with(&table, &delete).into();
+        drop(buffers);
+        Ok(result)
     }
 
     #[pymethod]
@@ -781,9 +939,18 @@ impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
 
     fn init(zelf: &Py<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_inner(bytearray_from_object, vm)?;
-        core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
+        // Reject exports and clear existing contents before converting source.
+        zelf.try_resizable(vm)?.elements = Vec::new();
+        // Conversion can call Python, so do not hold the lock across it and
+        // check again for exports acquired by a callback or another thread.
+        let (mut inner, zero_count) =
+            options.get_inner_with_zero_count(bytearray_from_object, vm)?;
+        // A zero integer count performs no further writes, including when its
+        // __index__ callback changed this bytearray or acquired an export.
+        if zero_count {
+            return Ok(());
+        }
+        core::mem::swap(&mut *zelf.try_resizable(vm)?, &mut inner);
         Ok(())
     }
 }
@@ -795,10 +962,33 @@ impl Comparable for PyByteArray {
         op: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        if let Some(res) = op.identical_optimization(zelf, other) {
-            return Ok(res.into());
+        if !zelf.as_object().check_buffer() || !other.check_buffer() {
+            return Ok(PyComparisonValue::NotImplemented);
         }
-        Ok(zelf.inner().cmp(other, op, vm))
+        let first = match PyBuffer::from_object(vm, zelf.as_object(), BufferFlags::SIMPLE) {
+            Ok(buffer) => buffer,
+            Err(_) => return Ok(PyComparisonValue::NotImplemented),
+        };
+        let mut buffers = ByteArrayBuffers {
+            first: Some(first),
+            second: None,
+        };
+        buffers.second = match PyBuffer::from_object(vm, other, BufferFlags::SIMPLE) {
+            Ok(buffer) => Some(buffer),
+            Err(_) => return Ok(PyComparisonValue::NotImplemented),
+        };
+        let left = buffers.first.as_ref().unwrap();
+        let right = buffers.second.as_ref().unwrap();
+        let result = if left.desc.len != right.desc.len && op.eval_eq(|| false).is_some() {
+            op.eval_eq(|| false).unwrap()
+        } else {
+            let left = Self::buffer_snapshot(left, vm)?;
+            let right = Self::buffer_snapshot(right, vm)?;
+            op.eval_eq(|| left == right)
+                .unwrap_or_else(|| op.eval_ord(left.cmp(&right)))
+        };
+        drop(buffers);
+        Ok(result.into())
     }
 }
 
@@ -841,9 +1031,11 @@ impl AsBuffer for PyByteArray {
     }
 
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        // Keep the length stable until PyBuffer::new retains the export.
+        let inner = zelf.inner();
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
-            BufferDescriptor::simple(zelf.__len__(), false),
+            BufferDescriptor::simple(inner.elements.len(), false),
             &BUFFER_METHODS,
         ))
     }
@@ -855,7 +1047,12 @@ impl BufferResizeGuard for PyByteArray {
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         // An export is a borrow someone else still holds, so it is answered
         // before the lock rather than by waiting on it.
-        (self.exports.load(Ordering::SeqCst) == 0).then(|| self.inner.write())
+        if self.exports.load(Ordering::SeqCst) != 0 {
+            return None;
+        }
+        let inner = self.inner.write();
+        // An export may have been acquired while we waited for the lock.
+        (self.exports.load(Ordering::SeqCst) == 0).then_some(inner)
     }
 }
 
@@ -886,10 +1083,43 @@ impl AsSequence for PyByteArray {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).__len__())),
             concat: atomic_func!(|seq, other, vm| {
-                PyByteArray::sequence_downcast(seq)
-                    .inner()
-                    .concat(other, vm)
-                    .map(|x| PyByteArray::from(x).into_pyobject(vm))
+                let concat_error = || {
+                    vm.new_type_error(format!(
+                        "can't concat {} to {}",
+                        other.class().name(),
+                        seq.obj.class().name()
+                    ))
+                };
+                // Protect the left operand before the right buffer callback,
+                // without holding either operand's lock across Python calls.
+                let left = PyBuffer::from_object(vm, seq.obj, BufferFlags::SIMPLE)
+                    .map_err(|_| concat_error())?;
+                let right = match PyBuffer::from_object(vm, other, BufferFlags::SIMPLE) {
+                    Ok(buffer) => buffer,
+                    Err(_) => {
+                        let error = concat_error();
+                        drop(left);
+                        return Err(error);
+                    }
+                };
+                let result = (|| {
+                    let len = left
+                        .desc
+                        .len
+                        .checked_add(right.desc.len)
+                        .ok_or_else(|| vm.no_memory_error())?;
+                    let mut bytes = Vec::new();
+                    bytes
+                        .try_reserve_exact(len)
+                        .map_err(|_| vm.no_memory_error())?;
+                    left.append_to(&mut bytes);
+                    right.append_to(&mut bytes);
+                    Ok(PyByteArray::from(bytes).into_pyobject(vm))
+                })();
+                // Buffer release can run Python too; all slice guards are gone.
+                drop(left);
+                drop(right);
+                result
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 PyByteArray::sequence_downcast(seq)
@@ -907,7 +1137,7 @@ impl AsSequence for PyByteArray {
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, &value, vm)
                 } else {
-                    zelf.borrow_buf_mut().delitem_by_index(vm, i)
+                    zelf.delitem_by_index(i, vm)
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {

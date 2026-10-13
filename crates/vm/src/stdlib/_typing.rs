@@ -321,7 +321,9 @@ pub(crate) mod decl {
                 return module.clone();
             }
             // Fall back to compute_value's __module__ (like PyFunction_GetModule)
-            if let Ok(module) = self.compute_value.get_attr("__module__", vm) {
+            if self.is_lazy
+                && let Ok(module) = self.compute_value.get_attr("__module__", vm)
+            {
                 return module;
             }
             vm.ctx.none()

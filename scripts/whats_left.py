@@ -1,6 +1,6 @@
 #!/usr/bin/env -S python3 -I
 # /// script
-# requires-python = ">=3.14"
+# requires-python = ">=3.15.0"
 # ///
 
 # This script generates Lib/snippets/whats_left_data.py with these variables defined:
@@ -39,9 +39,9 @@ GENERATED_FILE = "extra_tests/not_impl.py"
 implementation = platform.python_implementation()
 if implementation != "CPython":
     sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
-if sys.version_info[:2] < (3, 14):
+if sys.version_info[:2] < (3, 15):
     sys.exit(
-        f"whats_left.py must be run under CPython 3.14 or newer, got {implementation} {sys.version} instead. If you have uv, try `uv run python -I scripts/whats_left.py` to select a proper Python interpreter easier."
+        f"whats_left.py must be run under CPython 3.15 or newer, got {implementation} {sys.version} instead. If you have uv, try `uv run python -I scripts/whats_left.py` to select a proper Python interpreter easier."
     )
 
 

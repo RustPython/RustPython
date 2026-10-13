@@ -360,7 +360,7 @@ impl<T: PyPayload> PyAtomicRef<T> {
     pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
         let py = PyRef::leak(pyref) as *const Py<T> as *mut _;
         let old = Radium::swap(&self.inner, py, Ordering::AcqRel);
-        unsafe { PyRef::from_raw(old.cast()) }
+        unsafe { PyRef::<T>::from_raw(old.cast()) }
     }
 
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
@@ -439,7 +439,11 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     pub unsafe fn swap(&self, opt_ref: Option<PyRef<T>>) -> Option<PyRef<T>> {
         let val = opt_ref.map_or(null_mut(), |x| PyRef::leak(x) as *const Py<T> as *mut _);
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
-        unsafe { old.cast::<Py<T>>().as_ref().map(|x| PyRef::from_raw(x)) }
+        unsafe {
+            old.cast::<Py<T>>()
+                .as_ref()
+                .map(|x| PyRef::<T>::from_raw(x))
+        }
     }
 
     pub fn swap_to_temporary_refs(&self, opt_ref: Option<PyRef<T>>, vm: &VirtualMachine) {

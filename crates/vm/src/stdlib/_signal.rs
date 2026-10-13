@@ -73,6 +73,13 @@ pub(crate) mod _signal {
         }
     }
 
+    #[cfg(windows)]
+    static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
+
+    // Bounded pending-call storage: signal handlers cannot allocate or lock.
+    #[cfg(windows)]
+    static WAKEUP_SEND_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
+
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[allow(unused_imports)]
     pub use host_signal::SIG_ERR;
@@ -175,9 +182,16 @@ pub(crate) mod _signal {
                 let Some(handler) = (unsafe { host_signal::probe_handler(signum) }) else {
                     continue;
                 };
-                let py_handler = if handler == SIG_DFL {
+                let (is_default, is_ignored) = cfg_select! {
+                    target_os = "wasi" => (
+                        handler == host_signal::Handler::Default,
+                        handler == host_signal::Handler::Ignore,
+                    ),
+                    _ => (handler == SIG_DFL, handler == SIG_IGN),
+                };
+                let py_handler = if is_default {
                     Some(sig_dfl.clone())
-                } else if handler == SIG_IGN {
+                } else if is_ignored {
                     Some(sig_ign.clone())
                 } else {
                     None
@@ -223,15 +237,29 @@ pub(crate) mod _signal {
         }
 
         let sig_handler = if handler.is_callable() {
-            run_signal as *const () as sighandler_t
+            let callback = run_signal as *const () as sighandler_t;
+            cfg_select! {
+                target_os = "wasi" => host_signal::Handler::Custom(callback),
+                _ => callback,
+            }
         } else {
             const MSG: &str =
                 "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object";
 
-            usize::try_from_borrowed_object(vm, &handler)
+            let disposition = usize::try_from_borrowed_object(vm, &handler)
                 .ok()
                 .filter(|&v| matches!(v, SIG_DFL | SIG_IGN))
-                .ok_or_else(|| vm.new_type_error(MSG))?
+                .ok_or_else(|| vm.new_type_error(MSG))?;
+            cfg_select! {
+                target_os = "wasi" => {
+                    if disposition == SIG_DFL {
+                        host_signal::Handler::Default
+                    } else {
+                        host_signal::Handler::Ignore
+                    }
+                },
+                _ => disposition,
+            }
         };
 
         signal::check_signals(vm)?;
@@ -323,7 +351,7 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        // TODO: implement warn_on_full_buffer
+        // TODO: implement warn_on_full_buffer for the remaining wakeup write paths.
         let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
         windows => args.fd.0,
@@ -362,7 +390,10 @@ pub(crate) mod _signal {
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
 
         #[cfg(windows)]
-        WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
+        {
+            WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
+            WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
+        }
 
         #[cfg(windows)]
         if old_fd == INVALID_WAKEUP {
@@ -511,14 +542,57 @@ pub(crate) mod _signal {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
-        host_signal::notify_signal(
+        #[cfg(not(windows))]
+        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
+
+        #[cfg(windows)]
+        let error = host_signal::notify_signal(
             signum,
             WAKEUP.load(Ordering::Relaxed),
-            #[cfg(windows)]
             WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
-            #[cfg(windows)]
             signal::get_sigint_event(),
         );
+        #[cfg(windows)]
+        if let Some(error) = error
+            && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+        {
+            for pending in &WAKEUP_SEND_ERRORS {
+                if pending
+                    .compare_exchange(0, error.0, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    // The VM may have handled the signal on another thread
+                    // before the failed wakeup send completed.
+                    signal::set_triggered();
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn wakeup_send_errors_pending() -> bool {
+        WAKEUP_SEND_ERRORS
+            .iter()
+            .any(|error| error.load(Ordering::Relaxed) != 0)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn report_wakeup_send_errors(vm: &VirtualMachine) {
+        for pending in &WAKEUP_SEND_ERRORS {
+            let error = pending.swap(0, Ordering::Relaxed);
+            if error != 0 {
+                vm.run_unraisable(
+                    host_signal::WakeupSendError(error)
+                        .into_io_error()
+                        .into_pyexception(vm),
+                    Some(
+                        "Exception ignored while trying to send to the signal wakeup fd".to_owned(),
+                    ),
+                    vm.ctx.none(),
+                );
+            }
+        }
     }
 
     /// Reset wakeup fd after fork in child process.

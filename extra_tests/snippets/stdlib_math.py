@@ -17,6 +17,114 @@ NINF = float("-inf")
 #
 # assert math.log(1.1111) == math.log(Conversible())
 
+# A logarithm can fit in a float even when its integer base cannot.
+assert math.isclose(math.log(2**4000, 2**2000), 2.0)
+assert math.isclose(math.log(2.0, 2**2000), 1.0 / 2000)
+
+for value in (1, 8.0, INF, NAN):
+    assert_raises(ZeroDivisionError, math.log, value, 1)
+assert_raises(TypeError, math.log, object(), 1)
+assert_raises(ValueError, math.log, 8, -(2**2000))
+
+log_conversions = []
+
+
+class LogFloat:
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+
+    def __float__(self):
+        log_conversions.append(self.name)
+        return self.value
+
+
+assert math.isclose(math.log(LogFloat("x", 8.0), LogFloat("base", 2.0)), 3.0)
+assert log_conversions == ["x", "base"]
+log_conversions.clear()
+assert_raises(ValueError, math.log, -1, LogFloat("base", 2.0))
+assert log_conversions == []
+
+
+class LogFloatOverflow:
+    def __float__(self):
+        log_conversions.append("float")
+        raise OverflowError("float conversion failed")
+
+    def __index__(self):
+        log_conversions.append("index")
+        return 2**2000
+
+
+class LogIndexOnly:
+    def __index__(self):
+        return 2**2000
+
+
+for logarithm in (math.log, math.log2, math.log10):
+    log_conversions.clear()
+    assert math.isclose(logarithm(LogFloatOverflow()), logarithm(2**2000))
+    assert log_conversions == ["float", "index"]
+    assert math.isclose(logarithm(LogIndexOnly()), logarithm(2**2000))
+
+    for error_type in (TypeError, ValueError, RuntimeError):
+        error = error_type("float conversion failed")
+
+        class FailedFloat(LogFloatOverflow):
+            def __float__(self):
+                raise error
+
+        with assert_raises(error_type) as caught:
+            logarithm(FailedFloat())
+        assert caught.exception is error
+
+    error = RuntimeError("index conversion failed")
+
+    class FailedIndex(LogFloatOverflow):
+        def __index__(self):
+            raise error
+
+    with assert_raises(RuntimeError) as caught:
+        logarithm(FailedIndex())
+    assert caught.exception is error
+
+    class NegativeIndex(LogFloatOverflow):
+        def __index__(self):
+            return -1
+
+    assert_raises(ValueError, logarithm, NegativeIndex())
+
+    class InvalidIndex(LogFloatOverflow):
+        def __index__(self):
+            return 1.0
+
+    assert_raises(TypeError, logarithm, InvalidIndex())
+
+    class NoIndex:
+        __float__ = LogFloatOverflow.__float__
+
+    assert_raises(OverflowError, logarithm, NoIndex())
+
+    class SuccessfulFloat:
+        def __float__(self):
+            return 8.0
+
+        def __index__(self):
+            raise AssertionError("successful float conversion must not retry index")
+
+    assert logarithm(SuccessfulFloat()) == logarithm(8.0)
+
+assert math.isclose(math.log(8, LogFloatOverflow()), 3 / 2000)
+assert math.isclose(math.log(8, LogIndexOnly()), 3 / 2000)
+
+
+class LogInt(int):
+    def __float__(self):
+        raise AssertionError("integer logarithms use the native integer value")
+
+
+assert math.isclose(math.log(LogInt(2**4000), LogInt(2**2000)), 2.0)
+
 # roundings
 assert int.__trunc__
 assert int.__floor__

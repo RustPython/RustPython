@@ -93,36 +93,64 @@ mod math {
         pymath::math::expm1(x.into_float()).map_err(|err| pymath_exception(err, vm))
     }
 
-    #[pyfunction]
-    fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let base = base.into_option().map(|v| v.into_float());
-        // Check base first for proper error messages
-        if let Some(b) = base {
-            if b <= 0.0 {
-                return Err(vm.new_value_error(format!(
-                    "expected a positive input, got {}",
-                    super::float_repr(b)
-                )));
-            }
-            if b == 1.0 {
-                return Err(vm.new_value_error("math domain error"));
-            }
-        }
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log_bigint(i.as_bigint(), base).map_err(|err| match err {
+    fn logarithm(
+        x: &PyObject,
+        float_log: impl Fn(f64) -> Result<f64, pymath::Error>,
+        int_log: impl Fn(&BigInt) -> Result<f64, pymath::Error>,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        let integer_log = |i: &PyInt| {
+            int_log(i.as_bigint()).map_err(|err| match err {
                 pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
                 _ => pymath_exception(err, vm),
-            });
+            })
+        };
+        if let Some(i) = x.downcast_ref::<PyInt>() {
+            return integer_log(i);
         }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log(val, base).map_err(|err| match err {
+        let val = match x.try_float(vm) {
+            Ok(value) => value.to_f64(),
+            Err(error) => {
+                if error.fast_isinstance(vm.ctx.exceptions.overflow_error)
+                    && let Some(index) = x.try_index_opt(vm)
+                {
+                    let index = index?;
+                    return integer_log(&index);
+                }
+                return Err(error);
+            }
+        };
+        float_log(val).map_err(|err| match err {
             pymath::Error::EDOM => vm.new_value_error(format!(
                 "expected a positive input, got {}",
                 super::float_repr(val)
             )),
             _ => pymath_exception(err, vm),
         })
+    }
+
+    #[pyfunction]
+    fn log(x: PyObjectRef, base: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<f64> {
+        let natural_log = |x: &PyObject| {
+            logarithm(
+                x,
+                |value| pymath::math::log(value, None),
+                |value| pymath::math::log_bigint(value, None),
+                vm,
+            )
+        };
+        let numerator = natural_log(&x)?;
+        match base {
+            OptionalArg::Missing => Ok(numerator),
+            OptionalArg::Present(base) => {
+                let denominator = natural_log(&base)?;
+                if denominator == 0.0 {
+                    Err(vm.new_zero_division_error("division by zero"))
+                } else {
+                    Ok(numerator / denominator)
+                }
+            }
+        }
     }
 
     #[pyfunction]
@@ -132,40 +160,12 @@ mod math {
 
     #[pyfunction]
     fn log2(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log2_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
-                _ => pymath_exception(err, vm),
-            });
-        }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log2(val).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
-            _ => pymath_exception(err, vm),
-        })
+        logarithm(&x, pymath::math::log2, pymath::math::log2_bigint, vm)
     }
 
     #[pyfunction]
     fn log10(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-        // Handle BigInt specially for large values (only for actual int type, not float)
-        if let Some(i) = x.downcast_ref::<PyInt>() {
-            return pymath::math::log10_bigint(i.as_bigint()).map_err(|err| match err {
-                pymath::Error::EDOM => vm.new_value_error("expected a positive input"),
-                _ => pymath_exception(err, vm),
-            });
-        }
-        let val = x.try_float(vm)?.to_f64();
-        pymath::math::log10(val).map_err(|err| match err {
-            pymath::Error::EDOM => vm.new_value_error(format!(
-                "expected a positive input, got {}",
-                super::float_repr(val)
-            )),
-            _ => pymath_exception(err, vm),
-        })
+        logarithm(&x, pymath::math::log10, pymath::math::log10_bigint, vm)
     }
 
     #[pyfunction]

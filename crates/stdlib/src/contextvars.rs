@@ -44,8 +44,19 @@ mod _contextvars {
         }
     }
 
+    // Unlike an object address, a cache identity must not be reused after a
+    // context is destroyed. Zero disables cache hits if the counter is exhausted.
+    static CONTEXT_CACHE_ID: AtomicUsize = AtomicUsize::new(0);
+
+    fn next_context_cache_id() -> usize {
+        CONTEXT_CACHE_ID
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_or(0, |id| id + 1)
+    }
+
     #[derive(Debug)]
     struct ContextInner {
+        cache_id: usize,
         idx: AtomicUsize,
         vars: PyRef<HamtObject>,
         // PyObject *ctx_weakreflist;
@@ -72,6 +83,7 @@ mod _contextvars {
         fn empty(vm: &VirtualMachine) -> Self {
             Self {
                 inner: ContextInner {
+                    cache_id: next_context_cache_id(),
                     idx: AtomicUsize::new(usize::MAX),
                     vars: HamtObject::default().into_ref(&vm.ctx),
                     entered: AtomicBool::new(false),
@@ -192,6 +204,7 @@ mod _contextvars {
             };
             Self {
                 inner: ContextInner {
+                    cache_id: next_context_cache_id(),
                     idx: AtomicUsize::new(usize::MAX),
                     vars: vars_copy.into_ref(&vm.ctx),
                     entered: AtomicBool::new(false),
@@ -356,7 +369,7 @@ mod _contextvars {
         #[pytraverse(skip)]
         cached: PyMutex<Option<ContextVarCache>>,
         #[pytraverse(skip)]
-        cached_id: AtomicUsize, // cached_tsid in CPython
+        cached_id: AtomicUsize, // non-reused Context cache identity
         #[pytraverse(skip)]
         hash: AtomicI64,
     }
@@ -413,7 +426,7 @@ mod _contextvars {
                 idx: ctx.inner.idx.load(Ordering::Relaxed),
             };
             let mut cached = zelf.cached.lock();
-            zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
+            zelf.cached_id.store(ctx.inner.cache_id, Ordering::SeqCst);
             let replaced = cached.replace(cache);
             drop(cached);
             drop(replaced);
@@ -444,7 +457,8 @@ mod _contextvars {
                 let ctx = ctx_obj.downcast_ref::<PyContext>().unwrap();
                 let mut cached = zelf.cached.lock();
                 if let Some(cached) = &*cached
-                    && zelf.cached_id.load(Ordering::SeqCst) == ctx.get_id()
+                    && ctx.inner.cache_id != 0
+                    && zelf.cached_id.load(Ordering::SeqCst) == ctx.inner.cache_id
                     && cached.idx + 1 == ctxs.len()
                 {
                     return (Some(cached.object.clone()), None);
@@ -452,7 +466,7 @@ mod _contextvars {
                 let Some(obj) = ctx.borrow_vars().get(zelf).map(|obj| obj.to_owned()) else {
                     return (None, None);
                 };
-                zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
+                zelf.cached_id.store(ctx.inner.cache_id, Ordering::SeqCst);
 
                 let replaced = cached.replace(ContextVarCache {
                     object: obj.clone(),

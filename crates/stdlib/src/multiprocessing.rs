@@ -408,8 +408,11 @@ mod _multiprocessing {
 
     #[pyfunction]
     fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
-            .map_err(|_| vm.new_last_os_error())
+        let mut buf =
+            host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
+                .map_err(|_| vm.new_last_os_error())?;
+        buf.shrink_to_fit();
+        Ok(buf)
     }
 
     #[pyfunction]

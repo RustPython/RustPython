@@ -818,13 +818,18 @@ mod _pickle {
             .ok()
             .filter(|n| isize::try_from(*n).is_ok())
             .ok_or_else(|| {
-                new_unpickling_error(
-                    vm,
+                let message = if what == "FRAME" {
+                    format!(
+                        "FRAME length exceeds system's maximum of {} bytes",
+                        isize::MAX
+                    )
+                } else {
                     format!(
                         "{what} exceeds system's maximum size of {} bytes",
                         isize::MAX
-                    ),
-                )
+                    )
+                };
+                vm.new_overflow_error(message)
             })
     }
 
@@ -1090,7 +1095,7 @@ mod _pickle {
                 }
                 Some(BINBYTES8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
-                    let n = read_size(&arr, vm, "BINBYTES8")?;
+                    let n = read_size(&arr, vm, "BINBYTES")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(vm.ctx.new_bytes(data).into());
                 }
@@ -1129,7 +1134,7 @@ mod _pickle {
                 }
                 Some(BINUNICODE8) => {
                     let arr: [u8; 8] = st.read_n(8, vm)?.try_into().unwrap();
-                    let n = read_size(&arr, vm, "BINUNICODE8")?;
+                    let n = read_size(&arr, vm, "BINUNICODE")?;
                     let data = st.read_n(n, vm)?.to_vec();
                     stack.push(utf8_surrogatepass(&data, vm)?);
                 }

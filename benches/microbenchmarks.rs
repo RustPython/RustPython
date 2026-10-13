@@ -45,11 +45,8 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBen
             pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
-        let bench_func = |(globals, locals): &mut (
-            pyo3::Bound<'_, pyo3::types::PyDict>,
-            pyo3::Bound<'_, pyo3::types::PyDict>,
-        )| {
-            let res = exec.call((&code, &*globals, &*locals), None);
+        let bench_func = |globals: &mut pyo3::Bound<'_, pyo3::types::PyDict>| {
+            let res = exec.call((&code, &*globals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark")
@@ -58,23 +55,24 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &MicroBen
 
         let bench_setup = |iterations| {
             let globals = pyo3::types::PyDict::new(py);
-            let locals = pyo3::types::PyDict::new(py);
+            globals.set_item("__name__", "__main__").unwrap();
             if let Some(idx) = iterations {
                 globals.set_item("ITERATIONS", idx).unwrap();
             }
 
-            let res = exec.call((&setup_code, &globals, &locals), None);
+            let res = exec.call((&setup_code, &globals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark setup code")
             }
-            (globals, locals)
+            globals
         };
 
         if bench.iterate {
             for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
-                group.bench_with_input(BenchmarkId::new("cpython", &bench.name), &idx, |b, idx| {
+                let id = BenchmarkId::new("cpython", format!("{}[{idx}]", bench.name));
+                group.bench_with_input(id, &idx, |b, idx| {
                     b.iter_batched_ref(
                         || bench_setup(Some(*idx)),
                         bench_func,
@@ -128,6 +126,10 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
 
         let bench_setup = |iterations| {
             let scope = vm.new_scope_with_builtins();
+            scope
+                .globals
+                .set_item("__name__", vm.ctx.new_str("__main__").into(), vm)
+                .unwrap();
             if let Some(idx) = iterations {
                 scope
                     .locals
@@ -145,17 +147,18 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
         if bench.iterate {
             for idx in iteration_counts() {
                 group.throughput(Throughput::Elements(idx as u64));
-                group.bench_with_input(
-                    BenchmarkId::new("rustpython", &bench.name),
-                    &idx,
-                    |b, idx| {
-                        b.iter_batched(
-                            || bench_setup(Some(*idx)),
-                            bench_func,
-                            BatchSize::LargeInput,
-                        );
-                    },
-                );
+                let name = if is_codspeed() {
+                    bench.name.clone()
+                } else {
+                    format!("{}[{idx}]", bench.name)
+                };
+                group.bench_with_input(BenchmarkId::new("rustpython", name), &idx, |b, idx| {
+                    b.iter_batched(
+                        || bench_setup(Some(*idx)),
+                        bench_func,
+                        BatchSize::LargeInput,
+                    );
+                });
             }
         } else {
             group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {

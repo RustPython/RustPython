@@ -762,10 +762,13 @@ mod _io {
                             )));
                         }
                         let n = n as usize;
-                        let mut bytes = b.borrow_buf_mut();
-                        bytes.truncate(n);
-                        // FIXME: try to use Arc::unwrap on the bytearray to get at the inner buffer
-                        bytes.clone().to_pyobject(vm)
+                        let mut inner = b.try_resizable(vm)?;
+                        let bytes = &mut inner.elements;
+                        bytes
+                            .try_reserve_exact(n.saturating_sub(bytes.len()))
+                            .map_err(|_| vm.no_memory_error())?;
+                        bytes.resize(n, 0);
+                        core::mem::take(bytes).to_pyobject(vm)
                     }
                 })
             } else {
@@ -1436,6 +1439,7 @@ mod _io {
                     match ($x, written > 0) {
                         (Some(0), _) | (None, true) => {
                             out.truncate(written);
+                            out.shrink_to_fit();
                             return Ok(Some(out));
                         }
                         (Some(r), _) => r,
@@ -3576,27 +3580,23 @@ mod _io {
                 drop(textio);
             }
 
-            let chunk_size: isize = match value {
-                PySetterValue::Assign(object_value) => {
-                    let integer = object_value.try_index(vm)?;
-
-                    integer.try_to_primitive::<isize>(vm).map_err(|_| {
-                        let class = object_value.class();
-                        let type_name = class.name();
-                        let mut end = type_name.len().min(200);
-                        while !type_name.is_char_boundary(end) {
-                            end -= 1;
-                        }
-                        vm.new_value_error(format!(
-                            "cannot fit '{}' into an index-sized integer",
-                            &type_name[..end]
-                        ))
-                    })?
-                }
-                PySetterValue::Delete => {
-                    return Err(vm.new_attribute_error("cannot delete attribute"));
-                }
+            let PySetterValue::Assign(object_value) = value else {
+                return Err(vm.new_attribute_error("cannot delete attribute"));
             };
+            let integer = object_value.try_index(vm)?;
+
+            let chunk_size = integer.try_to_primitive::<isize>(vm).map_err(|_| {
+                let class = object_value.class();
+                let type_name = class.name();
+                let mut end = type_name.len().min(200);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                vm.new_value_error(format!(
+                    "cannot fit '{}' into an index-sized integer",
+                    &type_name[..end]
+                ))
+            })?;
 
             if chunk_size <= 0 {
                 return Err(vm.new_value_error("a strictly positive integer is required"));
@@ -5934,7 +5934,7 @@ mod _io {
 #[pymodule]
 mod fileio {
     use super::{_io::*, Offset, iobase_finalize};
-    use crate::host_env::crt_fd;
+    use crate::host_env::{crt_fd, os::ErrorExt};
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyUtf8Str, PyUtf8StrRef},
@@ -6048,14 +6048,19 @@ mod fileio {
                 } else {
                     let path = OsPath::try_from_fspath(name.clone(), vm)?;
                     #[cfg(any(unix, target_os = "wasi"))]
-                    let fd = host_io::open_path(&path.clone().into_cstring(vm)?, flags, 0o666);
+                    let raw_path = path.clone().into_cstring(vm)?;
                     #[cfg(windows)]
-                    let fd = host_io::open_path(&path.to_wide_cstring(vm)?, flags, 0o666);
+                    let raw_path = path.to_wide_cstring(vm)?;
                     let filename = OsPathOrFd::Path(path);
-                    match fd {
-                        Ok(fd) => (fd.into_raw(), Some(filename)),
-                        Err(e) => {
-                            return Err(OSErrorBuilder::with_filename_from_errno(&e, filename, vm));
+                    loop {
+                        match vm.allow_threads(|| host_io::open_path(&raw_path, flags, 0o666)) {
+                            Ok(fd) => break (fd.into_raw(), Some(filename)),
+                            Err(e) if e.posix_errno() == libc::EINTR => vm.check_signals()?,
+                            Err(e) => {
+                                return Err(OSErrorBuilder::with_filename_from_errno(
+                                    &e, filename, vm,
+                                ));
+                            }
                         }
                     }
                 }
@@ -6246,6 +6251,7 @@ mod fileio {
                     }
                 };
                 bytes.truncate(n);
+                bytes.shrink_to_fit();
                 bytes
             } else {
                 let mut bytes = vec![];
@@ -6943,6 +6949,7 @@ mod winconsoleio {
             }
 
             buf.truncate(read_len);
+            buf.shrink_to_fit();
             Ok(vm.ctx.new_bytes(buf).into())
         }
 

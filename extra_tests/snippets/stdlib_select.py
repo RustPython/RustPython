@@ -83,6 +83,25 @@ a.close()
 b.close()
 
 
+# Windows supports up to 512 entries, above the Windows SDK default of 64.
+for count in (65, 512) if sys.platform == "win32" else (65,):
+    pairs = []
+    try:
+        for _ in range(count):
+            pairs.append(socket.socketpair())
+        readers = [reader for reader, writer in pairs]
+        assert select.select(readers, [], [], 0) == ([], [], [])
+        for reader, writer in pairs:
+            writer.send(b"x")
+        assert select.select(readers, [], [], 0) == (readers, [], [])
+        if sys.platform == "win32":
+            assert_raises(ValueError, select.select, [readers[0]] * 513, [], [], 0)
+    finally:
+        for pair in pairs:
+            for sock in pair:
+                sock.close()
+
+
 # fileno() runs while the sequence is being read, and it can mutate the very
 # list it was handed.
 mutable_pair, other_end = socket.socketpair()

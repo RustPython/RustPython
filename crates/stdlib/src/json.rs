@@ -1160,6 +1160,10 @@ mod _json {
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            if dict.is_empty() {
+                out.push_str("{}");
+                return Ok(());
+            }
             let mut items = self.dict_items(obj, dict, vm)?;
             if items.is_empty() {
                 out.push_str("{}");

@@ -7,7 +7,6 @@
 //! the caller's responsibility (see `mod.rs`).
 
 use alloc::{vec, vec::Vec};
-use base64::Engine;
 
 /// The base64 pad character `=`.
 pub const PAD: u8 = 61u8;
@@ -31,13 +30,17 @@ pub enum Error {
     TooLong,
     /// `a2b_base64`: base64 decoding failed.
     Base64(Base64DecodeError),
+    /// The base64 output would exceed the maximum Python bytes length.
+    TooMuchBase64Data,
+    /// Reserving the transform output failed.
+    Memory,
 }
 
 /// Mirrors CPython's `binascii_a2b_base64_impl` (`Modules/binascii.c`) error
 /// paths one-for-one, so the caller can build the exact Python error message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Base64DecodeError {
-    /// A `=` at `quad_pos == 0, i == 0`, strict mode.
+    /// Padding before any decoded output, in strict mode.
     LeadingPaddingNotAllowed,
     /// A `=` outside the padding-completion window, strict mode.
     ExcessPaddingNotAllowed,
@@ -51,6 +54,10 @@ pub enum Base64DecodeError {
     InvalidLastSymbol { index: usize },
     /// `quad_pos != 0` and the trailing padding does not complete the quad.
     IncorrectPadding,
+    /// Padding is forbidden when decoding unpadded input in strict mode.
+    PaddingNotAllowed,
+    /// The final symbol contains non-zero unused bits.
+    NonZeroPaddingBits,
 }
 
 const fn hex_nibble(n: u8) -> u8 {
@@ -230,45 +237,53 @@ pub fn crc_hqx(bytes: &[u8], init: u32) -> u32 {
     crc
 }
 
-/// `a2b_base64`. A line-by-line port of `binascii_a2b_base64_impl`
-/// (CPython `Modules/binascii.c`): padding characters within the completion
-/// window (`quad_pos >= 2 && quad_pos + pads <= 4`) are always skipped —
-/// even in strict mode — and non-strict mode additionally skips *every*
-/// pad and every non-alphabet byte outside that window. Errors therefore
-/// only fire in strict mode (mid-loop) or from the two post-loop length
-/// checks, which apply unconditionally.
-pub fn a2b_base64(b: &[u8], strict_mode: bool) -> Result<Vec<u8>, Error> {
-    // Converts between ASCII and base-64 characters. The index of a given number yields the
-    // number in ASCII while the value of said index yields the number in base-64. For example
-    // "=" is 61 in ASCII but 0 (since it's the pad character) in base-64, so BASE64_TABLE[61] == 0
-    #[rustfmt::skip]
-    const BASE64_TABLE: [i8; 256] = [
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,62, -1,-1,-1,63,
-        52,53,54,55, 56,57,58,59, 60,61,-1,-1, -1, 0,-1,-1, /* Note PAD->0 */
-        -1, 0, 1, 2,  3, 4, 5, 6,  7, 8, 9,10, 11,12,13,14,
-        15,16,17,18, 19,20,21,22, 23,24,25,-1, -1,-1,-1,-1,
-        -1,26,27,28, 29,30,31,32, 33,34,35,36, 37,38,39,40,
-        41,42,43,44, 45,46,47,48, 49,50,51,-1, -1,-1,-1,-1,
+/// RFC 4648's standard base64 alphabet.
+pub const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-        -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
-    ];
+/// Build the decoder table, with later duplicate symbols taking precedence.
+#[must_use]
+pub const fn base64_reverse_table(alphabet: &[u8; 64]) -> [u8; 256] {
+    let mut table = [u8::MAX; 256];
+    let mut index = 0;
+    while index < 64 {
+        table[alphabet[index] as usize] = index as u8;
+        index += 1;
+    }
+    // Padding always takes precedence, even in a custom alphabet.
+    table[PAD as usize] = 64;
+    table
+}
 
-    let mut decoded: Vec<u8> = Vec::with_capacity(b.len().div_ceil(4) * 3);
+/// Options for CPython 3.15's base64 decoder.
+pub struct Base64DecodeOptions<'a> {
+    pub strict_mode: bool,
+    pub padded: bool,
+    pub table: &'a [u8; 256],
+    pub ignored: &'a [bool; 256],
+    pub canonical: bool,
+}
 
-    let mut quad_pos: u32 = 0; // position in the quad, 0..=3
-    let mut pads: u32 = 0;
+/// `a2b_base64`, following CPython 3.15's `Modules/binascii.c`.
+pub fn a2b_base64(b: &[u8], options: Base64DecodeOptions<'_>) -> Result<Vec<u8>, Error> {
+    let Base64DecodeOptions {
+        strict_mode,
+        padded,
+        table,
+        ignored,
+        canonical,
+    } = options;
+
+    let mut decoded: Vec<u8> = Vec::new();
+    decoded
+        .try_reserve_exact(b.len().div_ceil(4) * 3)
+        .map_err(|_| Error::Memory)?;
+
+    let mut quad_pos: usize = 0; // position in the quad, 0..=3
+    let mut pads: usize = 0;
     let mut left_char: u8 = 0;
-    for (i, &el) in b.iter().enumerate() {
-        if el == PAD {
+    for &el in b {
+        if padded && el == PAD {
             pads += 1;
             if quad_pos >= 2 && quad_pos + pads <= 4 {
                 continue;
@@ -276,7 +291,7 @@ pub fn a2b_base64(b: &[u8], strict_mode: bool) -> Result<Vec<u8>, Error> {
             // RFC 4648 section-3.3: implementations MAY ignore a pad
             // character present before the end of the encoded data, and
             // MAY ignore excess pad characters. Non-strict mode does.
-            if !strict_mode {
+            if !strict_mode || ignored[PAD as usize] {
                 continue;
             }
             if quad_pos == 1 {
@@ -284,22 +299,26 @@ pub fn a2b_base64(b: &[u8], strict_mode: bool) -> Result<Vec<u8>, Error> {
                 // `quad_pos == 1` check below.
                 break;
             }
-            return Err(Error::Base64(if quad_pos == 0 && i == 0 {
+            return Err(Error::Base64(if quad_pos == 0 && decoded.is_empty() {
                 Base64DecodeError::LeadingPaddingNotAllowed
             } else {
                 Base64DecodeError::ExcessPaddingNotAllowed
             }));
         }
 
-        let binary_char = BASE64_TABLE[el as usize];
-        if binary_char < 0 {
-            if strict_mode {
-                return Err(Error::Base64(Base64DecodeError::OnlyBase64DataAllowed));
+        let binary_char = table[el as usize];
+        if binary_char >= 64 {
+            if strict_mode && !ignored[el as usize] {
+                return Err(Error::Base64(if el == PAD {
+                    Base64DecodeError::PaddingNotAllowed
+                } else {
+                    Base64DecodeError::OnlyBase64DataAllowed
+                }));
             }
             continue;
         }
 
-        if pads > 0 && strict_mode {
+        if pads > 0 && strict_mode && !ignored[PAD as usize] {
             return Err(Error::Base64(if quad_pos + pads == 4 {
                 Base64DecodeError::ExcessDataAfterPadding
             } else {
@@ -312,21 +331,21 @@ pub fn a2b_base64(b: &[u8], strict_mode: bool) -> Result<Vec<u8>, Error> {
         match quad_pos {
             0 => {
                 quad_pos = 1;
-                left_char = binary_char as u8;
+                left_char = binary_char;
             }
             1 => {
                 quad_pos = 2;
-                decoded.push((left_char << 2) | (binary_char >> 4) as u8);
-                left_char = (binary_char & 0x0f) as u8;
+                decoded.push((left_char << 2) | (binary_char >> 4));
+                left_char = binary_char & 0x0f;
             }
             2 => {
                 quad_pos = 3;
-                decoded.push((left_char << 4) | (binary_char >> 2) as u8);
-                left_char = (binary_char & 0x03) as u8;
+                decoded.push((left_char << 4) | (binary_char >> 2));
+                left_char = binary_char & 0x03;
             }
             3 => {
                 quad_pos = 0;
-                decoded.push((left_char << 6) | binary_char as u8);
+                decoded.push((left_char << 6) | binary_char);
                 left_char = 0;
             }
             _ => unsafe {
@@ -344,24 +363,72 @@ pub fn a2b_base64(b: &[u8], strict_mode: bool) -> Result<Vec<u8>, Error> {
         }));
     }
 
-    if quad_pos != 0 && quad_pos + pads < 4 {
+    if padded && quad_pos != 0 && quad_pos + pads < 4 {
         return Err(Error::Base64(Base64DecodeError::IncorrectPadding));
     }
 
+    if canonical && left_char != 0 {
+        return Err(Error::Base64(Base64DecodeError::NonZeroPaddingBits));
+    }
     Ok(decoded)
 }
 
-/// `b2a_base64`.
-#[must_use]
-pub fn b2a_base64(data: &[u8], newline: bool) -> Vec<u8> {
-    // https://stackoverflow.com/questions/63916821
-    let mut encoded = base64::engine::general_purpose::STANDARD
-        .encode(data)
-        .into_bytes();
+/// `b2a_base64`, including CPython 3.15's wrapping and custom alphabets.
+pub fn b2a_base64(
+    data: &[u8],
+    padded: bool,
+    wrapcol: usize,
+    newline: bool,
+    alphabet: &[u8; 64],
+) -> Result<Vec<u8>, Error> {
+    let pads = (3 - data.len() % 3) % 3;
+    let mut size = data
+        .len()
+        .div_ceil(3)
+        .checked_mul(4)
+        .ok_or(Error::TooMuchBase64Data)?;
+    if !padded {
+        size -= pads;
+    }
+    let width = if wrapcol == 0 {
+        usize::MAX
+    } else {
+        wrapcol.max(4) / 4 * 4
+    };
+    let newlines = size.saturating_sub(1) / width;
+    size = size
+        .checked_add(newlines)
+        .and_then(|n| n.checked_add(usize::from(newline)))
+        .filter(|&n| isize::try_from(n).is_ok())
+        .ok_or(Error::TooMuchBase64Data)?;
+    let mut encoded = Vec::new();
+    encoded.try_reserve_exact(size).map_err(|_| Error::Memory)?;
+    let mut column = 0;
+    let mut emit = |symbol| {
+        if column == width {
+            encoded.push(b'\n');
+            column = 0;
+        }
+        encoded.push(symbol);
+        column += 1;
+    };
+    for chunk in data.chunks(3) {
+        let value = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for index in 0..=chunk.len() {
+            emit(alphabet[((value >> (18 - index * 6)) & 63) as usize]);
+        }
+        if padded {
+            for _ in chunk.len() + 1..4 {
+                emit(PAD);
+            }
+        }
+    }
     if newline {
         encoded.push(b'\n');
     }
-    encoded
+    Ok(encoded)
 }
 
 #[inline]

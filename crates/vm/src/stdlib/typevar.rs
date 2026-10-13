@@ -583,10 +583,7 @@ pub(crate) mod typevar {
                 return Err(vm.new_type_error("ParamSpec() takes at most 1 positional argument"));
             };
 
-            let bound = kwargs
-                .swap_remove("bound")
-                .map(|b| type_check(b, "Bound must be a type.", vm))
-                .transpose()?;
+            let bound = kwargs.swap_remove("bound");
             let covariant = kwargs
                 .swap_remove("covariant")
                 .map(|v| v.try_to_bool(vm))

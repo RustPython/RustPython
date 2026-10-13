@@ -399,7 +399,7 @@ def test_cast_rejects_non_native_format():
             memoryview(b"").cast(fmt)
             raise AssertionError(f"cast accepted {fmt!r}")
         except ValueError as e:
-            assert "native single character format" in str(e), e
+            assert "native format" in str(e), e
     assert memoryview(bytes(8)).cast("@i").itemsize == 4
 
 

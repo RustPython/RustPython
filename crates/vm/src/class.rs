@@ -453,13 +453,38 @@ pub trait PyClassImpl: PyClassDef {
 
 /// Trait for Python subclasses that can provide a reference to their base type.
 ///
-/// This trait is automatically implemented by the `#[pyclass]` macro when
-/// `base = SomeType` is specified. It provides safe reference access to the
-/// base type's payload.
+/// The `#[pyclass]` macro implements this trait for `#[repr(transparent)]`
+/// subclasses with `base = SomeType`. Other native subclasses can implement
+/// it manually when their base is a compatible physical prefix.
 ///
-/// For subclasses with `#[repr(transparent)]`
-/// which enables ownership transfer via `into_base()`.
-pub trait PySubclass: crate::PyPayload {
+/// # Safety
+///
+/// Every valid `Self` must contain a valid `Base` at offset zero, returned by
+/// `as_base`. Their payload offsets in `Py<Self>` and `Py<Base>` must match,
+/// and `Py<Self>` must meet `Py<Base>`'s alignment requirement. The base must
+/// remain valid for the lifetime of `Self`, independently of the object's
+/// Python class or MRO. These guarantees allow safe borrowing and ownership
+/// transfer of the same allocation as `Py<Base>`.
+///
+/// A manual implementation must explicitly acknowledge this contract:
+///
+/// ```compile_fail,E0200
+/// use rustpython_vm::{builtins::PyInt, class::PySubclass, pyclass, PyPayload};
+///
+/// #[pyclass(module = false, name = "IntWrapper")]
+/// #[derive(Debug, PyPayload)]
+/// #[repr(transparent)]
+/// struct IntWrapper(PyInt);
+///
+/// #[pyclass]
+/// impl IntWrapper {}
+///
+/// impl PySubclass for IntWrapper {
+///     type Base = PyInt;
+///     fn as_base(&self) -> &PyInt { &self.0 }
+/// }
+/// ```
+pub unsafe trait PySubclass: crate::PyPayload {
     type Base: crate::PyPayload;
 
     /// Returns a reference to the base type's payload.

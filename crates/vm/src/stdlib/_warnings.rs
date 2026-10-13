@@ -21,7 +21,7 @@ pub fn warn(
 mod _warnings {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::TryFromObject,
         function::OptionalArg,
     };
@@ -100,15 +100,12 @@ mod _warnings {
         category: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyTypeRef>> {
+        if message.fast_isinstance(vm.ctx.exceptions.warning) {
+            return Ok(Some(message.class().to_owned()));
+        }
         let cat_obj = match category {
             Some(c) if !vm.is_none(&c) => c,
-            _ => {
-                return Ok(if message.fast_isinstance(vm.ctx.exceptions.warning) {
-                    Some(message.class().to_owned())
-                } else {
-                    None // will default to UserWarning in warn_explicit
-                });
-            }
+            _ => return Ok(None), // will default to UserWarning in warn_explicit
         };
 
         let cat = PyTypeRef::try_from_object(vm, cat_obj.clone()).map_err(|_| {
@@ -183,7 +180,7 @@ mod _warnings {
         let source_line = if let Some(mg) = args.module_globals.into_option() {
             if vm.is_none(&mg) {
                 None
-            } else if !mg.class().is(vm.ctx.types.dict_type) {
+            } else if mg.downcast_ref::<PyDict>().is_none() {
                 return Err(vm.new_type_error(format!(
                     "module_globals must be a dict, not '{}'",
                     mg.class().name()

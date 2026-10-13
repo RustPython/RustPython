@@ -43,21 +43,27 @@ def _run_missing_type_params_regression():
 
 _run_missing_type_params_regression()
 
-if sys.implementation.name == "rustpython":
-    # __parameters__ is computed when the alias is built, and the walk descends
-    # into every list and tuple argument, so a self-referential or deeply
-    # nested argument must be caught. CPython, which also runs this snippet,
-    # does not walk into plain lists at all.
-    self_referential = []
-    self_referential.append(self_referential)
-    with assert_raises(RecursionError):
-        list[self_referential]
+# GenericAlias construction is lazy. Python 3.15 walks nested lists and tuples
+# when parameters are first needed, including during subscription.
+self_referential = []
+self_referential.append(self_referential)
+alias = list[self_referential]
+with assert_raises(RecursionError):
+    alias.__parameters__
+with assert_raises(RecursionError):
+    alias[int]
 
+if sys.implementation.name == "rustpython":
+    # Finite-depth stack exhaustion depends on the interpreter build and OS stack.
+    # Keep this native stress case separate from the shared cyclic contract above.
     nested = [0]
     for _ in range(100_000):
         nested = [nested]
+    alias = list[nested]
     with assert_raises(RecursionError):
-        list[nested]
+        alias.__parameters__
+    with assert_raises(RecursionError):
+        alias[int]
 
     # hashing an alias walks the same shape. Release inlining of the hash
     # slot needs more depth than debug to trip the native stack guard.
@@ -66,3 +72,18 @@ if sys.implementation.name == "rustpython":
         deep_alias = list[deep_alias]
     with assert_raises(RecursionError):
         hash(deep_alias)
+
+
+# FunctionType preserves the code qualified name when a name is supplied.
+def outer():
+    def nested():
+        pass
+
+    return nested
+
+
+original = outer()
+for name in ("renamed", ""):
+    function = types.FunctionType(original.__code__, globals(), name)
+    assert function.__name__ == name
+    assert function.__qualname__ == "outer.<locals>.nested"

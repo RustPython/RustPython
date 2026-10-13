@@ -177,12 +177,12 @@ mod decl {
     impl IterNext for PyItertoolsCompress {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             loop {
+                // Match zip(data, selectors): consume data before the selector,
+                // and stop as soon as either input is exhausted.
+                let data_obj = raise_if_stop!(zelf.data.next(vm)?);
                 let sel_obj = raise_if_stop!(zelf.selectors.next(vm)?);
-                let verdict = sel_obj.try_to_bool(vm)?;
-                let data_obj = zelf.data.next(vm)?;
-
-                if verdict {
-                    return Ok(data_obj);
+                if sel_obj.try_to_bool(vm)? {
+                    return Ok(PyIterReturn::Return(data_obj));
                 }
             }
         }

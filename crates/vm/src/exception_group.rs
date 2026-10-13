@@ -65,7 +65,8 @@ pub(super) mod types {
         excs_str: PyAtomicRef<Option<PyObject>>,
     }
 
-    impl crate::class::PySubclass for PyBaseExceptionGroup {
+    // SAFETY: pyexception checks the base field offset, payload offset, and alignment.
+    unsafe impl crate::class::PySubclass for PyBaseExceptionGroup {
         type Base = PyBaseException;
         fn as_base(&self) -> &Self::Base {
             &self.base

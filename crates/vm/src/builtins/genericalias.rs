@@ -1,5 +1,5 @@
 // spell-checker:ignore iparam gaiterobject
-use crate::common::lock::LazyLock;
+use crate::common::lock::{LazyLock, PyMutex};
 
 use super::type_;
 use crate::{
@@ -40,7 +40,7 @@ pub struct PyGenericAlias {
     origin: PyObjectRef,
     #[pymember(name = "__args__")]
     args: PyTupleRef,
-    parameters: PyTupleRef,
+    parameters: PyMutex<Option<PyTupleRef>>,
     #[pymember(name = "__unpacked__")]
     starred: bool, // for __unpacked__ attribute
 }
@@ -105,13 +105,12 @@ impl PyGenericAlias {
         origin: impl Into<PyObjectRef>,
         args: PyTupleRef,
         starred: bool,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let parameters = make_parameters(&args, vm)?;
         Ok(Self {
             origin: origin.into(),
             args,
-            parameters,
+            parameters: PyMutex::new(None),
             starred,
         })
     }
@@ -128,6 +127,10 @@ impl PyGenericAlias {
             PyTuple::new_ref(vec![args], &vm.ctx)
         };
         Self::new(origin, args, false, vm)
+    }
+
+    fn parameters(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        cached_parameters(&self.parameters, &self.args, vm)
     }
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
@@ -206,7 +209,8 @@ impl PyGenericAlias {
     }
 
     fn __getitem__(zelf: &Py<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let new_args = subs_parameters(zelf.as_object(), &zelf.args, &zelf.parameters, needle, vm)?;
+        let parameters = zelf.parameters(vm)?;
+        let new_args = subs_parameters(zelf.as_object(), &zelf.args, &parameters, needle, vm)?;
 
         Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
     }
@@ -236,8 +240,8 @@ impl PyGenericAlias {
 )]
 impl Py<PyGenericAlias> {
     #[pygetset]
-    fn __parameters__(&self) -> PyObjectRef {
-        self.parameters.clone().into()
+    fn __parameters__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        self.parameters(vm)
     }
 
     #[pygetset]
@@ -312,11 +316,36 @@ impl Py<PyGenericAlias> {
     }
 }
 
+pub(crate) fn cached_parameters(
+    cache: &PyMutex<Option<PyTupleRef>>,
+    args: &Py<PyTuple>,
+    vm: &VirtualMachine,
+) -> PyResult<PyTupleRef> {
+    let cached = cache.lock().clone();
+    if let Some(parameters) = cached {
+        return Ok(parameters);
+    }
+    // Attribute lookup can re-enter this alias or union. Compute without the
+    // lock, then replace even a cache populated by the re-entrant lookup.
+    let parameters = make_parameters(args, vm);
+    let previous = core::mem::replace(&mut *cache.lock(), parameters.as_ref().ok().cloned());
+    // A failed outer lookup clears the cache populated by a nested lookup too.
+    // Cached parameters can own objects with Python finalizers.
+    drop(previous);
+    parameters
+}
+
 pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     make_parameters_from_slice(args.as_slice(), vm)
 }
 
 fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    vm.with_recursion(" in __parameter__ calculation", || {
+        make_parameters_inner(args, vm)
+    })
+}
+
+fn make_parameters_inner(args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
 
     for arg in args {
@@ -326,16 +355,21 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
         }
 
         // Check for __typing_subst__ attribute
-        if arg.get_attr(identifier!(vm, __typing_subst__), vm).is_ok() {
+        if vm
+            .get_attribute_opt(arg, identifier!(vm, __typing_subst__))?
+            .is_some()
+        {
             if tuple_index(&parameters, arg).is_none() {
                 parameters.push(arg.clone());
             }
-        } else if let Ok(subparams) = arg.get_attr(identifier!(vm, __parameters__), vm)
-            && let Ok(sub_params) = subparams.try_to_ref::<PyTuple>(vm)
+        } else if let Some(subparams) =
+            vm.get_attribute_opt(arg, identifier!(vm, __parameters__))?
         {
-            for sub_param in sub_params {
-                if tuple_index(&parameters, sub_param).is_none() {
-                    parameters.push(sub_param.clone());
+            if let Some(sub_params) = subparams.downcast_ref::<PyTuple>() {
+                for sub_param in sub_params {
+                    if tuple_index(&parameters, sub_param).is_none() {
+                        parameters.push(sub_param.clone());
+                    }
                 }
             }
         } else if arg.try_to_ref::<PyTuple>(vm).is_ok() || arg.try_to_ref::<PyList>(vm).is_ok() {
@@ -346,9 +380,7 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
                 let list = arg.downcast_ref::<PyList>().unwrap();
                 list.borrow_vec().to_vec()
             };
-            let sub = vm.with_recursion(" while computing __parameters__", || {
-                make_parameters_from_slice(&items, vm)
-            })?;
+            let sub = make_parameters_from_slice(&items, vm)?;
             for sub_param in sub.as_slice() {
                 if tuple_index(&parameters, sub_param).is_none() {
                     parameters.push(sub_param.clone());
@@ -558,7 +590,10 @@ pub(crate) fn subs_parameters(
             if let Some(iparam) = tuple_index(parameters.as_slice(), arg) {
                 subst.call((arg_items[iparam].clone(),), vm)?
             } else {
-                subs_tvars(arg.clone(), parameters, &arg_items, vm)?
+                return Err(vm.new_type_error(format!(
+                    "argument {} with __typing_subst__ was not found in __parameters__",
+                    arg.repr(vm)?
+                )));
             }
         } else {
             subs_tvars(arg.clone(), parameters, &arg_items, vm)?

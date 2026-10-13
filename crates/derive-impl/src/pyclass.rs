@@ -649,7 +649,9 @@ fn generate_class_def(
     let subclass_impl = if !is_pystruct && is_repr_transparent {
         base.as_ref().map(|typ| {
             quote! {
-                impl ::rustpython_vm::class::PySubclass for #ident {
+                // SAFETY: the transparent base field has the same layout as Self;
+                // pyclass also checks the object payload offsets and alignment.
+                unsafe impl ::rustpython_vm::class::PySubclass for #ident {
                     type Base = #typ;
 
                     #[inline]

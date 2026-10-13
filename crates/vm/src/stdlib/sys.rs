@@ -667,8 +667,8 @@ pub mod sys {
     fn implementation(vm: &VirtualMachine) -> PyRef<PyNamespace> {
         const NAME: &str = "rustpython";
 
-        // cache tag uses 'cpython' because our compiler is cpython compatible
-        let cache_tag = format!("cpython-{}{}", version::MAJOR, version::MINOR);
+        // Keep implementation-specific bytecode caches separate.
+        let cache_tag = format!("{NAME}-{}{}", version::MAJOR, version::MINOR);
         let ctx = &vm.ctx;
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),

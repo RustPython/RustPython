@@ -3198,7 +3198,7 @@ mod _ssl {
             }
 
             // Helper function to handle return value based on buffer presence
-            let return_data = |data: Vec<u8>,
+            let return_data = |mut data: Vec<u8>,
                                buffer_arg: &OptionalArg<ArgMemoryBuffer>,
                                vm: &VirtualMachine|
              -> PyResult<PyObjectRef> {
@@ -3216,6 +3216,7 @@ mod _ssl {
                     }
                     OptionalArg::Missing => {
                         // Return bytes object
+                        data.shrink_to_fit();
                         Ok(vm.ctx.new_bytes(data).into())
                     }
                 }

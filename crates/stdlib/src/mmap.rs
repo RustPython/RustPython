@@ -26,7 +26,10 @@ mod mmap {
     use num_traits::Signed;
     use std::io::Write;
     #[cfg(windows)]
-    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
+    use {
+        core::hint::cold_path, memchr::memchr, num_traits::ToPrimitive, rustpython_vm::exceptions,
+        std::io,
+    };
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -664,7 +667,9 @@ mod mmap {
     impl AsBuffer for PyMmap {
         const RELEASE_BUFFER: bool = true;
 
-        fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+            // Publish the export while close/resize cannot invalidate the mapping.
+            let _mmap = zelf.check_valid(vm)?;
             let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
                 zelf.to_owned().into(),
@@ -781,6 +786,7 @@ mod mmap {
             let m = self.mmap.lock();
 
             if m.is_none() {
+                drop(m);
                 return Err(vm.new_value_error("mmap closed or invalid"));
             }
 
@@ -789,20 +795,31 @@ mod mmap {
 
         /// TODO: impl resize
         #[allow(dead_code)]
-        fn check_resizeable(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn check_resizeable(
+            &self,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyMutexGuard<'_, Option<MmapObj>>> {
+            // Borrowed buffers can hold the data lock across blocking I/O.
             if self.exports.load() > 0 {
+                return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
+            }
+            let mmap = self.check_valid(vm)?;
+            if self.exports.load() > 0 {
+                drop(mmap);
                 return Err(vm.new_buffer_error("mmap can't resize with extant buffers exported."));
             }
 
             #[cfg(unix)]
             if !self.trackfd {
+                drop(mmap);
                 return Err(vm.new_value_error("mmap can't resize with trackfd=False."));
             }
 
             if self.access == AccessMode::Write || self.access == AccessMode::Default {
-                return Ok(());
+                return Ok(mmap);
             }
 
+            drop(mmap);
             Err(vm.new_type_error("mmap can't resize a readonly or copy-on-write memory map."))
         }
 
@@ -813,15 +830,20 @@ mod mmap {
 
         #[pymethod]
         fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
+            // Reject an existing export without waiting for its borrowed-data guard.
+            if zelf.exports.load() > 0 {
+                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
+            }
+            let mut mmap = zelf.mmap.lock();
             if Self::closed(zelf) {
                 return Ok(());
             }
 
             if zelf.exports.load() > 0 {
+                drop(mmap);
                 return Err(vm.new_buffer_error("cannot close exported pointers exist."));
             }
 
-            let mut mmap = zelf.mmap.lock();
             zelf.closed.store(true);
             *mmap = None;
 
@@ -832,9 +854,16 @@ mod mmap {
 
         fn get_find_range(&self, options: &FindOptions) -> (usize, usize) {
             let size = self.__len__();
-            let start = options
-                .start
-                .map_or_else(|| self.pos(), |start| start.saturated_at(size));
+            let start = options.start.map_or_else(
+                || self.pos(),
+                |start| {
+                    if start < 0 {
+                        start.saturated_at(size)
+                    } else {
+                        start as usize
+                    }
+                },
+            );
             let end = options.end.map_or(size, |end| end.saturated_at(size));
             (start, end)
         }
@@ -1051,7 +1080,7 @@ mod mmap {
         #[cfg(unix)]
         #[pymethod]
         fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.check_resizeable(vm)?;
+            drop(zelf.check_resizeable(vm)?);
 
             let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
                 vm.new_overflow_error("Python int too large to convert to C ssize_t")
@@ -1076,23 +1105,24 @@ mod mmap {
         #[cfg(windows)]
         #[pymethod]
         fn resize(zelf: &Py<Self>, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.check_resizeable(vm)?;
-
-            let newsize: usize = newsize
-                .try_to_primitive(vm)
-                .map_err(|_| vm.new_value_error("new size out of range"))?;
-
-            if newsize == 0 {
-                return Err(vm.new_value_error("new size must be positive"));
-            }
-
-            let handle = zelf.handle.load();
+            let newsize = newsize.as_bigint().to_usize();
 
             // Get the lock on mmap
-            let mut mmap_guard = zelf.mmap.lock();
+            // Keep the export check valid until resize ends.
+            let mut mmap_guard = zelf.check_resizeable(vm)?;
+            let Some(newsize) = newsize else {
+                drop(mmap_guard);
+                return Err(vm.new_value_error("new size out of range"));
+            };
+            if newsize == 0 {
+                drop(mmap_guard);
+                return Err(vm.new_value_error("new size must be positive"));
+            }
+            let handle = zelf.handle.load();
 
             // Check if this is a Named mmap - these cannot be resized
             if let Some(MmapObj::Named(_)) = mmap_guard.as_ref() {
+                drop(mmap_guard);
                 return Err(vm.new_os_error("mmap: cannot resize a named memory mapping"));
             }
 
@@ -1108,8 +1138,13 @@ mod mmap {
                 let copy_size = core::cmp::min(old_size, newsize);
 
                 // Create new anonymous mmap
-                let mut new_mmap =
-                    host_mmap::map_anon(newsize).map_err(|e| e.to_pyexception(vm))?;
+                let mut new_mmap = match host_mmap::map_anon(newsize) {
+                    Ok(mmap) => mmap,
+                    Err(err) => {
+                        drop(mmap_guard);
+                        return Err(err.to_pyexception(vm));
+                    }
+                };
 
                 // Copy data from old mmap to new mmap
                 if let Some(old_mmap) = mmap_guard.as_ref() {
@@ -1134,17 +1169,23 @@ mod mmap {
                         handle as host_mmap::Handle,
                         zelf.size.load(),
                     );
+                    drop(mmap_guard);
                     return Err(err.to_pyexception(vm));
                 }
 
                 // Create new mmap with the new size
-                let new_mmap = Self::create_mmap_windows(
+                let new_mmap = match Self::create_mmap_windows(
                     handle as host_mmap::Handle,
                     zelf.offset,
                     newsize,
                     &zelf.access,
-                )
-                .map_err(|e| e.to_pyexception(vm))?;
+                ) {
+                    Ok(mmap) => mmap,
+                    Err(err) => {
+                        drop(mmap_guard);
+                        return Err(err.to_pyexception(vm));
+                    }
+                };
 
                 *mmap_guard = Some(new_mmap);
                 zelf.size.store(newsize);
@@ -1421,17 +1462,15 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let i: usize = i
-                .wrapped_at(self.__len__())
-                .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
-
             let b = value_from_object(vm, value)?;
 
             self.try_writable(vm, |mmap| {
+                let i = i
+                    .wrapped_at(mmap.len())
+                    .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
                 mmap[i] = b;
-            })?;
-
-            Ok(())
+                Ok(())
+            })?
         }
 
         fn setitem_by_slice(
@@ -1440,43 +1479,110 @@ mod mmap {
             value: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slice_len) = slice.adjust_indices(self.__len__());
-
             let bytes = bytes_from_object(vm, value)?;
 
-            if bytes.len() != slice_len {
-                return Err(vm.new_index_error("mmap slice assignment is wrong size"));
-            }
+            self.try_writable(vm, |mmap| {
+                let (range, step, slice_len) = slice.adjust_indices(mmap.len());
 
-            if slice_len == 0 {
-                // do nothing
-                Ok(())
-            } else if step == 1 {
-                self.try_writable(vm, |mmap| {
+                if bytes.len() != slice_len {
+                    return Err(vm.new_index_error("mmap slice assignment is wrong size"));
+                }
+
+                if slice_len == 0 {
+                    // do nothing
+                } else if step == 1 {
                     (&mut mmap[range])
                         .write(&bytes)
                         .map_err(|err| err.to_pyexception(vm))?;
-                    Ok(())
-                })?
-            } else {
-                let mut bi = 0; // bytes index
-                if step.is_negative() {
-                    for i in range.rev().step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
-                            mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
-                    }
                 } else {
-                    for i in range.step_by(step.unsigned_abs()) {
-                        self.try_writable(vm, |mmap| {
+                    let mut bi = 0; // bytes index
+                    if step.is_negative() {
+                        for i in range.rev().step_by(step.unsigned_abs()) {
                             mmap[i] = bytes[bi];
-                        })?;
-                        bi += 1;
+                            bi += 1;
+                        }
+                    } else {
+                        for i in range.step_by(step.unsigned_abs()) {
+                            mmap[i] = bytes[bi];
+                            bi += 1;
+                        }
                     }
                 }
                 Ok(())
-            }
+            })?
+        }
+    }
+
+    #[cfg(test)]
+    #[cfg(feature = "threading")]
+    mod tests {
+        use super::*;
+        use core::time::Duration;
+        use std::{sync::mpsc, thread};
+
+        fn rejects_borrowed_buffer(resize: bool) {
+            let builder = crate::vm::Interpreter::builder(Default::default());
+            let defs = crate::stdlib_module_defs(&builder.ctx);
+            let interp = builder
+                .add_native_modules(&defs)
+                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .build();
+            interp.enter(|vm| {
+                let module = vm.import("mmap", 0).unwrap();
+                let mapped = module
+                    .get_attr("mmap", vm)
+                    .unwrap()
+                    .call((-1, 1), vm)
+                    .unwrap()
+                    .downcast::<PyMmap>()
+                    .unwrap();
+                let buffer = PyMmap::as_buffer(&mapped, vm).unwrap();
+                thread::scope(|scope| {
+                    let (ready_tx, ready_rx) = mpsc::channel();
+                    let (done_tx, done_rx) = mpsc::channel();
+                    let buffer = &buffer;
+                    let borrower = scope.spawn(move || {
+                        // A native I/O operation can keep this guard while detached.
+                        let bytes = buffer.as_contiguous().unwrap();
+                        assert!(bytes.is_locked());
+                        ready_tx.send(()).unwrap();
+                        // Release even on a regression, so the test fails rather than hangs.
+                        let rejected_before_release =
+                            done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+                        drop(bytes);
+                        rejected_before_release
+                    });
+                    ready_rx.recv().unwrap();
+                    let result = if resize {
+                        mapped.check_resizeable(vm).map(drop)
+                    } else {
+                        PyMmap::close(&mapped, vm)
+                    };
+                    let _ = done_tx.send(());
+                    assert!(
+                        borrower.join().unwrap(),
+                        "export rejection waited for the borrowed buffer"
+                    );
+                    assert!(
+                        result
+                            .unwrap_err()
+                            .class()
+                            .is(vm.ctx.exceptions.buffer_error)
+                    );
+                });
+                drop(buffer);
+                PyMmap::close(&mapped, vm).unwrap();
+            });
+        }
+
+        #[test]
+        fn close_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(false);
+        }
+
+        #[test]
+        fn resize_rejects_borrowed_buffer() {
+            rejects_borrowed_buffer(true);
         }
     }
 

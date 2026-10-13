@@ -199,22 +199,27 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 
 #[pymodule(sub, name = "posix")]
 pub(super) mod _os {
-    use super::{DirFd, DstDirFd, FollowSymlinks, RawMode, SrcDirFd, SupportFunc};
+    use super::{
+        AT_FDCWD, DefaultDirFd, DirFd, DirFdKeyword, DstDirFd, FollowSymlinks, RawMode, SrcDirFd,
+        SupportFunc, warn_if_bool_fd,
+    };
     #[cfg(not(windows))]
     use crate::exceptions;
     use crate::host_env::fileutils::StatStruct;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
-            PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
-        convert::{IntoPyException, ToPyObject},
+        convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
-        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, FuncArgs},
+        function::{
+            ArgBytesLike, ArgMemoryBuffer, ArgumentError, FromArgs, FsPath, FuncArgs, Param,
+        },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
@@ -225,11 +230,12 @@ pub(super) mod _os {
         },
         vm::VirtualMachine,
     };
+    use core::hint::cold_path;
     #[cfg(not(windows))]
     use core::marker::PhantomData;
-    use core::{hint::cold_path, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_host_env::os::{FileTime, FileTimeSeconds};
     #[cfg(windows)]
     use rustpython_host_env::{nt as host_nt, windows::ToWideString};
 
@@ -275,20 +281,57 @@ pub(super) mod _os {
         crt_fd::closerange(fd_low, fd_high);
     }
 
+    // Signal callbacks can close this descriptor between open attempts.
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    struct OpenDirFd(crt_fd::Raw);
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    impl FromArgs for OpenDirFd {
+        const PARAMS: Option<&'static [Param]> = Some(DefaultDirFd::PARAMS);
+
+        fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
+            let fd = match args.take_keyword("dir_fd") {
+                Some(o) if vm.is_none(&o) => AT_FDCWD,
+                None => AT_FDCWD,
+                Some(o) => {
+                    warn_if_bool_fd(&o, vm).map_err(Into::<ArgumentError>::into)?;
+                    let fd = o.try_index_opt(vm).unwrap_or_else(|| {
+                        Err(vm.new_type_error(format!(
+                            "argument should be integer or None, not {}",
+                            o.class().name()
+                        )))
+                    })?;
+                    fd.try_to_primitive(vm)?
+                }
+            };
+            if fd == -1 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF)
+                    .to_pyexception(vm)
+                    .into());
+            }
+            if !OPEN_DIR_FD && fd != AT_FDCWD {
+                return Err(vm
+                    .new_not_implemented_error("dir_fd unavailable on this platform")
+                    .into());
+            }
+            Ok(Self(fd))
+        }
+    }
+
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[derive(FromArgs)]
-    struct OpenArgs<'fd> {
+    struct OpenArgs {
         path: OsPath,
         flags: i32,
         #[pyarg(any, default = 0o777)]
         mode: i32,
         #[pyarg(flatten)]
-        dir_fd: DirFd<'fd, { OPEN_DIR_FD as usize }>,
+        dir_fd: OpenDirFd,
     }
 
     #[pyfunction]
-    fn open(args: OpenArgs<'_>, vm: &VirtualMachine) -> PyResult<crt_fd::Owned> {
-        os_open(args.path, args.flags, args.mode, args.dir_fd, vm)
+    fn open(args: OpenArgs, vm: &VirtualMachine) -> PyResult<crt_fd::Owned> {
+        os_open(args.path, args.flags, args.mode, args.dir_fd.0, vm)
     }
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
@@ -296,34 +339,50 @@ pub(super) mod _os {
         name: OsPath,
         flags: i32,
         mode: i32,
-        dir_fd: DirFd<'_, { OPEN_DIR_FD as usize }>,
+        dir_fd: crt_fd::Raw,
         vm: &VirtualMachine,
     ) -> PyResult<crt_fd::Owned> {
+        use crate::host_env::os::ErrorExt;
+
         #[cfg(windows)]
-        let fd = {
-            let [] = dir_fd.0;
-            let name = name.to_wide_cstring(vm)?;
-            let flags = flags | crate::host_env::os::O_NOINHERIT;
-            crt_fd::wopen(&name, flags, mode)
-        };
+        let raw_name = name.to_wide_cstring(vm)?;
         #[cfg(not(windows))]
-        let fd = {
-            let name = name.clone().into_cstring(vm)?;
-            #[cfg(not(target_os = "wasi"))]
-            let flags = flags | crate::host_env::os::O_CLOEXEC;
-            #[cfg(not(target_os = "redox"))]
-            if let Some(dir_fd) = dir_fd.get_opt() {
-                crt_fd::openat(dir_fd, &name, flags, mode)
-            } else {
-                crt_fd::open(&name, flags, mode)
+        let raw_name = name.clone().into_cstring(vm)?;
+        #[cfg(windows)]
+        let flags = flags | crate::host_env::os::O_NOINHERIT;
+        #[cfg(all(not(windows), not(target_os = "wasi")))]
+        let flags = flags | crate::host_env::os::O_CLOEXEC;
+
+        loop {
+            let fd = vm.allow_threads(|| {
+                #[cfg(windows)]
+                {
+                    let _ = dir_fd;
+                    crt_fd::wopen(&raw_name, flags, mode)
+                }
+                #[cfg(not(windows))]
+                {
+                    #[cfg(not(target_os = "redox"))]
+                    if dir_fd != AT_FDCWD {
+                        crt_fd::openat_raw(dir_fd, &raw_name, flags, mode)
+                    } else {
+                        crt_fd::open(&raw_name, flags, mode)
+                    }
+                    #[cfg(target_os = "redox")]
+                    {
+                        let _ = dir_fd;
+                        crt_fd::open(&raw_name, flags, mode)
+                    }
+                }
+            });
+            match fd {
+                Ok(fd) => return Ok(fd),
+                Err(err) if err.posix_errno() == libc::EINTR => vm.check_signals()?,
+                Err(err) => {
+                    return Err(OSErrorBuilder::with_filename_from_errno(&err, name, vm));
+                }
             }
-            #[cfg(target_os = "redox")]
-            {
-                let [] = dir_fd.0;
-                crt_fd::open(&name, flags, mode)
-            }
-        };
-        fd.map_err(|err| OSErrorBuilder::with_filename_from_errno(&err, name, vm))
+        }
     }
 
     #[derive(FromArgs)]
@@ -344,6 +403,7 @@ pub(super) mod _os {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
                     buffer.truncate(n);
+                    buffer.shrink_to_fit();
                     return Ok(vm.ctx.new_bytes(buffer));
                 }
                 Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
@@ -1838,6 +1898,56 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
     }
 
+    fn file_time_seconds(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTimeSeconds> {
+        obj.try_index(vm)
+            .and_then(|value| value.try_to_primitive(vm))
+            .map_err(|err| {
+                if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                    vm.new_overflow_error("timestamp out of range for platform time_t")
+                } else {
+                    err
+                }
+            })
+    }
+
+    fn file_time(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTime> {
+        if let Some(float) = obj.downcast_ref::<PyFloat>() {
+            let value = float.to_f64();
+            if value.is_nan() {
+                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+            }
+            let mut seconds = value.trunc();
+            let mut nanoseconds = (value.fract() * 1_000_000_000.0).floor();
+            if nanoseconds < 0.0 {
+                nanoseconds += 1_000_000_000.0;
+                seconds -= 1.0;
+            }
+            let minimum = FileTimeSeconds::MIN as f64;
+            // The signed maximum rounds up when represented by f64.
+            if !(minimum..-minimum).contains(&seconds) {
+                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+            }
+            Ok(FileTime {
+                seconds: seconds as FileTimeSeconds,
+                nanoseconds: nanoseconds as libc::c_long,
+            })
+        } else {
+            let seconds = match file_time_seconds(obj, vm) {
+                Err(err) if err.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                    return Err(vm.new_type_error(format!(
+                        "argument must be int or float, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+                result => result?,
+            };
+            Ok(FileTime {
+                seconds,
+                nanoseconds: 0,
+            })
+        }
+    }
+
     #[pyfunction]
     fn utime(args: UtimeArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let parse_tup = |tup: &Py<PyTuple>| -> Option<(PyObjectRef, PyObjectRef)> {
@@ -1852,13 +1962,13 @@ pub(super) mod _os {
                 let (a, m) = parse_tup(&t).ok_or_else(|| {
                     vm.new_type_error("utime: 'times' must be either a tuple of two ints or None")
                 })?;
-                (a.try_into_value(vm)?, m.try_into_value(vm)?)
+                (file_time(&a, vm)?, file_time(&m, vm)?)
             }
             (None, Some(ns)) => {
                 let (a, m) = parse_tup(&ns)
                     .ok_or_else(|| vm.new_type_error("utime: 'ns' must be a tuple of two ints"))?;
                 let ns_in_sec: PyObjectRef = vm.ctx.new_int(1_000_000_000).into();
-                let ns_to_dur = |obj: PyObjectRef| {
+                let ns_to_time = |obj: PyObjectRef| {
                     let divmod = vm._divmod(&obj, &ns_in_sec)?;
                     let (div, rem) = divmod
                         .downcast_ref::<PyTuple>()
@@ -1870,16 +1980,31 @@ pub(super) mod _os {
                                 divmod.class().name()
                             ))
                         })?;
-                    let secs = div.try_index(vm)?.try_to_primitive(vm)?;
-                    let ns = rem.try_index(vm)?.try_to_primitive(vm)?;
-                    Ok(Duration::new(secs, ns))
+                    let seconds = file_time_seconds(&div, vm)?;
+                    let rem = rem.try_index(vm)?;
+                    let nanoseconds = rem.try_to_primitive::<libc::c_long>(vm).map_err(|err| {
+                        if err.fast_isinstance(vm.ctx.exceptions.overflow_error) {
+                            vm.new_overflow_error("Python int too large to convert to C long")
+                        } else {
+                            err
+                        }
+                    })?;
+                    Ok(FileTime {
+                        seconds,
+                        nanoseconds,
+                    })
                 };
-                // TODO: do validation to make sure this doesn't.. underflow?
-                (ns_to_dur(a)?, ns_to_dur(m)?)
+                (ns_to_time(a)?, ns_to_time(m)?)
             }
             (None, None) => {
                 let now = SystemTime::now();
                 let now = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                let now = FileTime {
+                    seconds: now.as_secs().try_into().map_err(|_| {
+                        vm.new_overflow_error("timestamp out of range for platform time_t")
+                    })?,
+                    nanoseconds: now.subsec_nanos() as libc::c_long,
+                };
                 (now, now)
             }
             (Some(_), Some(_)) => {
@@ -1893,8 +2018,8 @@ pub(super) mod _os {
 
     fn utime_impl(
         path: OsPath,
-        acc: Duration,
-        modif: Duration,
+        acc: FileTime,
+        modif: FileTime,
         dir_fd: DirFd<'_, { UTIME_DIR_FD as usize }>,
         _follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -1934,8 +2059,15 @@ pub(super) mod _os {
                 ));
             }
 
-            crate::host_env::os::set_file_times(&path, acc, modif)
-                .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+            let wide_path = path.to_wide_cstring(vm)?;
+            host_nt::set_file_times(
+                &wide_path,
+                acc.seconds,
+                acc.nanoseconds.into(),
+                modif.seconds,
+                modif.nanoseconds.into(),
+            )
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
         }
     }
 

@@ -1288,14 +1288,7 @@ impl AsBuffer for PyCSimple {
             .map_or(Cow::Borrowed("B"), Cow::Owned);
         let itemsize = stg_info.size;
         // Simple types are scalars with ndim=0, shape=()
-        let desc = BufferDescriptor {
-            offset: 0,
-            len: itemsize,
-            readonly: false,
-            itemsize,
-            format,
-            dim_desc: vec![],
-        };
+        let desc = BufferDescriptor::from_dim_desc(itemsize, 0, false, itemsize, format, vec![]);
         let buf = PyBuffer::new(zelf.to_owned().into(), desc, &CDATA_BUFFER_METHODS);
         Ok(buf)
     }
