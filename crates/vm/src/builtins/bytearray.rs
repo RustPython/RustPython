@@ -323,7 +323,12 @@ impl PyByteArray {
         if let Some(bytes) = needle.downcast_ref_if_exact::<PyBytes>(vm) {
             return Ok(self.borrow_buf().contains_str(bytes.as_bytes()));
         }
-        if let Some(int) = needle.downcast_ref_if_exact::<PyInt>(vm) {
+        let int = if needle.class().is(vm.ctx.types.bool_type) {
+            needle.downcast_ref::<PyInt>()
+        } else {
+            needle.downcast_ref_if_exact::<PyInt>(vm)
+        };
+        if let Some(int) = int {
             let byte = int.as_bigint().byte_or(vm)?;
             return Ok(self.borrow_buf().contains(&byte));
         }
