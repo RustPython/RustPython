@@ -123,6 +123,19 @@ impl Py<PyGenerator> {
     }
 
     #[pygetset]
+    fn gi_state(&self) -> &'static str {
+        if self.inner.closed() {
+            "GEN_CLOSED"
+        } else if self.inner.running() {
+            "GEN_RUNNING"
+        } else if self.inner.started() {
+            "GEN_SUSPENDED"
+        } else {
+            "GEN_CREATED"
+        }
+    }
+
+    #[pygetset]
     fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.code()
     }

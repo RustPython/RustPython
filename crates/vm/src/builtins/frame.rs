@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     frame::{FrameObject, FrameOwner},
     function::PySetterValue,
-    types::{Destructor, Representable},
+    types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
 use num_traits::Zero;
@@ -515,19 +515,19 @@ impl Py<FrameObject> {
         );
         match owner {
             FrameOwner::Generator => {
-                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
-                // and finished frames go through the owner finalizer.
-                if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
-                }
+                // RETURN_GENERATOR executes the creation preamble, so lasti
+                // no longer distinguishes a created frame from a suspended one.
                 if let Some(owner) = self.iframe().generator.to_owned() {
-                    if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
-                        let _ = PyCoroutine::del(coro, vm);
+                    let coro = if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        coro.as_coro()
                     } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
-                        let _ = PyAsyncGen::del(async_gen, vm);
+                        async_gen.as_coro()
                     } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
-                        let _ = PyGenerator::del(generator, vm);
-                    }
+                        generator.as_coro()
+                    } else {
+                        unreachable!("generator-owned frame has no coroutine owner")
+                    };
+                    coro.clear_frame(&owner, vm)?;
                 }
                 return Ok(());
             }
