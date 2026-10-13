@@ -197,7 +197,10 @@ class PatchEntryVisitor(ast.NodeVisitor):
                 patch = patch._replace(test_name="__self__")
                 self.patches.append(patch)
 
-            self.generic_visit(node)
+            # Keep conditional methods in this namespace, but do not enter
+            # nested classes or the bodies of methods.
+            for item in _iter_class_methods(node):
+                self.visit(item)
 
 
 class PatchEntry(typing.NamedTuple):
@@ -228,22 +231,35 @@ class PatchEntry(typing.NamedTuple):
         yield from visitor.patches
 
 
+def _iter_module_classes(node: ast.AST) -> "Iterator[ast.ClassDef]":
+    """Find module-scope classes, including conditional definitions.
+
+    Function-local and class-nested definitions have different namespaces and
+    cannot be addressed by the patch format's unqualified class names.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            yield child
+        elif not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            yield from _iter_module_classes(child)
+
+
+def _iter_class_methods(
+    node: ast.AST,
+) -> "Iterator[ast.FunctionDef | ast.AsyncFunctionDef]":
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield child
+        elif not isinstance(child, (ast.ClassDef, ast.Lambda)):
+            yield from _iter_class_methods(child)
+
+
 def iter_tests(
     tree: ast.Module,
 ) -> "Iterator[tuple[ast.ClassDef, ast.FunctionDef | ast.AsyncFunctionDef]]":
-    for key, nodes in ast.iter_fields(tree):
-        if key != "body":
-            continue
-
-        for cls_node in nodes:
-            if not isinstance(cls_node, ast.ClassDef):
-                continue
-
-            for fn_node in cls_node.body:
-                if not isinstance(fn_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-
-                yield (cls_node, fn_node)
+    for cls_node in _iter_module_classes(tree):
+        for fn_node in _iter_class_methods(cls_node):
+            yield (cls_node, fn_node)
 
 
 def iter_patches(contents: str) -> "Iterator[PatchEntry]":
@@ -286,24 +302,28 @@ def _iter_patch_lines(
     # Track class bases for inherited async method lookup
     class_bases: dict[str, list[str]] = {}
     all_classes = set()
-    all_class_nodes = []
-    for node in tree.body:
-        if not isinstance(node, ast.ClassDef):
-            continue
-
+    all_class_nodes = list(_iter_module_classes(tree))
+    for node in all_class_nodes:
+        if node.name in all_classes:
+            raise ValueError(f"Ambiguous module-scope class name: {node.name}")
         all_classes.add(node.name)
-        all_class_nodes.append(node)
+        method_counts = collections.Counter(
+            item.name for item in _iter_class_methods(node)
+        )
+        for method in patches.get(node.name, {}):
+            if method_counts[method] > 1:
+                raise ValueError(f"Ambiguous method name: {node.name}.{method}")
 
-    for node in tree.body:
+    for node in all_class_nodes:
         if isinstance(node, ast.ClassDef):
-            cache[node.name] = node.end_lineno
+            cache[node.name] = (node.end_lineno, node.col_offset + len(DEFAULT_INDENT))
             class_bases[node.name] = [
                 base.id
                 for base in node.bases
                 if isinstance(base, ast.Name) and base.id in all_classes
             ]
             cls_async: set[str] = set()
-            for item in node.body:
+            for item in _iter_class_methods(node):
                 if isinstance(item, ast.AsyncFunctionDef):
                     cls_async.add(item.name)
             if cls_async:
@@ -319,10 +339,11 @@ def _iter_patch_lines(
 
     # Phase 2: Iterate and mark inherited tests
     for cls_name, tests in sorted(patches.items()):
-        lineno = cache.get(cls_name)
-        if not lineno:
+        location = cache.get(cls_name)
+        if not location:
             print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
+        lineno, indent = location
 
         for test_name, specs in sorted(tests.items()):
             if test_name == "__self__":
@@ -356,7 +377,7 @@ async def {test_name}(self):
 def {test_name}(self):
 {DEFAULT_INDENT}return super().{test_name}()
 """.rstrip()
-            yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
+            yield (lineno, textwrap.indent(patch_lines, " " * indent))
 
     # Phase 3: Mark the class itself
     for cls_node in all_class_nodes:
