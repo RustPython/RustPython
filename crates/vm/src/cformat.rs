@@ -73,8 +73,14 @@ fn spec_format_bytes(
     spec: &CFormatSpec,
     obj: PyObjectRef,
     argument: FormatArgument<'_>,
+    format_start: usize,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
+        CFormatType::Unsupported { ch, .. } if ch.to_char_lossy().is_ascii_alphabetic() => Err(vm
+            .new_value_error(format!(
+                "unsupported format %{} at position {format_start}",
+                ch.to_char_lossy(),
+            ))),
         CFormatType::Unsupported { ch, index } => Err(vm.new_value_error(format!(
             "unsupported format character '{}' ({:#x}) at index {index}",
             ch.to_char_lossy(),
@@ -407,7 +413,7 @@ pub(crate) fn cformat_bytes(
         }
 
         // dict
-        for (_, part) in format {
+        for (format_start, part) in format {
             match part {
                 CFormatPart::Literal(literal) => result.extend(literal),
                 CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
@@ -419,6 +425,7 @@ pub(crate) fn cformat_bytes(
                         &spec,
                         value,
                         FormatArgument::Mapping(key.as_object()),
+                        format_start,
                     )?;
                     result.extend(part_result);
                 }
@@ -443,7 +450,7 @@ pub(crate) fn cformat_bytes(
     let mut value_iter = value_iter.inspect(|_| argument_index.set(argument_index.get() + 1));
     let is_tuple = values_obj.downcast_ref::<tuple::PyTuple>().is_some();
 
-    for (_, part) in format {
+    for (format_start, part) in format {
         match part {
             CFormatPart::Literal(literal) => result.extend(literal),
             CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
@@ -464,7 +471,8 @@ pub(crate) fn cformat_bytes(
                 } else {
                     FormatArgument::Scalar
                 };
-                let part_result = spec_format_bytes(vm, &spec, value.to_owned(), argument)?;
+                let part_result =
+                    spec_format_bytes(vm, &spec, value.to_owned(), argument, format_start)?;
                 result.extend(part_result);
             }
         }
