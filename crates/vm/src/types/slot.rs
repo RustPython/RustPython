@@ -137,6 +137,8 @@ pub struct PyTypeSlots {
     /// Full `tp_basicsize`: object header plus payload. `0` before type
     /// creation means "inherit the base size".
     pub basicsize: usize,
+    /// Native payload identity, independent of Python MRO and slot sizes.
+    pub(crate) native_layout_id: Option<core::any::TypeId>,
     pub itemsize: usize, // tp_itemsize
 
     // Methods to implement standard operations

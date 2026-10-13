@@ -13,6 +13,7 @@ use super::{Traverse, TraverseFn};
 
 pub(in crate::object) struct PyObjVTable {
     pub(in crate::object) typeid: TypeId,
+    pub(in crate::object) supports_native_layout: fn(TypeId) -> bool,
     /// dealloc: handles __del__, weakref clearing, and memory free.
     pub(in crate::object) dealloc: unsafe fn(*mut PyObject),
     pub(in crate::object) debug: unsafe fn(&PyObject, &mut fmt::Formatter<'_>) -> fmt::Result,
@@ -26,6 +27,7 @@ impl PyObjVTable {
     pub(super) const fn of<T: PyObjectPayload>() -> &'static Self {
         &Self {
             typeid: T::PAYLOAD_TYPE_ID,
+            supports_native_layout: T::supports_native_layout,
             dealloc: default_dealloc::<T>,
             debug: debug_obj::<T>,
             trace: const {

@@ -21,9 +21,13 @@ pub struct PyWeakProxy(PyWeak);
 impl PyPayload for PyWeakProxy {
     const PAYLOAD_TYPE_ID: core::any::TypeId = <PyWeak as PyPayload>::PAYLOAD_TYPE_ID;
 
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        PyWeak::supports_native_layout(layout)
+    }
+
     #[inline]
     unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
-        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots().basicsize
+        obj.supports_native_layout(core::any::TypeId::of::<Self>())
             && obj
                 .class()
                 .fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())

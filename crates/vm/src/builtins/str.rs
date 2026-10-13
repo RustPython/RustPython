@@ -2149,6 +2149,10 @@ impl MaybeTraverse for PyUtf8Str {
 }
 
 impl PyPayload for PyUtf8Str {
+    fn supports_native_layout(layout: core::any::TypeId) -> bool {
+        PyStr::supports_native_layout(layout)
+    }
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.str_type
