@@ -189,6 +189,49 @@ impl Default for ExceptionStack {
     }
 }
 
+/// Serializes complete stop/restart transactions across interpreters.
+/// A collector holds one permit while stopping every interpreter; other callers
+/// transfer their permit to the stopped state until the matching restart.
+#[cfg(feature = "threading")]
+pub(crate) struct StopTheWorldTransaction {
+    _private: (),
+}
+
+#[cfg(feature = "threading")]
+static STW_TRANSACTION: AtomicBool = AtomicBool::new(false);
+
+#[cfg(feature = "threading")]
+impl StopTheWorldTransaction {
+    pub(crate) fn acquire() -> Self {
+        loop {
+            if STW_TRANSACTION
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                return Self { _private: () };
+            }
+            let wait = || {
+                while STW_TRANSACTION.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+            };
+            // Wait detached from the CURRENT interpreter, not the interpreter
+            // we intend to stop. Reattach without owning the permit, then retry:
+            // a suspended or shutting-down waiter must not strand ownership.
+            if thread::try_with_current_vm(|vm| vm.allow_threads(wait)).is_none() {
+                wait();
+            }
+        }
+    }
+}
+
+#[cfg(feature = "threading")]
+impl Drop for StopTheWorldTransaction {
+    fn drop(&mut self) {
+        STW_TRANSACTION.store(false, Ordering::Release);
+    }
+}
+
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
 /// stops all other Python threads so they are not holding internal locks.
 #[cfg(feature = "threading")]
@@ -199,10 +242,9 @@ pub struct StopTheWorldState {
     world_stopped: AtomicBool,
     /// Ident of the thread that requested the stop (like `stw->requester`)
     requester: AtomicU64,
-    /// Single exclusion held for the whole stop→start span. Fork and GC are
-    /// both stop-the-world requesters driving this shared state; only one may
-    /// hold it at a time. Acquired before any stop bookkeeping (see
-    /// `acquire_exclusion`) and released by `start_the_world`/`reset_after_fork`.
+    /// Ownership transferred by a successful public stop. GC retains its
+    /// transaction externally and leaves this false. Only a matching restart
+    /// or the forking owner's child reset may release this ownership.
     exclusion: AtomicBool,
     /// Signaled by suspending threads when their state transitions to SUSPENDED
     notify_mutex: std::sync::Mutex<()>,
@@ -401,50 +443,11 @@ impl StopTheWorldState {
         forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
-    /// Acquire the single stop-the-world exclusion in a park-friendly way.
-    ///
-    /// Fork and GC both request stop-the-world through the same shared state;
-    /// without this exclusion their `requester`/`requested`/countdown words
-    /// could be clobbered by an interleaving requester, so the completion
-    /// check could never converge and a requester would wait on itself forever.
-    ///
-    /// The acquire must be park-friendly. While another requester's stop is in
-    /// progress it sets this thread's stop bit and waits for it to suspend;
-    /// blocking on a plain lock here would keep this thread from ever reaching
-    /// that safepoint, so the active requester would wait for this thread while
-    /// this thread waits for the lock — a deadlock swap. Instead we poll and
-    /// honor the suspend request between tries. Suspending here is safe as long
-    /// as any lock a spinning requester still holds is never acquired
-    /// attached-blocking by another thread. The fork requester holds IMP_LOCK,
-    /// but its acquisition detaches (`allow_threads`), so no attached thread
-    /// blocks on it; the GC requester holds only the `collecting` mutex, which
-    /// is only ever `try_lock`'d. The active requester therefore force-parks
-    /// this thread, finishes its whole stop→start span, releases the exclusion,
-    /// and only then does this thread resume and acquire it.
-    fn acquire_exclusion(&self, state: &PyGlobalState) {
-        if self
-            .exclusion
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-            .is_ok()
-        {
-            return;
-        }
-        loop {
-            crate::vm::thread::suspend_if_needed(state);
-            std::thread::yield_now();
-            if self
-                .exclusion
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
-            {
-                return;
-            }
-        }
-    }
-
-    /// Release the stop-the-world exclusion taken by `acquire_exclusion`.
+    /// Release only a transaction owned by this state, after every wake/clear.
     fn release_exclusion(&self) {
-        self.exclusion.store(false, Ordering::Release);
+        if self.exclusion.swap(false, Ordering::AcqRel) {
+            drop(StopTheWorldTransaction { _private: () });
+        }
     }
 
     /// Stop all non-requester threads (`stop_the_world`).
@@ -454,11 +457,25 @@ impl StopTheWorldState {
     /// 3. Waits (polling with 1 ms condvar timeout) for attached threads
     ///    to self-suspend in `check_signals`.
     ///
-    /// Takes the shared exclusion first so at most one requester (fork or GC)
-    /// drives the stop→start span at a time; it is released by
-    /// `start_the_world`/`reset_after_fork`.
+    /// Public calls own one process-wide transaction until the matching start.
+    /// The caller must finish stop before invoking start, including when those
+    /// calls occur on different threads; concurrent duplicate starts are invalid.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
-        self.acquire_exclusion(state);
+        let transaction = StopTheWorldTransaction::acquire();
+        self.stop_with_transaction(state, &transaction);
+        self.exclusion.store(true, Ordering::Release);
+        core::mem::forget(transaction);
+    }
+
+    /// Stop one state within a transaction retained by the caller (notably GC).
+    pub(crate) fn stop_with_transaction(
+        &self,
+        state: &PyGlobalState,
+        _transaction: &StopTheWorldTransaction,
+    ) {
+        // A partial stop must clear requests and wake parked slots before its
+        // caller releases the transaction or rolls back previously stopped VMs.
+        let rollback = scopeguard::guard((), |_| self.resume_threads(state, false));
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -478,6 +495,7 @@ impl StopTheWorldState {
             stw_trace(format_args!(
                 "stop end requester={requester_ident} wait_ns=0 polls=0"
             ));
+            scopeguard::ScopeGuard::into_inner(rollback);
             return;
         }
 
@@ -526,10 +544,17 @@ impl StopTheWorldState {
         stw_trace(format_args!(
             "stop end requester={requester_ident} wait_ns={wait_ns} polls={polls}"
         ));
+        scopeguard::ScopeGuard::into_inner(rollback);
     }
 
     /// Resume all suspended threads (`start_the_world`).
     pub fn start_the_world(&self, state: &PyGlobalState) {
+        self.resume_threads(state, true);
+        self.release_exclusion();
+    }
+
+    /// Rollback also permits threads that never reached SUSPENDED.
+    fn resume_threads(&self, state: &PyGlobalState, fully_stopped: bool) {
         use thread::ThreadState;
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
@@ -560,7 +585,7 @@ impl StopTheWorldState {
                 continue;
             }
             debug_assert!(
-                state == ThreadState::Suspended as i32,
+                !fully_stopped || state == ThreadState::Suspended as i32,
                 "non-requester thread not suspended at start-the-world: id={id} state={state}"
             );
             if state == ThreadState::Suspended as i32 {
@@ -579,9 +604,6 @@ impl StopTheWorldState {
         crate::signal::clear_stop_bit();
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(state);
-        // Release the exclusion last, ending the stop→start span so the next
-        // requester (fork or GC) can proceed.
-        self.release_exclusion();
         stw_trace(format_args!("start end requester={requester}"));
     }
 
@@ -595,8 +617,9 @@ impl StopTheWorldState {
         // Only one thread survives fork; any stop-the-world bit inherited
         // from the parent is stale.
         crate::signal::clear_stop_bit();
-        // The surviving child thread inherited the exclusion taken by the
-        // pre-fork `stop_the_world`; release it (no start_the_world runs here).
+        // before_fork owns the sole transaction. Release it exactly once via
+        // that state's ownership flag; resetting other interpreters must not
+        // release a later transaction. No unconditional global reset is needed.
         self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }
