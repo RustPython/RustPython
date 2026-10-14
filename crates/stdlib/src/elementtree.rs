@@ -26,7 +26,7 @@ pub(crate) mod _elementtree {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
-        builtins::{PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
+        builtins::{PyAnyDict, PyDict, PyDictRef, PyList, PyModule, PyStr, PyType, PyTypeRef},
         function::{FuncArgs, PySetterValue},
         protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
         sliceable::{NameElement, SequenceIndex, SliceableSequenceOp},
@@ -174,7 +174,7 @@ pub(crate) mod _elementtree {
         tail: Joined,
         /// `None` until an attribute is actually needed, mirroring the C
         /// implementation's lazily allocated `extra->attrib`.
-        attrib: Option<PyDictRef>,
+        attrib: Option<PyRef<PyAnyDict>>,
         children: Vec<PyObjectRef>,
     }
 
@@ -222,8 +222,9 @@ pub(crate) mod _elementtree {
     }
 
     impl PyElement {
-        fn new(tag: PyObjectRef, attrib: Option<PyDictRef>, vm: &VirtualMachine) -> Self {
-            let attrib = attrib.filter(|d| !d.is_empty());
+        fn new(tag: PyObjectRef, attrib: Option<PyRef<PyAnyDict>>, vm: &VirtualMachine) -> Self {
+            // CPython elides only empty exact dicts, preserving frozen/subclass identity.
+            let attrib = attrib.filter(|d| !d.class().is(vm.ctx.types.dict_type) || !d.is_empty());
             Self {
                 inner: PyRwLock::new(ElementInner {
                     tag,
@@ -287,15 +288,15 @@ pub(crate) mod _elementtree {
             Ok(joined)
         }
 
-        fn attrib_or_new(&self, vm: &VirtualMachine) -> PyDictRef {
+        fn attrib_or_new(&self, vm: &VirtualMachine) -> PyRef<PyAnyDict> {
             let mut inner = self.inner.write();
             inner
                 .attrib
-                .get_or_insert_with(|| vm.ctx.new_dict())
+                .get_or_insert_with(|| vm.ctx.new_dict().into())
                 .clone()
         }
 
-        fn attrib_opt(&self) -> Option<PyDictRef> {
+        fn attrib_opt(&self) -> Option<PyRef<PyAnyDict>> {
             self.inner.read().attrib.clone()
         }
     }
@@ -356,14 +357,21 @@ pub(crate) mod _elementtree {
         let positional_attrib = args.args.get(extra_positional + 1).cloned();
         let attrib = match positional_attrib {
             Some(obj) => {
-                let dict = obj.downcast::<PyDict>().map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "{func_name}() argument {} must be dict, not {}",
-                        extra_positional + 2,
-                        obj.class().name()
-                    ))
-                })?;
-                let copied = dict.copy().into_ref(&vm.ctx);
+                let expected = if extra_positional == 0 {
+                    "dict or frozendict"
+                } else {
+                    "dict"
+                };
+                let dict = PyAnyDict::from_object(&obj)
+                    .filter(|_| extra_positional == 0 || obj.downcastable::<PyDict>())
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "{func_name}() argument {} must be {expected}, not {}",
+                            extra_positional + 2,
+                            obj.class().name()
+                        ))
+                    })?;
+                let copied = dict.copy_as_dict(vm)?.into_ref(&vm.ctx);
                 for (key, value) in args.kwargs.drain(..) {
                     copied.set_item(&key, value, vm)?;
                 }
@@ -373,13 +381,13 @@ pub(crate) mod _elementtree {
                 let popped = args.kwargs.shift_remove("attrib");
                 let copied = match popped {
                     Some(obj) => {
-                        let dict = obj.downcast::<PyDict>().map_err(|obj| {
+                        let dict = PyAnyDict::from_object(&obj).ok_or_else(|| {
                             vm.new_type_error(format!(
-                                "attrib must be dict, not {}",
+                                "attrib must be dict or frozendict, not {}",
                                 obj.class().name()
                             ))
                         })?;
-                        dict.copy().into_ref(&vm.ctx)
+                        dict.copy_as_dict(vm)?.into_ref(&vm.ctx)
                     }
                     None => vm.ctx.new_dict(),
                 };
@@ -454,7 +462,7 @@ pub(crate) mod _elementtree {
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
             let (tag, attrib) = parse_attrib_args(args, "Element", 0, vm)?;
-            let attrib = attrib.filter(|d| !d.is_empty());
+            let attrib = attrib.filter(|d| !d.is_empty()).map(Into::into);
             let _recycle = {
                 let mut inner = zelf.inner.write();
                 let old_attrib = if attrib.is_some() {
@@ -525,16 +533,21 @@ pub(crate) mod _elementtree {
         }
 
         #[pygetset]
-        fn attrib(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
+        fn attrib(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<PyAnyDict> {
             zelf.attrib_or_new(vm)
         }
 
         #[pygetset(setter)]
         fn set_attrib(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let value = setter_value(value, vm)?;
-            let dict = value.downcast::<PyDict>().map_err(|obj| {
-                vm.new_type_error(format!("attrib must be dict, not {}", obj.class().name()))
-            })?;
+            let dict = PyAnyDict::from_object(&value)
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        "attrib must be dict or frozendict, not {}",
+                        value.class().name()
+                    ))
+                })?
+                .to_owned();
             let _recycle = zelf.inner.write().attrib.replace(dict);
             Ok(())
         }
@@ -645,7 +658,7 @@ pub(crate) mod _elementtree {
             let Some(attrib) = zelf.attrib_opt() else {
                 return Ok(default);
             };
-            Ok(attrib.get_item_opt(&*args.key, vm)?.unwrap_or(default))
+            Ok(attrib.inner_getitem_opt(&*args.key, vm)?.unwrap_or(default))
         }
 
         #[pymethod]
@@ -664,7 +677,7 @@ pub(crate) mod _elementtree {
             let Some(attrib) = zelf.attrib_opt() else {
                 return vec![];
             };
-            attrib.into_iter().map(|(k, _)| k).collect()
+            attrib.keys_vec()
         }
 
         #[pymethod]
@@ -673,6 +686,7 @@ pub(crate) mod _elementtree {
                 return vec![];
             };
             attrib
+                .items_vec()
                 .into_iter()
                 .map(|(k, v)| vm.ctx.new_tuple(vec![k, v]).into())
                 .collect()
@@ -692,7 +706,7 @@ pub(crate) mod _elementtree {
                 ))
             })?;
             let attrib = attrib.copy().into_ref(&vm.ctx);
-            create_element(zelf.class().to_owned(), tag, Some(attrib), vm)
+            create_element(zelf.class().to_owned(), tag, Some(attrib.into()), vm)
         }
 
         #[pymethod]
@@ -847,7 +861,10 @@ pub(crate) mod _elementtree {
         fn __getstate__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
             let inner = zelf.inner.read();
             let children = vm.ctx.new_list(inner.children.clone());
-            let attrib = inner.attrib.clone().unwrap_or_else(|| vm.ctx.new_dict());
+            let attrib = inner
+                .attrib
+                .clone()
+                .unwrap_or_else(|| vm.ctx.new_dict().into());
             let text = inner.text.obj.clone();
             let tail = inner.tail.obj.clone();
             let tag = inner.tag.clone();
@@ -891,14 +908,16 @@ pub(crate) mod _elementtree {
                 None => None,
             };
             let attrib = match attrib {
-                Some(attrib) if !vm.is_none(&attrib) => {
-                    Some(attrib.downcast::<PyDict>().map_err(|obj| {
-                        vm.new_type_error(format!(
-                            "attrib must be dict, not {}",
-                            obj.class().name()
-                        ))
-                    })?)
-                }
+                Some(attrib) if !vm.is_none(&attrib) => Some(
+                    PyAnyDict::from_object(&attrib)
+                        .ok_or_else(|| {
+                            vm.new_type_error(format!(
+                                "attrib must be dict or frozendict, not {}",
+                                attrib.class().name()
+                            ))
+                        })?
+                        .to_owned(),
+                ),
                 _ => None,
             };
             let new_text = match text {
@@ -1051,7 +1070,7 @@ pub(crate) mod _elementtree {
     fn create_element(
         cls: PyTypeRef,
         tag: PyObjectRef,
-        attrib: Option<PyDictRef>,
+        attrib: Option<PyRef<PyAnyDict>>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let element = PyElement::new(tag, attrib, vm);
@@ -1101,11 +1120,14 @@ pub(crate) mod _elementtree {
         };
         let tag = deepcopy_obj(&tag, memo, vm)?;
         let attrib = match attrib {
-            Some(attrib) => Some(
-                deepcopy_obj(attrib.as_object(), memo, vm)?
-                    .downcast::<PyDict>()
-                    .map_err(|_| vm.new_type_error("attrib must be dict"))?,
-            ),
+            Some(attrib) => {
+                let copied = deepcopy_obj(attrib.as_object(), memo, vm)?;
+                Some(
+                    PyAnyDict::from_object(&copied)
+                        .ok_or_else(|| vm.new_type_error("attrib must be dict or frozendict"))?
+                        .to_owned(),
+                )
+            }
             None => None,
         };
         let new = create_element(zelf.class().to_owned(), tag, attrib, vm)?;
@@ -1279,7 +1301,7 @@ pub(crate) mod _elementtree {
             ))
         })?;
         let (tag, attrib) = parse_attrib_args(args, "SubElement", 1, vm)?;
-        let element = create_element(parent.class().to_owned(), tag, attrib, vm)?;
+        let element = create_element(parent.class().to_owned(), tag, attrib.map(Into::into), vm)?;
         parent.push(element.clone());
         Ok(element)
     }
@@ -1555,7 +1577,9 @@ pub(crate) mod _elementtree {
             let factory = self.state.read().element_factory.clone();
             let node = match factory {
                 // CPython adopts the caller's dict rather than copying it.
-                None => PyElement::new(tag, attrib, vm).into_ref(&vm.ctx).into(),
+                None => PyElement::new(tag, attrib.map(Into::into), vm)
+                    .into_ref(&vm.ctx)
+                    .into(),
                 Some(factory) => {
                     let attrib = attrib.unwrap_or_else(|| vm.ctx.new_dict());
                     factory.call((tag, attrib), vm)?
