@@ -20,6 +20,7 @@ use crate::{
     },
     bytecode::{
         self, ADAPTIVE_COOLDOWN_VALUE, Instruction, LoadAttr, LoadSuperAttr, Opcode, SpecialMethod,
+        oparg::{ResumeContext, ResumeLocation},
     },
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
@@ -105,6 +106,40 @@ pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObje
     Some(iframe.materialize(vm).to_owned())
 }
 
+/// `_PyFrame_GetFirstComplete`: the first complete frame on a live raw
+/// execution chain.
+///
+/// # Safety
+/// Every non-null pointer traversed must belong to a live active frame chain
+/// on the current thread, or the caller must hold the owning thread stopped.
+/// The returned pointer is valid only while that chain remains alive.
+pub(crate) unsafe fn first_complete_iframe(
+    mut current: *const InterpreterFrame,
+) -> *const InterpreterFrame {
+    while !current.is_null() {
+        // SAFETY: the caller guarantees the chain remains alive.
+        let frame = unsafe { &*current };
+        if !frame.is_incomplete() {
+            break;
+        }
+        current = frame.previous();
+    }
+    current
+}
+
+/// Resolve the active frame for a legacy trace/profile callback, skipping
+/// incomplete generator-creation frames before materializing a frame object.
+/// Raw execution-chain users deliberately keep seeing the actual active frame.
+pub(crate) fn current_complete_frame_for_trace(vm: &VirtualMachine) -> Option<FrameObjectRef> {
+    // SAFETY: synchronous inspection of the current thread's active chain.
+    let current = unsafe { first_complete_iframe(crate::vm::thread::get_current_frame()) };
+    if current.is_null() {
+        return None;
+    }
+    // SAFETY: the selected frame is alive on this thread's execution chain.
+    Some(unsafe { (*current).materialize(vm).to_owned() })
+}
+
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
@@ -137,12 +172,13 @@ pub fn current_builtins() -> Option<PyObjectRef> {
     Some(unsafe { (*ptr).builtins().to_owned() })
 }
 
-/// The frame `offset` positions below the current thread's top frame (offset 0
-/// is the top), or `None` if the stack is not that deep.
+/// The complete frame `offset` positions below the current thread's first
+/// complete frame, or `None` if the stack is not that deep.
 /// Materializes the FrameObject on demand for stack-allocated frames.
 #[must_use]
 pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    let mut cur = crate::vm::thread::get_current_frame();
+    // SAFETY: synchronous inspection of this thread's active chain.
+    let mut cur = unsafe { first_complete_iframe(crate::vm::thread::get_current_frame()) };
     let mut remaining = offset;
     while !cur.is_null() {
         if remaining == 0 {
@@ -150,7 +186,8 @@ pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObject
             return Some(iframe.materialize(vm).to_owned());
         }
         remaining -= 1;
-        cur = unsafe { (*cur).previous.load(Relaxed) as *const InterpreterFrame };
+        // SAFETY: `cur` and its predecessors remain alive on this chain.
+        cur = unsafe { first_complete_iframe((*cur).previous()) };
     }
     None
 }
@@ -1155,6 +1192,19 @@ impl InterpreterFrame {
         Some((base, total_bytes))
     }
 
+    /// `_PyFrame_IsIncomplete`. A generator frame is complete even before its
+    /// first resume. Its owner is temporarily Thread while it executes, so the
+    /// owning generator's back-reference is checked too.
+    pub(crate) fn is_incomplete(&self) -> bool {
+        if FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire)) == FrameOwner::Generator
+            || self.generator.load().is_some()
+        {
+            return false;
+        }
+        // lasti is one past the in-flight instruction.
+        (self.lasti.load(Relaxed) as usize) <= self.code().first_traceable
+    }
+
     /// Get the last instruction index.
     #[inline(always)]
     pub fn get_lasti(&self) -> u32 {
@@ -1228,10 +1278,43 @@ impl InterpreterFrame {
     #[cold]
     #[inline(never)]
     pub(crate) unsafe fn materialize_detached_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        // SAFETY: forwarded unchanged from this method's contract.
+        unsafe { self.materialize_detached_chain_impl::<false>(vm) }
+    }
+
+    /// Copy the complete ancestors used by Python-visible `f_back` traversal.
+    /// The raw snapshot path above deliberately preserves every active node.
+    ///
+    /// # Safety
+    /// The caller must hold the world stopped and select a complete top frame.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_complete_detached_chain(
+        &self,
+        vm: &VirtualMachine,
+    ) -> FrameObjectRef {
+        // SAFETY: forwarded unchanged from this method's contract.
+        unsafe { self.materialize_detached_chain_impl::<true>(vm) }
+    }
+
+    #[cfg(feature = "threading")]
+    #[cold]
+    unsafe fn materialize_detached_chain_impl<const SKIP_INCOMPLETE: bool>(
+        &self,
+        vm: &VirtualMachine,
+    ) -> FrameObjectRef {
         let top = unsafe { self.materialize_detached(vm) };
         let mut child = top.clone();
         let mut cur = self.previous();
-        while !cur.is_null() {
+        loop {
+            if SKIP_INCOMPLETE {
+                // SAFETY: the caller holds the owning thread stopped.
+                cur = unsafe { first_complete_iframe(cur) };
+            }
+            if cur.is_null() {
+                break;
+            }
             let caller = unsafe { &*cur };
             let caller_fo = unsafe { caller.materialize_detached(vm) };
             {
@@ -1756,6 +1839,7 @@ pub enum ExecutionResult {
 ///             CACHE              <- the parked frame's lasti is here + 1
 ///             YIELD_VALUE 1
 /// resumed_at: RESUME
+///             CACHE
 ///             JUMP_BACKWARD_NO_INTERRUPT -> send_idx
 ///       exit: END_SEND
 /// ```
@@ -2529,6 +2613,18 @@ impl Py<FrameObject> {
         self.with_exec(vm, |mut exec| exec.run(vm))
     }
 
+    /// Execute the eager generator preamble and suspend immediately after
+    /// RETURN_GENERATOR. The caller links this frame with `vm.with_generator_frame`.
+    /// The first resume supplies the value consumed by the following POP_TOP.
+    pub(crate) fn prepare_generator(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.with_exec(vm, |mut exec| match exec.run_until::<true>(vm)? {
+            None => Ok(()),
+            Some(_) => {
+                Err(vm.new_runtime_error("generator preamble did not reach RETURN_GENERATOR"))
+            }
+        })
+    }
+
     /// Resume a suspended generator or coroutine body, pushing `value` as the
     /// result of the `yield` it stopped at.
     ///
@@ -2788,10 +2884,10 @@ pub(crate) fn gen_collapse_allowed(vm: &VirtualMachine) -> bool {
 /// delegating to, if the trampoline can resume it in this frame's place.
 ///
 /// Recognizes the shape documented on [`GenCont`] — `lasti` at the `RESUME`
-/// that follows the delegating `YIELD_VALUE`, with the delegate on top of the
-/// stack — and requires the `SEND` to have already specialized to `SendGen`,
-/// so that a `Send` still collecting specialization feedback keeps running
-/// normally. The frame is left untouched; `park_at_send` commits to it.
+/// that follows the delegating `YIELD_VALUE`, with the delegate below its
+/// index-or-NULL stack slot — and requires the `SEND` to have already
+/// specialized to `SendGen`, so that a `Send` still collecting feedback keeps
+/// running normally. The frame is left untouched; `park_at_send` commits to it.
 pub(crate) fn yield_from_delegate(
     iframe: &InterpreterFrame,
     vm: &VirtualMachine,
@@ -2824,10 +2920,11 @@ pub(crate) fn yield_from_delegate(
     {
         return None;
     }
-    let delegate = match iframe.localsplus.stack_last() {
-        Some(Some(top)) => top.as_object(),
-        _ => return None,
-    };
+    let stack = iframe.localsplus.stack_as_slice();
+    let delegate = stack
+        .get(stack.len().checked_sub(2)?)?
+        .as_ref()?
+        .as_object();
     // The same guards `SendGen` applies before resuming a generator itself.
     if delegate.downcast_ref_if_exact::<PyGenerator>(vm).is_none()
         && delegate.downcast_ref_if_exact::<PyCoroutine>(vm).is_none()
@@ -3072,7 +3169,8 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     {
         let mut guard = frame.iframe().cold().retained_back.lock();
         if guard.is_none() {
-            let prev = frame.previous_iframe();
+            // SAFETY: this frame is returning into its still-active caller.
+            let prev = unsafe { first_complete_iframe(frame.previous_iframe()) };
             *guard = unsafe { owned_chain_frame(prev) };
         }
     }
@@ -3440,7 +3538,11 @@ impl ExecutingFrame<'_> {
     /// (COPY_FREE_VARS / RETURN_GENERATOR that precede it are not a 'call',
     /// and later RESUMEs in a SEND loop are not a new call either).
     fn trace_call_from_resume(&mut self, vm: &VirtualMachine, resume_type: u32) -> PyResult<()> {
-        if self.call_traced {
+        // RESUME_AT_GEN_EXPR_START runs before the frame is complete. The
+        // first traceable instruction is the ordinary RESUME after creation.
+        if resume_type & ResumeContext::LOCATION_MASK == ResumeLocation::AtGenExprStart.as_u32()
+            || self.call_traced
+        {
             return Ok(());
         }
         self.call_traced = true;
@@ -3626,7 +3728,22 @@ impl ExecutingFrame<'_> {
     /// Matches `_PyEval_MonitorRaise` → `PY_MONITORING_EVENT_RAISE` →
     /// `sys_trace_exception_func` in legacy_tracing.c.
     fn fire_exception_trace(&self, exc: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<()> {
-        if vm.use_tracing.get() && self.trace_is_set(vm) {
+        if !vm.use_tracing.get() {
+            return Ok(());
+        }
+        let trace_is_set = if self.iframe().is_incomplete() {
+            // Legacy tracing resolves PyEval_GetFrame to the first complete
+            // caller while sys.monitoring continues to use this code object.
+            current_complete_frame_for_trace(vm).is_some_and(|frame| {
+                frame
+                    .iframe()
+                    .cold_opt()
+                    .is_some_and(|cold| cold.trace.lock().is_some())
+            })
+        } else {
+            self.trace_is_set(vm)
+        };
+        if trace_is_set {
             let exc_type: PyObjectRef = exc.class().to_owned().into();
             let exc_value: PyObjectRef = exc.to_owned().into();
             let exc_tb: PyObjectRef = exc
@@ -3639,6 +3756,14 @@ impl ExecutingFrame<'_> {
     }
 
     fn run(&mut self, vm: &VirtualMachine) -> PyResult<ExecutionResult> {
+        self.run_until::<false>(vm)
+            .map(|result| result.expect("ordinary execution cannot stop at a generator preamble"))
+    }
+
+    fn run_until<const PREPARE_GENERATOR: bool>(
+        &mut self,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<ExecutionResult>> {
         flame_guard!(format!(
             "FrameObject::run({obj_name})",
             obj_name = self.code.obj_name
@@ -3681,7 +3806,7 @@ impl ExecutingFrame<'_> {
             // principle toggle it, because we refresh `tracing` below right
             // after that call returns (that cold path is only taken when
             // tracing was already on, so it costs nothing on the hot path).
-            let mut tracing = vm.use_tracing.get();
+            let mut tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -3726,7 +3851,7 @@ impl ExecutingFrame<'_> {
                                     idx = lasti_cell.load(Relaxed) as usize;
                                     continue;
                                 }
-                                Ok(Some(value)) => break Ok(value),
+                                Ok(Some(value)) => break Ok(Some(value)),
                                 Err(e) => break Err(e),
                             }
                         }
@@ -3734,7 +3859,7 @@ impl ExecutingFrame<'_> {
                     // The trace callback may have toggled tracing (e.g. via
                     // sys.settrace(None)); refresh before the opcode-trace check
                     // below reuses this flag.
-                    tracing = vm.use_tracing.get();
+                    tracing = !PREPARE_GENERATOR && vm.use_tracing.get();
                     // Trace callback may have changed lasti via set_f_lineno.
                     // Re-read and restart the loop from the new position.
                     if lasti_cell.load(Relaxed) != (idx as u32 + 1) {
@@ -3811,9 +3936,10 @@ impl ExecutingFrame<'_> {
                     frame: &mut ExecutingFrame<'_>,
                     exception: PyBaseExceptionRef,
                     idx: usize,
+                    complete_frame: bool,
                     vm: &VirtualMachine,
                 ) -> FrameResult {
-                    if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                    if complete_frame && let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
                         let next = exception.traceback();
                         let new_traceback = PyTraceback::new(
                             next,
@@ -3832,10 +3958,10 @@ impl ExecutingFrame<'_> {
                         },
                     )
                 }
-                match handle_signal_exception(self, exception, idx, vm) {
+                match handle_signal_exception(self, exception, idx, !PREPARE_GENERATOR, vm) {
                     Ok(None) => {}
                     Ok(Some(value)) => {
-                        break Ok(value);
+                        break Ok(Some(value));
                     }
                     Err(exception) => {
                         break Err(exception);
@@ -3859,6 +3985,13 @@ impl ExecutingFrame<'_> {
                 crate::opcode_histogram::record(prev_op, op_byte);
                 prev_op = op_byte;
             }
+            if PREPARE_GENERATOR && matches!(op, Instruction::ReturnGenerator) {
+                // The generator takes over the frame with its instruction
+                // pointer advanced to POP_TOP. The iterator pair a generator
+                // expression pushed must outlive this execution borrow.
+                self.localsplus.promote_stack();
+                break Ok(None);
+            }
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);
             // Skip inline cache entries if instruction fell through (no jump).
             // `cache_entries()` is a table lookup, so it is done here rather
@@ -3874,7 +4007,7 @@ impl ExecutingFrame<'_> {
             match result {
                 Ok(None) => {}
                 Ok(Some(value)) => {
-                    break Ok(value);
+                    break Ok(Some(value));
                 }
                 // Instruction raised an exception
                 Err(exception) => {
@@ -3885,6 +4018,7 @@ impl ExecutingFrame<'_> {
                         idx: usize,
                         is_reraise: bool,
                         is_new_raise: bool,
+                        complete_frame: bool,
                         vm: &VirtualMachine,
                     ) -> FrameResult {
                         // 1. Extract traceback from exception's '__traceback__' attr.
@@ -3903,7 +4037,9 @@ impl ExecutingFrame<'_> {
                             // checking for duplicates. Each time an exception passes through
                             // a frame (e.g., in a loop with repeated raise statements),
                             // a new traceback entry is added.
-                            if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                            if complete_frame
+                                && let Some((loc, _end_loc)) = frame.code.locations.get(idx)
+                            {
                                 let next = exception.traceback();
 
                                 let new_traceback = PyTraceback::new(
@@ -4001,12 +4137,21 @@ impl ExecutingFrame<'_> {
                         self.fire_exception_trace(&exception, vm)?;
                     }
 
-                    match handle_exception(self, exception, idx, is_reraise, is_new_raise, vm) {
+                    match handle_exception(
+                        self,
+                        exception,
+                        idx,
+                        is_reraise,
+                        is_new_raise,
+                        !PREPARE_GENERATOR,
+                        vm,
+                    ) {
                         // The handler unwound to a new position, so the next
                         // index is whatever it left in the frame.
                         Ok(None) => next_idx = lasti_cell.load(Relaxed),
-                        Ok(Some(result)) => break Ok(result),
+                        Ok(Some(result)) => break Ok(Some(result)),
                         Err(exception) => {
+                            monitoring::reset_reraise_pending();
                             // Fire PY_UNWIND: exception escapes this frame
                             let exception = if vm.state.monitoring_events.load()
                                 & MonitoringEvent::PyUnwind.mask()
@@ -4040,16 +4185,18 @@ impl ExecutingFrame<'_> {
         // In RustPython, we check:
         // 1. lasti points to RESUME (after YIELD_VALUE)
         // 2. The previous instruction was YIELD_VALUE with arg >= 1
-        // 3. Stack top is the delegate (receiver)
+        // 3. The delegate (receiver) is below its index-or-NULL slot
         //
         // First check if stack is empty - if so, we can't be in yield-from
-        if self.localsplus.stack_is_empty() {
+        if self.localsplus.stack_len() < 2 {
             return None;
         }
         let lasti = self.lasti() as usize;
         if let Some(unit) = self.code.instructions.get(lasti) {
             match &unit.op {
-                Instruction::Send { .. } => return Some(self.top_value()),
+                Instruction::Send { .. } | Instruction::SendGen => {
+                    return Some(self.nth_value(1));
+                }
                 Instruction::Resume { .. } | Instruction::InstrumentedResume => {
                     // Check if previous instruction was YIELD_VALUE with arg >= 1
                     // This indicates yield-from/await context
@@ -4063,8 +4210,8 @@ impl ExecutingFrame<'_> {
                         // YIELD_VALUE arg: 0 = direct yield, >= 1 = yield-from/await
                         // OpArgByte.0 is the raw byte value
                         if u8::from(prev_unit.arg) >= 1 {
-                            // In yield-from/await context, delegate is on top of stack
-                            return Some(self.top_value());
+                            // The iterator pair remains after YIELD_VALUE.
+                            return Some(self.nth_value(1));
                         }
                     }
                 }
@@ -4288,6 +4435,7 @@ impl ExecutingFrame<'_> {
             }
             Ok(Some(result)) => Ok(result),
             Err(exception) => {
+                monitoring::reset_reraise_pending();
                 // Fire PY_UNWIND: exception escapes the generator frame.
                 let exception =
                     if vm.state.monitoring_events.load() & MonitoringEvent::PyUnwind.mask() != 0 {
@@ -4915,36 +5063,23 @@ impl ExecutingFrame<'_> {
                 self.push_value(iter);
                 Ok(None)
             }
-            Instruction::GetIter => {
-                let iterated_obj = self.pop_value();
-                let iter_obj = PyIter::try_from_object(vm, iterated_obj)?;
-                self.push_value(iter_obj.into());
-                Ok(None)
-            }
-            Instruction::GetYieldFromIter => {
-                // GET_YIELD_FROM_ITER: prepare iterator for yield from
-                // If iterable is a coroutine, ensure we're in a coroutine context
-                // If iterable is a generator, use it directly
-                // Otherwise, call iter() on it
+            Instruction::GetIter { mode } => {
+                // _PyEval_GetIter
                 let iterable = self.pop_value();
-                let iter = if iterable.class().is(vm.ctx.types.coroutine_type) {
-                    // Coroutine requires CO_COROUTINE or CO_ITERABLE_COROUTINE flag
-                    if !self.code.flags.intersects(
-                        bytecode::CodeFlags::COROUTINE | bytecode::CodeFlags::ITERABLE_COROUTINE,
-                    ) {
+                let yield_from = mode.get(arg);
+                debug_assert_ne!(yield_from, bytecode::oparg::GET_ITER_YIELD_FROM);
+                let iter = if yield_from != 0 && iterable.class().is(vm.ctx.types.coroutine_type) {
+                    if yield_from == bytecode::oparg::GET_ITER_YIELD_FROM_CORO_CHECK {
                         return Err(vm.new_type_error(
                             "cannot 'yield from' a coroutine object in a non-coroutine generator",
                         ));
                     }
                     iterable
-                } else if iterable.class().is(vm.ctx.types.generator_type) {
-                    // Generator can be used directly
-                    iterable
                 } else {
-                    // Otherwise, get iterator
-                    PyIter::try_from_object(vm, iterable)?.into()
+                    iterable.get_iter(vm)?.into()
                 };
                 self.push_value(iter);
+                self.push_null();
                 Ok(None)
             }
             Instruction::GetLen => {
@@ -4960,7 +5095,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::ImportName { namei: idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
+                self.import(vm, Some(self.code.names[(idx.get(arg) >> 2) as usize]))?;
                 Ok(None)
             }
             Instruction::IsOp { invert } => {
@@ -5103,18 +5238,6 @@ impl ExecutingFrame<'_> {
             }
             Instruction::LoadConst { consti } => {
                 self.push_value(self.code.constants[consti.get(arg)].clone().into());
-                // Mirror CPython's LOAD_CONST family transition. RustPython does
-                // not currently distinguish immortal constants at runtime.
-                let instr_idx = self.lasti() as usize - 1;
-                unsafe {
-                    self.code
-                        .instructions
-                        .replace_op(instr_idx, Instruction::LoadConstMortal);
-                }
-                Ok(None)
-            }
-            Instruction::LoadConstMortal | Instruction::LoadConstImmortal => {
-                self.push_value(self.code.constants[u32::from(arg).into()].clone().into());
                 Ok(None)
             }
             Instruction::LoadCommonConstant { idx } => {
@@ -5139,6 +5262,11 @@ impl ExecutingFrame<'_> {
                         .expect("builtin_any not initialized"),
                     CommonConstant::BuiltinList => vm.ctx.types.list_type.to_owned().into(),
                     CommonConstant::BuiltinSet => vm.ctx.types.set_type.to_owned().into(),
+                    CommonConstant::None => vm.ctx.none(),
+                    CommonConstant::EmptyStr => vm.ctx.empty_str.to_owned().into(),
+                    CommonConstant::True => vm.ctx.new_bool(true).into(),
+                    CommonConstant::False => vm.ctx.new_bool(false).into(),
+                    CommonConstant::MinusOne => vm.ctx.new_int(-1).into(),
                 };
                 self.push_value(value);
                 Ok(None)
@@ -5615,8 +5743,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopTop => {
-                // Pop value from stack and ignore.
-                self.pop_stackref();
+                // Loop unwinding also uses POP_TOP for index-or-NULL slots.
+                self.pop_stackref_opt();
                 Ok(None)
             }
             Instruction::EndFor => {
@@ -5625,7 +5753,8 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::PopIter => {
-                // Pop the iterator from stack (end of for loop)
+                // Discard the iterator's index-or-NULL slot and the iterator.
+                self.pop_stackref_opt();
                 self.pop_stackref();
                 Ok(None)
             }
@@ -5930,10 +6059,10 @@ impl ExecutingFrame<'_> {
                 Ok(Some(ExecutionResult::Yield(self.pop_value())))
             }
             Instruction::Send { .. } => {
-                // (receiver, v -- receiver, retval)
+                // (receiver, null_or_index, v -- receiver, null_or_index, retval)
                 self.adaptive(|s, ii, cb| s.specialize_send(vm, ii, cb));
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let receiver = self.nth_value(1);
+                let receiver = self.nth_value(2);
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
                         || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some())
@@ -5941,7 +6070,7 @@ impl ExecutingFrame<'_> {
                         .builtin_coro(receiver)
                         .is_some_and(|coro| !coro.running() && !coro.closed());
                 let val = self.pop_value();
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 let ret = if can_fast_send {
                     let coro = self.builtin_coro(receiver).unwrap();
                     if vm.is_none(&val) {
@@ -5971,8 +6100,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::SendGen => {
                 let exit_label = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                // Stack: [receiver, val] — peek receiver before popping
-                let receiver = self.nth_value(1);
+                // Stack: [receiver, null_or_index, val] — peek before popping
+                let receiver = self.nth_value(2);
                 let mut started = false;
                 let can_fast_send = !self.specialization_eval_frame_active(vm)
                     && (receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
@@ -5984,7 +6113,7 @@ impl ExecutingFrame<'_> {
                 let val = self.pop_value();
 
                 if can_fast_send {
-                    let receiver = self.top_value();
+                    let receiver = self.nth_value(1);
                     // Hand an already-suspended generator to the trampoline,
                     // which runs its frame in this same eval loop and re-yields
                     // for this frame — no Rust frame and no instruction per
@@ -6019,7 +6148,7 @@ impl ExecutingFrame<'_> {
                         }
                     }
                 }
-                let receiver = self.top_value();
+                let receiver = self.nth_value(1);
                 match self._send(receiver, val, vm)? {
                     PyIterReturn::Return(value) => {
                         self.push_value(value);
@@ -6038,9 +6167,9 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::EndSend => {
-                // Stack: (receiver, value) -> (value)
-                // Pops receiver, leaves value
+                // (receiver, null_or_index, value) -> (value)
                 let value = self.pop_value();
+                self.pop_stackref_opt(); // discard index-or-NULL
                 self.pop_stackref(); // discard receiver
                 self.push_value(value);
                 Ok(None)
@@ -6057,39 +6186,24 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::CleanupThrow => {
-                // CLEANUP_THROW: (sub_iter, last_sent_val, exc) -> (None, value) OR re-raise
-                // If StopIteration: pop all 3, extract value, push (None, value)
-                // Otherwise: pop all 3, return Err(exc) for unwind_blocks to handle
-                //
-                // Unlike CPython where exception_unwind pops the triple as part of
-                // stack cleanup to handler depth, RustPython pops here explicitly
-                // and lets unwind_blocks find outer handlers.
-                // Compiler sets handler_depth = base + 2 (before exc is pushed).
-
-                // First peek at exc_value (top of stack) without popping
+                // (sub_iter, null_in, last_sent_val, exc) -> (None, null_out, value)
+                // Leave nonmatching exceptions and their stack for unwinding.
                 let exc = self.top_value();
-
-                // Check if it's a StopIteration
                 if let Some(exc_ref) = exc.downcast_ref::<PyBaseException>()
                     && exc_ref.fast_isinstance(vm.ctx.exceptions.stop_iteration)
                 {
-                    // Extract value from StopIteration
                     let value = exc_ref.get_arg(0).unwrap_or_else(|| vm.ctx.none());
-                    // Now pop all three
                     self.pop_stackref(); // exc
                     self.pop_stackref(); // last_sent_val
+                    let index_or_null = self.pop_stackref_opt();
                     self.pop_stackref(); // sub_iter
                     self.push_value(vm.ctx.none());
+                    self.push_stackref_opt(index_or_null);
                     self.push_value(value);
                     return Ok(None);
                 }
-
-                // Re-raise other exceptions: pop all three and return Err(exc)
-                let exc = self.pop_value(); // exc
-                self.pop_stackref(); // last_sent_val
-                self.pop_stackref(); // sub_iter
-
                 let exc = exc
+                    .to_owned()
                     .downcast::<PyBaseException>()
                     .map_err(|_| vm.new_type_error("exception expected"))?;
                 Err(exc)
@@ -7947,7 +8061,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterRange => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(range_iter) = iter.downcast_ref_if_exact::<PyRangeIterator>(vm) {
                     if let Some(value) = range_iter.fast_next() {
                         self.push_value(vm.ctx.new_int(value).into());
@@ -7962,7 +8076,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterList => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(list_iter) = iter.downcast_ref_if_exact::<PyListIterator>(vm) {
                     if let Some(value) = list_iter.fast_next() {
                         self.push_value(value);
@@ -7977,7 +8091,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterTuple => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if let Some(tuple_iter) = iter.downcast_ref_if_exact::<PyTupleIterator>(vm) {
                     if let Some(value) = tuple_iter.fast_next() {
                         self.push_value(value);
@@ -7992,7 +8106,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::ForIterGen => {
                 let target = bytecode::Label::from_u32(self.lasti() + 1 + u32::from(arg));
-                let iter = self.top_value();
+                let iter = self.nth_value(1);
                 if self.specialization_eval_frame_active(vm) {
                     self.execute_for_iter(vm, target)?;
                     return Ok(None);
@@ -8285,10 +8399,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::InstrumentedEndFor => {
-                // Stack: [value, receiver(iter), ...]
+                // Stack: [..., receiver(iter), null_or_index, value]
                 // PyGen_Check: only fire STOP_ITERATION for generators
                 let is_gen = self
-                    .nth_value(1)
+                    .nth_value(2)
                     .downcast_ref::<crate::builtins::PyGenerator>()
                     .is_some();
                 let value = self.pop_value();
@@ -8300,6 +8414,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedEndSend => {
                 let value = self.pop_value();
+                self.pop_stackref_opt();
                 let receiver = self.pop_value();
                 // PyGen_Check || PyCoro_CheckExact
                 let is_gen_or_coro = receiver
@@ -8388,6 +8503,7 @@ impl ExecutingFrame<'_> {
             }
             Instruction::InstrumentedPopIter => {
                 // BRANCH_RIGHT is fired by InstrumentedForIter, not here.
+                self.pop_stackref_opt();
                 self.pop_stackref();
                 Ok(None)
             }
@@ -8759,6 +8875,7 @@ impl ExecutingFrame<'_> {
                 if let Some(entry) =
                     bytecode::find_exception_handler(&self.code.exceptiontable, offset)
                 {
+                    monitoring::reset_reraise_pending();
                     // Fire EXCEPTION_HANDLED before setting up handler.
                     // If the callback raises, the handler is NOT set up and the
                     // new exception propagates instead.
@@ -9473,7 +9590,7 @@ impl ExecutingFrame<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
         if iter.downcast_ref_if_exact::<PyListIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some()
             || iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some()
@@ -9497,14 +9614,14 @@ impl ExecutingFrame<'_> {
         Ok(())
     }
 
-    /// Advance the iterator on top of stack.
+    /// Advance the iterator below its index-or-NULL stack slot.
     /// Returns `true` if iteration continued (item pushed), `false` if exhausted (jumped).
     fn execute_for_iter(
         &mut self,
         vm: &VirtualMachine,
         target: bytecode::Label,
     ) -> Result<bool, PyBaseExceptionRef> {
-        let top = self.top_value();
+        let top = self.nth_value(1);
 
         // FOR_ITER_RANGE: bypass generic iterator protocol for range iterators
         if let Some(range_iter) = top.downcast_ref_if_exact::<PyRangeIterator>(vm) {
@@ -9535,10 +9652,7 @@ impl ExecutingFrame<'_> {
                 self.jump(self.for_iter_jump_target(target));
                 Ok(false)
             }
-            Err(next_error) => {
-                self.pop_stackref();
-                Err(next_error)
-            }
+            Err(next_error) => Err(next_error),
         }
     }
 
@@ -11440,8 +11554,8 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        // Stack: [receiver, val] — receiver is at position 1
-        let receiver = self.nth_value(1);
+        // Stack: [receiver, null_or_index, val] — receiver is at position 2
+        let receiver = self.nth_value(2);
         let is_exact_gen_or_coro = receiver.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
             || receiver.downcast_ref_if_exact::<PyCoroutine>(vm).is_some();
         if is_exact_gen_or_coro && !self.specialization_eval_frame_active(vm) {
@@ -11707,7 +11821,7 @@ impl ExecutingFrame<'_> {
         ) {
             return;
         }
-        let iter = self.top_value();
+        let iter = self.nth_value(1);
 
         let new_op = if iter.downcast_ref_if_exact::<PyRangeIterator>(vm).is_some() {
             Some(Instruction::ForIterRange)

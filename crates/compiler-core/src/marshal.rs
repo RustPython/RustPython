@@ -554,6 +554,16 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
     Ok(value)
 }
 
+/// Object-valued code fields as read from the stream (`r_object` TYPE_CODE).
+pub struct CodeFields<V> {
+    pub consts: V,
+    pub names: V,
+    pub localsplusnames: V,
+    pub localspluskinds: V,
+    pub linetable: V,
+    pub exceptiontable: V,
+}
+
 pub trait MarshalBag: Copy {
     type Value: Clone;
     type ConstantBag: ConstantBag;
@@ -580,22 +590,13 @@ pub trait MarshalBag: Copy {
 
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value;
 
+    /// Construct a code object. `fields` holds the objects read for the
+    /// object-valued fields that `code` was decoded from.
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value>;
-
-    /// Construct a runtime code object while retaining the exact values read
-    /// from ``co_consts``. Compiler bags ignore this second channel; runtime
-    /// bags use it for marshalable values (lists, dicts, sets, recursive
-    /// containers) that their compiler constant representation cannot hold.
-    fn make_code_with_constants(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        _constants: Vec<Self::Value>,
-    ) -> Result<Self::Value> {
-        self.make_code(code)
-    }
 
     /// Decode the public `co_code` byte string into the execution-oriented
     /// instruction storage.
@@ -606,22 +607,6 @@ pub trait MarshalBag: Copy {
     /// default remains the strict compiler representation.
     fn code_units_from_bytes(&self, code_bytes: &[u8]) -> Result<CodeUnits> {
         CodeUnits::try_from(code_bytes)
-    }
-
-    /// Construct a runtime code object while retaining both its exact public
-    /// `co_code` bytes and the exact values read from `co_consts`.
-    ///
-    /// The default ignores the redundant byte spelling because ordinary
-    /// compiler code is represented losslessly by `CodeUnits`.  Runtime bags
-    /// that accepted otherwise unrepresentable opcode bytes in
-    /// [`MarshalBag::code_units_from_bytes`] can preserve them here.
-    fn make_code_with_constants_and_bytes(
-        &self,
-        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-        constants: Vec<Self::Value>,
-        _code_bytes: Vec<u8>,
-    ) -> Result<Self::Value> {
-        self.make_code_with_constants(code, constants)
     }
 
     fn make_stop_iter(&self) -> Result<Self::Value>;
@@ -786,6 +771,7 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        _fields: CodeFields<Self::Value>,
     ) -> Result<Self::Value> {
         Ok(self.make_code(code))
     }
@@ -958,17 +944,20 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         .into_iter()
         .collect();
 
-    let read_strings =
-        |rdr: &mut R, refs: &mut Vec<Option<Bag::Value>>| -> Result<Vec<alloc::string::String>> {
-            let tuple = deserialize_value_depth(rdr, bag, child_depth, refs)?;
-            bag.tuple_elements_from_value(&tuple)
-                .ok_or(MarshalError::BadType)?
-                .iter()
-                .map(|value| bag.str_from_value(value).ok_or(MarshalError::BadType))
-                .collect()
-        };
-    let names_raw = read_strings(rdr, refs)?;
-    let localsplusnames = read_strings(rdr, refs)?;
+    let read_strings = |rdr: &mut R,
+                        refs: &mut Vec<Option<Bag::Value>>|
+     -> Result<(Bag::Value, Vec<alloc::string::String>)> {
+        let tuple = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+        let names = bag
+            .tuple_elements_from_value(&tuple)
+            .ok_or(MarshalError::BadType)?
+            .iter()
+            .map(|value| bag.str_from_value(value).ok_or(MarshalError::BadType))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((tuple, names))
+    };
+    let (names_value, names_raw) = read_strings(rdr, refs)?;
+    let (localsplusnames_value, localsplusnames) = read_strings(rdr, refs)?;
 
     let kinds_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
     let localspluskinds = bag
@@ -1050,7 +1039,17 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         linetable,
         exceptiontable,
     };
-    bag.make_code_with_constants_and_bytes(code, constant_values, code_bytes)
+    bag.make_code(
+        code,
+        CodeFields {
+            consts: consts_value,
+            names: names_value,
+            localsplusnames: localsplusnames_value,
+            localspluskinds: kinds_value,
+            linetable: linetable_value,
+            exceptiontable: exceptiontable_value,
+        },
+    )
 }
 
 fn deserialize_value_typed<R: Read, Bag: MarshalBag>(

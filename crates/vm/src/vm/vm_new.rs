@@ -55,8 +55,8 @@ impl VirtualMachine {
     }
 
     pub fn new_code(&self, code: impl IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_code_object(self);
-        PyRef::new_ref(PyCode::new(code), self.ctx.types.code_type.to_owned(), None)
+        let code = code.into_pycode(self);
+        PyRef::new_ref(code, self.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {

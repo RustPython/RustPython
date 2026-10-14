@@ -1,0 +1,109 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(file):\n    if sys.platform == \"win32\":\n        try:\n            import nt\n            if not nt._supports_virtual_terminal():\n                return False\n        except (ImportError, AttributeError):\n            return False\n    try:\n        return os.isatty(file.fileno())\n    except OSError:\n        return hasattr(file, \"isatty\") and file.isatty()\n\"#,\ntrue)"
+---
+0:0-1:0              RESUME                   0
+
+1:0-12:56            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-12:56            MAKE_FUNCTION
+1:0-12:56            STORE_NAME               0 (f)
+1:0-12:56            LOAD_COMMON_CONSTANT     7 (None)
+1:0-12:56            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0                 RESUME                   0
+
+2:7-2:10                LOAD_GLOBAL              0 (sys)
+2:7-2:19                LOAD_ATTR                2 (platform)
+2:23-2:30               LOAD_CONST               0 ('win32')
+2:7-2:30                COMPARE_OP              88 (bool(==))
+2:7-2:30                POP_JUMP_IF_FALSE       31 (to L4)
+2:7-2:30                NOT_TAKEN
+
+3:8-8:24                NOP
+
+4:12-4:21       L1:     LOAD_SMALL_INT           0
+4:12-4:21               LOAD_COMMON_CONSTANT     7 (None)
+4:12-4:21               IMPORT_NAME             10 (nt + eager)
+4:12-4:21               STORE_FAST               1 (nt)
+
+5:19-5:21               LOAD_FAST_BORROW         1 (nt)
+5:19-5:48               LOAD_ATTR                7 (_supports_virtual_terminal + NULL|self)
+5:19-5:50               CALL                     0
+5:19-5:50               TO_BOOL
+5:19-5:50               POP_JUMP_IF_TRUE         3 (to L3)
+5:19-5:50       L2:     NOT_TAKEN
+
+6:23-6:28               LOAD_COMMON_CONSTANT    10 (False)
+6:23-6:28               RETURN_VALUE
+
+5:19-5:50       L3:     NOP
+
+9:4-12:56       L4:     NOP
+
+10:15-10:17     L5:     LOAD_GLOBAL             12 (os)
+10:15-10:24             LOAD_ATTR               15 (isatty + NULL|self)
+10:25-10:29             LOAD_FAST_BORROW         0 (file)
+10:25-10:36             LOAD_ATTR               17 (fileno + NULL|self)
+10:25-10:38             CALL                     0
+10:15-10:39             CALL                     1
+10:8-10:39      L6:     RETURN_VALUE
+
+  --            L7:     PUSH_EXC_INFO
+
+7:16-7:27               LOAD_GLOBAL              8 (ImportError)
+7:29-7:43               LOAD_GLOBAL             10 (AttributeError)
+7:15-7:44               BUILD_TUPLE              2
+7:8-8:24                CHECK_EXC_MATCH
+7:8-8:24                POP_JUMP_IF_FALSE        5 (to L11)
+7:8-8:24        L8:     NOT_TAKEN
+7:8-8:24        L9:     POP_TOP
+
+8:19-8:24      L10:     POP_EXCEPT
+8:19-8:24               LOAD_COMMON_CONSTANT    10 (False)
+8:19-8:24               RETURN_VALUE
+
+7:8-8:24       L11:     RERAISE                  0
+
+  --           L12:     COPY                     3
+  --                    POP_EXCEPT
+  --                    RERAISE                  1
+  --           L13:     PUSH_EXC_INFO
+
+11:11-11:18             LOAD_GLOBAL             18 (OSError)
+11:4-12:56              CHECK_EXC_MATCH
+11:4-12:56              POP_JUMP_IF_FALSE       40 (to L20)
+11:4-12:56     L14:     NOT_TAKEN
+11:4-12:56     L15:     POP_TOP
+
+12:15-12:22             LOAD_GLOBAL             21 (hasattr + NULL)
+12:23-12:27             LOAD_FAST                0 (file)
+12:29-12:37             LOAD_CONST               1 ('isatty')
+12:15-12:38             CALL                     2
+12:15-12:56             COPY                     1
+12:15-12:56             TO_BOOL
+12:15-12:56             POP_JUMP_IF_FALSE       17 (to L18)
+12:15-12:56    L16:     NOT_TAKEN
+12:15-12:56    L17:     POP_TOP
+12:43-12:47             LOAD_FAST                0 (file)
+12:43-12:54             LOAD_ATTR               15 (isatty + NULL|self)
+12:43-12:56             CALL                     0
+12:8-12:56     L18:     SWAP                     2
+12:8-12:56     L19:     POP_EXCEPT
+12:8-12:56              RETURN_VALUE
+
+11:4-12:56     L20:     RERAISE                  0
+
+  --           L21:     COPY                     3
+  --                    POP_EXCEPT
+  --                    RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L7 [0]
+  L5 to L6 -> L13 [0]
+  L7 to L8 -> L12 [1] lasti
+  L9 to L10 -> L12 [1] lasti
+  L11 to L12 -> L12 [1] lasti
+  L13 to L14 -> L21 [1] lasti
+  L15 to L16 -> L21 [1] lasti
+  L17 to L19 -> L21 [1] lasti
+  L20 to L21 -> L21 [1] lasti

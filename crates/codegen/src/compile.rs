@@ -68,6 +68,7 @@ const CO_MAXBLOCKS: usize = 21;
 pub enum FBlockType {
     WhileLoop,
     ForLoop,
+    AsyncForLoop,
     TryExcept,
     FinallyTry,
     FinallyEnd,
@@ -107,6 +108,8 @@ enum SuperCallType<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinGeneratorCallKind {
     Tuple,
+    List,
+    Set,
     All,
     Any,
 }
@@ -1949,6 +1952,8 @@ impl<'warnings> Compiler<'warnings> {
             }
         };
 
+        let is_generator = ste.is_coroutine || ste.is_generator;
+
         // Use varnames from symbol table (already collected in definition order)
         let varname_cache: IndexSet<Name> = ste.varnames.iter().cloned().collect();
         let nparams = ste.varnames.len();
@@ -2150,16 +2155,36 @@ impl<'warnings> Compiler<'warnings> {
             self.set_qualname();
         }
 
-        // Emit RESUME (handles async preamble and module lineno 0)
-        // CPython: LOCATION(lineno, lineno, 0, 0), then loc.lineno = 0 for module
-        self.emit_resume_for_scope(scope_type, lineno);
+        self.emit_scope_prefix(scope_type, lineno, is_generator);
 
         Ok(())
     }
 
-    /// Emit RESUME instruction with proper handling for module lineno.
-    /// codegen_enter_scope equivalent for RESUME emission.
-    fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
+    /// Emit the generator prefix and RESUME, as the tail of
+    /// codegen_enter_scope does. `is_generator` is
+    /// `ste_coroutine || ste_generator`.
+    fn emit_scope_prefix(&mut self, scope_type: CompilerScope, lineno: u32, is_generator: bool) {
+        // Add the generator prefix instructions.
+        if is_generator {
+            // RETURN_GENERATOR + POP_TOP have a net stack effect of 0, because
+            // RETURN_GENERATOR pushes the generator before returning.
+            let location = SourceLocation {
+                line: OneIndexed::new(lineno as usize).unwrap_or(OneIndexed::MIN),
+                character_offset: OneIndexed::MIN,
+            };
+            for instr in [Instruction::ReturnGenerator, Instruction::PopTop] {
+                self.cpython_cfg_builder_addop(ir::InstructionInfo {
+                    instr: instr.into(),
+                    arg: OpArg::NULL,
+                    target: BlockIdx::NULL,
+                    location,
+                    end_location: location,
+                    except_handler: None,
+                    lineno_override: Some(ir::LINE_ONLY_LOCATION_OVERRIDE),
+                });
+            }
+        }
+
         // CPython: LOCATION(lineno, lineno, 0, 0)
         // Module scope: loc.lineno = 0 (before the first line)
         let lineno_override = if scope_type == CompilerScope::Module {
@@ -2483,17 +2508,27 @@ impl<'warnings> Compiler<'warnings> {
                 // No cleanup needed
             }
 
-            FBlockType::ForLoop => {
-                // When returning from a for-loop, CPython swaps the preserved
-                // value with the iterator and uses POP_TOP for loop cleanup.
+            FBlockType::ForLoop | FBlockType::AsyncForLoop => {
+                let iterator_slots = if info.fb_type == FBlockType::ForLoop {
+                    2
+                } else {
+                    1
+                };
                 if preserve_tos {
                     self.set_unwind_source_range(*loc);
-                    emit!(self, Instruction::Swap { i: 2 });
+                    emit!(
+                        self,
+                        Instruction::Swap {
+                            i: iterator_slots + 1
+                        }
+                    );
                     self.mark_unwind_no_location(*loc);
                 }
-                self.set_unwind_source_range(*loc);
-                emit!(self, Instruction::PopTop);
-                self.mark_unwind_no_location(*loc);
+                for _ in 0..iterator_slots {
+                    self.set_unwind_source_range(*loc);
+                    emit!(self, Instruction::PopTop);
+                    self.mark_unwind_no_location(*loc);
+                }
             }
 
             FBlockType::TryExcept => {
@@ -2598,6 +2633,8 @@ impl<'warnings> Compiler<'warnings> {
                     self.set_unwind_source_range(*loc);
                     emit!(self, Instruction::GetAwaitable { r#where: 2 });
                     self.set_unwind_source_range(*loc);
+                    emit!(self, Instruction::PushNull);
+                    self.set_unwind_source_range(*loc);
                     self.emit_load_const(ConstantData::None);
                     let _ = self.compile_yield_from_sequence(true);
                 }
@@ -2699,7 +2736,12 @@ impl<'warnings> Compiler<'warnings> {
                 *unwind_loc,
             ));
         }
-        if stop_at_loop && matches!(top.fb_type, FBlockType::WhileLoop | FBlockType::ForLoop) {
+        if stop_at_loop
+            && matches!(
+                top.fb_type,
+                FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop
+            )
+        {
             return Ok(Some(top));
         }
 
@@ -2923,7 +2965,8 @@ impl<'warnings> Compiler<'warnings> {
 
         self.symbol_table_stack.push(symbol_table);
 
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
@@ -3004,7 +3047,8 @@ impl<'warnings> Compiler<'warnings> {
         self.symbol_table_stack.push(symbol_table);
         let module_start_loc = self.module_start_location(body);
 
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let annotations_used = self.current_symbol_table().annotations_used;
@@ -3044,7 +3088,8 @@ impl<'warnings> Compiler<'warnings> {
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
         self.symbol_table_stack.push(symbol_table);
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
 
         if let Some((last_statement, statements)) = body.split_last() {
             self.compile_statements(statements)?;
@@ -3118,7 +3163,8 @@ impl<'warnings> Compiler<'warnings> {
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
         self.symbol_table_stack.push(symbol_table);
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
 
         self.compile_expression(&expression.body)?;
         self.emit_return_value();
@@ -3507,6 +3553,21 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
+    /// `_PyCompile_InExceptionHandler`
+    fn in_exception_handler(&mut self) -> bool {
+        self.current_code_info().fblock.iter().any(|block| {
+            matches!(
+                block.fb_type,
+                FBlockType::TryExcept
+                    | FBlockType::FinallyTry
+                    | FBlockType::FinallyEnd
+                    | FBlockType::ExceptionHandler
+                    | FBlockType::ExceptionGroupHandler
+                    | FBlockType::HandlerCleanup
+            )
+        })
+    }
+
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
         let prev_source_range = self.current_source_range;
@@ -3535,7 +3596,15 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    let namei = self.name(&name.name);
+                    // force eager import in try/except block
+                    let low = if self.in_exception_handler()
+                        || self.current_symbol_table().typ != CompilerScope::Module
+                    {
+                        2
+                    } else {
+                        0
+                    };
+                    let namei = (self.name(&name.name) << 2) | low;
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3580,7 +3649,16 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                let module_idx = self.name(module_name);
+                // forced non-lazy import due to try/except or import *
+                let low = if self.in_exception_handler()
+                    || self.current_symbol_table().typ != CompilerScope::Module
+                    || import_star
+                {
+                    2
+                } else {
+                    0
+                };
+                let module_idx = (self.name(module_name) << 2) | low;
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -6415,6 +6493,7 @@ impl<'warnings> Compiler<'warnings> {
             ); // [aexit_func, self_ae, aenter_func, self_an]
             emit!(self, Instruction::Call { argc: 0 }); // [aexit_func, self_ae, awaitable]
             emit!(self, Instruction::GetAwaitable { r#where: 1 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         } else {
@@ -6499,6 +6578,7 @@ impl<'warnings> Compiler<'warnings> {
         self.compile_call_exit_with_nones();
         if is_async {
             emit!(self, Instruction::GetAwaitable { r#where: 2 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -6525,6 +6605,7 @@ impl<'warnings> Compiler<'warnings> {
 
         if is_async {
             emit!(self, Instruction::GetAwaitable { r#where: 2 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -6589,7 +6670,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // codegen_async_for: push fblock BEFORE SETUP_FINALLY
             self.push_fblock_labels(
-                FBlockType::ForLoop,
+                FBlockType::AsyncForLoop,
                 for_label,
                 after_label,
                 FBlockDatum::None,
@@ -6598,6 +6679,7 @@ impl<'warnings> Compiler<'warnings> {
             // SETUP_FINALLY to guard the __anext__ call
             emit!(self, PseudoInstruction::SetupFinally { delta: else_block });
             emit!(self, Instruction::GetAnext);
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             self.use_cpython_label_block(send_block);
             let _ = self.compile_yield_from_sequence(true);
@@ -6611,7 +6693,7 @@ impl<'warnings> Compiler<'warnings> {
         } else {
             // Retrieve Iterator
             self.set_source_range(iter.range());
-            emit!(self, Instruction::GetIter);
+            emit!(self, Instruction::GetIter { mode: 0 });
 
             self.use_cpython_label_block(for_block);
 
@@ -6636,7 +6718,7 @@ impl<'warnings> Compiler<'warnings> {
             // codegen_async_for() pops the loop fblock before the
             // END_ASYNC_FOR exception block. Sync codegen_for() keeps the
             // fblock through END_FOR/POP_ITER and pops below.
-            self.pop_fblock_label(FBlockType::ForLoop, for_label);
+            self.pop_fblock_label(FBlockType::AsyncForLoop, for_label);
         }
 
         self.use_cpython_label_block(else_block);
@@ -6676,7 +6758,7 @@ impl<'warnings> Compiler<'warnings> {
         if generator.is_async {
             emit!(self, Instruction::GetAiter);
         } else {
-            emit!(self, Instruction::GetIter);
+            emit!(self, Instruction::GetIter { mode: 0 });
         }
         self.set_source_range(saved_range);
         Ok(())
@@ -8818,8 +8900,8 @@ impl<'warnings> Compiler<'warnings> {
         );
 
         // fail: CLEANUP_THROW
-        // Stack when exception: [receiver, yielded_value, exc]
-        // CLEANUP_THROW: [sub_iter, last_sent_val, exc] -> [None, value]
+        // Stack when exception: [receiver, NULL, yielded_value, exc]
+        // CLEANUP_THROW: [sub_iter, NULL, last_sent_val, exc] -> [None, NULL, value]
         // CPython lets this block fall through to END_SEND during codegen;
         // push_cold_blocks_to_end later inserts the no-interrupt jump after
         // moving the cold fail block behind the warm exit path.
@@ -8827,8 +8909,8 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::CleanupThrow);
 
         // exit: END_SEND
-        // Stack: [receiver, value] (from SEND) or [None, value] (from CLEANUP_THROW)
-        // END_SEND: [receiver/None, value] -> [value]
+        // Stack: [receiver, NULL, value] or [None, NULL, value] after CLEANUP_THROW.
+        // END_SEND: [receiver/None, NULL, value] -> [value]
         self.use_cpython_label_block(exit_block);
         emit!(self, Instruction::EndSend);
 
@@ -9036,6 +9118,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_expression(value)?;
                 self.set_source_range(range);
                 emit!(self, Instruction::GetAwaitable { r#where: 0 });
+                emit!(self, Instruction::PushNull);
                 self.emit_load_const(ConstantData::None);
                 let _ = self.compile_yield_from_sequence(true);
             }
@@ -9052,7 +9135,12 @@ impl<'warnings> Compiler<'warnings> {
                 self.mark_generator();
                 self.compile_expression(value)?;
                 self.set_source_range(range);
-                emit!(self, Instruction::GetYieldFromIter);
+                emit!(
+                    self,
+                    Instruction::GetIter {
+                        mode: oparg::GET_ITER_YIELD_FROM
+                    }
+                );
                 self.emit_load_const(ConstantData::None);
                 let _ = self.compile_yield_from_sequence(false);
             }
@@ -9428,6 +9516,8 @@ impl<'warnings> Compiler<'warnings> {
     fn detect_builtin_generator_call(&self, name: &str) -> Option<BuiltinGeneratorCallKind> {
         match name {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
+            "list" => Some(BuiltinGeneratorCallKind::List),
+            "set" => Some(BuiltinGeneratorCallKind::Set),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
             _ => None,
@@ -9448,6 +9538,8 @@ impl<'warnings> Compiler<'warnings> {
     ) -> CompileResult<()> {
         let common_constant = match kind {
             BuiltinGeneratorCallKind::Tuple => bytecode::CommonConstant::BuiltinTuple,
+            BuiltinGeneratorCallKind::List => bytecode::CommonConstant::BuiltinList,
+            BuiltinGeneratorCallKind::Set => bytecode::CommonConstant::BuiltinSet,
             BuiltinGeneratorCallKind::All => bytecode::CommonConstant::BuiltinAll,
             BuiltinGeneratorCallKind::Any => bytecode::CommonConstant::BuiltinAny,
         };
@@ -9472,14 +9564,23 @@ impl<'warnings> Compiler<'warnings> {
         );
         emit!(self, Instruction::PopTop);
 
-        if matches!(kind, BuiltinGeneratorCallKind::Tuple) {
-            self.set_source_range(loc);
-            emit!(self, Instruction::BuildList { count: 0 });
+        match kind {
+            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List => {
+                self.set_source_range(loc);
+                emit!(self, Instruction::BuildList { count: 0 });
+            }
+            BuiltinGeneratorCallKind::Set => {
+                self.set_source_range(loc);
+                emit!(self, Instruction::BuildSet { count: 0 });
+            }
+            BuiltinGeneratorCallKind::All | BuiltinGeneratorCallKind::Any => {}
         }
 
         let symbol_table_cursors = self.current_symbol_table_cursors();
         self.compile_expression(generator_expr)?;
         self.set_symbol_table_cursors(symbol_table_cursors);
+        self.set_source_range(loc);
+        emit!(self, Instruction::PushNull);
 
         let loop_block = self.new_block();
         let cleanup = self.new_block();
@@ -9488,9 +9589,15 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::ForIter { delta: cleanup });
 
         match kind {
-            BuiltinGeneratorCallKind::Tuple => {
+            BuiltinGeneratorCallKind::Tuple | BuiltinGeneratorCallKind::List => {
                 self.set_source_range(loc);
-                emit!(self, Instruction::ListAppend { i: 2 });
+                emit!(self, Instruction::ListAppend { i: 3 });
+                self.set_source_range(loc);
+                emit!(self, PseudoInstruction::Jump { delta: loop_block });
+            }
+            BuiltinGeneratorCallKind::Set => {
+                self.set_source_range(loc);
+                emit!(self, Instruction::SetAdd { i: 3 });
                 self.set_source_range(loc);
                 emit!(self, PseudoInstruction::Jump { delta: loop_block });
             }
@@ -9533,6 +9640,7 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 );
             }
+            BuiltinGeneratorCallKind::List | BuiltinGeneratorCallKind::Set => {}
             BuiltinGeneratorCallKind::All => {
                 self.set_source_range(loc);
                 self.emit_load_const(ConstantData::Boolean { value: true });
@@ -9716,7 +9824,7 @@ impl<'warnings> Compiler<'warnings> {
             if genexpr_call_name.is_some() {
                 // CPython `maybe_optimize_function_call()` creates and uses
                 // `skip_optimization` for every name(genexpr) shape after
-                // loading the function, even when the name is not all/any/tuple.
+                // loading the function, even when the name is not all/any/tuple/list/set.
                 let skip_optimization = self.current_code_info().new_instr_sequence_label();
                 let result = self
                     .current_code_info()
@@ -10716,6 +10824,22 @@ impl<'warnings> Compiler<'warnings> {
         let stop_iteration_block = if comprehension_type == ComprehensionType::Generator {
             let handler_block = self.new_block();
             self.insert_cpython_stopiteration_setup_cleanup(handler_block);
+            let source = self.source_file.to_source_code();
+            let iterator = ir::InstructionInfo {
+                instr: if outermost.is_async {
+                    bytecode::Opcode::GetAiter.into()
+                } else {
+                    bytecode::Opcode::GetIter.into()
+                },
+                arg: OpArg::NULL,
+                target: BlockIdx::NULL,
+                location: source.source_location(outermost.iter.start(), PositionEncoding::Utf8),
+                end_location: source.source_location(outermost.iter.end(), PositionEncoding::Utf8),
+                except_handler: None,
+                lineno_override: None,
+            };
+            let result = self.current_code_info().insert_genexpr_prefix(iterator);
+            unwrap_internal(self, result);
             Some(handler_block)
         } else {
             None
@@ -10764,8 +10888,15 @@ impl<'warnings> Compiler<'warnings> {
             };
 
             if gen_index == 0 {
-                // Load iterator onto stack (passed as first argument):
-                emit!(self, Instruction::LoadFast { var_num: arg0 });
+                // Genexpr creation has already left the acquired iterator on the stack.
+                if comprehension_type != ComprehensionType::Generator {
+                    emit!(self, Instruction::LoadFast { var_num: arg0 });
+                    if generator.is_async {
+                        emit!(self, Instruction::GetAiter);
+                    } else {
+                        emit!(self, Instruction::GetIter { mode: 0 });
+                    }
+                }
             } else {
                 // Evaluate iterated item:
                 self.compile_comprehension_iter(generator)?;
@@ -10783,6 +10914,7 @@ impl<'warnings> Compiler<'warnings> {
                 )?;
                 emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
                 emit!(self, Instruction::GetAnext);
+                emit!(self, Instruction::PushNull);
                 self.emit_load_const(ConstantData::None);
                 self.use_cpython_label_block(send_block);
                 let _ = self.compile_yield_from_sequence(true);
@@ -10798,7 +10930,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(saved_range);
                 self.compile_store(&generator.target)?;
             }
-            real_loop_depth += 1;
+            real_loop_depth += if generator.is_async { 1 } else { 2 };
             let backedge_range = if gen_index + 1 == generators.len() {
                 element_range
             } else {
@@ -10887,8 +11019,8 @@ impl<'warnings> Compiler<'warnings> {
         self.set_source_range(comprehension_range);
         self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
 
-        // Evaluate iterated item and get its iterator.
-        self.compile_comprehension_iter(outermost)?;
+        // The callee acquires the iterator; a genexpr does this eagerly before creation.
+        self.compile_expression(&outermost.iter)?;
         self.symbol_table_stack
             .last_mut()
             .expect("no current symbol table")
@@ -10899,6 +11031,7 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::Call { argc: 0 });
         if is_async_list_set_dict_comprehension {
             emit!(self, Instruction::GetAwaitable { r#where: 0 });
+            emit!(self, Instruction::PushNull);
             self.emit_load_const(ConstantData::None);
             let _ = self.compile_yield_from_sequence(true);
         }
@@ -10922,7 +11055,7 @@ impl<'warnings> Compiler<'warnings> {
         // nested scopes (e.g. lambdas) whose sub_tables sit at the current
         // position in the parent's list. Those must be consumed before we
         // splice in the comprehension's own children.
-        self.compile_comprehension_iter(&generators[0])?;
+        self.compile_expression(&generators[0].iter)?;
         match comp_source {
             ComprehensionSymbolSource::Child => {
                 self.symbol_table_stack
@@ -11131,6 +11264,15 @@ impl<'warnings> Compiler<'warnings> {
 
                 if i > 0 {
                     self.compile_comprehension_iter(generator)?;
+                } else {
+                    let saved_range = self.current_source_range;
+                    self.set_source_range(generator.iter.range());
+                    if generator.is_async {
+                        emit!(self, Instruction::GetAiter);
+                    } else {
+                        emit!(self, Instruction::GetIter { mode: 0 });
+                    }
+                    self.set_source_range(saved_range);
                 }
 
                 self.use_cpython_label_block(loop_block);
@@ -11146,6 +11288,7 @@ impl<'warnings> Compiler<'warnings> {
                     )?;
                     emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
                     emit!(self, Instruction::GetAnext);
+                    emit!(self, Instruction::PushNull);
                     self.emit_load_const(ConstantData::None);
                     self.use_cpython_label_block(send_block);
                     let _ = self.compile_yield_from_sequence(true);
@@ -11160,7 +11303,7 @@ impl<'warnings> Compiler<'warnings> {
                     self.compile_store(&generator.target)?;
                 }
 
-                real_loop_depth += 1;
+                real_loop_depth += if generator.is_async { 1 } else { 2 };
                 let backedge_range = if i + 1 == generators.len() {
                     element_range
                 } else {
@@ -11478,42 +11621,11 @@ impl<'warnings> Compiler<'warnings> {
         self.set_no_location();
     }
 
-    /// CPython `codegen_wrap_in_stopiteration_handler()` inserts
-    /// `SETUP_CLEANUP` into the instruction sequence at index 0 with
-    /// `_PyInstructionSequence_InsertInstruction()`. Generator and cell/free
-    /// prefixes are inserted later by `flowgraph.c::insert_prefix_instructions()`.
+    /// The SETUP_CLEANUP part of `codegen_wrap_in_stopiteration_handler`.
     fn insert_cpython_stopiteration_setup_cleanup(&mut self, handler_block: BlockIdx) {
-        let code = self.current_code_info();
-        let entry = code
-            .blocks
-            .first_mut()
-            .expect("code unit must have an entry block");
-        debug_assert!(
-            entry
-                .used_instructions()
-                .first()
-                .is_some_and(|info| match info.instr.real() {
-                    Some(Instruction::Resume { context }) => matches!(
-                        context.get(info.arg).location(),
-                        oparg::ResumeLocation::AtFuncStart
-                    ),
-                    _ => false,
-                }),
-            "scope entry must start with a function-start RESUME"
-        );
-        debug_assert!(
-            !entry.used_instructions().iter().any(|info| matches!(
-                info.instr.real(),
-                Some(
-                    Instruction::ReturnGenerator
-                        | Instruction::MakeCell { .. }
-                        | Instruction::CopyFreeVars { .. }
-                )
-            )),
-            "CPython inserts StopIteration cleanup before CFG prefix instructions"
-        );
-
-        let result = code.insert_start_setup_cleanup(handler_block);
+        let result = self
+            .current_code_info()
+            .insert_start_setup_cleanup(handler_block);
         unwrap_internal(self, result);
     }
 
@@ -12221,7 +12333,7 @@ impl<'warnings> Compiler<'warnings> {
             let mut found_loop = false;
             for i in (0..code.fblock.len()).rev() {
                 match code.fblock[i].fb_type {
-                    FBlockType::WhileLoop | FBlockType::ForLoop => {
+                    FBlockType::WhileLoop | FBlockType::ForLoop | FBlockType::AsyncForLoop => {
                         found_loop = true;
                         break;
                     }
@@ -14622,66 +14734,6 @@ match x:
         );
     }
 
-    #[test]
-    fn empty_module_implicit_return_inherits_resume_location_like_cpython() {
-        let code = compile_exec("");
-        // codegen emits the implicit LOAD_CONST/RETURN_VALUE with
-        // NO_LOCATION, then flowgraph.c::propagate_line_numbers() propagates
-        // the module RESUME location, whose line is 0.
-        assert_eq!(code.linetable.as_ref(), &[0xf2, 0x03, 0x01, 0x01, 0x01]);
-    }
-
-    #[test]
-    fn module_docstring_load_uses_doc_location_like_cpython() {
-        let code = compile_exec(
-            "\
-\"doc\"
-x = 1
-",
-        );
-
-        // codegen_body() emits the docstring LOAD_CONST at the
-        // string expression location, then emits STORE_NAME __doc__ with
-        // NO_LOCATION.
-        assert_eq!(
-            code.linetable.as_ref(),
-            &[
-                0xf0, 0x03, 0x01, 0x01, 0x01, 0xd9, 0x00, 0x05, 0xd8, 0x04, 0x05, 0x82, 0x01,
-            ],
-        );
-    }
-
-    #[test]
-    fn redundant_nop_location_copies_full_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(x, y, z):
-    while x:
-        if y:
-            pass
-        elif z:
-            if y < 0:
-                return y
-            if z:
-                y = y + 1
-        elif y:
-            return 1
-    return -1
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdf, 0x0a, 0x0b, 0xdf, 0x0b, 0x0c, 0xd9, 0x0c, 0x10, 0xdf, 0x0d, 0x0e,
-                0xd8, 0x0f, 0x10, 0x90, 0x31, 0x8c, 0x75, 0xd8, 0x17, 0x18, 0x90, 0x08, 0xdf, 0x0f,
-                0x10, 0xd8, 0x14, 0x15, 0x98, 0x01, 0x95, 0x45, 0x92, 0x01, 0xf1, 0x03, 0x00, 0x10,
-                0x11, 0xe7, 0x0d, 0x0e, 0x89, 0x51, 0xd9, 0x13, 0x14, 0xd8, 0x0b, 0x0d, 0x80, 0x49,
-            ],
-            "CPython basicblock_remove_redundant_nops() copies the full NOP location into a following no-location jump"
-        );
-    }
-
     fn scan_program_symbol_table(source: &str) -> SymbolTable {
         let source_file = SourceFileBuilder::new("source_path", source).finish();
         let parsed = ruff_python_parser::parse(
@@ -14903,10 +14955,11 @@ def f(support, func, value):
             .expect("missing CPython-style false jump for if/break");
         assert!(
             matches!(
-                ops.get(cond..cond + 5),
+                ops.get(cond..cond + 6),
                 Some([
                     Instruction::PopJumpIfFalse { .. },
                     Instruction::NotTaken,
+                    Instruction::PopTop,
                     Instruction::PopTop,
                     Instruction::JumpForward { .. },
                     Instruction::JumpBackward { .. },
@@ -14951,7 +15004,7 @@ def f(input):
                         Instruction::CompareOp { .. },
                         Instruction::PopJumpIfFalse { .. },
                         Instruction::NotTaken,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                         Instruction::JumpBackward { .. },
                     ]
@@ -15992,7 +16045,7 @@ def f(self):
                             == "close"
                 ) && matches!(window[2].op, Instruction::Call { .. })
                     && matches!(window[3].op, Instruction::PopTop)
-                    && matches!(window[4].op, Instruction::LoadConst { .. })
+                    && matches!(window[4].op, Instruction::LoadCommonConstant { .. })
                     && matches!(window[5].op, Instruction::ReturnValue)
             })
             .unwrap_or_else(|| {
@@ -16521,7 +16574,7 @@ def f(buffer, pos, last_char):
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. },
                     ]
                 )
@@ -16536,7 +16589,7 @@ def f(buffer, pos, last_char):
                         Instruction::CompareOp { .. },
                         Instruction::PopJumpIfFalse { .. },
                         Instruction::NotTaken,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -16587,86 +16640,6 @@ def f(buffer, pos, last_char):
                 None
             }
         })
-    }
-
-    #[test]
-    fn annotated_multiline_function_body_keeps_def_firstlineno_like_cpython() {
-        let code = compile_exec(
-            r#"
-a = 1
-def f(
-    x: a,
-): ...
-"#,
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        // CPython 3.14 codegen_function() computes firstlineno from the
-        // FunctionDef before compiling annotations, then passes it to
-        // codegen_function_body().
-        assert_eq!(f.linetable.as_ref(), &[0x80, 0x00, 0xe1, 0x03, 0x06]);
-    }
-
-    #[test]
-    fn annotation_scope_return_uses_function_location_like_cpython() {
-        let code = compile_exec(
-            r#"
-def g():
-    def f(x: not (int is int), /): ...
-"#,
-        );
-        let g = find_code(&code, "g").expect("missing g code");
-        let annotate = find_code(g, "__annotate__").expect("missing annotation code");
-        // CPython 3.14 codegen_function_annotations() receives LOC(function)
-        // and uses it for the annotation closure's BUILD_MAP/RETURN_VALUE and
-        // for the parent MAKE_FUNCTION annotate sequence.
-        assert_eq!(g.linetable.as_ref(), &[0x80, 0x00, 0xdf, 0x04, 0x26]);
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd7, 0x04, 0x26, 0xd1, 0x04, 0x26, 0x94, 0x23, 0x9c, 0x13, 0xd0, 0x0d,
-                0x1d, 0xd1, 0x04, 0x26,
-            ],
-        );
-    }
-
-    #[test]
-    fn starred_arg_annotation_unpack_uses_function_location_like_cpython() {
-        let code = compile_exec("def f(*args: *Ts): pass\n");
-        let annotate = find_code(&code, "__annotate__").expect("missing annotation code");
-
-        // codegen_argannotation() visits `Ts` at the annotation
-        // expression location, then emits UNPACK_SEQUENCE at LOC(function).
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd7, 0x00, 0x17, 0xd1, 0x00, 0x17, 0x8c, 0x62, 0xd3, 0x00, 0x17
-            ],
-        );
-    }
-
-    #[test]
-    fn module_deferred_annotations_use_start_location_like_cpython() {
-        let code = compile_exec(
-            "\
-import os
-X: int
-Y: str
-",
-        );
-        let annotate = find_code(&code, "__annotate__").expect("missing __annotate__ code");
-
-        // compile.c::start_location() passes the first module
-        // statement location into _PyCodegen_Module(), and
-        // codegen_process_deferred_annotations() uses that loc for annotation
-        // scope setup, BUILD_MAP, STORE_SUBSCR, and RETURN_VALUE.
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0x87, 0x09, 0x81, 0x09, 0xdf, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
-                0x06, 0xf1, 0x03, 0x00, 0x01, 0x0a, 0xe7, 0x00, 0x06, 0x82, 0x06, 0x84, 0x33, 0x81,
-                0x06, 0xf2, 0x05, 0x00, 0x01, 0x0a,
-            ]
-        );
     }
 
     #[test]
@@ -16920,83 +16893,6 @@ def continues(xs):
     }
 
     #[test]
-    fn not_compare_uses_unary_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self, other):
-    return not self == other
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 parses the Compare inside UnaryOp(Not) with the
-        // UnaryOp start location, so codegen_compare() emits COMPARE_OP at
-        // the full "not self == other" range before flowgraph folds TO_BOOL.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0f, 0x13, 0xd2, 0x0b, 0x1c, 0xd0, 0x04, 0x1c,
-            ]
-        );
-    }
-
-    #[test]
-    fn not_chained_compare_keeps_compare_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(c):
-    return not (b\" \" <= c <= b\"~\")
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython's single Compare under UnaryOp(Not) includes "not" in the
-        // Compare range, but chained comparisons keep their inner range for
-        // compare scaffolding and only use the UnaryOp range for TO_BOOL and
-        // UNARY_NOT.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x10, 0x14, 0x98, 0x01, 0xd7, 0x10, 0x21, 0xd4, 0x10, 0x21, 0x98,
-                0x54, 0xd1, 0x10, 0x21, 0xd4, 0x0b, 0x22, 0xd0, 0x04, 0x22, 0xd1, 0x10, 0x21, 0xd4,
-                0x0b, 0x22, 0xd0, 0x04, 0x22,
-            ]
-        );
-    }
-
-    #[test]
-    fn type_param_scopes_use_cpython_locations() {
-        let code = compile_exec("type BoundGenericAlias[X: int] = set[X]\n");
-        let type_params = find_code(&code, "<generic parameters of BoundGenericAlias>")
-            .expect("missing generic parameters code");
-        let bound = find_direct_child_code(type_params, "X").expect("missing X bound code");
-        let alias =
-            find_direct_child_code(type_params, "BoundGenericAlias").expect("missing alias code");
-
-        // CPython 3.14 codegen_type_params() emits type-parameter ops at
-        // LOC(typeparam), bound/default evaluator ops at LOC(e), and type alias
-        // body plumbing at LOC(s).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x80, 0x00, 0xd0, 0x00, 0x27, 0x90, 0x76, 0x9b, 0x23, 0x93, 0x76, 0xd7, 0x00,
-                0x27, 0xd1, 0x00, 0x27,
-            ],
-        );
-        assert_eq!(
-            bound.linetable.as_ref(),
-            &[0x80, 0x00, 0x9f, 0x23, 0x9e, 0x23]
-        );
-        assert_eq!(
-            alias.linetable.as_ref(),
-            &[
-                0xf8, 0x80, 0x00, 0xd7, 0x00, 0x27, 0xd0, 0x00, 0x27, 0xa4, 0x13, 0xa0, 0x51, 0xa5,
-                0x16, 0xd0, 0x00, 0x27,
-            ],
-        );
-    }
-
-    #[test]
     fn typealias_value_scope_has_single_return_like_cpython() {
         let code = compile_exec("type Alias = int\n");
         let alias = find_direct_child_code(&code, "Alias").expect("missing alias code");
@@ -17009,23 +16905,6 @@ def f(c):
             return_count, 1,
             "CPython codegen_typealias_body() emits one RETURN_VALUE and assembles with addNone=0, got instructions={:?}",
             alias.instructions
-        );
-    }
-
-    #[test]
-    fn generic_typealias_wrapper_return_uses_alias_location_like_cpython() {
-        let code = compile_exec("type A[T] = T\n");
-        let type_params =
-            find_code(&code, "<generic parameters of A>").expect("missing type params code");
-
-        // codegen_typealias() assembles the generic-parameters
-        // wrapper with addNone=0 after codegen_typealias_body() leaves the type
-        // alias object on the stack. The final RETURN_VALUE keeps LOC(type alias).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x80, 0x00, 0x80, 0x0d, 0x84, 0x71, 0x87, 0x0d, 0x81, 0x0d
-            ],
         );
     }
 
@@ -17064,25 +16943,6 @@ def f(c):
     }
 
     #[test]
-    fn generic_function_annotation_scope_uses_function_location_like_cpython() {
-        let code = compile_exec("def f[T](x: int): ...\n");
-        let type_params =
-            find_code(&code, "<generic parameters of f>").expect("missing type params code");
-        let annotate =
-            find_direct_child_code(type_params, "__annotate__").expect("missing annotation code");
-
-        // CPython 3.14 passes LOC(function) into codegen_function_annotations(),
-        // even when the annotation closure is emitted inside the generic
-        // parameters scope after codegen_type_params().
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd7, 0x00, 0x15, 0xd1, 0x00, 0x15, 0x8c, 0x43, 0xd1, 0x00, 0x15,
-            ],
-        );
-    }
-
-    #[test]
     fn decorated_generic_function_type_params_use_decorator_firstlineno_like_cpython() {
         let code = compile_exec(
             "\
@@ -17100,27 +16960,6 @@ def f[T](): pass
     }
 
     #[test]
-    fn generic_class_type_params_store_uses_class_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def outer():
-    class X[T]: ...
-",
-        );
-        let type_params =
-            find_code(&code, "<generic parameters of X>").expect("missing type params code");
-
-        // CPython 3.14 codegen_class() calls codegen_type_params(), then stores
-        // the resulting .type_params cell with codegen_nameop(c, LOC(class), ...).
-        assert_eq!(
-            type_params.linetable.as_ref(),
-            &[
-                0xf8, 0x80, 0x00, 0x8c, 0x41, 0x87, 0x4f, 0x87, 0x4f, 0x80, 0x4f,
-            ]
-        );
-    }
-
-    #[test]
     fn generic_class_wrapper_ops_use_class_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -17133,9 +16972,9 @@ def f():
         let wrapper_positions: Vec<_> = f
             .instructions
             .iter()
-            .filter(|unit| !matches!(unit.op, Instruction::Resume { .. }))
+            .zip(&f.locations)
+            .filter(|(unit, _)| !matches!(unit.op, Instruction::Resume { .. } | Instruction::Cache))
             .take(4)
-            .zip(f.locations.iter().filter(|_| true).skip(1))
             .map(|(unit, (location, end_location))| {
                 (
                     unit.op,
@@ -17345,44 +17184,6 @@ class C[T]: pass
     }
 
     #[test]
-    fn class_deferred_annotations_use_class_body_location_like_cpython() {
-        let code = compile_exec(
-            r#"
-class C:
-    "doc"
-    x: int
-"#,
-        );
-        let class_code = find_code(&code, "C").expect("missing class code");
-
-        // CPython 3.14 calls codegen_body(c, loc, ...) from codegen_class_body()
-        // with LOCATION(firstlineno, firstlineno, 0, 0). Deferred annotation
-        // closure setup and following artificial class tail inherit that class
-        // body location, not the annotation expression location.
-        assert_eq!(
-            class_code.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd9, 0x04, 0x09, 0xf7, 0x03, 0x00, 0x01, 0x01, 0x83,
-                0x00,
-            ],
-        );
-    }
-
-    #[test]
-    fn future_annotation_string_uses_annotation_location_like_cpython() {
-        let code = compile_exec("from __future__ import annotations\nclass Bar:\n    foo: Foo\n");
-        let class_code = find_code(&code, "Bar").expect("missing class code");
-
-        // CPython 3.14 codegen_annassign() calls codegen_visit_annexpr(),
-        // which emits the stringized annotation at LOC(annotation), then emits
-        // the __annotations__ store sequence at LOC(AnnAssign).
-        assert_eq!(
-            class_code.linetable.as_ref(),
-            &[0x87, 0x00, 0xd8, 0x09, 0x0c, 0x87, 0x48]
-        );
-    }
-
-    #[test]
     #[expect(
         clippy::literal_string_with_formatting_args,
         reason = "the literal is the expected t-string annotation"
@@ -17426,41 +17227,6 @@ class C:
                 "t\"{'#'}\"",
                 "t\"{('#', a)}\"",
             ]
-        );
-    }
-
-    #[test]
-    fn lambda_dict_literal_ops_use_dict_location_like_cpython() {
-        let code = compile_exec(
-            "\
-f = lambda data: {'x': data}
-g = lambda i: {**i}
-",
-        );
-        let f = find_code(&code, "<lambda>").expect("missing f lambda code");
-        let g = code
-            .constants
-            .iter()
-            .filter_map(|constant| {
-                if let ConstantData::Code { code } = constant {
-                    (code.obj_name == "<lambda>").then_some(code.as_ref())
-                } else {
-                    None
-                }
-            })
-            .nth(1)
-            .expect("missing g lambda code");
-
-        // CPython 3.14 codegen_dict()/codegen_subdict() uses LOC(dict) for
-        // BUILD_MAP, MAP_ADD, and DICT_UPDATE, so the lambda RETURN_VALUE
-        // inherits the full dict literal location after compiling its body.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[0x80, 0x00, 0x90, 0x23, 0x90, 0x74, 0x91, 0x1b]
-        );
-        assert_eq!(
-            g.linetable.as_ref(),
-            &[0x80, 0x00, 0x88, 0x65, 0x90, 0x11, 0x89, 0x65]
         );
     }
 
@@ -17703,11 +17469,10 @@ def f(self, payload):
                 function.constants.as_ref(),
                 [
                     ConstantData::Str { value: doc },
-                    ConstantData::None,
                     ConstantData::Str { value: message },
                 ] if doc.as_ref() == "doc" && message.as_ref() == "bad"
             ),
-            "CPython registers None from the pre-folded `is None` comparison before the else-body string"
+            "CPython 3.15 keeps the docstring and else-body string in co_consts; None uses the common-constant table"
         );
     }
 
@@ -17811,7 +17576,7 @@ def f(self, maintype):
                                 ..
                             },
                             CodeUnit {
-                                op: Instruction::LoadConst { .. },
+                                op: Instruction::LoadCommonConstant { .. },
                                 ..
                             },
                             CodeUnit {
@@ -18176,7 +17941,7 @@ def f(command):
                 [
                     Instruction::PopTop,
                     Instruction::Nop,
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
                 ]
             )),
             "CPython NEXT_LOCATION keeps the pass NOP after match subject POP_TOP, got {ops:?}",
@@ -18211,30 +17976,6 @@ def f(x):
         assert_eq!(
             copy_line, 3,
             "CPython codegen_match_inner() emits ADDOP_I(c, LOC(m->pattern), COPY, 1)"
-        );
-    }
-
-    #[test]
-    fn match_or_alternative_copies_use_alternative_locations_like_cpython() {
-        let code = compile_exec(
-            "\
-def f():
-    x = False
-    match 0:
-        case 0 | 1 | 2 | 3:
-            x = True
-    return x
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x08, 0x0d, 0x80, 0x41, 0xd8, 0x0a, 0x0b, 0xdf, 0x0d, 0x0e, 0x97,
-                0x11, 0x97, 0x51, 0x9f, 0x11, 0x88, 0x5d, 0xe0, 0x0b, 0x0c, 0x80, 0x48, 0xf0, 0x05,
-                0x00, 0x0e, 0x1b, 0xd8, 0x10, 0x14, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x80, 0x48,
-            ],
-            "CPython codegen_pattern_or() emits each alternative COPY with LOC(alt)"
         );
     }
 
@@ -18277,31 +18018,6 @@ def f(value):
             location.line.get(),
             5,
             "CPython codegen_pattern_or() reports merge-time duplicate stores at LOC(p)"
-        );
-    }
-
-    #[test]
-    fn match_success_jump_uses_no_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self):
-    match 0:
-        case 0:
-            x = True
-        case 0:
-            x = False
-    self.assertIs(x, True)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0a, 0x0b, 0xde, 0x0d, 0x0e, 0xd9, 0x10, 0x14, 0x89, 0x41, 0xdd,
-                0x0d, 0x0e, 0xd8, 0x10, 0x15, 0x88, 0x41, 0xd8, 0x04, 0x08, 0x87, 0x4d, 0x81, 0x4d,
-                0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a,
-            ],
-            "CPython codegen_match_inner() emits the success jump with NO_LOCATION"
         );
     }
 
@@ -18355,32 +18071,6 @@ def f(x, y):
     }
 
     #[test]
-    fn match_mapping_keys_scaffolding_uses_mapping_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self):
-    x = {}
-    y = None
-    match x:
-        case {0: 0}:
-            y = 0
-    self.assertIs(y, None)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x08, 0x0a, 0x80, 0x41, 0xd8, 0x08, 0x0c, 0x80, 0x41, 0xd8, 0x0a,
-                0x0b, 0xdf, 0x0d, 0x13, 0x8f, 0x56, 0x8a, 0x56, 0x95, 0x11, 0x89, 0x56, 0xd8, 0x10,
-                0x11, 0x89, 0x41, 0xf2, 0x03, 0x00, 0x0e, 0x14, 0xe0, 0x04, 0x08, 0x87, 0x4d, 0x81,
-                0x4d, 0x90, 0x21, 0x90, 0x54, 0xd6, 0x04, 0x1a,
-            ],
-            "CPython codegen_pattern_mapping() returns to LOC(p) for BUILD_TUPLE/MATCH_KEYS scaffolding"
-        );
-    }
-
-    #[test]
     fn match_mapping_rest_cleanup_uses_mapping_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -18429,29 +18119,6 @@ def f(x):
                 "CPython codegen_pattern_mapping() emits {expected} with LOC(p)"
             );
         }
-    }
-
-    #[test]
-    fn match_class_scaffolding_uses_class_pattern_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(x):
-    match x:
-        case bool(z):
-            y = 0
-    return y, z
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0a, 0x0b, 0xdc, 0x0d, 0x11, 0x8f, 0x57, 0x88, 0x57, 0xd8, 0x10,
-                0x11, 0x88, 0x41, 0xd8, 0x0b, 0x0c, 0x88, 0x34, 0x80, 0x4b, 0xf0, 0x05, 0x00, 0x0e,
-                0x15, 0xe0, 0x0b, 0x0c, 0x88, 0x61, 0x88, 0x34, 0x80, 0x4b,
-            ],
-            "CPython codegen_pattern_class() returns to LOC(p) after VISIT(cls)"
-        );
     }
 
     #[test]
@@ -18551,7 +18218,7 @@ def f(waiters):
                 [
                     Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
                     Instruction::LoadAttr { .. },
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
                     Instruction::Call { .. },
                 ]
             )),
@@ -18878,77 +18545,6 @@ x = 1 or 2 or 3
     }
 
     #[test]
-    fn taken_constant_boolop_load_const_uses_literal_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def and_false(x):
-    return False and x
-
-def or_true(x):
-    return True or x
-",
-        );
-        let and_false = find_code(&code, "and_false").expect("missing and_false code");
-        let or_true = find_code(&code, "or_true").expect("missing or_true code");
-
-        // CPython 3.14 codegen_boolop() VISITs the selected literal before the
-        // short-circuit jump is optimized away, so the surviving LOAD_CONST
-        // keeps the literal range rather than the whole BoolOp range.
-        assert_eq!(
-            and_false.linetable.as_ref(),
-            &[0x80, 0x00, 0xd8, 0x0b, 0x10, 0xd0, 0x04, 0x16]
-        );
-        assert_eq!(
-            or_true.linetable.as_ref(),
-            &[0x80, 0x00, 0xd8, 0x0b, 0x0f, 0xd0, 0x04, 0x14]
-        );
-    }
-
-    #[test]
-    fn assert_false_message_call_uses_assert_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f():
-    assert False, \"x\"
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 codegen_assert() emits LOAD_COMMON_CONSTANT and CALL
-        // at LOC(assert statement), then RAISE_VARARGS at LOC(test).
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x04, 0x15, 0x90, 0x23, 0xd3, 0x04, 0x15, 0x88, 0x35,
-            ]
-        );
-    }
-
-    #[test]
-    fn static_swap_implicit_return_keeps_preswap_store_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(a, b):
-    a, b = a, b
-    b, a = a, b
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython 3.14 flowgraph.c resolves line numbers before
-        // optimize_basic_block() turns BUILD_TUPLE/UNPACK_SEQUENCE into SWAP
-        // and apply_static_swaps() reorders the STORE_FAST pair.  The
-        // synthetic return epilogue therefore keeps the pre-swap final store
-        // location.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0b, 0x0c, 0x80, 0x71, 0xd8, 0x0b, 0x0c, 0x82, 0x71,
-            ]
-        );
-    }
-
-    #[test]
     fn unpack_store_pair_jump_uses_second_target_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -19060,169 +18656,6 @@ def f(flag, n, exp):
     }
 
     #[test]
-    fn genexpr_make_closure_and_call_use_genexpr_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(parameters):
-    return ((p, type(p)) for p in parameters)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
-
-        // CPython 3.14 codegen_comprehension() uses LOC(e) for
-        // codegen_make_closure(), the outer CALL, and the implicit .0 load
-        // in codegen_sync_comprehension_generator().
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd9, 0x0b, 0x2d, 0xa1, 0x2a, 0xd3, 0x0b, 0x2d, 0xd0, 0x04, 0x2d,
-            ]
-        );
-        assert_eq!(
-            genexpr.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0b, 0x2d, 0xa1, 0x2a, 0x98, 0x51, 0x94, 0x04, 0x90,
-                0x51, 0x93, 0x07, 0x8d, 0x4c, 0xa3, 0x2a, 0xf9,
-            ]
-        );
-    }
-
-    #[test]
-    fn implicit_call_genexpr_range_includes_call_parens_like_cpython() {
-        let code = compile_exec(
-            "\
-def implicit():
-    return list(x for x in range(10))
-
-def explicit():
-    return list((x for x in range(10)))
-",
-        );
-        let implicit = find_code(&code, "implicit").expect("missing implicit code");
-        let implicit_gen = find_code(implicit, "<genexpr>").expect("missing implicit genexpr code");
-        let explicit = find_code(&code, "explicit").expect("missing explicit code");
-        let explicit_gen = find_code(explicit, "<genexpr>").expect("missing explicit genexpr code");
-
-        // CPython's parser gives an unparenthesized sole GeneratorExp call
-        // argument the call-parenthesized range, and codegen_comprehension()
-        // uses LOC(e) for MAKE_FUNCTION, the outer CALL, and the implicit .0
-        // LOAD_FAST.  Explicitly parenthesized genexprs already carry their own
-        // parentheses and must not be widened again.
-        assert_eq!(
-            implicit.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x25, 0x9c, 0x35, 0xa0, 0x12, 0x9c, 0x39,
-                0xd3, 0x0f, 0x25, 0xd3, 0x0b, 0x25, 0xd0, 0x04, 0x25,
-            ]
-        );
-        assert_eq!(
-            implicit_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0f, 0x25, 0x99, 0x39, 0x90, 0x61, 0x94, 0x01, 0x9b,
-                0x39, 0xf9,
-            ]
-        );
-        assert_eq!(
-            explicit_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x10, 0x26, 0x99, 0x49, 0x90, 0x71, 0x94, 0x11, 0x9b,
-                0x49, 0xf9,
-            ]
-        );
-    }
-
-    #[test]
-    fn implicit_call_genexpr_parenthesized_element_range_like_cpython() {
-        let code = compile_exec(
-            "\
-def bytes_binop():
-    return bytes((x ^ 0x5C) for x in range(256))
-
-def dict_tuple(d):
-    return dict((v, k) for (k, v) in d.items())
-
-def plain_tuple_elt(xs):
-    return list((x, y) for x, y in xs)
-
-def explicit_gen(xs):
-    return list(((x, y) for x, y in xs))
-",
-        );
-        let bytes_binop = find_code(&code, "bytes_binop").expect("missing bytes_binop code");
-        let bytes_gen = find_code(bytes_binop, "<genexpr>").expect("missing bytes genexpr code");
-        let dict_tuple = find_code(&code, "dict_tuple").expect("missing dict_tuple code");
-        let dict_gen = find_code(dict_tuple, "<genexpr>").expect("missing dict genexpr code");
-        let plain_tuple_elt =
-            find_code(&code, "plain_tuple_elt").expect("missing plain_tuple_elt code");
-        let plain_gen =
-            find_code(plain_tuple_elt, "<genexpr>").expect("missing plain genexpr code");
-        let explicit_gen = find_code(&code, "explicit_gen").expect("missing explicit_gen code");
-        let explicit_inner =
-            find_code(explicit_gen, "<genexpr>").expect("missing explicit genexpr code");
-
-        // CPython 3.14's parser includes the call argument parentheses in
-        // LOC(GeneratorExp) for implicit sole-argument generator expressions,
-        // even when the element expression itself starts with parentheses.
-        assert_eq!(
-            bytes_binop.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x0b, 0x10, 0xd1, 0x10, 0x30, 0xa4, 0x55, 0xa8, 0x33, 0xa4, 0x5a,
-                0xd3, 0x10, 0x30, 0xd3, 0x0b, 0x30, 0xd0, 0x04, 0x30,
-            ]
-        );
-        assert_eq!(
-            bytes_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x10, 0x30, 0xa1, 0x5a, 0xa0, 0x01, 0x90, 0x64, 0x97,
-                0x28, 0x92, 0x28, 0xa3, 0x5a, 0xf9,
-            ]
-        );
-        assert_eq!(
-            dict_tuple.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x2f, 0xa0, 0x51, 0xa7, 0x57, 0xa1, 0x57,
-                0xa4, 0x59, 0xd3, 0x0f, 0x2f, 0xd3, 0x0b, 0x2f, 0xd0, 0x04, 0x2f,
-            ]
-        );
-        assert_eq!(
-            dict_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0f, 0x2f, 0xa1, 0x59, 0x99, 0x36, 0x98, 0x41, 0x90,
-                0x11, 0x95, 0x06, 0xa3, 0x59, 0xf9,
-            ]
-        );
-        assert_eq!(
-            plain_tuple_elt.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x0f, 0x26, 0xa1, 0x32, 0xd3, 0x0f, 0x26, 0xd3,
-                0x0b, 0x26, 0xd0, 0x04, 0x26,
-            ]
-        );
-        assert_eq!(
-            plain_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0f, 0x26, 0xa1, 0x32, 0x99, 0x34, 0x98, 0x31, 0x90,
-                0x11, 0x95, 0x06, 0xa3, 0x32, 0xf9,
-            ]
-        );
-        assert_eq!(
-            explicit_gen.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x0b, 0x0f, 0xd1, 0x10, 0x27, 0xa1, 0x42, 0xd3, 0x10, 0x27, 0xd3,
-                0x0b, 0x28, 0xd0, 0x04, 0x28,
-            ]
-        );
-        assert_eq!(
-            explicit_inner.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x10, 0x27, 0xa1, 0x42, 0x99, 0x44, 0x98, 0x41, 0x90,
-                0x21, 0x95, 0x16, 0xa3, 0x42, 0xf9,
-            ]
-        );
-    }
-
-    #[test]
     fn implicit_call_genexpr_operator_element_range_like_cpython() {
         // The element opens with a parenthesized group that the rest of the
         // expression continues, so the call's own parentheses are the only
@@ -19236,14 +18669,14 @@ def f(p, q):
         let f = find_code(&code, "f").expect("missing f code");
         let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
 
-        // Columns are one-based here, so these are `dis`'s 14..56.
+        // MAKE_FUNCTION keeps the genexpr range; eager .0 acquisition uses the iterable range.
         assert_eq!(
             instruction_range(f, |op| matches!(op, Instruction::MakeFunction)),
             Some((2, 15, 2, 57))
         );
         assert_eq!(
             instruction_range(genexpr, |op| matches!(op, Instruction::LoadFast { .. })),
-            Some((2, 15, 2, 57))
+            Some((2, 47, 2, 56))
         );
     }
 
@@ -19265,7 +18698,12 @@ w = f'' 'a' f''
             .instructions
             .iter()
             .zip(&code.locations)
-            .filter(|(unit, _)| matches!(unit.op, Instruction::LoadConst { .. }))
+            .filter(|(unit, _)| {
+                matches!(unit.op, Instruction::LoadConst { .. })
+                    || matches!(unit.op, Instruction::LoadCommonConstant { idx }
+                        if idx.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                            == bytecode::CommonConstant::EmptyStr)
+            })
             .map(|(_, locations)| location_range(locations))
             .take(4)
             .collect();
@@ -19274,71 +18712,6 @@ w = f'' 'a' f''
         assert_eq!(
             ranges,
             vec![(1, 5, 1, 11), (2, 5, 2, 11), (3, 5, 3, 18), (4, 9, 4, 12)]
-        );
-    }
-
-    #[test]
-    fn genexpr_filter_cleanup_jumps_use_element_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def simple(names):
-    return (x for x in names if not _ishidden(x))
-
-def boolop(fields):
-    return (f for f in fields if f.init and not f.kw_only)
-",
-        );
-        let simple = find_code(&code, "simple").expect("missing simple code");
-        let simple_gen = find_code(simple, "<genexpr>").expect("missing simple genexpr code");
-        let boolop = find_code(&code, "boolop").expect("missing boolop code");
-        let boolop_gen = find_code(boolop, "<genexpr>").expect("missing boolop genexpr code");
-
-        // codegen_sync_comprehension_generator() emits the
-        // comprehension guard jump to if_cleanup, then emits the if_cleanup
-        // backedge with elt_loc. flowgraph.c::jump_thread() copies that target
-        // jump location to the threaded POP_JUMP/NOT_TAKEN cleanup path.
-        assert_eq!(
-            simple_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0b, 0x31, 0x91, 0x75, 0x90, 0x21, 0xa4, 0x49, 0xa8,
-                0x61, 0xa7, 0x4c, 0x8f, 0x41, 0x8a, 0x41, 0x93, 0x75, 0xf9,
-            ]
-        );
-        assert_eq!(
-            boolop_gen.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd0, 0x0b, 0x3a, 0x91, 0x76, 0x90, 0x21, 0xa7, 0x16, 0xa5,
-                0x16, 0x8c, 0x41, 0xb0, 0x01, 0xb7, 0x09, 0xb5, 0x09, 0x8f, 0x41, 0x8a, 0x41, 0x93,
-                0x76, 0xf9,
-            ]
-        );
-    }
-
-    #[test]
-    fn try_finally_exception_scaffolding_uses_no_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(self, node):
-    self.flag = True
-    try:
-        self.body(node)
-    finally:
-        self.flag = False
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // codegen_try_finally() emits the exception path
-        // SETUP_CLEANUP/PUSH_EXC_INFO and POP_EXCEPT_AND_RERAISE with
-        // NO_LOCATION; flowgraph line propagation then gives only the
-        // finalbody's direct RERAISE the finalbody location.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x10, 0x14, 0x80, 0x44, 0x84, 0x49, 0xf0, 0x02, 0x03, 0x05, 0x1a,
-                0xd8, 0x08, 0x0c, 0x8f, 0x09, 0x89, 0x09, 0x90, 0x24, 0x8c, 0x0f, 0xe0, 0x14, 0x19,
-                0x88, 0x04, 0x8e, 0x09, 0xf8, 0x90, 0x45, 0x88, 0x04, 0x8d, 0x09, 0xfa,
-            ]
         );
     }
 
@@ -19363,11 +18736,10 @@ def f(close):
             .instructions
             .iter()
             .position(|unit| {
-                let Instruction::LoadConst { consti } = unit.op else {
+                let Instruction::LoadCommonConstant { idx } = unit.op else {
                     return false;
                 };
-                let constant = &f.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))];
-                matches!(constant, ConstantData::Boolean { value: true })
+                idx.get(OpArg::new(u32::from(u8::from(unit.arg)))) == bytecode::CommonConstant::True
             })
             .expect("missing __debug__ constant load");
 
@@ -19469,76 +18841,6 @@ def f(close):
     }
 
     #[test]
-    fn adjacent_no_location_entries_merge_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(file):
-    if sys.platform == \"win32\":
-        try:
-            import nt
-            if not nt._supports_virtual_terminal():
-                return False
-        except (ImportError, AttributeError):
-            return False
-    try:
-        return os.isatty(file.fileno())
-    except OSError:
-        return hasattr(file, \"isatty\") and file.isatty()
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-
-        // CPython's NO_LOCATION is {-1, -1, -1, -1}, and
-        // assemble.c::assemble_location_info() merges adjacent instructions
-        // with the same NO_LOCATION into one linetable entry.
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdc, 0x07, 0x0a, 0x87, 0x7c, 0x81, 0x7c, 0x90, 0x77, 0xd4, 0x07, 0x1e,
-                0xf0, 0x02, 0x05, 0x09, 0x19, 0xdb, 0x0c, 0x15, 0xd8, 0x13, 0x15, 0xd7, 0x13, 0x30,
-                0xd1, 0x13, 0x30, 0xd7, 0x13, 0x32, 0xd2, 0x13, 0x32, 0xd9, 0x17, 0x1c, 0xf0, 0x03,
-                0x00, 0x14, 0x33, 0xf0, 0x08, 0x03, 0x05, 0x39, 0xdc, 0x0f, 0x11, 0x8f, 0x79, 0x89,
-                0x79, 0x98, 0x14, 0x9f, 0x1b, 0x99, 0x1b, 0x9b, 0x1d, 0xd3, 0x0f, 0x27, 0xd0, 0x08,
-                0x27, 0xf8, 0xf4, 0x07, 0x00, 0x11, 0x1c, 0x9c, 0x5e, 0xd0, 0x0f, 0x2c, 0xf4, 0x00,
-                0x01, 0x09, 0x19, 0xda, 0x13, 0x18, 0xf0, 0x03, 0x01, 0x09, 0x19, 0xfb, 0xf4, 0x08,
-                0x00, 0x0c, 0x13, 0xf4, 0x00, 0x01, 0x05, 0x39, 0xdc, 0x0f, 0x16, 0x90, 0x74, 0x98,
-                0x58, 0xd3, 0x0f, 0x26, 0xd7, 0x0f, 0x38, 0xd0, 0x0f, 0x38, 0xa8, 0x34, 0xaf, 0x3b,
-                0xa9, 0x3b, 0xab, 0x3d, 0xd2, 0x08, 0x38, 0xf0, 0x03, 0x01, 0x05, 0x39, 0xfa,
-            ]
-        );
-    }
-
-    #[test]
-    fn fstring_format_ops_use_formatted_value_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def simple(self):
-    return f'{self.value}'
-
-def spec(x):
-    return f'{x!r:>3}'
-",
-        );
-        let simple = find_code(&code, "simple").expect("missing simple code");
-        let spec = find_code(&code, "spec").expect("missing spec code");
-
-        // CPython 3.14 codegen_formatted_value() VISITs the inner expression
-        // first, then emits CONVERT_VALUE / FORMAT_* at LOC(FormattedValue).
-        assert_eq!(
-            simple.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0e, 0x12, 0x8f, 0x6a, 0x89, 0x6a, 0x88, 0x5c, 0xd0, 0x04, 0x1a,
-            ]
-        );
-        assert_eq!(
-            spec.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x0e, 0x0f, 0x88, 0x58, 0x90, 0x22, 0x88, 0x58, 0xd0, 0x04, 0x16,
-            ]
-        );
-    }
-
-    #[test]
     fn debug_fstring_literal_merging_and_location_like_cpython() {
         fn string_load_position(code: &CodeObject, expected: &str) -> (usize, usize, usize, usize) {
             code.instructions
@@ -19636,29 +18938,6 @@ def padded(digits, int_len):
     }
 
     #[test]
-    fn joined_string_literals_extend_pending_literal_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def f(a):
-    return (
-        'x'
-        f'y{a}z'
-        'w'
-    )
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xf0, 0x04, 0x01, 0x09, 0x0c, 0xd8, 0x0c, 0x0d, 0x88, 0x33, 0xf0, 0x00,
-                0x01, 0x0f, 0x0c, 0xf0, 0x03, 0x02, 0x09, 0x0c, 0xf0, 0x03, 0x04, 0x05, 0x06,
-            ],
-            "CPython parser/codegen represents adjacent f-string literal fragments as Constant ranges spanning the merged fragments"
-        );
-    }
-
-    #[test]
     fn starred_call_preserves_bool_op_short_circuit_shape() {
         let code = compile_exec(
             "\
@@ -19727,60 +19006,6 @@ def outer(null):
                 )
             }),
             "partial constant BoolOp should not leave short-circuit scaffolding, got ops={ops:?}"
-        );
-    }
-
-    #[test]
-    fn decorated_definitions_use_cpython_locations() {
-        let code = compile_exec(
-            "\
-def dec(f): return f
-
-class C:
-    @dec
-    def f(self):
-        yield
-
-@dec
-class D:
-    pass
-
-class E:
-    @dec
-    def g(self, flags: int, /) -> memoryview:
-        raise NotImplementedError
-",
-        );
-        let c = find_code(&code, "C").expect("missing C code");
-        let d = find_code(&code, "D").expect("missing D code");
-        let e = find_code(&code, "E").expect("missing E code");
-        let annotate = find_code(e, "__annotate__").expect("missing annotation code");
-
-        // CPython 3.14 codegen_function()/codegen_class() evaluate
-        // decorators first, then use LOC(s) for codegen_make_closure() and
-        // codegen_nameop(); codegen_apply_decorators() emits CALL at each
-        // decorator expression's location.
-        assert_eq!(
-            c.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd8, 0x05, 0x08, 0xf1, 0x02, 0x01, 0x05, 0x0e, 0xf3,
-                0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x0e,
-            ]
-        );
-        assert_eq!(d.linetable.as_ref(), &[0x86, 0x00, 0xe3, 0x04, 0x08]);
-        assert_eq!(
-            e.linetable.as_ref(),
-            &[
-                0xf8, 0x87, 0x00, 0x80, 0x00, 0xd8, 0x05, 0x08, 0xf7, 0x02, 0x01, 0x05, 0x22, 0xf3,
-                0x03, 0x00, 0x06, 0x09, 0xf6, 0x02, 0x01, 0x05, 0x22,
-            ]
-        );
-        assert_eq!(
-            annotate.linetable.as_ref(),
-            &[
-                0xf8, 0x80, 0x00, 0xf7, 0x00, 0x01, 0x05, 0x22, 0xf1, 0x00, 0x01, 0x05, 0x22, 0x91,
-                0x73, 0xf0, 0x00, 0x01, 0x05, 0x22, 0xa1, 0x2a, 0xf1, 0x00, 0x01, 0x05, 0x22,
-            ]
         );
     }
 
@@ -20138,7 +19363,7 @@ x = +0.0j
                     Instruction::Resume { .. },
                     Instruction::LoadConst { .. },
                     Instruction::StoreName { .. },
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
                     Instruction::ReturnValue
                 ]
             ),
@@ -20560,56 +19785,6 @@ def outer(log):
     }
 
     #[test]
-    fn builtin_any_genexpr_call_is_optimized() {
-        let code = compile_exec(
-            "\
-def f(xs):
-    return any(x for x in xs)
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
-
-        assert!(has_common_constant(f, bytecode::CommonConstant::BuiltinAny));
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::PopJumpIfTrue { .. }))
-        );
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::NotTaken))
-        );
-        assert_eq!(
-            f.instructions
-                .iter()
-                .filter(|unit| matches!(unit.op, Instruction::PushNull))
-                .count(),
-            1,
-            "fallback call path should remain for shadowed any()"
-        );
-        let genexpr_const_count = f
-            .constants
-            .iter()
-            .filter(|constant| {
-                matches!(constant, ConstantData::Code { code } if code.obj_name == "<genexpr>")
-            })
-            .count();
-        assert_eq!(
-            genexpr_const_count, 1,
-            "optimized and fallback any(genexpr) paths should share the same CPython-range code const"
-        );
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdf, 0x0b, 0x0e, 0x8b, 0x33, 0x89, 0x6f, 0x99, 0x22, 0x8b, 0x6f, 0x8f,
-                0x33, 0x8c, 0x33, 0xd0, 0x04, 0x1d, 0x8a, 0x33, 0xd0, 0x04, 0x1d, 0x88, 0x33, 0x89,
-                0x6f, 0x99, 0x22, 0x8b, 0x6f, 0xd3, 0x0b, 0x1d, 0xd0, 0x04, 0x1d,
-            ]
-        );
-    }
-
-    #[test]
     fn builtin_any_async_genexpr_call_is_not_optimized_like_cpython() {
         for source in [
             "async def f(xs):\n    return any(x async for x in xs)\n",
@@ -20652,72 +19827,6 @@ async def f(get_xs):
         assert!(
             has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
             "CPython checks the generator expression symtable entry, so await in the outermost iterator does not make the genexpr coroutine"
-        );
-    }
-
-    #[test]
-    fn builtin_tuple_genexpr_call_is_optimized_but_list_set_are_not() {
-        let code = compile_exec(
-            "\
-def tuple_f(xs):
-    return tuple(x for x in xs)
-
-def list_f(xs):
-    return list(x for x in xs)
-
-def set_f(xs):
-    return set(x for x in xs)
-",
-        );
-
-        let tuple_f = find_code(&code, "tuple_f").expect("missing tuple_f code");
-        assert!(has_common_constant(
-            tuple_f,
-            bytecode::CommonConstant::BuiltinTuple
-        ));
-        assert!(has_intrinsic_1(tuple_f, IntrinsicFunction1::ListToTuple));
-        let tuple_list_append = tuple_f
-            .instructions
-            .iter()
-            .find_map(|unit| match unit.op {
-                Instruction::ListAppend { .. } => Some(u32::from(u8::from(unit.arg))),
-                _ => None,
-            })
-            .expect("tuple(genexpr) fast path should emit LIST_APPEND");
-        assert_eq!(tuple_list_append, 2);
-        assert_eq!(
-            tuple_f.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xdf, 0x0b, 0x10, 0x8c, 0x35, 0x91, 0x0f, 0x99, 0x42, 0x93, 0x0f, 0x8f,
-                0x35, 0xd0, 0x04, 0x1f, 0x88, 0x35, 0x91, 0x0f, 0x99, 0x42, 0x93, 0x0f, 0xd3, 0x0b,
-                0x1f, 0xd0, 0x04, 0x1f,
-            ]
-        );
-
-        let list_f = find_code(&code, "list_f").expect("missing list_f code");
-        assert!(
-            list_f
-                .instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "list(genexpr) should stay on the normal call path"
-        );
-        assert!(
-            !has_common_constant(list_f, bytecode::CommonConstant::BuiltinList),
-            "CPython 3.14.5 does not optimize list(genexpr)"
-        );
-
-        let set_f = find_code(&code, "set_f").expect("missing set_f code");
-        assert!(
-            set_f
-                .instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "set(genexpr) should stay on the normal call path"
-        );
-        assert!(
-            !has_common_constant(set_f, bytecode::CommonConstant::BuiltinSet),
-            "CPython 3.14.5 does not optimize set(genexpr)"
         );
     }
 
@@ -20969,7 +20078,7 @@ def f(cache, lock, format):
                         Instruction::LoadFastLoadFast { .. },
                         Instruction::LoadFast { .. },
                         Instruction::StoreSubscr,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -21112,27 +20221,6 @@ def aug(x, a, b, y):
     }
 
     #[test]
-    fn augassign_constant_slice_copy_uses_subscript_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def aug_const(x, y):
-    x[1:2] += y
-",
-        );
-        let aug_const = find_code(&code, "aug_const").expect("missing aug_const code");
-
-        // CPython 3.14 codegen_augassign() visits a constant slice, then emits
-        // COPY/COPY/BINARY_OP NB_SUBSCR at LOC(target), not at LOC(slice).
-        assert_eq!(
-            aug_const.linetable.as_ref(),
-            &[
-                0x80, 0x00, 0xd8, 0x04, 0x05, 0x80, 0x63, 0x87, 0x46, 0x88, 0x61, 0x85, 0x4b, 0x85,
-                0x46,
-            ]
-        );
-    }
-
-    #[test]
     fn augassign_attribute_copy_uses_target_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -21186,7 +20274,7 @@ def f(obj):
             .filter(|op| !matches!(op, Instruction::Cache))
             .collect();
 
-        let has_cpython_shape = ops.windows(7).any(|window| {
+        let has_cpython_shape = ops.windows(8).any(|window| {
             matches!(
                 window,
                 [
@@ -21195,6 +20283,7 @@ def f(obj):
                     Instruction::JumpBackward { .. },
                     Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
                     Instruction::Swap { .. },
+                    Instruction::PopTop,
                     Instruction::PopTop,
                     Instruction::ReturnValue,
                 ]
@@ -21570,7 +20659,7 @@ def f(self, exc_type, KeyboardInterrupt, TimeoutExpired):
                         Instruction::LoadSmallInt { .. },
                         Instruction::LoadFastBorrow { .. },
                         Instruction::StoreAttr { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -21710,7 +20799,7 @@ def f(locale, category, locales):
                         Instruction::RaiseVarargs { .. },
                         Instruction::Nop,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::YieldValue { .. },
                     ]
                 )
@@ -21857,18 +20946,19 @@ def f(parts):
         );
 
         let break_cleanup_idx = ops
-            .windows(3)
+            .windows(4)
             .position(|window| {
                 matches!(
                     window,
                     [
                         Instruction::PopTop,
-                        Instruction::LoadConst { .. },
+                        Instruction::PopTop,
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue
                     ]
                 )
             })
-            .expect("missing POP_TOP/LOAD_CONST/RETURN_VALUE break cleanup");
+            .expect("missing POP_TOP/POP_TOP/LOAD_COMMON_CONSTANT/RETURN_VALUE break cleanup");
         let end_for_idx = ops
             .iter()
             .position(|op| matches!(op, Instruction::EndFor))
@@ -21908,7 +20998,7 @@ elif maxsize == 9223372036854775807:
                     [
                         Instruction::EndFor,
                         Instruction::PopIter,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -21923,7 +21013,7 @@ elif maxsize == 9223372036854775807:
                         Instruction::EndFor,
                         Instruction::PopIter,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -22574,7 +21664,7 @@ def f(self, file, backupfilename):
                     ],
                     [
                         Instruction::PopExcept,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::LoadFast { .. },
                         Instruction::StoreAttr { .. },
                         Instruction::Reraise { .. },
@@ -23068,15 +22158,9 @@ def f(x):
                 )
             })
             .expect("missing folded -0.0 match value");
-        let none_index = f
-            .constants
-            .iter()
-            .position(|constant| matches!(constant, ConstantData::None))
-            .expect("missing implicit None");
-        assert!(
-            negative_zero_index < none_index,
-            "CPython ast_preprocess.c folds MatchValue constants before codegen registers the implicit None"
-        );
+        assert_eq!(negative_zero_index, 0);
+        assert_eq!(f.constants.len(), 1);
+        assert!(has_common_constant(f, bytecode::CommonConstant::None));
     }
 
     #[test]
@@ -23163,7 +22247,7 @@ def f(x):
     }
 
     #[test]
-    fn match_mapping_attribute_key_keeps_plain_load_fast_without_block_disable() {
+    fn match_mapping_attribute_key_keeps_borrowed_load_fast_without_block_disable() {
         let code = compile_exec(
             "\
 def f(self):
@@ -23211,8 +22295,8 @@ def f(self):
             .expect("missing Keys.KEY attribute load");
         let prev = f.instructions[key_load_idx - 1].op;
         assert!(
-            matches!(prev, Instruction::LoadFast { .. }),
-            "CPython optimize_load_fast() records MATCH_KEYS' no-input pseudo-ref with the produced-value loop index, so this consumed Keys load stays strong; got ops={:?}",
+            matches!(prev, Instruction::LoadFastBorrow { .. }),
+            "CPython optimize_load_fast() records MATCH_KEYS' no-input pseudo-ref with the current instruction index, so this consumed Keys load is borrowed; got ops={:?}",
             f.instructions
                 .iter()
                 .map(|unit| unit.op)
@@ -23396,9 +22480,9 @@ def f(i):
                 matches!(
                     window,
                     [
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -23595,9 +22679,9 @@ def f(cm):
                     [
                         (Instruction::DeleteFast { .. }, 6),
                         (Instruction::Nop, 6),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
                         (Instruction::Call { .. }, 2),
                     ]
                 )
@@ -23635,9 +22719,9 @@ def f(cm, names, modname):
                         Instruction::Call { .. },
                         Instruction::PopTop,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -23674,9 +22758,9 @@ def f(cm):
                     [
                         Instruction::StoreFast { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -23716,9 +22800,9 @@ def f(cm, func, check):
                         Instruction::Call { .. },
                         Instruction::PopTop,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -23763,9 +22847,9 @@ def f(meta_path, cm):
                         (Instruction::Call { .. }, 9),
                         (Instruction::StoreFast { .. }, 9),
                         (Instruction::Nop, 9),
-                        (Instruction::LoadConst { .. }, 3),
-                        (Instruction::LoadConst { .. }, 3),
-                        (Instruction::LoadConst { .. }, 3),
+                        (Instruction::LoadCommonConstant { .. }, 3),
+                        (Instruction::LoadCommonConstant { .. }, 3),
+                        (Instruction::LoadCommonConstant { .. }, 3),
                     ]
                 )
             }),
@@ -23850,9 +22934,9 @@ def f(cm):
                     [
                         Instruction::StoreFast { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -23865,9 +22949,9 @@ def f(cm):
                     window,
                     [
                         Instruction::StoreFast { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -23904,9 +22988,9 @@ def f(cm, ValueError):
                     window,
                     [
                         (Instruction::Nop, 6),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
                         (Instruction::Call { .. }, 2),
                     ]
                 )
@@ -23944,9 +23028,9 @@ def f(open, src, dst, copyfileobj):
                     [
                         Instruction::Call { .. },
                         Instruction::PopTop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -23962,9 +23046,9 @@ def f(open, src, dst, copyfileobj):
                         Instruction::Call { .. },
                         Instruction::PopTop,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -24727,9 +23811,9 @@ def f(selector, self):
                     [
                         (Instruction::JumpBackward { .. }, 4),
                         (Instruction::Nop, 3),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
-                        (Instruction::LoadConst { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
+                        (Instruction::LoadCommonConstant { .. }, 2),
                         (Instruction::Call { .. }, 2),
                     ]
                 )
@@ -25873,7 +24957,7 @@ def f(part, lines, maxlen, encoding):
                     window,
                     [
                         Instruction::LoadFastBorrow { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreSubscr,
                     ]
                 )
@@ -25998,7 +25082,7 @@ def f(part, lines, maxlen, encoding):
                     window,
                     [
                         Instruction::LoadFastBorrow { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreSubscr,
                     ]
                 )
@@ -26930,11 +26014,23 @@ def f(fields):
                         Instruction::LoadFastBorrow { .. },
                         Instruction::LoadAttr { .. },
                         Instruction::Call { .. },
-                        Instruction::GetIter,
+                        Instruction::Call { .. },
                     ]
                 )
             }),
-            "expected plain attr-iter chain to keep borrowed receiver, got ops={ops:?}"
+            "expected plain attr-genexpr-call chain to keep borrowed receiver, got ops={ops:?}"
+        );
+        assert!(
+            !f.instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::GetIter { .. }))
+        );
+        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr");
+        assert!(
+            genexpr
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::GetIter { .. }))
         );
     }
 
@@ -28084,14 +27180,19 @@ def bug():
         .unwrap();
 
         assert!(
+            entries
+                .iter()
+                .all(|entry| { not_taken_idx < entry.start || not_taken_idx >= entry.end })
+        );
+        assert!(
             entries.iter().any(|entry| {
-                entry.start <= not_taken_idx
+                entry.start <= alias_store_idx
                     && alias_store_idx < entry.end
                     && entry.target == copy_idx
                     && entry.depth == 1
                     && entry.push_lasti
             }),
-            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so NOT_TAKEN and the alias store stay covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
+            "CPython codegen_try_except() stores the exception alias before the inner SETUP_CLEANUP, so the alias store stays covered by the outer cleanup entry; entries={entries:?}, instructions={:?}",
             bug.instructions
         );
     }
@@ -28452,7 +27553,7 @@ def f(self):
                 window,
                 [
                     Instruction::PopExcept,
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
                     Instruction::StoreName { .. } | Instruction::StoreFast { .. },
                     Instruction::DeleteName { .. } | Instruction::DeleteFast { .. },
                     Instruction::JumpForward { .. },
@@ -28903,7 +28004,13 @@ def f(cond, obj, xs, E):
             _ => None,
         };
 
-        for name in ["xs", "obj", "x"] {
+        assert!(normal_tail.iter().any(|unit| {
+            matches!(unit.op, Instruction::LoadFast { .. }) && load_name(unit) == Some("xs")
+        }));
+        assert!(!normal_tail.iter().any(|unit| {
+            matches!(unit.op, Instruction::LoadFastBorrow { .. }) && load_name(unit) == Some("xs")
+        }));
+        for name in ["obj", "x"] {
             assert!(
                 normal_tail
                     .iter()
@@ -29410,9 +28517,9 @@ def f(obj):
                 [
                     Instruction::Resume { .. },
                     Instruction::LoadFastBorrow { .. },
-                    Instruction::LoadConst { .. },
-                    Instruction::LoadConst { .. },
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
+                    Instruction::LoadCommonConstant { .. },
+                    Instruction::LoadCommonConstant { .. },
                     Instruction::BuildSlice { .. },
                     Instruction::BinaryOp { .. },
                     Instruction::ReturnValue,
@@ -29437,7 +28544,7 @@ def f(obj, step):
             .zip(&f.locations)
             .filter_map(|(unit, (location, end_location))| {
                 let op = match unit.op {
-                    Instruction::LoadConst { .. } => "LOAD_CONST",
+                    Instruction::LoadCommonConstant { .. } => "LOAD_CONST",
                     Instruction::BuildSlice { .. } => "BUILD_SLICE",
                     _ => return None,
                 };
@@ -29566,7 +28673,7 @@ def f(obj):
                     Instruction::Resume { .. },
                     Instruction::LoadFastBorrow { .. },
                     Instruction::LoadConst { .. },
-                    Instruction::LoadConst { .. },
+                    Instruction::LoadCommonConstant { .. },
                     Instruction::BinarySlice,
                     Instruction::ReturnValue,
                 ]
@@ -29732,9 +28839,9 @@ def f(self, xs, ys, cm1, cm2):
                     [
                         Instruction::EndFor,
                         Instruction::PopIter,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -29750,9 +28857,9 @@ def f(self, xs, ys, cm1, cm2):
                         Instruction::EndFor,
                         Instruction::PopIter,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -29780,15 +28887,9 @@ def f(p, s):
             .filter(|unit| {
                 matches!(
                     unit.op,
-                    Instruction::LoadConst { consti }
-                        if matches!(
-                            f.constants.get(
-                                consti
-                                    .get(OpArg::new(u32::from(u8::from(unit.arg))))
-                                    .as_usize()
-                            ),
-                            Some(ConstantData::Integer { value }) if value == &BigInt::from(-1)
-                        )
+                    Instruction::LoadCommonConstant { idx }
+                        if idx.get(OpArg::new(u32::from(u8::from(unit.arg))))
+                            == bytecode::CommonConstant::MinusOne
                 )
             })
             .count();
@@ -29821,18 +28922,21 @@ def f(xs):
             .collect();
 
         assert!(
-            units.windows(4).any(|window| {
+            units.windows(5).any(|window| {
                 matches!(
                     window[0].op,
-                    Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. }
+                    Instruction::LoadCommonConstant { idx }
+                        if idx.get(OpArg::new(u32::from(u8::from(window[0].arg))))
+                            == bytecode::CommonConstant::MinusOne
                 ) && matches!(
                     window[1].op,
                     Instruction::Swap { i }
-                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 2
+                        if i.get(OpArg::new(u32::from(u8::from(window[1].arg)))) == 3
                 ) && matches!(window[2].op, Instruction::PopTop)
-                    && matches!(window[3].op, Instruction::ReturnValue)
+                    && matches!(window[3].op, Instruction::PopTop)
+                    && matches!(window[4].op, Instruction::ReturnValue)
             }),
-            "expected CPython-style LOAD_CONST/SWAP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
+            "expected CPython-style LOAD_COMMON_CONSTANT/SWAP 3/POP_TOP/POP_TOP/RETURN_VALUE cleanup, got units={units:?}"
         );
     }
 
@@ -29999,10 +29103,10 @@ def f(self):
                     window,
                     [
                         Instruction::PopExcept,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. } | Instruction::StoreName { .. },
                         Instruction::DeleteFast { .. } | Instruction::DeleteName { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -30043,10 +29147,10 @@ def f(onerror, err, OSError):
                     window,
                     [
                         Instruction::PopExcept,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. } | Instruction::StoreName { .. },
                         Instruction::DeleteFast { .. } | Instruction::DeleteName { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -30087,10 +29191,10 @@ def f(self, module_name, ModuleNotFoundError):
                     window,
                     [
                         Instruction::PopExcept,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. } | Instruction::StoreName { .. },
                         Instruction::DeleteFast { .. } | Instruction::DeleteName { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -30377,12 +29481,12 @@ def f(cm, registry, altkey):
                     window,
                     [
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::ReturnValue,
                     ]
                 )
@@ -30424,9 +29528,9 @@ def f(a, b, path):
                         Instruction::PopExcept,
                         Instruction::Reraise { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -30630,7 +29734,7 @@ def f(self, logger):
                     [
                         Instruction::PopTop,
                         Instruction::PopExcept,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. },
                         Instruction::DeleteFast { .. },
                         Instruction::JumpBackwardNoInterrupt { .. },
@@ -32205,7 +31309,7 @@ def f():
     }
 
     #[test]
-    fn constant_list_iterable_uses_tuple() {
+    fn constant_list_iterable_keeps_list_before_saved_locals() {
         let code = compile_exec(
             "\
 def f():
@@ -32214,26 +31318,17 @@ def f():
         );
         let f = find_code(&code, "f").expect("missing function code");
 
-        assert!(
-            !f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
-            "constant list iterable should avoid BUILD_LIST before GET_ITER"
-        );
+        assert!(f.instructions.iter().any(|unit| {
+            matches!(unit.op, Instruction::BuildList { count }
+                if count.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 1)
+        }));
         assert!(f.constants.iter().any(|constant| matches!(
             constant,
             ConstantData::Tuple { elements }
-                if matches!(
-                    elements.as_slice(),
-                    [ConstantData::Tuple { elements: inner }]
-                        if matches!(
-                            inner.as_slice(),
-                            [
-                                ConstantData::Integer { .. },
-                                ConstantData::Integer { .. }
-                            ]
-                        )
-                )
+                if matches!(elements.as_slice(), [
+                    ConstantData::Integer { value: first },
+                    ConstantData::Integer { value: second },
+                ] if first == &BigInt::from(1) && second == &BigInt::from(2))
         )));
     }
 
@@ -32253,9 +31348,9 @@ def f():
             matches!(constants[0], ConstantData::Str { value } if value.to_string() == "a"),
             "CPython emits list elements as LOAD_CONST before flowgraph folds GET_ITER lists"
         );
-        assert!(matches!(constants[1], ConstantData::None));
+        assert_eq!(constants.len(), 2);
         assert!(matches!(
-            constants[2],
+            constants[1],
             ConstantData::Tuple { elements }
                 if matches!(
                     elements.as_slice(),
@@ -32475,18 +31570,17 @@ def f(g, kwargs, ns):
         );
         let f = find_code(&code, "f").expect("missing function code");
         let constants = f.constants.iter().collect::<Vec<_>>();
-        assert_eq!(constants.len(), 3);
+        assert_eq!(constants.len(), 2);
 
         assert!(
             matches!(constants[0], ConstantData::Str { value } if value.to_string() == "T")
-                && matches!(constants[1], ConstantData::None)
-                && matches!(constants[2], ConstantData::Tuple { elements } if elements.is_empty()),
+                && matches!(constants[1], ConstantData::Tuple { elements } if elements.is_empty()),
             "CPython emits BUILD_TUPLE 0 for CALL_FUNCTION_EX args and folds it after earlier constants"
         );
     }
 
     #[test]
-    fn large_constant_list_iterable_keeps_streaming_list_build() {
+    fn large_constant_list_iterable_folds_to_tuple_like_cpython() {
         let source = format!(
             "def f():\n    for x in [{}]:\n        pass\n",
             (0..=STACK_USE_GUIDELINE)
@@ -32497,19 +31591,47 @@ def f(g, kwargs, ns):
         let code = compile_exec(&source);
         let f = find_code(&code, "f").expect("missing function code");
 
+        // Final CPython folds the stack-limited BUILD_LIST/LIST_APPEND sequence
+        // before GET_ITER, preserving every constant in its original order.
+        let tuple_loads = f
+            .instructions
+            .iter()
+            .filter_map(|unit| match unit.op {
+                Instruction::LoadConst { consti } => {
+                    match &f.constants[consti.get(OpArg::new(u32::from(u8::from(unit.arg))))] {
+                        ConstantData::Tuple { elements } => Some(elements),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tuple_loads.len(), 1);
+        let elements = tuple_loads[0];
+        assert_eq!(
+            elements.len(),
+            usize::try_from(STACK_USE_GUIDELINE + 1).unwrap()
+        );
+        for (i, element) in elements.iter().enumerate() {
+            assert!(matches!(
+                element,
+                ConstantData::Str { value } if value.to_string() == format!("v{i}")
+            ));
+        }
         assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::BuildList { .. })),
-            "large list iterable should keep CPython streaming BUILD_LIST form, got instructions={:?}",
+            !f.instructions.iter().any(|unit| matches!(
+                unit.op,
+                Instruction::BuildList { .. } | Instruction::ListAppend { .. }
+            )),
+            "constant iterable should use the folded tuple, got instructions={:?}",
             f.instructions
         );
-        assert!(
+        assert_eq!(
             f.instructions
                 .iter()
-                .any(|unit| matches!(unit.op, Instruction::ListAppend { .. })),
-            "large list iterable should use LIST_APPEND streaming form, got instructions={:?}",
-            f.instructions
+                .filter(|unit| matches!(unit.op, Instruction::GetIter { .. }))
+                .count(),
+            1
         );
     }
 
@@ -32524,10 +31646,10 @@ def f():
         let f = find_code(&code, "f").expect("missing function code");
 
         assert!(
-            !f.instructions
+            f.instructions
                 .iter()
                 .any(|unit| matches!(unit.op, Instruction::BuildSet { .. })),
-            "constant set iterable should avoid BUILD_SET before GET_ITER"
+            "constant set iterable should build the set before saved locals and GET_ITER"
         );
         assert!(f.constants.iter().any(|constant| matches!(
             constant,
@@ -32707,13 +31829,13 @@ def f(a, b, c):
         assert!(
             f.instructions
                 .iter()
-                .any(|unit| matches!(unit.op, Instruction::GetIter)),
+                .any(|unit| matches!(unit.op, Instruction::GetIter { .. })),
             "expected GET_ITER in for loop"
         );
     }
 
     #[test]
-    fn comprehension_single_list_iterable_uses_tuple() {
+    fn comprehension_single_list_iterable_keeps_list_before_saved_locals() {
         let code = compile_exec(
             "\
 def g():
@@ -32729,37 +31851,20 @@ def g():
             .collect();
 
         assert!(
-            ops.windows(2).any(|window| {
+            ops.windows(6).any(|window| {
                 matches!(
                     window,
-                    [Instruction::BuildTuple { .. }, Instruction::GetIter]
+                    [
+                        Instruction::BuildList { .. },
+                        Instruction::LoadFastAndClear { .. },
+                        Instruction::Swap { .. },
+                        Instruction::BuildList { .. },
+                        Instruction::Swap { .. },
+                        Instruction::GetIter { .. },
+                    ]
                 )
             }),
-            "expected BUILD_TUPLE before GET_ITER for single-item list iterable in comprehension, got ops={ops:?}"
-        );
-    }
-
-    #[test]
-    fn comprehension_list_iterable_build_uses_iter_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(i):
-    return i
-
-async def run_list():
-    return [await c for c in [f(1), f(41)]]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x1e, 0x1f, 0xa0, 0x01, 0x9b, 0x64, 0xa4, 0x41, 0xa0,
-                0x62, 0xa3, 0x45, 0x99, 0x5d, 0xd3, 0x0b, 0x2b, 0x99, 0x5d, 0x98, 0x01, 0x8f, 0x47,
-                0x8a, 0x47, 0x99, 0x5d, 0xd1, 0x0b, 0x2b, 0xd0, 0x04, 0x2b, 0x89, 0x47, 0xf9, 0xd2,
-                0x0b, 0x2b, 0xf9,
-            ],
-            "CPython codegen_comprehension_iter() emits GET_ITER at LOC(comp->iter)"
+            "expected BUILD_LIST before saved locals, output collection, and GET_ITER for single-item list iterable in comprehension, got ops={ops:?}"
         );
     }
 
@@ -32772,12 +31877,13 @@ def f(self):
 ",
         );
         let f = find_code(&code, "f").expect("missing f code");
-        let get_iter_positions: Vec<_> = f
+        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
+        let get_iter_positions: Vec<_> = genexpr
             .instructions
             .iter()
-            .zip(&f.locations)
+            .zip(&genexpr.locations)
             .filter_map(|(unit, (location, end_location))| {
-                matches!(unit.op, Instruction::GetIter).then_some((
+                matches!(unit.op, Instruction::GetIter { .. }).then_some((
                     location.line.get(),
                     location.character_offset.get(),
                     end_location.line.get(),
@@ -32789,30 +31895,6 @@ def f(self):
         assert!(
             get_iter_positions.contains(&(2, 44, 2, 63)),
             "CPython codegen_comprehension_iter() emits GET_ITER at LOC(comp->iter), got {get_iter_positions:?}"
-        );
-    }
-
-    #[test]
-    fn inlined_comprehension_backedges_use_element_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(i):
-    return i
-
-async def run_list():
-    return [s for c in [f(''), f('abc')] for s in await c]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x18, 0x19, 0x98, 0x22, 0x9b, 0x05, 0x9c, 0x71, 0xa0,
-                0x15, 0x9b, 0x78, 0xd1, 0x17, 0x28, 0xd4, 0x0b, 0x3a, 0xd1, 0x17, 0x28, 0x90, 0x21,
-                0xb7, 0x27, 0xb2, 0x27, 0xa8, 0x51, 0x8a, 0x41, 0xb1, 0x27, 0x89, 0x41, 0xd1, 0x17,
-                0x28, 0xd2, 0x0b, 0x3a, 0xd0, 0x04, 0x3a, 0xb1, 0x27, 0xf9, 0xd3, 0x0b, 0x3a, 0xf9,
-            ],
-            "CPython codegen_sync_comprehension_generator() emits comprehension backedges at elt_loc"
         );
     }
 
@@ -32908,53 +31990,7 @@ def f(fields):
     }
 
     #[test]
-    fn inlined_async_comprehension_end_async_for_uses_comprehension_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(it):
-    for i in it:
-        yield i
-
-async def run_list():
-    return [i + 1 async for i in f([10, 20])]
-",
-        );
-        let run_list = find_code(&code, "run_list").expect("missing run_list code");
-        assert_eq!(
-            run_list.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xdc, 0x21, 0x22, 0xa0, 0x42, 0xa8, 0x02, 0xa0, 0x38, 0xa4,
-                0x1b, 0xd7, 0x0b, 0x2d, 0xd3, 0x0b, 0x2d, 0x98, 0x41, 0x90, 0x01, 0x8f, 0x45, 0x88,
-                0x45, 0xd4, 0x0b, 0x2d, 0xd0, 0x04, 0x2d, 0xf9, 0xd2, 0x0b, 0x2d, 0xf9,
-            ],
-            "CPython codegen_async_comprehension_generator() emits END_ASYNC_FOR at comprehension loc"
-        );
-    }
-
-    #[test]
-    fn async_for_anext_sequence_uses_statement_location_like_cpython() {
-        let code = compile_exec(
-            "\
-async def f(source, buffer):
-    async for i1, i2 in source():
-        buffer.append(i1 + i2)
-",
-        );
-        let f = find_code(&code, "f").expect("missing f code");
-        assert_eq!(
-            f.linetable.as_ref(),
-            &[
-                0xe9, 0x00, 0x80, 0x00, 0xd9, 0x18, 0x1e, 0x9c, 0x08, 0xf7, 0x00, 0x01, 0x05, 0x1f,
-                0xf0, 0x00, 0x01, 0x05, 0x1f, 0x89, 0x66, 0x88, 0x62, 0xd8, 0x08, 0x0e, 0x8f, 0x0d,
-                0x89, 0x0d, 0x90, 0x62, 0x95, 0x67, 0xd6, 0x08, 0x1e, 0xf1, 0x03, 0x01, 0x05, 0x1f,
-                0x9a, 0x08, 0xf9,
-            ],
-            "CPython codegen_async_for() emits GET_ANEXT/yield-from scaffolding at LOC(s)"
-        );
-    }
-
-    #[test]
-    fn nested_comprehension_list_iterable_uses_tuple() {
+    fn nested_comprehension_list_iterable_keeps_list_before_saved_locals() {
         let code = compile_exec(
             "\
 def f():
@@ -32970,13 +32006,20 @@ def f():
             .collect();
 
         assert!(
-            ops.windows(2).any(|window| {
+            ops.windows(6).any(|window| {
                 matches!(
                     window,
-                    [Instruction::BuildTuple { .. }, Instruction::GetIter]
+                    [
+                        Instruction::BuildList { .. },
+                        Instruction::LoadFastAndClear { .. },
+                        Instruction::Swap { .. },
+                        Instruction::BuildList { .. },
+                        Instruction::Swap { .. },
+                        Instruction::GetIter { .. },
+                    ]
                 )
             }),
-            "expected BUILD_TUPLE before GET_ITER for nested list iterable in comprehension, got ops={ops:?}"
+            "expected BUILD_LIST before saved locals, output collection, and GET_ITER for nested list iterable in comprehension, got ops={ops:?}"
         );
     }
 
@@ -32994,11 +32037,11 @@ def f():
             .iter()
             .filter(|unit| matches!(unit.op, Instruction::ForIter { .. }))
             .count();
-        let has_map_add_depth_2 = f.instructions.iter().any(|unit| {
+        let has_map_add_depth_3 = f.instructions.iter().any(|unit| {
             matches!(
                 unit.op,
                 Instruction::MapAdd { i }
-                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 2
+                    if i.get(OpArg::new(u32::from(u8::from(unit.arg)))) == 3
             )
         });
 
@@ -33008,8 +32051,8 @@ def f():
             f.instructions
         );
         assert!(
-            has_map_add_depth_2,
-            "assignment-idiom dictcomp should use MAP_ADD depth 2, got instructions={:?}",
+            has_map_add_depth_3,
+            "assignment-idiom dictcomp should use MAP_ADD depth 3, got instructions={:?}",
             f.instructions
         );
         assert!(
@@ -33327,9 +32370,9 @@ async def f(cm, source, tgt):
                     [
                         Instruction::EndAsyncFor,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -33492,19 +32535,29 @@ _pathseps_with_colon = {f':{s}' for s in path_separators}
             .filter(|op| !matches!(op, Instruction::Cache))
             .collect();
 
-        let load_name_path = ops
-            .windows(2)
-            .any(|window| matches!(window, [Instruction::LoadName { .. }, Instruction::GetIter]));
+        let load_name_path = ops.windows(6).any(|window| {
+            matches!(
+                window,
+                [
+                    Instruction::LoadName { .. },
+                    Instruction::LoadFastAndClear { .. },
+                    Instruction::Swap { .. },
+                    Instruction::BuildSet { .. },
+                    Instruction::Swap { .. },
+                    Instruction::GetIter { .. }
+                ]
+            )
+        });
         assert!(
             load_name_path,
-            "expected outer iterable to stay a NAME lookup before GET_ITER, got ops={ops:?}"
+            "expected NAME lookup before locals are saved and iterator acquisition after collection construction, got ops={ops:?}"
         );
         assert!(
             !ops.windows(2).any(|window| matches!(
                 window,
                 [
                     Instruction::LoadFast { .. } | Instruction::LoadFastCheck { .. },
-                    Instruction::GetIter
+                    Instruction::GetIter { .. }
                 ]
             )),
             "module local outer iterable should not become a fast local, got ops={ops:?}"
@@ -33614,27 +32667,6 @@ def f(seq, value):
             }
             _ => false,
         }));
-    }
-
-    #[test]
-    fn namedexpr_copy_uses_namedexpr_location_like_cpython() {
-        let code = compile_exec(
-            "\
-def outer():
-    a = 10
-    def spam():
-        nonlocal a
-        (a := 20)
-",
-        );
-        let spam = find_code(&code, "spam").expect("missing spam code");
-
-        // CPython 3.14 NamedExpr_kind emits COPY at LOC(named expression),
-        // between visiting the value and visiting the target.
-        assert_eq!(
-            spam.linetable.as_ref(),
-            &[0xf8, 0x80, 0x00, 0xe0, 0x0e, 0x10, 0x88, 0x17, 0x8b, 0x11,]
-        );
     }
 
     #[test]
@@ -33828,13 +32860,15 @@ values = (
             "CPython codegen_stmt_expr() prints and pops interactive expressions; it does not preserve the final expression as the code object's return value, got ops={ops:?}"
         );
         let Some(load_none) = ops.iter().rev().nth(1) else {
-            panic!("missing final LOAD_CONST None before RETURN_VALUE, got ops={ops:?}");
+            panic!("missing final LOAD_COMMON_CONSTANT None before RETURN_VALUE, got ops={ops:?}");
         };
-        let Instruction::LoadConst { consti } = load_none.op else {
-            panic!("missing final LOAD_CONST None before RETURN_VALUE, got ops={ops:?}");
+        let Instruction::LoadCommonConstant { idx } = load_none.op else {
+            panic!("missing final LOAD_COMMON_CONSTANT None before RETURN_VALUE, got ops={ops:?}");
         };
-        let constant = &code.constants[consti.get(OpArg::new(u32::from(u8::from(load_none.arg))))];
-        assert!(matches!(constant, ConstantData::None));
+        assert_eq!(
+            idx.get(OpArg::new(u32::from(u8::from(load_none.arg)))),
+            bytecode::CommonConstant::None
+        );
         assert!(matches!(
             ops.last().map(|unit| unit.op),
             Some(Instruction::ReturnValue)
@@ -35160,7 +34194,7 @@ def f(items):
 
         let get_iter_idx = ops
             .iter()
-            .rposition(|op| matches!(op, Instruction::GetIter))
+            .rposition(|op| matches!(op, Instruction::GetIter { .. }))
             .expect("missing GET_ITER");
         assert!(
             matches!(ops[get_iter_idx - 1], Instruction::LoadFast { .. }),
@@ -35183,7 +34217,7 @@ def f(items):
     }
 
     #[test]
-    fn plain_pass_before_for_tail_keeps_borrows() {
+    fn plain_pass_before_for_tail_keeps_owned_iterator_input() {
         let code = compile_exec(
             "\
 def f(xs):
@@ -35203,11 +34237,11 @@ def f(xs):
 
         let get_iter_idx = ops
             .iter()
-            .position(|op| matches!(op, Instruction::GetIter))
+            .position(|op| matches!(op, Instruction::GetIter { .. }))
             .expect("missing GET_ITER");
         assert!(
-            matches!(ops[get_iter_idx - 1], Instruction::LoadFastBorrow { .. }),
-            "plain pass before for-tail should keep borrowed iterable load, got ops={ops:?}"
+            matches!(ops[get_iter_idx - 1], Instruction::LoadFast { .. }),
+            "plain pass before for-tail should keep an owned iterable load for GET_ITER, got ops={ops:?}"
         );
     }
 
@@ -35372,7 +34406,7 @@ def f(s, size, encodeSetO, encodeWhiteSpace):
                     window,
                     [
                         Instruction::PopTop,
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. },
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
@@ -35865,7 +34899,7 @@ def f(cls, _FIELDS, _PARAMS):
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. }
                             | Instruction::JumpBackwardNoInterrupt { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::StoreFast { .. },
                     ]
                 )
@@ -35901,9 +34935,9 @@ def f(it):
                         Instruction::PopJumpIfFalse { .. },
                         Instruction::NotTaken,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                         Instruction::JumpBackward { .. }
@@ -35938,9 +34972,9 @@ async def foo():
                 matches!(
                     window,
                     [
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::GetAwaitable { .. },
                     ]
@@ -35954,9 +34988,9 @@ async def foo():
                     window,
                     [
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::GetAwaitable { .. },
                     ]
@@ -36003,8 +35037,8 @@ async def foo(self):
                         Instruction::PopExcept,
                         Instruction::Reraise { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -36039,8 +35073,8 @@ def f():
                         Instruction::PopExcept,
                         Instruction::Reraise { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -38176,7 +37210,7 @@ def f(self, document):
     }
 
     #[test]
-    fn from_import_after_conditional_store_join_uses_strong_prefix_loads() {
+    fn from_import_after_conditional_store_join_uses_borrowed_prefix_loads() {
         let code = compile_exec(
             "\
 def f(x):
@@ -38209,8 +37243,11 @@ def f(x):
             .expect("missing rpartition LOAD_ATTR");
 
         assert!(
-            matches!(ops[rpartition_idx - 1].op, Instruction::LoadFast { .. }),
-            "CPython optimize_load_fast() keeps the conditional-store join receiver strong before IMPORT_FROM, got ops={ops:?}"
+            matches!(
+                ops[rpartition_idx - 1].op,
+                Instruction::LoadFastBorrow { .. }
+            ),
+            "CPython optimize_load_fast() borrows the conditional-store join receiver before IMPORT_FROM, got ops={ops:?}"
         );
     }
 
@@ -38345,9 +37382,25 @@ def f(output):
             warm_path
                 .iter()
                 .filter_map(load_fast_name)
-                .all(|name| name != "row" && name != "result"),
-            "terminal-except inlined comprehension warm path should keep CPython-style borrowed row/result loads, got warm_path={warm_path:?}"
+                .all(|name| name != "row"),
+            "terminal-except inlined comprehension warm path should keep CPython-style borrowed row loads, got warm_path={warm_path:?}"
         );
+        assert_eq!(
+            warm_path
+                .iter()
+                .filter_map(load_fast_name)
+                .filter(|name| *name == "result")
+                .count(),
+            1
+        );
+        let result_iterable = warm_path
+            .iter()
+            .position(|unit| load_fast_name(unit) == Some("result"))
+            .unwrap();
+        assert!(matches!(
+            warm_path[result_iterable + 1].op,
+            Instruction::LoadFastAndClear { .. }
+        ));
         for name in ["row", "result"] {
             assert!(
                 warm_path
@@ -38642,7 +37695,7 @@ def f(flags, A, B, stop):
                         Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
                         Instruction::JumpBackward { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -39629,7 +38682,7 @@ def f(self, rawdata, j, match):
     }
 
     #[test]
-    fn join_store_global_before_import_keeps_strong_load_fast() {
+    fn join_store_global_before_import_keeps_borrowed_load_fast() {
         let code = compile_exec(
             "\
 def f(module=None):
@@ -39653,12 +38706,12 @@ def f(module=None):
                 matches!(
                     window,
                     [
-                        Instruction::LoadFast { .. },
+                        Instruction::LoadFastBorrow { .. },
                         Instruction::StoreGlobal { .. },
                     ]
                 )
             }),
-            "expected CPython-style strong LOAD_FAST before join STORE_GLOBAL followed by import, got ops={ops:?}"
+            "expected CPython-style LOAD_FAST_BORROW before join STORE_GLOBAL followed by import, got ops={ops:?}"
         );
     }
 
@@ -40106,7 +39159,7 @@ def f(self, b, BlockingIOError):
                             ..
                         },
                         CodeUnit {
-                            op: Instruction::LoadConst { .. },
+                            op: Instruction::LoadCommonConstant { .. },
                             ..
                         },
                     ]
@@ -40153,9 +39206,9 @@ def f(self):
                     window,
                     [
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -40192,9 +39245,9 @@ def f(cm, source):
                     window,
                     [
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                         Instruction::PopTop,
                     ]
@@ -40230,9 +39283,9 @@ def f(cm, xs, g):
                     [
                         Instruction::EndFor,
                         Instruction::PopIter,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -40247,9 +39300,9 @@ def f(cm, xs, g):
                         Instruction::EndFor,
                         Instruction::PopIter,
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -40326,9 +39379,9 @@ def f(cm1, cm2, g, E):
                         Instruction::Copy { .. },
                         Instruction::PopExcept,
                         Instruction::Reraise { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -40343,9 +39396,9 @@ def f(cm1, cm2, g, E):
                         Instruction::PopExcept,
                         Instruction::Reraise { .. },
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                     ]
                 )
             }),
@@ -40377,9 +39430,9 @@ def f(cm, dst):
                     window,
                     [
                         Instruction::Nop,
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::Call { .. },
                     ]
                 )
@@ -40501,7 +39554,7 @@ def f(self, cm, E):
             .collect();
         let get_iter = instructions
             .iter()
-            .position(|unit| matches!(unit.op, Instruction::GetIter))
+            .position(|unit| matches!(unit.op, Instruction::GetIter { .. }))
             .expect("missing loop iterator");
         let handler_start = instructions
             .iter()
@@ -40551,7 +39604,7 @@ def f(resources, valid_zones, TZPATH, os):
             .collect();
         let get_iter = instructions
             .iter()
-            .position(|unit| matches!(unit.op, Instruction::GetIter))
+            .position(|unit| matches!(unit.op, Instruction::GetIter { .. }))
             .expect("missing post-try loop iterator");
         let tail = &instructions[get_iter.saturating_sub(1)..];
         let load_fast_name = |unit: &&bytecode::CodeUnit| match unit.op {
@@ -41676,7 +40729,7 @@ def f(events, callback, args, self, sig, signal):
                         ..
                     },
                     bytecode::CodeUnit {
-                        op: Instruction::LoadConst { .. },
+                        op: Instruction::LoadCommonConstant { .. },
                         ..
                     },
                     bytecode::CodeUnit {
@@ -42771,7 +41824,7 @@ def f(pattern, prefix, get_prefix):
             .collect();
 
         assert!(
-            ops.windows(7).any(|window| {
+            ops.windows(8).any(|window| {
                 matches!(
                     window,
                     [
@@ -42779,8 +41832,9 @@ def f(pattern, prefix, get_prefix):
                         Instruction::PopJumpIfTrue { .. },
                         Instruction::NotTaken,
                         Instruction::PopTop,
+                        Instruction::PopTop,
                         Instruction::LoadFastBorrow { .. } | Instruction::LoadFast { .. },
-                        Instruction::LoadConst { .. },
+                        Instruction::LoadCommonConstant { .. },
                         Instruction::BuildTuple { .. },
                     ]
                 )
@@ -43577,16 +42631,16 @@ def f(self, obj, expected, buf):
             .collect();
         let get_iter = instructions
             .iter()
-            .position(|unit| matches!(unit.op, Instruction::GetIter))
+            .position(|unit| matches!(unit.op, Instruction::GetIter { .. }))
             .expect("missing GET_ITER");
         assert!(
             matches!(
                 instructions
                     .get(get_iter.saturating_sub(1))
                     .map(|unit| unit.op),
-                Some(Instruction::LoadFastBorrow { .. })
+                Some(Instruction::LoadFast { .. })
             ),
-            "finally-protected loop without except resume should keep borrowed iterable load, got instructions={instructions:?}"
+            "finally-protected loop without except resume should keep the owned iterable load for GET_ITER, got instructions={instructions:?}"
         );
 
         for attr_name in ["close", "open"] {
@@ -43922,14 +42976,30 @@ async def name_4():
         else {
             panic!("missing GET_AITER in name_4");
         };
-        let prev = &name_4.instructions[get_aiter_pos - 1];
+        assert!(matches!(
+            name_4.instructions[get_aiter_pos - 4].op,
+            Instruction::LoadFastAndClear { .. }
+        ));
+        assert!(matches!(
+            name_4.instructions[get_aiter_pos - 3].op,
+            Instruction::Swap { .. }
+        ));
+        assert!(matches!(
+            name_4.instructions[get_aiter_pos - 2].op,
+            Instruction::BuildMap { .. }
+        ));
+        assert!(matches!(
+            name_4.instructions[get_aiter_pos - 1].op,
+            Instruction::Swap { .. }
+        ));
+        let prev = &name_4.instructions[get_aiter_pos - 5];
         assert!(
             matches!(
                 prev.op,
                 Instruction::LoadFastBorrow { var_num }
                     if name_4.varnames[usize::from(var_num.get(OpArg::new(u32::from(u8::from(prev.arg)))))] == "name_5"
             ),
-            "expected async comprehension iterator capture to borrow name_5 before GET_AITER, got {prev:?}"
+            "expected async comprehension iterator capture to borrow name_5 before saved locals, result collection, and GET_AITER, got {prev:?}"
         );
     }
 

@@ -40,6 +40,8 @@ pub struct Coro {
     code: PyRef<PyCode>,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
+    /// Whether execution has resumed beyond the eager creation preamble.
+    started: AtomicCell<bool>,
     // _weakreflist
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
@@ -159,16 +161,16 @@ pub(crate) fn flat_resume_enter(
     if coro.closed.load() {
         return Ok(FlatEnter::Exhausted);
     }
-    let value = if coro.frame_opt().is_some_and(|f| f.lasti() > 0) {
-        Some(value)
-    } else if !vm.is_none(&value) {
+    if !coro.started() && !vm.is_none(&value) {
         return Err(vm.new_type_error(format!(
             "can't send non-None value to a just-started {}",
             gen_name(&jen, vm),
         )));
-    } else {
-        None
-    };
+    }
+    let value = coro
+        .frame_opt()
+        .is_some_and(|f| f.lasti() > 0)
+        .then_some(value);
     // SAFETY: exclusive access guaranteed by the claim
     let gen_exc = unsafe { coro.exception.swap(None) };
     let frame_ref = coro.frame();
@@ -184,6 +186,7 @@ pub(crate) fn flat_resume_enter(
             return Err(exc);
         }
     };
+    coro.started.store(true);
     // The claim outlives this scope; `flat_resume_exit` drops it.
     core::mem::forget(_claim);
     Ok(FlatEnter::Entered {
@@ -234,6 +237,7 @@ impl Coro {
             code,
             closed: AtomicCell::new(false),
             running: AtomicCell::new(false),
+            started: AtomicCell::new(false),
             exception: PyAtomicRef::from(None),
             name: PyMutex::new(name),
             qualname: PyMutex::new(qualname),
@@ -307,6 +311,7 @@ impl Coro {
 
         let frame = self.frame();
         vm.resume_gen_frame(&frame, gen_exc, |f| {
+            self.started.store(true);
             let result = func(f);
             // SAFETY: exclusive access guaranteed by the claim
             let _old = unsafe { (*exception_ptr).swap(vm.current_exception()) };
@@ -401,16 +406,16 @@ impl Coro {
         if self.closed.load() {
             return Self::send_when_closed(jen, vm);
         }
-        let value = if self.frame_opt().is_some_and(|f| f.lasti() > 0) {
-            Some(value)
-        } else if !vm.is_none(&value) {
+        if !self.started() && !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
                 "can't send non-None value to a just-started {}",
                 gen_name(jen, vm),
             )));
-        } else {
-            None
-        };
+        }
+        let value = self
+            .frame_opt()
+            .is_some_and(|f| f.lasti() > 0)
+            .then_some(value);
         let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
         self.maybe_close(&result, &claim);
         drop(claim);
@@ -462,7 +467,7 @@ impl Coro {
             return Ok(vm.ctx.none());
         }
         // FRAME_CREATED: mark finished and clear the iframe.
-        if self.frame_opt().is_none_or(|f| f.lasti() == 0) {
+        if !self.started() {
             self.closed.store(true);
             self.clear_except_code();
             return Ok(vm.ctx.none());
@@ -490,16 +495,40 @@ impl Coro {
         }
     }
 
+    /// Clear a created generator frame without resuming its body.
+    pub(crate) fn clear_frame(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        if self.closed.load() {
+            return Ok(());
+        }
+        if self.running.compare_exchange(false, true).is_err() {
+            return Err(vm.new_runtime_error("cannot clear an executing frame"));
+        }
+        let claim = RunningGuard(self);
+        if self.closed.load() {
+            return Ok(());
+        }
+        if self.started() {
+            return Err(vm.new_runtime_error("cannot clear a suspended frame"));
+        }
+        self.closed.store(true);
+        // Closed owners cannot resume. Publish that state and release the
+        // running claim before a warning hook can observe or clear us again.
+        drop(claim);
+        if jen.class().is(vm.ctx.types.coroutine_type) {
+            crate::warn::warn_unawaited_coroutine(jen, &self.qualname(), vm);
+        }
+        self.clear_except_code();
+        Ok(())
+    }
+
     /// Whether the frame has run at all, i.e. is stopped at a `yield` rather
     /// than at its start.
     pub(crate) fn started(&self) -> bool {
-        self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        self.started.load()
     }
 
     pub fn suspended(&self) -> bool {
-        !self.closed.load()
-            && !self.running.load()
-            && self.frame_opt().is_some_and(|f| f.lasti() > 0)
+        !self.closed.load() && !self.running.load() && self.started()
     }
 
     pub fn running(&self) -> bool {

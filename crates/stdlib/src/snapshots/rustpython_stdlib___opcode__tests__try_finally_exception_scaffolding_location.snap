@@ -1,0 +1,46 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(self, node):\n    self.flag = True\n    try:\n        self.body(node)\n    finally:\n        self.flag = False\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-6:25            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-6:25            MAKE_FUNCTION
+1:0-6:25            STORE_NAME               0 (f)
+1:0-6:25            LOAD_COMMON_CONSTANT     7 (None)
+1:0-6:25            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:16-2:20            LOAD_COMMON_CONSTANT     9 (True)
+2:4-2:8              LOAD_FAST_BORROW         0 (self)
+2:4-2:13             STORE_ATTR               0 (flag)
+
+3:4-6:25             NOP
+
+4:8-4:12     L1:     LOAD_FAST_BORROW         0 (self)
+4:8-4:17             LOAD_ATTR                3 (body + NULL|self)
+4:18-4:22            LOAD_FAST_BORROW         1 (node)
+4:8-4:23             CALL                     1
+4:8-4:23             POP_TOP
+
+6:20-6:25    L2:     LOAD_COMMON_CONSTANT    10 (False)
+6:8-6:12             LOAD_FAST_BORROW         0 (self)
+6:8-6:17             STORE_ATTR               0 (flag)
+6:8-6:17             LOAD_COMMON_CONSTANT     7 (None)
+6:8-6:17             RETURN_VALUE
+
+  --         L3:     PUSH_EXC_INFO
+
+6:20-6:25            LOAD_COMMON_CONSTANT    10 (False)
+6:8-6:12             LOAD_FAST                0 (self)
+6:8-6:17             STORE_ATTR               0 (flag)
+6:8-6:17             RERAISE                  0
+
+  --         L4:     COPY                     3
+  --                 POP_EXCEPT
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L3 [0]
+  L3 to L4 -> L4 [1] lasti

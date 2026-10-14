@@ -12,6 +12,7 @@ pyast
 pyattr
 pyclass
 pyclassmethod
+pycode
 pyexception
 pyfunction
 pygetset

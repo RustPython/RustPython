@@ -15,15 +15,15 @@ impl super::Opcode {
     #[inline]
     pub const fn cache_entries(self) -> usize {
         const CACHE_ENTRIES: [u8; 256] = [
-            0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0,
-            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3,
-            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 0, 0, 4, 4, 1, 1, 0, 1, 4, 4, 4, 1, 1,
-            3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 3, 3, 0, 1, 0, 0,
+            0, 0, 0, 5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3,
+            3, 3, 3, 3, 3, 3, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 4, 4, 1, 1, 1, 1, 1,
+            1, 1, 4, 4, 4, 1, 1, 3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 3, 3, 1, 1, 0, 0, 0,
         ];
 
         CACHE_ENTRIES[self.as_numeric() as usize] as usize
@@ -176,6 +176,7 @@ impl super::Opcode {
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::BinaryOp),
             Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
@@ -183,6 +184,8 @@ impl super::Opcode {
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
             Some(super::Opcode::Call),
+            Some(super::Opcode::CallFunctionEx),
+            Some(super::Opcode::CallFunctionEx),
             Some(super::Opcode::Call),
             Some(super::Opcode::CallKw),
             Some(super::Opcode::CallKw),
@@ -208,6 +211,9 @@ impl super::Opcode {
             Some(super::Opcode::ForIter),
             Some(super::Opcode::ForIter),
             Some(super::Opcode::ForIter),
+            Some(super::Opcode::ForIter),
+            Some(super::Opcode::GetIter),
+            Some(super::Opcode::GetIter),
             Some(super::Opcode::JumpBackward),
             Some(super::Opcode::JumpBackward),
             Some(super::Opcode::LoadAttr),
@@ -223,13 +229,14 @@ impl super::Opcode {
             Some(super::Opcode::LoadAttr),
             Some(super::Opcode::LoadAttr),
             Some(super::Opcode::LoadAttr),
-            Some(super::Opcode::LoadConst),
-            Some(super::Opcode::LoadConst),
             Some(super::Opcode::LoadGlobal),
             Some(super::Opcode::LoadGlobal),
             Some(super::Opcode::LoadSuperAttr),
             Some(super::Opcode::LoadSuperAttr),
             Some(super::Opcode::Resume),
+            Some(super::Opcode::Resume),
+            Some(super::Opcode::Send),
+            Some(super::Opcode::Send),
             Some(super::Opcode::Send),
             Some(super::Opcode::StoreAttr),
             Some(super::Opcode::StoreAttr),
@@ -245,13 +252,6 @@ impl super::Opcode {
             Some(super::Opcode::UnpackSequence),
             Some(super::Opcode::UnpackSequence),
             Some(super::Opcode::UnpackSequence),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
             None,
             None,
             None,
@@ -327,6 +327,7 @@ impl super::Opcode {
                 | Self::ExtendedArg
                 | Self::ForIter
                 | Self::GetAwaitable
+                | Self::GetIter
                 | Self::ImportFrom
                 | Self::ImportName
                 | Self::IsOp
@@ -384,7 +385,7 @@ impl super::Opcode {
                 | Self::CallBuiltinFast
                 | Self::CallBuiltinFastWithKeywords
                 | Self::CallBuiltinO
-                | Self::CallIsinstance
+                | Self::CallExPy
                 | Self::CallKwBoundMethod
                 | Self::CallKwNonPy
                 | Self::CallKwPy
@@ -408,6 +409,7 @@ impl super::Opcode {
                 | Self::ForIterList
                 | Self::ForIterRange
                 | Self::ForIterTuple
+                | Self::ForIterVirtual
                 | Self::JumpBackwardJit
                 | Self::JumpBackwardNoJit
                 | Self::LoadAttrClass
@@ -423,13 +425,14 @@ impl super::Opcode {
                 | Self::LoadAttrProperty
                 | Self::LoadAttrSlot
                 | Self::LoadAttrWithHint
-                | Self::LoadConstImmortal
-                | Self::LoadConstMortal
                 | Self::LoadGlobalBuiltin
                 | Self::LoadGlobalModule
                 | Self::LoadSuperAttrAttr
                 | Self::LoadSuperAttrMethod
+                | Self::ResumeCheckJit
+                | Self::SendAsyncGen
                 | Self::SendGen
+                | Self::SendVirtual
                 | Self::StoreAttrWithHint
                 | Self::UnpackSequenceList
                 | Self::UnpackSequenceTuple
@@ -448,16 +451,14 @@ impl super::Opcode {
                 | Self::InstrumentedCallKw
                 | Self::InstrumentedJumpBackward
                 | Self::EnterExecutor
+                | Self::TraceRecord
         )
     }
 
     /// Does this opcode have 'HAS_CONST_FLAG' set.
     #[must_use]
     pub const fn has_const(self) -> bool {
-        matches!(
-            self,
-            Self::LoadConst | Self::LoadConstImmortal | Self::LoadConstMortal
-        )
+        matches!(self, Self::LoadConst)
     }
 
     /// Does this opcode have 'HAS_EVAL_BREAK_FLAG' set.
@@ -473,6 +474,7 @@ impl super::Opcode {
                 | Self::CallBuiltinFast
                 | Self::CallBuiltinFastWithKeywords
                 | Self::CallBuiltinO
+                | Self::CallExNonPyGeneral
                 | Self::CallKwNonPy
                 | Self::CallMethodDescriptorFast
                 | Self::CallMethodDescriptorFastWithKeywords
@@ -517,8 +519,11 @@ impl super::Opcode {
                 | Self::ForIterList
                 | Self::ForIterRange
                 | Self::ForIterTuple
+                | Self::ForIterVirtual
                 | Self::JumpBackwardJit
                 | Self::JumpBackwardNoJit
+                | Self::SendAsyncGen
+                | Self::SendVirtual
                 | Self::InstrumentedForIter
                 | Self::InstrumentedEndAsyncFor
         )
@@ -609,23 +614,21 @@ impl super::Opcode {
             Self::Cache => (0, 0),
             Self::BinarySlice => (1, 3),
             Self::BuildTemplate => (1, 2),
-            Self::BinaryOpInplaceAddUnicode => (0, 2),
+            Self::BinaryOpInplaceAddUnicode => (1, 2),
             Self::CallFunctionEx => (1, 4),
             Self::CheckEgMatch => (2, 2),
             Self::CheckExcMatch => (2, 2),
-            Self::CleanupThrow => (2, 3),
+            Self::CleanupThrow => (3, 4),
             Self::DeleteSubscr => (0, 2),
             Self::EndFor => (0, 1),
-            Self::EndSend => (1, 2),
+            Self::EndSend => (1, 3),
             Self::ExitInitCheck => (0, 1),
             Self::FormatSimple => (1, 1),
             Self::FormatWithSpec => (1, 2),
             Self::GetAiter => (1, 1),
             Self::GetAnext => (2, 1),
-            Self::GetIter => (1, 1),
-            Self::Reserved => (0, 0),
             Self::GetLen => (2, 1),
-            Self::GetYieldFromIter => (1, 1),
+            Self::Reserved => (0, 0),
             Self::InterpreterExit => (0, 1),
             Self::LoadBuildClass => (1, 0),
             Self::LoadLocals => (1, 0),
@@ -636,7 +639,7 @@ impl super::Opcode {
             Self::Nop => (0, 0),
             Self::NotTaken => (0, 0),
             Self::PopExcept => (0, 1),
-            Self::PopIter => (0, 1),
+            Self::PopIter => (0, 2),
             Self::PopTop => (0, 1),
             Self::PushExcInfo => (2, 1),
             Self::PushNull => (1, 0),
@@ -676,8 +679,9 @@ impl super::Opcode {
             Self::DictUpdate => (1 + (oparg - 1), 2 + (oparg - 1)),
             Self::EndAsyncFor => (0, 2),
             Self::ExtendedArg => (0, 0),
-            Self::ForIter => (2, 1),
+            Self::ForIter => (3, 2),
             Self::GetAwaitable => (1, 1),
+            Self::GetIter => (2, 1),
             Self::ImportFrom => (2, 1),
             Self::ImportName => (1, 2),
             Self::IsOp => (1, 2),
@@ -712,7 +716,7 @@ impl super::Opcode {
             Self::PopJumpIfTrue => (0, 1),
             Self::RaiseVarargs => (0, oparg),
             Self::Reraise => (oparg, 1 + oparg),
-            Self::Send => (2, 2),
+            Self::Send => (3, 3),
             Self::SetAdd => (1 + (oparg - 1), 2 + (oparg - 1)),
             Self::SetFunctionAttribute => (1, 2),
             Self::SetUpdate => (1 + (oparg - 1), 2 + (oparg - 1)),
@@ -740,6 +744,7 @@ impl super::Opcode {
             Self::BinaryOpSubscrListSlice => (1, 2),
             Self::BinaryOpSubscrStrInt => (1, 2),
             Self::BinaryOpSubscrTupleInt => (1, 2),
+            Self::BinaryOpSubscrUstrInt => (1, 2),
             Self::BinaryOpSubtractFloat => (1, 2),
             Self::BinaryOpSubtractInt => (1, 2),
             Self::CallAllocAndEnterInit => (0, 2 + oparg),
@@ -749,12 +754,14 @@ impl super::Opcode {
             Self::CallBuiltinFast => (1, 2 + oparg),
             Self::CallBuiltinFastWithKeywords => (1, 2 + oparg),
             Self::CallBuiltinO => (1, 2 + oparg),
-            Self::CallIsinstance => (1, 2 + oparg),
+            Self::CallExNonPyGeneral => (1, 4),
+            Self::CallExPy => (0, 4),
+            Self::CallIsinstance => (1, 4),
             Self::CallKwBoundMethod => (0, 3 + oparg),
             Self::CallKwNonPy => (1, 3 + oparg),
             Self::CallKwPy => (0, 3 + oparg),
             Self::CallLen => (1, 3),
-            Self::CallListAppend => (0, 3),
+            Self::CallListAppend => (1, 3),
             Self::CallMethodDescriptorFast => (1, 2 + oparg),
             Self::CallMethodDescriptorFastWithKeywords => (1, 2 + oparg),
             Self::CallMethodDescriptorNoargs => (1, 2 + oparg),
@@ -770,15 +777,18 @@ impl super::Opcode {
             Self::CompareOpStr => (1, 2),
             Self::ContainsOpDict => (1, 2),
             Self::ContainsOpSet => (1, 2),
-            Self::ForIterGen => (1, 1),
-            Self::ForIterList => (2, 1),
-            Self::ForIterRange => (2, 1),
-            Self::ForIterTuple => (2, 1),
+            Self::ForIterGen => (2, 2),
+            Self::ForIterList => (3, 2),
+            Self::ForIterRange => (3, 2),
+            Self::ForIterTuple => (3, 2),
+            Self::ForIterVirtual => (3, 2),
+            Self::GetIterSelf => (2, 1),
+            Self::GetIterVirtual => (2, 1),
             Self::JumpBackwardJit => (0, 0),
             Self::JumpBackwardNoJit => (0, 0),
             Self::LoadAttrClass => (1 + (oparg & 1), 1),
             Self::LoadAttrClassWithMetaclassCheck => (1 + (oparg & 1), 1),
-            Self::LoadAttrGetattributeOverridden => (1, 1),
+            Self::LoadAttrGetattributeOverridden => (0, 1),
             Self::LoadAttrInstanceValue => (1 + (oparg & 1), 1),
             Self::LoadAttrMethodLazyDict => (2, 1),
             Self::LoadAttrMethodNoDict => (2, 1),
@@ -789,14 +799,15 @@ impl super::Opcode {
             Self::LoadAttrProperty => (0, 1),
             Self::LoadAttrSlot => (1 + (oparg & 1), 1),
             Self::LoadAttrWithHint => (1 + (oparg & 1), 1),
-            Self::LoadConstImmortal => (1, 0),
-            Self::LoadConstMortal => (1, 0),
             Self::LoadGlobalBuiltin => (1 + (oparg & 1), 0),
             Self::LoadGlobalModule => (1 + (oparg & 1), 0),
             Self::LoadSuperAttrAttr => (1, 3),
             Self::LoadSuperAttrMethod => (2, 3),
             Self::ResumeCheck => (0, 0),
-            Self::SendGen => (1, 2),
+            Self::ResumeCheckJit => (0, 0),
+            Self::SendAsyncGen => (3, 3),
+            Self::SendGen => (2, 3),
+            Self::SendVirtual => (3, 3),
             Self::StoreAttrInstanceValue => (0, 2),
             Self::StoreAttrSlot => (0, 2),
             Self::StoreAttrWithHint => (0, 2),
@@ -811,10 +822,10 @@ impl super::Opcode {
             Self::UnpackSequenceList => (oparg, 1),
             Self::UnpackSequenceTuple => (oparg, 1),
             Self::UnpackSequenceTwoTuple => (2, 1),
-            Self::InstrumentedEndFor => (1, 2),
-            Self::InstrumentedPopIter => (0, 1),
-            Self::InstrumentedEndSend => (1, 2),
-            Self::InstrumentedForIter => (2, 1),
+            Self::InstrumentedEndFor => (2, 3),
+            Self::InstrumentedPopIter => (0, 2),
+            Self::InstrumentedEndSend => (1, 3),
+            Self::InstrumentedForIter => (3, 2),
             Self::InstrumentedInstruction => (0, 0),
             Self::InstrumentedJumpForward => (0, 0),
             Self::InstrumentedNotTaken => (0, 0),
@@ -833,6 +844,7 @@ impl super::Opcode {
             Self::InstrumentedJumpBackward => (0, 0),
             Self::InstrumentedLine => (0, 0),
             Self::EnterExecutor => (0, 0),
+            Self::TraceRecord => (0, 0),
         };
 
         debug_assert!(u32::try_from(pushed).is_ok());

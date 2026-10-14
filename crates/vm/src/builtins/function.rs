@@ -637,6 +637,7 @@ impl Py<PyFunction> {
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
             if is_gen || is_coro || is_async_gen {
+                vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
                 return Ok(self.make_generator_or_coro(frame, vm));
             }
             // Tracing active: use heap frame with full trace support.
@@ -844,7 +845,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
+    ) -> PyResult {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -886,7 +887,8 @@ impl Py<PyFunction> {
             }
         }
 
-        self.make_generator_or_coro(frame, vm)
+        vm.with_generator_frame(frame.clone(), |f| f.prepare_generator(vm))?;
+        Ok(self.make_generator_or_coro(frame, vm))
     }
 
     pub(crate) fn invoke_prepared_exact_args(
@@ -946,7 +948,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(args.into_iter(), vm));
+            return self.make_generator_exact_args(args.into_iter(), vm);
         }
         self.invoke_prepared_exact_args(args.into_iter(), vm)
     }
@@ -968,7 +970,7 @@ impl Py<PyFunction> {
         // specialization classification, but calling one produces a
         // generator/coroutine object instead of running the frame.
         if self.is_generator_like() {
-            return Ok(self.make_generator_exact_args(taken, vm));
+            return self.make_generator_exact_args(taken, vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
     }
@@ -1779,7 +1781,7 @@ pub(crate) fn vectorcall_function(
         // is called in, and a fresh `MAKE_FUNCTION` each time keeps those out
         // of the call-site specialization that would otherwise catch it.
         args.truncate(nargs);
-        return Ok(zelf.make_generator_exact_args(args.into_iter(), vm));
+        return zelf.make_generator_exact_args(args.into_iter(), vm);
     }
 
     if !has_kwargs && base_simple && nargs == code.arg_count as usize {

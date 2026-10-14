@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, DerefMut, Index, IndexMut},
+    ops::{Deref, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -286,12 +286,16 @@ impl PyCodeLocationInfoKind {
 pub trait Constant: Sized + Clone {
     type Name: AsRef<str>;
 
+    /// Storage of a code object's constants (`co_consts`).
+    type Tuple: Clone + Deref<Target = [Self]> + FromIterator<Self>;
+
     /// Transforms the given Constant to a BorrowedConstant
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self>;
 }
 
 impl Constant for ConstantData {
     type Name = String;
+    type Tuple = Box<[Self]>;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         match self {
@@ -373,7 +377,17 @@ impl ConstantBag for BasicBag {
 }
 
 #[derive(Clone)]
-pub struct Constants<C: Constant>(Box<[C]>);
+pub struct Constants<C: Constant>(C::Tuple);
+
+impl<C: Constant> Constants<C> {
+    pub const fn new(tuple: C::Tuple) -> Self {
+        Self(tuple)
+    }
+
+    pub const fn as_tuple(&self) -> &C::Tuple {
+        &self.0
+    }
+}
 
 impl<C: Constant> Deref for Constants<C> {
     type Target = [C];
@@ -383,23 +397,11 @@ impl<C: Constant> Deref for Constants<C> {
     }
 }
 
-impl<C: Constant> DerefMut for Constants<C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
         &self.0[consti.as_usize()]
-    }
-}
-
-impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
-    fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
-        &mut self.0[consti.as_usize()]
     }
 }
 
@@ -734,6 +736,27 @@ impl Deref for CodeUnits {
 }
 
 impl CodeUnits {
+    /// `fixup_getiter` applied to every `GET_ITER` by `_PyCode_Quicken`.
+    ///
+    /// The compiler can't know if `types.coroutine()` will be called, so a
+    /// yield-from `GET_ITER` is resolved when the code object is created.
+    pub fn fixup_get_iter(&mut self, flags: CodeFlags) {
+        let mode = if flags.intersects(CodeFlags::COROUTINE | CodeFlags::ITERABLE_COROUTINE) {
+            oparg::GET_ITER_YIELD_FROM_NO_CHECK
+        } else {
+            oparg::GET_ITER_YIELD_FROM_CORO_CHECK
+        };
+        let mut i = 0;
+        let units = self.units.get_mut();
+        while i < units.len() {
+            let unit = &mut units[i];
+            if matches!(unit.op, Instruction::GetIter { .. }) && u8::from(unit.arg) != 0 {
+                unit.arg = (mode as u8).into();
+            }
+            i += 1 + unit.op.cache_entries();
+        }
+    }
+
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
@@ -937,11 +960,20 @@ impl CodeUnits {
     /// (marshal) and `co_code`. Specialized opcodes are mapped back to their
     /// base variants via `deoptimize()` and all CACHE entries are zeroed.
     pub fn original_bytes(&self) -> Vec<u8> {
+        self.original_bytes_with(|_, op| op)
+    }
+
+    /// [`Self::original_bytes`], with `resolve` first replacing the opcode at
+    /// an index, e.g. an instrumentation placeholder by its original opcode.
+    pub fn original_bytes_with(
+        &self,
+        resolve: impl Fn(usize, Instruction) -> Instruction,
+    ) -> Vec<u8> {
         let len = self.len();
         let mut out = Vec::with_capacity(len * 2);
         let mut i = 0;
         while i < len {
-            let op = self.read_op(i).deoptimize();
+            let op = resolve(i, self.read_op(i)).deoptimize();
             let arg = self.read_arg(i);
             let caches = op.cache_entries();
             out.push(u8::from(op));
