@@ -2155,6 +2155,15 @@ impl<'warnings> Compiler<'warnings> {
             self.set_qualname();
         }
 
+        self.emit_scope_prefix(scope_type, lineno, is_generator);
+
+        Ok(())
+    }
+
+    /// Emit the generator prefix and RESUME, as the tail of
+    /// codegen_enter_scope does. `is_generator` is
+    /// `ste_coroutine || ste_generator`.
+    fn emit_scope_prefix(&mut self, scope_type: CompilerScope, lineno: u32, is_generator: bool) {
         // Add the generator prefix instructions.
         if is_generator {
             // RETURN_GENERATOR + POP_TOP have a net stack effect of 0, because
@@ -2176,16 +2185,6 @@ impl<'warnings> Compiler<'warnings> {
             }
         }
 
-        // Emit RESUME (handles async preamble and module lineno 0)
-        // CPython: LOCATION(lineno, lineno, 0, 0), then loc.lineno = 0 for module
-        self.emit_resume_for_scope(scope_type, lineno);
-
-        Ok(())
-    }
-
-    /// Emit RESUME instruction with proper handling for module lineno.
-    /// codegen_enter_scope equivalent for RESUME emission.
-    fn emit_resume_for_scope(&mut self, scope_type: CompilerScope, lineno: u32) {
         // CPython: LOCATION(lineno, lineno, 0, 0)
         // Module scope: loc.lineno = 0 (before the first line)
         let lineno_override = if scope_type == CompilerScope::Module {
@@ -2966,7 +2965,8 @@ impl<'warnings> Compiler<'warnings> {
 
         self.symbol_table_stack.push(symbol_table);
 
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
@@ -3047,7 +3047,8 @@ impl<'warnings> Compiler<'warnings> {
         self.symbol_table_stack.push(symbol_table);
         let module_start_loc = self.module_start_location(body);
 
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let annotations_used = self.current_symbol_table().annotations_used;
@@ -3087,7 +3088,8 @@ impl<'warnings> Compiler<'warnings> {
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
         self.symbol_table_stack.push(symbol_table);
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
 
         if let Some((last_statement, statements)) = body.split_last() {
             self.compile_statements(statements)?;
@@ -3161,7 +3163,8 @@ impl<'warnings> Compiler<'warnings> {
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
         self.symbol_table_stack.push(symbol_table);
-        self.emit_resume_for_scope(CompilerScope::Module, 1);
+        let is_coroutine = self.current_symbol_table().is_coroutine;
+        self.emit_scope_prefix(CompilerScope::Module, 1, is_coroutine);
 
         self.compile_expression(&expression.body)?;
         self.emit_return_value();
