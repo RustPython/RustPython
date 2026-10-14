@@ -64,3 +64,79 @@ try:
             assert seen_encoding_names[-1] == normalized
 finally:
     codecs.unregister(record_unknown_encoding)
+
+
+# The encodings helper preserves case and dots, unlike registry lookup keys.
+import encodings
+import warnings
+
+
+class EncodingName(str):
+    pass
+
+
+for encoding, expected in (
+    ("", ""),
+    ("UTF-8", "UTF_8"),
+    ("  .UTF--8.  ", ".UTF_8."),
+    ("---", ""),
+    ("A__-- B", "A_B"),
+    ("AéB", "A_B"),
+    ("éUTF-8Ω", "UTF_8"),
+    ("A😀B", "A_B"),
+    ("UTF-8\x00ignored", "UTF_8"),
+    ("\x00UTF-8", ""),
+):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert _codecs._normalize_encoding(encoding) == expected
+        assert _codecs._normalize_encoding(encoding=EncodingName(encoding)) == expected
+        assert not caught
+
+for encoding in (b"UTF-8", bytearray(b"UTF-8"), None, 1):
+    try:
+        _codecs._normalize_encoding(encoding)
+    except TypeError:
+        pass
+    else:
+        assert False, "non-string encoding was accepted"
+
+# UTF-8 validation precedes scanning, including a surrogate after NUL.
+for encoding in ("A\ud800B", "A\x00\ud800B"):
+    try:
+        _codecs._normalize_encoding(encoding)
+    except UnicodeEncodeError as error:
+        assert error.encoding == "utf-8"
+        assert error.object == encoding
+        assert error.start == encoding.index("\ud800")
+        assert error.end == error.start + 1
+    else:
+        assert False, "surrogate encoding was accepted"
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    assert encodings.normalize_encoding(b"UTF-8") == "UTF_8"
+    assert not caught
+    assert encodings.normalize_encoding("AéB") == "A_B"
+    assert len(caught) == 1
+    assert caught[0].category is DeprecationWarning
+
+try:
+    encodings.normalize_encoding(b"UTF-\xff")
+except UnicodeDecodeError:
+    pass
+else:
+    assert False, "non-ASCII bytes encoding was accepted"
+
+for args, kwargs in (
+    ((), {}),
+    (("UTF-8", "ASCII"), {}),
+    (("UTF-8",), {"encoding": "ASCII"}),
+    ((), {"name": "UTF-8"}),
+):
+    try:
+        _codecs._normalize_encoding(*args, **kwargs)
+    except TypeError:
+        pass
+    else:
+        assert False, "invalid normalization arguments were accepted"
