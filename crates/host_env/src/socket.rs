@@ -991,7 +991,13 @@ pub fn recvmsg(
 ) -> io::Result<RecvMsgResult> {
     use core::mem::MaybeUninit;
 
-    let mut data_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); bufsize];
+    // MSG_TRUNC on Linux TCP can report consumed bytes without writing data.
+    let initial = if flags & libc::MSG_TRUNC != 0 {
+        MaybeUninit::new(0)
+    } else {
+        MaybeUninit::uninit()
+    };
+    let mut data_buf = vec![initial; bufsize];
     let mut anc_buf: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); ancbufsize];
     let mut addr_storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
 
@@ -1013,7 +1019,8 @@ pub fn recvmsg(
     let ret = unsafe { libc::recvmsg(fd.as_raw_fd(), &mut msg, flags) }.check_libc_neg()?;
 
     let data = unsafe {
-        data_buf.set_len(ret as usize);
+        // Datagram MSG_TRUNC may report more bytes than the supplied storage.
+        data_buf.set_len((ret as usize).min(bufsize));
         core::mem::transmute::<Vec<MaybeUninit<u8>>, Vec<u8>>(data_buf)
     };
     let control = unsafe {
