@@ -425,6 +425,26 @@ mod builtins {
         locals: Option<ArgMapping>,
     }
 
+    /// `_PyEval_EnsureBuiltins`
+    fn ensure_builtins(globals: &PyAnyDict, vm: &VirtualMachine) -> PyResult<()> {
+        if globals
+            .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
+            .is_some()
+        {
+            return Ok(());
+        }
+        // PyEval_GetBuiltins
+        let builtins =
+            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into());
+        match globals.as_mutable() {
+            Some(dict) => dict.inner_setitem(identifier!(vm, __builtins__), builtins, vm),
+            None => globals
+                .as_object()
+                .set_item(identifier!(vm, __builtins__), builtins, vm)
+                .map_err(|_| vm.new_type_error("cannot assign __builtins__ to frozendict globals")),
+        }
+    }
+
     impl ScopeArgs {
         fn make_scope(
             self,
@@ -479,25 +499,7 @@ mod builtins {
                 ),
             };
 
-            let builtins = globals.inner_getitem_opt(identifier!(vm, __builtins__), vm)?;
-            if builtins.is_none() {
-                if globals.is_frozen() {
-                    let builtins = crate::frame::current_builtins()
-                        .unwrap_or_else(|| vm.builtins.dict().into());
-                    globals
-                        .as_object()
-                        .set_item(identifier!(vm, __builtins__), builtins, vm)
-                        .map_err(|_| {
-                            vm.new_type_error("cannot assign __builtins__ to frozendict globals")
-                        })?;
-                } else {
-                    globals.set_item(
-                        identifier!(vm, __builtins__),
-                        vm.builtins.dict().into(),
-                        vm,
-                    )?;
-                }
-            }
+            ensure_builtins(&globals, vm)?;
 
             let scope = crate::scope::Scope::new(Some(locals), globals);
             Ok(scope)
@@ -694,10 +696,8 @@ mod builtins {
             )));
         }
 
-        // The source-string path repeats the stored-builtins check through the
-        // dictionary API, unlike direct evaluation of an existing code object.
+        // run_eval_code_obj: set globals['__builtins__'] if it doesn't exist
         if from_string
-            && scope.globals.is_frozen()
             && scope
                 .globals
                 .inner_getitem_opt(identifier!(vm, __builtins__), vm)?

@@ -393,10 +393,13 @@ impl PyDict {
         self.entries.items_with_hashes()
     }
 
-    fn merge_object_with_override(
+    /// `dict_update_arg`. `mapping_name` names the target type in the
+    /// unhashable key error, as `dict_unhashable_type` does.
+    pub(crate) fn update_arg(
         &self,
         other: PyObjectRef,
         override_existing: bool,
+        mapping_name: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         if let Some(other_dict) = PyAnyDict::from_object(&other)
@@ -406,36 +409,35 @@ impl PyDict {
         }
         let dict = &self.entries;
         // Use get_attr to properly invoke __getattribute__ for proxy objects
-        let keys_result = other.get_attr(vm.ctx.intern_str("keys"), vm);
-        let has_keys = match keys_result {
-            Ok(keys_method) => {
-                let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
-                while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    let hash = Self::hash_or_unhashable(&*key, vm)?;
-                    if !override_existing && dict.contains(vm, &*key, hash)? {
-                        continue;
-                    }
-                    let val = other.get_item(&*key, vm)?;
-                    dict.insert(vm, &*key, hash, val)?;
-                }
-                true
+        let keys_method = match other.get_attr(vm.ctx.intern_str("keys"), vm) {
+            Ok(keys_method) => keys_method,
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
+                return self.merge_seq2(&other, override_existing, mapping_name, vm);
             }
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => false,
             Err(e) => return Err(e),
         };
-        if !has_keys {
-            return self.merge_from_seq2(&other, override_existing, vm);
+        let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+        while let PyIterReturn::Return(key) = keys.next(vm)? {
+            if !override_existing {
+                let hash = key_hash(&*key, mapping_name, vm)?;
+                if dict.contains(vm, &*key, hash)? {
+                    continue;
+                }
+            }
+            let value = other.get_item(&*key, vm)?;
+            let hash = key_hash(&*key, mapping_name, vm)?;
+            dict.insert(vm, &*key, hash, value)?;
         }
         Ok(())
     }
 
     // Used in update and ior.
     pub fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.merge_object_with_override(other, true, vm)
+        self.update_arg(other, true, "dict", vm)
     }
 
     pub fn merge_object_if_missing(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.merge_object_with_override(other, false, vm)
+        self.update_arg(other, false, "dict", vm)
     }
 
     fn add_update_sequence_note(
@@ -514,13 +516,24 @@ impl PyDict {
         override_existing: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        self.merge_seq2(seq2, override_existing, "dict", vm)
+    }
+
+    /// `dict_merge_from_seq2`
+    fn merge_seq2(
+        &self,
+        seq2: &PyObject,
+        override_existing: bool,
+        mapping_name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
 
         for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
-            let hash = Self::hash_or_unhashable(&*key, vm)?;
+            let hash = key_hash(&*key, mapping_name, vm)?;
             if !override_existing && dict.contains(vm, &*key, hash)? {
                 continue;
             }
@@ -952,7 +965,7 @@ impl AsSequence for PyDict {
 impl AsNumber for PyDict {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(PyFrozenDict::union),
+            or: Some(dict_or),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyDict>() {
                     a.to_owned()
@@ -1397,19 +1410,6 @@ impl PyFrozenDict {
         }
     }
 
-    pub fn from_object(input: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if let Some(input) = &input
-            && let Some(frozen) = input.downcast_ref_if_exact::<Self>(vm)
-        {
-            return Ok(frozen.to_owned());
-        }
-        let dict = PyDict::default();
-        if let Some(input) = input {
-            Self::merge_into(&dict, input, vm)?;
-        }
-        Ok(Self::from_dict(dict).into_ref(&vm.ctx))
-    }
-
     /// Hash a dictionary key, adding the frozendict context to an exact TypeError.
     pub fn key_hash<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
         key_hash(key, "frozendict", vm)
@@ -1423,79 +1423,6 @@ impl PyFrozenDict {
         let hash = Self::key_hash(key, vm)?;
         self.dict.entries.get(vm, key, hash)
     }
-
-    fn insert(
-        dict: &PyDict,
-        key: &PyObject,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let hash = Self::key_hash(key, vm)?;
-        dict.entries.insert(vm, key, hash, value)
-    }
-
-    // This table is unpublished until construction/union/fromkeys finishes. Python callbacks
-    // cannot find and mutate a partially initialized frozendict through the GC.
-    pub(crate) fn merge_into(
-        dict: &PyDict,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if let Some(other_dict) = PyAnyDict::from_object(&other)
-            && other_dict.uses_builtin_iter(vm)
-        {
-            return dict.merge_dict(other_dict.as_dict(), true, vm);
-        }
-        match other.get_attr(vm.ctx.intern_str("keys"), vm) {
-            Ok(keys) => {
-                let keys = PyIter::try_from_object(vm, keys.call((), vm)?)?;
-                while let PyIterReturn::Return(key) = keys.next(vm)? {
-                    let value = other.get_item(&*key, vm)?;
-                    Self::insert(dict, &key, value, vm)?;
-                }
-            }
-            Err(exc) if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
-                for (index, pair) in other.get_iter(vm)?.iter::<PyObjectRef>(vm)?.enumerate() {
-                    let (key, value) = PyDict::update_sequence_pair(pair?, index, vm)?;
-                    Self::insert(dict, &key, value, vm)?;
-                }
-            }
-            Err(exc) => return Err(exc),
-        }
-        Ok(())
-    }
-
-    pub(crate) fn union(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let (Some(left), Some(right)) = (PyAnyDict::from_object(a), PyAnyDict::from_object(b))
-        else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        if a.class().is(vm.ctx.types.frozendict_type) {
-            if left.is_empty() && b.class().is(vm.ctx.types.frozendict_type) {
-                return Ok(b.to_owned());
-            }
-            if right.is_empty()
-                && (b.class().is(vm.ctx.types.dict_type)
-                    || b.class().is(vm.ctx.types.frozendict_type))
-            {
-                return Ok(a.to_owned());
-            }
-        }
-        let dict = PyDict::default();
-        if left.is_frozen() {
-            if !left.is_empty() {
-                Self::merge_into(&dict, a.to_owned(), vm)?;
-            }
-            Self::merge_into(&dict, b.to_owned(), vm)?;
-            Ok(Self::from_dict(dict).into_pyobject(vm))
-        } else {
-            if !left.is_empty() {
-                dict.merge_object(a.to_owned(), vm)?;
-            }
-            dict.merge_object(b.to_owned(), vm)?;
-            Ok(dict.into_pyobject(vm))
-        }
-    }
 }
 
 impl Constructor for PyFrozenDict {
@@ -1505,9 +1432,11 @@ impl Constructor for PyFrozenDict {
         (input, kwargs): Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        // The table is built before the frozendict is published, as
+        // frozendict_new_untracked keeps it away from the GC.
         let dict = PyDict::default();
         if let OptionalArg::Present(input) = input {
-            Self::merge_into(&dict, input, vm)?;
+            dict.update_arg(input, true, "frozendict", vm)?;
         }
         for (key, value) in kwargs {
             dict.inner_setitem(&key, value, vm)?;
@@ -1596,7 +1525,7 @@ impl Py<PyFrozenDict> {
         } else {
             let dict = PyDict::default();
             if !self.dict.is_empty() {
-                PyFrozenDict::merge_into(&dict, self.to_owned().into(), vm)?;
+                dict.update_arg(self.to_owned().into(), true, "frozendict", vm)?;
             }
             Ok(PyFrozenDict::from_dict(dict).into_ref(&vm.ctx))
         }
@@ -1660,7 +1589,7 @@ impl AsSequence for PyFrozenDict {
 impl AsNumber for PyFrozenDict {
     fn as_number() -> &'static PyNumberMethods {
         static METHODS: PyNumberMethods = PyNumberMethods {
-            or: Some(PyFrozenDict::union),
+            or: Some(frozendict_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &METHODS
@@ -2515,6 +2444,45 @@ pub(crate) fn set_inner_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachin
     set_inner_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
+/// `_PyDict_Or`
+fn dict_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    let (Some(left), Some(_)) = (PyAnyDict::from_object(a), PyAnyDict::from_object(b)) else {
+        return Ok(vm.ctx.not_implemented());
+    };
+    // anydict_copy_untracked converts any frozendict to an exact frozendict.
+    let frozen = left.is_frozen();
+    let mapping_name = if frozen { "frozendict" } else { "dict" };
+    let dict = PyDict::default();
+    if !left.is_empty() {
+        dict.update_arg(a.to_owned(), true, mapping_name, vm)?;
+    }
+    dict.update_arg(b.to_owned(), true, mapping_name, vm)?;
+    Ok(if frozen {
+        PyFrozenDict::from_dict(dict).into_pyobject(vm)
+    } else {
+        dict.into_pyobject(vm)
+    })
+}
+
+fn frozendict_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    if a.class().is(vm.ctx.types.frozendict_type)
+        && let Some(left) = PyAnyDict::from_object(a)
+        && let Some(right) = PyAnyDict::from_object(b)
+    {
+        // frozendict() | frozendict(...) => frozendict(...)
+        if left.is_empty() && b.class().is(vm.ctx.types.frozendict_type) {
+            return Ok(b.to_owned());
+        }
+        // frozendict(...) | frozendict() => frozendict(...)
+        if right.is_empty()
+            && (b.class().is(vm.ctx.types.dict_type) || b.class().is(vm.ctx.types.frozendict_type))
+        {
+            return Ok(a.to_owned());
+        }
+    }
+    dict_or(a, b, vm)
+}
+
 pub(crate) fn dict_fromkeys(
     class: PyTypeRef,
     iterable: PyObjectRef,
@@ -2533,7 +2501,7 @@ pub(crate) fn dict_fromkeys(
     if exact_frozen || frozen_source.is_some() {
         let dict = PyDict::default();
         if let Some(source) = frozen_source {
-            PyFrozenDict::merge_into(&dict, source.to_owned().into(), vm)?;
+            dict.update_arg(source.to_owned().into(), true, "frozendict", vm)?;
         }
         let iterable = ArgIterable::<PyObjectRef>::try_from_object(vm, iterable)?;
         if let Some(keys) = PyDict::fromkeys_known_hashes(iterable.as_object(), vm) {
@@ -2598,9 +2566,11 @@ fn vectorcall_frozendict(
     kwnames: Option<&[PyObjectRef]>,
     vm: &VirtualMachine,
 ) -> PyResult {
+    // frozendict(frozendict) returns the same object unmodified
     if nargs == 1
         && kwnames.is_none_or(<[_]>::is_empty)
         && args[0].class().is(vm.ctx.types.frozendict_type)
+        && zelf.is(vm.ctx.types.frozendict_type)
     {
         return Ok(args[0].clone());
     }

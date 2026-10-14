@@ -765,14 +765,7 @@ fn setup_context(
         (globals.into(), vm.ctx.intern_str("<sys>"), 0)
     };
 
-    let get_global = |name: &str| {
-        if globals.is_frozen() {
-            globals.inner_getitem_opt(name, vm)
-        } else {
-            Ok(globals.get_item(name, vm).ok())
-        }
-    };
-    let registry = match get_global("__warningregistry__")? {
+    let registry = match globals.inner_getitem_opt("__warningregistry__", vm)? {
         Some(r) => r,
         None => {
             let r = vm.ctx.new_dict();
@@ -782,6 +775,9 @@ fn setup_context(
     };
 
     // Setup module.
-    let module = get_global("__name__")?.unwrap_or_else(|| vm.new_pyobj("<string>"));
+    let module = globals
+        .inner_getitem_opt("__name__", vm)?
+        .filter(|module| vm.is_none(module) || module.downcastable::<PyStr>())
+        .unwrap_or_else(|| vm.new_pyobj("<string>"));
     Ok((filename.to_owned(), lineno, Some(module), registry))
 }
