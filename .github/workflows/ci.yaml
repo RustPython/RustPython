@@ -1191,3 +1191,97 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --locked
+
+  pyo3:
+    # Skip the build when rust sources did not change.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs:
+      - determine_changes
+    env:
+      RUST_BACKTRACE: full
+      RUN_PYO3: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+    name: Run pyo3 tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-2025]
+      fail-fast: false
+    steps:
+      - name: Skip pyo3 tests when sources did not change
+        if: env.RUN_PYO3 != 'true'
+        run: echo "No rust source changes; required check is green without rebuilding."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.RUN_PYO3 == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.RUN_PYO3 == 'true'
+
+      - name: Use a short Cargo home on Windows
+        if: env.RUN_PYO3 == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CARGO_HOME=$env:RUNNER_TEMP\c" >> $env:GITHUB_ENV
+          git config --global core.longpaths true
+
+      - name: Restore cache
+        if: env.RUN_PYO3 == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ${{ runner.temp }}/c/registry/index/
+            ${{ runner.temp }}/c/registry/cache/
+            ${{ runner.temp }}/c/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: env.RUN_PYO3 == 'true'
+        id: python
+        with:
+          python-version: "3.14"
+
+      - name: Install macOS dependencies
+        if: env.RUN_PYO3 == 'true'
+        uses: ./.github/actions/install-macos-deps
+
+      - name: build rustpython
+        if: env.RUN_PYO3 == 'true'
+        run: cargo build --locked --release --verbose --features=threading,pyo3 ${{ env.CARGO_ARGS }}
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+
+      # Shared libpython is not on the default Linux loader path. Windows
+      # finds python3xx.dll via PATH; the macOS framework install name is absolute.
+      - name: Locate libpython
+        id: libpython
+        if: env.RUN_PYO3 == 'true' && runner.os == 'Linux'
+        shell: bash
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: |
+          libdir="$("$PYO3_PYTHON" -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")"
+          echo "libdir=${libdir}" >> "$GITHUB_OUTPUT"
+
+      - name: Run pyo3 tests
+        if: env.RUN_PYO3 == 'true'
+        shell: bash
+        env:
+          LIBDIR: ${{ steps.libpython.outputs.libdir }}
+        run: |
+          if [ -n "$LIBDIR" ]; then
+            export LD_LIBRARY_PATH="${LIBDIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+          target/release/rustpython crates/module_pyo3/tests/test_module_pyo3.py
