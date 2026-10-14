@@ -228,7 +228,12 @@ output = re.sub(r'(<code object .*? at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
                 .map_err(|err| err.into_pyexception(vm, Some(py_source)))
                 .unwrap();
 
-            vm.run_code_obj(py_code_obj, scope.clone()).unwrap();
+            vm.run_code_obj(py_code_obj, scope.clone())
+                .unwrap_or_else(|err| {
+                    let mut traceback = String::new();
+                    let _ = vm.write_exception(&mut traceback, &err);
+                    panic!("Python disassembly failed: {err:?}\n{traceback}");
+                });
             let py_output = scope.globals.get_item("output", vm).unwrap();
             py_output.str(vm).unwrap().to_string()
         })
