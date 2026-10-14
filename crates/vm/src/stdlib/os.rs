@@ -460,9 +460,9 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn write(fd: crt_fd::Borrowed<'_>, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-        let owned = data.with_ref(|b| b.to_vec());
+        let buffer = data.borrow_buf_unlocked(vm)?;
         loop {
-            match vm.allow_threads(|| crt_fd::write(fd, &owned)) {
+            match vm.allow_threads(|| crt_fd::write(fd, &buffer)) {
                 Ok(n) => return Ok(n),
                 Err(e) if e.raw_os_error() == Some(libc::EINTR) => {
                     vm.check_signals()?;
