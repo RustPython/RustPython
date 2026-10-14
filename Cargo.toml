@@ -266,7 +266,7 @@ pem-rfc7468 = "1.0"
 pkcs8 = "0.11"
 proc-macro2 = "1.0.105"
 psm = "0.1"
-pymath = { version = "0.2.0", features = ["mul_add", "malachite-bigint", "complex"] }
+pymath = { git = "https://github.com/RustPython/pymath.git", rev = "dd1e9a4cf26d68caf3b549c09476f52e356e16a3", features = ["mul_add", "malachite-bigint", "complex"] }
 pyo3 = "0.29"
 quote = "1.0.45"
 radium = "1.1.1"

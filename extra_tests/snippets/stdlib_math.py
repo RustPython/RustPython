@@ -7,6 +7,81 @@ NAN = float("nan")
 INF = float("inf")
 NINF = float("-inf")
 
+
+def test_math_315_apis():
+    import math.integer
+    import sys
+
+    import _math_integer
+
+    assert math.integer is _math_integer
+    assert sys.modules["math.integer"] is math.integer
+    assert math.integer.__name__ == "math.integer"
+    for name, args, expected in (
+        ("comb", (5, 2), 10),
+        ("factorial", (5,), 120),
+        ("gcd", (12, 18), 6),
+        ("isqrt", (17,), 4),
+        ("lcm", (4, 6), 12),
+        ("perm", (5, 2), 20),
+    ):
+        function = getattr(math, name)
+        assert function is getattr(math.integer, name)
+        assert function.__module__ == "math.integer"
+        assert function(*args) == expected
+
+    for value in (1.0, -1.0, sys.float_info.min, sys.float_info.max):
+        assert math.isnormal(value) is True
+        assert math.issubnormal(value) is False
+    for value in (sys.float_info.min / 2, -sys.float_info.min / 2):
+        assert math.isnormal(value) is False
+        assert math.issubnormal(value) is True
+    for value in (0.0, -0.0, INF, NINF, NAN):
+        assert math.isnormal(value) is False
+        assert math.issubnormal(value) is False
+    for value in (0.0, 1.0, INF, NAN):
+        assert math.signbit(math.copysign(value, 1.0)) is False
+        assert math.signbit(math.copysign(value, -1.0)) is True
+
+    class FloatArgument:
+        def __float__(self):
+            return -2.0
+
+    class IndexArgument:
+        def __index__(self):
+            return 2
+
+    for function in (math.isnormal, math.issubnormal, math.signbit):
+        assert function(FloatArgument()) == function(-2.0)
+        assert function(IndexArgument()) == function(2.0)
+        assert_raises(TypeError, function, object())
+        assert_raises(TypeError, function, x=1.0)
+        assert_raises(TypeError, function)
+        assert_raises(TypeError, function, 1.0, 2.0)
+
+    for function, expected in ((math.fmax, 2.0), (math.fmin, -2.0)):
+        assert function(-2.0, 2.0) == expected
+        assert function(2.0, -2.0) == expected
+        assert type(function(1, 2)) is float
+        assert function(FloatArgument(), IndexArgument()) == expected
+        assert math.isnan(function(NAN, NAN))
+        for value in (0.0, -0.0, 1.0, -1.0, INF, NINF):
+            for result in (function(NAN, value), function(value, NAN)):
+                assert result == value
+                assert math.signbit(result) == math.signbit(value)
+        assert function(0.0, -0.0) == 0.0
+        assert function(-0.0, 0.0) == 0.0
+        assert_raises(TypeError, function, object(), 1.0)
+        assert_raises(TypeError, function, 1.0, object())
+        assert_raises(TypeError, function, x=1.0, y=2.0)
+        assert_raises(TypeError, function, 1.0)
+        assert_raises(TypeError, function, 1.0, 2.0, 3.0)
+    assert math.fmax(NINF, INF) == INF
+    assert math.fmin(NINF, INF) == NINF
+
+
+test_math_315_apis()
+
 # assert(math.exp(2) == math.exp(2.0))
 # assert(math.exp(True) == math.exp(1.0))
 #
