@@ -9,6 +9,28 @@ from testutils import assert_raises
 assert os.name == "posix" or os.name == "nt"
 
 
+def windows_stat_preserves_time64():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        filename = os.path.join(directory, "time64")
+        with open(filename, "wb"):
+            pass
+        timestamp = 2_208_988_800  # 2040-01-01, beyond signed 32-bit seconds.
+        os.utime(filename, (timestamp, timestamp))
+        with open(filename, "rb") as file:
+            results = [os.stat(filename), os.fstat(file.fileno())]
+        with os.scandir(directory) as entries:
+            results.append(next(entries).stat())
+        for result in results:
+            assert result.st_mtime == timestamp
+            assert result.st_mtime_ns == timestamp * 1_000_000_000
+
+
+if sys.platform == "win32":
+    windows_stat_preserves_time64()
+
+
 def stat_rejects_negative_file_descriptors():
     import errno
     import os

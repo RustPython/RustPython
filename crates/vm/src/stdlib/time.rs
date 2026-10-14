@@ -927,7 +927,7 @@ mod decl {
 
     #[cfg(any(unix, windows))]
     #[cfg_attr(target_env = "musl", allow(deprecated))]
-    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<libc::time_t> {
+    fn pyobj_to_time_t(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<host_time::TimeT> {
         match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -935,19 +935,19 @@ mod decl {
                 }
                 let secs = float.floor();
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let minimum = libc::time_t::MIN as f64;
+                let minimum = host_time::TimeT::MIN as f64;
                 // The signed maximum rounds up when represented by f64.
                 if !(minimum..-minimum).contains(&secs) {
                     return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
                 }
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                Ok(secs as libc::time_t)
+                Ok(secs as host_time::TimeT)
             }
             Either::B(int) => {
                 // try_into is needed on 32-bit platforms where time_t != i64
                 #[allow(clippy::useless_conversion)]
                 #[cfg_attr(target_env = "musl", allow(deprecated))]
-                let ts: libc::time_t = int.try_into().map_err(|_| {
+                let ts: host_time::TimeT = int.try_into().map_err(|_| {
                     vm.new_overflow_error("timestamp out of range for platform time_t")
                 })?;
                 Ok(ts)

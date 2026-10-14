@@ -3941,6 +3941,16 @@ def test_timezone_cycles():
         assert reference() is None
 
 
+def test_windows_time64():
+    if sys.platform == "win32":
+        for timestamp in (2_208_988_800, 2_208_988_800.0):
+            assert datetime_module.datetime.fromtimestamp(
+                timestamp, datetime_module.timezone.utc
+            ) == datetime_module.datetime(
+                2040, 1, 1, tzinfo=datetime_module.timezone.utc
+            )
+
+
 def test_timestamp_errno():
     if sys.platform == "win32":
         try:
@@ -3970,6 +3980,7 @@ def test_timestamp_errno():
 
 test_astimezone_subclass_state()
 test_timezone_cycles()
+test_windows_time64()
 test_timestamp_errno()
 
 
