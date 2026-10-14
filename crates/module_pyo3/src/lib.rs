@@ -33,6 +33,7 @@
 //! A RustPython object handed across publishes the non-slot dunder methods
 //! its class defines. The first definition in the MRO wins, and a name only
 //! `object` defines stays unpublished. Its sequence length is its `__len__`.
+//! It iterates only when its class defines iteration.
 //! See [`rustpython_object`]. Embedded `warnings.showwarning` is delivered to
 //! this interpreter while a thread is running it. See [`cpython_init`].
 //!

@@ -11,27 +11,44 @@
 //!
 //! RustPython objects going to CPython are handled by what CPython code
 //! expects of them:
-//! - `list`, `dict`, `set`, `frozenset`, `bytearray` and the exact immutable
-//!   built-ins above are copied as that exact built-in. C code checks these
+//! - an exact `list`, `dict`, `set`, `frozenset` or `bytearray`, and the exact
+//!   immutable built-ins above, are copied as that built-in. Code checks these
 //!   types with `PyList_Check` and the like, which a proxy would fail; in
-//!   exchange, changes CPython makes to a copied `list`, `dict`, `set` or
-//!   `bytearray` never reach the RustPython original;
+//!   exchange, changes to a copied `list`, `dict`, `set` or `bytearray` never
+//!   reach the RustPython original;
+//! - a subclass of those containers is pickled, so it arrives as the class the
+//!   other interpreter imports under the same name. When pickling or
+//!   unpickling fails, the subclass is copied as the base built-in from its
+//!   stored contents and is never proxied. That copy has none of the
+//!   subclass's methods, an exact-type check sees the base built-in, and
+//!   writes do not reach the original;
 //! - a subclass of `int`, `float`, `complex`, `str` or `bytes` is copied as a
 //!   value of that built-in, from the stored contents rather than `__str__`
 //!   or `__int__`. C code accepts the concrete type before any protocol, and
 //!   no layout is both that built-in and a proxy;
-//! - other buffers are exposed through a `memoryview` sharing their memory;
+//! - other buffers are exposed through a `memoryview` sharing their memory,
+//!   including a buffer whose class also defines `read` or `write`. An
+//!   indirect layout is not described from here;
 //! - anything else that is callable, a data descriptor, or supports a number
-//!   protocol becomes a `rustpython.object` proxy. With no number protocol, a
-//!   callable uses the callable class and a data descriptor the descriptor
-//!   class. With a number protocol, the proxy class carries exactly the slots
-//!   the wrapped class defines — `__index__`, `__float__`, `__complex__`,
-//!   unary `- + ~ abs`, and `+ - * / // % ** @ & | ^ << >>` with their
-//!   reflected forms — and nothing it lacks, plus `__call__` or `__set__`
-//!   when the object is also callable or a data descriptor. One class is
-//!   cached per set of those slots;
-//! - anything else is pickled and unpickled in CPython when possible (so a
-//!   `datetime` arrives as a CPython `datetime`), and proxied otherwise.
+//!   protocol becomes a `rustpython.object` proxy. With no number protocol and
+//!   no iteration slots, a callable uses the callable class and a data
+//!   descriptor the descriptor class. With a number protocol, or when the
+//!   class defines iteration, the proxy class carries exactly the slots the
+//!   wrapped class defines — `__index__`, `__float__`, `__complex__`, unary
+//!   `- + ~ abs`, `+ - * / // % ** @ & | ^ << >>` with their reflected forms,
+//!   and `__iter__` or `__next__` when those slots exist — and nothing it
+//!   lacks, plus `__call__` or `__set__` when the object is also callable or
+//!   a data descriptor. One class is cached per set of those slots;
+//! - anything else is pickled when a copy cannot be told apart from the
+//!   original by equality, and proxied otherwise. Equality is the class's
+//!   `__eq__` found on the class MRO. When that object is `object.__eq__`,
+//!   comparison is by identity, so a pickle copy would not compare equal to
+//!   the original and the object is proxied, never pickled. Only a class that
+//!   overrides `__eq__` is pickled. The lookup does not ask the instance, so
+//!   a name only `__getattr__` would invent does not count.
+//!
+//! Keyword names of a call into CPython are interned. A callee that matches
+//! keywords by identity then sees the names it was defined with.
 //!
 //! A `str` or `bytes` converted while calling into CPython is copied once
 //! for that call: the same RustPython object passed twice arrives as one
@@ -56,7 +73,7 @@ use pyo3::types::{
     PyList, PyMemoryView, PySet, PyString, PyTuple, PyType as CPythonType, PyWeakrefReference,
 };
 use rustpython_vm::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     builtins::{
         PyByteArray as RustPyByteArray, PyBytes as RustPyBytes, PyComplex as RustPyComplex,
         PyDict as RustPyDict, PyFloat as RustPyFloat, PyFrozenSet as RustPyFrozenSet,
@@ -90,11 +107,15 @@ pub(crate) fn to_cpython<'py>(
     }
     // Containers are copied recursively, and may contain themselves.
     if let Some(value) = vm.with_recursion(" while converting to CPython", || {
-        value_to_cpython(py, obj, vm)
+        if let Some(value) = value_to_cpython(py, obj, vm)? {
+            return Ok(Some(value));
+        }
+        container_to_cpython(py, obj, vm)
     })? {
         return Ok(value);
     }
-    // A strided view is shared. An indirect layout is not described from here.
+    // A strided view is shared, even when the class also has `read` or
+    // `write`. An indirect layout is not described from here.
     if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj)
         && !buffer.desc.has_suboffsets()
     {
@@ -106,10 +127,29 @@ pub(crate) fn to_cpython<'py>(
     {
         return RustPythonObject::wrap(py, obj.to_owned(), vm).to_pyresult(vm);
     }
-    if let Some(pickled) = pickle_to_cpython(py, obj, vm) {
+    // A copy is acceptable only when equality cannot tell it from the original.
+    if compares_by_value(obj, vm)
+        && let Some(pickled) = pickle_to_cpython(py, obj, vm)
+    {
         return Ok(pickled);
     }
     RustPythonObject::wrap(py, obj.to_owned(), vm).to_pyresult(vm)
+}
+
+/// `true` when the class MRO's `__eq__` is not `object.__eq__`.
+///
+/// `object.__eq__` compares by identity. A class that does not override it
+/// would see a pickled copy as a different object, so that copy is refused.
+/// The name is taken from the class, not from the instance.
+fn compares_by_value(obj: &PyObject, vm: &VirtualMachine) -> bool {
+    let name = vm.ctx.intern_str("__eq__");
+    let Some(class_eq) = obj.class().get_attr(name) else {
+        return false;
+    };
+    let Some(object_eq) = vm.ctx.types.object_type.get_attr(name) else {
+        return false;
+    };
+    !class_eq.is(&object_eq)
 }
 
 fn to_rustpython_inner(obj: &Bound<'_, PyAny>, vm: &VirtualMachine) -> PyResult {
@@ -384,18 +424,19 @@ pub(crate) fn call_cpython_with<'py>(
     let positional = PyTuple::new(py, positional).to_pyresult(vm)?;
     let keywords = PyDict::new(py);
     for (name, value) in kwargs {
+        // A definition's keyword names are interned. Match them by identity.
+        let key = match name.as_str() {
+            Ok(text) => PyString::intern(py, text).into_any(),
+            Err(_) => str_to_cpython(py, name).to_pyresult(vm)?.into_any(),
+        };
         keywords
-            .set_item(
-                str_to_cpython(py, name).to_pyresult(vm)?,
-                to_cpython(py, value, vm)?,
-            )
+            .set_item(key, to_cpython(py, value, vm)?)
             .to_pyresult(vm)?;
     }
     run_cpython(vm, || callable.call(positional, Some(&keywords)))
 }
 
-/// Copy an immutable built-in value, or a container CPython code expects to
-/// receive as the exact built-in type.
+/// Copy an exact immutable built-in value.
 fn value_to_cpython<'py>(
     py: Python<'py>,
     obj: &PyObject,
@@ -431,33 +472,107 @@ fn value_to_cpython<'py>(
             obj,
             || Ok(PyBytes::new(py, bytes.as_bytes()).into_any()),
         )?
-    } else if let Some(bytearray) = obj.downcast_ref_if_exact::<RustPyByteArray>(vm) {
-        PyByteArray::new(py, &bytearray.borrow_buf()).into_any()
     } else if let Some(tuple) = obj.downcast_ref_if_exact::<RustPyTuple>(vm) {
         let items = items_to_cpython(py, tuple.as_slice(), vm)?;
         PyTuple::new(py, items).to_pyresult(vm)?.into_any()
-    } else if let Some(list) = obj.downcast_ref_if_exact::<RustPyList>(vm) {
-        let items = list.borrow_vec().to_vec();
-        let items = items_to_cpython(py, &items, vm)?;
-        PyList::new(py, items).to_pyresult(vm)?.into_any()
-    } else if let Some(set) = obj.downcast_ref_if_exact::<RustPySet>(vm) {
-        let items = items_to_cpython(py, &set.elements(), vm)?;
-        PySet::new(py, items).to_pyresult(vm)?.into_any()
-    } else if let Some(set) = obj.downcast_ref_if_exact::<RustPyFrozenSet>(vm) {
-        let items = items_to_cpython(py, &set.elements(), vm)?;
-        PyFrozenSet::new(py, items).to_pyresult(vm)?.into_any()
-    } else if let Some(dict) = obj.downcast_ref_if_exact::<RustPyDict>(vm) {
-        let converted = PyDict::new(py);
-        for (key, value) in dict.items_vec() {
-            converted
-                .set_item(to_cpython(py, &key, vm)?, to_cpython(py, &value, vm)?)
-                .to_pyresult(vm)?;
-        }
-        converted.into_any()
     } else {
         return Ok(None);
     };
     Ok(Some(value))
+}
+
+/// Which stored container `obj` carries, exact class or subclass.
+#[derive(Clone, Copy)]
+enum Container<'a> {
+    ByteArray(&'a RustPyByteArray),
+    List(&'a RustPyList),
+    Set(&'a RustPySet),
+    FrozenSet(&'a RustPyFrozenSet),
+    Dict(&'a RustPyDict),
+}
+
+fn container_kind(obj: &PyObject) -> Option<Container<'_>> {
+    if let Some(bytearray) = obj.downcast_ref::<RustPyByteArray>() {
+        Some(Container::ByteArray(bytearray))
+    } else if let Some(list) = obj.downcast_ref::<RustPyList>() {
+        Some(Container::List(list))
+    } else if let Some(set) = obj.downcast_ref::<RustPySet>() {
+        Some(Container::Set(set))
+    } else if let Some(set) = obj.downcast_ref::<RustPyFrozenSet>() {
+        Some(Container::FrozenSet(set))
+    } else {
+        obj.downcast_ref::<RustPyDict>()
+            .map(|dict| Container::Dict(dict))
+    }
+}
+
+fn container_base_type(kind: Container<'_>, vm: &VirtualMachine) -> &'static Py<PyType> {
+    match kind {
+        Container::ByteArray(_) => vm.ctx.types.bytearray_type,
+        Container::List(_) => vm.ctx.types.list_type,
+        Container::Set(_) => vm.ctx.types.set_type,
+        Container::FrozenSet(_) => vm.ctx.types.frozenset_type,
+        Container::Dict(_) => vm.ctx.types.dict_type,
+    }
+}
+
+/// An exact container is copied. A subclass is pickled so its class is kept
+/// when the other interpreter can import it, and copied from its stored
+/// contents when pickling or unpickling fails. A container is never proxied.
+fn container_to_cpython<'py>(
+    py: Python<'py>,
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let Some(container) = container_kind(obj) else {
+        return Ok(None);
+    };
+    let pickled = if obj.class().is(container_base_type(container, vm)) {
+        None
+    } else {
+        pickle_to_cpython(py, obj, vm)
+    };
+    let value = match pickled {
+        Some(pickled) => pickled,
+        None => copy_stored_container(py, container, vm)?,
+    };
+    Ok(Some(value))
+}
+
+/// Copy `list`, `dict`, `set`, `frozenset` or `bytearray` from the payload,
+/// ignoring methods defined on a subclass.
+fn copy_stored_container<'py>(
+    py: Python<'py>,
+    container: Container<'_>,
+    vm: &VirtualMachine,
+) -> PyResult<Bound<'py, PyAny>> {
+    match container {
+        Container::ByteArray(bytearray) => {
+            Ok(PyByteArray::new(py, &bytearray.borrow_buf()).into_any())
+        }
+        Container::List(list) => {
+            let items = list.borrow_vec().to_vec();
+            let items = items_to_cpython(py, &items, vm)?;
+            Ok(PyList::new(py, items).to_pyresult(vm)?.into_any())
+        }
+        Container::Set(set) => {
+            let items = items_to_cpython(py, &set.elements(), vm)?;
+            Ok(PySet::new(py, items).to_pyresult(vm)?.into_any())
+        }
+        Container::FrozenSet(set) => {
+            let items = items_to_cpython(py, &set.elements(), vm)?;
+            Ok(PyFrozenSet::new(py, items).to_pyresult(vm)?.into_any())
+        }
+        Container::Dict(dict) => {
+            let converted = PyDict::new(py);
+            for (key, value) in dict.items_vec() {
+                converted
+                    .set_item(to_cpython(py, &key, vm)?, to_cpython(py, &value, vm)?)
+                    .to_pyresult(vm)?;
+            }
+            Ok(converted.into_any())
+        }
+    }
 }
 
 fn items_to_cpython<'py>(

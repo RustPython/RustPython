@@ -2,7 +2,8 @@
 //!
 //! An exception is rebuilt as the nearest built-in exception class of the other
 //! side, with its `args` converted, so `except ValueError:` works whichever
-//! interpreter raised it. When the class itself has no counterpart (say
+//! interpreter raised it. When `args` is missing or empty, the message is
+//! `str()` of the original. When the class itself has no counterpart (say
 //! `decimal.InvalidOperation`) the rebuilt exception carries a note naming the
 //! original class. An exception that returns to the interpreter it came from
 //! comes back as the very same object.
@@ -71,7 +72,7 @@ pub(crate) fn cpython_exc_to_rustpython(
         })
         .unwrap_or_else(|| (vm.ctx.exceptions.runtime_error.to_owned(), false));
 
-    let args = value
+    let converted = value
         .getattr(pyo3::intern!(py, "args"))
         .ok()
         .and_then(|args| args.cast_into::<PyTuple>().ok())
@@ -80,8 +81,18 @@ pub(crate) fn cpython_exc_to_rustpython(
                 .map(|arg| to_rustpython(&arg, vm))
                 .collect::<PyResult<Vec<_>>>()
                 .ok()
-        })
-        .unwrap_or_else(|| vec![vm.ctx.new_str(value.to_string()).into()]);
+        });
+    let args = match converted {
+        Some(args) if !args.is_empty() => args,
+        _ => {
+            let message = value
+                .str()
+                .ok()
+                .and_then(|text| to_rustpython(&text, vm).ok())
+                .unwrap_or_else(|| vm.ctx.new_str(value.to_string()).into());
+            vec![message]
+        }
+    };
 
     let exc = vm
         .invoke_exception(&rustpython_type, args)
