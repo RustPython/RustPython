@@ -303,3 +303,169 @@ def test_union_lazy_parameters():
 
 
 test_union_lazy_parameters()
+
+
+# Python 3.15 type alias qualified names and writable module metadata.
+def test_type_alias_metadata():
+    from typing import TypeAliasType
+
+    class Name(str):
+        def __str__(self):
+            raise AssertionError("must use stored string contents")
+
+    name = Name("Alias\ud800")
+    qualname = Name("Scope.Alias\udfff")
+    for explicit in (None, qualname):
+        alias = TypeAliasType(name, int, qualname=explicit)
+        expected = name if explicit is None else qualname
+        assert alias.__name__ is name
+        assert alias.__qualname__ is expected
+        assert repr(alias) == expected
+        assert alias.__reduce__() is name
+        with assert_raises(AttributeError):
+            alias.__qualname__ = "Other"
+        with assert_raises(AttributeError):
+            del alias.__qualname__
+        for module in (object(), None, 42, "another_module"):
+            alias.__module__ = module
+            assert alias.__module__ is module
+        del alias.__module__
+        assert alias.__module__ is None
+        del alias.__module__
+        assert alias.__module__ is None
+
+    assert TypeAliasType(name="Alias", value=int).__qualname__ == "Alias"
+    with assert_raises(TypeError):
+        TypeAliasType("Alias", int, qualname=42)
+
+    type Local = int
+    assert Local.__qualname__ == "test_type_alias_metadata.<locals>.Local"
+    assert repr(Local) == Local.__qualname__
+    assert Local.__reduce__() == "Local"
+    original_module = Local.__module__
+    Local.__module__ = None
+    assert Local.__module__ is None
+    del Local.__module__
+    assert Local.__module__ == original_module
+
+    class Container:
+        type Nested = int
+
+    assert Container.Nested.__qualname__ == (
+        "test_type_alias_metadata.<locals>.Container.Nested"
+    )
+
+
+def test_typevartuple_bound_and_variance():
+    from typing import NoDefault, TypeVarTuple
+
+    class Name(str):
+        def __str__(self):
+            raise AssertionError("must use stored string contents")
+
+    name = Name("Ts\ud800")
+    for options, prefix, flags in (
+        ({}, "~", (False, False, False)),
+        ({"covariant": True}, "+", (True, False, False)),
+        ({"contravariant": True}, "-", (False, True, False)),
+        ({"infer_variance": True}, "", (False, False, True)),
+    ):
+        parameter = TypeVarTuple(name, **options)
+        assert parameter.__name__ is name
+        assert repr(parameter) == prefix + name
+        assert parameter.__bound__ is None
+        assert parameter.__default__ is NoDefault
+        assert not parameter.has_default()
+        assert (
+            parameter.__covariant__,
+            parameter.__contravariant__,
+            parameter.__infer_variance__,
+        ) == flags
+        for attr in (
+            "__bound__",
+            "__covariant__",
+            "__contravariant__",
+            "__infer_variance__",
+        ):
+            with assert_raises(AttributeError):
+                setattr(parameter, attr, None)
+            with assert_raises(AttributeError):
+                delattr(parameter, attr)
+
+    for bound in (None, "not valid Python!", (int, str), object()):
+        default = object()
+        parameter = TypeVarTuple(name="Ts", bound=bound, default=default)
+        assert parameter.__bound__ is bound
+        assert parameter.__default__ is default
+        assert parameter.has_default()
+
+    for options, message in (
+        (
+            {"covariant": True, "contravariant": True, "infer_variance": True},
+            "Bivariant types are not supported.",
+        ),
+        (
+            {"covariant": True, "infer_variance": True},
+            "Variance cannot be specified with infer_variance.",
+        ),
+        (
+            {"contravariant": True, "infer_variance": True},
+            "Variance cannot be specified with infer_variance.",
+        ),
+    ):
+        with assert_raises(ValueError) as caught:
+            TypeVarTuple("Ts", **options)
+        assert str(caught.exception) == message
+
+    calls = []
+
+    class Truth:
+        def __init__(self, label, fail=False):
+            self.label = label
+            self.fail = fail
+
+        def __bool__(self):
+            calls.append(self.label)
+            if self.fail:
+                raise RuntimeError(self.label)
+            return False
+
+    for positional, extra in (
+        (("Ts",), {"unexpected": None}),
+        (("Ts",), {"name": "Duplicate"}),
+        ((42,), {}),
+        (("Ts", "extra"), {}),
+        ((), {}),
+    ):
+        with assert_raises(TypeError):
+            TypeVarTuple(*positional, covariant=Truth("not called", fail=True), **extra)
+        assert calls == []
+
+    TypeVarTuple(
+        "Ts",
+        infer_variance=Truth("infer"),
+        contravariant=Truth("contra"),
+        covariant=Truth("co"),
+    )
+    assert calls == ["co", "contra", "infer"]
+    calls.clear()
+    with assert_raises(RuntimeError):
+        TypeVarTuple(
+            "Ts",
+            covariant=Truth("co", fail=True),
+            contravariant=Truth("contra"),
+            infer_variance=Truth("infer"),
+        )
+    assert calls == ["co"]
+
+    type Variadic[*Ts] = tuple[*Ts]
+    (parameter,) = Variadic.__type_params__
+    assert parameter.__infer_variance__ is True
+    assert parameter.__covariant__ is False
+    assert parameter.__contravariant__ is False
+    assert parameter.__bound__ is None
+    assert repr(parameter) == "Ts"
+
+
+test_type_alias_metadata()
+test_typevartuple_bound_and_variance()
