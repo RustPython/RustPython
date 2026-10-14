@@ -362,3 +362,118 @@ with cx.blobopen("blobindices", "b", 1) as blob:
     with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
         blob[BrokenBlobIndex()] = 0
     assert blob[:] == b"Abc"
+
+
+import sqlite3
+
+
+def statement_cache_reuse():
+    for capacity, expected in ((0, 3), (-1, 3), (2, 1), (None, 1)):
+        options = {} if capacity is None else {"cached_statements": capacity}
+        with sqlite3.connect(":memory:", **options) as connection:
+            prepared = []
+
+            def authorizer(action, *args):
+                if action == sqlite3.SQLITE_SELECT:
+                    prepared.append(action)
+                return sqlite3.SQLITE_OK
+
+            connection.set_authorizer(authorizer)
+            for parameter in (1, 2, 3):
+                assert connection.execute("SELECT ?", (parameter,)).fetchall() == [
+                    (parameter,)
+                ]
+            assert len(prepared) == expected
+            if capacity == 2:
+                prepared.clear()
+                for value in (1, 2, 1, 3, 2):
+                    assert connection.execute(f"SELECT {value}").fetchall() == [
+                        (value,)
+                    ]
+                assert len(prepared) == 4
+        connection.close()
+
+
+def statement_cache_busy_and_cleanup():
+    connection = sqlite3.connect(":memory:", cached_statements=2)
+    query = "SELECT ? UNION ALL SELECT ?"
+    first = connection.execute(query, (1, 2))
+    second = connection.execute(query, (3, 4))
+    assert first.fetchall() == [(1,), (2,)]
+    assert second.fetchall() == [(3,), (4,)]
+    first.execute(query, (5, 6))
+    first.close()
+    abandoned = connection.execute(query, (7, 8))
+    del abandoned
+    gc.collect()
+    try:
+        connection.execute(query, (9,))
+    except sqlite3.ProgrammingError:
+        pass
+    else:
+        raise AssertionError("invalid bindings accepted")
+    assert connection.execute(query, (10, 11)).fetchall() == [(10,), (11,)]
+    connection.execute("CREATE TABLE cached_table(x)")
+    connection.executemany("INSERT INTO cached_table VALUES (?)", [(1,), (2,)])
+    assert connection.execute("SELECT * FROM cached_table").fetchall() == [(1,), (2,)]
+    connection.execute("ALTER TABLE cached_table ADD COLUMN y DEFAULT 3")
+    assert connection.execute("SELECT * FROM cached_table").fetchall() == [
+        (1, 3),
+        (2, 3),
+    ]
+    connection.close()
+    connection.__init__(":memory:", cached_statements=1)
+    assert connection.execute(query, (12, 13)).fetchall() == [(12,), (13,)]
+    connection.close()
+
+
+def statement_cache_authorizer_reentry():
+    connection = sqlite3.connect(":memory:")
+    assert connection.execute("SELECT 1").fetchall() == [(1,)]
+    nested = []
+
+    def authorizer(action, *args):
+        if action == sqlite3.SQLITE_SELECT and not nested:
+            nested.append(True)
+            assert connection.execute("SELECT 2").fetchall() == [(2,)]
+        return sqlite3.SQLITE_OK
+
+    connection.set_authorizer(authorizer)
+    assert connection.execute("SELECT 1").fetchall() == [(1,)]
+    assert nested == [True]
+    connection.close()
+
+
+statement_cache_reuse()
+statement_cache_busy_and_cleanup()
+statement_cache_authorizer_reentry()
+
+
+def cache_reprepare_with_nested_queries():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE words(word TEXT COLLATE NOCASE)")
+    connection.execute("CREATE INDEX word_index ON words(word)")
+    connection.executemany("INSERT INTO words VALUES (?)", [("alpha",), ("beta",)])
+    sql = "SELECT word FROM words WHERE word LIKE ?"
+    assert connection.execute(sql, ("a%",)).fetchall() == [("alpha",)]
+    nested = []
+
+    def authorizer(action, *args):
+        if action == sqlite3.SQLITE_SELECT and not nested:
+            nested.append(True)
+            assert connection.execute("SELECT 42").fetchall() == [(42,)]
+        return sqlite3.SQLITE_OK
+
+    connection.set_authorizer(authorizer)
+    for prefix, result in (("b%", "beta"), ("a%", "alpha")):
+        nested.clear()
+        assert connection.execute(sql, (prefix,)).fetchall() == [(result,)]
+        assert nested == [True]
+    connection.execute("ALTER TABLE words ADD COLUMN extra")
+    nested.clear()
+    assert connection.execute(sql, ("b%",)).fetchall() == [("beta",)]
+    assert nested == [True]
+    connection.close()
+
+
+cache_reprepare_with_nested_queries()

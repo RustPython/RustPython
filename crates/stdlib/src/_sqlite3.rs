@@ -27,21 +27,22 @@ mod _sqlite3 {
         sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
         sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
         sqlite3_blob_read, sqlite3_blob_write, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
-        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
-        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
-        sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_create_window_function,
-        sqlite3_data_count, sqlite3_db_config, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
-        sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler,
-        sqlite3_reset, sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
-        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
-        sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
-        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
-        sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data, sqlite3_value,
-        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
-        sqlite3_value_text, sqlite3_value_type,
+        sqlite3_clear_bindings, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
+        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
+        sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_config, sqlite3_db_handle,
+        sqlite3_errcode, sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob,
+        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
+        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
+        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_total_changes,
+        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
+        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
+        sqlite3_value_type,
     };
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
@@ -373,9 +374,7 @@ mod _sqlite3 {
         check_same_thread: bool,
         #[pyarg(any, default = Connection::class(&vm.ctx).to_owned(), py_default = "ConnectionType")]
         factory: PyTypeRef,
-        // TODO: cache statements
-        #[allow(dead_code)]
-        #[pyarg(any, default = 0)]
+        #[pyarg(any, default = 128)]
         cached_statements: c_int,
         #[pyarg(any, default = false)]
         uri: bool,
@@ -943,6 +942,7 @@ mod _sqlite3 {
     #[derive(PyPayload)]
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
+        statement_cache: PyMutex<StatementCache>,
         initialized: PyAtomic<bool>,
         detect_types: PyAtomic<c_int>,
         isolation_level: PyAtomicRef<Option<PyStr>>,
@@ -981,6 +981,7 @@ mod _sqlite3 {
 
             Ok(Self {
                 db: PyMutex::new(db),
+                statement_cache: PyMutex::new(StatementCache::new(args.cached_statements)),
                 initialized: Radium::new(initialized),
                 detect_types: Radium::new(args.detect_types),
                 isolation_level: PyAtomicRef::from(args.isolation_level.0),
@@ -1032,8 +1033,11 @@ mod _sqlite3 {
                     isolation_level,
                     check_same_thread,
                     autocommit,
+                    cached_statements,
                     ..
                 } = args;
+
+                zelf.statement_cache.lock().capacity = cached_statements.max(0) as usize;
 
                 zelf.detect_types.store(detect_types, Ordering::Relaxed);
                 zelf.check_same_thread
@@ -1052,6 +1056,57 @@ mod _sqlite3 {
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
+        fn cached_statement(
+            &self,
+            sql: PyUtf8StrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<StatementLease>> {
+            // Check the connection even on a cache hit.
+            drop(self.db_lock(vm)?);
+            let (cached, generation) = {
+                let mut cache = self.statement_cache.lock();
+                let statement = cache.entries.get_index_of(sql.as_str()).map(|index| {
+                    let last = cache.entries.len() - 1;
+                    cache.entries.move_index(index, last);
+                    cache.entries.get_index(last).unwrap().1.clone()
+                });
+                (statement, cache.generation)
+            };
+            if let Some(statement) = &cached
+                && let Some(lease) = StatementLease::acquire(statement.clone())
+            {
+                return Ok(Some(lease));
+            }
+
+            // Preparing may invoke an authorizer. Never hold the cache lock
+            // across callbacks, or wait for a statement owned by another cursor.
+            let Some(statement) = Statement::new(self, sql.clone(), vm)? else {
+                return Ok(None);
+            };
+            let statement = statement.into_ref(&vm.ctx);
+            let lease = StatementLease::acquire(statement.clone()).unwrap();
+            let evicted = {
+                let mut cache = self.statement_cache.lock();
+                if cached.is_none()
+                    && cache.generation == generation
+                    && cache.capacity > 0
+                    && !cache.entries.contains_key(sql.as_str())
+                {
+                    let evicted = if cache.entries.len() == cache.capacity {
+                        cache.entries.shift_remove_index(0)
+                    } else {
+                        None
+                    };
+                    cache.entries.insert(sql.as_str().into(), statement);
+                    evicted
+                } else {
+                    None
+                }
+            };
+            drop(evicted);
+            Ok(Some(lease))
+        }
+
         fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
             with_deferred_drops(|| Self::drop_db_inner(self, vm))
         }
@@ -1068,6 +1123,12 @@ mod _sqlite3 {
             };
             let db = guard.take();
             drop(guard);
+            let statements = {
+                let mut cache = self.statement_cache.lock();
+                cache.generation = cache.generation.wrapping_add(1);
+                core::mem::take(&mut cache.entries)
+            };
+            drop(statements);
             drop(db);
             rollback_result
         }
@@ -1917,7 +1978,7 @@ mod _sqlite3 {
         lastrowid: i64,
         #[pytraverse(skip)]
         rowcount: i64,
-        statement: Option<PyRef<Statement>>,
+        statement: Option<StatementLease>,
         #[pytraverse(skip)]
         closed: bool,
     }
@@ -2013,15 +2074,14 @@ mod _sqlite3 {
                 stmt.lock().reset();
             }
 
-            let Some(stmt) = Statement::new(&zelf.connection, sql, vm)? else {
+            let Some(stmt) = zelf.connection.cached_statement(sql, vm)? else {
                 drop(inner);
                 return Ok(zelf);
             };
-            let stmt = stmt.into_ref(&vm.ctx);
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
-            let db = zelf.connection.db_lock(vm)?;
+            let db = stmt.database(&zelf.connection, vm)?;
 
             // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
@@ -2078,7 +2138,6 @@ mod _sqlite3 {
             inner.lastrowid = db.lastrowid();
 
             drop(inner);
-            drop(db);
             Ok(zelf)
         }
 
@@ -2104,12 +2163,12 @@ mod _sqlite3 {
                 stmt.lock().reset();
             }
 
-            let Some(stmt) = Statement::new(&zelf.connection, sql, vm)? else {
+            let Some(stmt) = zelf.connection.cached_statement(sql, vm)? else {
                 drop(inner);
                 return Ok(zelf);
             };
-            let stmt = stmt.into_ref(&vm.ctx);
 
+            let db = stmt.database(&zelf.connection, vm)?;
             let st = stmt.lock();
 
             if st.readonly() {
@@ -2123,8 +2182,6 @@ mod _sqlite3 {
             inner.description = st.columns_description(detect_types, vm)?;
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
-
-            let db = zelf.connection.db_lock(vm)?;
 
             // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
@@ -2164,7 +2221,6 @@ mod _sqlite3 {
             }
 
             drop(inner);
-            drop(db);
             Ok(zelf)
         }
 
@@ -2271,9 +2327,7 @@ mod _sqlite3 {
                 ));
             };
 
-            if let Some(stmt) = &inner.statement {
-                stmt.lock().reset();
-            }
+            drop(inner.statement.take());
             inner.closed = true;
 
             Ok(())
@@ -3108,6 +3162,7 @@ mod _sqlite3 {
     struct Statement {
         st: PyMutex<SqliteStatement>,
         pub is_dml: bool,
+        in_use: PyAtomic<bool>,
     }
 
     impl Debug for Statement {
@@ -3166,11 +3221,84 @@ mod _sqlite3 {
             Ok(Some(Self {
                 st: PyMutex::from(st),
                 is_dml,
+                in_use: Radium::new(false),
             }))
         }
 
         fn lock(&self) -> PyMutexGuard<'_, SqliteStatement> {
             self.st.lock()
+        }
+    }
+
+    struct StatementCache {
+        capacity: usize,
+        generation: u64,
+        entries: indexmap::IndexMap<Box<str>, PyRef<Statement>>,
+    }
+
+    impl StatementCache {
+        fn new(capacity: c_int) -> Self {
+            Self {
+                capacity: capacity.max(0) as usize,
+                generation: 0,
+                entries: indexmap::IndexMap::new(),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct StatementLease(PyRef<Statement>);
+
+    impl StatementLease {
+        fn acquire(statement: PyRef<Statement>) -> Option<Self> {
+            statement
+                .in_use
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .ok()
+                .map(|_| Self(statement))
+        }
+
+        fn database(&self, connection: &Connection, vm: &VirtualMachine) -> PyResult<SqliteRaw> {
+            let statement_db = SqliteRaw::from(self.0.lock().raw);
+            let current_db = connection.db_lock(vm)?;
+            if current_db.db != statement_db.db {
+                return Err(new_programming_error(
+                    vm,
+                    "The connection was reinitialized while preparing the statement.".to_owned(),
+                ));
+            }
+            // The leased statement keeps this database alive through
+            // sqlite3_close_v2. Release the connection lock before callbacks,
+            // including authorizers invoked by automatic statement reprepare.
+            Ok(statement_db)
+        }
+    }
+
+    impl Deref for StatementLease {
+        type Target = Statement;
+
+        fn deref(&self) -> &Statement {
+            &self.0
+        }
+    }
+
+    // SAFETY: the lease owns exactly one reference to its statement.
+    unsafe impl Traverse for StatementLease {
+        fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+            self.0.traverse(tracer);
+        }
+    }
+
+    impl Drop for StatementLease {
+        fn drop(&mut self) {
+            with_deferred_drops(|| {
+                let statement = self.0.lock();
+                statement.reset();
+                // Cached statements must not retain previous parameter buffers.
+                unsafe { sqlite3_clear_bindings(statement.st) };
+                drop(statement);
+                self.0.in_use.store(false, Ordering::Release);
+            });
         }
     }
 
