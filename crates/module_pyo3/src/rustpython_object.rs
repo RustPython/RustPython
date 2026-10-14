@@ -1,10 +1,11 @@
 //! RustPython objects as seen from CPython.
 //!
 //! [`RustPythonObject`] is the mirror image of `pyo3.ref`: a CPython object
-//! that forwards attribute access, calls, item access, iteration, comparison
-//! and the descriptor protocol to the RustPython object it wraps. A
-//! RustPython function stored in a CPython class therefore binds to instances
-//! like any other function, and a `property` keeps working as a property.
+//! that forwards attribute access, calls, item access, comparison
+//! and the descriptor protocol to the RustPython object it wraps. Iteration
+//! is forwarded only when the wrapped class defines it. A RustPython function
+//! stored in a CPython class therefore binds to instances like any other
+//! function, and a `property` keeps working as a property.
 //!
 //! As with `weakref.proxy`, callables get a class of their own, so `callable()`
 //! answers truthfully; so do data descriptors, whose `__set__` must not be seen
@@ -15,11 +16,15 @@
 //! nothing that class lacks. One proxy class is cached for each distinct set
 //! of those slots, together with whether the object is callable or a data
 //! descriptor, so the number of classes stays bounded as instances come and
-//! go. An object that publishes no extra dunder and has no number protocol
-//! still uses the callable class, the data descriptor class, or this base
-//! class. An object that has a number protocol, or that publishes extra
-//! dunders, keeps `__call__` or `__set__` on that same proxy class when it is
-//! callable or a data descriptor.
+//! go. An object that publishes no extra dunder, has no number protocol, and
+//! is not iterable still uses the callable class, the data descriptor class,
+//! or this base class. An object that has a number protocol, that publishes
+//! extra dunders, or whose class defines `__iter__` or `__next__`, keeps
+//! `__call__` or `__set__` on that same proxy class when it is callable or a
+//! data descriptor. `__iter__` and `__next__` are installed only when those
+//! slots exist, so a callable that is not iterable does not look iterable.
+//! The proxy is not an instance of the wrapped class, so a registry keyed by
+//! that class does not match the proxy.
 //!
 //! The sequence length slot reads `__len__`. Sequence item access with a
 //! negative index adds that length first. Subscripting from Python passes the
@@ -133,6 +138,12 @@ pub(crate) struct RustPythonDataDescriptor;
 const CALL: u64 = 1u64 << 33;
 /// Set when the wrapped object is a data descriptor. Not a number protocol.
 const DESCR: u64 = 1u64 << 34;
+/// Set when the wrapped class defines iteration. Not a number protocol.
+const ITER: u64 = 1u64 << 35;
+/// Set when the wrapped class defines the next step of an iterator. Not a number protocol.
+const NEXT: u64 = 1u64 << 36;
+/// Bits that choose a proxy shape without being number protocols.
+const SHAPE: u64 = CALL | DESCR | ITER | NEXT;
 
 fn proxy_bits(obj: &PyObject, vm: &VirtualMachine) -> u64 {
     let mut bits = 0;
@@ -147,12 +158,18 @@ fn proxy_bits(obj: &PyObject, vm: &VirtualMachine) -> u64 {
     if obj.class().slots.descr_set.load().is_some() {
         bits |= DESCR;
     }
+    if obj.class().slots.iter.load().is_some() {
+        bits |= ITER;
+    }
+    if obj.class().slots.iternext.load().is_some() {
+        bits |= NEXT;
+    }
     bits
 }
 
 /// Whether `obj`'s class defines a number protocol this proxy can forward.
 pub(crate) fn has_number_protocol(obj: &PyObject, vm: &VirtualMachine) -> bool {
-    (proxy_bits(obj, vm) & !(CALL | DESCR)) != 0
+    (proxy_bits(obj, vm) & !SHAPE) != 0
 }
 
 impl RustPythonObject {
@@ -168,7 +185,9 @@ impl RustPythonObject {
         let base = Self {
             obj: DropAttached::new(obj),
         };
-        if specials.is_empty() && (bits & !(CALL | DESCR)) == 0 {
+        // The base classes have no iteration slots. An iterable object needs
+        // its own proxy class; a callable that is not iterable does not.
+        if specials.is_empty() && (bits & !SHAPE) == 0 && (bits & (ITER | NEXT)) == 0 {
             if (bits & CALL) != 0 {
                 Bound::new(py, (RustPythonCallable, base)).map(Bound::into_any)
             } else if (bits & DESCR) != 0 {
@@ -206,6 +225,19 @@ impl RustPythonObject {
     fn nb_complex<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
         self.run_for_cpython(py, NO_ARGS, |obj, (), vm| {
             obj.get_attr("__complex__", vm)?.call((), vm)
+        })
+    }
+
+    fn iter_proxy<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        self.run_for_cpython(py, NO_ARGS, |obj, (), vm| obj.get_iter(vm).map(Into::into))
+    }
+
+    fn next_proxy<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
+        with_rustpython(py, |vm| {
+            match run_rustpython(py, || PyIter::new(&**self.obj).next(vm))? {
+                PyIterReturn::Return(value) => to_cpython(py, &value, vm),
+                PyIterReturn::StopIteration(_) => Err(vm.new_stop_iteration(None)),
+            }
         })
     }
 
@@ -438,19 +470,6 @@ impl RustPythonObject {
         )
     }
 
-    fn __iter__<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Bound<'py, PyAny>> {
-        self.run_for_cpython(py, NO_ARGS, |obj, (), vm| obj.get_iter(vm).map(Into::into))
-    }
-
-    fn __next__<'py>(&self, py: Python<'py>) -> pyo3::PyResult<Option<Bound<'py, PyAny>>> {
-        with_rustpython(py, |vm| {
-            match run_rustpython(py, || PyIter::new(&**self.obj).next(vm))? {
-                PyIterReturn::Return(value) => to_cpython(py, &value, vm).map(Some),
-                PyIterReturn::StopIteration(_) => Ok(None),
-            }
-        })
-    }
-
     fn __bool__(&self, py: Python<'_>) -> pyo3::PyResult<bool> {
         self.run(py, NO_ARGS, |obj, (), vm| obj.to_owned().is_true(vm))
     }
@@ -657,6 +676,12 @@ fn create_proxy_type<'py>(py: Python<'py>, key: &ProxyKey) -> pyo3::PyResult<Bou
     if (key.bits & DESCR) != 0 {
         install_method(&ty, "__set__", &SET_DEF.0)?;
         install_method(&ty, "__delete__", &DELETE_DEF.0)?;
+    }
+    if (key.bits & ITER) != 0 {
+        install_method(&ty, "__iter__", &ITER_DEF.0)?;
+    }
+    if (key.bits & NEXT) != 0 {
+        install_method(&ty, "__next__", &NEXT_DEF.0)?;
     }
     // Names installed above live in this class's own dict. A name inherited
     // from `object` does not, and the wrapped class's method has to replace it.
@@ -1490,6 +1515,30 @@ static SET_DEF: SharedMethodDef =
     SharedMethodDef(py_method(c"__set__", proxy_set, ffi::METH_VARARGS));
 static DELETE_DEF: SharedMethodDef =
     SharedMethodDef(py_method(c"__delete__", proxy_delete, ffi::METH_O));
+static ITER_DEF: SharedMethodDef =
+    SharedMethodDef(py_method(c"__iter__", proxy_iter, ffi::METH_NOARGS));
+static NEXT_DEF: SharedMethodDef =
+    SharedMethodDef(py_method(c"__next__", proxy_next, ffi::METH_NOARGS));
+
+unsafe extern "C" fn proxy_iter(
+    slf: *mut ffi::PyObject,
+    _arg: *mut ffi::PyObject,
+) -> *mut ffi::PyObject {
+    unsafe {
+        let py = Python::assume_attached();
+        finish(py, direct_call(py, slf, RustPythonObject::iter_proxy))
+    }
+}
+
+unsafe extern "C" fn proxy_next(
+    slf: *mut ffi::PyObject,
+    _arg: *mut ffi::PyObject,
+) -> *mut ffi::PyObject {
+    unsafe {
+        let py = Python::assume_attached();
+        finish(py, direct_call(py, slf, RustPythonObject::next_proxy))
+    }
+}
 
 /// One acquisition shared by every view of a [`RustPythonBuffer`].
 struct Exported {
