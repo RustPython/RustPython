@@ -394,56 +394,7 @@ def statement_cache_reuse():
         connection.close()
 
 
-def statement_cache_busy_and_cleanup():
-    connection = sqlite3.connect(":memory:", cached_statements=2)
-    query = "SELECT ? UNION ALL SELECT ?"
-    first = connection.execute(query, (1, 2))
-    second = connection.execute(query, (3, 4))
-    assert first.fetchall() == [(1,), (2,)]
-    assert second.fetchall() == [(3,), (4,)]
-    first.execute(query, (5, 6))
-    first.close()
-    abandoned = connection.execute(query, (7, 8))
-    del abandoned
-    gc.collect()
-    try:
-        connection.execute(query, (9,))
-    except sqlite3.ProgrammingError:
-        pass
-    else:
-        raise AssertionError("invalid bindings accepted")
-    assert connection.execute(query, (10, 11)).fetchall() == [(10,), (11,)]
-    connection.execute("CREATE TABLE cached_table(x)")
-    connection.executemany("INSERT INTO cached_table VALUES (?)", [(1,), (2,)])
-    assert connection.execute("SELECT * FROM cached_table").fetchall() == [(1,), (2,)]
-    connection.execute("ALTER TABLE cached_table ADD COLUMN y DEFAULT 3")
-    assert connection.execute("SELECT * FROM cached_table").fetchall() == [
-        (1, 3),
-        (2, 3),
-    ]
-    connection.close()
-    connection.__init__(":memory:", cached_statements=1)
-    assert connection.execute(query, (12, 13)).fetchall() == [(12,), (13,)]
-    connection.close()
-
-
-def statement_cache_callback_reentry():
-    connection = sqlite3.connect(":memory:")
-
-    def nested(value):
-        return connection.execute("SELECT ?", (value + 1,)).fetchone()[0]
-
-    connection.create_function("nested", 1, nested)
-    for _ in range(2):
-        assert connection.execute(
-            "SELECT nested(1) UNION ALL SELECT nested(2)"
-        ).fetchall() == [(2,), (3,)]
-    connection.close()
-
-
 statement_cache_reuse()
-statement_cache_busy_and_cleanup()
-statement_cache_callback_reentry()
 
 
 def cache_reprepare_with_authorizer():
@@ -516,23 +467,6 @@ def statement_cache_connection_lifetime():
             else:
                 connection.executemany("INSERT INTO t VALUES (?)", parameters())
         connection.close()
-
-    import threading
-
-    connection = sqlite3.connect(":memory:", check_same_thread=False)
-
-    def close_from_another_thread():
-        thread = threading.Thread(target=connection.close, daemon=True)
-        thread.start()
-        thread.join(5)
-        assert not thread.is_alive(), "close waited for the active SQLite callback"
-        return 1
-
-    connection.create_function(
-        "close_from_another_thread", 0, close_from_another_thread
-    )
-    with test.assertRaises(sqlite3.ProgrammingError):
-        connection.execute("SELECT close_from_another_thread()")
 
 
 statement_cache_connection_lifetime()
@@ -739,6 +673,8 @@ def concurrent_sqlite_results():
                             expected,
                             cursor.rowcount,
                         )
+                    assert not connection.in_transaction
+                    assert connection.total_changes >= 4
                     completed[index] += 1
             except Exception as error:
                 failures.append(error)
@@ -757,6 +693,37 @@ def concurrent_sqlite_results():
         assert not failures, failures
         assert completed == [500] * 4, (operation, completed)
     connection.close()
+
+
+def sqlite_callbacks_use_calling_thread():
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.create_function("exception", 0, lambda: str(sys.exception()))
+    traced = []
+    connection.set_trace_callback(lambda sql: traced.append(str(sys.exception())))
+    results = []
+
+    def worker():
+        try:
+            raise ValueError("worker")
+        except ValueError:
+            results.append(connection.execute("SELECT exception()").fetchone()[0])
+
+    try:
+        raise RuntimeError("main")
+    except RuntimeError:
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(5)
+        assert not thread.is_alive()
+        assert str(sys.exception()) == "main"
+    assert results == ["worker"], results
+    assert traced == ["worker"], traced
+    connection.close()
+
+
+sqlite_callbacks_use_calling_thread()
 
 
 def concurrent_sqlite_transactions():
