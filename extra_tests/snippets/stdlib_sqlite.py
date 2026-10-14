@@ -427,53 +427,112 @@ def statement_cache_busy_and_cleanup():
     connection.close()
 
 
-def statement_cache_authorizer_reentry():
+def statement_cache_callback_reentry():
     connection = sqlite3.connect(":memory:")
-    assert connection.execute("SELECT 1").fetchall() == [(1,)]
-    nested = []
 
-    def authorizer(action, *args):
-        if action == sqlite3.SQLITE_SELECT and not nested:
-            nested.append(True)
-            assert connection.execute("SELECT 2").fetchall() == [(2,)]
-        return sqlite3.SQLITE_OK
+    def nested(value):
+        return connection.execute("SELECT ?", (value + 1,)).fetchone()[0]
 
-    connection.set_authorizer(authorizer)
-    assert connection.execute("SELECT 1").fetchall() == [(1,)]
-    assert nested == [True]
+    connection.create_function("nested", 1, nested)
+    for _ in range(2):
+        assert connection.execute(
+            "SELECT nested(1) UNION ALL SELECT nested(2)"
+        ).fetchall() == [(2,), (3,)]
     connection.close()
 
 
 statement_cache_reuse()
 statement_cache_busy_and_cleanup()
-statement_cache_authorizer_reentry()
+statement_cache_callback_reentry()
 
 
-def cache_reprepare_with_nested_queries():
+def cache_reprepare_with_authorizer():
     connection = sqlite3.connect(":memory:")
     connection.execute("CREATE TABLE words(word TEXT COLLATE NOCASE)")
     connection.execute("CREATE INDEX word_index ON words(word)")
     connection.executemany("INSERT INTO words VALUES (?)", [("alpha",), ("beta",)])
     sql = "SELECT word FROM words WHERE word LIKE ?"
     assert connection.execute(sql, ("a%",)).fetchall() == [("alpha",)]
-    nested = []
+    authorizations = []
 
     def authorizer(action, *args):
-        if action == sqlite3.SQLITE_SELECT and not nested:
-            nested.append(True)
-            assert connection.execute("SELECT 42").fetchall() == [(42,)]
+        if action == sqlite3.SQLITE_SELECT and not authorizations:
+            authorizations.append(True)
         return sqlite3.SQLITE_OK
 
     connection.set_authorizer(authorizer)
     for prefix, result in (("b%", "beta"), ("a%", "alpha")):
-        nested.clear()
+        authorizations.clear()
         assert connection.execute(sql, (prefix,)).fetchall() == [(result,)]
-        assert nested == [True]
+        assert authorizations == [True]
     connection.execute("ALTER TABLE words ADD COLUMN extra")
-    nested.clear()
+    authorizations.clear()
     assert connection.execute(sql, ("b%",)).fetchall() == [("beta",)]
-    assert nested == [True]
+    assert authorizations == [True]
     connection.close()
 
 
-cache_reprepare_with_nested_queries()
+cache_reprepare_with_authorizer()
+
+
+def statement_cache_connection_lifetime():
+    # CPython 3.14 can crash when an adapter closes its connection.
+    if sys.implementation.name != "rustpython":
+        return
+    test = unittest.TestCase()
+    for phase in ("bind", "step", "fetch", "iterate"):
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE TABLE t(x)")
+
+        def change_connection():
+            connection.close()
+
+        class Parameter:
+            def __conform__(self, protocol):
+                change_connection()
+                return 1
+
+        def change_on(value):
+            if phase == "step" or value == 2:
+                change_connection()
+            return value
+
+        def parameters():
+            yield (1,)
+            change_connection()
+            yield (2,)
+
+        connection.create_function("change_on", 1, change_on)
+        with test.assertRaises(sqlite3.ProgrammingError):
+            if phase == "bind":
+                connection.execute("SELECT ?", (Parameter(),))
+            elif phase == "step":
+                connection.execute("SELECT change_on(1)")
+            elif phase == "fetch":
+                cursor = connection.execute(
+                    "SELECT change_on(1) UNION ALL SELECT change_on(2)"
+                )
+                cursor.fetchone()
+            else:
+                connection.executemany("INSERT INTO t VALUES (?)", parameters())
+        connection.close()
+
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+
+    def close_from_another_thread():
+        thread = threading.Thread(target=connection.close, daemon=True)
+        thread.start()
+        thread.join(5)
+        assert not thread.is_alive(), "close waited for the active SQLite callback"
+        return 1
+
+    connection.create_function(
+        "close_from_another_thread", 0, close_from_another_thread
+    )
+    with test.assertRaises(sqlite3.ProgrammingError):
+        connection.execute("SELECT close_from_another_thread()")
+
+
+statement_cache_connection_lifetime()
