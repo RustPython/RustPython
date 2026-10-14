@@ -32,6 +32,7 @@ mod _opcode {
     }
 
     #[pyfunction]
+    #[allow(clippy::unnecessary_cast)] // `c_long` is `i32` or `i64`
     fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
         let oparg = match args.oparg {
             // (int)PyLong_AsLong(oparg)
