@@ -5,7 +5,8 @@ mod _json {
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef, PyTuple, PyType,
+            PyAnyDict, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyList, PyStr, PyStrRef,
+            PyTuple, PyType,
         },
         convert::ToPyResult,
         function::{IntoFuncArgs, OptionalArg},
@@ -1126,18 +1127,20 @@ mod _json {
             Ok(())
         }
 
-        /// Fetch `dct.items()` for encoding. For an exact `dict` this reads
+        /// Fetch `dct.items()` for encoding. For an exact `dict` or `frozendict` this reads
         /// the native table directly (matching CPython's fast path); for a
-        /// `dict` subclass (e.g. `collections.OrderedDict`) it calls the
+        /// subclass (e.g. `collections.OrderedDict`) it calls the
         /// real (possibly overridden) `.items()` method instead, so a
         /// subclass's custom ordering/behavior is respected.
         fn dict_items(
             &self,
             obj: &PyObject,
-            dict: &Py<PyDict>,
+            dict: &PyAnyDict,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<(PyObjectRef, PyObjectRef)>> {
-            if obj.class().is(vm.ctx.types.dict_type) {
+            if obj.class().is(vm.ctx.types.dict_type)
+                || obj.class().is(vm.ctx.types.frozendict_type)
+            {
                 return Ok(dict.items_vec());
             }
             let items_obj = obj.get_attr("items", vm)?.call((), vm)?;
@@ -1155,7 +1158,7 @@ mod _json {
         fn encode_dict(
             &self,
             obj: &PyObject,
-            dict: &Py<PyDict>,
+            dict: &PyAnyDict,
             level: isize,
             out: &mut Wtf8Buf,
             vm: &VirtualMachine,
@@ -1289,7 +1292,7 @@ mod _json {
                 } else if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
                     let slice = tuple.as_slice();
                     self.encode_list(obj, level, out, vm, || slice.len(), |i| slice[i].clone())
-                } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
+                } else if let Some(dict) = PyAnyDict::from_object(obj) {
                     self.encode_dict(obj, dict, level, out, vm)
                 } else {
                     self.encode_default(obj, level, out, vm)

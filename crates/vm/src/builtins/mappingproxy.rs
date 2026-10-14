@@ -2,12 +2,13 @@ use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRe
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
-    class::PyClassImpl,
+    class::{PyClassImpl, StaticType},
     common::{hash, lock::LazyLock},
     convert::ToPyObject,
     function::{ArgMapping, Either, OptionalArg, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    stdlib::PyOrderedDict,
     types::{
         AsMapping, AsNumber, AsSequence, Constructor, Hashable, Iterable, PyComparisonOp,
         Representable,
@@ -202,8 +203,24 @@ impl Py<PyMappingProxy> {
         if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
             return Ok(Either::B(PyComparisonValue::NotImplemented));
         }
-        let obj = zelf.to_object(vm)?;
-        // Equality comparisons preserve the underlying mapping's result.
+        let mut obj = zelf.to_object(vm)?;
+        // Unknown comparison methods must not receive a mutable dictionary
+        // protected by the proxy. Class namespaces are already copied by
+        // to_object; other exact dicts need the same protection here.
+        if matches!(&zelf.mapping, MappingProxyInner::Mapping(_))
+            && obj.class().is(vm.ctx.types.dict_type)
+            && !(other.class().is(vm.ctx.types.dict_type)
+                || other.class().is(vm.ctx.types.frozendict_type)
+                || other.class().is(vm.ctx.types.mappingproxy_type)
+                || (other.downcastable::<PyOrderedDict>()
+                    && other.class().is(PyOrderedDict::static_type())))
+        {
+            obj = obj
+                .downcast_ref::<PyDict>()
+                .unwrap()
+                .copy()
+                .into_pyobject(vm);
+        }
         obj.rich_compare(other.to_owned(), op, vm).map(Either::A)
     }
 

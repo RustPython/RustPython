@@ -138,7 +138,7 @@ pub(crate) mod ordered_dict {
         traverse = "manual"
     )]
     #[derive(Debug)]
-    struct PyOrderedDict {
+    pub(crate) struct PyOrderedDict {
         dict: PyDict,
         links: PyMutex<ODictLinks>,
     }
