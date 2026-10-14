@@ -78,6 +78,11 @@ impl<'a> PyCallable<'a> {
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
+        // _PyVectorcall_Call
+        if self.vectorcall.is_some() && args.kwargs.is_empty() {
+            let nargs = args.args.len();
+            return self.invoke_vectorcall(args.args, nargs, None, vm);
+        }
         if !vm.use_tracing.get() {
             return (self.call)(self.obj, args, vm);
         }

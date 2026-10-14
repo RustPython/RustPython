@@ -2666,6 +2666,7 @@ mod ref_target_sealed {
     impl<T: super::PyPayload> Sealed for T {}
     impl Sealed for super::PyObject {}
     impl Sealed for crate::builtins::set::PyAnySet {}
+    impl Sealed for crate::builtins::PyAnyDict {}
     impl<T: super::PyTypedRefTarget> Sealed for super::PyTuple<super::PyRef<T>> {}
 }
 
@@ -2709,6 +2710,11 @@ pub trait PyTypedRefTarget: PyRefTarget {}
 
 impl<T: PyRefTarget<Target = Py<T>>> PyTypedRefTarget for T {}
 impl PyTypedRefTarget for crate::builtins::set::PyAnySet {}
+impl PyTypedRefTarget for crate::builtins::PyAnyDict {}
+
+impl PyRefTarget for crate::builtins::PyAnyDict {
+    type Target = Self;
+}
 
 impl PyRefTarget for crate::builtins::set::PyAnySet {
     type Target = Self;

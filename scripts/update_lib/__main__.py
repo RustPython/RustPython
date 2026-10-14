@@ -8,6 +8,7 @@ Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
     python scripts/update_lib patches --from Lib/test/foo.py --to cpython/Lib/test/foo.py
     python scripts/update_lib auto-mark Lib/test/test_foo.py
+    python scripts/update_lib copy-test SOURCE DESTINATION --test ClassName.method_name --source-sha256 HASH --destination-sha256 HASH
 """
 
 import argparse
@@ -50,6 +51,11 @@ def main(argv: list[str] | None = None) -> int:
         add_help=False,
     )
     subparsers.add_parser(
+        "copy-test",
+        help="Copy one complete canonical test from hash-pinned inputs",
+        add_help=False,
+    )
+    subparsers.add_parser(
         "deps",
         help="Show dependency information for a module",
         add_help=False,
@@ -71,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
         from update_lib.cmd_copy_lib import main as copy_lib_main
 
         return copy_lib_main(remaining)
+
+    if args.command == "copy-test":
+        from update_lib.cmd_copy_test import main as copy_test_main
+
+        return copy_test_main(remaining)
 
     if args.command == "migrate":
         from update_lib.cmd_migrate import main as migrate_main
