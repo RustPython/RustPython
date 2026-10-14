@@ -39,10 +39,9 @@ impl_from!('a, T, BorrowedValue<'a, T>,
 impl<'a, T: ?Sized> BorrowedValue<'a, T> {
     /// Whether reaching the value holds a lock that other threads wait on.
     ///
-    /// An immutable object hands out a plain reference and answers `false`;
-    /// one whose storage can change hands out a guard. A caller about to wait
-    /// for something unrelated -- a peer, a file, a signal -- can use this to
-    /// decide whether it may keep the borrow for the duration.
+    /// A plain reference answers `false`, including references to externally
+    /// managed memory. This does not guarantee that the storage is immutable
+    /// or safe to borrow while another thread runs.
     #[must_use]
     pub const fn is_locked(&self) -> bool {
         !matches!(self, Self::Ref(_))
