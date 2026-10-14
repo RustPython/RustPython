@@ -758,3 +758,62 @@ if sys.platform.startswith("linux"):
     assert hasattr(os, "mkfifo")
 if hasattr(os, "mkfifo"):
     mkfifo_paths_and_directory_descriptors()
+
+
+import errno
+import io
+
+
+def nonblocking_windows_pipe():
+    reader, writer = os.pipe()
+    try:
+        assert os.get_blocking(reader) and os.get_blocking(writer)
+        for fd in (reader, writer):
+            os.set_blocking(fd, False)
+            assert not os.get_blocking(fd)
+            os.set_blocking(fd, True)
+            assert os.get_blocking(fd)
+            os.set_blocking(fd, False)
+
+        assert os.read(reader, 0) == b""
+        try:
+            os.read(reader, 1)
+        except BlockingIOError as error:
+            assert error.errno == errno.EAGAIN
+        else:
+            raise AssertionError("empty nonblocking pipe did not raise")
+        with io.FileIO(reader, "rb", closefd=False) as stream:
+            assert stream.read(1) is None
+            assert stream.readinto(bytearray(1)) is None
+
+        payload = b"x" * (1024 * 1024)
+        first = os.write(writer, payload)
+        assert 0 < first < len(payload)
+        total = first
+        for _ in range(1024):
+            try:
+                total += os.write(writer, payload)
+            except BlockingIOError as error:
+                assert error.errno == errno.EAGAIN
+                break
+        else:
+            raise AssertionError("pipe did not fill")
+        with io.FileIO(writer, "wb", closefd=False) as stream:
+            assert stream.write(b"x") is None
+        assert os.write(writer, b"") == 0
+        received = 0
+        while received < total:
+            data = os.read(reader, total - received)
+            assert data and data == b"x" * len(data)
+            received += len(data)
+        os.close(writer)
+        writer = None
+        assert os.read(reader, 1) == b""
+    finally:
+        os.close(reader)
+        if writer is not None:
+            os.close(writer)
+
+
+if os.name == "nt":
+    nonblocking_windows_pipe()

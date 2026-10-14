@@ -4224,10 +4224,6 @@ class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; os.set_blocking not available on Windows")
-    def test_read_non_blocking(self):
-        return super().test_read_non_blocking()
-
 
 class IncrementalNewlineDecoderTest(unittest.TestCase):
 
