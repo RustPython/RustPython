@@ -1821,7 +1821,8 @@ mod _datetime {
     fn platform_time(t: i64, local: bool, vm: &VirtualMachine) -> PyResult<Tm> {
         #[cfg(any(unix, windows))]
         {
-            let t_c = libc::time_t::try_from(t).map_err(|_| time_t_overflow(vm))?;
+            let t_c =
+                rustpython_host_env::time::TimeT::try_from(t).map_err(|_| time_t_overflow(vm))?;
             let tm = if local {
                 rustpython_host_env::time::localtime_from_timestamp(t_c)
             } else {

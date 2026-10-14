@@ -55,13 +55,13 @@ pub mod windows {
         pub st_gid: i32,
         pub st_rdev: libc::c_ulong,
         pub st_size: u64,
-        pub st_atime: libc::time_t,
+        pub st_atime: crate::time::TimeT,
         pub st_atime_nsec: i32,
-        pub st_mtime: libc::time_t,
+        pub st_mtime: crate::time::TimeT,
         pub st_mtime_nsec: i32,
-        pub st_ctime: libc::time_t,
+        pub st_ctime: crate::time::TimeT,
         pub st_ctime_nsec: i32,
-        pub st_birthtime: libc::time_t,
+        pub st_birthtime: crate::time::TimeT,
         pub st_birthtime_nsec: i32,
         pub st_file_attributes: libc::c_ulong,
         pub st_reparse_tag: u32,
@@ -155,13 +155,13 @@ pub mod windows {
         ))
     }
 
-    fn large_integer_to_time_t_nsec(input: i64) -> (libc::time_t, libc::c_int) {
+    fn large_integer_to_time_t_nsec(input: i64) -> (crate::time::TimeT, libc::c_int) {
         let nsec_out = (input % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
-        let time_out = ((input / 10_000_000) - SECS_BETWEEN_EPOCHS) as libc::time_t;
+        let time_out = (input / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
     }
 
-    fn file_time_to_time_t_nsec(in_ptr: FILETIME) -> (libc::time_t, libc::c_int) {
+    fn file_time_to_time_t_nsec(in_ptr: FILETIME) -> (crate::time::TimeT, libc::c_int) {
         let in_val: i64 = unsafe { core::mem::transmute_copy(&in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;

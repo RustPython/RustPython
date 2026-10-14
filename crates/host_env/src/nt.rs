@@ -129,16 +129,16 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-const fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
+const fn win32_large_integer_to_time(li: i64) -> (crate::time::TimeT, i32) {
     let nsec = ((li % 10_000_000) * 100) as i32;
-    let sec = (li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
-const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
+const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (crate::time::TimeT, i32) {
     let ticks = ((ft_high as i64) << 32) | (ft_low as i64);
     let nsec = ((ticks % 10_000_000) * 100) as i32;
-    let sec = (ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
@@ -591,10 +591,10 @@ impl ScandirEntry {
         if reparse_tag == IO_REPARSE_TAG_SYMLINK {
             mode = (mode & !libc::S_IFMT) | S_IFLNK;
         }
-        let to_time = |ticks: u64| -> (libc::time_t, i32) {
+        let to_time = |ticks: u64| -> (crate::time::TimeT, i32) {
             let ticks = ticks as i64;
             (
-                (ticks / 10_000_000 - SECS_BETWEEN_EPOCHS) as libc::time_t,
+                ticks / 10_000_000 - SECS_BETWEEN_EPOCHS,
                 ((ticks % 10_000_000) * 100) as i32,
             )
         };
