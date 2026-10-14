@@ -25,7 +25,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Callee, Either, FuncArgs, KwArgs, PyMethodFlags},
+    function::{ArgMapping, Callee, Either, FuncArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn},
@@ -4683,8 +4683,8 @@ impl ExecutingFrame<'_> {
             }
             Instruction::CallFunctionEx => {
                 // Stack: [callable, self_or_null, args_tuple, kwargs_or_null]
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, false, vm)
             }
             Instruction::CallIntrinsic1 { func } => {
                 let value = self.pop_value();
@@ -8312,8 +8312,8 @@ impl ExecutingFrame<'_> {
                 self.execute_call_instrumented(args, vm)
             }
             Instruction::InstrumentedCallFunctionEx => {
-                let args = self.collect_ex_args(vm)?;
-                self.execute_call_instrumented(args, vm)
+                let (args, kwnames) = self.collect_ex_args(vm)?;
+                self.execute_call_ex(args, kwnames, true, vm)
             }
             Instruction::InstrumentedLoadSuperAttr => {
                 let oparg = bytecode::LoadSuperAttr::from(u32::from(arg));
@@ -9015,9 +9015,13 @@ impl ExecutingFrame<'_> {
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
-    fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
+    fn collect_ex_args(
+        &mut self,
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<PyObjectRef>, Vec<PyObjectRef>)> {
         let kwargs_or_null = self.pop_value_opt();
-        let mut kwargs = KwArgs::default();
+        let mut kwnames = Vec::new();
+        let mut keyword_values = Vec::new();
         if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
@@ -9026,16 +9030,17 @@ impl ExecutingFrame<'_> {
             Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key, value| {
                 // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
                 // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
-                let key_str = key
-                    .downcast_ref::<PyStr>()
+                key.downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                kwargs.insert(key_str.as_wtf8().to_owned(), value);
+                // Preserve string-subclass identity until the callee binds or merges keywords.
+                kwnames.push(key);
+                keyword_values.push(value);
                 Ok(())
             })?
         };
 
         let args_obj = self.pop_value();
-        let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
+        let mut args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()
         } else {
             // Single *arg passed directly; convert to sequence at runtime.
@@ -9058,7 +9063,8 @@ impl ExecutingFrame<'_> {
                 }
             })?
         };
-        Ok(FuncArgs { args, kwargs })
+        args.extend(keyword_values);
+        Ok((args, kwnames))
     }
 
     /// Returns a display string for a callable object for use in error messages.
@@ -9250,22 +9256,34 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
+    fn execute_call_ex(
+        &mut self,
+        mut args: Vec<PyObjectRef>,
+        kwnames: Vec<PyObjectRef>,
+        instrumented: bool,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         // Stack: [callable, self_or_null, ...]
         let self_or_null = self.pop_value_opt(); // Option<PyObjectRef>
         let callable = self.pop_value();
 
-        let final_args = if let Some(self_val) = self_or_null {
-            let mut args = args;
-            args.prepend_arg(self_val);
-            args
+        if let Some(self_val) = self_or_null {
+            args.insert(0, self_val);
+        }
+        let nargs = args.len() - kwnames.len();
+        let arg0 = if instrumented {
+            args[..nargs].first().cloned()
         } else {
-            args
+            None
         };
-
-        let value = callable.call(final_args, vm)?;
-        self.push_value(value);
-        Ok(None)
+        let invoke = || callable.vectorcall(args, nargs, Some(&kwnames), vm);
+        if instrumented {
+            self.execute_call_instrumented_inner(&callable, arg0, invoke, vm)
+        } else {
+            let value = invoke()?;
+            self.push_value(value);
+            Ok(None)
+        }
     }
 
     /// Instrumented version of execute_call: fires CALL, C_RETURN, and C_RAISE events.
@@ -9281,29 +9299,36 @@ impl ExecutingFrame<'_> {
             args
         };
 
+        let arg0 = final_args.args.first().cloned();
+        self.execute_call_instrumented_inner(&callable, arg0, || callable.call(final_args, vm), vm)
+    }
+
+    fn execute_call_instrumented_inner(
+        &mut self,
+        callable: &PyObject,
+        arg0: Option<PyObjectRef>,
+        invoke: impl FnOnce() -> PyResult,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         let is_python_call = callable.downcast_ref_if_exact::<PyFunction>(vm).is_some();
 
         // Fire CALL event
         let call_arg0 = if self.monitoring_mask & MonitoringEvent::Call.mask() != 0 {
-            let arg0 = final_args
-                .args
-                .first()
-                .cloned()
-                .unwrap_or_else(|| monitoring::get_missing(vm));
+            let arg0 = arg0.unwrap_or_else(|| monitoring::get_missing(vm));
             let offset = (self.lasti() - 1) * 2;
-            monitoring::fire_call(vm, self.code, offset, &callable, arg0.clone())?;
+            monitoring::fire_call(vm, self.code, offset, callable, arg0.clone())?;
             Some(arg0)
         } else {
             None
         };
 
-        match callable.call(final_args, vm) {
+        match invoke() {
             Ok(value) => {
                 if let Some(arg0) = call_arg0
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    monitoring::fire_c_return(vm, self.code, offset, &callable, arg0)?;
+                    monitoring::fire_c_return(vm, self.code, offset, callable, arg0)?;
                 }
                 self.push_value(value);
                 Ok(None)
@@ -9313,7 +9338,7 @@ impl ExecutingFrame<'_> {
                     && !is_python_call
                 {
                     let offset = (self.lasti() - 1) * 2;
-                    match monitoring::fire_c_raise(vm, self.code, offset, &callable, arg0) {
+                    match monitoring::fire_c_raise(vm, self.code, offset, callable, arg0) {
                         Ok(()) => exc,
                         Err(monitor_exc) => monitor_exc,
                     }

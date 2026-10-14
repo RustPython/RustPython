@@ -577,7 +577,10 @@ impl PyDict {
     /// `__eq__`) is raised by the operation itself and must propagate unchanged.
     /// Hashing up front also means a `__hash__` that fails only intermittently
     /// is still reported.
-    fn hash_or_unhashable<K: DictKey + ?Sized>(key: &K, vm: &VirtualMachine) -> PyResult<PyHash> {
+    pub(crate) fn hash_or_unhashable<K: DictKey + ?Sized>(
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHash> {
         key_hash(key, "dict", vm)
     }
 
