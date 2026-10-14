@@ -8,6 +8,7 @@ from test.test_email import TestEmailBase, parameterize
 from email import headerregistry
 from email.headerregistry import Address, Group
 from test.support import ALWAYS_EQ
+from test.support import warnings_helper
 
 
 DITTO = object()
@@ -165,6 +166,7 @@ class TestUnstructuredHeader(TestHeaderBase):
 
     }
 
+
 @parameterize
 class TestDateHeader(TestHeaderBase):
 
@@ -254,7 +256,15 @@ class TestContentTypeHeader(TestHeaderBase):
         decoded =  args[2] if l>2 and args[2] is not DITTO else source
         header = 'Content-Type:' + ' ' if source else ''
         folded = args[3] if l>3 else header + decoded + '\n'
-        h = self.make_header('Content-Type', source)
+        # Both rfc2231 test cases with utf-8%E2%80%9D raise warnings,
+        # clear encoding cache to ensure test isolation.
+        if 'utf-8%E2%80%9D' in source and 'ascii' not in source:
+            import encodings
+            encodings._cache.clear()
+            with warnings_helper.check_warnings(('', DeprecationWarning)):
+                h = self.make_header('Content-Type', source)
+        else:
+            h = self.make_header('Content-Type', source)
         self.assertEqual(h.content_type, content_type)
         self.assertEqual(h.maintype, maintype)
         self.assertEqual(h.subtype, subtype)
@@ -1541,17 +1551,19 @@ class TestAddressAndGroup(TestEmailBase):
         self.assertEqual(str(a), '"Sara J." <"bad name"@example.com>')
 
     def test_il8n(self):
-        a = Address('Éric', 'wok', 'exàmple.com')
+        a = Address('Éric', 'wők', 'exàmple.com')
         self.assertEqual(a.display_name, 'Éric')
-        self.assertEqual(a.username, 'wok')
+        self.assertEqual(a.username, 'wők')
         self.assertEqual(a.domain, 'exàmple.com')
-        self.assertEqual(a.addr_spec, 'wok@exàmple.com')
-        self.assertEqual(str(a), 'Éric <wok@exàmple.com>')
+        self.assertEqual(a.addr_spec, 'wők@exàmple.com')
+        self.assertEqual(str(a), 'Éric <wők@exàmple.com>')
 
-    # XXX: there is an API design issue that needs to be solved here.
-    #def test_non_ascii_username_raises(self):
-    #    with self.assertRaises(ValueError):
-    #        Address('foo', 'wők', 'example.com')
+    def test_i18n_in_addr_spec(self):
+        a = Address(addr_spec='wők@exàmple.com')
+        self.assertEqual(a.username, 'wők')
+        self.assertEqual(a.domain, 'exàmple.com')
+        self.assertEqual(a.addr_spec, 'wők@exàmple.com')
+        self.assertEqual(str(a), 'wők@exàmple.com')
 
     def test_crlf_in_constructor_args_raises(self):
         cases = (
@@ -1571,10 +1583,6 @@ class TestAddressAndGroup(TestEmailBase):
         for kwargs in cases:
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ValueError, "invalid arguments"):
                 Address(**kwargs)
-
-    def test_non_ascii_username_in_addr_spec_raises(self):
-        with self.assertRaises(ValueError):
-            Address('foo', addr_spec='wők@example.com')
 
     def test_address_addr_spec_and_username_raises(self):
         with self.assertRaises(TypeError):
