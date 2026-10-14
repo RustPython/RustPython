@@ -1917,20 +1917,21 @@ mod _socket {
         #[pymethod]
         fn recv(
             zelf: &Py<Self>,
-            bufsize: usize,
+            bufsize: isize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let mut buffer = Vec::new();
-            buffer
-                .try_reserve_exact(bufsize)
-                .map_err(|_| vm.no_memory_error())?;
+            let bufsize = bufsize
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("negative buffersize in recv"))?;
+            let mut buffer = alloc_recv_scratch(bufsize, flags, vm)?;
             let n = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
-                    .recv_with_flags(buffer.spare_capacity_mut(), flags)
+                    .recv_with_flags(&mut buffer.spare_capacity_mut()[..bufsize], flags)
             })?;
-            unsafe { buffer.set_len(n) };
+            // MSG_TRUNC may report the full datagram length, beyond the buffer.
+            unsafe { buffer.set_len(n.min(bufsize)) };
             buffer.shrink_to_fit();
             Ok(buffer)
         }
@@ -1950,18 +1951,26 @@ mod _socket {
                 let nbytes = nbytes
                     .to_usize()
                     .ok_or_else(|| vm.new_value_error("negative buffersize in recv_into"))?;
-                nbytes.min(buf.len())
+                if nbytes > buf.len() {
+                    return Err(vm
+                        .new_value_error("buffer too small for requested bytes")
+                        .into());
+                }
+                if nbytes == 0 { buf.len() } else { nbytes }
             } else {
                 buf.len()
             };
 
-            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let mut scratch = alloc_recv_scratch(read_len, flags, vm)?;
             let n = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
                     .recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
-            unsafe { scratch.set_len(n) };
-            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            let written = n.min(read_len);
+            unsafe { scratch.set_len(written) };
+            if !zelf.recv_discards_data(flags) {
+                buf.borrow_buf_mut()[..written].copy_from_slice(&scratch);
+            }
             Ok(n)
         }
 
@@ -1976,15 +1985,12 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
-            let mut buffer = Vec::new();
-            buffer
-                .try_reserve_exact(bufsize)
-                .map_err(|_| vm.no_memory_error())?;
+            let mut buffer = alloc_recv_scratch(bufsize, flags, vm)?;
             let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
-                    .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
+                    .recv_from_with_flags(&mut buffer.spare_capacity_mut()[..bufsize], flags)
             })?;
-            unsafe { buffer.set_len(n) };
+            unsafe { buffer.set_len(n.min(bufsize)) };
             buffer.shrink_to_fit();
             Ok((
                 buffer,
@@ -2010,18 +2016,21 @@ mod _socket {
                             .new_value_error("nbytes is greater than the length of the buffer")
                             .into());
                     }
-                    i
+                    if i == 0 { buf.len() } else { i }
                 }
                 OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
-            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let mut scratch = alloc_recv_scratch(read_len, flags, vm)?;
             let (n, addr) = zelf.sock_op(vm, SockWaitKind::Read, || {
                 zelf.sock_snapshot()?
                     .recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
-            unsafe { scratch.set_len(n) };
-            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            let written = n.min(read_len);
+            unsafe { scratch.set_len(written) };
+            if !zelf.recv_discards_data(flags) {
+                buf.borrow_buf_mut()[..written].copy_from_slice(&scratch);
+            }
             Ok((
                 n,
                 get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm),
@@ -2826,12 +2835,40 @@ mod _socket {
     /// on a lock never reaches a safepoint — holding it across the wait stops
     /// the world from being stopped at all. The bytes are copied over once
     /// they have arrived.
-    fn alloc_recv_scratch(len: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn alloc_recv_scratch(len: usize, flags: i32, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let mut scratch = Vec::new();
         scratch
             .try_reserve_exact(len)
             .map_err(|_| vm.no_memory_error())?;
+        if flags & MSG_TRUNC != 0 {
+            // Linux TCP can consume bytes without writing them with MSG_TRUNC.
+            // Keep the initialized storage available to the receive syscall.
+            scratch.resize(len, 0);
+            scratch.clear();
+        }
         Ok(scratch)
+    }
+
+    impl PySocket {
+        fn recv_discards_data(&self, flags: i32) -> bool {
+            // Linux TCP treats MSG_TRUNC as a request to discard data. Do not
+            // overwrite the caller's buffer, including changes during the wait.
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            {
+                let family = self.family.load(Ordering::Relaxed);
+                let proto = self.proto.load(Ordering::Relaxed);
+                flags & MSG_TRUNC != 0
+                    && flags & c::MSG_ERRQUEUE == 0
+                    && self.kind.load(Ordering::Relaxed) == SOCK_STREAM
+                    && (family == AF_INET || family == AF_INET6)
+                    && (proto == 0 || proto == IPPROTO_TCP || proto == c::IPPROTO_MPTCP)
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            {
+                let _ = flags;
+                false
+            }
+        }
     }
 
     enum IoOrPyException {
