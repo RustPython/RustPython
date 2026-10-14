@@ -2840,7 +2840,7 @@ mod _socket {
         scratch
             .try_reserve_exact(len)
             .map_err(|_| vm.no_memory_error())?;
-        if flags & MSG_TRUNC != 0 {
+        if i64::from(flags) & i64::from(MSG_TRUNC) != 0 {
             // Linux TCP can consume bytes without writing them with MSG_TRUNC.
             // Keep the initialized storage available to the receive syscall.
             scratch.resize(len, 0);

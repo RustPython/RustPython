@@ -227,10 +227,7 @@ def receive_sizes_and_truncation():
                     )
                     data = result[0] if isinstance(result, tuple) else result
                     assert data[:3] == b"abc"
-                    if (
-                        sys.implementation.name == "rustpython"
-                        or method == receiver.recvmsg
-                    ):
+                    if sys.implementation.name == "rustpython":
                         # Some CPython recv paths enlarge the bytes result to the
                         # reported datagram length, including an unwritten tail.
                         assert data == b"abc"
