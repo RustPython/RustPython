@@ -536,3 +536,118 @@ def statement_cache_connection_lifetime():
 
 
 statement_cache_connection_lifetime()
+
+
+def statement_cache_deferred_cleanup():
+    # CPython can block when closing a populated cache from a callback's thread.
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+
+    test = unittest.TestCase()
+    for action in ("close", "reinit"):
+        for autocommit in (sqlite3.LEGACY_TRANSACTION_CONTROL, False):
+            connection = sqlite3.connect(
+                ":memory:", check_same_thread=False, autocommit=autocommit
+            )
+            connection.execute("SELECT 123").fetchall()
+            traced = []
+            connection.set_trace_callback(traced.append)
+            completed = []
+            workers = []
+            failures = []
+
+            def change_connection():
+                try:
+                    if action == "close":
+                        connection.close()
+                    else:
+                        connection.__init__(":memory:", check_same_thread=False)
+                except Exception as error:
+                    failures.append(error)
+
+            def callback():
+                worker = threading.Thread(target=change_connection, daemon=True)
+                workers.append(worker)
+                worker.start()
+                worker.join(5)
+                completed.append(not worker.is_alive())
+                return 1
+
+            connection.create_function("callback", 0, callback)
+            if action == "close":
+                with test.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute("SELECT callback()")
+            else:
+                assert connection.execute("SELECT callback()").fetchall() == [(1,)]
+                assert connection.execute("SELECT 456").fetchall() == [(456,)]
+            for worker in workers:
+                worker.join(5)
+                assert not worker.is_alive()
+            assert not failures, failures
+            assert completed == [True], (action, autocommit)
+            if autocommit is False:
+                assert "ROLLBACK" in traced, traced
+            connection.close()
+
+
+def concurrent_sqlite_error_snapshots():
+    # CPython also races when reading the connection's last error after a call.
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False, autocommit=True)
+    for index in range(4):
+        connection.execute(f"CREATE TABLE t{index}(x UNIQUE)")
+        connection.execute(f"INSERT INTO t{index} VALUES (1)")
+
+    for prepare in (True, False):
+        barrier = threading.Barrier(4)
+        failures = []
+        completed = [0] * 4
+
+        def worker(index):
+            if prepare:
+                sql = f"SELECT * FROM missing_table_{index}"
+                expected = (
+                    sqlite3.OperationalError,
+                    f"no such table: missing_table_{index}",
+                    sqlite3.SQLITE_ERROR,
+                )
+            else:
+                sql = f"INSERT INTO t{index} VALUES (1)"
+                expected = (
+                    sqlite3.IntegrityError,
+                    f"UNIQUE constraint failed: t{index}.x",
+                    sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+                )
+            barrier.wait()
+            for _ in range(1000):
+                try:
+                    connection.execute(sql)
+                except sqlite3.Error as error:
+                    actual = (type(error), str(error), error.sqlite_errorcode)
+                    if actual == expected:
+                        completed[index] += 1
+                        continue
+                    failures.append((expected, actual))
+                else:
+                    failures.append((expected, "no error"))
+                break
+
+        workers = [
+            threading.Thread(target=worker, args=(i,), daemon=True) for i in range(4)
+        ]
+        for thread in workers:
+            thread.start()
+        for thread in workers:
+            thread.join(10)
+            assert not thread.is_alive(), "concurrent SQLite call blocked"
+        assert not failures, failures
+        assert completed == [1000] * 4, completed
+    connection.close()
+
+
+statement_cache_deferred_cleanup()
+concurrent_sqlite_error_snapshots()

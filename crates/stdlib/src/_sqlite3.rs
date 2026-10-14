@@ -35,15 +35,15 @@ mod _sqlite3 {
         sqlite3_db_config, sqlite3_db_handle, sqlite3_db_mutex, sqlite3_errcode, sqlite3_errmsg,
         sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize,
         sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_mutex_enter, sqlite3_mutex_leave, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
-        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_total_changes,
-        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
-        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
-        sqlite3_value_type,
+        sqlite3_limit, sqlite3_mutex_enter, sqlite3_mutex_leave, sqlite3_mutex_try,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset,
+        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
+        sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data, sqlite3_value,
+        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
+        sqlite3_value_text, sqlite3_value_type,
     };
     use malachite_bigint::Sign;
     use num_traits::ToPrimitive;
@@ -1124,12 +1124,10 @@ mod _sqlite3 {
             let rollback = *self.autocommit.lock() == AutocommitMode::Disabled;
             if let Some(db) = db
                 && rollback
-                && !db.is_autocommit()
             {
-                db._exec(c"ROLLBACK", vm)
-            } else {
-                Ok(())
+                db.rollback_on_close(vm)?;
             }
+            Ok(())
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
@@ -1156,15 +1154,15 @@ mod _sqlite3 {
             Ok(db)
         }
 
-        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyRc<Sqlite>> {
+        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<SqliteOperation> {
             self.check_thread(vm)?;
             self._db_lock(vm)
         }
 
-        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyRc<Sqlite>> {
+        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<SqliteOperation> {
             let guard = self.db.lock();
             if let Some(db) = guard.as_ref() {
-                Ok(db.clone())
+                Ok(SqliteOperation(db.clone()))
             } else if self.initialized.load(Ordering::Acquire) {
                 Err(new_programming_error(
                     vm,
@@ -1234,7 +1232,7 @@ mod _sqlite3 {
             let db = zelf.db_lock(vm)?;
 
             let mut blob = null_mut();
-            let ret = unsafe {
+            let ret = db.call(|| unsafe {
                 sqlite3_blob_open(
                     db.db,
                     name.as_ptr(),
@@ -1244,7 +1242,7 @@ mod _sqlite3 {
                     (!args.readonly) as c_int,
                     &mut blob,
                 )
-            };
+            });
             db.check(ret, vm)?;
             drop(db);
 
@@ -1547,7 +1545,7 @@ mod _sqlite3 {
                 return Err(vm.new_type_error("parameter must be callable"));
             }
 
-            let ret = unsafe {
+            let ret = db.call(|| unsafe {
                 sqlite3_create_collation_v2(
                     db.db,
                     name.as_ptr(),
@@ -1556,7 +1554,7 @@ mod _sqlite3 {
                     Some(CallbackData::collation_callback),
                     Some(CallbackData::destructor),
                 )
-            };
+            });
 
             db.check(ret, vm).inspect_err(|_| {
                 // create_collation do not call destructor if error occur
@@ -1605,7 +1603,7 @@ mod _sqlite3 {
                 return Ok(());
             };
 
-            let ret = unsafe {
+            let ret = db.call(|| unsafe {
                 sqlite3_create_window_function(
                     db.db,
                     name.as_ptr(),
@@ -1618,7 +1616,7 @@ mod _sqlite3 {
                     Some(CallbackData::inverse_callback),
                     Some(CallbackData::destructor),
                 )
-            };
+            });
             db.check(ret, vm)
                 .map_err(|_| new_programming_error(vm, "Error creating window function".to_owned()))
         }
@@ -1635,13 +1633,13 @@ mod _sqlite3 {
                 return Ok(());
             };
 
-            let ret = unsafe {
+            let ret = db.call(|| unsafe {
                 sqlite3_set_authorizer(
                     db.db,
                     Some(CallbackData::authorizer_callback),
                     Box::into_raw(Box::new(data)).cast(),
                 )
-            };
+            });
             db.check(ret, vm).map_err(|_| {
                 new_operational_error(vm, "Error setting authorizer callback".to_owned())
             })
@@ -1659,14 +1657,14 @@ mod _sqlite3 {
                 return Ok(());
             };
 
-            let ret = unsafe {
+            let ret = db.call(|| unsafe {
                 sqlite3_trace_v2(
                     db.db,
                     SQLITE_TRACE_STMT,
                     Some(CallbackData::trace_callback),
                     Box::into_raw(Box::new(data)).cast(),
                 )
-            };
+            });
 
             db.check(ret, vm)
         }
@@ -1742,7 +1740,7 @@ mod _sqlite3 {
             }
             let enable = enable.unwrap_or(true) as c_int;
             let mut actual: c_int = 0;
-            let rc = unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) };
+            let rc = db.call(|| unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) });
             db.check(rc, vm)?;
             if enable != actual {
                 return Err(new_operational_error(vm, "Unable to set config".to_owned()));
@@ -1757,7 +1755,7 @@ mod _sqlite3 {
                 return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
             }
             let mut current: c_int = 0;
-            let rc = unsafe { sqlite3_db_config(db.db, op, -1, &mut current) };
+            let rc = db.call(|| unsafe { sqlite3_db_config(db.db, op, -1, &mut current) });
             db.check(rc, vm)?;
             Ok(current != 0)
         }
@@ -2118,13 +2116,10 @@ mod _sqlite3 {
             zelf.connection.check_open(vm)?;
             let ret = st.step();
             zelf.connection.check_open(vm)?;
-
-            if ret != SQLITE_DONE && ret != SQLITE_ROW {
-                if let Some(exc) = unsafe { user_function_exception().swap(None) } {
-                    return Err(exc);
-                }
-                return Err(db.error_extended(vm));
-            }
+            let ret = ret.map_err(|error| {
+                unsafe { user_function_exception().swap(None) }
+                    .unwrap_or_else(|| error.into_exception(vm))
+            })?;
 
             inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
 
@@ -3179,9 +3174,6 @@ mod _sqlite3 {
     #[derive(PyPayload)]
     struct Statement {
         st: PyMutex<SqliteStatement>,
-        // Keep the original database usable for cursors surviving __init__.
-        // This field drops after st, so the statement is finalized first.
-        db: PyRc<Sqlite>,
         pub is_dml: bool,
         in_use: PyAtomic<bool>,
     }
@@ -3238,7 +3230,6 @@ mod _sqlite3 {
 
             Ok(Some(Self {
                 st: PyMutex::from(st),
-                db,
                 is_dml,
                 in_use: Radium::new(false),
             }))
@@ -3277,12 +3268,16 @@ mod _sqlite3 {
                 .map(|_| Self(statement))
         }
 
-        fn database(&self, connection: &Connection, vm: &VirtualMachine) -> PyResult<PyRc<Sqlite>> {
+        fn database(
+            &self,
+            connection: &Connection,
+            vm: &VirtualMachine,
+        ) -> PyResult<SqliteOperation> {
             connection.check_open(vm)?;
             // The statement owns a live connection, not just memory retained by
             // sqlite3_close_v2. Reinitialization may replace Connection.db while
             // existing cursors continue reading this original database.
-            Ok(self.db.clone())
+            Ok(SqliteOperation(self.lock().db.clone()))
         }
     }
 
@@ -3316,11 +3311,143 @@ mod _sqlite3 {
 
     struct Sqlite {
         raw: SqliteRaw,
+        pending: PyMutex<SqliteCleanup>,
+    }
+
+    #[derive(Default)]
+    struct SqliteCleanup {
+        statements: Vec<SqliteStatementRaw>,
+        rollback: bool,
+    }
+
+    impl SqliteCleanup {
+        fn is_empty(&self) -> bool {
+            self.statements.is_empty() && !self.rollback
+        }
     }
 
     impl From<SqliteRaw> for Sqlite {
         fn from(raw: SqliteRaw) -> Self {
-            Self { raw }
+            Self {
+                raw,
+                pending: PyMutex::new(SqliteCleanup::default()),
+            }
+        }
+    }
+
+    impl Sqlite {
+        fn flush_cleanup(&self) {
+            self.drain_cleanup(false);
+        }
+
+        fn drain_cleanup(&self, wait: bool) {
+            if self.pending.lock().is_empty() {
+                return;
+            }
+            with_deferred_drops(|| {
+                loop {
+                    let guard = if wait {
+                        Some(self.raw.lock())
+                    } else {
+                        self.raw.try_lock()
+                    };
+                    let Some(guard) = guard else {
+                        return;
+                    };
+                    // Never keep a Rust mutex while SQLite can invoke Python.
+                    let pending = core::mem::take(&mut *self.pending.lock());
+                    if pending.rollback && !self.is_autocommit() {
+                        // close() has already returned; like sqlite3_close_v2,
+                        // deferred rollback cannot report an error to its caller.
+                        unsafe {
+                            sqlite3_exec(
+                                self.db,
+                                c"ROLLBACK".as_ptr(),
+                                None,
+                                null_mut(),
+                                null_mut(),
+                            )
+                        };
+                    }
+                    for statement in pending.statements {
+                        unsafe { sqlite3_finalize(statement.st) };
+                    }
+                    drop(guard);
+                    // An enqueue after this check can acquire the native mutex and
+                    // drain itself; one made while it was locked must be retried.
+                    if self.pending.lock().is_empty() {
+                        return;
+                    }
+                }
+            });
+        }
+
+        fn rollback_on_close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(_guard) = self.raw.try_lock() {
+                if !self.is_autocommit() {
+                    self._exec(c"ROLLBACK", vm)?;
+                }
+            } else {
+                self.pending.lock().rollback = true;
+                // Retry after enqueueing, in case the active call just ended.
+                self.flush_cleanup();
+            }
+            Ok(())
+        }
+    }
+
+    // An operation retains its database and drains work deferred by a close
+    // callback after SQLite has released its native connection mutex.
+    struct SqliteOperation(PyRc<Sqlite>);
+
+    impl Deref for SqliteOperation {
+        type Target = Sqlite;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for SqliteOperation {
+        fn drop(&mut self) {
+            self.flush_cleanup();
+        }
+    }
+
+    impl SqliteOperation {
+        fn prepare(
+            &self,
+            sql: &CStr,
+            tail: &mut *const libc::c_char,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<SqliteStatement>> {
+            self.raw.prepare(sql, tail, vm).map(|statement| {
+                statement.map(|raw| SqliteStatement {
+                    raw,
+                    db: self.0.clone(),
+                })
+            })
+        }
+    }
+
+    struct SqliteMutex(*mut libsqlite3_sys::sqlite3_mutex);
+
+    impl Drop for SqliteMutex {
+        fn drop(&mut self) {
+            unsafe { sqlite3_mutex_leave(self.0) };
+        }
+    }
+
+    struct SqliteError {
+        code: c_int,
+        extended: c_int,
+        message: String,
+    }
+
+    impl SqliteError {
+        fn into_exception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            let typ = exception_type_from_errcode(self.code, vm);
+            raise_exception(typ.to_owned(), self.extended, self.message, vm)
         }
     }
 
@@ -3333,6 +3460,9 @@ mod _sqlite3 {
 
     impl Drop for Sqlite {
         fn drop(&mut self) {
+            // No operation or statement owner remains. Drain native handles
+            // queued by their destructors before closing the database.
+            self.drain_cleanup(true);
             // Use sqlite3_close_v2 for safe closing even with active statements
             with_deferred_drops(|| unsafe { sqlite3_close_v2(self.raw.db) });
         }
@@ -3375,31 +3505,58 @@ mod _sqlite3 {
     }
 
     impl SqliteRaw {
-        fn check(self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
-            if ret == SQLITE_OK {
-                Ok(())
+        fn lock(self) -> SqliteMutex {
+            let mutex = unsafe { sqlite3_db_mutex(self.db) };
+            unsafe { sqlite3_mutex_enter(mutex) };
+            SqliteMutex(mutex)
+        }
+
+        fn try_lock(self) -> Option<SqliteMutex> {
+            let mutex = unsafe { sqlite3_db_mutex(self.db) };
+            if unsafe { sqlite3_mutex_try(mutex) } == SQLITE_OK {
+                Some(SqliteMutex(mutex))
             } else {
-                Err(self.error_extended(vm))
+                None
+            }
+        }
+
+        fn call(self, call: impl FnOnce() -> c_int) -> Result<c_int, SqliteError> {
+            let _guard = self.lock();
+            let ret = call();
+            if matches!(ret, SQLITE_OK | SQLITE_ROW | SQLITE_DONE) {
+                Ok(ret)
+            } else {
+                Err(self.error_snapshot())
+            }
+        }
+
+        fn check(self, result: Result<c_int, SqliteError>, vm: &VirtualMachine) -> PyResult<()> {
+            result.map(drop).map_err(|err| err.into_exception(vm))
+        }
+
+        fn checked(self, call: impl FnOnce() -> c_int, vm: &VirtualMachine) -> PyResult<()> {
+            self.check(self.call(call), vm)
+        }
+
+        // The caller holds the connection mutex from before the failed call.
+        fn error_snapshot(self) -> SqliteError {
+            unsafe {
+                SqliteError {
+                    code: sqlite3_errcode(self.db),
+                    extended: sqlite3_extended_errcode(self.db),
+                    message: CStr::from_ptr(sqlite3_errmsg(self.db))
+                        .to_string_lossy()
+                        .into_owned(),
+                }
             }
         }
 
         fn error_extended(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-            // SQLite may replace its error string on the next call from another
-            // thread. Copy the whole error snapshot under its connection mutex.
-            let (errcode, extended_errcode, errmsg) = unsafe {
-                let mutex = sqlite3_db_mutex(self.db);
-                sqlite3_mutex_enter(mutex);
-                let _guard = scopeguard::guard(mutex, |mutex| sqlite3_mutex_leave(mutex));
-                (
-                    sqlite3_errcode(self.db),
-                    sqlite3_extended_errcode(self.db),
-                    CStr::from_ptr(sqlite3_errmsg(self.db))
-                        .to_string_lossy()
-                        .into_owned(),
-                )
+            let error = {
+                let _guard = self.lock();
+                self.error_snapshot()
             };
-            let typ = exception_type_from_errcode(errcode, vm);
-            raise_exception(typ.to_owned(), extended_errcode, errmsg, vm)
+            error.into_exception(vm)
         }
 
         fn open(path: *const libc::c_char, uri: bool, vm: &VirtualMachine) -> PyResult<Self> {
@@ -3416,12 +3573,18 @@ mod _sqlite3 {
                 )
             };
             let zelf = Self { db };
-            zelf.check(ret, vm).map(|_| zelf)
+            if ret == SQLITE_OK {
+                Ok(zelf)
+            } else {
+                Err(zelf.error_extended(vm))
+            }
         }
 
         fn _exec(self, sql: &CStr, vm: &VirtualMachine) -> PyResult<()> {
-            let ret = unsafe { sqlite3_exec(self.db, sql.as_ptr(), None, null_mut(), null_mut()) };
-            self.check(ret, vm)
+            self.checked(
+                || unsafe { sqlite3_exec(self.db, sql.as_ptr(), None, null_mut(), null_mut()) },
+                vm,
+            )
         }
 
         fn prepare(
@@ -3429,14 +3592,16 @@ mod _sqlite3 {
             sql: &CStr,
             tail: &mut *const libc::c_char,
             vm: &VirtualMachine,
-        ) -> PyResult<Option<SqliteStatement>> {
+        ) -> PyResult<Option<SqliteStatementRaw>> {
             let mut st = null_mut();
-            let ret = unsafe { sqlite3_prepare_v2(self.db, sql.as_ptr(), -1, &mut st, tail) };
-            self.check(ret, vm)?;
+            self.checked(
+                || unsafe { sqlite3_prepare_v2(self.db, sql.as_ptr(), -1, &mut st, tail) },
+                vm,
+            )?;
             if st.is_null() {
                 Ok(None)
             } else {
-                Ok(Some(SqliteStatement::from(SqliteStatementRaw::from(st))))
+                Ok(Some(SqliteStatementRaw::from(st)))
             }
         }
 
@@ -3534,7 +3699,7 @@ mod _sqlite3 {
             destroy: Option<unsafe extern "C" fn(arg1: *mut c_void)>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let ret = unsafe {
+            let ret = self.call(|| unsafe {
                 sqlite3_create_function_v2(
                     self.db,
                     name.as_ptr(),
@@ -3546,7 +3711,7 @@ mod _sqlite3 {
                     finalize,
                     destroy,
                 )
-            };
+            });
             self.check(ret, vm)
                 .map_err(|_| new_operational_error(vm, "Error creating function".to_owned()))
         }
@@ -3554,21 +3719,17 @@ mod _sqlite3 {
 
     struct SqliteStatement {
         raw: SqliteStatementRaw,
-    }
-
-    impl From<SqliteStatementRaw> for SqliteStatement {
-        fn from(raw: SqliteStatementRaw) -> Self {
-            Self { raw }
-        }
+        // Keep the original database usable for cursors surviving __init__.
+        db: PyRc<Sqlite>,
     }
 
     impl Drop for SqliteStatement {
         fn drop(&mut self) {
-            // A cursor may be dropped without an explicit close(). Nesting
-            // preserves any outer scope that still owns SQLite locks.
-            with_deferred_drops(|| unsafe {
-                sqlite3_finalize(self.raw.st);
-            });
+            // Finalization may wait for a callback running on another thread.
+            // Queue only the raw handle, so pending cleanup cannot form an
+            // ownership cycle with the database.
+            self.db.pending.lock().statements.push(self.raw);
+            self.db.flush_cleanup();
         }
     }
 
@@ -3592,8 +3753,8 @@ mod _sqlite3 {
     }
 
     impl SqliteStatementRaw {
-        fn step(self) -> c_int {
-            unsafe { sqlite3_step(self.st) }
+        fn step(self) -> Result<c_int, SqliteError> {
+            SqliteRaw::from(self).call(|| unsafe { sqlite3_step(self.st) })
         }
 
         fn step_row_else_done(self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -3601,12 +3762,9 @@ mod _sqlite3 {
 
             if let Some(exc) = unsafe { user_function_exception().swap(None) } {
                 Err(exc)
-            } else if ret == SQLITE_ROW {
-                Ok(true)
-            } else if ret == SQLITE_DONE {
-                Ok(false)
             } else {
-                Err(SqliteRaw::from(self).error_extended(vm))
+                ret.map(|ret| ret == SQLITE_ROW)
+                    .map_err(|err| err.into_exception(vm))
             }
         }
 
@@ -3637,23 +3795,24 @@ mod _sqlite3 {
                 parameter
             };
 
+            let db = SqliteRaw::from(self);
             let ret = if vm.is_none(obj) {
-                unsafe { sqlite3_bind_null(self.st, pos) }
+                db.call(|| unsafe { sqlite3_bind_null(self.st, pos) })
             } else if let Some(val) = obj.downcast_ref::<PyInt>() {
                 let val = val.try_to_primitive::<i64>(vm).map_err(|_| {
                     vm.new_overflow_error("Python int too large to convert to SQLite INTEGER")
                 })?;
-                unsafe { sqlite3_bind_int64(self.st, pos, val) }
+                db.call(|| unsafe { sqlite3_bind_int64(self.st, pos, val) })
             } else if let Some(val) = obj.downcast_ref::<PyFloat>() {
                 let val = val.to_f64();
-                unsafe { sqlite3_bind_double(self.st, pos, val) }
+                db.call(|| unsafe { sqlite3_bind_double(self.st, pos, val) })
             } else if let Some(val) = obj.downcast_ref::<PyStr>() {
                 let val = val.try_as_utf8(vm)?;
                 let (ptr, len) = str_to_ptr_len(val, vm)?;
-                unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
+                db.call(|| unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) })
             } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
                 let (ptr, len) = buffer_to_ptr_len(&buffer, vm)?;
-                unsafe { sqlite3_bind_blob(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
+                db.call(|| unsafe { sqlite3_bind_blob(self.st, pos, ptr, len, SQLITE_TRANSIENT()) })
             } else {
                 return Err(new_programming_error(
                     vm,
@@ -3665,12 +3824,7 @@ mod _sqlite3 {
                 ));
             };
 
-            if ret == SQLITE_OK {
-                Ok(())
-            } else {
-                let db = SqliteRaw::from(self);
-                db.check(ret, vm)
-            }
+            db.check(ret, vm)
         }
 
         fn bind_parameters(self, parameters: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
