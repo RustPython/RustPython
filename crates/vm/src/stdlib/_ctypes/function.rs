@@ -2020,3 +2020,41 @@ impl Py<PyCThunk> {
         self.callable.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{TryFromObject, class::PyClassImpl, function::ArgBytesLike};
+
+    #[test]
+    fn unlocked_raw_buffers_are_copied_even_when_readonly() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let _class = RawMemoryBuffer::make_static_type();
+            for readonly in [false, true] {
+                let mut storage = *b"before";
+                let view = memoryview_at_impl(
+                    storage.as_mut_ptr() as usize,
+                    storage.len() as isize,
+                    readonly,
+                    vm,
+                )
+                .unwrap();
+                let buffer = ArgBytesLike::try_from_object(vm, view).unwrap();
+                let snapshot = buffer.borrow_buf_unlocked(vm).unwrap();
+                assert_ne!(snapshot.as_ptr(), storage.as_ptr());
+                storage.copy_from_slice(b"after!");
+                assert_eq!(&*snapshot, b"before");
+            }
+
+            let bytes = vm.ctx.new_bytes(b"bytes".to_vec());
+            let view = crate::builtins::PyMemoryView::from_object(bytes.as_object(), vm)
+                .unwrap()
+                .into_pyobject(vm);
+            for obj in [bytes.clone().into(), view] {
+                let buffer = ArgBytesLike::try_from_object(vm, obj).unwrap();
+                let borrowed = buffer.borrow_buf_unlocked(vm).unwrap();
+                assert_eq!(borrowed.as_ptr(), bytes.as_bytes().as_ptr());
+            }
+        });
+    }
+}
