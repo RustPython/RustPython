@@ -1270,16 +1270,7 @@ mod _sqlite3 {
         }
 
         fn commit_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            let db = zelf.db_lock(vm)?;
-            let mode = *zelf.autocommit.lock();
-            match mode {
-                AutocommitMode::Legacy => db.implicit_commit(vm),
-                AutocommitMode::Enabled => Ok(()),
-                AutocommitMode::Disabled => {
-                    db._exec(c"COMMIT", vm)?;
-                    db._exec(c"BEGIN", vm)
-                }
-            }
+            zelf.end_transaction(c"COMMIT", vm)
         }
 
         #[pymethod]
@@ -1288,22 +1279,43 @@ mod _sqlite3 {
         }
 
         fn rollback_inner(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            let db = zelf.db_lock(vm)?;
-            let mode = *zelf.autocommit.lock();
-            match mode {
-                AutocommitMode::Legacy => {
-                    if db.is_autocommit() {
-                        Ok(())
-                    } else {
-                        db._exec(c"ROLLBACK", vm)
-                    }
+            zelf.end_transaction(c"ROLLBACK", vm)
+        }
+
+        fn end_transaction(&self, sql: &CStr, vm: &VirtualMachine) -> PyResult<()> {
+            let db = self.db_lock(vm)?;
+            let result = {
+                let _guard = db.lock();
+                let mode = *self.autocommit.lock();
+                db.end_transaction(sql, mode)
+            };
+            result.map_err(|err| err.into_exception(vm))
+        }
+
+        fn begin_transaction(&self, db: SqliteRaw, vm: &VirtualMachine) -> PyResult<()> {
+            let result = {
+                let _guard = db.lock();
+                let mode = *self.autocommit.lock();
+                if mode == AutocommitMode::Legacy && db.is_autocommit() {
+                    db.begin_transaction(self.isolation_level.deref().map(|x| x.to_owned()))
+                } else {
+                    Ok(())
                 }
-                AutocommitMode::Enabled => Ok(()),
-                AutocommitMode::Disabled => {
-                    db._exec(c"ROLLBACK", vm)?;
-                    db._exec(c"BEGIN", vm)
+            };
+            result.map_err(|err| err.into_exception(vm))
+        }
+
+        fn commit_before_script(&self, db: SqliteRaw, vm: &VirtualMachine) -> PyResult<()> {
+            let result = {
+                let _guard = db.lock();
+                let mode = *self.autocommit.lock();
+                if mode == AutocommitMode::Legacy {
+                    db.end_transaction(c"COMMIT", mode)
+                } else {
+                    Ok(())
                 }
-            }
+            };
+            result.map_err(|err| err.into_exception(vm))
         }
 
         #[pymethod]
@@ -1346,6 +1358,10 @@ mod _sqlite3 {
 
         #[pymethod]
         fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
+            with_deferred_drops(|| Self::backup_inner(zelf, args, vm))
+        }
+
+        fn backup_inner(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,
                 pages,
@@ -1378,15 +1394,20 @@ mod _sqlite3 {
             let db = zelf.db_lock(vm)?;
             let target_db = target.db_lock(vm)?;
 
-            let handle =
-                unsafe { sqlite3_backup_init(target_db.db, c"main".as_ptr(), db.db, name_ptr) };
-
-            if handle.is_null() {
-                return Err(target_db.error_extended(vm));
+            let handle = {
+                // Match SQLite's source-before-destination lock order, and retain
+                // the destination error before another operation can replace it.
+                let _source_guard = db.lock();
+                let _target_guard = target_db.lock();
+                let handle =
+                    unsafe { sqlite3_backup_init(target_db.db, c"main".as_ptr(), db.db, name_ptr) };
+                if handle.is_null() {
+                    Err(target_db.error_snapshot())
+                } else {
+                    Ok(handle)
+                }
             }
-
-            drop(db);
-            drop(target_db);
+            .map_err(|err| err.into_exception(vm))?;
 
             loop {
                 let ret = unsafe { sqlite3_backup_step(handle, pages) };
@@ -1407,12 +1428,11 @@ mod _sqlite3 {
                 }
             }
 
-            let ret = unsafe { sqlite3_backup_finish(handle) };
-            if ret == SQLITE_OK {
-                Ok(())
-            } else {
-                Err(target.db_lock(vm)?.error_extended(vm))
-            }
+            let result = {
+                let _source_guard = db.lock();
+                target_db.call(|| unsafe { sqlite3_backup_finish(handle) })
+            };
+            target_db.check(result, vm)
         }
 
         #[pymethod]
@@ -1830,27 +1850,33 @@ mod _sqlite3 {
         ) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = zelf.db_lock(vm)?;
-            *zelf.autocommit.lock() = mode;
+            let result = {
+                // Publish the Python mode and change SQLite's transaction state
+                // under the same mutex used by statement execution.
+                let _guard = db.lock();
+                *zelf.autocommit.lock() = mode;
 
-            // Handle transaction state based on mode change
-            match mode {
-                AutocommitMode::Enabled => {
-                    // If there's a pending transaction, commit it
-                    if !db.is_autocommit() {
-                        db._exec(c"COMMIT", vm)?;
+                // Handle transaction state based on mode change
+                match mode {
+                    AutocommitMode::Enabled => {
+                        // If there's a pending transaction, commit it
+                        db.end_transaction(c"COMMIT", AutocommitMode::Legacy)
+                    }
+                    AutocommitMode::Disabled => {
+                        // If not in a transaction, begin one
+                        if db.is_autocommit() {
+                            db.exec(c"BEGIN")
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    AutocommitMode::Legacy => {
+                        // Legacy mode doesn't change transaction state
+                        Ok(())
                     }
                 }
-                AutocommitMode::Disabled => {
-                    // If not in a transaction, begin one
-                    if db.is_autocommit() {
-                        db._exec(c"BEGIN", vm)?;
-                    }
-                }
-                AutocommitMode::Legacy => {
-                    // Legacy mode doesn't change transaction state
-                }
-            }
-            Ok(())
+            };
+            result.map_err(|err| err.into_exception(vm))
         }
 
         #[pygetset]
@@ -2087,18 +2113,8 @@ mod _sqlite3 {
             let db = stmt.database(&zelf.connection, vm)?;
 
             // Only legacy transaction control starts implicit DML transactions.
-            if stmt.is_dml
-                && db.is_autocommit()
-                && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
-            {
-                db.begin_transaction(
-                    zelf.connection
-                        .isolation_level
-                        .deref()
-                        .map(|x| x.to_owned()),
-                    vm,
-                )?;
+            if stmt.is_dml {
+                zelf.connection.begin_transaction(db.raw, vm)?;
             }
 
             let st = stmt.lock();
@@ -2126,18 +2142,18 @@ mod _sqlite3 {
             let detect_types = zelf.connection.detect_types.load(Ordering::Relaxed);
             inner.description = st.columns_description(detect_types, vm)?;
 
-            if ret == SQLITE_ROW {
+            if ret.has_row {
                 drop(st);
                 inner.statement = Some(stmt);
             } else {
                 st.reset();
                 drop(st);
                 if stmt.is_dml {
-                    inner.rowcount += db.changes() as i64;
+                    inner.rowcount += ret.changes as i64;
                 }
             }
 
-            inner.lastrowid = db.lastrowid();
+            inner.lastrowid = ret.lastrowid;
 
             drop(inner);
             Ok(zelf)
@@ -2186,18 +2202,8 @@ mod _sqlite3 {
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
             // Only legacy transaction control starts implicit DML transactions.
-            if stmt.is_dml
-                && db.is_autocommit()
-                && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
-            {
-                db.begin_transaction(
-                    zelf.connection
-                        .isolation_level
-                        .deref()
-                        .map(|x| x.to_owned()),
-                    vm,
-                )?;
+            if stmt.is_dml {
+                zelf.connection.begin_transaction(db.raw, vm)?;
             }
 
             let iter = seq_of_params.iter(vm)?;
@@ -2207,11 +2213,12 @@ mod _sqlite3 {
                 st.bind_parameters(&params, vm)?;
                 zelf.connection.check_open(vm)?;
 
-                let has_row = st.step_row_else_done(vm);
+                let ret = st.step_checked(vm);
                 zelf.connection.check_open(vm)?;
-                if !has_row? {
+                let ret = ret?;
+                if !ret.has_row {
                     if stmt.is_dml {
-                        inner.rowcount += db.changes() as i64;
+                        inner.rowcount += ret.changes as i64;
                     }
                     st.reset();
                 }
@@ -2251,16 +2258,27 @@ mod _sqlite3 {
 
             db.sql_limit(script.byte_len(), vm)?;
 
-            if *zelf.connection.autocommit.lock() == AutocommitMode::Legacy {
-                db.implicit_commit(vm)?;
-            }
+            let result = zelf.connection.commit_before_script(db.raw, vm);
+            zelf.connection.check_open(vm)?;
+            result?;
 
             let script = script.to_cstring(vm)?;
             let mut sql = script.as_c_str();
             let mut tail = null();
 
-            while let Some(st) = db.prepare(sql, &mut tail, vm)? {
-                while st.step_row_else_done(vm)? {}
+            loop {
+                let statement = db.prepare(sql, &mut tail, vm);
+                zelf.connection.check_open(vm)?;
+                let Some(st) = statement? else {
+                    break;
+                };
+                loop {
+                    let result = st.step_checked(vm);
+                    zelf.connection.check_open(vm)?;
+                    if !result?.has_row {
+                        break;
+                    }
+                }
                 // SAFETY: SQLite advances the pointer w.r.t. `sql`, and `sql` is a valid CStr
                 // without any interior NULs.
                 sql = unsafe { CStr::from_ptr(tail) };
@@ -2578,13 +2596,14 @@ mod _sqlite3 {
                 row.push(val);
             }
 
-            let has_row = st.step_row_else_done(vm);
+            let ret = st.step_checked(vm);
             zelf.connection.check_open(vm)?;
-            if !has_row? {
+            let ret = ret?;
+            if !ret.has_row {
                 st.reset();
                 drop(st);
                 if stmt.is_dml {
-                    inner.rowcount = db.changes() as i64;
+                    inner.rowcount = ret.changes as i64;
                 }
                 inner.statement = None;
             } else {
@@ -3581,10 +3600,14 @@ mod _sqlite3 {
         }
 
         fn _exec(self, sql: &CStr, vm: &VirtualMachine) -> PyResult<()> {
-            self.checked(
-                || unsafe { sqlite3_exec(self.db, sql.as_ptr(), None, null_mut(), null_mut()) },
-                vm,
-            )
+            self.exec(sql).map_err(|err| err.into_exception(vm))
+        }
+
+        fn exec(self, sql: &CStr) -> Result<(), SqliteError> {
+            self.call(|| unsafe {
+                sqlite3_exec(self.db, sql.as_ptr(), None, null_mut(), null_mut())
+            })
+            .map(drop)
         }
 
         fn prepare(
@@ -3641,19 +3664,20 @@ mod _sqlite3 {
             unsafe { sqlite3_last_insert_rowid(self.db) }
         }
 
-        fn implicit_commit(self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.is_autocommit() {
-                Ok(())
-            } else {
-                self._exec(c"COMMIT", vm)
+        // The caller holds the native mutex across checking the mode and the
+        // complete transition, including reopening a PEP 249 transaction.
+        fn end_transaction(self, sql: &CStr, mode: AutocommitMode) -> Result<(), SqliteError> {
+            match mode {
+                AutocommitMode::Legacy if !self.is_autocommit() => self.exec(sql),
+                AutocommitMode::Disabled => {
+                    self.exec(sql)?;
+                    self.exec(c"BEGIN")
+                }
+                _ => Ok(()),
             }
         }
 
-        fn begin_transaction(
-            self,
-            isolation_level: Option<PyStrRef>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn begin_transaction(self, isolation_level: Option<PyStrRef>) -> Result<(), SqliteError> {
             let Some(isolation_level) = isolation_level else {
                 return Ok(());
             };
@@ -3663,7 +3687,7 @@ mod _sqlite3 {
             s.push(b'\0');
             // SAFETY: isolation_level is checked for interior NULs on construction
             let cs = unsafe { CStr::from_bytes_with_nul_unchecked(&s) };
-            self._exec(cs, vm)
+            self.exec(cs)
         }
 
         fn interrupt(self) {
@@ -3746,6 +3770,12 @@ mod _sqlite3 {
         st: *mut sqlite3_stmt,
     }
 
+    struct SqliteStep {
+        has_row: bool,
+        changes: c_int,
+        lastrowid: i64,
+    }
+
     impl From<*mut sqlite3_stmt> for SqliteStatementRaw {
         fn from(st: *mut sqlite3_stmt) -> Self {
             Self { st }
@@ -3753,18 +3783,26 @@ mod _sqlite3 {
     }
 
     impl SqliteStatementRaw {
-        fn step(self) -> Result<c_int, SqliteError> {
-            SqliteRaw::from(self).call(|| unsafe { sqlite3_step(self.st) })
+        fn step(self) -> Result<SqliteStep, SqliteError> {
+            let db = SqliteRaw::from(self);
+            let _guard = db.lock();
+            let ret = db.call(|| unsafe { sqlite3_step(self.st) })?;
+            // These values belong to the connection, not the statement. Another
+            // cursor must not overwrite them between step and the snapshot.
+            Ok(SqliteStep {
+                has_row: ret == SQLITE_ROW,
+                changes: db.changes(),
+                lastrowid: db.lastrowid(),
+            })
         }
 
-        fn step_row_else_done(self, vm: &VirtualMachine) -> PyResult<bool> {
+        fn step_checked(self, vm: &VirtualMachine) -> PyResult<SqliteStep> {
             let ret = self.step();
 
             if let Some(exc) = unsafe { user_function_exception().swap(None) } {
                 Err(exc)
             } else {
-                ret.map(|ret| ret == SQLITE_ROW)
-                    .map_err(|err| err.into_exception(vm))
+                ret.map_err(|err| err.into_exception(vm))
             }
         }
 
