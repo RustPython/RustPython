@@ -278,9 +278,104 @@ mod _functools {
         flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
     )]
     impl PyPartial {
-        #[extend_class]
-        fn extend_pyclass(_ctx: &Context, class: &'static Py<PyType>) {
-            class.slots.vectorcall.store(Some(Self::vectorcall));
+        #[pyslot]
+        fn vectorcall(
+            zelf: &PyObject,
+            args: Vec<PyObjectRef>,
+            nargs: usize,
+            kwnames: Option<&[PyObjectRef]>,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let zelf = zelf.downcast_ref::<Self>().unwrap();
+            // Keep the call's state alive before keyword lookups can execute
+            // __hash__/__eq__ and replace it through __setstate__.
+            let func = zelf.func.load_owned();
+            let stored_args = zelf.args.load_owned();
+            let keywords = zelf.keywords.load_owned();
+            let phcount = zelf.phcount.load(Ordering::Relaxed);
+
+            // Check if we have enough args to fill placeholders
+            if nargs < phcount {
+                return Err(vm.new_type_error(format!(
+                    "missing positional arguments in 'partial' call; expected at least {phcount}, got {nargs}"
+                )));
+            }
+
+            // Build combined args, replacing placeholders
+            let mut combined_args = Vec::with_capacity(stored_args.as_slice().len() + args.len());
+            let mut new_args_iter = args[..nargs].iter();
+
+            for stored_arg in stored_args.as_slice() {
+                if is_placeholder(stored_arg) {
+                    // Replace placeholder with next new arg
+                    if let Some(new_arg) = new_args_iter.next() {
+                        combined_args.push(new_arg.clone());
+                    } else {
+                        // This shouldn't happen if phcount check passed
+                        combined_args.push(stored_arg.clone());
+                    }
+                } else {
+                    combined_args.push(stored_arg.clone());
+                }
+            }
+            // Append remaining new args
+            combined_args.extend(new_args_iter.cloned());
+            let combined_nargs = combined_args.len();
+
+            let kwnames = kwnames.unwrap_or_default();
+            if func.class().slots.vectorcall.load().is_none() {
+                // FuncArgs callables retain their existing keyword binding path.
+                // In particular, do not introduce vectorcall's hash callbacks
+                // when the wrapped callable does not support vectorcall.
+                let mut kwargs = KwArgs::default();
+                for (key, value) in keywords.items_vec() {
+                    let key = key
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                    kwargs.insert(key.as_wtf8().to_owned(), value);
+                }
+                for (key, value) in kwnames.iter().zip(&args[nargs..]) {
+                    let key = key
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                    kwargs.insert(key.as_wtf8().to_owned(), value.clone());
+                }
+                return func.call(FuncArgs::new(combined_args, kwargs), vm);
+            }
+            if keywords.is_empty() {
+                combined_args.extend_from_slice(&args[nargs..]);
+                return func.vectorcall(combined_args, combined_nargs, Some(kwnames), vm);
+            }
+
+            // Like partial_vectorcall, copy stored keywords only when an incoming
+            // key replaces one. New keys remain a tail, preserving their identity
+            // and avoiding extra hash callbacks from an intermediate dictionary.
+            let mut merged_keywords = None;
+            let mut tail_names = Vec::new();
+            let mut tail_values = Vec::new();
+            for (key, value) in kwnames.iter().zip(&args[nargs..]) {
+                let hash = PyDict::hash_or_unhashable(&**key, vm)?;
+                if keywords.entries.contains(vm, &**key, hash)? {
+                    let merged = merged_keywords.get_or_insert_with(|| keywords.copy());
+                    merged.inner_setitem(&**key, value.clone(), vm)?;
+                } else {
+                    tail_names.push(key.clone());
+                    tail_values.push(value.clone());
+                }
+            }
+
+            let merged = merged_keywords.as_ref().unwrap_or(&keywords);
+            let mut combined_names = Vec::with_capacity(merged.__len__() + tail_names.len());
+            for (key, value) in merged.items_vec() {
+                key.downcast_ref::<PyStr>()
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                combined_names.push(key);
+                combined_args.push(value);
+            }
+            combined_names.extend(tail_names);
+            combined_args.extend(tail_values);
+
+            func.vectorcall(combined_args, combined_nargs, Some(&combined_names), vm)
         }
 
         #[pygetset]
@@ -548,105 +643,6 @@ mod _functools {
                 values.push(value);
             }
             Self::vectorcall(zelf.as_object(), values, nargs, Some(&kwnames), vm)
-        }
-    }
-
-    impl PyPartial {
-        fn vectorcall(
-            zelf: &PyObject,
-            args: Vec<PyObjectRef>,
-            nargs: usize,
-            kwnames: Option<&[PyObjectRef]>,
-            vm: &VirtualMachine,
-        ) -> PyResult {
-            let zelf = zelf.downcast_ref::<Self>().unwrap();
-            // Keep the call's state alive before keyword lookups can execute
-            // __hash__/__eq__ and replace it through __setstate__.
-            let func = zelf.func.load_owned();
-            let stored_args = zelf.args.load_owned();
-            let keywords = zelf.keywords.load_owned();
-            let phcount = zelf.phcount.load(Ordering::Relaxed);
-
-            // Check if we have enough args to fill placeholders
-            if nargs < phcount {
-                return Err(vm.new_type_error(format!(
-                    "missing positional arguments in 'partial' call; expected at least {phcount}, got {nargs}"
-                )));
-            }
-
-            // Build combined args, replacing placeholders
-            let mut combined_args = Vec::with_capacity(stored_args.as_slice().len() + args.len());
-            let mut new_args_iter = args[..nargs].iter();
-
-            for stored_arg in stored_args.as_slice() {
-                if is_placeholder(stored_arg) {
-                    // Replace placeholder with next new arg
-                    if let Some(new_arg) = new_args_iter.next() {
-                        combined_args.push(new_arg.clone());
-                    } else {
-                        // This shouldn't happen if phcount check passed
-                        combined_args.push(stored_arg.clone());
-                    }
-                } else {
-                    combined_args.push(stored_arg.clone());
-                }
-            }
-            // Append remaining new args
-            combined_args.extend(new_args_iter.cloned());
-            let combined_nargs = combined_args.len();
-
-            let kwnames = kwnames.unwrap_or_default();
-            if func.class().slots.vectorcall.load().is_none() {
-                // FuncArgs callables retain their existing keyword binding path.
-                // In particular, do not introduce vectorcall's hash callbacks
-                // when the wrapped callable does not support vectorcall.
-                let mut kwargs = KwArgs::default();
-                for (key, value) in keywords.items_vec() {
-                    let key = key
-                        .downcast_ref::<PyStr>()
-                        .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                    kwargs.insert(key.as_wtf8().to_owned(), value);
-                }
-                for (key, value) in kwnames.iter().zip(&args[nargs..]) {
-                    let key = key.downcast_ref::<PyStr>().unwrap();
-                    kwargs.insert(key.as_wtf8().to_owned(), value.clone());
-                }
-                return func.call(FuncArgs::new(combined_args, kwargs), vm);
-            }
-            if keywords.is_empty() {
-                combined_args.extend_from_slice(&args[nargs..]);
-                return func.vectorcall(combined_args, combined_nargs, Some(kwnames), vm);
-            }
-
-            // Like partial_vectorcall, copy stored keywords only when an incoming
-            // key replaces one. New keys remain a tail, preserving their identity
-            // and avoiding extra hash callbacks from an intermediate dictionary.
-            let mut merged_keywords = None;
-            let mut tail_names = Vec::new();
-            let mut tail_values = Vec::new();
-            for (key, value) in kwnames.iter().zip(&args[nargs..]) {
-                let hash = PyDict::hash_or_unhashable(&**key, vm)?;
-                if keywords.entries.contains(vm, &**key, hash)? {
-                    let merged = merged_keywords.get_or_insert_with(|| keywords.copy());
-                    merged.inner_setitem(&**key, value.clone(), vm)?;
-                } else {
-                    tail_names.push(key.clone());
-                    tail_values.push(value.clone());
-                }
-            }
-
-            let merged = merged_keywords.as_ref().unwrap_or(&keywords);
-            let mut combined_names = Vec::with_capacity(merged.__len__() + tail_names.len());
-            for (key, value) in merged.items_vec() {
-                key.downcast_ref::<PyStr>()
-                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                combined_names.push(key);
-                combined_args.push(value);
-            }
-            combined_names.extend(tail_names);
-            combined_args.extend(tail_values);
-
-            func.vectorcall(combined_args, combined_nargs, Some(&combined_names), vm)
         }
     }
 
