@@ -362,3 +362,450 @@ with cx.blobopen("blobindices", "b", 1) as blob:
     with test.assertRaisesRegex(OverflowError, "^index conversion failed$"):
         blob[BrokenBlobIndex()] = 0
     assert blob[:] == b"Abc"
+
+
+import sqlite3
+
+
+def statement_cache_reuse():
+    for capacity, expected in ((0, 3), (-1, 3), (2, 1), (None, 1)):
+        options = {} if capacity is None else {"cached_statements": capacity}
+        with sqlite3.connect(":memory:", **options) as connection:
+            prepared = []
+
+            def authorizer(action, *args):
+                if action == sqlite3.SQLITE_SELECT:
+                    prepared.append(action)
+                return sqlite3.SQLITE_OK
+
+            connection.set_authorizer(authorizer)
+            for parameter in (1, 2, 3):
+                assert connection.execute("SELECT ?", (parameter,)).fetchall() == [
+                    (parameter,)
+                ]
+            assert len(prepared) == expected
+            if capacity == 2:
+                prepared.clear()
+                for value in (1, 2, 1, 3, 2):
+                    assert connection.execute(f"SELECT {value}").fetchall() == [
+                        (value,)
+                    ]
+                assert len(prepared) == 4
+        connection.close()
+
+
+statement_cache_reuse()
+
+
+def cache_reprepare_with_authorizer():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE words(word TEXT COLLATE NOCASE)")
+    connection.execute("CREATE INDEX word_index ON words(word)")
+    connection.executemany("INSERT INTO words VALUES (?)", [("alpha",), ("beta",)])
+    sql = "SELECT word FROM words WHERE word LIKE ?"
+    assert connection.execute(sql, ("a%",)).fetchall() == [("alpha",)]
+    authorizations = []
+
+    def authorizer(action, *args):
+        if action == sqlite3.SQLITE_SELECT and not authorizations:
+            authorizations.append(True)
+        return sqlite3.SQLITE_OK
+
+    connection.set_authorizer(authorizer)
+    for prefix, result in (("b%", "beta"), ("a%", "alpha")):
+        authorizations.clear()
+        assert connection.execute(sql, (prefix,)).fetchall() == [(result,)]
+        assert authorizations == [True]
+    connection.execute("ALTER TABLE words ADD COLUMN extra")
+    authorizations.clear()
+    assert connection.execute(sql, ("b%",)).fetchall() == [("beta",)]
+    assert authorizations == [True]
+    connection.close()
+
+
+cache_reprepare_with_authorizer()
+
+
+def statement_cache_connection_lifetime():
+    # CPython 3.14 can crash when an adapter closes its connection.
+    if sys.implementation.name != "rustpython":
+        return
+    test = unittest.TestCase()
+    for phase in ("bind", "step", "fetch", "iterate"):
+        connection = sqlite3.connect(":memory:")
+        connection.execute("CREATE TABLE t(x)")
+
+        def change_connection():
+            connection.close()
+
+        class Parameter:
+            def __conform__(self, protocol):
+                change_connection()
+                return 1
+
+        def change_on(value):
+            if phase == "step" or value == 2:
+                change_connection()
+            return value
+
+        def parameters():
+            yield (1,)
+            change_connection()
+            yield (2,)
+
+        connection.create_function("change_on", 1, change_on)
+        with test.assertRaises(sqlite3.ProgrammingError):
+            if phase == "bind":
+                connection.execute("SELECT ?", (Parameter(),))
+            elif phase == "step":
+                connection.execute("SELECT change_on(1)")
+            elif phase == "fetch":
+                cursor = connection.execute(
+                    "SELECT change_on(1) UNION ALL SELECT change_on(2)"
+                )
+                cursor.fetchone()
+            else:
+                connection.executemany("INSERT INTO t VALUES (?)", parameters())
+        connection.close()
+
+
+statement_cache_connection_lifetime()
+
+
+def statement_cache_deferred_cleanup():
+    # CPython can block when closing a populated cache from a callback's thread.
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+
+    test = unittest.TestCase()
+    for action in ("close", "reinit"):
+        for autocommit in (sqlite3.LEGACY_TRANSACTION_CONTROL, False):
+            connection = sqlite3.connect(
+                ":memory:", check_same_thread=False, autocommit=autocommit
+            )
+            connection.execute("SELECT 123").fetchall()
+            traced = []
+            connection.set_trace_callback(traced.append)
+            completed = []
+            workers = []
+            failures = []
+
+            def change_connection():
+                try:
+                    if action == "close":
+                        connection.close()
+                    else:
+                        connection.__init__(":memory:", check_same_thread=False)
+                except Exception as error:
+                    failures.append(error)
+
+            def callback():
+                worker = threading.Thread(target=change_connection, daemon=True)
+                workers.append(worker)
+                worker.start()
+                worker.join(5)
+                completed.append(not worker.is_alive())
+                return 1
+
+            connection.create_function("callback", 0, callback)
+            if action == "close":
+                with test.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute("SELECT callback()")
+            else:
+                assert connection.execute("SELECT callback()").fetchall() == [(1,)]
+                assert connection.execute("SELECT 456").fetchall() == [(456,)]
+            for worker in workers:
+                worker.join(5)
+                assert not worker.is_alive()
+            assert not failures, failures
+            assert completed == [True], (action, autocommit)
+            if autocommit is False:
+                assert "ROLLBACK" in traced, traced
+            connection.close()
+
+
+def concurrent_sqlite_error_snapshots():
+    # CPython also races when reading the connection's last error after a call.
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False, autocommit=True)
+    for index in range(4):
+        connection.execute(f"CREATE TABLE t{index}(x UNIQUE)")
+        connection.execute(f"INSERT INTO t{index} VALUES (1)")
+
+    for prepare in (True, False):
+        barrier = threading.Barrier(4)
+        failures = []
+        completed = [0] * 4
+
+        def worker(index):
+            if prepare:
+                sql = f"SELECT * FROM missing_table_{index}"
+                expected = (
+                    sqlite3.OperationalError,
+                    f"no such table: missing_table_{index}",
+                    sqlite3.SQLITE_ERROR,
+                )
+            else:
+                sql = f"INSERT INTO t{index} VALUES (1)"
+                expected = (
+                    sqlite3.IntegrityError,
+                    f"UNIQUE constraint failed: t{index}.x",
+                    sqlite3.SQLITE_CONSTRAINT_UNIQUE,
+                )
+            barrier.wait()
+            for _ in range(1000):
+                try:
+                    connection.execute(sql)
+                except sqlite3.Error as error:
+                    actual = (type(error), str(error), error.sqlite_errorcode)
+                    if actual == expected:
+                        completed[index] += 1
+                        continue
+                    failures.append((expected, actual))
+                else:
+                    failures.append((expected, "no error"))
+                break
+
+        workers = [
+            threading.Thread(target=worker, args=(i,), daemon=True) for i in range(4)
+        ]
+        for thread in workers:
+            thread.start()
+        for thread in workers:
+            thread.join(10)
+            assert not thread.is_alive(), "concurrent SQLite call blocked"
+        assert not failures, failures
+        assert completed == [1000] * 4, completed
+    connection.close()
+
+
+statement_cache_deferred_cleanup()
+concurrent_sqlite_error_snapshots()
+
+
+def script_stops_after_close():
+    # CPython can crash when its connection closes inside a callback.
+    if sys.implementation.name != "rustpython":
+        return
+    test = unittest.TestCase()
+    for phase in ("prepare", "step", "commit"):
+        connection = sqlite3.connect(":memory:")
+        continued = []
+        connection.create_function("tail", 0, lambda: continued.append(True))
+        connection.create_function("closeme", 0, connection.close)
+        if phase == "prepare":
+
+            def authorizer(*args):
+                connection.close()
+                return sqlite3.SQLITE_OK
+
+            connection.set_authorizer(authorizer)
+        elif phase == "commit":
+            connection.execute("CREATE TABLE t(x)")
+            connection.execute("INSERT INTO t VALUES (1)")
+            connection.set_trace_callback(lambda sql: connection.close())
+        script = (
+            "SELECT closeme(); SELECT tail();" if phase == "step" else "SELECT tail();"
+        )
+        with test.assertRaises(sqlite3.ProgrammingError):
+            connection.executescript(script)
+        assert not continued, phase
+
+
+def concurrent_sqlite_results():
+    # CPython also races when reading connection-wide result metadata/errors.
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False, autocommit=True)
+    connection.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, value)")
+    connection.executemany("INSERT INTO t VALUES (?, 0)", [(i,) for i in range(4)])
+    for operation in ("insert", "update", "many", "returning", "backup"):
+        barrier = threading.Barrier(4, timeout=10)
+        failures = []
+        completed = [0] * 4
+
+        def worker(index):
+            source = sqlite3.connect(":memory:") if operation == "backup" else None
+            try:
+                barrier.wait()
+                for iteration in range(500):
+                    expected = index + 1
+                    if source is not None:
+                        try:
+                            source.backup(connection, name=f"missing_{index}")
+                        except sqlite3.OperationalError as error:
+                            assert str(error) == f"unknown database missing_{index}", (
+                                str(error)
+                            )
+                            assert error.sqlite_errorcode == sqlite3.SQLITE_ERROR
+                        else:
+                            raise AssertionError("backup accepted an unknown schema")
+                    elif operation == "insert":
+                        expected = 1000 + index * 10000 + iteration
+                        cursor = connection.execute(
+                            "INSERT INTO t VALUES (?, 0)", (expected,)
+                        )
+                        assert cursor.lastrowid == expected, (
+                            expected,
+                            cursor.lastrowid,
+                        )
+                        assert cursor.rowcount == 1
+                    else:
+                        sql = "UPDATE t SET value=value+1 WHERE id < ?"
+                        if operation == "many":
+                            cursor = connection.executemany(
+                                sql, [(expected,), (expected,)]
+                            )
+                            expected *= 2
+                        else:
+                            if operation == "returning":
+                                sql += " RETURNING id"
+                            cursor = connection.execute(sql, (expected,))
+                            cursor.fetchall()
+                        assert cursor.rowcount == expected, (
+                            operation,
+                            expected,
+                            cursor.rowcount,
+                        )
+                    assert not connection.in_transaction
+                    assert connection.total_changes >= 4
+                    completed[index] += 1
+            except Exception as error:
+                failures.append(error)
+            finally:
+                if source is not None:
+                    source.close()
+
+        workers = [
+            threading.Thread(target=worker, args=(i,), daemon=True) for i in range(4)
+        ]
+        for worker_thread in workers:
+            worker_thread.start()
+        for worker_thread in workers:
+            worker_thread.join(15)
+            assert not worker_thread.is_alive(), operation
+        assert not failures, failures
+        assert completed == [500] * 4, (operation, completed)
+    connection.close()
+
+
+def sqlite_callbacks_use_calling_thread():
+    import threading
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.create_function("exception", 0, lambda: str(sys.exception()))
+    traced = []
+    connection.set_trace_callback(lambda sql: traced.append(str(sys.exception())))
+    results = []
+
+    def worker():
+        try:
+            raise ValueError("worker")
+        except ValueError:
+            results.append(connection.execute("SELECT exception()").fetchone()[0])
+
+    try:
+        raise RuntimeError("main")
+    except RuntimeError:
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(5)
+        assert not thread.is_alive()
+        assert str(sys.exception()) == "main"
+    assert results == ["worker"], results
+    assert traced == ["worker"], traced
+    connection.close()
+
+
+sqlite_callbacks_use_calling_thread()
+
+
+def concurrent_sqlite_transactions():
+    if sys.implementation.name != "rustpython":
+        return
+    import threading
+    import time
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.execute("CREATE TABLE t(x)")
+    queries = ("INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)")
+    for query in queries:
+        connection.execute(query)
+    connection.rollback()
+    entered = threading.Event()
+    started = threading.Event()
+    failures = []
+
+    def trace(sql):
+        if sql.startswith("BEGIN") and not entered.is_set():
+            entered.set()
+            started.wait(5)
+            # Let the competing cached execute reach its implicit BEGIN check.
+            time.sleep(0.05)
+
+    def insert():
+        try:
+            assert entered.wait(5)
+            started.set()
+            connection.execute(queries[1])
+        except Exception as error:
+            failures.append(error)
+
+    connection.set_trace_callback(trace)
+    worker = threading.Thread(target=insert, daemon=True)
+    worker.start()
+    connection.execute(queries[0])
+    worker.join(5)
+    assert not worker.is_alive()
+    assert not failures, failures
+    assert connection.execute("SELECT count(*) FROM t").fetchone() == (2,)
+    connection.set_trace_callback(None)
+    connection.rollback()
+
+    # Either ordering of legacy DML and autocommit=False must be rollbackable.
+    barrier = threading.Barrier(3, timeout=10)
+    rounds = 500
+
+    def run(setter):
+        for _ in range(rounds):
+            barrier.wait()
+            try:
+                if setter:
+                    connection.autocommit = False
+                else:
+                    connection.execute(queries[0])
+            except Exception as error:
+                failures.append(error)
+            barrier.wait()
+
+    workers = [
+        threading.Thread(target=run, args=(setter,), daemon=True)
+        for setter in (False, True)
+    ]
+    for worker in workers:
+        worker.start()
+    remaining = []
+    for _ in range(rounds):
+        connection.autocommit = True
+        connection.autocommit = sqlite3.LEGACY_TRANSACTION_CONTROL
+        barrier.wait()
+        barrier.wait()
+        connection.rollback()
+        remaining.append(connection.execute("SELECT count(*) FROM t").fetchone()[0])
+    for worker in workers:
+        worker.join(5)
+        assert not worker.is_alive()
+    assert not failures, failures
+    assert not any(remaining), remaining
+    connection.close()
+
+
+script_stops_after_close()
+concurrent_sqlite_results()
+concurrent_sqlite_transactions()
