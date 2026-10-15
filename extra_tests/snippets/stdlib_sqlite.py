@@ -1015,3 +1015,30 @@ def reinit_during_isolation_cleanup():
 
 
 reinit_during_isolation_cleanup()
+
+
+def reinit_restores_factories_after_callback_cleanup():
+    connection = sqlite.connect(":memory:")
+    events = []
+
+    class Callback:
+        def __call__(self, sql):
+            pass
+
+        def __del__(self):
+            connection.row_factory = sqlite.Row
+            connection.text_factory = bytes
+            events.append("factories changed")
+
+    connection.set_trace_callback(Callback())
+    try:
+        connection.__init__(":memory:")
+        assert events == ["factories changed"]
+        assert connection.row_factory is None
+        assert connection.text_factory is str
+        assert connection.execute("SELECT 'hello'").fetchone() == ("hello",)
+    finally:
+        connection.close()
+
+
+reinit_restores_factories_after_callback_cleanup()

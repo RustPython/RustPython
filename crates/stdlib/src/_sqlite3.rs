@@ -1105,20 +1105,26 @@ mod _sqlite3 {
                 ..
             } = args;
 
+            let default_text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
             loop {
                 let mut current = zelf.db.lock();
                 if current.is_none() {
                     let previous = unsafe { zelf.isolation_level.swap(isolation_level.0.clone()) };
+                    let row_factory = unsafe { zelf.row_factory.swap(None) };
+                    let text_factory =
+                        unsafe { zelf.text_factory.swap(default_text_factory.clone()) };
                     if previous.as_ref().is_some_and(|previous| {
                         !isolation_level
                             .0
                             .as_ref()
                             .is_some_and(|requested| previous.is(requested))
-                    }) {
-                        // A str subclass can finalize too. Keep the requested
-                        // value alive, but retire other values before publication.
+                    }) || row_factory.is_some()
+                        || !text_factory.is(&default_text_factory)
+                    {
+                        // Factories and str subclasses can finalize too. Retire
+                        // them before publication, then recheck any reentrant changes.
                         drop(current);
-                        with_deferred_drops(|| drop(previous));
+                        with_deferred_drops(|| drop((previous, row_factory, text_factory)));
                         continue;
                     }
 
