@@ -414,8 +414,36 @@ def _find_import_insert_line(tree: ast.Module) -> int:
     return 0
 
 
+def _expand_inline_class_suites(contents: str, patches: Patches) -> str:
+    """Make room for inherited overrides without changing existing class bodies."""
+    tree = ast.parse(contents)
+    lines = contents.splitlines()
+    replacements = []
+    for node in _iter_module_classes(tree):
+        methods = {method.name for method in _iter_class_methods(node)}
+        inherited = set(patches.get(node.name, {})) - methods - {"__self__"}
+        if not inherited:
+            continue
+        first = node.body[0]
+        line = lines[first.lineno - 1].encode("utf-8")
+        header = line[: first.col_offset].decode("utf-8")
+        if not header.strip():
+            continue
+        body = line[first.col_offset :].decode("utf-8")
+        replacements.append(
+            (
+                first.lineno - 1,
+                header.rstrip() + "\n" + " " * (node.col_offset + 4) + body,
+            )
+        )
+    for index, replacement in sorted(replacements, reverse=True):
+        lines[index] = replacement
+    return "\n".join(lines) + "\n"
+
+
 def apply_patches(contents: str, patches: Patches) -> str:
     """Apply patches to file contents and return modified contents."""
+    contents = _expand_inline_class_suites(contents, patches)
     tree = ast.parse(contents)
     lines = contents.splitlines()
 
@@ -436,6 +464,7 @@ def apply_patches(contents: str, patches: Patches) -> str:
         lines.insert(lineno, patch)
 
     joined = "\n".join(lines)
+    ast.parse(joined)
     return f"{joined}\n"
 
 

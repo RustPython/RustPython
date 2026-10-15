@@ -43,6 +43,7 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      update_lib: ${{ steps.check_update_lib.outputs.changed }}
       # WASM demo / notebook / example_projects, independent of rust_code.
       wasm_code: ${{ steps.check_wasm_code.outputs.changed }}
       # Cross-target cargo check is skipped unless the diff can change
@@ -80,6 +81,17 @@ jobs:
             ':extra_tests/snippets/**' \
             ':.github/workflows/ci.yaml' \
           ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if update_lib changed
+        id: check_update_lib
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- ':scripts/update_lib/**' ':.python-version'; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
           else
               echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -209,6 +221,7 @@ jobs:
     env:
       RUST_BACKTRACE: full
       RUN_RUST_TESTS: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+      RUN_UPDATE_LIB_TESTS: ${{ needs.determine_changes.outputs.update_lib == 'true' }}
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -222,10 +235,10 @@ jobs:
     steps:
       - name: Skip rust tests when sources did not change
         if: env.RUN_RUST_TESTS != 'true'
-        run: echo "No rust source changes; required check is green without rebuilding."
+        run: echo "No rust source changes; skipping Rust build and tests."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.RUN_RUST_TESTS == 'true'
+        if: env.RUN_RUST_TESTS == 'true' || (env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux')
         with:
           persist-credentials: false
 
@@ -345,9 +358,19 @@ jobs:
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: env.RUN_RUST_TESTS != 'true' && env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux'
+        with:
+          python-version-file: .python-version
+
       - name: run update_lib tests
-        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
-        run: target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
+        if: (env.RUN_RUST_TESTS == 'true' || env.RUN_UPDATE_LIB_TESTS == 'true') && runner.os == 'Linux'
+        run: |
+          if [ "$RUN_RUST_TESTS" = "true" ]; then
+            target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
+          else
+            python -m unittest update_lib.tests.test_patch_spec update_lib.tests.test_migrate -v
+          fi
         env:
           PYTHONPATH: scripts
 
@@ -1090,7 +1113,7 @@ jobs:
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
-        run: echo "No rust source changes; required check is green without rebuilding."
+        run: echo "No rust source changes; skipping Rust build and tests."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.RUN_WASM_WASI == 'true'
