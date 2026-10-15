@@ -7,18 +7,15 @@ pub(crate) mod ordered_dict {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine, atomic_func,
         builtins::{
-            PyDict, PyGenericAlias, PyMappingProxy, PyStrRef, PyTuple, PyTypeRef,
-            dict::{
-                PyDictItems, set_inner_number_or, set_inner_number_subtract, set_inner_number_xor,
-                set_item_view_number_xor, set_view_number_and,
-            },
+            PyAnyDict, PyDict, PyGenericAlias, PyTypeRef,
+            dict::{PyDictItems, PyDictKeys, PyDictValues},
             iter::builtins_iter,
         },
         class::StaticType,
         common::{hash::PyHash, lock::PyMutex},
         convert::ToPyObject,
         dict_inner::DictKey,
-        function::{ArgIterable, FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+        function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
@@ -27,7 +24,6 @@ pub(crate) mod ordered_dict {
             Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
     };
-    use rustpython_common::wtf8::Wtf8Buf;
     use std::collections::HashMap;
 
     const ODICT_ITER_REVERSED: u8 = 1;
@@ -531,17 +527,17 @@ pub(crate) mod ordered_dict {
 
         #[pymethod]
         fn keys(zelf: PyRef<PyOrderedDict>, vm: &VirtualMachine) -> PyObjectRef {
-            PyODictKeys { od: zelf }.to_pyobject(vm)
+            PyODictKeys::new(zelf).to_pyobject(vm)
         }
 
         #[pymethod]
         fn values(zelf: PyRef<PyOrderedDict>, vm: &VirtualMachine) -> PyObjectRef {
-            PyODictValues { od: zelf }.to_pyobject(vm)
+            PyODictValues::new(zelf).to_pyobject(vm)
         }
 
         #[pymethod]
         fn items(zelf: PyRef<PyOrderedDict>, vm: &VirtualMachine) -> PyObjectRef {
-            PyOrderedDictItems { od: zelf }.to_pyobject(vm)
+            PyOrderedDictItems::new(zelf).to_pyobject(vm)
         }
 
         #[pymethod]
@@ -928,383 +924,129 @@ pub(crate) mod ordered_dict {
         }
     }
 
-    fn odict_view_eq(
-        od: &PyRef<PyOrderedDict>,
-        kind: u8,
-        other: &PyObject,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        if kind == ODICT_ITER_VALUES {
-            return Ok(PyArithmeticValue::NotImplemented);
-        }
-        let set_like = other.fast_isinstance(vm.ctx.types.set_type)
-            || other.fast_isinstance(vm.ctx.types.frozenset_type)
-            || other.class().is(vm.ctx.types.dict_keys_type)
-            || other.class().is(vm.ctx.types.dict_items_type)
-            || other.downcast_ref::<PyODictKeys>().is_some()
-            || other.downcast_ref::<PyOrderedDictItems>().is_some();
-        if !set_like {
-            return Ok(PyArithmeticValue::NotImplemented);
-        }
-        let Ok(other_len) = other.length(vm) else {
-            return Ok(PyArithmeticValue::NotImplemented);
-        };
-        if od.dict.__len__() != other_len {
-            return Ok(PyArithmeticValue::Implemented(false));
-        }
-        let iter_obj = PyODictIter::new(od.clone(), kind).to_pyobject(vm);
-        let a_iter = PyIter::try_from_object(vm, iter_obj)?;
-        for item in a_iter.iter::<PyObjectRef>(vm)? {
-            let item = item?;
-            if !other.sequence_unchecked().contains(&item, vm)? {
-                return Ok(PyArithmeticValue::Implemented(false));
+    #[pyattr]
+    #[pyclass(name = "odict_keys", module = false, base = PyDictKeys, traverse)]
+    #[derive(Debug)]
+    struct PyODictKeys {
+        view: PyDictKeys,
+    }
+
+    impl PyODictKeys {
+        fn new(od: PyRef<PyOrderedDict>) -> Self {
+            let dict = PyAnyDict::from_object(od.as_object())
+                .expect("OrderedDict has a dict payload")
+                .to_owned();
+            Self {
+                view: PyDictKeys::new(dict),
             }
         }
-        Ok(PyArithmeticValue::Implemented(true))
+
+        fn od(&self) -> &Py<PyOrderedDict> {
+            self.view
+                .dict
+                .as_object()
+                .downcast_ref::<PyOrderedDict>()
+                .expect("ordered dict views own an OrderedDict")
+        }
     }
 
-    fn ordered_view_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let a_is_view = a.downcast_ref::<PyODictKeys>().is_some()
-            || a.downcast_ref::<PyOrderedDictItems>().is_some();
-        let (view, other) = if a_is_view { (a, b) } else { (b, a) };
-        set_view_number_and(view, other, vm)
-    }
-
-    fn ordered_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let is_item_view = |obj: &PyObject| {
-            obj.downcast_ref::<PyOrderedDictItems>().is_some()
-                || obj.downcast_ref::<PyDictItems>().is_some()
-        };
-        set_item_view_number_xor(a, b, is_item_view(a) && is_item_view(b), vm)
-    }
-
-    fn ordered_view_repr(
-        view: &PyObject,
-        od: &PyRef<PyOrderedDict>,
-        kind: u8,
-        name: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        let Some(_guard) = ReprGuard::enter(vm, view) else {
-            return Ok(vm.ctx.intern_str("...").to_owned());
-        };
-        // Snapshot the view before calling user-defined repr methods, which
-        // can mutate the underlying ordered dictionary.
-        let iterator = PyODictIter::new(od.clone(), kind).to_pyobject(vm);
-        let items = PyIter::try_from_object(vm, iterator)?
-            .iter::<PyObjectRef>(vm)?
-            .collect::<PyResult<Vec<_>>>()?;
-        let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
-        let mut result = Wtf8Buf::from(format!("{name}("));
-        result.push_wtf8(list_repr.as_wtf8());
-        result.push_str(")");
-        Ok(vm.ctx.new_str(result))
-    }
-
-    #[pyattr]
-    #[pyclass(name = "odict_keys", module = "builtins", unhashable = true, traverse)]
-    #[derive(Debug, PyPayload)]
-    struct PyODictKeys {
-        od: PyRef<PyOrderedDict>,
-    }
-
-    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber, Representable))]
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Iterable))]
     impl Py<PyODictKeys> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            PyODictIter::new(self.od.clone(), ODICT_ITER_KEYS | ODICT_ITER_REVERSED).to_pyobject(vm)
-        }
-
-        #[pygetset]
-        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
-        }
-
-        #[pymethod]
-        fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-            for item in other.iter(vm)? {
-                if self.od.dict.inner_getitem_opt(&*item?, vm)?.is_some() {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-    }
-
-    impl Representable for PyODictKeys {
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            ordered_view_repr(
-                zelf.as_object(),
-                &zelf.od,
-                ODICT_ITER_KEYS,
-                "odict_keys",
-                vm,
-            )
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("use repr instead")
-        }
-    }
-
-    impl AsMapping for PyODictKeys {
-        fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyODictKeys::mapping_downcast(mapping)
-                    .od
-                    .dict
-                    .__len__())),
-                ..PyMappingMethods::NOT_IMPLEMENTED
-            };
-            &AS_MAPPING
-        }
-    }
-
-    impl AsSequence for PyODictKeys {
-        fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyODictKeys::sequence_downcast(seq)
-                    .od
-                    .dict
-                    .__len__())),
-                contains: atomic_func!(|seq, target, vm| {
-                    PyODictKeys::sequence_downcast(seq)
-                        .od
-                        .dict
-                        .inner_getitem_opt(target, vm)
-                        .map(|v| v.is_some())
-                }),
-                ..PySequenceMethods::NOT_IMPLEMENTED
-            };
-            &AS_SEQUENCE
+            PyODictIter::new(self.od().to_owned(), ODICT_ITER_KEYS | ODICT_ITER_REVERSED)
+                .to_pyobject(vm)
         }
     }
 
     impl Iterable for PyODictKeys {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_KEYS).to_pyobject(vm))
-        }
-    }
-
-    impl Comparable for PyODictKeys {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_KEYS, other, vm))
-        }
-    }
-
-    impl AsNumber for PyODictKeys {
-        fn as_number() -> &'static PyNumberMethods {
-            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                subtract: Some(set_inner_number_subtract),
-                and: Some(ordered_view_number_and),
-                xor: Some(set_inner_number_xor),
-                or: Some(set_inner_number_or),
-                ..PyNumberMethods::NOT_IMPLEMENTED
-            };
-            &AS_NUMBER
+            Ok(PyODictIter::new(zelf.od().to_owned(), ODICT_ITER_KEYS).to_pyobject(vm))
         }
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_values", module = "builtins", traverse)]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "odict_values", module = false, base = PyDictValues, traverse)]
+    #[derive(Debug)]
     struct PyODictValues {
-        od: PyRef<PyOrderedDict>,
+        view: PyDictValues,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsMapping, Representable))]
+    impl PyODictValues {
+        fn new(od: PyRef<PyOrderedDict>) -> Self {
+            let dict = PyAnyDict::from_object(od.as_object())
+                .expect("OrderedDict has a dict payload")
+                .to_owned();
+            Self {
+                view: PyDictValues::new(dict),
+            }
+        }
+
+        fn od(&self) -> &Py<PyOrderedDict> {
+            self.view
+                .dict
+                .as_object()
+                .downcast_ref::<PyOrderedDict>()
+                .expect("ordered dict views own an OrderedDict")
+        }
+    }
+
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Iterable))]
     impl Py<PyODictValues> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            PyODictIter::new(self.od.clone(), ODICT_ITER_VALUES | ODICT_ITER_REVERSED)
-                .to_pyobject(vm)
-        }
-
-        #[pygetset]
-        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
-        }
-    }
-
-    impl Representable for PyODictValues {
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            ordered_view_repr(
-                zelf.as_object(),
-                &zelf.od,
-                ODICT_ITER_VALUES,
-                "odict_values",
-                vm,
+            PyODictIter::new(
+                self.od().to_owned(),
+                ODICT_ITER_VALUES | ODICT_ITER_REVERSED,
             )
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("use repr instead")
-        }
-    }
-
-    impl AsMapping for PyODictValues {
-        fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyODictValues::mapping_downcast(mapping)
-                    .od
-                    .dict
-                    .__len__())),
-                ..PyMappingMethods::NOT_IMPLEMENTED
-            };
-            &AS_MAPPING
+            .to_pyobject(vm)
         }
     }
 
     impl Iterable for PyODictValues {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_VALUES).to_pyobject(vm))
-        }
-    }
-
-    impl Comparable for PyODictValues {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_VALUES, other, vm))
+            Ok(PyODictIter::new(zelf.od().to_owned(), ODICT_ITER_VALUES).to_pyobject(vm))
         }
     }
 
     #[pyattr]
-    #[pyclass(name = "odict_items", module = "builtins", unhashable = true, traverse)]
-    #[derive(Debug, PyPayload)]
-    pub(crate) struct PyOrderedDictItems {
-        od: PyRef<PyOrderedDict>,
+    #[pyclass(name = "odict_items", module = false, base = PyDictItems, traverse)]
+    #[derive(Debug)]
+    struct PyOrderedDictItems {
+        view: PyDictItems,
     }
 
-    #[pyclass(with(Iterable, Comparable, AsMapping, AsSequence, AsNumber, Representable))]
+    impl PyOrderedDictItems {
+        fn new(od: PyRef<PyOrderedDict>) -> Self {
+            let dict = PyAnyDict::from_object(od.as_object())
+                .expect("OrderedDict has a dict payload")
+                .to_owned();
+            Self {
+                view: PyDictItems::new(dict),
+            }
+        }
+
+        fn od(&self) -> &Py<PyOrderedDict> {
+            self.view
+                .dict
+                .as_object()
+                .downcast_ref::<PyOrderedDict>()
+                .expect("ordered dict views own an OrderedDict")
+        }
+    }
+
+    #[pyclass(flags(DISALLOW_INSTANTIATION), with(Iterable))]
     impl Py<PyOrderedDictItems> {
         #[pymethod]
         fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
-            PyODictIter::new(self.od.clone(), ODICT_ITER_ITEMS | ODICT_ITER_REVERSED)
+            PyODictIter::new(self.od().to_owned(), ODICT_ITER_ITEMS | ODICT_ITER_REVERSED)
                 .to_pyobject(vm)
-        }
-
-        #[pygetset]
-        fn mapping(&self, vm: &VirtualMachine) -> PyResult<PyMappingProxy> {
-            PyMappingProxy::from_object(self.od.as_object().to_owned(), vm)
-        }
-
-        #[pymethod]
-        fn isdisjoint(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<bool> {
-            for item in other.iter(vm)? {
-                let item = item?;
-                let Some(needle) = item.downcast_ref::<PyTuple>() else {
-                    continue;
-                };
-                if needle.as_slice().len() != 2 {
-                    continue;
-                }
-                let Some(found) = self.od.dict.inner_getitem_opt(&*needle.as_slice()[0], vm)?
-                else {
-                    continue;
-                };
-                if vm.identical_or_equal(&found, &needle.as_slice()[1])? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-    }
-
-    impl Representable for PyOrderedDictItems {
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            ordered_view_repr(
-                zelf.as_object(),
-                &zelf.od,
-                ODICT_ITER_ITEMS,
-                "odict_items",
-                vm,
-            )
-        }
-
-        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            unreachable!("use repr instead")
-        }
-    }
-
-    impl AsMapping for PyOrderedDictItems {
-        fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyOrderedDictItems::mapping_downcast(
-                    mapping
-                )
-                .od
-                .dict
-                .__len__())),
-                ..PyMappingMethods::NOT_IMPLEMENTED
-            };
-            &AS_MAPPING
-        }
-    }
-
-    impl AsSequence for PyOrderedDictItems {
-        fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyOrderedDictItems::sequence_downcast(seq)
-                    .od
-                    .dict
-                    .__len__())),
-                contains: atomic_func!(|seq, target, vm| {
-                    let needle: &Py<PyTuple> = match target.downcast_ref() {
-                        Some(needle) => needle,
-                        None => return Ok(false),
-                    };
-                    if needle.as_slice().len() != 2 {
-                        return Ok(false);
-                    }
-                    let zelf = PyOrderedDictItems::sequence_downcast(seq);
-                    let key = &needle.as_slice()[0];
-                    let Some(found) = zelf.od.dict.inner_getitem_opt(&**key, vm)? else {
-                        return Ok(false);
-                    };
-                    vm.identical_or_equal(&found, &needle.as_slice()[1])
-                }),
-                ..PySequenceMethods::NOT_IMPLEMENTED
-            };
-            &AS_SEQUENCE
         }
     }
 
     impl Iterable for PyOrderedDictItems {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Ok(PyODictIter::new(zelf.od.clone(), ODICT_ITER_ITEMS).to_pyobject(vm))
-        }
-    }
-
-    impl Comparable for PyOrderedDictItems {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyComparisonValue> {
-            op.eq_only(|| odict_view_eq(&zelf.od, ODICT_ITER_ITEMS, other, vm))
-        }
-    }
-
-    impl AsNumber for PyOrderedDictItems {
-        fn as_number() -> &'static PyNumberMethods {
-            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-                subtract: Some(set_inner_number_subtract),
-                and: Some(ordered_view_number_and),
-                xor: Some(ordered_item_view_number_xor),
-                or: Some(set_inner_number_or),
-                ..PyNumberMethods::NOT_IMPLEMENTED
-            };
-            &AS_NUMBER
+            Ok(PyODictIter::new(zelf.od().to_owned(), ODICT_ITER_ITEMS).to_pyobject(vm))
         }
     }
 }
