@@ -1,4 +1,4 @@
-"""Regress RustPython venv aliases selecting the wrong base interpreter.
+"""Check venv copies and symlinks against CPython's base-executable lookup.
 
 Standalone snippet: no third-party packages, network, or persistent files.
 The runtime must provide venv and its usual subprocess/filesystem support.
@@ -9,8 +9,8 @@ import sys
 
 
 def main():
-    # This tests RustPython's native executable identity and its persisted base
-    # metadata. Windows uses a separate launcher and Scripts/python.exe layout.
+    # This tests RustPython's native executable identity. Windows uses a
+    # separate launcher and Scripts/python.exe layout.
     if sys.implementation.name != "rustpython":
         print("SKIP: RustPython-specific venv base-executable regression")
         return
@@ -53,8 +53,8 @@ def main():
         unrelated_cwd = work / "unrelated-cwd"
         unrelated_cwd.mkdir()
 
-        # A nonstandard primary name makes guessed home/rustpython or
-        # home/python3 names insufficient; venv must preserve its actual base.
+        # A nonstandard primary name distinguishes home/<invoked name> from
+        # a symlink's actual target.
         base = base_home / "rustpython-base"
         source = os.path.realpath(sys.executable)
         try:
@@ -62,8 +62,8 @@ def main():
         except OSError:
             shutil.copy2(source, base)
 
-        # This path exists and is executable, but is deliberately not our
-        # interpreter. Missing-file-only fallback logic must not select it.
+        # CPython selects this existing home/python for a copied python alias,
+        # but follows the real target for a symlinked alias.
         decoy = base_home / "python"
         decoy.write_text(
             "#!/bin/sh\n"
@@ -96,11 +96,13 @@ def main():
             )
             return result.stdout
 
-        def check_identity(executable, prefix=None):
+        def check_identity(executable, prefix=None, expected_base=base):
             result = json.loads(run([executable, "-I", "-c", identity_code]))
             assert result["implementation"] == "rustpython", result
             assert result["base_exists"], result
-            assert os.path.realpath(result["base"]) == os.path.realpath(base), result
+            assert os.path.realpath(result["base"]) == os.path.realpath(
+                expected_base
+            ), result
             if prefix is not None:
                 assert os.path.realpath(result["prefix"]) == os.path.realpath(prefix), (
                     result
@@ -114,16 +116,16 @@ def main():
             run([base, "-I", "-m", "venv", "--without-pip", f"--{outer_mode}", outer])
             check_identity(outer / "bin" / base.name, outer)
             alias = outer / "bin" / "python"
-            check_identity(alias, outer)
+            check_identity(alias, outer, decoy if outer_mode == "copies" else base)
 
             nested_environments = []
             for nested_mode in ("copies", "symlinks"):
                 nested = work / f"nested-{outer_mode}-{nested_mode}"
-                # The common python alias is the trigger. Both modes must use
-                # the original base even though unrelated home/python exists.
+                # A copied alias selects home/python, so create through the
+                # primary name. A symlinked alias resolves the original base.
                 run(
                     [
-                        alias,
+                        outer / "bin" / base.name if outer_mode == "copies" else alias,
                         "-I",
                         "-m",
                         "venv",
@@ -133,22 +135,22 @@ def main():
                     ]
                 )
                 check_identity(nested / "bin" / base.name, nested)
-                check_identity(nested / "bin" / "python", nested)
-                nested_environments.append(nested)
+                expected_base = decoy if nested_mode == "copies" else base
+                check_identity(nested / "bin" / "python", nested, expected_base)
+                nested_environments.append((nested, expected_base))
 
-            # A copied nested environment's creator metadata names its parent
-            # venv. Stable base metadata must remain usable after that parent
-            # and its copied interpreter are gone.
+            # Creator metadata names the parent venv, but home and final-link
+            # lookup remain usable after that parent and its interpreter go.
             shutil.rmtree(outer)
-            for nested in nested_environments:
+            for nested, expected_base in nested_environments:
                 check_identity(nested / "bin" / base.name, nested)
-                check_identity(nested / "bin" / "python", nested)
+                check_identity(nested / "bin" / "python", nested, expected_base)
                 shutil.rmtree(nested)
             print(
                 f"PASS: outer {outer_mode}; nested copies/symlinks survive parent deletion"
             )
 
-    print("PASS: nested venv aliases preserve the RustPython base interpreter")
+    print("PASS: nested venv aliases follow CPython base-executable lookup")
 
 
 if __name__ == "__main__":

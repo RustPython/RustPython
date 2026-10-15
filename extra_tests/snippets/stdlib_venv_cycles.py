@@ -1,4 +1,4 @@
-"""Malformed venv metadata must not select another installed interpreter."""
+"""Creator metadata does not override the venv home-based executable lookup."""
 
 import os
 import sys
@@ -45,5 +45,5 @@ if sys.implementation.name == "rustpython" and os.name == "posix":
                 timeout=10,
                 check=True,
             )
-            assert json.loads(result.stdout) == str(executable), result.stdout
-    print("PASS: cyclic venv metadata preserves interpreter identity")
+            assert json.loads(result.stdout) == str(decoy), result.stdout
+    print("PASS: cyclic creator metadata does not override venv home")

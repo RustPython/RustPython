@@ -379,80 +379,35 @@ fn resolve_executable_symlinks(executable: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Follow venv creator metadata for copied aliases and real targets for symlinks.
-/// A generic `home/python` may belong to CPython rather than this interpreter.
-fn resolve_venv_base_executable(executable: &Path) -> Option<PathBuf> {
-    let mut current = executable.to_path_buf();
-    let mut visited = std::collections::HashSet::new();
-    // Configurations can refer to parent environments; malformed cycles must
-    // not turn interpreter startup into an unbounded traversal.
-    for _ in 0..32 {
-        if !visited.insert(current.clone()) {
-            return None;
-        }
-        #[cfg(unix)]
-        let resolved = resolve_executable_symlinks(&current)?;
-        #[cfg(not(unix))]
-        let resolved = rustpython_host_env::fs::canonicalize(&current).ok()?;
-        if !resolved.is_file() {
-            return None;
-        }
-        let directory = current.parent()?.to_path_buf();
-        let (prefix, home) = detect_venv(Some(&directory));
-        let Some(prefix) = prefix else {
-            if resolved != current {
-                current = resolved;
-                continue;
-            }
-            return Some(resolved);
-        };
-        let real_prefix = rustpython_host_env::fs::canonicalize(&prefix).ok()?;
-        // Compare physical locations without replacing the lexical executable
-        // spelling preserved by getpath's final-component symlink resolution.
-        let real_resolved = rustpython_host_env::fs::canonicalize(&resolved).ok()?;
-        if !real_resolved.starts_with(&real_prefix) {
-            // A symlink identifies the actual interpreter, even when a
-            // different executable happens to exist at home/python.
-            current = resolved;
-            continue;
-        }
-        let cfg = prefix.join(platform::VENV_LANDMARK);
-        if let Some(base) = parse_pyvenv_value(&cfg, "base-executable") {
-            let base = PathBuf::from(base);
-            if base.is_absolute() {
-                // Do not silently substitute another interpreter if the
-                // explicitly recorded base has been removed.
-                if !base.is_file() {
-                    return Some(base);
-                }
-                current = base;
-                continue;
-            }
-        }
-        if let Some(creator) = parse_pyvenv_value(&cfg, "executable") {
-            let creator = PathBuf::from(creator);
-            if creator.is_absolute() && creator.is_file() {
-                current = creator;
-                continue;
-            }
-        }
-        // Older/third-party configurations may contain only home. Preserve
-        // that fallback, using the resolved filename for an internal symlink.
-        current = home?.join(resolved.file_name()?);
-    }
-    None
-}
-
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    if let (Some(exe), Some(_)) = (executable, home_dir)
-        && let Some(base) = resolve_venv_base_executable(exe)
+    if let (Some(exe), Some(home)) = (executable, home_dir)
+        && let Some(exe_name) = exe.file_name()
     {
+        // Like getpath.py, resolve the executable's final links once, without
+        // following creator metadata or another environment's configuration.
+        #[cfg(unix)]
+        if let Some(resolved) = resolve_executable_symlinks(exe)
+            && resolved.as_os_str() != exe.as_os_str()
+        {
+            return resolved.to_string_lossy().into_owned();
+        }
+
+        let base = home.join(exe_name);
+        #[cfg(not(windows))]
+        if !base.is_file() {
+            for name in [
+                format!("python{}", crate::version::MAJOR),
+                format!("python{}.{}", crate::version::MAJOR, crate::version::MINOR),
+            ] {
+                let candidate = home.join(name);
+                if candidate.is_file() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
         return base.to_string_lossy().into_owned();
     }
-    // The resolver already handles legacy home-only configurations.
-    // If provenance is cyclic or invalid, retain this interpreter instead
-    // of selecting an unrelated executable at home/<invoked alias>.
 
     // Otherwise, base_executable == executable
     executable
