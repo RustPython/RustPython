@@ -493,6 +493,37 @@ class TestRmTree(BaseTest, unittest.TestCase):
             self.assertTrue(isinstance(exc, OSError))
             self.errorState = 3
 
+    @os_helper.skip_if_dac_override
+    @os_helper.skip_unless_working_chmod
+    @unittest.skipUnless(shutil.rmtree.avoids_symlink_attacks,
+                         'requires the fd based implementation of rmtree()')
+    def test_on_exc_kwargs(self):
+        os.mkdir(TESTFN)
+        self.addCleanup(shutil.rmtree, TESTFN)
+
+        child_dir_path = os.path.join(TESTFN, 'b')
+        child_file_path = os.path.join(child_dir_path, 'a')
+        os.mkdir(child_dir_path)
+        os_helper.create_empty_file(child_file_path)
+        old_child_dir_mode = os.stat(child_dir_path).st_mode
+        # Make unwritable.
+        new_mode = stat.S_IREAD|stat.S_IEXEC
+        os.chmod(child_dir_path, new_mode)
+
+        self.addCleanup(os.chmod, child_dir_path, old_child_dir_mode)
+
+        calls = []
+        def onexc(func, path, err, direntry=None, dir_fd=None):
+            calls.append((func, path, err))
+            if func is os.unlink:
+                self.assertEqual(direntry.name, os.path.basename(path))
+                self.assertTrue(os.path.samestat(
+                    os.stat(path), os.stat(direntry.name, dir_fd=dir_fd)))
+
+        shutil.rmtree(TESTFN, onexc=onexc, _onexc_kwargs=True)
+        self.assertIn((os.unlink, child_file_path),
+                      [(func, path) for func, path, err in calls])
+
     @unittest.skipIf(sys.platform[:6] == 'cygwin',
                      "This test can't be run on Cygwin (issue #1071513).")
     @os_helper.skip_if_dac_override
@@ -2042,6 +2073,32 @@ class TestArchives(BaseTest, unittest.TestCase):
             self.assertEqual(make_archive('test', 'zip'), 'test.zip')
             self.assertTrue(os.path.isfile('test.zip'))
 
+    def test_make_archive_pathlike_cwd_default(self):
+        called_args = []
+        def archiver(base_name, base_dir, **kw):
+            called_args.append((base_name, kw.get('root_dir')))
+
+        register_archive_format('xxx', archiver, [], 'xxx file')
+        self.addCleanup(unregister_archive_format, 'xxx')
+        with no_chdir:
+            make_archive(FakePath('basename'), 'xxx')
+        self.assertEqual(called_args, [('basename', None)])
+
+    def test_make_archive_pathlike_cwd_supports_root_dir(self):
+        root_dir = self.mkdtemp()
+        called_args = []
+        def archiver(base_name, base_dir, **kw):
+            called_args.append((base_name, base_dir, kw.get('root_dir')))
+        archiver.supports_root_dir = True
+
+        register_archive_format('xxx', archiver, [], 'xxx file')
+        self.addCleanup(unregister_archive_format, 'xxx')
+        with no_chdir:
+            make_archive(FakePath('basename'), 'xxx',
+                         root_dir=FakePath(root_dir),
+                         base_dir=FakePath('basedir'))
+        self.assertEqual(called_args, [('basename', 'basedir', root_dir)])
+
     def test_register_archive_format(self):
 
         self.assertRaises(TypeError, register_archive_format, 'xxx', 1)
@@ -3572,7 +3629,7 @@ class PublicAPITests(unittest.TestCase):
             target_api.append('disk_usage')
         self.assertEqual(set(shutil.__all__), set(target_api))
         with self.assertWarns(DeprecationWarning):
-            from shutil import ExecError
+            from shutil import ExecError  # noqa: F401
 
 
 if __name__ == '__main__':
