@@ -188,12 +188,14 @@ pub fn interpolation_debug_text(
 ) -> (String, TextRange) {
     let leading = debug_text.leading();
     let trailing = debug_text.trailing();
-    let text = [
-        strip_python_comments(leading).as_str(),
-        source_file.source_text().slice(expression_range),
-        strip_python_comments(trailing).as_str(),
-    ]
-    .concat();
+    let text = strip_python_comments(
+        &[
+            leading,
+            source_file.source_text().slice(expression_range),
+            trailing,
+        ]
+        .concat(),
+    );
     let width =
         |len: usize| TextSize::new(u32::try_from(len).expect("debug interpolation text too long"));
     let range = TextRange::new(
@@ -203,7 +205,80 @@ pub fn interpolation_debug_text(
     (text, range)
 }
 
+/// The source text stored in a template interpolation, including whitespace
+/// before its debug marker, conversion, format specifier, or closing brace.
+/// Returns `None` for a synthetic node without a source interpolation range.
+#[must_use]
+pub fn interpolation_expression_text(
+    source_file: &SourceFile,
+    interpolation: &ast::InterpolatedElement,
+) -> Option<String> {
+    if let Some(debug_text) = &interpolation.debug_text {
+        let mut text = strip_python_comments(debug_text.as_str());
+        let end = interpolation_suffix_end(&text);
+        if text[..end].ends_with('=') {
+            text.truncate(end - 1);
+        }
+        return Some(text);
+    }
+
+    let expression_range = interpolation.expression.range();
+    if interpolation.range.start() >= expression_range.start()
+        || interpolation.range.end() <= expression_range.end()
+    {
+        return None;
+    }
+    let start = interpolation.range.start() + TextSize::new(1);
+    let end = interpolation
+        .format_spec
+        .as_ref()
+        .map_or_else(
+            || interpolation.range.end(),
+            |format_spec| format_spec.range.start(),
+        )
+        .checked_sub(TextSize::new(1))?;
+    if start > expression_range.start() || end < expression_range.end() {
+        return None;
+    }
+    let mut text =
+        strip_python_comments(source_file.source_text().slice(TextRange::new(start, end)));
+    if interpolation.conversion != ast::ConversionFlag::None {
+        let end = interpolation_suffix_end(&text);
+        let conversion_start = end.checked_sub(2)?;
+        if text.as_bytes().get(conversion_start) != Some(&b'!') {
+            return None;
+        }
+        text.truncate(conversion_start);
+    }
+    Some(text)
+}
+
+fn interpolation_suffix_end(text: &str) -> usize {
+    let mut end = text.len();
+    // Debug markers and conversions can be followed by whitespace and line
+    // continuations. Whitespace preceding either marker remains significant.
+    loop {
+        let trimmed = text[..end].trim_end();
+        let has_newline = text[trimmed.len()..end].contains(['\n', '\r']);
+        end = trimmed.len();
+        if has_newline && text[..end].ends_with('\\') {
+            end -= 1;
+        } else {
+            return end;
+        }
+    }
+}
+
 fn strip_python_comments(text: &str) -> String {
+    // Tokenizer metadata uses universal newlines even when source ranges refer
+    // to the original CRLF or CR input.
+    let normalized;
+    let text = if text.contains('\r') {
+        normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        normalized.as_str()
+    } else {
+        text
+    };
     let chars = text.chars().collect::<Vec<_>>();
     let mut result = String::with_capacity(text.len());
     let mut quote = None;

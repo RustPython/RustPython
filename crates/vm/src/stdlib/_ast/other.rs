@@ -1,5 +1,5 @@
+use super::SourceFile;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {

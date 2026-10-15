@@ -391,7 +391,9 @@ pub trait IntoCodeObject {
     where
         Self: Sized,
     {
-        PyCode::new(self.into_code_object(vm), &vm.ctx)
+        let mut code = PyCode::new(self.into_code_object(vm), &vm.ctx);
+        code.apply_debug_ranges(vm);
+        code
     }
 }
 
@@ -444,7 +446,6 @@ pub struct PyCode {
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
     #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
-    #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
@@ -452,6 +453,8 @@ pub struct PyCode {
     /// merged cell variables.
     localsplus_names: Box<[&'static PyStrInterned]>,
     pub(crate) co_name: PyStrRef,
+    #[pymember(name = "co_qualname")]
+    qualified_name: PyStrRef,
     pub(crate) co_names: PyTupleRef,
     pub(crate) co_localsplusnames: PyTupleRef,
     pub(crate) co_localspluskinds: PyBytesRef,
@@ -625,6 +628,7 @@ impl PyCode {
         Self {
             first_traceable,
             co_name: code.obj_name.to_owned(),
+            qualified_name: code.qualname.to_owned(),
             co_names: names_tuple(&code.names),
             co_localsplusnames: names_tuple(&localsplus_names),
             co_localspluskinds: ctx.new_bytes(code.localspluskinds.to_vec()),
@@ -676,6 +680,17 @@ impl PyCode {
         if holds_names(&localsplusnames, &self.localsplus_names) {
             self.co_localsplusnames = localsplusnames;
         }
+    }
+
+    pub(crate) fn apply_debug_ranges(&mut self, vm: &VirtualMachine) {
+        if !vm.state.config.settings.code_debug_ranges {
+            self.code.linetable = remove_column_info(&self.code.linetable);
+            self.co_linetable = vm.ctx.new_bytes(self.code.linetable.to_vec());
+        }
+    }
+
+    pub(crate) fn co_qualname(&self) -> PyStrRef {
+        self.qualified_name.clone()
     }
 
     #[inline(always)]
@@ -734,11 +749,9 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self::new(code, &vm.ctx),
-            vm.ctx.types.code_type.to_owned(),
-            None,
-        )
+        let mut code = Self::new(code, &vm.ctx);
+        code.apply_debug_ranges(vm);
+        PyRef::new_ref(code, vm.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -1170,9 +1183,11 @@ impl Constructor for PyCode {
 
         let mut code = Self::new(code, &vm.ctx);
         code.co_name = args.name;
+        code.qualified_name = args.qualname;
         code.set_names(args.names);
         code.co_linetable = args.linetable;
         code.co_exceptiontable = args.exceptiontable;
+        code.apply_debug_ranges(vm);
         Ok(code)
     }
 }
@@ -1633,7 +1648,7 @@ impl Py<PyCode> {
 
         let qualname = match co_qualname {
             OptionalArg::Present(qualname) => qualname,
-            OptionalArg::Missing => self.code.qualname.to_owned(),
+            OptionalArg::Missing => self.qualified_name.clone(),
         };
 
         // Room for one value is always reserved, even where nothing is pushed.
@@ -1741,9 +1756,11 @@ impl Py<PyCode> {
 
         let mut code = PyCode::new(new_code, &vm.ctx);
         code.co_name = obj_name;
+        code.qualified_name = qualname;
         code.set_names(names);
         code.co_linetable = linetable;
         code.co_exceptiontable = exceptiontable;
+        code.apply_debug_ranges(vm);
         Ok(code)
     }
 
@@ -1798,6 +1815,45 @@ impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyCode::new_ref_from_bytecode(vm, self).into()
     }
+}
+
+// Preserve entry lengths and line deltas while dropping columns, as code
+// construction does under -X no_debug_ranges in CPython. Copying the signed
+// varint avoids interpreting or narrowing an arbitrary supplied line delta.
+fn remove_column_info(linetable: &[u8]) -> Box<[u8]> {
+    let mut result = Vec::with_capacity(linetable.len());
+    let mut reader = LineTableReader::new(linetable);
+    while let Some(header) = reader.read_byte() {
+        let kind = (header >> 3) & 15;
+        if kind == PyCodeLocationInfoKind::None as u8 {
+            result.push(header);
+        } else {
+            result.push(0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3) | (header & 7));
+            match PyCodeLocationInfoKind::from_code(kind) {
+                Some(PyCodeLocationInfoKind::Long | PyCodeLocationInfoKind::NoColumns) => {
+                    if reader.peek_byte().is_none_or(|byte| byte & 0x80 != 0) {
+                        result.push(0);
+                    } else {
+                        while let Some(byte) = reader.read_byte() {
+                            result.push(byte);
+                            if byte & 0x40 == 0
+                                || reader.peek_byte().is_none_or(|next| next & 0x80 != 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                Some(PyCodeLocationInfoKind::OneLine1) => result.push(2),
+                Some(PyCodeLocationInfoKind::OneLine2) => result.push(4),
+                _ => result.push(0),
+            }
+        }
+        while reader.peek_byte().is_some_and(|byte| byte & 0x80 == 0) {
+            reader.read_byte();
+        }
+    }
+    result.into_boxed_slice()
 }
 
 // Helper struct for reading linetable

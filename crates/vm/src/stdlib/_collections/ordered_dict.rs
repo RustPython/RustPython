@@ -688,8 +688,8 @@ pub(crate) mod ordered_dict {
         fn as_number() -> &'static PyNumberMethods {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 or: Some(|a, b, vm| {
-                    if !a.fast_isinstance(vm.ctx.types.dict_type)
-                        || !b.fast_isinstance(vm.ctx.types.dict_type)
+                    if crate::builtins::PyAnyDict::from_object(a).is_none()
+                        || crate::builtins::PyAnyDict::from_object(b).is_none()
                     {
                         return Ok(vm.ctx.not_implemented());
                     }

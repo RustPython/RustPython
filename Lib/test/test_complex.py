@@ -1,6 +1,8 @@
+import errno
 import unittest
 import sys
 from test import support
+from test.support import import_helper
 from test.support.testcase import ComplexesAreIdenticalMixin
 from test.support.numbers import (
     VALID_UNDERSCORE_LITERALS,
@@ -9,6 +11,7 @@ from test.support.numbers import (
 
 from random import random
 from math import isnan, copysign
+import cmath
 import operator
 
 INF = float("inf")
@@ -506,17 +509,25 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning,
                 "argument 'imag' must be a real number, not complex"):
             check(complex(0.0, 4.25j), -4.25, 0.0)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(4.25+0j, 0j), 4.25, 0.0)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(4.25j, 0j), 0.0, 4.25)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(0j, 4.25+0j), 0.0, 4.25)
-        with self.assertWarnsRegex(DeprecationWarning,
-                "argument 'real' must be a real number, not complex"):
+        with (self.assertWarnsRegex(DeprecationWarning,
+                "argument 'real' must be a real number, not complex"),
+              self.assertWarnsRegex(DeprecationWarning,
+                "argument 'imag' must be a real number, not complex")):
             check(complex(0j, 4.25j), -4.25, 0.0)
 
         check(complex(real=4.25), 4.25, 0.0)
@@ -783,7 +794,29 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         for num in nums:
             self.assertAlmostEqual((num.real**2 + num.imag**2)  ** 0.5, abs(num))
 
+        for x in 0.0, -0.0, INF, -INF, NAN:
+            for y in 0.0, -0.0, INF, -INF, NAN:
+                with self.subTest(x=x, y=y):
+                    z = complex(x, y)
+                    r = abs(z)
+                    if cmath.isfinite(z):
+                        self.assertFloatsAreIdentical(r, 0.0)
+                    elif cmath.isinf(z):
+                        self.assertEqual(r, INF)
+                    else:
+                        self.assertTrue(cmath.isnan(z))
+                        self.assertTrue(isnan(r))
+
         self.assertRaises(OverflowError, abs, complex(DBL_MAX, DBL_MAX))
+
+    def test_abs_errno_handling(self):
+        _testcapi = import_helper.import_module('_testcapi')
+        z = complex('nan')
+        _testcapi.set_errno(errno.ERANGE)
+        try:
+            self.assertTrue(isnan(abs(z)))
+        finally:
+            _testcapi.set_errno(0)
 
     def test_repr_str(self):
         def test(v, expected, test_fn=self.assertEqual):

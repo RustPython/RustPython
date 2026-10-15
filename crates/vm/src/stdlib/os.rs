@@ -209,16 +209,17 @@ pub(super) mod _os {
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
-            PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytes, PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgumentError, FromArgs, FsPath, FuncArgs, Param,
+            ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
         },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
@@ -2193,17 +2194,37 @@ pub(super) mod _os {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any)]
-        length: crt_fd::Offset,
+        length: PyObjectRef,
     }
 
     #[pyfunction]
     fn truncate(args: TruncateArgs, vm: &VirtualMachine) -> PyResult<()> {
         let TruncateArgs { path, length } = args;
-        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
-            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
-            Err(_) => {}
-        }
+        let index =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                None
+            } else {
+                path.try_index_opt(vm)
+            };
+        let path = if let Some(index) = index {
+            super::warn_if_bool_fd(&path, vm)?;
+            Either::A(index?.try_to_primitive::<crt_fd::Raw>(vm)?)
+        } else {
+            Either::B(
+                PathConverter::new()
+                    .function("truncate")
+                    .try_path_inner(path, true, vm)?,
+            )
+        };
+        let length = length.try_into_value::<crt_fd::Offset>(vm)?;
+        let path = match path {
+            Either::A(fd) => {
+                let fd = unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
+                    .map_err(|e| e.into_pyexception(vm))?;
+                return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm));
+            }
+            Either::B(path) => path,
+        };
 
         #[cold]
         fn error(
@@ -2214,7 +2235,6 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,
@@ -2439,6 +2459,7 @@ pub(super) mod _os {
             SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
             SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
+            SupportFunc::new("lstat", Some(false), Some(STAT_DIR_FD), Some(false)),
             SupportFunc::new("fstat", Some(false), Some(false), Some(false)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),

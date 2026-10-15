@@ -1,0 +1,135 @@
+--- a/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/expression.rs
+@@ -3052,7 +3052,9 @@
+             };
+         }
+         let mut parsed_expr = self.parse_named_expression_or_higher(
+-            ExpressionContext::yield_or_starred_bitwise_or().with_for_excluded(),
++            ExpressionContext::yield_or_starred_bitwise_or()
++                .with_for_excluded()
++                .with_starred_generator_allowed(),
+         );
+ 
+         match self.current_token_kind() {
+@@ -3621,9 +3623,22 @@
+                     context.disallow_starred_expressions(),
+                 ),
+             StarredExpressionPrecedence::BitwiseOr => {
++                let errors_start = self.errors.len();
+                 let value = self
+                     .parse_conditional_expression_without_comma_check(ExpressionContext::default());
++                let operand_is_valid = self.errors.len() == errors_start;
+                 self.validate_unpacking_precedence(&value, start, false);
++                // Generator elements use `starred_expression` (`* expression`).
++                // Keep a display-precedence error only for an overall parse failure.
++                if operand_is_valid
++                    && context.is_starred_generator_allowed()
++                    && matches!(self.current_token_kind(), TokenKind::Async | TokenKind::For)
++                    && self.errors.len() == errors_start + 1
++                {
++                    let error = self.errors.pop().expect("operand precedence error exists");
++                    self.deferred_starred_generator_errors
++                        .push((errors_start, error));
++                }
+                 value
+             }
+         };
+@@ -4121,6 +4136,10 @@
+         /// This flag is set when the `for` keyword, or `async` starting `async for`, should be
+         /// excluded from an expression.
+         const EXCLUDE_FOR = 1 << 4;
++
++        /// The first element after `(` may become a generator expression. Its starred
++        /// operand can use full expression precedence if a comprehension clause follows.
++        const ALLOW_STARRED_GENERATOR = 1 << 5;
+     }
+ }
+ 
+@@ -4191,6 +4210,16 @@
+     /// Returns a new [`ExpressionContext`] which excludes `for` from an expression.
+     fn with_for_excluded(self) -> Self {
+         ExpressionContext(self.0 | ExpressionContextFlags::EXCLUDE_FOR)
++    }
++
++    /// Allow the first parenthesized starred element to become a generator element.
++    fn with_starred_generator_allowed(self) -> Self {
++        ExpressionContext(self.0 | ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
++    }
++
++    const fn is_starred_generator_allowed(self) -> bool {
++        self.0
++            .contains(ExpressionContextFlags::ALLOW_STARRED_GENERATOR)
+     }
+ 
+     /// Returns `true` if the `in` keyword should be excluded from a comparison expression.
+--- a/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
++++ b/vendor/rustpython-ruff_python_parser/src/parser/mod.rs
+@@ -82,6 +82,10 @@
+     /// Stores all the syntax errors found during the parsing.
+     errors: Vec<ParseError>,
+ 
++    /// Display-precedence errors that are valid generator operands, retained for
++    /// the invalid grammar fallback if the overall parse fails.
++    deferred_starred_generator_errors: Vec<(usize, ParseError)>,
++
+     /// Stores non-fatal syntax errors found during parsing, such as version-related errors.
+     unsupported_syntax_errors: Vec<UnsupportedSyntaxError>,
+ 
+@@ -163,6 +167,7 @@
+             options,
+             source,
+             errors: Vec::new(),
++            deferred_starred_generator_errors: Vec::new(),
+             unsupported_syntax_errors: Vec::new(),
+             tokens,
+             name_interner: NameInterner::default(),
+@@ -283,6 +288,14 @@
+         );
+         // TODO consider re-integrating lexical error handling into the parser?
+         let mut parse_errors = self.errors;
++        if !parse_errors.is_empty()
++            && let Some((0, error)) = self.deferred_starred_generator_errors.into_iter().next()
++        {
++            // CPython retries its invalid grammar rules only after a parse failure.
++            // Preserve encounter order, including nested operands whose ranges begin
++            // after the outer expression's later error. Semantic errors occur later.
++            parse_errors.insert(0, error);
++        }
+         let (tokens, lex_errors) = self.tokens.finish();
+ 
+         // Fast path for when there are no lex errors.
+@@ -1163,6 +1176,9 @@
+         ParserCheckpoint {
+             tokens: self.tokens.checkpoint(),
+             errors_position: self.errors.len(),
++            deferred_starred_generator_errors_position: self
++                .deferred_starred_generator_errors
++                .len(),
+             unsupported_syntax_errors_position: self.unsupported_syntax_errors.len(),
+             current_token_id: self.current_token_id,
+             prev_token_end: self.prev_token_end,
+@@ -1175,6 +1191,7 @@
+         let ParserCheckpoint {
+             tokens,
+             errors_position,
++            deferred_starred_generator_errors_position,
+             unsupported_syntax_errors_position,
+             current_token_id,
+             prev_token_end,
+@@ -1183,6 +1200,8 @@
+ 
+         self.tokens.rewind(tokens);
+         self.errors.truncate(errors_position);
++        self.deferred_starred_generator_errors
++            .truncate(deferred_starred_generator_errors_position);
+         self.unsupported_syntax_errors
+             .truncate(unsupported_syntax_errors_position);
+         self.current_token_id = current_token_id;
+@@ -1214,6 +1233,7 @@
+ struct ParserCheckpoint {
+     tokens: TokenSourceCheckpoint,
+     errors_position: usize,
++    deferred_starred_generator_errors_position: usize,
+     unsupported_syntax_errors_position: usize,
+     current_token_id: TokenId,
+     prev_token_end: TextSize,

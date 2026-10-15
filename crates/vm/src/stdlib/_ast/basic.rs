@@ -1,7 +1,7 @@
+use super::SourceFile;
 use super::*;
 use crate::builtins::PyIntRef;
 use rustpython_codegen::compile::ruff_int_to_bigint;
-use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::Identifier {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {

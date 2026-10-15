@@ -103,7 +103,7 @@ impl WarningsState {
 fn check_matched(
     obj: &PyObject,
     arg: Option<&PyObject>,
-    arg2: Option<&Py<PyStr>>,
+    filename: Option<&Py<PyStr>>,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     // A 'None' filter always matches
@@ -117,15 +117,19 @@ fn check_matched(
             None => Ok(false),
         };
     }
-    // Otherwise assume a regex filter and call its match() method
-    let result = match arg {
-        Some(arg) => vm.call_method(obj, "match", (arg.to_owned(),))?,
-        None => {
-            let match_filename = vm
-                .import("_py_warnings", 0)?
-                .get_attr("_match_filename", vm)?;
-            match_filename.call((obj.to_owned(), arg2.map(|f| f.to_owned())), vm)?
-        }
+    let result = if let Some(arg) = arg {
+        vm.call_method(obj, "match", (arg.to_owned(),))?
+    } else {
+        let helper = vm
+            .import("_py_warnings", 0)?
+            .get_attr("_match_filename", vm)?;
+        helper.call(
+            (
+                obj.to_owned(),
+                filename.expect("filename for omitted module").to_owned(),
+            ),
+            vm,
+        )?
     };
     result.is_true(vm)
 }
@@ -519,10 +523,8 @@ pub fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // module can be None if a warning is emitted late during Python shutdown.
-    // In this case, the Python warnings module was probably unloaded, filters
-    // are no more available to choose as action. It is safer to ignore the
-    // warning and do nothing.
+    // Explicit None remains the late-shutdown sentinel. An omitted module
+    // selects the filename-pattern matching added in Python 3.15.
     if module.as_ref().is_some_and(|module| vm.is_none(module)) {
         return Ok(());
     }
@@ -627,6 +629,7 @@ pub fn warn_explicit(
         lineno_obj,
         source_line,
         source,
+        module,
         vm,
     )
 }
@@ -641,10 +644,10 @@ fn call_show_warning(
     lineno_obj: PyObjectRef,
     source_line: Option<PyObjectRef>,
     source: Option<PyObjectRef>,
+    module: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
-    else {
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), true)? else {
         show_warning(&filename, lineno, text, &category, source_line, vm);
         return Ok(());
     };
@@ -657,18 +660,19 @@ fn call_show_warning(
         return Err(vm.new_runtime_error("unable to get warnings.WarningMessage"));
     };
 
-    let msg = warnmsg_cls.call(
-        vec![
-            message,
-            category.into(),
-            filename.into(),
-            lineno_obj,
-            vm.ctx.none(),
-            vm.ctx.none(),
-            vm.unwrap_or_none(source),
-        ],
-        vm,
-    )?;
+    let mut args = vec![
+        message,
+        category.into(),
+        filename.into(),
+        lineno_obj,
+        vm.ctx.none(),
+        vm.ctx.none(),
+        vm.unwrap_or_none(source),
+    ];
+    if let Some(module) = module {
+        args.push(module);
+    }
+    let msg = warnmsg_cls.call(args, vm)?;
 
     show_fn.call((msg,), vm)?;
     Ok(())
@@ -769,15 +773,8 @@ fn setup_context(
             f.iframe().code().source_path(),
             f.lineno().max(0) as usize,
         )
-    } else if let Some(frame) = vm.current_frame() {
-        // We have a frame but it wasn't found during stack walking
-        (
-            frame.iframe().globals().to_owned(),
-            vm.ctx.intern_str("<sys>"),
-            1,
-        )
     } else {
-        // No frames on the stack - use sys.__dict__ (interp->sysdict)
+        // Stack traversal exhausted: use sys.__dict__ (interp->sysdict).
         let globals = vm
             .sys_module
             .as_object()

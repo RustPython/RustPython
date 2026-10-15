@@ -11,6 +11,16 @@ use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
 define_py_check!(exact fn PyCFunction_CheckExact, types.builtin_function_or_method_type);
 
+// Removed from the public API in 3.13, but retained in the stable ABI.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyCFunction_Call(
+    callable: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { crate::abstract_::PyObject_Call(callable, args, kwargs) }
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct PyMethodDef {
@@ -317,7 +327,46 @@ mod tests {
     use pyo3::exceptions::PyException;
     use pyo3::ffi::{PyLong_FromLong, PyObject};
     use pyo3::prelude::*;
-    use pyo3::types::{PyCFunction, PyInt, PyString};
+    use pyo3::types::{PyCFunction, PyDict, PyInt, PyString, PyTuple};
+
+    #[test]
+    fn legacy_call_python_function() {
+        Python::attach(|py| {
+            let callable = py
+                .eval(c"lambda *args, **kwargs: (args, kwargs)", None, None)
+                .unwrap();
+            let args = PyTuple::new(py, [1, 2]).unwrap();
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("num", 5).unwrap();
+            // PyO3 no longer declares this ABI-only compatibility symbol.
+            let result = unsafe {
+                Bound::<PyAny>::from_owned_ptr_or_err(
+                    py,
+                    super::PyCFunction_Call(
+                        callable.as_ptr().cast(),
+                        args.as_ptr().cast(),
+                        kwargs.as_ptr().cast(),
+                    )
+                    .cast(),
+                )
+            }
+            .unwrap();
+            assert_eq!(
+                result.get_item(0).unwrap().extract::<(i32, i32)>().unwrap(),
+                (1, 2)
+            );
+            assert_eq!(
+                result
+                    .get_item(1)
+                    .unwrap()
+                    .get_item("num")
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                5
+            );
+        });
+    }
 
     #[test]
     fn closure_function() {

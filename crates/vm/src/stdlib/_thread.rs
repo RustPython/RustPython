@@ -5,10 +5,13 @@ pub(crate) use _thread::after_fork_child;
 
 pub use _thread::get_ident;
 
+#[cfg(feature = "capi")]
+pub(crate) use _thread::apply_thread_stack_size;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
-    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
-    init_main_thread_ident, module_def,
+    CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, cleanup_thread_local_data,
+    get_all_current_frames, init_main_thread_ident, module_def,
 };
 
 #[pymodule]
@@ -126,13 +129,40 @@ pub(crate) mod _thread {
     macro_rules! acquire_lock_impl {
         ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr) => {{
             let (mu, blocking, timeout, vm) = ($mu, $blocking, $timeout, $vm);
-            match blocking {
-                true if timeout == -1.0 => {
-                    vm.allow_threads(|| mu.lock());
-                    Ok(true)
+            if mu.try_lock() {
+                Ok(true)
+            } else if !blocking || timeout == 0.0 {
+                Ok(false)
+            } else if vm
+                .state
+                .finalizing
+                .load(core::sync::atomic::Ordering::Acquire)
+            {
+                // Other Python threads cannot run to release the lock once
+                // finalization begins. Uncontested/nonblocking calls still work.
+                Err(vm.new_python_finalization_error(
+                    "cannot acquire lock at interpreter finalization",
+                ))
+            } else {
+                // parking_lot waits do not return when an OS signal arrives.
+                // Periodically re-enter the VM so handlers can interrupt both
+                // timed and indefinite acquisitions without extending a timeout.
+                let started = std::time::Instant::now();
+                let timeout = (timeout != -1.0).then(|| Duration::from_secs_f64(timeout));
+                loop {
+                    vm.check_signals()?;
+                    let interval = Duration::from_millis(50);
+                    let wait = match timeout {
+                        Some(timeout) => match timeout.checked_sub(started.elapsed()) {
+                            Some(remaining) if !remaining.is_zero() => remaining.min(interval),
+                            _ => break Ok(false),
+                        },
+                        None => interval,
+                    };
+                    if vm.allow_threads(|| mu.try_lock_for(wait)) {
+                        break Ok(true);
+                    }
                 }
-                true => Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout)))),
-                false => Ok(mu.try_lock()),
             }
         }};
     }
@@ -247,7 +277,18 @@ pub(crate) mod _thread {
     #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
     impl Py<RLock> {
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let rlock_type = RLock::class(&vm.ctx);
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let rlock_init = rlock_type.slots.init.load().map(crate::types::fn_addr);
+            if cls.is(rlock_type) || cls_init == rlock_init {
+                if !args.args.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no positional arguments"));
+                }
+                if !args.kwargs.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no keyword arguments"));
+                }
+            }
             RLock {
                 mu: RawRMutex::INIT,
                 count: core::sync::atomic::AtomicUsize::new(0),
@@ -514,8 +555,13 @@ pub(crate) mod _thread {
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let os_name = vm.fsencode(&name)?;
-            host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
+            let os_name = vm.state.codec_registry.encode_text(
+                name,
+                "utf-8",
+                Some(vm.ctx.new_utf8_str("replace")),
+                vm,
+            )?;
+            host_thread::set_current_thread_name_bytes(os_name.as_bytes());
         }
         Ok(())
     }
@@ -795,7 +841,7 @@ pub(crate) mod _thread {
     /// thousand, so a size that holds a Python call chain in release holds
     /// three of its frames here — starting a thread at all needs six. The
     /// value `threading.stack_size()` reports is untouched.
-    fn apply_thread_stack_size(
+    pub(crate) fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
@@ -816,7 +862,7 @@ pub(crate) mod _thread {
 
     /// Clean up thread-local data for the current thread.
     /// This triggers __del__ on objects stored in thread-local variables.
-    fn cleanup_thread_local_data() {
+    pub(crate) fn cleanup_thread_local_data() {
         // Move all guards out before dropping them. A local dict's __del__ may
         // re-enter thread-local access and borrow LOCAL_GUARDS again.
         let guards = LOCAL_GUARDS.take();

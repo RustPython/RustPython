@@ -1,4 +1,6 @@
 pub(crate) mod monitoring;
+#[cfg(feature = "capi")]
+pub use monitoring::capi as monitoring_capi;
 
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
@@ -260,11 +262,21 @@ pub mod sys {
 
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
-    const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
+    fn vpath(vm: &VirtualMachine) -> String {
+        // Capture an absolute source path during sys initialization so a
+        // later chdir cannot change sysconfig's interpretation of it.
+        crate::getpath::source_directory(&vm.state.config.paths)
+            .and_then(|source| std::path::absolute(source).ok())
+            .map(|source| source.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
 
     #[cfg(windows)]
-    #[pyattr(name = "dllhandle")]
-    const DLLHANDLE: usize = 0;
+    #[pyattr]
+    fn dllhandle(_vm: &VirtualMachine) -> usize {
+        crate::host_env::windows::runtime_module_handle()
+            .expect("the running RustPython image must have a module handle")
+    }
 
     #[pyattr]
     fn prefix(vm: &VirtualMachine) -> String {
@@ -289,6 +301,11 @@ pub mod sys {
     #[pyattr]
     fn _stdlib_dir(vm: &VirtualMachine) -> PyObjectRef {
         vm.state.config.paths.stdlib_dir.clone().to_pyobject(vm)
+    }
+
+    #[pyattr]
+    fn _is_python_build(vm: &VirtualMachine) -> bool {
+        crate::getpath::source_directory(&vm.state.config.paths).is_some()
     }
 
     // alphabetical order with segments of pyattr and others
@@ -640,6 +657,16 @@ pub mod sys {
     }
 
     #[pyattr]
+    fn abi_info(vm: &VirtualMachine) -> PyRef<PyNamespace> {
+        py_namespace!(vm, {
+            "pointer_bits" => vm.ctx.new_int(usize::BITS),
+            "free_threaded" => vm.ctx.new_bool(true),
+            "debug" => vm.ctx.new_bool(false),
+            "byteorder" => byteorder(vm),
+        })
+    }
+
+    #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> String {
         vm.state.config.paths.base_executable.clone()
     }
@@ -958,6 +985,64 @@ pub mod sys {
             Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }
+    }
+
+    #[pyfunction]
+    fn get_lazy_imports(vm: &VirtualMachine) -> &'static str {
+        if vm
+            .state
+            .lazy_imports
+            .all
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            "all"
+        } else {
+            "normal"
+        }
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports(mode: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let mode = mode
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("mode must be a string: 'normal' or 'all'"))?;
+        let all = match mode.to_str() {
+            Some("normal") => false,
+            Some("all") => true,
+            _ => return Err(vm.new_value_error("mode must be 'normal' or 'all'")),
+        };
+        vm.state
+            .lazy_imports
+            .all
+            .store(all, core::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn get_lazy_imports_filter(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state
+            .lazy_imports
+            .filter()
+            .unwrap_or_else(|| vm.ctx.none())
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports_filter(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let filter = if vm.is_none(&filter) {
+            None
+        } else {
+            if !filter.is_callable() {
+                return Err(vm.new_value_error("filter provided but is not callable"));
+            }
+            Some(filter)
+        };
+        vm.state.lazy_imports.set_filter(filter);
+        Ok(())
+    }
+
+    #[pyattr]
+    fn lazy_modules(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state.lazy_imports.modules.clone().into()
     }
 
     #[pyfunction]
@@ -1550,12 +1635,12 @@ pub mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
-        /// -X int_max_str_digits=number
-        int_max_str_digits: i64,
-        /// -P, `PYTHONSAFEPATH`
-        safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
+        /// -P, `PYTHONSAFEPATH`
+        safe_path: bool,
+        /// -X int_max_str_digits=number
+        int_max_str_digits: i64,
     }
 
     impl FlagsData {
@@ -1598,13 +1683,23 @@ pub mod sys {
         }
 
         #[pygetset]
-        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.context_aware_warnings
+        const fn gil(&self) -> u8 {
+            0
         }
 
         #[pygetset]
-        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.thread_inherit_context
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.context_aware_warnings as u8
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.thread_inherit_context as u8
+        }
+
+        #[pygetset]
+        fn lazy_imports(&self, vm: &VirtualMachine) -> i8 {
+            vm.state.config.settings.lazy_imports
         }
     }
 
@@ -1620,9 +1715,9 @@ pub mod sys {
     impl ThreadInfoData {
         const INFO: Self = Self {
             name: crate::stdlib::_thread::_thread::PYTHREAD_NAME,
-            // As I know, there's only way to use lock as "Mutex" in Rust
-            // with satisfying python document spec.
-            lock: Some("mutex+cond"),
+            // RustPython uses parking_lot rather than CPython's PyMutex.
+            // None denotes a lock implementation without a Python ABI name.
+            lock: None,
             version: None,
         };
     }

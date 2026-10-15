@@ -111,32 +111,80 @@ jobs:
 
       - name: Run deps check
         if: steps.changed-files.outputs.modules != ''
-        id: deps-check
         run: |
           # Run deps for all modules at once
-          echo "deps_output<<EOF" >> "$GITHUB_OUTPUT"
-          output=$(python scripts/update_lib deps "${MODULES}"  --depth 2 2>&1 || true)
-          echo "$output" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          python scripts/update_lib deps "${MODULES}" --depth 2 > "$RUNNER_TEMP/lib-deps-report.md" 2>&1 || true
         env:
           MODULES: ${{ steps.changed-files.outputs.modules }}
 
+      - name: Prepare dependency report
+        if: steps.changed-files.outputs.modules != ''
+        id: deps-comment
+        shell: python
+        run: |
+          from os import environ
+          from pathlib import Path
+
+          report_path = Path(environ["RUNNER_TEMP"]) / "lib-deps-report.md"
+          report = report_path.read_text(encoding="utf-8")
+          if report:
+              heading = "## 📦 Library Dependencies\n\n"
+              body = (
+                  heading
+                  + "The following Lib/ modules were modified. Here are their dependencies:\n\n"
+                  + report
+                  + "\n\n**Legend:**\n"
+                  + "- `[+]` path exists in CPython\n"
+                  + "- `[x]` up-to-date, `[ ]` outdated\n"
+              )
+              report_path.write_text(body, encoding="utf-8")
+              body_size = len(body.encode("utf-8"))
+              run_url = (
+                  f"{environ['GITHUB_SERVER_URL']}/{environ['GITHUB_REPOSITORY']}"
+                  f"/actions/runs/{environ['GITHUB_RUN_ID']}"
+              )
+
+              # Job summaries have a 1 MiB limit; keep larger reports as artifacts.
+              needs_artifact = body_size > 1024 * 1024
+              summary = body
+              if needs_artifact:
+                  summary = (
+                      heading
+                      + "The dependency report exceeds the job summary limit. "
+                      + "Download the full report from this run's `lib-deps-report` artifact.\n"
+                  )
+              with open(environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+                  fd.write(summary)
+
+              # Leave room for the action's marker, counting UTF-8 bytes, not characters.
+              comment = body
+              if body_size >= 60000:
+                  comment = (
+                      heading
+                      + "The dependency report is too large for a pull request comment. "
+                      + f"[View the full report in the workflow run]({run_url}#summary).\n"
+                  )
+              comment_path = Path(environ["RUNNER_TEMP"]) / "lib-deps-comment.md"
+              comment_path.write_text(comment, encoding="utf-8")
+              with open(environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fd:
+                  fd.write("has_report=true\n")
+                  fd.write(f"needs_artifact={str(needs_artifact).lower()}\n")
+
+      - name: Upload oversized dependency report
+        if: steps.deps-comment.outputs.needs_artifact == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lib-deps-report
+          path: ${{ runner.temp }}/lib-deps-report.md
+          if-no-files-found: error
+
       - name: Post comment
-        if: steps.deps-check.outputs.deps_output != ''
+        if: steps.deps-comment.outputs.has_report == 'true'
         uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: lib-deps-check
           number: ${{ github.event.pull_request.number }}
-          message: |
-            ## 📦 Library Dependencies
-
-            The following Lib/ modules were modified. Here are their dependencies:
-
-            ${{ steps.deps-check.outputs.deps_output }}
-
-            **Legend:**
-            - `[+]` path exists in CPython
-            - `[x]` up-to-date, `[ ]` outdated
+          path: ${{ runner.temp }}/lib-deps-comment.md
 
       - name: Remove comment if no Lib changes
         if: steps.changed-files.outputs.modules == ''

@@ -244,7 +244,18 @@ pub(crate) mod _hashlib {
     ) -> PyResult<OptionalArg<ArgBytesLike>> {
         match (data.into_option(), string) {
             (Some(d), None) => Ok(OptionalArg::Present(d)),
-            (None, Some(s)) => Ok(OptionalArg::Present(s)),
+            (None, Some(s)) => {
+                crate::vm::stdlib::_warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "the 'string' keyword parameter is deprecated since Python 3.15 \
+                     and slated for removal in Python 3.19; use the 'data' keyword \
+                     parameter or pass the data to hash as a positional argument instead"
+                        .to_owned(),
+                    1,
+                    vm,
+                )?;
+                Ok(OptionalArg::Present(s))
+            }
             (None, None) => Ok(OptionalArg::Missing),
             (Some(_), Some(_)) => Err(vm.new_type_error(
                 "'data' and 'string' are mutually exclusive \

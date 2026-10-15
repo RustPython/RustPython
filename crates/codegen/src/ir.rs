@@ -33,6 +33,18 @@ struct InstructionLocation {
     lineno_override: Option<i32>,
 }
 
+// SourceLocation uses a nonzero unsigned column, so retain a missing AST
+// endpoint as an out-of-source sentinel until writing signed line-table fields.
+pub(crate) const MISSING_COLUMN: OneIndexed = OneIndexed::MAX;
+
+fn linetable_column(column: OneIndexed) -> i32 {
+    if column == MISSING_COLUMN {
+        -1
+    } else {
+        column.to_zero_indexed() as i32
+    }
+}
+
 pub(crate) const LINE_ONLY_LOCATION_OVERRIDE: i32 = -4;
 pub(crate) const NEXT_LOCATION_OVERRIDE: i32 = -2;
 pub(crate) const NO_LOCATION_OVERRIDE: i32 = -1;
@@ -441,14 +453,14 @@ impl InstructionInfo {
             Some(lineno) => LineTableLocation {
                 line: lineno,
                 end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
+                col: linetable_column(self.location.character_offset),
+                end_col: linetable_column(self.end_location.character_offset),
             },
             None => LineTableLocation {
                 line: self.location.line.get() as i32,
                 end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
+                col: linetable_column(self.location.character_offset),
+                end_col: linetable_column(self.end_location.character_offset),
             },
         }
     }
@@ -839,12 +851,12 @@ fn instruction_info_from_python(
     let col = if col_offset >= 0 {
         OneIndexed::from_zero_indexed(col_offset as usize)
     } else {
-        OneIndexed::MIN
+        MISSING_COLUMN
     };
     let end_col = if end_col_offset >= 0 {
         OneIndexed::from_zero_indexed(end_col_offset as usize)
     } else {
-        OneIndexed::MIN
+        MISSING_COLUMN
     };
     InstructionInfo {
         instr,
@@ -5439,19 +5451,24 @@ fn fold_constant_sequence_into_load_const(
     block: &mut Block,
     i: usize,
 ) -> crate::InternalResult<bool> {
-    let (intrinsic, is_set) = match block.instructions[i].instr.real() {
+    let (append_op, build_op, mut expect_append) = match block.instructions[i].instr.real() {
         Some(Instruction::CallIntrinsic1 { func })
             if func.get(block.instructions[i].arg) == IntrinsicFunction1::ListToTuple =>
         {
-            (true, false)
+            (Opcode::ListAppend, Opcode::BuildList, true)
         }
-        Some(Instruction::ListAppend { .. }) => (false, false),
-        Some(Instruction::SetAdd { .. }) => (false, true),
+        Some(Instruction::ListAppend { .. }) if u32::from(block.instructions[i].arg) == 1 => {
+            (Opcode::ListAppend, Opcode::BuildList, false)
+        }
+        Some(Instruction::SetAdd { .. }) if u32::from(block.instructions[i].arg) == 1 => {
+            (Opcode::SetAdd, Opcode::BuildSet, false)
+        }
         _ => return Ok(false),
     };
+    // An intrinsic follows the last append; an append target follows its value.
+    let includes_target = !expect_append;
 
     let mut consts_found = 0usize;
-    let mut expect_append = intrinsic;
     let mut pos = i;
     while let Some(prev) = pos.checked_sub(1) {
         pos = prev;
@@ -5460,12 +5477,7 @@ fn fold_constant_sequence_into_load_const(
             continue;
         }
 
-        let is_start = if is_set {
-            matches!(instr.instr.real(), Some(Instruction::BuildSet { .. }))
-        } else {
-            matches!(instr.instr.real(), Some(Instruction::BuildList { .. }))
-        };
-        if is_start && u32::from(instr.arg) == 0 {
+        if instr.instr.real_opcode() == Some(build_op) && u32::from(instr.arg) == 0 {
             if !expect_append {
                 return Ok(false);
             }
@@ -5474,7 +5486,7 @@ fn fold_constant_sequence_into_load_const(
             elements
                 .try_reserve_exact(consts_found)
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-            let end = if intrinsic { i } else { i + 1 };
+            let end = i + usize::from(includes_target);
             for idx in (pos..end).rev() {
                 if matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
                     continue;
@@ -5485,29 +5497,26 @@ fn fold_constant_sequence_into_load_const(
                     };
                     elements.push(value);
                 }
-                block.instructions[idx].nop_out_no_location();
             }
             debug_assert_eq!(elements.len(), consts_found);
             elements.reverse();
-            instr_make_load_const(
-                metadata,
-                &mut block.instructions[i],
-                if is_set {
-                    ConstantData::Frozenset { elements }
-                } else {
-                    ConstantData::Tuple { elements }
-                },
-            )?;
+            let constant = if build_op == Opcode::BuildSet {
+                ConstantData::Frozenset { elements }
+            } else {
+                ConstantData::Tuple { elements }
+            };
+            // Leave the sequence intact if a constant cannot be represented.
+            for instr in &mut block.instructions[pos..end] {
+                if !matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                    instr.nop_out_no_location();
+                }
+            }
+            instr_make_load_const(metadata, &mut block.instructions[i], constant)?;
             return Ok(true);
         }
 
         if expect_append {
-            let is_append = if is_set {
-                matches!(instr.instr.real(), Some(Instruction::SetAdd { .. }))
-            } else {
-                matches!(instr.instr.real(), Some(Instruction::ListAppend { .. }))
-            };
-            if !is_append || u32::from(instr.arg) != 1 {
+            if instr.instr.real_opcode() != Some(append_op) || u32::from(instr.arg) != 1 {
                 return Ok(false);
             }
         } else {
@@ -7362,6 +7371,131 @@ mod tests {
         }
     }
 
+    fn test_sequence_block(instructions: &[(Opcode, u32)]) -> Block {
+        let mut block = Block::default();
+        for (i, &(op, arg)) in instructions.iter().enumerate() {
+            let mut instr = test_instr(op.into(), i as u32 + 1);
+            instr.arg = OpArg::new(arg);
+            test_block_push(&mut block, instr);
+        }
+        block
+    }
+
+    #[test]
+    fn constant_append_sequences_fold_for_iteration_and_membership() {
+        for (build, append) in [
+            (Opcode::BuildList, Opcode::ListAppend),
+            (Opcode::BuildSet, Opcode::SetAdd),
+        ] {
+            for consumer in [Opcode::GetIter, Opcode::ContainsOp] {
+                for intrinsic in [false, true] {
+                    if intrinsic && build == Opcode::BuildSet {
+                        continue;
+                    }
+                    let mut instructions = vec![(build, 0)];
+                    for value in [3, 1, 3] {
+                        instructions.extend([(Opcode::LoadSmallInt, value), (append, 1)]);
+                    }
+                    if intrinsic {
+                        instructions.push((
+                            Opcode::CallIntrinsic1,
+                            IntrinsicFunction1::ListToTuple as u32,
+                        ));
+                    }
+                    let folded_index = instructions.len() - 1;
+                    instructions.push((consumer, 0));
+                    let mut info = test_code_info(test_sequence_block(&instructions));
+                    info.blocks
+                        .optimize_basic_block(&mut info.metadata, BlockIdx::new(0))
+                        .unwrap();
+                    let block = &info.blocks[0];
+                    assert!(
+                        block.instructions[..folded_index]
+                            .iter()
+                            .all(|instr| { instr.instr.real_opcode() == Some(Opcode::Nop) })
+                    );
+                    let expected = if build == Opcode::BuildSet {
+                        ConstantData::Frozenset {
+                            elements: vec![int_const(3), int_const(1)],
+                        }
+                    } else {
+                        ConstantData::Tuple {
+                            elements: vec![int_const(3), int_const(1), int_const(3)],
+                        }
+                    };
+                    assert_eq!(
+                        get_const_value(&info.metadata, &block.instructions[folded_index]),
+                        Some(expected)
+                    );
+                    assert_eq!(
+                        block.instructions[folded_index + 1].instr.real_opcode(),
+                        Some(consumer)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn constant_append_sequences_require_unaliased_matching_constant_elements() {
+        for instructions in [
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::LoadName, 0),
+                (Opcode::ListAppend, 1),
+            ],
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::LoadSmallInt, 1),
+                (Opcode::SetAdd, 1),
+            ],
+            vec![
+                (Opcode::BuildSet, 0),
+                (Opcode::LoadSmallInt, 1),
+                (Opcode::ListAppend, 1),
+            ],
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::LoadSmallInt, 1),
+                (Opcode::ListAppend, 2),
+            ],
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::BuildList, 0),
+                (Opcode::ListAppend, 1),
+            ],
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::Copy, 1),
+                (Opcode::LoadSmallInt, 1),
+                (Opcode::ListAppend, 1),
+            ],
+            vec![
+                (Opcode::BuildList, 0),
+                (Opcode::LoadConst, 0),
+                (Opcode::ListAppend, 1),
+                (Opcode::LoadSmallInt, 1),
+                (Opcode::ListAppend, 1),
+            ],
+        ] {
+            let mut block = test_sequence_block(&instructions);
+            let mut metadata = test_code_info(Block::default()).metadata;
+            assert!(
+                !fold_constant_sequence_into_load_const(
+                    &mut metadata,
+                    &mut block,
+                    instructions.len() - 1,
+                )
+                .unwrap()
+            );
+            assert!(metadata.consts.is_empty());
+            for (instr, (op, arg)) in block.instructions.iter().zip(instructions) {
+                assert_eq!(instr.instr.real_opcode(), Some(op));
+                assert_eq!(u32::from(instr.arg), arg);
+            }
+        }
+    }
+
     #[test]
     fn get_stack_effects_rejects_cpython_deopt_opcodes() {
         match get_stack_effects(Instruction::BinaryOpAddInt.into(), OpArg::new(0), 0) {
@@ -7561,6 +7695,87 @@ mod tests {
             seq.label_map_allocation,
             INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE * 2
         );
+    }
+
+    #[test]
+    fn redundant_nop_compaction_clears_vacated_instruction_metadata() {
+        let handler = ExceptHandlerInfo {
+            handler_block: BlockIdx::new(2),
+            preserve_lasti: true,
+        };
+        let mut block = Block::default();
+        for _ in 0..2 {
+            let mut nop = test_instr(Instruction::Nop, 10);
+            nop.lineno_override = Some(NO_LOCATION_OVERRIDE);
+            nop.target = BlockIdx::new(1);
+            nop.except_handler = Some(handler);
+            test_block_push(&mut block, nop);
+        }
+        let mut jump = test_instr(Opcode::PopJumpIfTrue.into(), 10);
+        jump.target = BlockIdx::new(1);
+        jump.except_handler = Some(handler);
+        test_block_push(&mut block, jump);
+        let mut blocks = Blocks::from([block, Block::default(), Block::default()]);
+
+        assert_eq!(blocks.basicblock_remove_redundant_nops(BlockIdx::new(0)), 2);
+        assert_eq!(blocks[0].instructions[0].target, jump.target);
+        assert_eq!(blocks[0].instructions[0].except_handler, Some(handler));
+        for slot in &blocks[0].instructions[1..3] {
+            assert_eq!(slot.target, BlockIdx::NULL);
+            assert_eq!(slot.except_handler, None);
+        }
+
+        blocks.normalize_jumps_in_block(BlockIdx::new(0)).unwrap();
+        let not_taken = &blocks[0].instructions[1];
+        assert_eq!(not_taken.instr.real_opcode(), Some(Opcode::NotTaken));
+        assert_eq!(not_taken.except_handler, None);
+    }
+
+    #[test]
+    fn with_cleanup_exception_table_excludes_synthetic_not_taken() {
+        use rustpython_compiler_core::{Mode, SourceFileBuilder, bytecode::decode_exception_table};
+
+        let source = "def f(c):\n    with c:\n        x = 1\n    y = 2\n";
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let ast = ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
+            .unwrap()
+            .into_syntax();
+        let module = crate::compile::compile_top(
+            ast,
+            source_file,
+            Mode::Exec,
+            crate::CompileOpts::default(),
+        )
+        .unwrap();
+        let code = module
+            .constants
+            .iter()
+            .find_map(|constant| match constant {
+                ConstantData::Code { code } => Some(code),
+                _ => None,
+            })
+            .expect("missing with function");
+        let entries = decode_exception_table(&code.exceptiontable);
+        let not_taken = code
+            .instructions
+            .iter()
+            .position(|unit| matches!(unit.op, Instruction::NotTaken))
+            .expect("missing with cleanup NOT_TAKEN") as u32;
+
+        // CPython 3.15rc3 Lib/test/test_dis.py's _with fixture has a body
+        // range and two cleanup ranges separated by the synthetic NOT_TAKEN.
+        assert_eq!(entries.len(), 3);
+        assert!(
+            entries
+                .iter()
+                .all(|entry| { not_taken < entry.start || not_taken >= entry.end })
+        );
+        assert_eq!(entries[1].end, not_taken);
+        assert_eq!(entries[2].start, not_taken + 1);
+        assert_eq!(entries[1].target, entries[2].target);
+        assert_eq!(entries[1].depth, 4);
+        assert_eq!(entries[2].depth, 4);
+        assert!(entries[1].push_lasti && entries[2].push_lasti);
     }
 
     #[test]
@@ -7911,6 +8126,69 @@ mod tests {
         assert!(matches!(
             code.blocks[0].instructions[0].instr.real(),
             Some(Instruction::LoadFastBorrow { .. })
+        ));
+    }
+
+    #[test]
+    fn constant_sequence_loads_use_cpython_opcode_has_const_metadata() {
+        let mut metadata = CodeUnitMetadata {
+            name: "<module>".to_owned(),
+            qualname: Some("<module>".to_owned()),
+            consts: Default::default(),
+            names: IndexSet::default(),
+            varnames: IndexSet::default(),
+            cellvars: IndexSet::default(),
+            freevars: IndexSet::default(),
+            fast_hidden: IndexMap::default(),
+            fast_hidden_final: IndexSet::default(),
+            argcount: 0,
+            posonlyargcount: 0,
+            kwonlyargcount: 0,
+            firstlineno: OneIndexed::MIN,
+        };
+        let (left, _) = metadata
+            .consts
+            .insert_full(ConstantData::Str { value: "a".into() });
+        let (right, _) = metadata
+            .consts
+            .insert_full(ConstantData::Str { value: "b".into() });
+
+        let mut first_load = test_instr(Instruction::Nop, 90);
+        first_load.instr = Opcode::LoadConst.into();
+        first_load.arg = OpArg::new(left as u32);
+        let mut second_load = test_instr(Instruction::Nop, 90);
+        second_load.instr = Opcode::LoadConst.into();
+        second_load.arg = OpArg::new(right as u32);
+        let mut build = test_instr(Opcode::BuildTuple.into(), 90);
+        build.arg = OpArg::new(2);
+        let mut block = Block::default();
+        for info in [first_load, second_load, build] {
+            test_block_push(&mut block, info);
+        }
+
+        assert!(
+            fold_tuple_of_constants(&mut metadata, &mut block, 2)
+                .expect("fold_tuple_of_constants succeeds")
+        );
+
+        // CPython 3.15 represents constant-pool loads with LOAD_CONST.
+        // Both loads must participate in tuple folding and become NOPs.
+        assert!(matches!(
+            block.instructions[0].instr.real(),
+            Some(Instruction::Nop)
+        ));
+        assert!(matches!(
+            block.instructions[1].instr.real(),
+            Some(Instruction::Nop)
+        ));
+        let folded = &block.instructions[2];
+        assert!(matches!(
+            folded.instr.real(),
+            Some(Instruction::LoadConst { .. })
+        ));
+        assert!(matches!(
+            &metadata.consts[u32::from(folded.arg) as usize],
+            ConstantData::Tuple { elements } if elements.len() == 2
         ));
     }
 

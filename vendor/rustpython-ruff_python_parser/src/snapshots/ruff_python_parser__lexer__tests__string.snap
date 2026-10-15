@@ -1,0 +1,19 @@
+---
+source: crates/ruff_python_parser/src/lexer.rs
+expression: lex_source(source)
+---
+## Tokens
+```
+[
+    String 0..8 (flags = DOUBLE_QUOTES),
+    String 9..17,
+    String 18..26,
+    String 27..33 (flags = DOUBLE_QUOTES),
+    String 34..42,
+    String 43..47,
+    String 48..56 (flags = RAW_STRING_LOWERCASE),
+    String 57..63,
+    String 64..73,
+    Newline 73..73,
+]
+```
