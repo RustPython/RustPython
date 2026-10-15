@@ -1251,3 +1251,36 @@ for is_bytes in (False, True):
             assert str(caught.exception) == (
                 f"format argument{context}: %{conversion} requires a real number, not str"
             )
+
+
+def test_percent_callback_order_bounded():
+    for template in ("%r %", b"%r %", bytearray(b"%r %")):
+        calls = []
+
+        class Value:
+            def __repr__(self):
+                calls.append("repr")
+                return "value"
+
+        with assert_raises(ValueError):
+            template % (Value(),)
+        assert calls == ["repr"]
+
+    for template, key in (
+        ("%(x)*r", "x"),
+        (b"%(x)*r", b"x"),
+        (bytearray(b"%(x)*r"), b"x"),
+    ):
+        calls = []
+
+        class Mapping:
+            def __getitem__(self, name):
+                calls.append(name)
+                return 5
+
+        with assert_raises(ValueError):
+            template % Mapping()
+        assert calls == [key]
+
+
+test_percent_callback_order_bounded()
