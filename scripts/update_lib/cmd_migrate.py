@@ -20,7 +20,9 @@ This will:
 
 import argparse
 import ast
+import builtins
 import collections
+import hashlib
 import json
 import pathlib
 import shutil
@@ -184,6 +186,244 @@ def _verify_call(contents: str, expected: str) -> None:
     )
     if contents.count(expected) != 1:
         raise ValueError("Ambiguous environment-reset call text")
+
+
+def copy_support_assignments(source, destination, names, exports):
+    """Copy contiguous canonical assignments and export lines, failing closed.
+
+    Only additions are supported. Dependencies must already be imported with the
+    same bindings, or be builtins/earlier selected assignments. The next unchanged
+    top-level statement is the insertion anchor; unrelated bytes stay untouched.
+    """
+    if (
+        not names
+        or len(set(names)) != len(names)
+        or not all(name.isidentifier() for name in names)
+    ):
+        raise ValueError("Assignment names must be unique identifiers")
+    if len(set(exports)) != len(exports) or not set(exports) <= set(names):
+        raise ValueError("Exports must be unique selected assignment names")
+    src, dst = ast.parse(source), ast.parse(destination)
+
+    def assignment(tree, name):
+        matches = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == name
+        ]
+        nodes = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ]
+        rebound = any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == name
+            or isinstance(node, ast.alias)
+            and (node.asname or node.name.split(".")[0]) == name
+            for node in ast.walk(tree)
+        )
+        if len(nodes) != 1 or matches != [nodes[0].targets[0]] or rebound:
+            raise ValueError(f"Expected one top-level assignment to {name}")
+        return nodes[0]
+
+    selected = [assignment(src, name) for name in names]
+    start = src.body.index(selected[0])
+    if src.body[start : start + len(names)] != selected or start + len(names) == len(
+        src.body
+    ):
+        raise ValueError("Assignments must be contiguous and followed by an anchor")
+    if (start and src.body[start - 1].end_lineno >= selected[0].lineno) or (
+        selected[-1].end_lineno >= src.body[start + len(names)].lineno
+    ):
+        raise ValueError("Selected assignments must occupy complete source lines")
+    for node in ast.walk(dst):
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id in names
+            or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name in names
+            or isinstance(node, ast.alias)
+            and (node.asname or node.name.split(".")[0]) in names
+        ):
+            raise ValueError("A selected assignment already exists in the destination")
+
+    anchor = src.body[start + len(names)]
+    matches = [node for node in dst.body if ast.dump(node) == ast.dump(anchor)]
+    if len(matches) != 1:
+        raise ValueError("Expected one unchanged destination anchor")
+    for tree, node in ((src, anchor), (dst, matches[0])):
+        index = tree.body.index(node)
+        if (
+            getattr(node, "decorator_list", ())
+            or node.col_offset
+            or index
+            and tree.body[index - 1].end_lineno >= node.lineno
+            or index + 1 < len(tree.body)
+            and tree.body[index + 1].lineno <= node.end_lineno
+        ):
+            raise ValueError(
+                "Anchor must be undecorated and occupy complete source lines"
+            )
+    available = set(vars(builtins))
+    imports = (set(), set())
+    for node in src.body:
+        matching = [
+            other
+            for other in dst.body
+            if ast.dump(node) == ast.dump(other) and other.lineno < matches[0].lineno
+        ]
+        if (
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            and node.lineno < selected[0].lineno
+            and len(matching) == 1
+        ):
+            imports[0].update(node.names)
+            imports[1].update(matching[0].names)
+            available.update(
+                alias.asname or alias.name.split(".")[0] for alias in node.names
+            )
+    dependencies = set()
+    for name, node in zip(names, selected):
+        used = {
+            child.id
+            for child in ast.walk(node.value)
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
+        }
+        missing = used - available
+        if missing:
+            raise ValueError(f"Missing dependencies for {name}: {sorted(missing)}")
+        dependencies.update(used - set(names))
+        available.add(name)
+    for tree, boundary, allowed in (
+        (src, selected[0].lineno, imports[0]),
+        (dst, matches[0].lineno, imports[1]),
+    ):
+        if dependencies and any(
+            isinstance(node, ast.ImportFrom)
+            and node.lineno < boundary
+            and any(alias.name == "*" for alias in node.names)
+            for node in ast.walk(tree)
+        ):
+            raise ValueError("Wildcard import makes dependency bindings ambiguous")
+        for dependency in dependencies:
+            bindings = []
+            for node in ast.walk(tree):
+                if getattr(node, "lineno", boundary) >= boundary:
+                    continue
+                if isinstance(node, ast.Name) and isinstance(
+                    node.ctx, (ast.Store, ast.Del)
+                ):
+                    name = node.id
+                elif isinstance(node, ast.alias):
+                    name = node.asname or node.name.split(".")[0]
+                elif isinstance(
+                    node,
+                    (
+                        ast.FunctionDef,
+                        ast.AsyncFunctionDef,
+                        ast.ClassDef,
+                        ast.ExceptHandler,
+                        ast.MatchAs,
+                        ast.MatchStar,
+                    ),
+                ):
+                    name = node.name
+                elif isinstance(node, ast.arg):
+                    name = node.arg
+                elif isinstance(node, ast.MatchMapping):
+                    name = node.rest
+                else:
+                    continue
+                if name == dependency:
+                    bindings.append(node)
+            if len(bindings) > 1 or any(node not in allowed for node in bindings):
+                raise ValueError(f"Ambiguous dependency binding: {dependency}")
+
+    source_lines, lines = source.splitlines(True), destination.splitlines(True)
+    additions = [
+        (
+            matches[0].lineno - 1,
+            source_lines[selected[0].lineno - 1 : anchor.lineno - 1],
+        )
+    ]
+    if exports:
+        src_all, dst_all = assignment(src, "__all__"), assignment(dst, "__all__")
+        if not isinstance(src_all.value, ast.List) or not isinstance(
+            dst_all.value, ast.List
+        ):
+            raise ValueError("__all__ must be a literal list")
+        if any(
+            not isinstance(node, ast.Constant) or not isinstance(node.value, str)
+            for node in src_all.value.elts + dst_all.value.elts
+        ):
+            raise ValueError("__all__ entries must be literal strings")
+        src_values, dst_values = (
+            ast.literal_eval(src_all.value),
+            ast.literal_eval(dst_all.value),
+        )
+        if any(src_values.count(name) != 1 or name in dst_values for name in exports):
+            raise ValueError(
+                "Exports must occur once in canonical __all__ and be absent locally"
+            )
+        export_nodes = [node for node in src_all.value.elts if node.value in exports]
+        export_lines = sorted({node.lineno - 1 for node in export_nodes})
+        fragment = "".join(source_lines[line] for line in export_lines)
+        if ast.literal_eval("[\n" + fragment + "]") != exports:
+            raise ValueError(
+                "Canonical export lines include unselected entries or differ in order"
+            )
+        if lines[dst_all.lineno - 1].strip() != "__all__ = [":
+            raise ValueError("Expected a multiline destination __all__ list")
+        additions.append((dst_all.lineno, [fragment]))
+    for offset, fragment in sorted(additions, reverse=True):
+        lines[offset:offset] = fragment
+    result = "".join(lines)
+    ast.parse(result)
+    return result
+
+
+def migrate_support_assignments(path, names, exports, source_hash, destination_hash):
+    target = parse_lib_path(path)
+    if (
+        target.parts[:3] != ("Lib", "test", "support")
+        or ".." in target.parts
+        or target.suffix != ".py"
+    ):
+        raise ValueError(
+            "Selective assignments are restricted to Lib/test/support Python files"
+        )
+    source, destination = path.read_bytes(), target.read_bytes()
+    for label, contents, expected in (
+        ("source", source, source_hash),
+        ("destination", destination, destination_hash),
+    ):
+        if hashlib.sha256(contents).hexdigest() != expected:
+            raise ValueError(f"{label} SHA256 does not match the pinned input")
+    result = copy_support_assignments(
+        source.decode("utf-8"), destination.decode("utf-8"), names, exports
+    ).encode("utf-8")
+    if target.read_bytes() != destination:
+        raise ValueError("Destination changed during assignment preparation")
+    target.write_bytes(result)
+    print(
+        json.dumps(
+            {
+                "assignments": names,
+                "exports": exports,
+                "source_sha256": source_hash,
+                "destination_before_sha256": destination_hash,
+                "destination_after_sha256": hashlib.sha256(result).hexdigest(),
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def patch_single_content(
@@ -485,9 +725,35 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Single-file target, remaining decorator patches, and optional doctests JSON",
     )
+    parser.add_argument(
+        "--support-assignments",
+        nargs="+",
+        help="Add selected canonical test.support assignments",
+    )
+    parser.add_argument("--support-exports", nargs="+", default=[])
+    parser.add_argument("--source-sha256")
+    parser.add_argument("--destination-sha256")
     args = parser.parse_args(argv)
 
     try:
+        if args.support_assignments:
+            if args.legacy_map is not None or args.patches is not None:
+                raise ValueError(
+                    "Selective support imports cannot combine with --legacy-map or --patches"
+                )
+            try:
+                migrate_support_assignments(
+                    args.path,
+                    args.support_assignments,
+                    args.support_exports,
+                    args.source_sha256,
+                    args.destination_sha256,
+                )
+            except (SyntaxError, UnicodeError) as exc:
+                raise ValueError(str(exc)) from exc
+            return 0
+        if args.support_exports or args.source_sha256 or args.destination_sha256:
+            raise ValueError("Selective options require --support-assignments")
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):
