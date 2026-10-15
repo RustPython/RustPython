@@ -5321,10 +5321,10 @@ impl<'warnings> Compiler<'warnings> {
 
         // Count annotations
         let parameters_iter = parameters
-            .args
+            .posonlyargs
             .iter()
             .map(|x| &x.parameter)
-            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.args.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
             .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
@@ -5336,10 +5336,10 @@ impl<'warnings> Compiler<'warnings> {
 
         // Compile annotations inside the annotation scope
         let parameters_iter = parameters
-            .args
+            .posonlyargs
             .iter()
             .map(|x| &x.parameter)
-            .chain(parameters.posonlyargs.iter().map(|x| &x.parameter))
+            .chain(parameters.args.iter().map(|x| &x.parameter))
             .chain(parameters.vararg.as_deref())
             .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
