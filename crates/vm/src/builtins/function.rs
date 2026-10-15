@@ -182,7 +182,7 @@ impl PyFunction {
         globals: PyRef<PyAnyDict>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let name = PyMutex::new(code.obj_name.to_owned());
+        let name = PyMutex::new(code.co_name.clone());
         let module = vm.unwrap_or_none(globals.inner_getitem_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals
             .inner_getitem_opt(identifier!(vm, __builtins__), vm)?
@@ -207,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
@@ -690,7 +690,11 @@ impl Py<PyFunction> {
     }
 
     /// Create generator, coroutine, or async generator from a FrameObject.
-    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn make_generator_or_coro(
+        &self,
+        frame: FrameObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         let code = frame.iframe().code();
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
@@ -1096,14 +1100,15 @@ impl Py<PyFunction> {
         if let Some(annotate_fn) = annotate_fn {
             let one = vm.ctx.new_int(1);
             let ann_dict = annotate_fn.call((one,), vm)?;
-            let ann_dict = ann_dict
-                .downcast::<crate::builtins::PyDict>()
-                .map_err(|obj| {
-                    vm.new_type_error(format!(
-                        "__annotate__ returned non-dict of type '{}'",
-                        obj.class().name()
-                    ))
-                })?;
+            let ann_dict = match ann_dict.downcast::<crate::builtins::PyDict>() {
+                Ok(dict) => dict,
+                Err(obj) => {
+                    return Err(vm.new_type_error(format!(
+                        "__annotate__() must return a dict, not {}",
+                        obj.class().fully_qualified_name(vm)?
+                    )));
+                }
+            };
 
             // Cache the result
             *self.annotations.lock() = Some(ann_dict.clone());
@@ -1474,9 +1479,28 @@ impl Py<PyBoundMethod> {
         &self,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, (PyObjectRef, PyObjectRef))> {
-        let func_name = self.function.get_attr("__name__", vm)?;
-        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         let func_self = self.object.clone();
+        let mut func_name = self.function.get_attr("__name__", vm)?;
+        if let Some(name) = func_name.downcast_ref::<PyStr>()
+            && name.as_bytes().starts_with(b"__")
+            && !name.as_bytes().ends_with(b"__")
+            && !name.as_bytes().contains(&b'.')
+        {
+            let class = func_self
+                .downcast_ref::<PyType>()
+                .unwrap_or_else(|| func_self.class());
+            let class_name = class.__name__(vm);
+            let class_name = class_name
+                .as_wtf8()
+                .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+            if !class_name.is_empty() {
+                func_name = vm
+                    .ctx
+                    .new_str(wtf8_concat!("_", class_name, name.as_wtf8()))
+                    .into();
+            }
+        }
+        let builtins_getattr = vm.eval_get_builtin(vm.ctx.intern_str("getattr"))?;
         Ok((builtins_getattr, (func_self, func_name)))
     }
 

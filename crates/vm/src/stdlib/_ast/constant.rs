@@ -3,7 +3,7 @@ use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_common::wtf8::Wtf8Buf;
-use rustpython_compiler_core::{SourceFile, bytecode::ConstantData};
+use rustpython_compiler_core::bytecode::ConstantData;
 
 #[derive(Debug)]
 pub(super) struct Constant {

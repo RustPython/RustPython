@@ -52,6 +52,7 @@ mod _json {
         strict: bool,
         object_hook: Option<PyObjectRef>,
         object_pairs_hook: Option<PyObjectRef>,
+        array_hook: Option<PyObjectRef>,
         parse_float: Option<PyObjectRef>,
         parse_int: Option<PyObjectRef>,
         parse_constant: PyObjectRef,
@@ -65,6 +66,7 @@ mod _json {
             let strict = ctx.get_attr("strict", vm)?.try_to_bool(vm)?;
             let object_hook = vm.option_if_none(ctx.get_attr("object_hook", vm)?);
             let object_pairs_hook = vm.option_if_none(ctx.get_attr("object_pairs_hook", vm)?);
+            let array_hook = vm.option_if_none(ctx.get_attr("array_hook", vm)?);
             let parse_float = ctx.get_attr("parse_float", vm)?;
             let parse_float = if vm.is_none(&parse_float) || parse_float.is(vm.ctx.types.float_type)
             {
@@ -84,6 +86,7 @@ mod _json {
                 strict,
                 object_hook,
                 object_pairs_hook,
+                array_hook,
                 parse_float,
                 parse_int,
                 parse_constant,
@@ -94,6 +97,11 @@ mod _json {
 
     #[pyclass(with(Callable, Constructor))]
     impl JsonScanner {
+        #[pygetset]
+        fn array_hook(zelf: &Py<Self>) -> Option<PyObjectRef> {
+            zelf.array_hook.clone()
+        }
+
         fn parse(
             &self,
             pystr: PyStrRef,
@@ -438,7 +446,7 @@ mod _json {
 
             // Check for empty array
             if bytes.get(byte_idx) == Some(&b']') {
-                return Ok((vm.ctx.new_list(vec![]).into(), char_idx + 1, byte_idx + 1));
+                return self.finalize_array(vec![], char_idx + 1, byte_idx + 1, vm);
             }
 
             let mut values: Vec<PyObjectRef> = Vec::new();
@@ -494,7 +502,23 @@ mod _json {
                 }
             }
 
-            Ok((vm.ctx.new_list(values).into(), char_idx, byte_idx))
+            self.finalize_array(values, char_idx, byte_idx, vm)
+        }
+
+        fn finalize_array(
+            &self,
+            values: Vec<PyObjectRef>,
+            end_char_idx: usize,
+            end_byte_idx: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<(PyObjectRef, usize, usize)> {
+            let values = vm.ctx.new_list(values);
+            let result = if let Some(ref hook) = self.array_hook {
+                hook.call((values,), vm)?
+            } else {
+                values.into()
+            };
+            Ok((result, end_char_idx, end_byte_idx))
         }
 
         /// Finalize object construction with hooks.

@@ -40,3 +40,5 @@ rustix
 struc
 unscanned
 zelf
+embedders
+nocapture

@@ -2,11 +2,115 @@
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::{PyCode, PyStr, PyUtf8Str, PyUtf8StrRef, traceback::PyTraceback},
+    builtins::{PyCode, PyStr, PyStrRef, PyUtf8Str, traceback::PyTraceback},
     exceptions::types::PyBaseException,
     scope::Scope,
     vm::{VirtualMachine, resolve_frozen_alias, thread},
 };
+
+use core::{cell::Cell, sync::atomic::Ordering, time::Duration};
+use std::{io::Write, time::Instant};
+
+/// Nested imports are timed per thread, so concurrent imports do not subtract
+/// each other's elapsed time. The output header belongs to the interpreter.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ImportTimingState {
+    depth: usize,
+    children: Duration,
+}
+
+fn import_time_header(vm: &VirtualMachine) {
+    let mut stderr = std::io::stderr().lock();
+    if !vm.state.import_time_header.swap(true, Ordering::Relaxed) {
+        let _ = writeln!(
+            stderr,
+            "import time: self [us] | cumulative | imported package"
+        );
+    }
+}
+
+fn import_time_name(name: &Py<PyStr>) -> String {
+    use core::fmt::Write;
+    let mut output = String::with_capacity(name.as_bytes().len());
+    for codepoint in name.as_wtf8().code_points() {
+        match codepoint.to_char() {
+            Some(ch) => output.push(ch),
+            None => {
+                let _ = write!(output, "\\u{:04x}", codepoint.to_u32());
+            }
+        }
+    }
+    output
+}
+
+pub(crate) fn report_cached_import(name: &Py<PyStr>, vm: &VirtualMachine) {
+    if vm.state.config.settings.import_time == 2 {
+        import_time_header(vm);
+        let width = vm.import_timing.get().depth * 2;
+        let _ = writeln!(
+            std::io::stderr(),
+            "import time: cached    | cached     | {:>width$}",
+            import_time_name(name)
+        );
+    }
+}
+
+struct ImportTimer<'a> {
+    state: &'a Cell<ImportTimingState>,
+    parent: ImportTimingState,
+    start: Instant,
+    name: &'a Py<PyStr>,
+}
+
+impl<'a> ImportTimer<'a> {
+    fn start(name: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Option<Self> {
+        if vm.state.config.settings.import_time == 0 {
+            return None;
+        }
+        import_time_header(vm);
+        let parent = vm.import_timing.replace(ImportTimingState {
+            depth: vm.import_timing.get().depth + 1,
+            children: Duration::ZERO,
+        });
+        Some(Self {
+            state: &vm.import_timing,
+            parent,
+            start: Instant::now(),
+            name,
+        })
+    }
+}
+
+impl Drop for ImportTimer<'_> {
+    fn drop(&mut self) {
+        let cumulative = self.start.elapsed();
+        let own = cumulative.saturating_sub(self.state.get().children);
+        self.state.set(ImportTimingState {
+            depth: self.parent.depth,
+            children: self.parent.children.saturating_add(cumulative),
+        });
+        let width = self.parent.depth * 2;
+        let _ = writeln!(
+            std::io::stderr(),
+            "import time: {:9} | {:10} | {:width$}{}",
+            own.as_nanos().div_ceil(1000),
+            cumulative.as_nanos().div_ceil(1000),
+            "",
+            import_time_name(self.name),
+        );
+    }
+}
+
+pub(crate) fn find_and_load(
+    name: &Py<PyStr>,
+    function: &'static str,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let _timer = ImportTimer::start(name, vm);
+    vm.importlib
+        .get_attr(function, vm)?
+        .call((name.to_owned(), vm.import_func.clone()), vm)
+}
 
 pub(crate) fn check_pyc_magic_number_bytes(buf: &[u8]) -> bool {
     buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES)
@@ -29,7 +133,9 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
         install.call((vm.sys_module.clone(), imp), vm)?;
         Ok(bootstrap)
     })?;
-    vm.import_func = importlib.get_attr(identifier!(vm, __import__), vm)?;
+    // Importlib callbacks must use the native import function, whose cache-hit
+    // path accepts partially initialized modules in concurrent circular imports.
+    vm.import_func = vm.builtins.get_attr(identifier!(vm, __import__), vm)?;
     vm.importlib = importlib.clone();
     Ok(importlib)
 }
@@ -177,13 +283,14 @@ pub(crate) fn is_module_initializing(module: &PyObject, vm: &VirtualMachine) -> 
 /// initializing by calling `_lock_unlock_module`.
 fn import_ensure_initialized(
     module: &PyObject,
-    name: &Py<PyUtf8Str>,
+    name: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     if is_module_initializing(module, vm)? {
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((name.to_owned(),), vm)?;
     }
+    report_cached_import(name, vm);
     Ok(())
 }
 
@@ -380,6 +487,41 @@ pub(crate) fn is_stdlib_module_name(name: &PyObject, vm: &VirtualMachine) -> PyR
     result.try_to_bool(vm)
 }
 
+/// Resolve an import target without finding or executing its module.
+pub(crate) fn absolute_import_name(
+    name: &Py<crate::builtins::PyStr>,
+    globals: Option<&PyObject>,
+    level: i32,
+    vm: &VirtualMachine,
+) -> PyResult<crate::builtins::PyStrRef> {
+    if level < 0 {
+        return Err(vm.new_value_error("level must be >= 0"));
+    }
+    if level == 0 {
+        if name.is_empty() {
+            return Err(vm.new_value_error("Empty module name"));
+        }
+        return Ok(name.to_owned());
+    }
+    let globals = globals
+        .ok_or_else(|| vm.new_key_error(vm.ctx.new_str("'__name__' not in globals").into()))?;
+    let empty: PyObjectRef;
+    let globals = if vm.is_none(globals) {
+        empty = vm.ctx.new_dict().into();
+        &empty
+    } else {
+        globals
+    };
+    let package = calc_package(Some(globals), vm)?;
+    if package.is_empty() {
+        return Err(vm.new_import_error(
+            "attempted relative import with no known parent package",
+            vm.ctx.new_utf8_str(""),
+        ));
+    }
+    resolve_name(name, &package, level as usize, vm)
+}
+
 /// PyImport_ImportModuleLevelObject
 pub(crate) fn import_module_level(
     name: &Py<PyStr>,
@@ -391,21 +533,6 @@ pub(crate) fn import_module_level(
     if level < 0 {
         return Err(vm.new_value_error("level must be >= 0"));
     }
-
-    let name = match name.as_utf8() {
-        Some(name) => name,
-        None => {
-            // Name contains surrogates. Try sys.modules lookup with the
-            // Python string key directly.
-            if level == 0 {
-                let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-                return sys_modules.get_item(name, vm).map_err(|_| {
-                    vm.new_import_error(format!("No module named '{name}'"), name.to_owned())
-                });
-            }
-            return Err(vm.new_import_error(format!("No module named '{name}'"), name.to_owned()));
-        }
-    };
 
     // Resolve absolute name
     let abs_name = if level > 0 {
@@ -442,12 +569,14 @@ pub(crate) fn import_module_level(
     let module = match sys_modules.get_item(&*abs_name, vm) {
         Ok(m) if !vm.is_none(&m) => {
             import_ensure_initialized(&m, &abs_name, vm)?;
+            crate::lazy_import::clear_submodule(&abs_name, true, vm)?;
             m
         }
-        _ => {
-            let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-            find_and_load.call((abs_name.clone(), vm.import_func.clone()), vm)?
+        Ok(_) => find_and_load(&abs_name, "_find_and_load", vm)?,
+        Err(error) if error.fast_isinstance(vm.ctx.exceptions.key_error) => {
+            find_and_load(&abs_name, "_find_and_load", vm)?
         }
+        Err(error) => return Err(error),
     };
 
     // Handle fromlist
@@ -472,24 +601,23 @@ pub(crate) fn import_module_level(
             Ok(module)
         }
     } else if level == 0 || !name.is_empty() {
-        let name_str = name.as_str();
-        match name_str.find('.') {
+        let name_bytes = name.as_bytes();
+        match name_bytes.iter().position(|&byte| byte == b'.') {
             None => Ok(module),
             Some(dot) => {
                 let to_return = if level == 0 {
-                    vm.ctx.new_utf8_str(&name_str[..dot])
+                    vm.ctx.new_str(&name.as_wtf8()[..dot])
                 } else {
-                    let cut_off = name_str.len() - dot;
-                    let abs = abs_name.as_str();
-                    vm.ctx.new_utf8_str(&abs[..abs.len() - cut_off])
+                    let cut_off = name_bytes.len() - dot;
+                    let abs = abs_name.as_wtf8();
+                    vm.ctx.new_str(&abs[..abs.len() - cut_off])
                 };
                 match sys_modules.get_item(&*to_return, vm) {
                     Ok(m) => Ok(m),
                     Err(_) if level == 0 => {
                         // For absolute imports (level 0), try importing the
                         // parent. Matches _bootstrap.__import__ behavior.
-                        let find_and_load = vm.importlib.get_attr("_find_and_load", vm)?;
-                        find_and_load.call((to_return, vm.import_func.clone()), vm)
+                        find_and_load(&to_return, "_find_and_load", vm)
                     }
                     Err(_) => {
                         // For relative imports (level > 0), raise KeyError
@@ -509,37 +637,44 @@ pub(crate) fn import_module_level(
 
 /// resolve_name in import.c - resolve relative import name
 fn resolve_name(
-    name: &Py<PyUtf8Str>,
-    package: &Py<PyUtf8Str>,
+    name: &Py<PyStr>,
+    package: &Py<PyStr>,
     level: usize,
     vm: &VirtualMachine,
-) -> PyResult<PyUtf8StrRef> {
-    // Python: bits = package.rsplit('.', level - 1)
-    // Rust: rsplitn(level, '.') gives maxsplit=level-1
-    let package_str = package.as_str();
-    let parts: Vec<&str> = package_str.rsplitn(level, '.').collect();
-    if parts.len() < level {
-        return Err(vm.new_import_error(
-            "attempted relative import beyond top-level package",
-            name.to_owned(),
-        ));
+) -> PyResult<PyStrRef> {
+    // ASCII dots are character boundaries in WTF-8 too. Keep the original
+    // Python string, including surrogates, while walking up package components.
+    let package_bytes = package.as_bytes();
+    let mut end = package_bytes.len();
+    for _ in 1..level {
+        end = package_bytes[..end]
+            .iter()
+            .rposition(|&byte| byte == b'.')
+            .ok_or_else(|| {
+                vm.new_import_error(
+                    "attempted relative import beyond top-level package",
+                    name.to_owned(),
+                )
+            })?;
     }
-    // rsplitn returns parts right-to-left, so last() is the leftmost (base)
-    let base = *parts.last().unwrap();
+    let base = &package.as_wtf8()[..end];
     let abs_name = if name.is_empty() {
-        if base.len() == package_str.len() {
+        if end == package_bytes.len() {
             package.to_owned()
         } else {
-            vm.ctx.new_utf8_str(base)
+            vm.ctx.new_str(base)
         }
     } else {
-        vm.ctx.new_utf8_str(format!("{base}.{}", name.as_str()))
+        let mut absolute = base.to_owned();
+        absolute.push_str(".");
+        absolute.push_wtf8(name.as_wtf8());
+        vm.ctx.new_str(absolute)
     };
     Ok(abs_name)
 }
 
 /// _calc___package__ - calculate package from globals for relative imports
-fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyUtf8StrRef> {
+fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
     let globals = globals.ok_or_else(|| {
         vm.new_import_error(
             "attempted relative import with no known parent package",
@@ -553,7 +688,7 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyU
     if let Some(ref pkg) = package
         && !vm.is_none(pkg)
     {
-        let pkg_str: PyUtf8StrRef = pkg
+        let pkg_str: PyStrRef = pkg
             .clone()
             .downcast()
             .map_err(|_| vm.new_type_error("package must be a string"))?;
@@ -573,7 +708,7 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyU
                 .unwrap_or_default();
             let msg = format!(
                 "__package__ != __spec__.parent ('{}' != {})",
-                pkg_str.as_str(),
+                pkg_str.as_wtf8(),
                 parent_repr
             );
             let warn = vm
@@ -595,7 +730,7 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyU
         && let Ok(parent) = spec.get_attr("parent", vm)
         && !vm.is_none(&parent)
     {
-        let parent_str: PyUtf8StrRef = parent
+        let parent_str: PyStrRef = parent
             .downcast()
             .map_err(|_| vm.new_type_error("package set to non-string"))?;
         return Ok(parent_str);
@@ -621,18 +756,126 @@ fn calc_package(globals: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<PyU
             vm.ctx.new_utf8_str(""),
         )
     })?;
-    let mod_name_str: PyUtf8StrRef = mod_name
+    let mod_name_str: PyStrRef = mod_name
         .downcast()
         .map_err(|_| vm.new_type_error("__name__ must be a string"))?;
     // If not a package (no __path__), strip last component.
     // Uses rpartition('.')[0] semantics: returns empty string when no dot.
     if globals.get_item("__path__", vm).is_err() {
-        let s = mod_name_str.as_str();
-        Ok(match s.rfind('.') {
-            Some(dot) => vm.ctx.new_utf8_str(&s[..dot]),
-            None => vm.ctx.new_utf8_str(""),
-        })
+        let name = mod_name_str.as_wtf8();
+        Ok(
+            match name.as_bytes().iter().rposition(|&byte| byte == b'.') {
+                Some(dot) => vm.ctx.new_str(&name[..dot]),
+                None => vm.ctx.new_str(""),
+            },
+        )
     } else {
         Ok(mod_name_str)
     }
+}
+
+pub(crate) fn import_from_attribute(
+    module: &PyObject,
+    name: &Py<crate::builtins::PyStr>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    // Load attribute, and transform any error into import error.
+    if let Some(obj) = vm.get_attribute_opt(module, name)? {
+        return Ok(obj);
+    }
+    // fallback to importing '{module.__name__}.{name}' from sys.modules
+    let fallback_module = (|| {
+        let mod_name = module.get_attr(identifier!(vm, __name__), vm).ok()?;
+        let mod_name = mod_name.downcast_ref::<PyUtf8Str>()?;
+        let full_mod_name = vm.ctx.new_utf8_str(format!("{}.{name}", mod_name.as_str()));
+        let sys_modules = vm.sys_module.get_attr("modules", vm).ok()?;
+        sys_modules.get_item(&*full_mod_name, vm).ok()
+    })();
+
+    if let Some(sub_module) = fallback_module {
+        return Ok(sub_module);
+    }
+
+    use crate::import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name};
+
+    // Get module name for the error message
+    let mod_name_obj = module.get_attr(identifier!(vm, __name__), vm).ok();
+    let mod_name = mod_name_obj
+        .as_ref()
+        .and_then(|n| n.downcast_ref::<PyUtf8Str>());
+    let module_name = mod_name.map_or("<unknown module name>", |s| s.as_str());
+
+    let spec = module
+        .get_attr("__spec__", vm)
+        .ok()
+        .filter(|s| !vm.is_none(s));
+
+    let origin = get_spec_file_origin(spec.as_deref(), vm);
+
+    let is_possibly_shadowing = origin
+        .as_ref()
+        .is_some_and(|o| is_possibly_shadowing_path(o, vm));
+    let is_possibly_shadowing_stdlib = if is_possibly_shadowing {
+        if let Some(ref mod_name) = mod_name_obj {
+            is_stdlib_module_name(mod_name, vm)?
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let msg = if is_possibly_shadowing_stdlib {
+        let origin = origin.as_ref().unwrap();
+        format!(
+            "cannot import name '{name}' from '{module_name}' \
+                 (consider renaming '{origin}' since it has the same \
+                 name as the standard library module named '{module_name}' \
+                 and prevents importing that standard library module)"
+        )
+    } else {
+        let is_init = is_module_initializing(module, vm).unwrap_or(false);
+        if is_init {
+            if is_possibly_shadowing {
+                let origin = origin.as_ref().unwrap();
+                format!(
+                    "cannot import name '{name}' from '{module_name}' \
+                         (consider renaming '{origin}' if it has the same name \
+                         as a library you intended to import)"
+                )
+            } else if let Some(ref path) = origin {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import) ({path})"
+                )
+            } else {
+                format!(
+                    "cannot import name '{name}' from partially initialized module \
+                         '{module_name}' (most likely due to a circular import)"
+                )
+            }
+        } else if let Some(ref path) = origin {
+            format!("cannot import name '{name}' from '{module_name}' ({path})")
+        } else {
+            format!("cannot import name '{name}' from '{module_name}' (unknown location)")
+        }
+    };
+    let err = vm.new_import_error(
+        msg,
+        match mod_name {
+            Some(s) => s.to_owned().into_wtf8(),
+            None => vm.ctx.new_utf8_str("<unknown module name>").into_wtf8(),
+        },
+    );
+
+    if let Some(ref path) = origin {
+        let _ignore = err
+            .as_object()
+            .set_attr("path", vm.ctx.new_str(path.as_str()), vm);
+    }
+
+    // name_from = the attribute name that failed to import (best-effort metadata)
+    let _ignore = err.as_object().set_attr("name_from", name.to_owned(), vm);
+
+    Err(err)
 }

@@ -1,3 +1,5 @@
+// spell-checker: ignore AGEN
+
 use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -161,6 +163,16 @@ impl Py<PyAsyncGen> {
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
         self.inner.code()
     }
+    #[pygetset]
+    fn ag_state(&self) -> &'static str {
+        self.inner.state_name([
+            "AGEN_CREATED",
+            "AGEN_RUNNING",
+            "AGEN_SUSPENDED",
+            "AGEN_CLOSED",
+        ])
+    }
+
     #[pygetset]
     fn ag_suspended(&self, _vm: &VirtualMachine) -> bool {
         self.inner.suspended()

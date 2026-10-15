@@ -17,7 +17,6 @@ from test.support import (
     SHORT_TIMEOUT,
 )
 from test.support.script_helper import kill_python
-from test.support.import_helper import import_module
 
 try:
     import pty
@@ -40,8 +39,8 @@ def spawn_repl(*args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, custom=F
     # line option '-i' and the process name set to '<stdin>'.
     # The directory of argv[0] must match the directory of the Python
     # executable for the Popen() call to python to succeed as the directory
-    # path may be used by Py_GetPath() to build the default module search
-    # path.
+    # path may be used by PyConfig_Get("module_search_paths") to build the
+    # default module search path.
     stdin_fname = os.path.join(os.path.dirname(sys.executable), "<stdin>")
     cmd_line = [stdin_fname]
     # Isolated mode implies -EPs and ignores PYTHON* variables.
@@ -99,12 +98,8 @@ def run_on_interactive_mode(source):
 @support.force_not_colorized_test_class
 class TestInteractiveInterpreter(unittest.TestCase):
 
-    @cpython_only
-    # Python built with Py_TRACE_REFS fail with a fatal error in
-    # _PyRefchain_Trace() on memory allocation error.
-    @unittest.skipIf(support.Py_TRACE_REFS, 'cannot test Py_TRACE_REFS build')
+    @support.nomemtest
     def test_no_memory(self):
-        import_module("_testcapi")
         # Issue #30696: Fix the interactive interpreter looping endlessly when
         # no memory. Check also that the fix does not break the interactive
         # loop when an exception is raised.
@@ -303,7 +298,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         expected_lines = [
             '    def f(x, x): ...',
             '             ^',
-            "SyntaxError: duplicate argument 'x' in function definition"
+            "SyntaxError: duplicate parameter 'x' in function definition"
         ]
         self.assertEqual(output.splitlines()[4:-1], expected_lines)
 
@@ -443,6 +438,13 @@ class TestAsyncioREPL(unittest.TestCase):
         p = spawn_asyncio_repl()
         p.stdin.write(user_input)
         user_input2 = "async def set_var(): var.set('ok')\n"
+        try:
+            import _pyrepl # noqa: F401
+        except ModuleNotFoundError:
+            # If we're going to be forced into the regular REPL, then we need an
+            # extra newline here. Omit it by default to catch any breakage to
+            # the new REPL's behavior.
+            user_input2 += "\n"
         p.stdin.write(user_input2)
         user_input3 = "await set_var()\n"
         p.stdin.write(user_input3)

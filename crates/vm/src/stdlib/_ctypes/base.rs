@@ -213,7 +213,7 @@ impl StgInfo {
             size,
             align,
             length,
-            proto: None,
+            proto: Some(element_type.clone()),
             flags,
             element_type: Some(element_type),
             element_size,
@@ -1899,14 +1899,17 @@ fn array_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> 
 
 /// PyCPointerType_paramfunc
 fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> {
+    use super::function::PyCFuncPtr;
     use super::pointer::PyCPointer;
 
-    let ptr = obj
-        .downcast_ref::<PyCPointer>()
-        .ok_or_else(|| vm.new_type_error("expected pointer"))?;
-
     // parg->value.p = *(void **)self->b_ptr
-    let ptr_val = ptr.get_ptr_value();
+    let ptr_val = if let Some(ptr) = obj.downcast_ref::<PyCPointer>() {
+        ptr.get_ptr_value()
+    } else if let Some(funcptr) = obj.downcast_ref::<PyCFuncPtr>() {
+        funcptr.get_func_ptr()
+    } else {
+        return Err(vm.new_type_error("expected pointer"));
+    };
 
     Ok(CArgObject {
         tag: b'P',

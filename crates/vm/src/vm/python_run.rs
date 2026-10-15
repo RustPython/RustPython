@@ -80,7 +80,7 @@ mod file_run {
         /// _PyRun_SimpleFileObject
         ///
         /// Execute a Python file with __main__ module setup.
-        /// Sets __file__ and __cached__ before execution, removes them after.
+        /// Sets __file__ before execution and removes it after.
         fn run_simple_file(&self, scope: Scope, path: &str) -> PyResult<()> {
             self.with_simple_run(path, |module_dict| {
                 self.run_simple_file_inner(module_dict, scope, path)
@@ -120,7 +120,14 @@ mod file_run {
                         let source = String::from_utf8(source_bytes)
                             .map_err(|err| self.new_os_error(err.to_string()))?;
                         let code_obj = self
-                            .compile(&source, compiler::Mode::Exec, path)
+                            .compile_with_opts_and_module(
+                                &source,
+                                compiler::Mode::Exec,
+                                path,
+                                self.compile_opts(),
+                                Some(identifier!(self, __main__).as_object()),
+                                &[],
+                            )
                             .map_err(|err| err.into_pyexception(self, Some(&source)))?;
                         self.run_code_obj(code_obj, scope)?;
                     }

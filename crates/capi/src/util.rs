@@ -194,7 +194,7 @@ impl FfiResult<()> for PyResult<Infallible> {
 
     fn into_output(self, vm: &VirtualMachine) {
         match self {
-            Err(err) => vm.set_exception(Some(err)),
+            Err(err) => vm.set_raised_exception(Some(err)),
         }
     }
 }
@@ -208,7 +208,7 @@ where
     fn into_output(self, vm: &VirtualMachine) -> Output {
         self.map_or_else(
             |err| {
-                vm.set_exception(Some(err));
+                vm.set_raised_exception(Some(err));
                 T::ERR_VALUE
             },
             |obj| obj.into_output(vm),

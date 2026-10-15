@@ -1,9 +1,9 @@
+use super::SourceFile;
 use super::*;
 use crate::stdlib::_ast::argument::{
     KeywordArguments, PositionalArguments, merge_function_call_arguments,
     split_function_call_arguments,
 };
-use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ast::Expr {
@@ -856,16 +856,19 @@ fn expr_dict_comp_from_object_with_range(
     object: &PyObject,
     range: TextRange,
 ) -> PyResult<ast::ExprDictComp> {
+    // Ruff uses a missing key for unpacking; Python's AST uses a missing value.
+    let key = get_required_node_field(vm, source_file, object, "key", "DictComp")?;
+    let value = get_node_field_opt(vm, object, "value")?
+        .map(|obj| Node::ast_from_object(vm, source_file, obj))
+        .transpose()?;
+    let (key, value) = match value {
+        Some(value) => (Some(key), value),
+        None => (None, key),
+    };
     Ok(ast::ExprDictComp {
         node_index: Default::default(),
-        key: Some(get_required_node_field(
-            vm,
-            source_file,
-            object,
-            "key",
-            "DictComp",
-        )?),
-        value: get_required_node_field(vm, source_file, object, "value", "DictComp")?,
+        key,
+        value,
         generators: get_node_list_field(vm, source_file, object, "generators", "DictComp")?
             .into_boxed_slice(),
         range,
@@ -881,6 +884,10 @@ impl Node for ast::ExprDictComp {
             generators,
             range,
         } = self;
+        let (key, value) = match key {
+            Some(key) => (key, Some(value)),
+            None => (value, None),
+        };
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprDictComp::static_type().to_owned())
             .unwrap();

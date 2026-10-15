@@ -319,7 +319,10 @@ impl AsRawFd for Borrowed<'_> {
 
 #[inline]
 fn ebadf() -> io::Error {
-    io::Error::from_raw_os_error(c::EBADF)
+    cfg_select! {
+        windows => crate::os::io_error_from_errno(c::EBADF),
+        _ => io::Error::from_raw_os_error(c::EBADF),
+    }
 }
 
 pub fn open(path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
@@ -367,7 +370,7 @@ pub fn closerange(fd_low: Raw, fd_high: Raw) {
     // CPython clamps low to 0.
     let fd_low = fd_low.max(0);
     // close_range(2) is [low, high] whereas CPython's is [low, high).
-    if fd_high < fd_low {
+    if fd_high <= fd_low {
         return;
     }
     let high = fd_high - 1;

@@ -103,39 +103,49 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    #[cfg(all(feature = "host_env", windows))]
     if vm.is_main_thread() && vm.state.is_main_interpreter() {
-        // Report before a Python signal handler can raise out of the current
-        // error-reporting scope.
-        crate::stdlib::_signal::_signal::report_wakeup_send_errors(vm);
-    } else if crate::stdlib::_signal::_signal::wakeup_send_errors_pending() {
-        // A different interpreter/thread must leave the report for the main one.
-        set_triggered();
-    }
+        // Report before invoking a Python handler, which may raise and leave
+        // the current stderr redirection scope before the next signal check.
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
 
-    let signal_handlers = vm
-        .signal_handlers
-        .get()
-        .expect("should never fail since we check above");
+        let signal_handlers = vm
+            .signal_handlers
+            .get()
+            .expect("should never fail since we check above");
 
-    for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
-        let triggered = trigger.swap(false, Ordering::Relaxed);
-        if !triggered {
-            continue;
+        for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
+            let triggered = trigger.swap(false, Ordering::Relaxed);
+            if !triggered {
+                continue;
+            }
+
+            // SAFETY: TRIGGERS has the same length as the signal_handlers
+            let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
+
+            // Read the handler out and drop the borrow before running it. A
+            // handler is free to call signal.signal(), which takes the same cell
+            // mutably, and a live read borrow turns that into a panic.
+            let handler = signal_handlers.borrow()[signum].clone();
+
+            if let Some(handler) = handler
+                && let Some(callable) = handler.to_callable()
+            {
+                callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
+            }
         }
-
-        // SAFETY: TRIGGERS has the same length as the signal_handlers
-        let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
-
-        // Read the handler out and drop the borrow before running it. A
-        // handler is free to call signal.signal(), which takes the same cell
-        // mutably, and a live read borrow turns that into a panic.
-        let handler = signal_handlers.borrow()[signum].clone();
-
-        if let Some(handler) = handler
-            && let Some(callable) = handler.to_callable()
-        {
-            callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
+    } else {
+        let os_signals_pending = TRIGGERS
+            .iter()
+            .skip(1)
+            .any(|trigger| trigger.load(Ordering::Relaxed));
+        #[cfg(all(feature = "host_env", any(unix, windows)))]
+        let os_signals_pending =
+            os_signals_pending || crate::stdlib::_signal::_signal::wakeup_errors_pending();
+        if os_signals_pending {
+            // Leave OS signals for the main interpreter's main thread. Re-arm
+            // before running VM-local callbacks, which may raise.
+            set_triggered();
         }
     }
 

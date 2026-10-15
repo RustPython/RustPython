@@ -7,6 +7,9 @@ use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "capi")]
+pub mod capi;
+
 pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
 const UNGROUPED_EVENTS_COUNT: usize = 16;
@@ -94,12 +97,17 @@ const EVENT_NAMES: [&str; EVENTS_COUNT] = [
 
 /// Interpreter-level monitoring state, shared by all threads.
 pub struct MonitoringState {
+    #[cfg(feature = "capi")]
+    native_version: u64,
     pub tool_names: [Option<String>; TOOL_LIMIT],
     pub global_events: [u32; TOOL_LIMIT],
     pub local_events: HashMap<(usize, usize), u32>,
     pub callbacks: HashMap<(usize, usize), PyObjectRef>,
-    /// Per-instruction disabled tools: (code_id, offset, tool)
-    pub disabled: HashSet<(usize, usize, usize)>,
+    // Legacy BRANCH callbacks also check whether the source instruction was
+    // disabled. Direct BRANCH_LEFT/RIGHT registrations bypass that check.
+    legacy_branch_callbacks: HashSet<(usize, usize)>,
+    /// Per-instruction disabled tools: (code_id, offset, event, tool)
+    pub disabled: HashSet<(usize, usize, usize, usize)>,
     /// Cached MISSING sentinel singleton
     pub missing: Option<PyObjectRef>,
     /// Cached DISABLE sentinel singleton
@@ -109,10 +117,13 @@ pub struct MonitoringState {
 impl Default for MonitoringState {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "capi")]
+            native_version: 1,
             tool_names: Default::default(),
             global_events: [0; TOOL_LIMIT],
             local_events: HashMap::new(),
             callbacks: HashMap::new(),
+            legacy_branch_callbacks: HashSet::new(),
             disabled: HashSet::new(),
             missing: None,
             disable: None,
@@ -399,8 +410,10 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
             let op = code.code.instructions.read_op(i);
             let oparg = code.code.instructions.read_arg(i).as_u8();
             let caches = op.deoptimize().cache_entries();
-            if (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask()) != 0
-                || opcode_event_is_active(op, oparg, events))
+            if i >= first_traceable
+                && (events & (MonitoringEvent::Line.mask() | MonitoringEvent::Instruction.mask())
+                    != 0
+                    || opcode_event_is_active(op, oparg, events))
                 && let Some(instrumented) = op.to_instrumented()
             {
                 unsafe {
@@ -638,12 +651,19 @@ fn clear_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
     let tool = check_valid_tool(tool_id, vm)?;
     let mut state = vm.state.monitoring.lock();
     if state.tool_names[tool].is_some() {
+        #[cfg(feature = "capi")]
+        {
+            state.native_version += 1;
+        }
         state.global_events[tool] = 0;
         state
             .local_events
             .retain(|(local_tool, _), _| *local_tool != tool);
         state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
-        state.disabled.retain(|&(_, _, t)| t != tool);
+        state
+            .legacy_branch_callbacks
+            .retain(|(cb_tool, _)| *cb_tool != tool);
+        state.disabled.retain(|&(_, _, _, t)| t != tool);
     }
     update_events_mask(vm, &state);
     Ok(())
@@ -653,12 +673,19 @@ fn free_tool_id(tool_id: i32, vm: &VirtualMachine) -> PyResult<()> {
     let tool = check_valid_tool(tool_id, vm)?;
     let mut state = vm.state.monitoring.lock();
     if state.tool_names[tool].is_some() {
+        #[cfg(feature = "capi")]
+        {
+            state.native_version += 1;
+        }
         state.global_events[tool] = 0;
         state
             .local_events
             .retain(|(local_tool, _), _| *local_tool != tool);
         state.callbacks.retain(|(cb_tool, _), _| *cb_tool != tool);
-        state.disabled.retain(|&(_, _, t)| t != tool);
+        state
+            .legacy_branch_callbacks
+            .retain(|(cb_tool, _)| *cb_tool != tool);
+        state.disabled.retain(|&(_, _, _, t)| t != tool);
         state.tool_names[tool] = None;
     }
     update_events_mask(vm, &state);
@@ -690,18 +717,29 @@ fn register_callback(
     let branch_id = MonitoringEvent::Branch as usize;
     let branch_left_id = MonitoringEvent::BranchLeft as usize;
     let branch_right_id = MonitoringEvent::BranchRight as usize;
+    state.legacy_branch_callbacks.remove(&(tool, event_id));
     if !vm.is_none(&func) {
         state.callbacks.insert((tool, event_id), func.clone());
         // BRANCH is a composite event: also register for BRANCH_LEFT/RIGHT
         if event_id == branch_id {
             state.callbacks.insert((tool, branch_left_id), func.clone());
             state.callbacks.insert((tool, branch_right_id), func);
+            state.legacy_branch_callbacks.insert((tool, branch_left_id));
+            state
+                .legacy_branch_callbacks
+                .insert((tool, branch_right_id));
         }
     } else {
         // Also clear BRANCH_LEFT/RIGHT when clearing BRANCH
         if event_id == branch_id {
             state.callbacks.remove(&(tool, branch_left_id));
             state.callbacks.remove(&(tool, branch_right_id));
+            state
+                .legacy_branch_callbacks
+                .remove(&(tool, branch_left_id));
+            state
+                .legacy_branch_callbacks
+                .remove(&(tool, branch_right_id));
         }
     }
     Ok(prev)
@@ -718,6 +756,10 @@ fn set_events(tool_id: i32, event_set: i32, vm: &VirtualMachine) -> PyResult<()>
     check_tool_in_use(tool, vm)?;
     let normalized = normalize_event_set(event_set, false, vm)?;
     let mut state = vm.state.monitoring.lock();
+    #[cfg(feature = "capi")]
+    if state.global_events[tool] != normalized {
+        state.native_version += 1;
+    }
     state.global_events[tool] = normalized;
     update_events_mask(vm, &state);
     Ok(())
@@ -763,6 +805,10 @@ fn set_local_events(
 fn restart_events(vm: &VirtualMachine) {
     let mut state = vm.state.monitoring.lock();
     state.disabled.clear();
+    #[cfg(feature = "capi")]
+    {
+        state.native_version += 1;
+    }
 }
 
 fn all_events(vm: &VirtualMachine) -> PyResult<PyDictRef> {
@@ -828,6 +874,11 @@ fn fire(
     let event_id = event as usize;
     let event_mask = event.mask();
     let code_id = code.get_id();
+    let disabled_event = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
+        MonitoringEvent::Call as usize
+    } else {
+        event_id
+    };
 
     // C_RETURN and C_RAISE are implicitly enabled when CALL is set.
     let check_bit = if matches!(event, MonitoringEvent::CReturn | MonitoringEvent::CRaise) {
@@ -836,8 +887,8 @@ fn fire(
         event_mask
     };
 
-    // Collect callbacks and snapshot the DISABLE sentinel under a single lock.
-    let (callbacks, disable_sentinel): (Vec<(usize, PyObjectRef)>, Option<PyObjectRef>) = {
+    // Collect callbacks without holding the monitoring lock across Python code.
+    let callbacks = {
         let state = vm.state.monitoring.lock();
         let mut cbs = Vec::new();
         for tool in 0..TOOL_LIMIT {
@@ -850,14 +901,34 @@ fn fire(
             if ((global | local) & check_bit) == 0 {
                 continue;
             }
-            if state.disabled.contains(&(code_id, offset as usize, tool)) {
+            if state
+                .disabled
+                .contains(&(code_id, offset as usize, disabled_event, tool))
+            {
                 continue;
             }
             if let Some(cb) = state.callbacks.get(&(tool, event_id)) {
+                if state.legacy_branch_callbacks.contains(&(tool, event_id)) {
+                    // A legacy BRANCH callback suppresses events whose source
+                    // instruction was already disabled. A conditional's left
+                    // edge lives in NOT_TAKEN, so disabling that edge alone
+                    // does not disable the source conditional instruction.
+                    let source_opcode = code.code.instructions.read_op(offset as usize / 2);
+                    if event_for_opcode(source_opcode, 0).is_some_and(|source_event| {
+                        state.disabled.contains(&(
+                            code_id,
+                            offset as usize,
+                            source_event as usize,
+                            tool,
+                        ))
+                    }) {
+                        continue;
+                    }
+                }
                 cbs.push((tool, cb.clone()));
             }
         }
-        (cbs, state.disable.clone())
+        cbs
     };
 
     if callbacks.is_empty() {
@@ -869,43 +940,72 @@ fn fire(
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
+    for (tool, cb) in callbacks {
+        if call_instrument(vm, event, &cb, args.clone())? {
+            if is_instrumented_event(event_id) {
+                vm.state.monitoring.lock().disabled.insert((
+                    code_id,
+                    offset as usize,
+                    event_id,
+                    tool,
+                ));
+            } else if event_id < UNGROUPED_EVENTS_COUNT {
+                // Non-instrumented events are disabled for this whole code
+                // object by removing only the local subscription. Global
+                // subscriptions continue to fire, including for this code.
+                let mut state = vm.state.monitoring.lock();
+                if let Some(local) = state.local_events.get_mut(&(tool, code_id)) {
+                    *local &= !event_mask;
+                    if *local == 0 {
+                        state.local_events.remove(&(tool, code_id));
+                    }
+                    update_events_mask(vm, &state);
+                }
+            } else {
+                return Err(cannot_disable(vm, event, tool));
+            }
+        }
+    }
+    Ok(())
+}
+
+// Both bytecode and native code use the same tracing and callback contract.
+fn call_instrument(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    callback: &PyObject,
+    args: FuncArgs,
+) -> PyResult<bool> {
+    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
+        return Ok(false);
+    }
+    let disable_sentinel = vm.state.monitoring.lock().disable.clone();
     FIRING.with(|f| f.set(true));
     vm.enter_tracing();
     let old_what = vm.what_event.replace(Some(event));
-    let result = (|| {
-        for (tool, cb) in callbacks {
-            let result = cb.call(args.clone(), vm)?;
-            if disable_sentinel.as_ref().is_some_and(|d| result.is(d)) {
-                if is_instrumented_event(event_id) {
-                    let mut state = vm.state.monitoring.lock();
-                    state.disabled.insert((code_id, offset as usize, tool));
-                } else if event_id < UNGROUPED_EVENTS_COUNT {
-                    // Other (non-instrumented) event: disable for this code object.
-                    let mut state = vm.state.monitoring.lock();
-                    if let Some(events) = state.local_events.get_mut(&(tool, code_id)) {
-                        *events &= !event_mask;
-                        if *events == 0 {
-                            state.local_events.remove(&(tool, code_id));
-                        }
-                    }
-                    update_events_mask(vm, &state);
-                } else {
-                    // Remove the callback.
-                    let mut state = vm.state.monitoring.lock();
-                    state.callbacks.remove(&(tool, event_id));
-                    return Err(vm.new_value_error(format!(
-                        "Cannot disable {} events. Callback removed.",
-                        EVENT_NAMES[event_id]
-                    )));
-                }
-            }
-        }
-        Ok(())
-    })();
+    let result = callback.call(args, vm);
     vm.what_event.set(old_what);
     vm.leave_tracing();
     FIRING.with(|f| f.set(false));
-    result
+    let result = result?;
+    let disable = disable_sentinel.as_ref().is_some_and(|d| result.is(d));
+    Ok(disable)
+}
+
+fn cannot_disable(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    tool: usize,
+) -> crate::builtins::PyBaseExceptionRef {
+    vm.state
+        .monitoring
+        .lock()
+        .callbacks
+        .remove(&(tool, event as usize));
+    vm.new_value_error(format!(
+        "Cannot disable {} events. Callback removed.",
+        EVENT_NAMES[event as usize]
+    ))
 }
 
 // Public dispatch functions (called from frame.rs)

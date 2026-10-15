@@ -148,6 +148,16 @@ impl Py<PyCoroutine> {
         self.inner.code()
     }
     #[pygetset]
+    fn cr_state(&self) -> &'static str {
+        self.inner.state_name([
+            "CORO_CREATED",
+            "CORO_RUNNING",
+            "CORO_SUSPENDED",
+            "CORO_CLOSED",
+        ])
+    }
+
+    #[pygetset]
     fn cr_suspended(&self, _vm: &VirtualMachine) -> bool {
         self.inner.suspended()
     }

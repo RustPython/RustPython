@@ -527,6 +527,19 @@ impl Coro {
         self.started.load()
     }
 
+    pub(crate) fn state_name(&self, names: [&'static str; 4]) -> &'static str {
+        let index = if self.running() {
+            1
+        } else if self.closed() {
+            3
+        } else if self.started() {
+            2
+        } else {
+            0
+        };
+        names[index]
+    }
+
     pub fn suspended(&self) -> bool {
         !self.closed.load() && !self.running.load() && self.started()
     }
@@ -661,12 +674,16 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine"));
+            return Err(vm.new_type_error(format!(
+                "{}.__await__() must return an iterator, not coroutine",
+                obj.class().fully_qualified_name(vm)?
+            )));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(
-                "__await__() returned non-iterator of type '{}'",
-                result.class().name()
+                "{}.__await__() must return an iterator, not {}",
+                obj.class().fully_qualified_name(vm)?,
+                result.class().fully_qualified_name(vm)?
             )));
         }
         return Ok(result);

@@ -28,9 +28,13 @@ except (NotImplementedError, ModuleNotFoundError):
 from test import support
 from test.support import os_helper
 from test.support import script_helper
-from test.test_py_compile import without_source_date_epoch
-from test.test_py_compile import SourceDateEpochTestMeta
+from test.support.os_helper import without_source_date_epoch
+from test.support.os_helper import SourceDateEpochTestMeta
 from test.support.os_helper import FakePath
+
+
+if sys.implementation.cache_tag is None:
+    raise unittest.SkipTest('requires sys.implementation.cache_tag is not None')
 
 
 def get_pyc(script, opt):

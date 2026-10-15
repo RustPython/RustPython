@@ -444,9 +444,9 @@ pub fn kx_group_by_openssl_name(name: &str) -> Option<&'static dyn SupportedKxGr
 
 fn kx_group_openssl_names(name: rustls::NamedGroup) -> &'static [&'static str] {
     match name {
-        rustls::NamedGroup::secp256r1 => &["prime256v1", "secp256r1"],
-        rustls::NamedGroup::secp384r1 => &["secp384r1", "prime384v1"],
-        rustls::NamedGroup::secp521r1 => &["secp521r1", "prime521v1"],
+        rustls::NamedGroup::secp256r1 => &["prime256v1", "secp256r1", "P-256"],
+        rustls::NamedGroup::secp384r1 => &["secp384r1", "prime384v1", "P-384"],
+        rustls::NamedGroup::secp521r1 => &["secp521r1", "prime521v1", "P-521"],
         rustls::NamedGroup::X25519 => &["X25519", "x25519"],
         rustls::NamedGroup::X448 => &["X448", "x448"],
         rustls::NamedGroup::MLKEM768 => &["MLKEM768"],

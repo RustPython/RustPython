@@ -13,11 +13,10 @@ import traceback
 from io import BytesIO
 from test import support
 from test.support import import_helper, os_helper
-
+from test.support import sortdict
+from unittest import mock
 from xml.parsers import expat
 from xml.parsers.expat import errors
-
-from test.support import sortdict
 
 
 class SetAttributeTest(unittest.TestCase):
@@ -568,6 +567,19 @@ class BufferTextTest(unittest.TestCase):
                           "<!--abc-->", "4", "<!--def-->", "5", "</a>"],
                          "buffered text not properly split")
 
+    def test_change_character_data_handler_in_callback(self):
+        # Test that xmlparse_handler_setter() properly handles
+        # the special case "parser.CharacterDataHandler = None".
+        def handler(*args):
+            parser.CharacterDataHandler = None
+
+        handler_wrapper = mock.Mock(wraps=handler)
+        parser = expat.ParserCreate()
+        parser.CharacterDataHandler = handler_wrapper
+        parser.Parse(b"<a>1<b/>2<c></c>3<!--abc-->4<!--def-->5</a> ", True)
+        handler_wrapper.assert_called_once()
+        self.assertIsNone(parser.CharacterDataHandler)
+
 
 # Test handling of exception from callback:
 class HandlerExceptionTest(unittest.TestCase):
@@ -626,6 +638,34 @@ class HandlerExceptionTest(unittest.TestCase):
             self.assertIn('call_with_frame("StartElement"',
                           entries[1].line)
 
+    def test_invalid_NotStandalone(self):
+        parser = expat.ParserCreate()
+        parser.NotStandaloneHandler = mock.Mock(return_value="bad value")
+        parser.ElementDeclHandler = lambda _1, _2: None
+
+        payload = b"""\
+<!DOCTYPE quotations SYSTEM "quotations.dtd" [<!ELEMENT root ANY>]><root/>
+"""
+        with self.assertRaises(TypeError) as cm:
+            parser.Parse(payload, True)
+        parser.NotStandaloneHandler.assert_called_once()
+
+        notes = ["invalid 'NotStandalone' event handler return value"]
+        self.assertEqual(cm.exception.__notes__, notes)
+
+    def test_invalid_ExternalEntityRefHandler(self):
+        parser = expat.ParserCreate()
+        parser.UseForeignDTD()
+        parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_ALWAYS)
+        parser.ExternalEntityRefHandler = mock.Mock(return_value=None)
+
+        with self.assertRaises(TypeError) as cm:
+            parser.Parse(b"<?xml version='1.0'?><element/>", True)
+        parser.ExternalEntityRefHandler.assert_called_once()
+
+        notes = ["invalid 'ExternalEntityRef' event handler return value"]
+        self.assertEqual(cm.exception.__notes__, notes)
+
 
 # Test Current* members:
 class PositionTest(unittest.TestCase):
@@ -648,9 +688,6 @@ class PositionTest(unittest.TestCase):
         self.upto += 1
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; the xml-rs backend reports a
-    # token's *current parse cursor* position rather than libexpat's *start of
-    # token* position, so exact byte/column offsets for StartElementHandler
-    # don't match upstream expat.
     def test(self):
         self.parser = expat.ParserCreate()
         self.parser.StartElementHandler = self.StartElementHandler
@@ -737,7 +774,7 @@ class ChardataBufferTest(unittest.TestCase):
     def test_disabling_buffer(self):
         xml1 = b"<?xml version='1.0' encoding='iso8859'?><a>" + b'a' * 512
         xml2 = b'b' * 1024
-        xml3 = b'c' * 1024 + b'</a>';
+        xml3 = b'c' * 1024 + b'</a>'
         parser = expat.ParserCreate()
         parser.CharacterDataHandler = self.counting_handler
         parser.buffer_text = 1
@@ -815,7 +852,7 @@ class ChardataBufferTest(unittest.TestCase):
     @support.requires_resource('cpu')
     @support.requires_resource('walltime')
     @support.bigmemtest(size=2**31, memuse=4, dry_run=False)
-    def test_large_character_data_does_not_crash(self):
+    def test_large_character_data_does_not_crash(self, size):
         # See https://github.com/python/cpython/issues/148441
         parser = expat.ParserCreate()
         parser.buffer_text = True
@@ -845,7 +882,7 @@ class ElementDeclHandlerTest(unittest.TestCase):
         self.assertRaises(TypeError, parser.Parse, data, True)
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: RecursionError not raised
-    @support.skip_if_unlimited_stack_size
+    @support.skip_if_huge_c_stack(800_000)
     @support.skip_emscripten_stack_overflow()
     @support.skip_wasi_stack_overflow()
     def test_deeply_nested_content_model(self):
@@ -995,6 +1032,16 @@ class ParentParserLifetimeTest(unittest.TestCase):
         del parser
         del subparser
 
+    # gh-155485: GetReparseDeferralEnabled always returns False with Expat <2.6.0.
+    @unittest.skipIf(not expat.ParserCreate().GetReparseDeferralEnabled(),
+                     "requires Python compiled with Expat >= 2.6.0")
+    def test_subparser_inherits_reparse_deferral(self):
+        for enabled in (True, False):
+            parser = expat.ParserCreate()
+            parser.SetReparseDeferralEnabled(enabled)
+            subparser = parser.ExternalEntityParserCreate(None)
+            self.assertEqual(subparser.GetReparseDeferralEnabled(), enabled)
+
 
 class ExternalEntityParserCreateErrorTest(unittest.TestCase):
     """ExternalEntityParserCreate error paths should not crash or leak
@@ -1007,8 +1054,7 @@ class ExternalEntityParserCreateErrorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.testcapi = import_helper.import_module('_testcapi')
 
-    @unittest.skipIf(support.Py_TRACE_REFS,
-                     'Py_TRACE_REFS conflicts with testcapi.set_nomemory')
+    @support.nomemtest
     def test_error_path_no_crash(self):
         # When an allocation inside ExternalEntityParserCreate fails,
         # the partially-initialized subparser is deallocated.  This

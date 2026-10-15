@@ -134,11 +134,22 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     let search_dir = home_dir.clone().or(exe_dir);
 
     // Step 3: Check for build directory
-    let build_prefix = detect_build_directory(search_dir.as_ref());
+    let build_prefix = settings
+        .home
+        .is_none()
+        .then(|| detect_build_directory(search_dir.as_ref()))
+        .flatten();
 
     // Step 4: Calculate prefix via landmark search
     // When in venv, search_dir is home_dir, so this gives us the base Python's prefix
-    let calculated_prefix = calculate_prefix(search_dir.as_ref(), build_prefix.as_ref());
+    let home_prefixes = settings.home.as_deref().map(|home| {
+        home.split_once(if cfg!(windows) { ';' } else { ':' })
+            .unwrap_or((home, home))
+    });
+    let calculated_prefix = home_prefixes.map_or_else(
+        || calculate_prefix(search_dir.as_ref(), build_prefix.as_ref()),
+        |(prefix, _)| prefix.to_owned(),
+    );
 
     // Step 5: Set prefix and base_prefix
     if venv_prefix.is_some() {
@@ -159,9 +170,15 @@ pub fn init_path_config(settings: &Settings) -> Paths {
         // In venv: exec_prefix = prefix (venv directory)
         paths.prefix.clone()
     } else {
-        calculate_exec_prefix(search_dir.as_ref(), paths.prefix.as_ref())
+        home_prefixes.map_or_else(
+            || calculate_exec_prefix(search_dir.as_ref(), paths.prefix.as_ref()),
+            |(_, exec_prefix)| exec_prefix.to_owned(),
+        )
     };
-    paths.base_exec_prefix.clone_from(&paths.base_prefix);
+    paths.base_exec_prefix = home_prefixes.map_or_else(
+        || paths.base_prefix.clone(),
+        |(_, exec_prefix)| exec_prefix.to_owned(),
+    );
 
     // Step 7: Calculate base_executable (if not already set by an env override)
     if paths.base_executable.is_empty() {
@@ -169,13 +186,27 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     }
 
     // Step 8: Build module_search_paths
+    let (stdlib_prefix, extension_prefix) = if settings.home.is_some() {
+        (&paths.base_prefix, &paths.base_exec_prefix)
+    } else {
+        (&paths.prefix, &paths.exec_prefix)
+    };
     paths.module_search_paths =
-        build_module_search_paths(settings, &paths.prefix, &paths.exec_prefix);
+        build_module_search_paths(settings, stdlib_prefix, extension_prefix);
 
     // Step 9: Calculate stdlib_dir
-    paths.stdlib_dir = calculate_stdlib_dir(&paths.prefix);
+    paths.stdlib_dir = calculate_stdlib_dir(stdlib_prefix);
 
     paths
+}
+
+/// Identify an uninstalled RustPython source library independently of the
+/// executable location (Cargo permits targets outside the source tree).
+pub(crate) fn source_directory(paths: &Paths) -> Option<&Path> {
+    let library = Path::new(paths.stdlib_dir.as_deref()?);
+    let source = library.parent()?;
+    (library.file_name()? == "Lib" && source.join("crates/vm/Cargo.toml").is_file())
+        .then_some(source)
 }
 
 /// Get default prefix value used when landmark search fails.
@@ -350,19 +381,31 @@ fn resolve_executable_symlinks(executable: &Path) -> Option<PathBuf> {
 
 /// Calculate base_executable
 fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
-    // If in venv and we have home, prefer the actual target of a symlink.
     if let (Some(exe), Some(home)) = (executable, home_dir)
         && let Some(exe_name) = exe.file_name()
     {
+        // Like getpath.py, resolve the executable's final links once, without
+        // following creator metadata or another environment's configuration.
         #[cfg(unix)]
         if let Some(resolved) = resolve_executable_symlinks(exe)
-            && !resolved.as_os_str().is_empty()
             && resolved.as_os_str() != exe.as_os_str()
         {
             return resolved.to_string_lossy().into_owned();
         }
 
         let base = home.join(exe_name);
+        #[cfg(not(windows))]
+        if !base.is_file() {
+            for name in [
+                format!("python{}", crate::version::MAJOR),
+                format!("python{}.{}", crate::version::MAJOR, crate::version::MINOR),
+            ] {
+                let candidate = home.join(name);
+                if candidate.is_file() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
         return base.to_string_lossy().into_owned();
     }
 
@@ -451,6 +494,10 @@ fn get_executable_path() -> Option<PathBuf> {
 
 /// Parse pyvenv.cfg and extract the 'home' key value
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
+    parse_pyvenv_value(pyvenv_cfg, "home")
+}
+
+fn parse_pyvenv_value(pyvenv_cfg: &Path, wanted_key: &str) -> Option<String> {
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
     #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
@@ -458,7 +505,7 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')
-            && key.trim().to_lowercase() == "home"
+            && key.trim().eq_ignore_ascii_case(wanted_key)
         {
             return Some(value.trim().to_string());
         }
