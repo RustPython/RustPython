@@ -630,7 +630,10 @@ pub(crate) mod _elementtree {
                 i += 1;
             }
             let Some(i) = found else {
-                return Err(vm.new_value_error("Element.remove(x): element not found"));
+                let mut message = subelement.repr(vm)?.as_wtf8().to_owned();
+                message.push_str(" not in ");
+                message.push_wtf8(zelf.as_object().repr(vm)?.as_wtf8());
+                return Err(vm.new_value_error(message));
             };
             let _recycle = {
                 let mut inner = zelf.inner.write();
