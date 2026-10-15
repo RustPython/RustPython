@@ -125,7 +125,10 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
             let local_vm = interp.enter(|vm| vm.new_thread());
             rustpython_capi::init_main_interpreter(interp);
             let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
-            rustpython_capi::get_main_interpreter().take().unwrap().finalize(result.err())
+            rustpython_capi::get_main_interpreter()
+                .take()
+                .unwrap()
+                .finalize(result.err())
         }},
         _ => interp.run(move |vm| run_rustpython(vm, run_mode)),
     };
@@ -238,12 +241,10 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
     }
 
     cfg_select! {
-        feature = "host_env" => {
-            match rustpython_vm::host_env::fs::metadata(path) {
-                Ok(_) => vm.run_any_file(scope, path),
-                Err(err) => cant_open_file(vm, path, &err),
-            }
-        }
+        feature = "host_env" => match rustpython_vm::host_env::fs::metadata(path) {
+            Ok(_) => vm.run_any_file(scope, path),
+            Err(err) => cant_open_file(vm, path, &err),
+        },
         _ => {
             // In sandbox mode, the binary reads the file and feeds source to the VM.
             // The VM itself has no filesystem access.

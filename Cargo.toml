@@ -11,7 +11,7 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc", "doc"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env", "mimalloc", "doc", "ucd_3_2_0"]
 doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc"]
 mimalloc = ["dep:mimalloc"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
@@ -32,6 +32,7 @@ ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
+ucd_3_2_0 = ["rustpython-stdlib?/ucd_3_2_0", "rustpython-capi?/ucd_3_2_0"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -169,7 +170,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-capi = { path = "crates/capi", version = "0.6.1" }
+rustpython-capi = { path = "crates/capi", version = "0.6.1", default-features = false }
 rustpython-compiler-core = { path = "crates/compiler-core", version = "0.6.1" }
 rustpython-compiler = { path = "crates/compiler", version = "0.6.1" }
 rustpython-codegen = { path = "crates/codegen", version = "0.6.1" }
@@ -183,7 +184,7 @@ rustpython-vm = { path = "crates/vm", default-features = false, version = "0.6.1
 rustpython-pylib = { path = "crates/pylib", version = "0.6.1" }
 rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.6.1" }
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.6.1" }
-rustpython-unicode = { path = "crates/unicode", version = "0.6.1" }
+rustpython-unicode = { path = "crates/unicode", default-features = false, version = "0.6.1" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.1" }
 rustpython-doc = { path = "crates/doc", version = "0.6.1" }
 

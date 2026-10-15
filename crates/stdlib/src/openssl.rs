@@ -1338,7 +1338,8 @@ mod _ssl {
             cfg_select! {
                 ossl110 => {
                     let ctx = zelf.builder();
-                    let result = unsafe { sys::SSL_CTX_set_num_tickets(ctx.as_ptr(), value as usize) };
+                    let result =
+                        unsafe { sys::SSL_CTX_set_num_tickets(ctx.as_ptr(), value as usize) };
                     if result != 1 {
                         return Err(vm.new_value_error("failed to set num tickets."));
                     }
@@ -1360,11 +1361,10 @@ mod _ssl {
                         .load_verify_locations(Some(cert_file.as_path()), Some(cert_dir.as_path()))
                         .map_err(|e| convert_openssl_error(vm, e))
                 }
-                _ => {
-                    zelf.builder()
-                        .set_default_verify_paths()
-                        .map_err(|e| convert_openssl_error(vm, e))
-                }
+                _ => zelf
+                    .builder()
+                    .set_default_verify_paths()
+                    .map_err(|e| convert_openssl_error(vm, e)),
             }
         }
 
@@ -2828,11 +2828,9 @@ mod _ssl {
                         Ok(())
                     }
                 }
-                _ => {
-                    Err(vm.new_not_implemented_error(
-                        "Post-handshake auth is not supported by your OpenSSL version.",
-                    ))
-                }
+                _ => Err(vm.new_not_implemented_error(
+                    "Post-handshake auth is not supported by your OpenSSL version.",
+                )),
             }
         }
 
