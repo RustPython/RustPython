@@ -1,7 +1,7 @@
 // spell-checker:ignore zstd Zstd ZSTD Zstandard dfast btlazy btultra btopt btultra2 btlazy2
 // spell-checker:ignore ldm nbworkers windowlog hashlog chainlog searchlog minmatch dictid
 // spell-checker:ignore checksumflag contentsizeflag dictidflag overlaplog jobsize dstream clevel
-// spell-checker:ignore skippable pledged fastcover windowlogmax
+// spell-checker:ignore skippable pledged fastcover windowlogmax cctx dctx cdict cdicts ddict zdict ZDICT
 // cspell:ignore zstd Zstd ZSTD Zstandard dfast btlazy btultra btopt btultra2 btlazy2 ldm nbworkers
 // cspell:ignore windowlog hashlog chainlog searchlog minmatch dictid checksumflag skippable pledged
 
