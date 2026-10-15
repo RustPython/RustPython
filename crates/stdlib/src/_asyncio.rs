@@ -188,6 +188,13 @@ pub(crate) mod _asyncio {
             loop_: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
+            if zelf.fut_loop.read().is_some() {
+                return Err(vm.new_runtime_error(format!(
+                    "{} object is already initialized",
+                    zelf.class().fully_qualified_name(vm)?
+                )));
+            }
+
             // Get the event loop
             let loop_obj = match loop_ {
                 Some(l) if !vm.is_none(&l) => l,
@@ -1183,6 +1190,13 @@ pub(crate) mod _asyncio {
     )]
     impl PyTask {
         fn py_init(zelf: &Py<Self>, args: TaskInitArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if zelf.base.fut_loop.read().is_some() {
+                return Err(vm.new_runtime_error(format!(
+                    "{} object is already initialized",
+                    zelf.class().fully_qualified_name(vm)?
+                )));
+            }
+
             // Validate coroutine
             if !is_coroutine(args.coro.clone(), vm)? {
                 return Err(vm.new_type_error(format!(
@@ -1217,8 +1231,18 @@ pub(crate) mod _asyncio {
 
             // Get or create context
             let context = match args.context {
-                Some(c) => c,
-                None => get_copy_context(vm)?,
+                Some(c) if !vm.is_none(&c) => {
+                    if !c.class().is(PyContext::class(&vm.ctx)) {
+                        zelf.task_log_destroy_pending
+                            .store(false, Ordering::Relaxed);
+                        return Err(vm.new_type_error(format!(
+                            "a contextvars.Context was expected, got {}",
+                            c.class().fully_qualified_name(vm)?
+                        )));
+                    }
+                    c
+                }
+                _ => get_copy_context(vm)?,
             };
             *zelf.task_context.write() = Some(context);
 
@@ -2043,7 +2067,25 @@ pub(crate) mod _asyncio {
                     match ctx.downcast::<PyContext>() {
                         Ok(ctx) => {
                             // Only exit a context that was actually entered.
-                            PyContext::enter(&ctx, vm)?;
+                            if let Err(error) = PyContext::enter(&ctx, vm) {
+                                zelf.task_log_destroy_pending
+                                    .store(false, Ordering::Relaxed);
+                                let _ = _swap_current_task(
+                                    LoopTaskArgs {
+                                        loop_: loop_obj,
+                                        task: prev_task,
+                                    },
+                                    vm,
+                                );
+                                let _ = _unregister_eager_task(
+                                    TaskArg {
+                                        task: task_obj.clone(),
+                                    },
+                                    vm,
+                                );
+                                let _ = _unregister_task(TaskArg { task: task_obj }, vm);
+                                return Err(error);
+                            }
                             let result = vm.call_method(&c, "send", (vm.ctx.none(),));
                             PyContext::exit(&ctx, vm)?;
                             result
