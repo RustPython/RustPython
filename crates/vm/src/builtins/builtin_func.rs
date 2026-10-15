@@ -5,19 +5,15 @@ use crate::{
     common::wtf8::Wtf8,
     convert::TryFromObject,
     function::{Callee, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
-    object::{Traverse, TraverseFn},
     types::{Callable, Comparable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
 
 // PyCFunctionObject in CPython
 #[repr(C)]
-#[pyclass(
-    name = "builtin_function_or_method",
-    module = false,
-    traverse = "manual"
-)]
+#[pyclass(name = "builtin_function_or_method", module = false, traverse)]
 pub struct PyNativeFunction {
+    #[pytraverse(skip)]
     pub(crate) value: &'static PyMethodDef,
     pub(crate) zelf: Option<PyObjectRef>,
     // Module that owns this function. Not passed as a call argument.
@@ -26,23 +22,6 @@ pub struct PyNativeFunction {
     pub(crate) module: crate::object::PyAtomicRef<Option<PyObject>>,
     /// Prevent HeapMethodDef from being freed while this function references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
-}
-
-unsafe impl Traverse for PyNativeFunction {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.zelf.traverse(tracer_fn);
-        self.module_object.traverse(tracer_fn);
-        self.module.traverse(tracer_fn);
-        self._method_def_owner.traverse(tracer_fn);
-    }
-
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        out.extend(self.zelf.take());
-        out.extend(self.module_object.take());
-        // GC has exclusive access while clearing this unreachable object.
-        out.extend(unsafe { self.module.swap(None) });
-        // Keep the definition owner until deallocation: `value` borrows it.
-    }
 }
 
 impl PyPayload for PyNativeFunction {
@@ -265,21 +244,12 @@ impl PyNativeFunction {
     module = false,
     base = PyNativeFunction,
     ctx = "builtin_method_type",
-    traverse = "manual"
+    traverse
 )]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
+    #[pytraverse(skip)]
     pub(crate) class: &'static Py<PyType>,
-}
-
-unsafe impl Traverse for PyNativeMethod {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.func.traverse(tracer_fn);
-    }
-
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        self.func.clear(out);
-    }
 }
 
 #[pyclass(flags(HAS_WEAKREF, DISALLOW_INSTANTIATION))]

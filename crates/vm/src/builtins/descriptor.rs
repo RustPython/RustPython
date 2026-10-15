@@ -8,7 +8,6 @@ use crate::{
     function::{
         Callee, FuncArgs, ItemDoc, PyMethodDef, PyMethodFlags, PySetterValue, PySsize, plain_doc,
     },
-    object::{Traverse, TraverseFn},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -35,7 +34,7 @@ pub struct PyDescriptorOwned {
     pub qualname: PyRwLock<Option<String>>,
 }
 
-#[pyclass(name = "method_descriptor", module = false, traverse = "manual")]
+#[pyclass(name = "method_descriptor", module = false)]
 pub struct PyMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
@@ -44,12 +43,6 @@ pub struct PyMethodDescriptor {
     // vectorcall: vector_call_func,
     /// Prevent HeapMethodDef from being freed while this descriptor references it
     pub(crate) _method_def_owner: Option<PyObjectRef>,
-}
-
-unsafe impl Traverse for PyMethodDescriptor {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self._method_def_owner.traverse(tracer_fn);
-    }
 }
 
 impl PyMethodDescriptor {
@@ -184,19 +177,13 @@ impl Representable for PyMethodDescriptor {
 }
 
 // METH_CLASS descriptors. Same layout as method_descriptor; a distinct type.
-#[pyclass(name = "classmethod_descriptor", module = false, traverse = "manual")]
+#[pyclass(name = "classmethod_descriptor", module = false)]
 pub struct PyClassMethodDescriptor {
     #[pymember(name = "__objclass__", path = "typ")]
     #[pymember(name = "__name__", path = "name")]
     pub common: PyDescriptor,
     pub(crate) method: &'static PyMethodDef,
     pub(crate) _method_def_owner: Option<PyObjectRef>,
-}
-
-unsafe impl Traverse for PyClassMethodDescriptor {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self._method_def_owner.traverse(tracer_fn);
-    }
 }
 
 impl PyClassMethodDescriptor {
