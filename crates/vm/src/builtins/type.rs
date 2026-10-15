@@ -176,6 +176,15 @@ impl TypeCacheEntry {
         self.sequence.load(Ordering::Relaxed) == previous
     }
 
+    #[inline]
+    fn matching_version(&self, type_version: &AtomicU32) -> Option<u32> {
+        let entry_version = self.version.load(Ordering::Acquire);
+        let type_version = type_version.load(Ordering::Acquire);
+        // Invalidation can clear both versions after the reader selected an
+        // entry. Zero never identifies a cached result, even when they match.
+        (entry_version != 0 && entry_version == type_version).then_some(entry_version)
+    }
+
     /// Null out the cached value pointer.
     /// Caller must ensure no concurrent reads can observe this entry
     /// (version should be set to 0 first).
@@ -1272,11 +1281,10 @@ impl PyType {
             let name_ptr = name as *const _ as *mut _;
             loop {
                 let seq1 = entry.begin_read();
-                let entry_version = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if entry_version != type_version
-                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
-                {
+                let Some(entry_version) = entry.matching_version(&self.tp_version_tag) else {
+                    break;
+                };
+                if !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr) {
                     break;
                 }
                 let ptr = entry.value.load(Ordering::Acquire);
@@ -1488,9 +1496,7 @@ impl PyType {
             let name_ptr = name as *const _ as *mut _;
             loop {
                 let seq1 = entry.begin_read();
-                let v1 = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if v1 != type_version
+                if entry.matching_version(&self.tp_version_tag).is_none()
                     || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
                 {
                     break;
@@ -3837,6 +3843,32 @@ fn mangle_name(class_name: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_cache_rejects_invalidated_versions() {
+        let entry = TypeCacheEntry::new();
+        let type_version = AtomicU32::new(1);
+        assert_eq!(entry.matching_version(&type_version), None);
+
+        entry.version.store(1, Ordering::Release);
+        // A valid negative cache entry has a null value and a nonzero version.
+        assert!(entry.value.load(Ordering::Acquire).is_null());
+        assert_eq!(entry.matching_version(&type_version), Some(1));
+
+        type_version.store(2, Ordering::Release);
+        assert_eq!(entry.matching_version(&type_version), None);
+
+        // Model invalidation after a reader has selected the cache entry.
+        type_version.store(0, Ordering::Release);
+        assert_eq!(entry.matching_version(&type_version), None);
+        entry.begin_write();
+        entry.version.store(0, Ordering::Release);
+        entry.clear_value();
+        entry.end_write();
+        let sequence = entry.begin_read();
+        assert_eq!(entry.matching_version(&type_version), None);
+        assert!(entry.end_read(sequence));
+    }
 
     fn map_ids(obj: Result<Vec<PyTypeRef>, String>) -> Result<Vec<usize>, String> {
         Ok(obj?.into_iter().map(|x| x.get_id()).collect())
