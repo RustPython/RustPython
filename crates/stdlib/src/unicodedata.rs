@@ -80,20 +80,20 @@ mod unicodedata {
     }
 
     #[pyclass(with(Representable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
-    impl Py<Segment> {
+    impl Segment {
         #[pygetset]
-        fn start(&self) -> usize {
-            self.start
+        fn start(zelf: &Py<Self>) -> usize {
+            zelf.start
         }
 
         #[pygetset]
-        fn end(&self) -> usize {
-            self.end
+        fn end(zelf: &Py<Self>) -> usize {
+            zelf.end
         }
 
         #[pymethod]
-        fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
-            vm.ctx.new_str(&self.string.as_wtf8()[self.bytes.clone()])
+        fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
+            vm.ctx.new_str(&zelf.string.as_wtf8()[zelf.bytes.clone()])
         }
     }
 
