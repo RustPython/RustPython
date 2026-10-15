@@ -1110,6 +1110,8 @@ jobs:
         recursion
         stdlib_ast
         stdlib_asyncio
+        stdlib_asyncio_reinitialization_315
+        stdlib_bytearray_take_bytes_threads_315
         stdlib_collections_deque
         stdlib_contextvars
         stdlib_ctypes
@@ -1121,6 +1123,7 @@ jobs:
         stdlib_io_blocking_buffer
         stdlib_itertools
         stdlib_json
+        stdlib_lock_precedence_315
         stdlib_mmap
         stdlib_multiprocessing_condition
         stdlib_multiprocessing_fork_sharer
@@ -1128,10 +1131,12 @@ jobs:
         stdlib_os
         stdlib_pwd
         stdlib_queue_signal
+        stdlib_rlock_constructor_315
         stdlib_select
         stdlib_socket
         stdlib_sqlite
         stdlib_ssl
+        stdlib_ssl_introspection
         stdlib_ssl_short_recv
         stdlib_struct
         stdlib_subinterpreters
@@ -1148,6 +1153,8 @@ jobs:
         stdlib_types
         stdlib_typing
         stdlib_urllib_https_misaligned_recv
+        stdlib_venv_cycles
+        stdlib_weakref_gc_threads_315
         stdlib_zoneinfo_cache
         syntax_async
         syntax_async_comprehension
