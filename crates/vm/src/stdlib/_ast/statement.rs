@@ -1730,9 +1730,9 @@ impl Node for ast::StmtPass {
             return node.into();
         }
         let location = super::text_range_to_source_range(source_file, _range);
-        let start_row = location.start.row.get();
-        let start_col = location.start.column.get();
-        let mut end_row = location.end.row.get();
+        let start_row = location.start.line.get();
+        let start_col = location.start.character_offset.to_zero_indexed();
+        let mut end_row = location.end.line.get();
 
         // Align with CPython: when docstring optimization replaces a lone
         // docstring with `pass`, the end position is on the same line even if
@@ -1741,7 +1741,7 @@ impl Node for ast::StmtPass {
             end_row = start_row;
             start_col + 4
         } else {
-            location.end.column.get()
+            location.end.character_offset.to_zero_indexed()
         };
 
         dict.set_item("lineno", vm.ctx.new_int(start_row).into(), vm)

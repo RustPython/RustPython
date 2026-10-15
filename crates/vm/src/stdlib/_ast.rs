@@ -325,50 +325,8 @@ fn get_ast_string_field_opt(
 }
 
 struct PySourceRange {
-    start: PySourceLocation,
-    end: PySourceLocation,
-}
-
-pub(crate) struct PySourceLocation {
-    row: Row,
-    column: Column,
-}
-
-impl PySourceLocation {
-    const fn to_source_location(&self) -> SourceLocation {
-        SourceLocation {
-            line: self.row.get_one_indexed(),
-            character_offset: self.column.get_one_indexed(),
-        }
-    }
-}
-
-/// A one-based index into the lines.
-#[derive(Clone, Copy)]
-struct Row(OneIndexed);
-
-impl Row {
-    const fn get(self) -> usize {
-        self.0.get()
-    }
-
-    const fn get_one_indexed(self) -> OneIndexed {
-        self.0
-    }
-}
-
-/// An UTF-8 index into the line.
-#[derive(Clone, Copy)]
-struct Column(TextSize);
-
-impl Column {
-    const fn get(self) -> usize {
-        self.0.to_usize()
-    }
-
-    const fn get_one_indexed(self) -> OneIndexed {
-        OneIndexed::from_zero_indexed(self.get())
-    }
+    start: SourceLocation,
+    end: SourceLocation,
 }
 
 fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -> PySourceRange {
@@ -377,31 +335,14 @@ fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -
 
     if source.is_empty() {
         return PySourceRange {
-            start: PySourceLocation {
-                row: Row(OneIndexed::from_zero_indexed(0)),
-                column: Column(TextSize::new(0)),
-            },
-            end: PySourceLocation {
-                row: Row(OneIndexed::from_zero_indexed(0)),
-                column: Column(TextSize::new(0)),
-            },
+            start: SourceLocation::default(),
+            end: SourceLocation::default(),
         };
     }
 
-    let start_row = index.line_index(text_range.start());
-    let end_row = index.line_index(text_range.end());
-    let start_col = text_range.start() - index.line_start(start_row, source);
-    let end_col = text_range.end() - index.line_start(end_row, source);
-
     PySourceRange {
-        start: PySourceLocation {
-            row: Row(start_row),
-            column: Column(start_col),
-        },
-        end: PySourceLocation {
-            row: Row(end_row),
-            column: Column(end_col),
-        },
+        start: index.source_location(text_range.start(), source, PositionEncoding::Utf8),
+        end: index.source_location(text_range.end(), source, PositionEncoding::Utf8),
     }
 }
 
@@ -764,27 +705,27 @@ fn excepthandler_range_from_object_unvalidated(
     let end_column = get_opt_int_field(vm, object, "end_col_offset")?.unwrap_or(start_column);
 
     let location = PySourceRange {
-        start: PySourceLocation {
-            row: Row(if start_row > 0 {
+        start: SourceLocation {
+            line: if start_row > 0 {
                 OneIndexed::new(start_row as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(start_column.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(start_column.max(0) as usize),
         },
-        end: PySourceLocation {
-            row: Row(if end_row > 0 {
+        end: SourceLocation {
+            line: if end_row > 0 {
                 OneIndexed::new(end_row as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(end_column.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(end_column.max(0) as usize),
         },
     };
 
     source_file.register(
         vm,
-        source_range_to_text_range_unvalidated(source_file, location),
+        source_range_to_text_range(source_file, location),
         Some(rustpython_compiler_core::SourceLocationRange {
             line: start_row,
             end_line: end_row,
@@ -840,21 +781,21 @@ fn range_from_object_impl(
     }
 
     let location = PySourceRange {
-        start: PySourceLocation {
-            row: Row(if start_row_val > 0 {
+        start: SourceLocation {
+            line: if start_row_val > 0 {
                 OneIndexed::new(start_row_val as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(start_col_val.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(start_col_val.max(0) as usize),
         },
-        end: PySourceLocation {
-            row: Row(if end_row_val > 0 {
+        end: SourceLocation {
+            line: if end_row_val > 0 {
                 OneIndexed::new(end_row_val as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(end_col_val.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(end_col_val.max(0) as usize),
         },
     };
 
@@ -878,49 +819,12 @@ fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange)
         return TextRange::new(TextSize::new(0), TextSize::new(0));
     }
 
-    let start = index.offset(
-        location.start.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-    let end = index.offset(
-        location.end.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
+    let start = index.offset(location.start, source, PositionEncoding::Utf8);
+    let end = index.offset(location.end, source, PositionEncoding::Utf8);
 
     // Navigation is allowed to collapse normalized coordinates; semantic
     // signed coordinates remain in AstSourceContext.
     TextRange::new(start, end.max(start))
-}
-
-fn source_range_to_text_range_unvalidated(
-    source_file: &SourceFile,
-    location: PySourceRange,
-) -> TextRange {
-    let index = LineIndex::from_source_text(source_file.clone().source_text());
-    let source = &source_file.source_text();
-
-    if source.is_empty() {
-        return TextRange::new(TextSize::new(0), TextSize::new(0));
-    }
-
-    let start = index.offset(
-        location.start.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-    let end = index.offset(
-        location.end.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-
-    if start <= end {
-        TextRange::new(start, end)
-    } else {
-        TextRange::empty(start)
-    }
 }
 
 fn node_add_location_for_node(
@@ -952,19 +856,27 @@ fn node_add_location(
     source_file: &AstSourceContext,
 ) {
     let range = text_range_to_source_range(source_file, range);
-    dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
+    dict.set_item("lineno", vm.ctx.new_int(range.start.line.get()).into(), vm)
         .unwrap();
     dict.set_item(
         "col_offset",
-        vm.ctx.new_int(range.start.column.get()).into(),
+        vm.ctx
+            .new_int(range.start.character_offset.to_zero_indexed())
+            .into(),
         vm,
     )
     .unwrap();
-    dict.set_item("end_lineno", vm.ctx.new_int(range.end.row.get()).into(), vm)
-        .unwrap();
+    dict.set_item(
+        "end_lineno",
+        vm.ctx.new_int(range.end.line.get()).into(),
+        vm,
+    )
+    .unwrap();
     dict.set_item(
         "end_col_offset",
-        vm.ctx.new_int(range.end.column.get()).into(),
+        vm.ctx
+            .new_int(range.end.character_offset.to_zero_indexed())
+            .into(),
         vm,
     )
     .unwrap();
@@ -1065,8 +977,8 @@ fn type_comment_parse_error(
     ParseError {
         error: parser::ParseErrorType::OtherError(message.to_owned()),
         raw_location: range,
-        location: source_range.start.to_source_location(),
-        end_location: source_range.end.to_source_location(),
+        location: source_range.start,
+        end_location: source_range.end,
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
         is_unclosed_string: false,
@@ -1795,8 +1707,8 @@ fn ipython_escape_command_syntax_error(
         ParseError {
             error: parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
             raw_location: range,
-            location: source_range.start.to_source_location(),
-            end_location: source_range.end.to_source_location(),
+            location: source_range.start,
+            end_location: source_range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -1879,8 +1791,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(CompileError::from(ParseError {
             error: parse_error.error,
             raw_location: parse_error.location,
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
+            location: range.start,
+            end_location: range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -1909,8 +1821,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(CompileError::from(ParseError {
             error: parser::ParseErrorType::OtherError(error.to_string()),
             raw_location: error.range(),
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
+            location: range.start,
+            end_location: range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -2093,8 +2005,8 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
-                location: range.start.to_source_location(),
-                end_location: range.end.to_source_location(),
+                location: range.start,
+                end_location: range.end,
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
@@ -2128,8 +2040,8 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
-                location: range.start.to_source_location(),
-                end_location: range.end.to_source_location(),
+                location: range.start,
+                end_location: range.end,
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
