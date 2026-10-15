@@ -20,6 +20,7 @@ fn incb(c: CodePoint) -> Incb {
 }
 
 /// The long Grapheme_Cluster_Break property name.
+#[must_use]
 pub fn grapheme_cluster_break(c: CodePoint) -> &'static str {
     match gcb(c) {
         Gcb::CR => "CR",
@@ -40,6 +41,7 @@ pub fn grapheme_cluster_break(c: CodePoint) -> &'static str {
 }
 
 /// The long Indic_Conjunct_Break property name.
+#[must_use]
 pub fn indic_conjunct_break(c: CodePoint) -> &'static str {
     match incb(c) {
         Incb::Consonant => "Consonant",
@@ -50,6 +52,7 @@ pub fn indic_conjunct_break(c: CodePoint) -> &'static str {
 }
 
 /// Whether the code point has the Extended_Pictographic property.
+#[must_use]
 pub fn extended_pictographic(c: CodePoint) -> bool {
     CodePointSetData::new::<ExtendedPictographic>().contains32(c.to_u32())
 }
