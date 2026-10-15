@@ -78,7 +78,7 @@ impl PyNativeFunction {
         self.zelf.as_deref().or(self.module_object.as_deref())
     }
 
-    pub const fn as_func(&self) -> &'static dyn PyNativeFn {
+    pub const fn as_func(&self) -> &dyn PyNativeFn {
         self.value.func
     }
 }
@@ -243,10 +243,12 @@ impl PyNativeFunction {
     name = "builtin_method",
     module = false,
     base = PyNativeFunction,
-    ctx = "builtin_method_type"
+    ctx = "builtin_method_type",
+    traverse
 )]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
+    #[pytraverse(skip)]
     pub(crate) class: &'static Py<PyType>,
 }
 
