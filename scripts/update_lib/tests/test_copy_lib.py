@@ -57,6 +57,45 @@ class TestCopySingle(unittest.TestCase):
 
             self.assertEqual(dst.read_text(), "new content")
 
+    def test_directory_copy_excludes_bytecode_cache_directories(self):
+        from update_lib.cmd_copy_lib import _copy_single
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            src = root / "source"
+            dst = root / "destination"
+            for relative in ("__pycache__", "package/__pycache__", "assets"):
+                (src / relative).mkdir(parents=True)
+            files = {
+                "__init__.py": b"source\n",
+                "package/module.py": b"nested source\n",
+                "assets/data.bin": b"\x00\xffasset",
+                "assets/__pycache__": b"ordinary file, not a directory",
+                "assets/fixture.pyc": b"canonical bytecode fixture",
+                "__pycache__/module.cpython-315.pyc": b"stale cache",
+                "package/__pycache__/module.cpython-315.pyc": b"nested cache",
+            }
+            for relative, content in files.items():
+                (src / relative).write_bytes(content)
+
+            _copy_single(src, dst, verbose=False)
+
+            expected = {
+                relative: content
+                for relative, content in files.items()
+                if "__pycache__" not in pathlib.Path(relative).parts[:-1]
+            }
+            actual = {
+                path.relative_to(dst).as_posix(): path.read_bytes()
+                for path in dst.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(actual, expected)
+            self.assertFalse((dst / "__pycache__").exists())
+            self.assertFalse((dst / "package/__pycache__").exists())
+            for relative, content in files.items():
+                self.assertEqual((src / relative).read_bytes(), content)
+
 
 class TestCopyLib(unittest.TestCase):
     """Tests for copy_lib function."""
