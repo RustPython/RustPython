@@ -80,7 +80,7 @@ mod unicodedata {
     }
 
     #[pyclass(with(Representable), flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION))]
-    impl Segment {
+    impl Py<Segment> {
         #[pygetset]
         fn start(&self) -> usize {
             self.start
