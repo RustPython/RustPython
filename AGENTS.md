@@ -116,6 +116,9 @@ rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
 
 ### Testing
 
+- Never add tests to `extra_tests/snippets` that duplicate coverage in `Lib/test`.
+- Prefer adding tests to the most closely related existing file in `extra_tests/snippets` rather than creating a new snippet file.
+
 ```bash
 # Run Rust unit tests
 cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
