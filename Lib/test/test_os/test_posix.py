@@ -46,7 +46,8 @@ def _supports_sched():
     try:
         posix.sched_getscheduler(0)
     except OSError as e:
-        if e.errno == errno.ENOSYS:
+        # DragonFly BSD requires privileges to use the scheduler API.
+        if e.errno in (errno.ENOSYS, errno.EPERM):
             return False
     return True
 
@@ -70,7 +71,7 @@ class PosixTester(unittest.TestCase):
         NO_ARG_FUNCTIONS = [ "ctermid", "getcwd", "getcwdb", "uname",
                              "times", "getloadavg",
                              "getegid", "geteuid", "getgid", "getgroups",
-                             "getpid", "getpgrp", "getppid", "getuid", "sync",
+                             "getpid", "getpgrp", "getppid", "getuid",
                            ]
 
         for name in NO_ARG_FUNCTIONS:
@@ -79,6 +80,13 @@ class PosixTester(unittest.TestCase):
                 with self.subTest(name):
                     posix_func()
                     self.assertRaises(TypeError, posix_func, 1)
+
+    # gh-102184: sync() can block for a long time.
+    @support.requires_resource('walltime')
+    @unittest.skipUnless(hasattr(posix, 'sync'), 'test needs posix.sync()')
+    def test_sync(self):
+        posix.sync()
+        self.assertRaises(TypeError, posix.sync, 1)
 
     @unittest.skipUnless(hasattr(posix, 'getresuid'),
                          'test needs posix.getresuid()')
@@ -415,8 +423,10 @@ class PosixTester(unittest.TestCase):
             if inst.errno == errno.EINVAL and sys.platform.startswith(
                 ('sunos', 'freebsd', 'openbsd', 'gnukfreebsd')):
                 raise unittest.SkipTest("test may fail on ZFS filesystems")
-            elif inst.errno == errno.EOPNOTSUPP and sys.platform.startswith("netbsd"):
-                raise unittest.SkipTest("test may fail on FFS filesystems")
+            elif inst.errno == errno.EOPNOTSUPP:
+                # ZFS on FreeBSD, FFS on NetBSD, etc.
+                raise unittest.SkipTest(
+                    "the file system does not support posix_fallocate()")
             else:
                 raise
         finally:
@@ -680,22 +690,65 @@ class PosixTester(unittest.TestCase):
                 'cannot use fd and follow_symlinks together'):
             posix.stat(1, follow_symlinks=False)
 
-    def test_stat(self):
-        self.assertTrue(posix.stat(os_helper.TESTFN))
-        self.assertTrue(posix.stat(os.fsencode(os_helper.TESTFN)))
+    def check_statlike_path(self, func):
+        self.assertTrue(func(os_helper.TESTFN))
+        self.assertTrue(func(os.fsencode(os_helper.TESTFN)))
+        self.assertTrue(func(os_helper.FakePath(os_helper.TESTFN)))
 
         self.assertRaisesRegex(TypeError,
                 'should be string, bytes, os.PathLike or integer, not',
-                posix.stat, bytearray(os.fsencode(os_helper.TESTFN)))
+                func, bytearray(os.fsencode(os_helper.TESTFN)))
         self.assertRaisesRegex(TypeError,
                 'should be string, bytes, os.PathLike or integer, not',
-                posix.stat, None)
+                func, None)
         self.assertRaisesRegex(TypeError,
                 'should be string, bytes, os.PathLike or integer, not',
-                posix.stat, list(os_helper.TESTFN))
+                func, list(os_helper.TESTFN))
         self.assertRaisesRegex(TypeError,
                 'should be string, bytes, os.PathLike or integer, not',
-                posix.stat, list(os.fsencode(os_helper.TESTFN)))
+                func, list(os.fsencode(os_helper.TESTFN)))
+
+    def test_stat(self):
+        self.check_statlike_path(posix.stat)
+
+    @unittest.skipUnless(hasattr(posix, 'statx'), 'test needs posix.statx()')
+    def test_statx(self):
+        def func(path, **kwargs):
+            return posix.statx(path, posix.STATX_BASIC_STATS, **kwargs)
+        self.check_statlike_path(func)
+
+    @unittest.skipUnless(hasattr(posix, 'statx'), 'test needs posix.statx()')
+    def test_statx_flags(self):
+        # glibc's fallback implementation of statx via the stat family fails
+        # with EINVAL on the (nonzero) sync flags.  If you see this failure,
+        # update your kernel and/or seccomp syscall filter.
+        valid_flag_names = ('AT_NO_AUTOMOUNT', 'AT_STATX_SYNC_AS_STAT',
+                            'AT_STATX_FORCE_SYNC', 'AT_STATX_DONT_SYNC')
+        for flag_name in valid_flag_names:
+            flag = getattr(posix, flag_name)
+            with self.subTest(msg=flag_name, flags=flag):
+                posix.statx(os_helper.TESTFN, posix.STATX_BASIC_STATS,
+                            flags=flag)
+
+        # These flags are not exposed to Python because their functionality is
+        # implemented via kwargs instead.
+        kwarg_equivalent_flags = (
+            (0x0100, 'AT_SYMLINK_NOFOLLOW', 'follow_symlinks'),
+            (0x0400, 'AT_SYMLINK_FOLLOW', 'follow_symlinks'),
+            (0x1000, 'AT_EMPTY_PATH', 'dir_fd'),
+        )
+        for flag, flag_name, kwarg_name in kwarg_equivalent_flags:
+            with self.subTest(msg=flag_name, flags=flag):
+                with self.assertRaisesRegex(ValueError, kwarg_name):
+                    posix.statx(os_helper.TESTFN, posix.STATX_BASIC_STATS,
+                                flags=flag)
+
+        with self.subTest(msg="AT_STATX_FORCE_SYNC | AT_STATX_DONT_SYNC"):
+            with self.assertRaises(OSError) as ctx:
+                flags = posix.AT_STATX_FORCE_SYNC | posix.AT_STATX_DONT_SYNC
+                posix.statx(os_helper.TESTFN, posix.STATX_BASIC_STATS,
+                            flags=flags)
+            self.assertEqual(ctx.exception.errno, errno.EINVAL)
 
     @unittest.skipUnless(hasattr(posix, 'mkfifo'), "don't have mkfifo()")
     def test_mkfifo(self):
@@ -769,11 +822,28 @@ class PosixTester(unittest.TestCase):
             self.assertRaises((ValueError, OverflowError), posix.makedev, x, minor)
             self.assertRaises((ValueError, OverflowError), posix.makedev, major, x)
 
-        if sys.platform == 'linux' and not support.linked_to_musl():
-            NODEV = -1
+        # The following tests are needed to test functions accepting or
+        # returning the special value NODEV (if it is defined). major(), minor()
+        # and makefile() are the only easily reproducible examples, but that
+        # behavior is platform specific -- on some platforms their code has
+        # a special case for NODEV, on others this is just an implementation
+        # artifact.
+        if (hasattr(posix, 'NODEV') and
+            sys.platform.startswith(('linux', 'macos', 'freebsd', 'sunos'))):
+            NODEV = posix.NODEV
             self.assertEqual(posix.major(NODEV), NODEV)
             self.assertEqual(posix.minor(NODEV), NODEV)
             self.assertEqual(posix.makedev(NODEV, NODEV), NODEV)
+
+    def test_nodev(self):
+        # NODEV is not a part of Posix, but is defined on many systems.
+        if (not hasattr(posix, 'NODEV')
+            and (not sys.platform.startswith(('linux', 'macos', 'freebsd',
+                                              'dragonfly', 'netbsd', 'openbsd',
+                                              'sunos'))
+                 or support.linked_to_musl())):
+            self.skipTest('not defined on this platform')
+        self.assertHasAttr(posix, 'NODEV')
 
     def _test_all_chown_common(self, chown_func, first_param, stat_func):
         """Common code for chown, fchown and lchown tests."""
@@ -838,7 +908,9 @@ class PosixTester(unittest.TestCase):
             self.assertRaises(OSError, chown_func, first_param, 0, -1)
             check_stat(uid, gid)
             if hasattr(os, 'getgroups'):
-                if 0 not in os.getgroups():
+                # Also check the effective gid, which the kernel
+                # accepts for chown even if not in getgroups().
+                if 0 not in os.getgroups() and os.getegid() != 0:
                     self.assertRaises(OSError, chown_func, first_param, -1, 0)
                     check_stat(uid, gid)
         # test illegal types
@@ -1386,6 +1458,7 @@ class PosixTester(unittest.TestCase):
         del sched_priority, param  # should not crash
         support.gc_collect()  # just to be sure
 
+    @requires_sched
     @unittest.skipUnless(hasattr(posix, "sched_rr_get_interval"), "no function")
     def test_sched_rr_get_interval(self):
         try:
@@ -1631,32 +1704,46 @@ class TestPosixDirFd(unittest.TestCase):
         with self.prepare_file() as (dir_fd, name, fullname):
             posix.chown(name, os.getuid(), os.getgid(), dir_fd=dir_fd)
 
-    @unittest.skipUnless(os.stat in os.supports_dir_fd, "test needs dir_fd support in os.stat()")
-    def test_stat_dir_fd(self):
+    def check_statlike_dir_fd(self, func, prefix):
         with self.prepare() as (dir_fd, name, fullname):
             with open(fullname, 'w') as outfile:
                 outfile.write("testline\n")
             self.addCleanup(posix.unlink, fullname)
 
-            s1 = posix.stat(fullname)
-            s2 = posix.stat(name, dir_fd=dir_fd)
-            self.assertEqual(s1, s2)
-            s2 = posix.stat(fullname, dir_fd=None)
-            self.assertEqual(s1, s2)
+            def get(result, attr):
+                return getattr(result, prefix + attr)
+
+            s1 = func(fullname)
+            s2 = func(name, dir_fd=dir_fd)
+            self.assertEqual((get(s1, "dev"), get(s1, "ino")),
+                             (get(s2, "dev"), get(s2, "ino")))
+            s2 = func(fullname, dir_fd=None)
+            self.assertEqual((get(s1, "dev"), get(s1, "ino")),
+                             (get(s2, "dev"), get(s2, "ino")))
 
             self.assertRaisesRegex(TypeError, 'should be integer or None, not',
-                    posix.stat, name, dir_fd=posix.getcwd())
+                    func, name, dir_fd=posix.getcwd())
             self.assertRaisesRegex(TypeError, 'should be integer or None, not',
-                    posix.stat, name, dir_fd=float(dir_fd))
+                    func, name, dir_fd=float(dir_fd))
             self.assertRaises(OverflowError,
-                    posix.stat, name, dir_fd=10**20)
+                    func, name, dir_fd=10**20)
 
             for fd in False, True:
                 with self.assertWarnsRegex(RuntimeWarning,
                         'bool is used as a file descriptor') as cm:
                     with self.assertRaises(OSError):
-                        posix.stat('nonexisting', dir_fd=fd)
+                        func('nonexisting', dir_fd=fd)
                 self.assertEqual(cm.filename, __file__)
+
+    @unittest.skipUnless(os.stat in os.supports_dir_fd, "test needs dir_fd support in os.stat()")
+    def test_stat_dir_fd(self):
+        self.check_statlike_dir_fd(posix.stat, prefix="st_")
+
+    @unittest.skipUnless(hasattr(posix, 'statx'), "test needs os.statx()")
+    def test_statx_dir_fd(self):
+        def func(path, **kwargs):
+            return posix.statx(path, os.STATX_INO, **kwargs)
+        self.check_statlike_dir_fd(func, prefix="stx_")
 
     @unittest.skipUnless(os.utime in os.supports_dir_fd, "test needs dir_fd support in os.utime()")
     def test_utime_dir_fd(self):
@@ -2270,6 +2357,22 @@ class TestPosixWeaklinking(unittest.TestCase):
         else:
             self.assertNotHasAttr(os, "pwritev")
             self.assertNotHasAttr(os, "preadv")
+
+    def test_pipe2(self):
+        self._verify_available("HAVE_PIPE2")
+        if self.mac_ver >= (27, 0):
+            self.assertHasAttr(os, "pipe2")
+        else:
+            self.assertNotHasAttr(os, "pipe2")
+
+    def test_dup3(self):
+        self._verify_available("HAVE_DUP3")
+        r, w = os.pipe()
+        self.addCleanup(os.close, r)
+        self.addCleanup(os.close, w)
+        # Must not crash even when dup3 unavailable at runtime.
+        # os.dup2 returns fd2 (here w); do not double-close.
+        os.dup2(r, w, inheritable=False)
 
     def test_stat(self):
         self._verify_available("HAVE_FSTATAT")
