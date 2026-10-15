@@ -374,6 +374,39 @@ class TestFoo(unittest.TestCase):
         self.assertIn("@some_decorator", result)
         self.assertIn("@unittest.expectedFailure", result)
 
+    def test_inherited_override_expands_inline_class(self):
+        for source in (
+            "class Child(Base): pass  # keep comment\n",
+            "class Child(Base): value = 1; other = 2\n",
+            "class Child(\n    Base\n): pass\n",
+            "if True:\n    class Child(Base): pass\n",
+            "class Café(Base): pass\n",
+        ):
+            with self.subTest(source=source):
+                name = "Café" if "Café" in source else "Child"
+                patches = {
+                    name: {
+                        "test_parent": [PatchSpec(UtMethod.ExpectedFailure, None, "")]
+                    }
+                }
+                before = ast.parse(source)
+                result = apply_patches(source, patches)
+                after = ast.parse(result)
+                old_class = next(
+                    node for node in ast.walk(before) if isinstance(node, ast.ClassDef)
+                )
+                new_class = next(
+                    node for node in ast.walk(after) if isinstance(node, ast.ClassDef)
+                )
+                self.assertEqual(
+                    [ast.dump(node) for node in old_class.body],
+                    [ast.dump(node) for node in new_class.body[:-1]],
+                )
+                self.assertEqual(new_class.body[-1].name, "test_parent")
+                self.assertIn("return super().test_parent()", result)
+                if "# keep comment" in source:
+                    self.assertIn("# keep comment", result)
+
     def test_apply_inherited_method(self):
         """Test applying patch to inherited method (creates override)."""
         code = """import unittest

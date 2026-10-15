@@ -1,0 +1,40 @@
+name: update_lib migration tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/update_lib/**"
+      - ".python-version"
+      - ".github/workflows/update-lib-tests.yml"
+  push:
+    branches: [main, release]
+    paths:
+      - "scripts/update_lib/**"
+      - ".python-version"
+      - ".github/workflows/update-lib-tests.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-tests:
+    name: Migration and marker preservation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      - name: Test migration and marker preservation
+        run: python -m unittest update_lib.tests.test_patch_spec update_lib.tests.test_migrate -v
+        env:
+          PYTHONPATH: scripts
