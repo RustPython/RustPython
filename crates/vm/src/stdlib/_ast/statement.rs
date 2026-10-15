@@ -1718,13 +1718,17 @@ fn stmt_pass_from_object_with_range(range: AstNodeRange) -> ast::StmtPass {
 impl Node for ast::StmtPass {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         let Self {
-            node_index: _,
+            node_index,
             range: _range,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
+        if source_file.location(node_index.load()).is_some() {
+            node_add_location_for_node(&dict, _range, vm, source_file, node_index.load());
+            return node.into();
+        }
         let location = super::text_range_to_source_range(source_file, _range);
         let start_row = location.start.row.get();
         let start_col = location.start.column.get();
