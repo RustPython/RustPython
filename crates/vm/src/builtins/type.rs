@@ -731,6 +731,24 @@ impl PyType {
         })
     }
 
+    /// Assign a version tag if this type does not have one.
+    ///
+    /// Takes the type lock. Returns the tag, or 0 when no valid tag can be assigned.
+    pub fn assign_version_tag(&self, vm: &VirtualMachine) -> u32 {
+        let version = self.tp_version_tag.load(Ordering::Acquire);
+        if version != 0 {
+            return version;
+        }
+        Self::with_type_lock(vm, || {
+            let version = self.tp_version_tag.load(Ordering::Acquire);
+            if version == 0 {
+                self.assign_version_tag_inner()
+            } else {
+                version
+            }
+        })
+    }
+
     /// Invalidate this type's version tag and cascade to all subclasses.
     fn modified_inner(&self) {
         let old_version = self.tp_version_tag.load(Ordering::Acquire);
@@ -824,7 +842,11 @@ impl PyType {
             interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let bases = PyTuple::new_ref_typed(bases, ctx);
-        let base = bases.as_slice()[0].clone();
+        // The primary base is the most derived solid layout. bases[0] is only
+        // the first declared base; a later base may own the instance layout
+        // (a plain mixin followed by a metaclass).
+        let base_index = select_best_base(bases.as_slice())?;
+        let base = bases.as_slice()[base_index].clone();
 
         Self::new_heap_inner(
             base,
@@ -3636,7 +3658,7 @@ fn mro_implementation(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Vec<PyT
 }
 
 fn mro_check(typ: &Py<PyType>, mro: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<()> {
-    let solid = solid_base(typ, vm).to_owned();
+    let solid = solid_base(typ).to_owned();
     for obj in mro {
         let Some(base) = obj.downcast_ref::<PyType>() else {
             return Err(vm.new_type_error(format!(
@@ -3644,7 +3666,7 @@ fn mro_check(typ: &Py<PyType>, mro: &[PyObjectRef], vm: &VirtualMachine) -> PyRe
                 obj.class().name()
             )));
         };
-        if !is_subtype_with_mro(&solid.mro.read(), &solid, solid_base(base, vm)) {
+        if !is_subtype_with_mro(&solid.mro.read(), &solid, solid_base(base)) {
             return Err(vm.new_type_error(format!(
                 "mro() returned base with unsuitable layout ('{}')",
                 base.slot_name()
@@ -3699,49 +3721,51 @@ fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
         || t1.slots.member_count != t2.slots.member_count
 }
 
-fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
-    let base = if let Some(base) = typ.base.deref() {
-        solid_base(base, vm)
-    } else {
-        vm.ctx.types.object_type
+fn solid_base(typ: &Py<PyType>) -> &Py<PyType> {
+    let Some(parent) = typ.base.deref() else {
+        return typ;
     };
-
+    let base = solid_base(parent);
     if shape_differs(typ, base) { typ } else { base }
 }
 
-fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {
-    let mut base: Option<&Py<PyType>> = None;
+fn select_best_base(bases: &[PyTypeRef]) -> Result<usize, String> {
+    let mut base_index: Option<usize> = None;
     let mut winner: Option<&Py<PyType>> = None;
 
-    for base_i in bases {
-        // if !base_i.fast_issubclass(vm.ctx.types.type_type) {
-        //     println!("base_i type : {}", base_i.name());
-        //     return Err(vm.new_type_error("best must be types".into()));
-        // }
-
+    for (i, base_i) in bases.iter().enumerate() {
         if !base_i.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
-            return Err(vm.new_type_error(format!(
+            return Err(format!(
                 "type '{}' is not an acceptable base type",
                 base_i.slot_name()
-            )));
+            ));
         }
 
-        let candidate = solid_base(base_i, vm);
-        if winner.is_none() {
+        let candidate = solid_base(base_i);
+        let Some(current) = winner else {
             winner = Some(candidate);
-            base = Some(&**base_i);
-        } else if winner.unwrap().fast_issubclass(candidate) {
-            // Do nothing
-        } else if candidate.fast_issubclass(winner.unwrap()) {
-            winner = Some(candidate);
-            base = Some(&**base_i);
-        } else {
-            return Err(vm.new_type_error("multiple bases have instance layout conflict"));
+            base_index = Some(i);
+            continue;
+        };
+        if current.fast_issubclass(candidate) {
+            continue;
         }
+        if candidate.fast_issubclass(current) {
+            winner = Some(candidate);
+            base_index = Some(i);
+            continue;
+        }
+        return Err("multiple bases have instance layout conflict".to_owned());
     }
 
-    debug_assert!(base.is_some());
-    Ok(base.unwrap())
+    base_index.ok_or_else(|| "a new type must have at least one base".to_owned())
+}
+
+fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {
+    match select_best_base(bases) {
+        Ok(index) => Ok(&bases[index]),
+        Err(msg) => Err(vm.new_type_error(msg)),
+    }
 }
 
 fn type_has_dict(typ: &Py<PyType>) -> bool {

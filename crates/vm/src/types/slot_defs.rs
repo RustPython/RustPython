@@ -473,13 +473,10 @@ impl SlotAccessor {
                 // with a call slot (instance-call vectorcall), not from types that use
                 // vectorcall as a constructor fast path (call=None).
                 // See vectorcall_type() in type.rs for the dual-use design rationale.
-                let inherited_vc = mro.iter().find_map(|cls| {
-                    if cls.payload().slots.call.load().is_some() {
-                        cls.payload().slots.vectorcall.load()
-                    } else {
-                        None
-                    }
-                });
+                let inherited_vc = mro
+                    .iter()
+                    .find(|cls| cls.payload().slots.call.load().is_some())
+                    .and_then(|cls| cls.payload().slots.vectorcall.load());
                 typ.slots.vectorcall.store(inherited_vc);
             }
             Self::TpIter => inherit_main!(iter),
@@ -617,9 +614,12 @@ impl SlotAccessor {
             Self::TpRepr => copy_main!(repr),
             Self::TpStr => copy_main!(str),
             Self::TpCall => {
+                // A type with its own call slot does not use the base's
+                // vectorcall. See inherit_from_mro TpCall for rationale.
+                let inherits_call = typ.slots.call.load().is_none();
                 copy_main!(call);
-                // See inherit_from_mro TpCall for rationale.
-                if typ.slots.vectorcall.load().is_none()
+                if inherits_call
+                    && typ.slots.vectorcall.load().is_none()
                     && base.slots.call.load().is_some()
                     && let Some(base_val) = base.slots.vectorcall.load()
                 {
