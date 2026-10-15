@@ -7,6 +7,8 @@
 pub(crate) use python::_ast::module_def;
 
 mod pyast;
+mod source_location;
+use source_location::{AstNodeRange, AstSourceContext};
 
 use crate::builtins::{PyInt, PyStr};
 use crate::stdlib::_ast::module::{Mod, ModFunctionType, ModInteractive, ModModule};
@@ -99,7 +101,7 @@ fn get_node_field_required(
 
 fn get_required_identifier_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -113,7 +115,7 @@ fn get_required_identifier_field<T: Node>(
 
 fn get_required_node_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -140,7 +142,7 @@ fn get_node_field_opt(
 
 fn get_node_list_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -170,7 +172,7 @@ fn get_node_list_field_object(
 
 fn convert_node_list_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     list: &Py<PyList>,
     field: &'static str,
     typ: &str,
@@ -202,7 +204,7 @@ fn convert_node_list_field<T: Node>(
 
 fn get_node_boxed_slice_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -704,58 +706,58 @@ fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObject) -> P
 
 fn range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
     name: &str,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, name, false)
 }
 
 fn type_param_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "type_param", true)
 }
 
 fn expr_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "expr", false)
 }
 
 fn stmt_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "stmt", false)
 }
 
 fn pattern_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "pattern", true)
 }
 
 fn excepthandler_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "excepthandler", false)
 }
 
 fn excepthandler_range_from_object_unvalidated(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     let start_row = get_int_field(vm, object, "lineno", "excepthandler")?;
     let start_column = get_int_field(vm, object, "col_offset", "excepthandler")?;
     let end_row = get_opt_int_field(vm, object, "end_lineno")?.unwrap_or(start_row);
@@ -780,19 +782,25 @@ fn excepthandler_range_from_object_unvalidated(
         },
     };
 
-    Ok(source_range_to_text_range_unvalidated(
-        source_file,
-        location,
-    ))
+    source_file.register(
+        vm,
+        source_range_to_text_range_unvalidated(source_file, location),
+        Some(rustpython_compiler_core::SourceLocationRange {
+            line: start_row,
+            end_line: end_row,
+            col: start_column,
+            end_col: end_column,
+        }),
+    )
 }
 
 fn range_from_object_impl(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
     name: &str,
     end_required: bool,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     let start_row = get_int_field(vm, object, "lineno", name)?;
     let start_column = get_int_field(vm, object, "col_offset", name)?;
     let end_row = if end_required {
@@ -850,7 +858,16 @@ fn range_from_object_impl(
         },
     };
 
-    Ok(source_range_to_text_range(source_file, location))
+    source_file.register(
+        vm,
+        source_range_to_text_range(source_file, location),
+        Some(rustpython_compiler_core::SourceLocationRange {
+            line: start_row,
+            end_line: end_row,
+            col: start_column,
+            end_col: end_column,
+        }),
+    )
 }
 
 fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange) -> TextRange {
@@ -872,7 +889,9 @@ fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange)
         PositionEncoding::Utf8,
     );
 
-    TextRange::new(start, end)
+    // Navigation is allowed to collapse normalized coordinates; semantic
+    // signed coordinates remain in AstSourceContext.
+    TextRange::new(start, end.max(start))
 }
 
 fn source_range_to_text_range_unvalidated(
@@ -904,11 +923,33 @@ fn source_range_to_text_range_unvalidated(
     }
 }
 
+fn node_add_location_for_node(
+    dict: &Py<PyDict>,
+    range: TextRange,
+    vm: &VirtualMachine,
+    source_file: &AstSourceContext,
+    node_index: ast::NodeIndex,
+) {
+    if let Some(location) = source_file.location(node_index) {
+        for (field, value) in [
+            ("lineno", location.line),
+            ("end_lineno", location.end_line),
+            ("col_offset", location.col),
+            ("end_col_offset", location.end_col),
+        ] {
+            dict.set_item(field, vm.ctx.new_int(value).into(), vm)
+                .unwrap();
+        }
+    } else {
+        node_add_location(dict, range, vm, source_file);
+    }
+}
+
 fn node_add_location(
     dict: &Py<PyDict>,
     range: TextRange,
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
 ) {
     let range = text_range_to_source_range(source_file, range);
     dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
@@ -1958,7 +1999,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         }),
         ast::Mod::Expression(e) => Mod::Expression(e),
     };
-    let obj = top.ast_to_object(vm, &source_file);
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let obj = top.ast_to_object(vm, &ast_context);
     if let Some(lines) = &type_comment_source
         && obj.class().is(pyast::NodeModModule::static_type())
     {
@@ -2149,7 +2191,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
-    Ok(func_type.ast_to_object(vm, &source_file))
+    Ok(func_type.ast_to_object(vm, &AstSourceContext::new(source_file.clone())))
 }
 
 fn type_ignores_from_source(
@@ -2417,6 +2459,43 @@ fn number_to_complex(number: &ast::Number) -> Option<(f64, f64, bool)> {
 }
 
 #[cfg(feature = "codegen")]
+fn ast_location_exception(
+    vm: &VirtualMachine,
+    error: rustpython_compiler_core::AstLocationError,
+) -> crate::builtins::PyBaseExceptionRef {
+    use rustpython_compiler_core::AstLocationError;
+    match error {
+        AstLocationError::ExhaustedNodeIdentities => {
+            vm.new_memory_error("too many AST location identities")
+        }
+        AstLocationError::ConflictingLocation => {
+            vm.new_system_error("conflicting AST location identity")
+        }
+        AstLocationError::CoordinateOverflow => {
+            vm.new_value_error("AST location coordinate overflow")
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+pub(crate) fn codegen_exception(
+    vm: &VirtualMachine,
+    error: codegen::error::CodegenError,
+    source: Option<&str>,
+) -> crate::builtins::PyBaseExceptionRef {
+    match error.error {
+        codegen::error::CodegenErrorType::AstLocation(error) => {
+            return ast_location_exception(vm, error);
+        }
+        codegen::error::CodegenErrorType::MixedAstLocationProvenance => {
+            return vm.new_system_error("mixed AST location provenance in literal merge");
+        }
+        _ => {}
+    }
+    vm.new_syntax_error(&error.into(), source)
+}
+
+#[cfg(feature = "codegen")]
 pub(crate) fn preprocess_ast_object(
     vm: &VirtualMachine,
     object: PyObjectRef,
@@ -2428,7 +2507,8 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
 
@@ -2441,12 +2521,17 @@ pub(crate) fn preprocess_ast_object(
                 })?;
             let future_annotations = explicit_future_annotations
                 || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-            codegen::preprocess::preprocess_mod(
-                &mut ast,
-                optimize,
-                future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_mod_with_locations(
+                        &mut ast,
+                        optimize,
+                        future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             let ast::Mod::Module(processed_module) = ast else {
                 unreachable!();
             };
@@ -2462,22 +2547,32 @@ pub(crate) fn preprocess_ast_object(
             })?;
             let future_annotations = explicit_future_annotations
                 || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-            codegen::preprocess::preprocess_statements(
-                &mut interactive.body,
-                optimize,
-                future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_statements_with_locations(
+                        &mut interactive.body,
+                        optimize,
+                        future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             Mod::Interactive(interactive)
         }
         Mod::Expression(expression) => {
             let mut ast = ast::Mod::Expression(expression);
-            codegen::preprocess::preprocess_mod(
-                &mut ast,
-                optimize,
-                explicit_future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_mod_with_locations(
+                        &mut ast,
+                        optimize,
+                        explicit_future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             let ast::Mod::Expression(expression) = ast else {
                 unreachable!();
             };
@@ -2485,7 +2580,7 @@ pub(crate) fn preprocess_ast_object(
         }
         Mod::FunctionType(function_type) => Mod::FunctionType(function_type),
     };
-    let result = ast.ast_to_object(vm, &source_file);
+    let result = ast.ast_to_object(vm, &ast_context);
     copy_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
 }
@@ -2494,6 +2589,7 @@ pub(crate) fn preprocess_ast_object(
 pub(crate) struct RustModFromObject {
     pub ast: ast::Mod,
     pub source_file: SourceFile,
+    pub locations: Option<rustpython_compiler_core::AstLocations>,
 }
 
 #[cfg(feature = "codegen")]
@@ -2511,7 +2607,8 @@ pub(crate) fn rust_mod_from_object(
     }
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2526,7 +2623,11 @@ pub(crate) fn rust_mod_from_object(
             return Err(vm.new_runtime_error("this compiler does not handle FunctionTypes"));
         }
     };
-    Ok(RustModFromObject { ast, source_file })
+    Ok(RustModFromObject {
+        ast,
+        source_file,
+        locations: ast_context.take_locations(),
+    })
 }
 
 #[cfg(feature = "codegen")]
@@ -2542,7 +2643,8 @@ pub(crate) fn compile(
     let _ = module;
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2560,6 +2662,11 @@ pub(crate) fn compile(
     opts.future_features |= codegen::preprocess::future_features(&ast);
     let source = text.clone();
     let source_file = SourceFileBuilder::new(filename, text).finish();
+    let input = codegen::compile::AstInput {
+        ast,
+        source_file,
+        locations: ast_context.take_locations(),
+    };
     #[cfg(feature = "parser")]
     let code = {
         let source_path = filename.to_owned();
@@ -2597,9 +2704,8 @@ pub(crate) fn compile(
                 marker
             })
         };
-        let result = codegen::compile::compile_top_with_syntax_warning_handler(
-            ast,
-            source_file,
+        let result = codegen::compile::compile_ast_with_syntax_warning_handler(
+            input,
             mode,
             opts,
             Some(&mut syntax_warning_handler),
@@ -2612,15 +2718,16 @@ pub(crate) fn compile(
         }
     };
     #[cfg(not(feature = "parser"))]
-    let code = codegen::compile::compile_top(ast, source_file, mode, opts);
-    let code = code.map_err(|err| vm.new_syntax_error(&err.into(), Some(source.as_str())))?;
+    let code = codegen::compile::compile_ast_with_syntax_warning_handler(input, mode, opts, None);
+    let code = code.map_err(|err| codegen_exception(vm, err, Some(source.as_str())))?;
     Ok(crate::builtins::PyCode::new_ref_from_bytecode(vm, code).into())
 }
 
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     Ok(())
 }

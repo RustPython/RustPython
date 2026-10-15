@@ -84,6 +84,9 @@ pub enum CodegenErrorType {
     InvalidFutureFeature(String),
     InvalidFutureBraces,
     RecursionError,
+    AstLocation(rustpython_compiler_core::AstLocationError),
+    /// A partial internal AST location map reached a literal merge.
+    MixedAstLocationProvenance,
     TooManyStarUnpack,
     TooManyExpressionsInStarUnpackingSequencePattern,
     EmptyWithItems,
@@ -103,6 +106,20 @@ impl core::error::Error for CodegenErrorType {}
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MixedAstLocationProvenance => {
+                write!(f, "mixed AST location provenance in literal merge")
+            }
+            Self::AstLocation(error) => match error {
+                rustpython_compiler_core::AstLocationError::ExhaustedNodeIdentities => {
+                    write!(f, "too many AST location identities")
+                }
+                rustpython_compiler_core::AstLocationError::ConflictingLocation => {
+                    write!(f, "conflicting AST location identity")
+                }
+                rustpython_compiler_core::AstLocationError::CoordinateOverflow => {
+                    write!(f, "AST location coordinate overflow")
+                }
+            },
             Self::Assign(target) => write!(f, "cannot assign to {target}"),
             Self::Delete(target) => write!(f, "cannot delete {target}"),
             Self::SyntaxError(err) => write!(f, "{}", err.as_str()),

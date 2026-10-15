@@ -10,7 +10,8 @@ use ruff_python_ast::{
 use ruff_text_size::{Ranged, TextRange};
 
 use crate::compile::FutureFeature;
-use rustpython_compiler_core::bytecode;
+use core::cell::{Cell, RefCell};
+use rustpython_compiler_core::{AstLocationError, AstLocations, SourceLocationRange, bytecode};
 
 const MAXDIGITS: usize = 3;
 const F_LJUST: u8 = 1;
@@ -288,6 +289,8 @@ pub fn preprocess_statements(
         optimize,
         future_annotations,
         constant_folding: !syntax_check_only,
+        locations: None,
+        location_error: None,
     };
     for stmt in body {
         preprocessor.visit_stmt(stmt);
@@ -304,6 +307,8 @@ pub fn preprocess_mod(
         optimize,
         future_annotations,
         constant_folding: !syntax_check_only,
+        locations: None,
+        location_error: None,
     };
     match module {
         ast::Mod::Module(module) => preprocessor.visit_astfold_body(&mut module.body),
@@ -311,18 +316,134 @@ pub fn preprocess_mod(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AstPreprocessor {
+/// Run preprocessing while retaining explicit Python AST location provenance.
+/// The table is borrowed only inside native transformations, never across Python calls.
+pub fn preprocess_mod_with_locations(
+    module: &mut ast::Mod,
+    optimize: u8,
+    future_annotations: bool,
+    syntax_check_only: bool,
+    locations: &mut AstLocations,
+) -> Result<(), AstLocationError> {
+    let table = RefCell::new(core::mem::take(locations));
+    let error = Cell::new(None);
+    let preprocessor = AstPreprocessor {
+        optimize,
+        future_annotations,
+        constant_folding: !syntax_check_only,
+        locations: Some(&table),
+        location_error: Some(&error),
+    };
+    match module {
+        ast::Mod::Module(module) => preprocessor.visit_astfold_body(&mut module.body),
+        ast::Mod::Expression(expr) => preprocessor.visit_expr(&mut expr.body),
+    }
+    *locations = table.into_inner();
+    error.get().map_or(Ok(()), Err)
+}
+
+pub fn preprocess_statements_with_locations(
+    body: &mut [ast::Stmt],
+    optimize: u8,
+    future_annotations: bool,
+    syntax_check_only: bool,
+    locations: &mut AstLocations,
+) -> Result<(), AstLocationError> {
+    let table = RefCell::new(core::mem::take(locations));
+    let error = Cell::new(None);
+    let preprocessor = AstPreprocessor {
+        optimize,
+        future_annotations,
+        constant_folding: !syntax_check_only,
+        locations: Some(&table),
+        location_error: Some(&error),
+    };
+    for stmt in body {
+        preprocessor.visit_stmt(stmt);
+    }
+    *locations = table.into_inner();
+    error.get().map_or(Ok(()), Err)
+}
+
+#[derive(Clone, Copy)]
+struct AstPreprocessor<'a> {
     optimize: u8,
     future_annotations: bool,
     constant_folding: bool,
+    locations: Option<&'a RefCell<AstLocations>>,
+    location_error: Option<&'a Cell<Option<AstLocationError>>>,
 }
 
-impl AstPreprocessor {
+impl AstPreprocessor<'_> {
+    fn location(&self, node: &impl HasNodeIndex) -> Option<SourceLocationRange> {
+        self.locations?
+            .borrow()
+            .get(node.node_index().load().as_u32()?)
+    }
+
+    fn fresh_location(&self, location: SourceLocationRange) -> AtomicNodeIndex {
+        let index = AtomicNodeIndex::NONE;
+        if let Some(locations) = self.locations {
+            match locations.borrow_mut().allocate(Some(location)) {
+                Ok(id) => index.set(ast::NodeIndex::from(id)),
+                Err(error) => {
+                    if let Some(slot) = self.location_error {
+                        slot.set(Some(error));
+                    }
+                }
+            }
+        }
+        index
+    }
+
+    fn artificial_elements(&self, elements: &mut InterpolatedStringElements) {
+        if self.locations.is_none() {
+            return;
+        }
+        let artificial = SourceLocationRange {
+            line: -1,
+            end_line: -1,
+            col: -1,
+            end_col: -1,
+        };
+        for element in elements.iter_mut() {
+            match element {
+                InterpolatedStringElement::Literal(literal) => {
+                    if literal.node_index.load().as_u32().is_none() {
+                        literal.node_index = self.fresh_location(artificial);
+                    }
+                }
+                InterpolatedStringElement::Interpolation(value) => {
+                    if let Some(spec) = &mut value.format_spec {
+                        if spec.node_index.load().as_u32().is_none() {
+                            spec.node_index = self.fresh_location(artificial);
+                        }
+                        self.artificial_elements(&mut spec.elements);
+                        // This visitor only runs on the result of optimize_format.
+                        // final ast_preprocess.c constructs a Constant format spec,
+                        // not a JoinedStr. Preserve that explicit shape in the
+                        // existing runtime AST field rather than inferring it
+                        // from the artificial coordinates during serialization.
+                        if let [InterpolatedStringElement::Literal(literal)] = &spec.elements[..] {
+                            value.runtime_formatted_value_format_spec =
+                                Some(Box::new(Expr::Constant(ast::ExprConstant {
+                                    node_index: spec.node_index.clone(),
+                                    range: spec.range,
+                                    value: ast::ConstantValue::Str(literal.value.clone()),
+                                    kind: None,
+                                    invalid_type: None,
+                                })));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn visit_astfold_body(self, body: &mut ast::Suite) {
         let mut docstring = body_starts_with_docstring(body);
         if docstring && self.optimize >= 2 {
-            remove_docstring_from_body(body);
+            remove_docstring_from_body(body, &self);
             docstring = false;
         }
 
@@ -331,12 +452,12 @@ impl AstPreprocessor {
         }
 
         if !docstring && body_starts_with_docstring(body) {
-            wrap_first_docstring_as_fstring(body);
+            wrap_first_docstring_as_fstring(body, self.locations.is_some());
         }
     }
 }
 
-impl Transformer for AstPreprocessor {
+impl Transformer for AstPreprocessor<'_> {
     fn visit_stmt(&self, stmt: &mut ast::Stmt) {
         match stmt {
             ast::Stmt::FunctionDef(function) => {
@@ -394,7 +515,14 @@ impl Transformer for AstPreprocessor {
         transformer::walk_expr(self, expr);
         widen_implicit_call_generator_range(expr);
         if self.constant_folding {
-            if let Some(optimized) = optimize_format(expr) {
+            if let Some(mut optimized) = optimize_format(expr) {
+                if let Expr::FString(fstring) = &mut optimized {
+                    for part in &mut fstring.value {
+                        if let ast::FStringPartMut::FString(part) = part {
+                            self.artificial_elements(&mut part.elements);
+                        }
+                    }
+                }
                 *expr = optimized;
             } else if let Some(optimized) = fold_debug_constant(expr, self.optimize) {
                 *expr = optimized;
@@ -632,15 +760,29 @@ fn generated_literal(value: String) -> InterpolatedStringLiteralElement {
     }
 }
 
-fn remove_docstring_from_body(body: &mut ast::Suite) {
+fn remove_docstring_from_body(body: &mut ast::Suite, preprocessor: &AstPreprocessor<'_>) {
+    let statement_location = body.first().and_then(|node| preprocessor.location(node));
     if let Some(range) = take_docstring(body) {
         if !body.is_empty() {
             return;
         }
         let start = range.start();
         let pass_range = TextRange::new(start, start + ruff_text_size::TextSize::from(4));
+        let node_index = statement_location.map_or(AtomicNodeIndex::NONE, |location| {
+            let Some(end_col) = location.col.checked_add(4) else {
+                if let Some(slot) = preprocessor.location_error {
+                    slot.set(Some(AstLocationError::CoordinateOverflow));
+                }
+                return AtomicNodeIndex::NONE;
+            };
+            preprocessor.fresh_location(SourceLocationRange {
+                end_line: location.line,
+                end_col,
+                ..location
+            })
+        });
         body.push(ast::Stmt::Pass(ast::StmtPass {
-            node_index: Default::default(),
+            node_index,
             range: pass_range,
         }));
     }
@@ -664,7 +806,7 @@ fn body_starts_with_docstring(body: &[ast::Stmt]) -> bool {
     string_literal_expr_value(&expr_stmt.value).is_some()
 }
 
-fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt]) {
+fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt], explicit_locations: bool) {
     let Some(ast::Stmt::Expr(expr_stmt)) = body.first_mut() else {
         return;
     };
@@ -672,16 +814,27 @@ fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt]) {
         return;
     };
     let value = value.to_string();
+    let literal_index = expr_stmt.value.node_index().clone();
+    let wrapper_range = if explicit_locations {
+        expr_stmt.range
+    } else {
+        range
+    };
+    let wrapper_index = if explicit_locations {
+        expr_stmt.node_index.clone()
+    } else {
+        AtomicNodeIndex::NONE
+    };
     *expr_stmt.value = ast::Expr::FString(ast::ExprFString {
-        node_index: AtomicNodeIndex::NONE,
-        range,
+        node_index: wrapper_index.clone(),
+        range: wrapper_range,
         value: FStringValue::single(FString {
-            range,
-            node_index: AtomicNodeIndex::NONE,
+            range: wrapper_range,
+            node_index: wrapper_index,
             elements: InterpolatedStringElements::from(vec![InterpolatedStringElement::Literal(
                 InterpolatedStringLiteralElement {
                     range,
-                    node_index: AtomicNodeIndex::NONE,
+                    node_index: literal_index,
                     value: value.into_boxed_str(),
                 },
             )]),
