@@ -448,9 +448,9 @@ fn unicode17_grapheme_properties_exact_final() {
     ];
     const INCB: [&str; 4] = ["None", "Linker", "Consonant", "Extend"];
     assert!(REFERENCE.len() <= 1024 * 1024, "oracle size bound");
-    assert!(
-        REFERENCE
-            .starts_with("# CPython d220409a13b77de7a6c30abe16ea90db01528edc; Unicode 17.0.0\n"),
+    assert_eq!(
+        REFERENCE.lines().next(),
+        Some("# CPython d220409a13b77de7a6c30abe16ea90db01528edc; Unicode 17.0.0"),
         "wrong reference provenance"
     );
     let mut next = 0;
