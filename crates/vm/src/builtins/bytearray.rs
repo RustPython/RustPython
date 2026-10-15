@@ -454,7 +454,9 @@ impl PyByteArray {
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Formatting calls the values' conversion methods, which can reach
-        // this bytearray, so the format is taken by value.
+        // this bytearray, so the format is taken by value. It also stays
+        // exported until formatting ends, so resizing it raises BufferError.
+        let _export = self.begin_export();
         let format = self.inner().clone();
         let formatted = format.cformat(values, vm)?;
         Ok(formatted.into())
