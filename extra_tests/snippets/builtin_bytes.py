@@ -767,6 +767,26 @@ class SubBytes(bytes):
     pass
 
 
+# Unchanged operations reuse exact bytes but must not preserve a subclass.
+for method, args in (
+    ("strip", ()),
+    ("lstrip", ()),
+    ("rstrip", ()),
+    ("removeprefix", (b"!",)),
+    ("removesuffix", (b"!",)),
+    ("replace", (b"!", b"?")),
+    ("replace", (b"!", b"")),
+    ("replace", (b"!", b"longer")),
+    ("replace", (b"", b"")),
+    ("replace", (b"a", b"b", 0)),
+):
+    original = b"unchanged payload"
+    assert getattr(original, method)(*args) is original
+    result = getattr(SubBytes(original), method)(*args)
+    assert result == original
+    assert type(result) is bytes
+
+
 b = SubBytes(b"0123abc*&")
 assert id(b) == id(b)
 assert id(b) != id(b * -1)

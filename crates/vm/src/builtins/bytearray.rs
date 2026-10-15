@@ -925,12 +925,12 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn strip(&self, options: ByteInnerStripOptions) -> PyByteArray {
-        self.inner().strip(options.bytes).into()
+        self.inner().strip(options.bytes).to_vec().into()
     }
 
     #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> PyByteArray {
-        self.inner().removeprefix(prefix).into()
+        self.inner().removeprefix(prefix).to_vec().into()
     }
 
     #[pymethod]
@@ -1004,7 +1004,7 @@ impl Py<PyByteArray> {
         options: ByteInnerReplaceOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().replace(options, vm)?.into())
+        Ok(self.inner().replace(options, vm)?.into_owned().into())
     }
 
     #[pymethod]
