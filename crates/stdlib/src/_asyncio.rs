@@ -2881,8 +2881,12 @@ pub(crate) mod _asyncio {
         waiter: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Only operate on native Future/Task objects (including subclasses).
+        // Both arguments must be native Future/Task objects (including subclasses).
         // Non-native objects are silently ignored.
+        if waiter.downcast_ref::<PyTask>().is_none() && waiter.downcast_ref::<PyFuture>().is_none()
+        {
+            return Ok(());
+        }
         if let Some(task) = fut.downcast_ref::<PyTask>() {
             return task.base.awaited_by_add(waiter, vm);
         }
@@ -2898,8 +2902,12 @@ pub(crate) mod _asyncio {
         waiter: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Only operate on native Future/Task objects (including subclasses).
+        // Both arguments must be native Future/Task objects (including subclasses).
         // Non-native objects are silently ignored.
+        if waiter.downcast_ref::<PyTask>().is_none() && waiter.downcast_ref::<PyFuture>().is_none()
+        {
+            return Ok(());
+        }
         if let Some(task) = fut.downcast_ref::<PyTask>() {
             return task.base.awaited_by_discard(&waiter, vm);
         }
