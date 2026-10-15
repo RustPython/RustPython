@@ -535,7 +535,7 @@ class WakeupSocketSignalTests(unittest.TestCase):
 
         assert_python_ok('-c', code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wakeup fd write errors are not reported
+    @unittest.expectedFailureIf(os.name != 'nt', "TODO: RUSTPYTHON; wakeup fd write errors are not reported")
     @unittest.skipIf(_testcapi is None, 'need _testcapi')
     def test_send_error(self):
         # Use a subprocess to have only one thread.
