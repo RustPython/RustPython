@@ -5,7 +5,6 @@ use super::{
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
-use crate::stdlib::PyOrderedDictItems;
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromObject, atomic_func,
@@ -1776,7 +1775,6 @@ trait DictView: PyPayload + PyClassDef + Iterable + Representable {
     type ReverseIter: PyPayload + core::fmt::Debug;
 
     fn dict(&self) -> &PyAnyDict;
-    fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;
 
     fn __len__(&self) -> usize {
         self.dict().__len__()
@@ -1820,10 +1818,6 @@ macro_rules! dict_view {
                 &self.dict
             }
 
-            fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
-                $result_fn(vm, $project_fn(&key, &value))
-            }
-
             fn __reversed__(zelf: &Py<Self>) -> Self::ReverseIter {
                 $reverse_iter_name::new(zelf.dict.clone())
             }
@@ -1845,19 +1839,21 @@ macro_rules! dict_view {
             #[inline]
             fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                    let mut result = Wtf8Buf::from(format!("{}([", Self::NAME));
-                    let mut first = true;
-                    for (key, value) in zelf.dict() {
-                        if !first {
-                            result.push_str(", ");
-                        }
-                        first = false;
-                        result.push_wtf8(Self::item(vm, key, value).repr(vm)?.as_wtf8());
-                    }
-                    result.push_str("])");
+                    // CPython snapshots through the view's actual iterator before
+                    // calling element representations, including for OrderedDict subclasses.
+                    let items = ArgIterable::<PyObjectRef>::try_from_object(
+                        vm,
+                        zelf.as_object().to_owned(),
+                    )?
+                    .iter(vm)?
+                    .collect::<PyResult<Vec<_>>>()?;
+                    let list_repr = vm.ctx.new_list(items).as_object().repr(vm)?;
+                    let mut result = Wtf8Buf::from(format!("{}(", zelf.class().slot_name()));
+                    result.push_wtf8(list_repr.as_wtf8());
+                    result.push_str(")");
                     vm.ctx.new_str(result)
                 } else {
-                    vm.ctx.intern_str("{...}").to_owned()
+                    vm.ctx.intern_str("...").to_owned()
                 };
                 Ok(s)
             }
@@ -2447,10 +2443,7 @@ pub(crate) fn set_item_view_number_xor(
 }
 
 fn dict_item_view_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
-    let is_native_item_view = |obj: &PyObject| {
-        obj.downcast_ref::<PyDictItems>().is_some()
-            || obj.downcast_ref::<PyOrderedDictItems>().is_some()
-    };
+    let is_native_item_view = |obj: &PyObject| obj.downcast_ref::<PyDictItems>().is_some();
     set_item_view_number_xor(a, b, is_native_item_view(a) && is_native_item_view(b), vm)
 }
 
