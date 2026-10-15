@@ -4585,6 +4585,23 @@ impl ExecutingFrame<'_> {
                 self.push_value(list_obj.into());
                 Ok(None)
             }
+            Instruction::BuildListFromArg => {
+                let last_val = self.pop_value();
+                let length_hint = match last_val.clone().length_hint(0, vm) {
+                    Ok(hint) => hint,
+                    Err(exc)
+                        if exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+                            || exc.fast_isinstance(vm.ctx.exceptions.keyboard_interrupt) =>
+                    {
+                        return Err(exc);
+                    }
+                    Err(_) => 0,
+                };
+                let list_obj = vm.ctx.new_list(Vec::with_capacity(length_hint));
+                self.push_value(list_obj.into());
+                self.push_value(last_val);
+                Ok(None)
+            }
             Instruction::BuildMap { count: size } => self.execute_build_map(vm, size.get(arg)),
             Instruction::BuildSet { count: size } => {
                 let set = PySet::default().into_ref(&vm.ctx);
