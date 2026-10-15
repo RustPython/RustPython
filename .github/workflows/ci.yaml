@@ -1105,6 +1105,7 @@ jobs:
         builtin_str
         builtin_thread
         cli_int_max_str_digits
+        import_lazy_native
         protocol_index_argument
         recursion
         stdlib_ast
