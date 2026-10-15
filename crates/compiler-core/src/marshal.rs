@@ -5,7 +5,7 @@ use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_wtf8::Wtf8;
 
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MarshalError {
@@ -84,6 +84,7 @@ enum Type {
     SmallTuple = b')',
     List = b'[',
     Dict = b'{',
+    FrozenDict = b'}',
     Code = b'c',
     Unicode = b'u',
     Set = b'<',
@@ -120,6 +121,7 @@ impl TryFrom<u8> for Type {
             b')' => Self::SmallTuple,
             b'[' => Self::List,
             b'{' => Self::Dict,
+            b'}' => Self::FrozenDict,
             b'c' => Self::Code,
             b'u' => Self::Unicode,
             b'<' => Self::Set,
@@ -621,6 +623,10 @@ pub trait MarshalBag: Copy {
         &self,
         it: impl Iterator<Item = (Self::Value, Self::Value)>,
     ) -> Result<Self::Value>;
+
+    fn freeze_dict(&self, _dict: Self::Value) -> Result<Self::Value> {
+        Err(MarshalError::BadType)
+    }
 
     /// Install partially-built containers in the marshal reference table
     /// before reading their children, as CPython's `r_object()` does.
@@ -1196,22 +1202,30 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
             itertools::process_results(it, |it| bag.make_frozenset(it))??
         }
-        Type::Dict => {
+        Type::Dict | Type::FrozenDict => {
             let d = depth - 1;
-            if let Some(index) = slot
+            // Immutable mappings are published only after all entries are read.
+            let frozen = matches!(typ, Type::FrozenDict);
+            if (frozen || slot.is_some())
                 && let Some(dict) = bag.make_dict_placeholder()
             {
-                refs[index] = Some(dict.clone());
+                if !frozen && let Some(index) = slot {
+                    refs[index] = Some(dict.clone());
+                }
                 loop {
                     let raw = read_object_type(rdr)?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let raw = read_object_type(rdr)?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let value = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                     bag.insert_dict_item(&dict, key, value)?;
                 }
-                dict
+                if frozen { bag.freeze_dict(dict)? } else { dict }
             } else {
                 let mut pairs = Vec::new();
                 loop {
@@ -1220,10 +1234,15 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let raw = read_object_type(rdr)?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let value = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
                     pairs.push((key, value));
                 }
-                bag.make_dict(pairs.into_iter())?
+                let dict = bag.make_dict(pairs.into_iter())?;
+                if frozen { bag.freeze_dict(dict)? } else { dict }
             }
         }
         Type::Bytes => {
@@ -1267,6 +1286,7 @@ pub enum DumpableValue<'a, D: Dumpable> {
     Set(&'a [D]),
     Frozenset(&'a [D]),
     Dict(&'a [(D, D)]),
+    Frozendict(&'a [(D, D)]),
     Slice(&'a D, &'a D, &'a D),
 }
 
@@ -1438,8 +1458,13 @@ pub fn serialize_value<W: Write, D: Dumpable>(
                 val.with_dump(|val| serialize_value(buf, val))??
             }
         }
-        DumpableValue::Dict(d) => {
-            buf.write_u8(Type::Dict as u8);
+        DumpableValue::Dict(d) | DumpableValue::Frozendict(d) => {
+            let typ = if matches!(constant, DumpableValue::Frozendict(_)) {
+                Type::FrozenDict
+            } else {
+                Type::Dict
+            };
+            buf.write_u8(typ as u8);
             for (k, v) in d {
                 k.with_dump(|val| serialize_value(buf, val))??;
                 v.with_dump(|val| serialize_value(buf, val))??;
