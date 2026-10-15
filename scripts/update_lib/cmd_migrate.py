@@ -129,10 +129,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Source path containing /Lib/ (file or directory)",
     )
 
+    parser.add_argument(
+        "--legacy-map",
+        type=pathlib.Path,
+        help="Explicit legacy-file/class to package-file JSON mapping",
+    )
+
     args = parser.parse_args(argv)
 
     try:
-        if args.path.is_dir():
+        if args.legacy_map is not None:
+            from update_lib.migrate_package import migrate_package
+
+            migrate_package(args.path, parse_lib_path(args.path), args.legacy_map)
+        elif args.path.is_dir():
             patch_directory(args.path)
         else:
             patch_file(args.path)
