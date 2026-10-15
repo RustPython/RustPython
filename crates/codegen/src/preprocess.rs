@@ -375,6 +375,14 @@ struct AstPreprocessor<'a> {
 }
 
 impl AstPreprocessor<'_> {
+    fn record_location_error(&self, error: AstLocationError) {
+        if let Some(slot) = self.location_error
+            && slot.get().is_none()
+        {
+            slot.set(Some(error));
+        }
+    }
+
     fn location(&self, node: &impl HasNodeIndex) -> Option<SourceLocationRange> {
         self.locations?
             .borrow()
@@ -386,11 +394,7 @@ impl AstPreprocessor<'_> {
         if let Some(locations) = self.locations {
             match locations.borrow_mut().allocate(Some(location)) {
                 Ok(id) => index.set(ast::NodeIndex::from(id)),
-                Err(error) => {
-                    if let Some(slot) = self.location_error {
-                        slot.set(Some(error));
-                    }
-                }
+                Err(error) => self.record_location_error(error),
             }
         }
         index
@@ -770,9 +774,7 @@ fn remove_docstring_from_body(body: &mut ast::Suite, preprocessor: &AstPreproces
         let pass_range = TextRange::new(start, start + ruff_text_size::TextSize::from(4));
         let node_index = statement_location.map_or(AtomicNodeIndex::NONE, |location| {
             let Some(end_col) = location.col.checked_add(4) else {
-                if let Some(slot) = preprocessor.location_error {
-                    slot.set(Some(AstLocationError::CoordinateOverflow));
-                }
+                preprocessor.record_location_error(AstLocationError::CoordinateOverflow);
                 return AtomicNodeIndex::NONE;
             };
             preprocessor.fresh_location(SourceLocationRange {
@@ -948,6 +950,51 @@ fn fold_match_number_binop(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preprocessing_preserves_first_location_error() {
+        for first_error in [
+            AstLocationError::ExhaustedNodeIdentities,
+            AstLocationError::CoordinateOverflow,
+        ] {
+            let ast::Mod::Module(mut module) =
+                ruff_python_parser::parse("\"doc\"", ruff_python_parser::Mode::Module.into())
+                    .unwrap()
+                    .into_syntax()
+            else {
+                panic!("expected module");
+            };
+            let location = SourceLocationRange {
+                line: 1,
+                end_line: 1,
+                col: i32::MAX,
+                end_col: i32::MAX,
+            };
+            let mut locations = AstLocations::default();
+            // One entry exhausts the identity cursor without allocating a huge AST.
+            locations.insert(AstLocations::MAX_ID, location).unwrap();
+            module.body[0]
+                .node_index()
+                .set(ast::NodeIndex::from(AstLocations::MAX_ID));
+            let locations = RefCell::new(locations);
+            let error = Cell::new(None);
+            let preprocessor = AstPreprocessor {
+                optimize: 2,
+                future_annotations: false,
+                constant_folding: true,
+                locations: Some(&locations),
+                location_error: Some(&error),
+            };
+
+            if first_error == AstLocationError::ExhaustedNodeIdentities {
+                preprocessor.fresh_location(location);
+            }
+            remove_docstring_from_body(&mut module.body, &preprocessor);
+            assert_eq!(error.get(), Some(first_error));
+            preprocessor.fresh_location(location);
+            assert_eq!(error.get(), Some(first_error));
+        }
+    }
 
     fn first_match_value(source: &str) -> ast::Expr {
         let parsed = ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
