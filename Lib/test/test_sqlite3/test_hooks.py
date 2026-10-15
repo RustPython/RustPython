@@ -177,6 +177,7 @@ class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
         self.cx.set_authorizer(handler)
         self.assert_not_authorized(self.cx.execute, "select * from test")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(OverflowError)
     def test_authorizer_concurrent_mutation_with_overflown_value(self):
         _testcapi = import_helper.import_module("_testcapi")
