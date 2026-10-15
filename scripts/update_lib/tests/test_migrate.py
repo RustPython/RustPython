@@ -136,6 +136,37 @@ class TestFoo(unittest.TestCase):
 class TestPatchDirectory(unittest.TestCase):
     """Tests for patch_directory function."""
 
+    def test_excludes_cache_directories_but_preserves_canonical_assets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            for relative in ("__pycache__", "nested/__pycache__", "assets"):
+                (source / relative).mkdir(parents=True)
+            files = {
+                "module.py": b"# canonical source\n",
+                "__pycache__/module.cpython-315.pyc": b"stale cache",
+                "nested/__pycache__/module.cpython-315.pyc": b"nested cache",
+                "assets/__pycache__": b"ordinary canonical file",
+                "assets/fixture.pyc": b"canonical bytecode fixture",
+            }
+            for relative, content in files.items():
+                (source / relative).write_bytes(content)
+            patch_directory(source, destination, verbose=False)
+            expected = {
+                relative: content
+                for relative, content in files.items()
+                if "__pycache__" not in pathlib.Path(relative).parts[:-1]
+            }
+            actual = {
+                path.relative_to(destination).as_posix(): path.read_bytes()
+                for path in destination.rglob("*")
+                if path.is_file()
+            }
+            self.assertEqual(actual, expected)
+            for relative, content in files.items():
+                self.assertEqual((source / relative).read_bytes(), content)
+
     def test_patch_directory_all_files(self):
         """Test that patch_directory processes all .py files."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -121,7 +121,9 @@ class PatchSpec(typing.NamedTuple):
         # If our ut_method has args then,
         # we need to search for a constant that contains our `COMMENT`.
         # Otherwise we need to search it in the raw source code :/
-        if ut_method.has_args():
+        if ut_method.has_args() and not (
+            ut_method is UtMethod.Skip and isinstance(node, ast.Attribute)
+        ):
             reason = next(
                 (
                     inner_node.value
@@ -303,8 +305,23 @@ def _iter_patch_lines(
     class_bases: dict[str, list[str]] = {}
     all_classes = set()
     all_class_nodes = list(_iter_module_classes(tree))
+    # Only names used to place a patch (including inherited methods) need a
+    # unique definition. Conditional, unpatched helpers are common upstream.
+    relevant_classes = set(patches)
+    while True:
+        ancestors = {
+            base.id
+            for node in all_class_nodes
+            if node.name in relevant_classes
+            for base in node.bases
+            if isinstance(base, ast.Name)
+        }
+        expanded = relevant_classes | ancestors
+        if expanded == relevant_classes:
+            break
+        relevant_classes = expanded
     for node in all_class_nodes:
-        if node.name in all_classes:
+        if node.name in all_classes and node.name in relevant_classes:
             raise ValueError(f"Ambiguous module-scope class name: {node.name}")
         all_classes.add(node.name)
         method_counts = collections.Counter(

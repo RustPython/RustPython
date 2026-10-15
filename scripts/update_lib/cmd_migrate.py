@@ -12,6 +12,7 @@ This will:
 """
 
 import argparse
+import json
 import pathlib
 import shutil
 import sys
@@ -24,6 +25,7 @@ from update_lib.file_utils import parse_lib_path
 def patch_single_content(
     src_path: pathlib.Path,
     lib_path: pathlib.Path,
+    patches_document: dict | None = None,
 ) -> str:
     """
     Patch content without writing to disk.
@@ -36,15 +38,34 @@ def patch_single_content(
         The patched content.
     """
     from update_lib import apply_patches, extract_patches
+    from update_lib.call_patches import preserve_call_patch
+    from update_lib.doctest_patches import preserve_doctest_patch
+    from update_lib.runtime_patches import preserve_runtime_patch
 
     # Extract patches from existing file (if exists)
     if lib_path.exists():
-        patches = extract_patches(lib_path.read_text(encoding="utf-8"))
+        old_content = lib_path.read_text(encoding="utf-8")
+        patches = extract_patches(old_content)
     else:
         patches = {}
 
+    repository = pathlib.Path(__file__).resolve().parents[2]
+    try:
+        relative_path = lib_path.resolve().relative_to(repository)
+    except ValueError:
+        # Explicit output paths outside this repository are not its Lib.
+        relative_path = pathlib.Path("__external_output__")
+    if patches_document is not None:
+        from update_lib.marker_override import select_remaining_patches
+
+        patches = select_remaining_patches(patches, patches_document, relative_path)
+
     # Apply patches to source content
     src_content = src_path.read_text(encoding="utf-8")
+    if lib_path.exists():
+        src_content = preserve_runtime_patch(relative_path, old_content, src_content)
+        src_content = preserve_doctest_patch(relative_path, old_content, src_content)
+        src_content = preserve_call_patch(relative_path, old_content, src_content)
     return apply_patches(src_content, patches)
 
 
@@ -52,6 +73,7 @@ def patch_file(
     src_path: pathlib.Path,
     lib_path: pathlib.Path | None = None,
     verbose: bool = True,
+    patches_document: dict | None = None,
 ) -> None:
     """
     Patch a single file from source to lib.
@@ -67,10 +89,12 @@ def patch_file(
     if lib_path.exists():
         if verbose:
             print(f"Patching: {src_path} -> {lib_path}")
-        content = patch_single_content(src_path, lib_path)
+        content = patch_single_content(src_path, lib_path, patches_document)
     else:
         if verbose:
             print(f"Copying: {src_path} -> {lib_path}")
+        if patches_document is not None:
+            raise ValueError("Marker override requires an existing target")
         content = src_path.read_text(encoding="utf-8")
 
     lib_path.parent.mkdir(parents=True, exist_ok=True)
@@ -93,7 +117,11 @@ def patch_directory(
     if lib_dir is None:
         lib_dir = parse_lib_path(src_dir)
 
-    src_files = sorted(f for f in src_dir.glob("**/*") if f.is_file())
+    src_files = sorted(
+        f
+        for f in src_dir.glob("**/*")
+        if f.is_file() and "__pycache__" not in f.relative_to(src_dir).parts[:-1]
+    )
 
     for src_file in src_files:
         rel_path = src_file.relative_to(src_dir)
@@ -129,13 +157,35 @@ def main(argv: list[str] | None = None) -> int:
         help="Source path containing /Lib/ (file or directory)",
     )
 
+    parser.add_argument(
+        "--legacy-map",
+        type=pathlib.Path,
+        help="Explicit legacy-file/class to package-file JSON mapping",
+    )
+
+    parser.add_argument(
+        "--patches",
+        type=pathlib.Path,
+        help="Single-file JSON target and remaining existing markers (xfail removals only)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        if args.path.is_dir():
+        if args.patches is not None and (
+            args.path.is_dir() or args.legacy_map is not None
+        ):
+            raise ValueError("--patches requires a single file without --legacy-map")
+        document = (
+            json.loads(args.patches.read_text()) if args.patches is not None else None
+        )
+        if args.legacy_map is not None:
+            from update_lib.migrate_package import migrate_package
+
+            migrate_package(args.path, parse_lib_path(args.path), args.legacy_map)
+        elif args.path.is_dir():
             patch_directory(args.path)
         else:
-            patch_file(args.path)
+            patch_file(args.path, patches_document=document)
         return 0
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
