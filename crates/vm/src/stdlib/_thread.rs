@@ -124,15 +124,62 @@ pub(crate) mod _thread {
     }
 
     macro_rules! acquire_lock_impl {
-        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr) => {{
+        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr) => {{ acquire_lock_impl!($mu, $blocking, $timeout, $vm, false) }};
+        ($mu:expr, $blocking:expr, $timeout:expr, $vm:expr, $owned:expr) => {{
             let (mu, blocking, timeout, vm) = ($mu, $blocking, $timeout, $vm);
-            match blocking {
-                true if timeout == -1.0 => {
-                    vm.allow_threads(|| mu.lock());
-                    Ok(true)
+            let started = std::time::Instant::now();
+            // CPython rounds positive timeouts up to the next nanosecond.
+            let timeout = (timeout != -1.0)
+                .then(|| Duration::from_nanos((timeout * 1_000_000_000.0).ceil() as u64));
+            let mut remaining = timeout;
+            loop {
+                // Ownership gained in a signal handler does not make an
+                // already pending acquisition recursive.
+                let owned = $owned;
+                if !owned && mu.try_lock() {
+                    break Ok(true);
                 }
-                true => Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout)))),
-                false => Ok(mu.try_lock()),
+                if !blocking || remaining.is_some_and(|remaining| remaining.is_zero()) {
+                    break Ok(false);
+                }
+                if vm
+                    .state
+                    .finalizing
+                    .load(core::sync::atomic::Ordering::Acquire)
+                {
+                    // Other Python threads cannot release the lock once
+                    // finalization begins. Uncontested calls still work.
+                    break Err(vm.new_python_finalization_error(
+                        "cannot acquire lock at interpreter finalization",
+                    ));
+                }
+                let interval = Duration::from_millis(50);
+                let wait = match timeout {
+                    Some(timeout) => match timeout.checked_sub(started.elapsed()) {
+                        Some(remaining) if !remaining.is_zero() => remaining.min(interval),
+                        _ => break Ok(false),
+                    },
+                    None => interval,
+                };
+                // parking_lot waits are not interrupted by OS signals. Poll
+                // without restarting the deadline or acquiring a lock before
+                // running callbacks. A handler may itself retain an RLock.
+                let acquired = vm.allow_threads(|| {
+                    if owned {
+                        thread::sleep(wait);
+                        false
+                    } else {
+                        mu.try_lock_for(wait)
+                    }
+                });
+                if acquired {
+                    break Ok(true);
+                }
+                if timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
+                    break Ok(false);
+                }
+                vm.check_signals()?;
+                remaining = timeout.map(|timeout| timeout.saturating_sub(started.elapsed()));
             }
         }};
     }
@@ -247,7 +294,18 @@ pub(crate) mod _thread {
     #[pyclass(with(Representable), flags(BASETYPE, HAS_WEAKREF))]
     impl Py<RLock> {
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            let rlock_type = RLock::class(&vm.ctx);
+            let cls_init = cls.slots.init.load().map(crate::types::fn_addr);
+            let rlock_init = rlock_type.slots.init.load().map(crate::types::fn_addr);
+            if cls.is(rlock_type) || cls_init == rlock_init {
+                if !args.args.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no positional arguments"));
+                }
+                if !args.kwargs.is_empty() {
+                    return Err(vm.new_type_error("RLock() takes no keyword arguments"));
+                }
+            }
             RLock {
                 mu: RawRMutex::INIT,
                 count: core::sync::atomic::AtomicUsize::new(0),
@@ -267,7 +325,13 @@ pub(crate) mod _thread {
                     .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
                 return Ok(true);
             }
-            let result = acquire_lock_impl!(&self.mu, blocking, timeout, vm)?;
+            let result = acquire_lock_impl!(
+                &self.mu,
+                blocking,
+                timeout,
+                vm,
+                self.mu.is_owned_by_current_thread()
+            )?;
             if result {
                 self.count.store(1, core::sync::atomic::Ordering::Relaxed);
             }
@@ -514,8 +578,13 @@ pub(crate) mod _thread {
         }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         {
-            let os_name = vm.fsencode(&name)?;
-            host_thread::set_current_thread_name_bytes(os_name.as_encoded_bytes());
+            let os_name = vm.state.codec_registry.encode_text(
+                name,
+                "utf-8",
+                Some(vm.ctx.new_utf8_str("replace")),
+                vm,
+            )?;
+            host_thread::set_current_thread_name_bytes(os_name.as_bytes());
         }
         Ok(())
     }
