@@ -3513,11 +3513,14 @@ mod _sqlite3 {
         fn drop(&mut self) {
             with_deferred_drops(|| {
                 let statement = self.0.lock();
+                let db = SqliteOperation(statement.db.clone());
                 statement.reset();
                 // Cached statements must not retain previous parameter buffers.
                 unsafe { sqlite3_clear_bindings(statement.st) };
                 drop(statement);
                 self.0.in_use.store(false, Ordering::Release);
+                // Reset can delay cleanup queued by another thread's BLOB close.
+                drop(db);
             });
         }
     }
@@ -3662,13 +3665,14 @@ mod _sqlite3 {
 
         fn close_callbacks(&self, rollback: bool, vm: &VirtualMachine) -> PyResult<()> {
             self.callbacks.lock().closed = true;
-            if let Some(_guard) = self.raw.try_lock() {
+            if let Some(guard) = self.raw.try_lock() {
                 let result = if rollback && !self.is_autocommit() {
                     self._exec(c"ROLLBACK", vm)
                 } else {
                     Ok(())
                 };
                 self.pending.lock().clear_callbacks = true;
+                drop(guard);
                 self.flush_cleanup();
                 result
             } else {

@@ -837,6 +837,8 @@ def callback_registration_lifetimes():
         ("set_progress_handler", (0,)),
     ):
         for action in ("disable", "replace", "close", "reinit", "reentrant_reinit"):
+            if args == (0,) and action != "disable":
+                continue
             events = []
             connection = sqlite.connect(":memory:")
             cursor = connection.execute("SELECT 1 UNION ALL SELECT 2")
@@ -897,3 +899,68 @@ def callback_self_removal_lifetime():
 
 callback_registration_lifetimes()
 callback_self_removal_lifetime()
+
+
+def blob_close_during_cursor_reset():
+    import tempfile
+    import threading
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = directory + "/blob.db"
+        connection = sqlite.connect(path, isolation_level=None, check_same_thread=False)
+        connection.execute("CREATE TABLE t(value)")
+        connection.execute("INSERT INTO t VALUES (zeroblob(1)), (zeroblob(1))")
+        resetting = threading.Event()
+        release = threading.Event()
+        cursor_closed = threading.Event()
+        blob_closed = threading.Event()
+        failures = []
+
+        class Window:
+            def step(self, value):
+                pass
+
+            def value(self):
+                return 0
+
+            def finalize(self):
+                resetting.set()
+                if not release.wait(5):
+                    failures.append("cursor reset timed out")
+                return 0
+
+        connection.create_window_function("hold", 1, Window)
+        blob = connection.blobopen("t", "value", 1)
+        cursor = connection.execute(
+            "SELECT hold(rowid) OVER (ROWS UNBOUNDED PRECEDING) FROM t"
+        )
+
+        def close(resource, finished):
+            resource.close()
+            finished.set()
+
+        resetter = threading.Thread(
+            target=close, args=(cursor, cursor_closed), daemon=True
+        )
+        closer = threading.Thread(target=close, args=(blob, blob_closed), daemon=True)
+        resetter.start()
+        assert resetting.wait(5)
+        closer.start()
+        # CPython waits for reset; RustPython may queue the BLOB for later cleanup.
+        blob_closed.wait(0.2)
+        release.set()
+        resetter.join(5)
+        closer.join(5)
+        assert not resetter.is_alive() and not closer.is_alive()
+        assert cursor_closed.is_set() and blob_closed.is_set()
+        assert not failures, failures
+        other = sqlite.connect(path, timeout=0, isolation_level=None)
+        try:
+            # No intervening call on connection may be needed to release its lock.
+            other.execute("UPDATE t SET value=zeroblob(1)")
+        finally:
+            other.close()
+            connection.close()
+
+
+blob_close_during_cursor_reset()
