@@ -19,7 +19,7 @@ pub(super) struct AstNodeRange {
 }
 
 impl AstNodeRange {
-    pub fn node_index(self) -> AtomicNodeIndex {
+    pub(super) fn node_index(self) -> AtomicNodeIndex {
         let index = AtomicNodeIndex::NONE;
         index.set(self.index);
         index
@@ -27,7 +27,7 @@ impl AstNodeRange {
 }
 
 impl AstSourceContext {
-    pub fn new(source_file: SourceFile) -> Self {
+    pub(super) fn new(source_file: SourceFile) -> Self {
         Self {
             source_file,
             locations: RefCell::new(None),
@@ -36,7 +36,7 @@ impl AstSourceContext {
 
     /// Coordinates have already been read and validated by the caller. The
     /// metadata borrow cannot span Python getters or recursive node conversion.
-    pub fn register(
+    pub(super) fn register(
         &self,
         vm: &VirtualMachine,
         range: TextRange,
@@ -54,24 +54,24 @@ impl AstSourceContext {
         })
     }
 
-    pub fn location(&self, index: NodeIndex) -> Option<SourceLocationRange> {
+    pub(super) fn location(&self, index: NodeIndex) -> Option<SourceLocationRange> {
         let id = index.as_u32()?;
         self.locations.borrow().as_ref()?.get(id)
     }
 
     #[cfg(feature = "codegen")]
-    pub fn preprocess_locations(
+    pub(super) fn preprocess_locations(
         &self,
         f: impl FnOnce(&mut AstLocations) -> Result<(), rustpython_compiler_core::AstLocationError>,
     ) -> Result<(), rustpython_compiler_core::AstLocationError> {
         f(self.locations.borrow_mut().get_or_insert_default())
     }
 
-    pub fn has_locations(&self) -> bool {
+    pub(super) fn has_locations(&self) -> bool {
         self.locations.borrow().is_some()
     }
 
-    pub fn take_locations(&self) -> Option<AstLocations> {
+    pub(super) fn take_locations(&self) -> Option<AstLocations> {
         self.locations.borrow_mut().take()
     }
 }

@@ -24,14 +24,14 @@ pub(crate) struct CompilerSourceSpan {
 }
 
 impl CompilerSourceSpan {
-    pub fn is_artificial(self) -> bool {
+    pub(crate) fn is_artificial(self) -> bool {
         self.location
             .map_or(self.range == TextRange::default(), |location| {
                 location.line < 0
             })
     }
 
-    pub const fn parsed(range: TextRange) -> Self {
+    pub(crate) const fn parsed(range: TextRange) -> Self {
         Self {
             range,
             location: None,

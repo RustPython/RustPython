@@ -3854,7 +3854,7 @@ impl<'warnings> Compiler<'warnings> {
                 test,
                 body,
                 orelse,
-                range,
+                range: _,
                 ..
             }) => self.compile_while(test, body, orelse, self.node_span(statement))?,
             ast::Stmt::With(ast::StmtWith {
@@ -3869,7 +3869,7 @@ impl<'warnings> Compiler<'warnings> {
                 body,
                 orelse,
                 is_async,
-                range,
+                range: _,
                 ..
             }) => self.compile_for(
                 target,
@@ -3883,7 +3883,10 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_match(subject, cases)?
             }
             ast::Stmt::Raise(ast::StmtRaise {
-                exc, cause, range, ..
+                exc,
+                cause,
+                range: _,
+                ..
             }) => {
                 let kind = match exc {
                     Some(value) => {
@@ -3957,7 +3960,10 @@ impl<'warnings> Compiler<'warnings> {
             )?,
             ast::Stmt::Assert(assert_stmt) => {
                 let ast::StmtAssert {
-                    test, msg, range, ..
+                    test,
+                    msg,
+                    range: _,
+                    ..
                 } = assert_stmt;
                 self.check_assert(assert_stmt)?;
                 // if some flag, ignore all assert statements!
@@ -4093,7 +4099,7 @@ impl<'warnings> Compiler<'warnings> {
             ast::Stmt::Assign(ast::StmtAssign {
                 targets,
                 value,
-                range,
+                range: _,
                 ..
             }) => {
                 self.compile_expression(value)?;
@@ -4114,7 +4120,7 @@ impl<'warnings> Compiler<'warnings> {
                 annotation,
                 value,
                 simple,
-                range,
+                range: _,
                 ..
             }) => {
                 self.compile_annotated_assign(
@@ -4142,7 +4148,7 @@ impl<'warnings> Compiler<'warnings> {
                 name,
                 type_params,
                 value,
-                range,
+                range: _,
                 ..
             }) => {
                 let Some(name) = name.as_name_expr() else {
@@ -4327,7 +4333,6 @@ impl<'warnings> Compiler<'warnings> {
         name: &str,
         allow_starred: bool,
     ) -> CompileResult<()> {
-        let expr_range = expr.range();
         self.set_source_node(expr.range(), expr.node_index());
         self.emit_load_const(ConstantData::Tuple {
             elements: vec![ConstantData::Integer { value: 1.into() }],
@@ -4745,7 +4750,7 @@ impl<'warnings> Compiler<'warnings> {
                 type_,
                 name,
                 body,
-                range: handler_range,
+                range: _,
                 ..
             }) = handler;
             self.set_source_node(handler.range(), handler.node_index());
@@ -5014,7 +5019,7 @@ impl<'warnings> Compiler<'warnings> {
                 type_,
                 name,
                 body,
-                range: handler_range,
+                range: _,
                 ..
             }) = handler;
             let is_last_handler = i == n - 1;
@@ -5662,7 +5667,7 @@ impl<'warnings> Compiler<'warnings> {
                 target,
                 annotation,
                 simple,
-                range,
+                range: _,
                 ..
             } = stmt;
             let simple_name = if *simple {
@@ -9107,7 +9112,6 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         trace!("Compiling {expression:?}");
-        let range = expression.range();
         let expression_span = self.node_span(expression);
         self.restore_source_span(expression_span);
 
@@ -9209,26 +9213,28 @@ impl<'warnings> Compiler<'warnings> {
             ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
                 self.emit_load_const(ast_constant_value_to_constant_data(value.clone()));
             }
-            ast::Expr::List(ast::ExprList { elts, range, .. }) => {
+            ast::Expr::List(ast::ExprList { elts, range: _, .. }) => {
                 self.restore_source_span(expression_span);
                 self.starunpack_helper(elts, 0, CollectionType::List)?;
             }
-            ast::Expr::Tuple(ast::ExprTuple { elts, range, .. }) => {
+            ast::Expr::Tuple(ast::ExprTuple { elts, range: _, .. }) => {
                 self.restore_source_span(expression_span);
                 self.starunpack_helper(elts, 0, CollectionType::Tuple)?;
             }
-            ast::Expr::Set(ast::ExprSet { elts, range, .. }) => {
+            ast::Expr::Set(ast::ExprSet { elts, range: _, .. }) => {
                 self.restore_source_span(expression_span);
                 self.starunpack_helper(elts, 0, CollectionType::Set)?;
             }
-            ast::Expr::Dict(ast::ExprDict { items, range, .. }) => {
+            ast::Expr::Dict(ast::ExprDict {
+                items, range: _, ..
+            }) => {
                 self.compile_dict(items, expression_span)?;
             }
             ast::Expr::Slice(ast::ExprSlice {
                 lower,
                 upper,
                 step,
-                range,
+                range: _,
                 ..
             }) => {
                 if let Some(folded_const) = self.try_fold_constant_slice(
@@ -9328,7 +9334,7 @@ impl<'warnings> Compiler<'warnings> {
             ast::Expr::Lambda(ast::ExprLambda {
                 parameters,
                 body,
-                range,
+                range: _,
                 ..
             }) => {
                 let default_params = ast::Parameters::default();
@@ -9428,7 +9434,7 @@ impl<'warnings> Compiler<'warnings> {
             ast::Expr::ListComp(ast::ExprListComp {
                 elt,
                 generators,
-                range,
+                range: _,
                 ..
             }) => {
                 self.compile_comprehension(
@@ -9461,7 +9467,7 @@ impl<'warnings> Compiler<'warnings> {
             ast::Expr::SetComp(ast::ExprSetComp {
                 elt,
                 generators,
-                range,
+                range: _,
                 ..
             }) => {
                 self.compile_comprehension(
@@ -9495,7 +9501,7 @@ impl<'warnings> Compiler<'warnings> {
                 key,
                 value,
                 generators,
-                range,
+                range: _,
                 ..
             }) => {
                 let Some(key) = key.as_deref() else {
@@ -9542,7 +9548,7 @@ impl<'warnings> Compiler<'warnings> {
             ast::Expr::Generator(ast::ExprGenerator {
                 elt,
                 generators,
-                range,
+                range: _,
                 ..
             }) => {
                 self.compile_generator_expression(elt, generators, expression_span)?;
@@ -9584,7 +9590,7 @@ impl<'warnings> Compiler<'warnings> {
                 target,
                 value,
                 node_index: _,
-                range,
+                range: _,
             }) => {
                 // Walrus targets in inlined comps should NOT be hidden from locals()
                 if self.current_code_info().in_inlined_comp
