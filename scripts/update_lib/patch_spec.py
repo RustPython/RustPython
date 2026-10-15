@@ -11,10 +11,12 @@ from __future__ import annotations
 import ast
 import collections
 import contextlib
+import doctest
 import enum
 import re
 import textwrap
 import typing
+from pathlib import Path
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterator
@@ -547,3 +549,140 @@ def temp_attr(obj: object, attr: str, value: object):
         yield obj
     finally:
         setattr(obj, attr, old)
+
+
+def select_remaining_patches(current, document, relative_path: Path):
+    if not isinstance(document, dict) or (
+        set(document) not in ({"target", "patches"}, {"target", "patches", "doctests"})
+    ):
+        raise ValueError("Expected target and patches metadata")
+    if (
+        relative_path.parts[:2] != ("Lib", "test")
+        or relative_path.suffix != ".py"
+        or document["target"] != relative_path.as_posix()
+    ):
+        raise ValueError("Marker override target does not match the test file")
+    if "doctests" in document and not isinstance(document["doctests"], dict):
+        raise ValueError("Doctests metadata must be an object")
+    try:
+        remaining = patches_from_json(document["patches"])
+    except (TypeError, KeyError, AttributeError, ValueError) as error:
+        raise ValueError("Invalid remaining marker metadata") from error
+    for cls, methods in remaining.items():
+        if cls not in current or any(method not in current[cls] for method in methods):
+            raise ValueError("Marker override cannot add targets")
+    for cls, methods in current.items():
+        for method, existing in methods.items():
+            pending = list(existing)
+            omitted = []
+            for marker in remaining.get(cls, {}).get(method, []):
+                if marker not in pending:
+                    raise ValueError(
+                        "Marker override cannot add, change, or reorder markers"
+                    )
+                index = pending.index(marker)
+                omitted.extend(pending[:index])
+                pending = pending[index + 1 :]
+            omitted.extend(pending)
+            if any(marker.ut_method != UtMethod.ExpectedFailure for marker in omitted):
+                raise ValueError(
+                    "Only unconditional expectedFailure markers may be removed"
+                )
+    return remaining
+
+
+EXPECTED_FAILURE = doctest.register_optionflag("EXPECTED_FAILURE")
+CANONICAL_LOAD_TESTS = """def load_tests(loader, tests, pattern):
+    tests.addTest(doctest.DocTestSuite())
+    return tests"""
+PATCHED_LOAD_TESTS = """def load_tests(loader, tests, pattern):
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
+    return tests"""
+
+
+def _examples(contents):
+    tree = ast.parse(contents)
+    if not tree.body or not isinstance(tree.body[0], ast.Expr):
+        raise ValueError("Missing module doctest")
+    doc = tree.body[0].value
+    if not isinstance(doc, ast.Constant) or not isinstance(doc.value, str):
+        raise ValueError("Missing module doctest")
+    # Raw docstring offsets map directly to source lines, unlike cleaned docs.
+    return tree, doc, doctest.DocTestParser().get_examples(doc.value)
+
+
+def apply_doctest_metadata(old, canonical, metadata):
+    """Preserve only listed guards, without carrying old expected output."""
+    if not isinstance(metadata, dict) or any(
+        not isinstance(source, str)
+        or not isinstance(reason, str)
+        or "\n" in reason
+        or "\r" in reason
+        for source, reason in metadata.items()
+    ):
+        raise ValueError("Doctest metadata must map exact input to single-line reasons")
+    _, _, old_examples = _examples(old)
+    tree, doc, examples = _examples(canonical)
+    lines = canonical.splitlines(keepends=True)
+    for source in metadata:
+        old_matches = [
+            example
+            for example in old_examples
+            if re.sub(r"\s+# TODO: RUSTPYTHON[^\n]*", "", example.source) == source
+        ]
+        if len(old_matches) != 1 or not old_matches[0].options.get(EXPECTED_FAILURE):
+            raise ValueError("Missing or ambiguous existing doctest guard")
+        matches = [example for example in examples if example.source == source]
+        if len(matches) != 1 or matches[0].options:
+            raise ValueError("Missing, ambiguous, or already marked canonical doctest")
+        index = doc.lineno - 1 + matches[0].lineno
+        line = lines[index]
+        if (
+            ">>>" not in line
+            or line.split(">>>", 1)[1].strip() != source.splitlines()[0]
+        ):
+            raise ValueError("Unrecognized canonical doctest prompt")
+        lines[index] = (
+            line.rstrip("\n")
+            + "  # TODO: RUSTPYTHON; "
+            + metadata[source]
+            + " # doctest: +EXPECTED_FAILURE\n"
+        )
+
+    if not metadata:
+        return canonical
+
+    loaders = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "load_tests"
+    ]
+    if len(loaders) != 1 or loaders[0] not in tree.body:
+        raise ValueError("Missing or ambiguous doctest loader")
+    if ast.get_source_segment(canonical, loaders[0]) != CANONICAL_LOAD_TESTS:
+        raise ValueError("Changed canonical doctest loader")
+    result = "".join(lines)
+    if result.count(CANONICAL_LOAD_TESTS) != 1:
+        raise ValueError("Ambiguous canonical doctest loader text")
+    return result.replace(CANONICAL_LOAD_TESTS, PATCHED_LOAD_TESTS, 1)
+
+
+def extract_doctest_guards(contents: str) -> dict[str, str]:
+    """Extract guarded module-docstring inputs without executing examples."""
+    tree = ast.parse(contents)
+    if not tree.body or not isinstance(tree.body[0], ast.Expr):
+        return {}
+    doc = tree.body[0].value
+    if not isinstance(doc, ast.Constant) or not isinstance(doc.value, str):
+        return {}
+    guards = {}
+    for example in doctest.DocTestParser().get_examples(doc.value):
+        if not example.options.get(EXPECTED_FAILURE):
+            continue
+        source = re.sub(r"\s+# TODO: RUSTPYTHON[^\n]*", "", example.source)
+        if source in guards:
+            raise ValueError("Ambiguous existing doctest guard")
+        guards[source] = example.source
+    return guards

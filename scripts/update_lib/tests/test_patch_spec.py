@@ -4,11 +4,15 @@ import ast
 import unittest
 
 from update_lib.patch_spec import (
+    CANONICAL_LOAD_TESTS,
     COMMENT,
+    PATCHED_LOAD_TESTS,
     PatchSpec,
     UtMethod,
     _find_import_insert_line,
+    apply_doctest_metadata,
     apply_patches,
+    extract_doctest_guards,
     extract_patches,
     iter_tests,
 )
@@ -643,6 +647,91 @@ class Foo:
         tree = ast.parse(code)
         line = _find_import_insert_line(tree)
         self.assertEqual(line, 0)
+
+
+DOCTEST_SOURCE = "raise X, Y\n"
+DOCTEST_METADATA = {DOCTEST_SOURCE: "known mismatch"}
+DOCTEST_OLD = (
+    '''"""
+>>> raise X, Y  # TODO: RUSTPYTHON; old reason # doctest: +EXPECTED_FAILURE
+Traceback (most recent call last):
+SyntaxError: old message
+"""
+'''
+    + PATCHED_LOAD_TESTS
+    + "\n"
+)
+DOCTEST_CANONICAL = (
+    '''"""
+>>> raise X, Y
+Traceback (most recent call last):
+SyntaxError: final message
+"""
+'''
+    + CANONICAL_LOAD_TESTS
+    + "\n"
+)
+
+
+class ExactDoctestTests(unittest.TestCase):
+    def test_extracts_only_existing_guards(self):
+        self.assertEqual(set(extract_doctest_guards(DOCTEST_OLD)), {DOCTEST_SOURCE})
+        self.assertEqual(extract_doctest_guards(DOCTEST_CANONICAL), {})
+        self.assertEqual(extract_doctest_guards("value = 1\n"), {})
+
+    def test_duplicate_existing_guards_are_rejected(self):
+        duplicate = DOCTEST_OLD.replace(
+            ">>> raise X, Y  # TODO:",
+            ">>> raise X, Y  # TODO: RUSTPYTHON; duplicate # doctest: +EXPECTED_FAILURE\n"
+            ">>> raise X, Y  # TODO:",
+        )
+        with self.assertRaises(ValueError):
+            extract_doctest_guards(duplicate)
+
+    def test_preserves_final_output_and_roundtrips(self):
+        result = apply_doctest_metadata(
+            DOCTEST_OLD, DOCTEST_CANONICAL, DOCTEST_METADATA
+        )
+        self.assertIn("SyntaxError: final message", result)
+        self.assertNotIn("old message", result)
+        self.assertEqual(result.count("doctest: +EXPECTED_FAILURE"), 1)
+        self.assertIn(PATCHED_LOAD_TESTS, result)
+        self.assertEqual(
+            apply_doctest_metadata(result, DOCTEST_CANONICAL, DOCTEST_METADATA), result
+        )
+
+    def test_duplicate_input_is_rejected(self):
+        duplicate = DOCTEST_CANONICAL.replace(
+            ">>> raise X, Y\n", ">>> raise X, Y\n>>> raise X, Y\n"
+        )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(DOCTEST_OLD, duplicate, DOCTEST_METADATA)
+
+    def test_missing_canonical_or_old_case_is_rejected(self):
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD,
+                DOCTEST_CANONICAL.replace("raise X, Y", "raise X"),
+                DOCTEST_METADATA,
+            )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD.replace("raise X, Y", "raise X"),
+                DOCTEST_CANONICAL,
+                DOCTEST_METADATA,
+            )
+
+    def test_changed_loader_and_unmarked_old_case_are_rejected(self):
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD,
+                DOCTEST_CANONICAL.replace("DocTestSuite()", "DocTestSuite(None)"),
+                DOCTEST_METADATA,
+            )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_CANONICAL, DOCTEST_CANONICAL, DOCTEST_METADATA
+            )
 
 
 if __name__ == "__main__":

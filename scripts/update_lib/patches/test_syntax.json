@@ -1,8 +1,0 @@
-{
-  "match x:\n    y = 3\n": "Existing diagnostic mismatch against CPython 3.15.0",
-  "raise X, Y\n": "Existing diagnostic mismatch against CPython 3.15.0",
-  "raise X, Y, Z\n": "Existing diagnostic mismatch against CPython 3.15.0",
-  "A[*(1:2)]\n": "Existing diagnostic mismatch against CPython 3.15.0",
-  "A[*(1:2)] = 1\n": "Existing diagnostic mismatch against CPython 3.15.0",
-  "del A[*(1:2)]\n": "Existing diagnostic mismatch against CPython 3.15.0"
-}
