@@ -1105,21 +1105,45 @@ mod _sqlite3 {
                 ..
             } = args;
 
-            zelf.statement_cache.lock().capacity = cached_statements.max(0) as usize;
+            loop {
+                let mut current = zelf.db.lock();
+                if current.is_none() {
+                    let previous = unsafe { zelf.isolation_level.swap(isolation_level.0.clone()) };
+                    if previous.as_ref().is_some_and(|previous| {
+                        !isolation_level
+                            .0
+                            .as_ref()
+                            .is_some_and(|requested| previous.is(requested))
+                    }) {
+                        // A str subclass can finalize too. Keep the requested
+                        // value alive, but retire other values before publication.
+                        drop(current);
+                        with_deferred_drops(|| drop(previous));
+                        continue;
+                    }
 
-            zelf.detect_types.store(detect_types, Ordering::Relaxed);
-            zelf.check_same_thread
-                .store(check_same_thread, Ordering::Relaxed);
-            *zelf.autocommit.lock() = autocommit;
-            *zelf.thread_ident.lock() = std::thread::current().id();
-            let _ = unsafe { zelf.isolation_level.swap(isolation_level.0) };
+                    // No destructor-capable owner remains to release here.
+                    // Publish the settings and database under the same lock.
+                    zelf.statement_cache.lock().capacity = cached_statements.max(0) as usize;
+                    zelf.detect_types.store(detect_types, Ordering::Relaxed);
+                    zelf.check_same_thread
+                        .store(check_same_thread, Ordering::Relaxed);
+                    *zelf.autocommit.lock() = autocommit;
+                    *zelf.thread_ident.lock() = std::thread::current().id();
+                    *current = Some(db);
+                    Radium::store(&zelf.initialized, true, Ordering::Release);
+                    return Ok(());
+                }
+                drop(current);
 
-            let previous = zelf.db.lock().replace(db);
-            Radium::store(&zelf.initialized, true, Ordering::Release);
-            // An old callback's finalizer can reenter __init__ during teardown.
-            // Release any database it installed without holding the Rust lock.
-            with_deferred_drops(|| drop(previous));
-            Ok(())
+                // A concurrent initializer or finalizer installed another database.
+                // Finish its teardown outside the lock before trying to publish.
+                with_deferred_drops(|| {
+                    Radium::store(&zelf.initialized, false, Ordering::Release);
+                    zelf.reset_factories(vm);
+                    zelf.drop_db(vm)
+                })?;
+            }
         }
     }
 

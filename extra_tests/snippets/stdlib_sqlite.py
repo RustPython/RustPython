@@ -964,3 +964,54 @@ def blob_close_during_cursor_reset():
 
 
 blob_close_during_cursor_reset()
+
+
+def reinit_during_isolation_cleanup():
+    import threading
+
+    failures = []
+    armed = False
+
+    class Callback:
+        def __call__(self, sql):
+            pass
+
+        def __del__(self):
+            try:
+                connection.close()
+            except Exception as exc:
+                failures.append(exc)
+
+    def replace():
+        try:
+            connection.__init__(":memory:", check_same_thread=False, autocommit=True)
+            connection.set_trace_callback(Callback())
+        except Exception as exc:
+            failures.append(exc)
+
+    class Level(str):
+        def __del__(self):
+            # CPython releases this subclass during argument conversion;
+            # RustPython retains it until the isolation level is replaced.
+            if armed:
+                worker = threading.Thread(target=replace, daemon=True)
+                worker.start()
+                worker.join(5)
+                if worker.is_alive():
+                    failures.append("reentrant initializer blocked")
+
+    connection = sqlite.connect(
+        ":memory:", isolation_level=Level(""), check_same_thread=False
+    )
+    armed = True
+    try:
+        connection.__init__(":memory:", check_same_thread=False, autocommit=False)
+        assert not failures, failures
+        assert connection.execute("SELECT 1").fetchone() == (1,)
+        assert connection.autocommit is False
+        assert connection.in_transaction
+    finally:
+        connection.close()
+
+
+reinit_during_isolation_cleanup()
