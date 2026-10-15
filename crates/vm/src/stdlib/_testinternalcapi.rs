@@ -24,7 +24,9 @@ pub(crate) fn note_func_modification() {
     RARE_FUNC_MODIFICATION.fetch_add(1, Ordering::Relaxed);
 }
 
-#[pymodule]
+pub(crate) mod pytime;
+
+#[pymodule(with(pytime::pytime))]
 mod _testinternalcapi {
     use super::*;
     use crate::{
@@ -484,26 +486,6 @@ mod _testinternalcapi {
             let _ = cfg;
             Err(vm.new_runtime_error("isolated interpreters require threading"))
         }
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimespec")]
-    fn pytime_as_timespec(ns: i64) -> (i64, i64) {
-        let sec = ns.div_euclid(1_000_000_000);
-        let nsec = ns.rem_euclid(1_000_000_000);
-        (sec, nsec)
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
-    fn pytime_as_timespec_clamp(ns: i64) -> (i64, i64) {
-        pytime_as_timespec(ns)
-    }
-
-    #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
-    fn pytime_as_timeval_clamp(ns: i64, _rnd: OptionalArg<i32>) -> (i64, i64) {
-        let us = ns.div_euclid(1000);
-        let sec = us.div_euclid(1_000_000);
-        let usec = us.rem_euclid(1_000_000);
-        (sec, usec)
     }
 
     #[pyfunction]
@@ -1634,7 +1616,7 @@ fn sep_or_end(path: &[char], idx: usize, size: usize) -> bool {
 }
 
 #[cfg(feature = "threading")]
-fn run_string_in_new_subinterp(
+pub(crate) fn run_string_in_new_subinterp(
     source: &str,
     config: crate::vm::InterpreterConfig,
     vm: &VirtualMachine,
