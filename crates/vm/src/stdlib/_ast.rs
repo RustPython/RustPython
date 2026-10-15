@@ -2191,7 +2191,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
-    Ok(func_type.ast_to_object(vm, &AstSourceContext::new(source_file.clone())))
+    Ok(func_type.ast_to_object(vm, &AstSourceContext::new(source_file)))
 }
 
 fn type_ignores_from_source(
@@ -2643,7 +2643,7 @@ pub(crate) fn compile(
     let _ = module;
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast_context = AstSourceContext::new(source_file);
     let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {

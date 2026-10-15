@@ -421,7 +421,7 @@ impl InstructionInfo {
     }
 
     fn instruction_linetable_location(&self) -> LineTableLocation {
-        let location = self.semantic_location.unwrap_or(LineTableLocation {
+        let location = self.semantic_location.unwrap_or_else(|| LineTableLocation {
             line: self.location.line.get() as i32,
             end_line: self.end_location.line.get() as i32,
             col: self.location.character_offset.to_zero_indexed() as i32,

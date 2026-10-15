@@ -71,6 +71,7 @@ impl AstLocations {
         Ok(())
     }
 
+    #[must_use]
     pub fn get(&self, id: u32) -> Option<SourceLocationRange> {
         self.locations.get(&id).copied()
     }

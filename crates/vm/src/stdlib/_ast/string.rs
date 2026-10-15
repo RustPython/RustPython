@@ -652,7 +652,7 @@ impl JoinedStr {
             range,
             value: match values.len() {
                 0 => ast::FStringValue::single(ast::FString {
-                    node_index: node_index.clone(),
+                    node_index,
                     range,
                     elements: vec![].into(),
                     flags: ast::FStringFlags::empty(),
