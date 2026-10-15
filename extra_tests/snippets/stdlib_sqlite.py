@@ -809,3 +809,77 @@ def concurrent_sqlite_transactions():
 script_stops_after_close()
 concurrent_sqlite_results()
 concurrent_sqlite_transactions()
+
+
+def callback_registration_lifetimes():
+    class Callback:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __call__(self, *args):
+            return sqlite.SQLITE_OK
+
+    for method, args in (
+        ("set_trace_callback", ()),
+        ("set_authorizer", ()),
+        ("set_progress_handler", (1,)),
+        ("set_progress_handler", (0,)),
+    ):
+        for action in ("disable", "replace", "close", "reinit"):
+            connection = sqlite.connect(":memory:")
+            cursor = connection.execute("SELECT 1 UNION ALL SELECT 2")
+            register = getattr(connection, method)
+            callback = Callback(connection)
+            reference = weakref.ref(callback)
+            register(callback, *args)
+            del callback
+            assert reference() is not None
+            if action == "disable":
+                register(None, *args)
+            elif action == "replace":
+                register(lambda *args: 0, *args)
+            elif action == "close":
+                connection.close()
+            else:
+                connection.__init__(":memory:")
+            assert reference() is None, (method, args, action)
+            del cursor
+            connection.close()
+
+
+def callback_self_removal_lifetime():
+    for method, args in (
+        ("set_trace_callback", ()),
+        ("set_authorizer", ()),
+        ("set_progress_handler", (1,)),
+    ):
+        connection = sqlite.connect(":memory:")
+        register = getattr(connection, method)
+        events = []
+
+        class Result:
+            def __bool__(self):
+                assert events == ["call"]
+                return False
+
+        class Callback:
+            def __call__(self, *unused):
+                register(None, *args)
+                events.append("call")
+                return Result() if args else sqlite.SQLITE_OK
+
+            def __del__(self):
+                events.append(("drop", connection.execute("SELECT 2").fetchone()))
+
+        register(Callback(), *args)
+        # The callable connection also prepares statements and invokes authorizers.
+        if method == "set_authorizer":
+            connection("SELECT 1")
+        else:
+            connection.execute("SELECT 1").fetchall()
+        assert events == ["call", ("drop", (2,))], (method, events)
+        connection.close()
+
+
+callback_registration_lifetimes()
+callback_self_removal_lifetime()

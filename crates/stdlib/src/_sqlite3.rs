@@ -34,10 +34,10 @@ mod _sqlite3 {
         sqlite3_create_function_v2, sqlite3_create_window_function, sqlite3_data_count,
         sqlite3_db_config, sqlite3_db_handle, sqlite3_db_mutex, sqlite3_errcode, sqlite3_errmsg,
         sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_mutex_enter, sqlite3_mutex_leave, sqlite3_mutex_try,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset,
-        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_free, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
+        sqlite3_libversion, sqlite3_limit, sqlite3_mutex_enter, sqlite3_mutex_leave,
+        sqlite3_mutex_try, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler,
+        sqlite3_reset, sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
         sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
         sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
         sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
@@ -478,6 +478,15 @@ mod _sqlite3 {
             rustpython_vm::vm::thread::with_vm(obj, |vm| f(obj, vm))
         }
 
+        // The SQLite mutex keeps the registration alive until this reference is acquired.
+        unsafe fn registered(data: *mut c_void) -> PyRc<Self> {
+            let data = data.cast::<Self>();
+            unsafe {
+                PyRc::increment_strong_count(data);
+                PyRc::from_raw(data)
+            }
+        }
+
         fn with_context(&self, context: SqliteContext, f: impl Fn(&PyObject, &VirtualMachine)) {
             if self.with_vm(f).is_none() {
                 unsafe {
@@ -653,7 +662,7 @@ mod _sqlite3 {
             db_name: *const libc::c_char,
             access: *const libc::c_char,
         ) -> c_int {
-            let data = unsafe { &*data.cast::<Self>() };
+            let data = unsafe { Self::registered(data) };
             data.with_vm(|callable, vm| {
                 let f = || -> PyResult<c_int> {
                     let arg1 = ptr_to_str_or_none(arg1, vm)?;
@@ -679,11 +688,18 @@ mod _sqlite3 {
             stmt: *mut c_void,
             sql: *mut c_void,
         ) -> c_int {
-            let data = unsafe { &*data.cast::<Self>() };
+            let data = unsafe { Self::registered(data) };
             data.with_vm(|callable, vm| {
-                let expanded = unsafe { sqlite3_expanded_sql(stmt.cast()) };
                 let f = || -> PyResult<()> {
-                    let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                    let stmt = {
+                        let expanded = scopeguard::guard(
+                            unsafe { sqlite3_expanded_sql(stmt.cast()) },
+                            |sql| unsafe { sqlite3_free(sql.cast()) },
+                        );
+                        let text =
+                            ptr_to_str(*expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                        vm.ctx.new_str(text)
+                    };
                     callable.call((stmt,), vm)?;
                     Ok(())
                 };
@@ -694,7 +710,7 @@ mod _sqlite3 {
         }
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
-            let data = unsafe { &*data.cast::<Self>() };
+            let data = unsafe { Self::registered(data) };
             data.with_vm(|callable, vm| {
                 if let Ok(val) = callable.call((), vm)
                     && let Ok(val) = val.is_true(vm)
@@ -787,9 +803,10 @@ mod _sqlite3 {
 
     impl Drop for CallbackData {
         fn drop(&mut self) {
-            unsafe {
-                let _ = PyObjectRef::from_raw(self.obj);
-            };
+            let obj = unsafe { PyObjectRef::from_raw(self.obj) };
+            // The last active callback may outlive its registration. Release the
+            // Python reference after the outer operation's native/Rust locks.
+            try_defer_drop(move || drop(obj));
         }
     }
 
@@ -1036,6 +1053,12 @@ mod _sqlite3 {
         type Args = FuncArgs;
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            with_deferred_drops(|| Self::call_inner(zelf, args, vm))
+        }
+    }
+
+    impl Connection {
+        fn call_inner(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             let _ = zelf.db_lock(vm)?;
 
             let (sql,): (PyUtf8StrRef,) = args.bind(vm)?;
@@ -1158,10 +1181,8 @@ mod _sqlite3 {
             };
             drop(statements);
             let rollback = *self.autocommit.lock() == AutocommitMode::Disabled;
-            if let Some(db) = db
-                && rollback
-            {
-                db.rollback_on_close(vm)?;
+            if let Some(db) = db {
+                db.close_callbacks(rollback, vm)?;
             }
             Ok(())
         }
@@ -1683,22 +1704,7 @@ mod _sqlite3 {
             callable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let db = zelf.db_lock(vm)?;
-            let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_set_authorizer(db.db, None, null_mut()) };
-                return Ok(());
-            };
-
-            let ret = db.call(|| unsafe {
-                sqlite3_set_authorizer(
-                    db.db,
-                    Some(CallbackData::authorizer_callback),
-                    Box::into_raw(Box::new(data)).cast(),
-                )
-            });
-            db.check(ret, vm).map_err(|_| {
-                new_operational_error(vm, "Error setting authorizer callback".to_owned())
-            })
+            zelf.set_callback(callable, CallbackKind::Authorizer, vm)
         }
 
         #[pymethod]
@@ -1707,22 +1713,7 @@ mod _sqlite3 {
             callable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let db = zelf.db_lock(vm)?;
-            let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT, None, null_mut()) };
-                return Ok(());
-            };
-
-            let ret = db.call(|| unsafe {
-                sqlite3_trace_v2(
-                    db.db,
-                    SQLITE_TRACE_STMT,
-                    Some(CallbackData::trace_callback),
-                    Box::into_raw(Box::new(data)).cast(),
-                )
-            });
-
-            db.check(ret, vm)
+            zelf.set_callback(callable, CallbackKind::Trace, vm)
         }
 
         #[pymethod]
@@ -1732,22 +1723,53 @@ mod _sqlite3 {
             n: c_int,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let db = zelf.db_lock(vm)?;
-            let Some(data) = CallbackData::new(callable, vm) else {
-                unsafe { sqlite3_progress_handler(db.db, n, None, null_mut()) };
-                return Ok(());
-            };
+            zelf.set_callback(callable, CallbackKind::Progress(n), vm)
+        }
 
-            unsafe {
-                sqlite3_progress_handler(
-                    db.db,
-                    n,
-                    Some(CallbackData::progress_callback),
-                    Box::into_raw(Box::new(data)).cast(),
-                )
-            };
-
-            Ok(())
+        fn set_callback(
+            &self,
+            callable: PyObjectRef,
+            kind: CallbackKind,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            with_deferred_drops(|| {
+                let db = self.db_lock(vm)?;
+                let mut data = CallbackData::new(callable, vm).map(PyRc::new);
+                let pointer = data
+                    .as_ref()
+                    .map_or(null_mut(), |data| PyRc::as_ptr(data).cast_mut());
+                let (closed, result, previous) = {
+                    let _guard = db.lock();
+                    let mut callbacks = db.callbacks.lock();
+                    if callbacks.closed {
+                        (true, Ok(SQLITE_OK), None)
+                    } else {
+                        let result = db.call(|| kind.register(db.raw, pointer));
+                        let previous = if result.is_ok() {
+                            core::mem::replace(kind.slot(&mut callbacks), data.take())
+                        } else {
+                            None
+                        };
+                        (false, result, previous)
+                    }
+                };
+                // Both the native mutex and the slots mutex must be released
+                // before a displaced callable can run __del__ or weakref callbacks.
+                drop((previous, data));
+                if closed {
+                    return Err(new_programming_error(
+                        vm,
+                        "Cannot operate on a closed database.".to_owned(),
+                    ));
+                }
+                db.check(result, vm).map_err(|error| {
+                    if matches!(kind, CallbackKind::Authorizer) {
+                        new_operational_error(vm, "Error setting authorizer callback".to_owned())
+                    } else {
+                        error
+                    }
+                })
+            })
         }
 
         #[pymethod]
@@ -3371,17 +3393,72 @@ mod _sqlite3 {
     struct Sqlite {
         raw: SqliteRaw,
         pending: PyMutex<SqliteCleanup>,
+        callbacks: PyMutex<CallbackSlots>,
+    }
+
+    #[derive(Default)]
+    struct CallbackSlots {
+        trace: Option<PyRc<CallbackData>>,
+        progress: Option<PyRc<CallbackData>>,
+        authorizer: Option<PyRc<CallbackData>>,
+        closed: bool,
+    }
+
+    #[derive(Clone, Copy)]
+    enum CallbackKind {
+        Trace,
+        Progress(c_int),
+        Authorizer,
+    }
+
+    impl CallbackKind {
+        fn slot(self, slots: &mut CallbackSlots) -> &mut Option<PyRc<CallbackData>> {
+            match self {
+                Self::Trace => &mut slots.trace,
+                Self::Progress(_) => &mut slots.progress,
+                Self::Authorizer => &mut slots.authorizer,
+            }
+        }
+
+        // The caller holds the native mutex and retains data until unregistration.
+        fn register(self, db: SqliteRaw, data: *mut CallbackData) -> c_int {
+            unsafe {
+                match self {
+                    Self::Trace => sqlite3_trace_v2(
+                        db.db,
+                        SQLITE_TRACE_STMT,
+                        (!data.is_null()).then_some(CallbackData::trace_callback),
+                        data.cast(),
+                    ),
+                    Self::Progress(n) => {
+                        sqlite3_progress_handler(
+                            db.db,
+                            n,
+                            (!data.is_null()).then_some(CallbackData::progress_callback),
+                            data.cast(),
+                        );
+                        SQLITE_OK
+                    }
+                    Self::Authorizer => sqlite3_set_authorizer(
+                        db.db,
+                        (!data.is_null()).then_some(CallbackData::authorizer_callback),
+                        data.cast(),
+                    ),
+                }
+            }
+        }
     }
 
     #[derive(Default)]
     struct SqliteCleanup {
         statements: Vec<SqliteStatementRaw>,
         rollback: bool,
+        clear_callbacks: bool,
     }
 
     impl SqliteCleanup {
         fn is_empty(&self) -> bool {
-            self.statements.is_empty() && !self.rollback
+            self.statements.is_empty() && !self.rollback && !self.clear_callbacks
         }
     }
 
@@ -3390,6 +3467,7 @@ mod _sqlite3 {
             Self {
                 raw,
                 pending: PyMutex::new(SqliteCleanup::default()),
+                callbacks: PyMutex::new(CallbackSlots::default()),
             }
         }
     }
@@ -3431,7 +3509,9 @@ mod _sqlite3 {
                     for statement in pending.statements {
                         unsafe { sqlite3_finalize(statement.st) };
                     }
+                    let callbacks = pending.clear_callbacks.then(|| self.clear_callbacks());
                     drop(guard);
+                    drop(callbacks);
                     // An enqueue after this check can acquire the native mutex and
                     // drain itself; one made while it was locked must be retried.
                     if self.pending.lock().is_empty() {
@@ -3441,17 +3521,44 @@ mod _sqlite3 {
             });
         }
 
-        fn rollback_on_close(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn close_callbacks(&self, rollback: bool, vm: &VirtualMachine) -> PyResult<()> {
+            self.callbacks.lock().closed = true;
             if let Some(_guard) = self.raw.try_lock() {
-                if !self.is_autocommit() {
-                    self._exec(c"ROLLBACK", vm)?;
-                }
+                let result = if rollback && !self.is_autocommit() {
+                    self._exec(c"ROLLBACK", vm)
+                } else {
+                    Ok(())
+                };
+                self.pending.lock().clear_callbacks = true;
+                self.flush_cleanup();
+                result
             } else {
-                self.pending.lock().rollback = true;
+                {
+                    let mut pending = self.pending.lock();
+                    pending.rollback |= rollback;
+                    pending.clear_callbacks = true;
+                }
                 // Retry after enqueueing, in case the active call just ended.
                 self.flush_cleanup();
+                Ok(())
             }
-            Ok(())
+        }
+
+        // The native mutex is held. SQLite must stop using the pointers first.
+        fn clear_callbacks(&self) -> [Option<PyRc<CallbackData>>; 3] {
+            for kind in [
+                CallbackKind::Trace,
+                CallbackKind::Progress(0),
+                CallbackKind::Authorizer,
+            ] {
+                kind.register(self.raw, null_mut());
+            }
+            let mut slots = self.callbacks.lock();
+            [
+                slots.trace.take(),
+                slots.progress.take(),
+                slots.authorizer.take(),
+            ]
         }
     }
 
@@ -3523,7 +3630,14 @@ mod _sqlite3 {
             // queued by their destructors before closing the database.
             self.drain_cleanup(true);
             // Use sqlite3_close_v2 for safe closing even with active statements
-            with_deferred_drops(|| unsafe { sqlite3_close_v2(self.raw.db) });
+            with_deferred_drops(|| {
+                let callbacks = {
+                    let _guard = self.raw.lock();
+                    self.clear_callbacks()
+                };
+                drop(callbacks);
+                unsafe { sqlite3_close_v2(self.raw.db) };
+            });
         }
     }
 
