@@ -131,10 +131,23 @@ mod _testcapi {
             "site_import" => vm.ctx.new_bool(settings.import_site).into(),
             "inspect" => vm.ctx.new_bool(settings.inspect).into(),
             "interactive" => vm.ctx.new_bool(settings.interactive).into(),
-            "write_bytecode" => vm.ctx.new_bool(settings.write_bytecode).into(),
+            "write_bytecode" => vm
+                .ctx
+                .new_bool(
+                    !vm.sys_module
+                        .get_attr("dont_write_bytecode", vm)?
+                        .try_to_bool(vm)?,
+                )
+                .into(),
             "warn_default_encoding" => vm.ctx.new_bool(settings.warn_default_encoding).into(),
-            "thread_inherit_context" => vm.ctx.new_bool(settings.thread_inherit_context).into(),
-            "context_aware_warnings" => vm.ctx.new_bool(settings.context_aware_warnings).into(),
+            "thread_inherit_context" => vm
+                .ctx
+                .new_int(i32::from(settings.thread_inherit_context))
+                .into(),
+            "context_aware_warnings" => vm
+                .ctx
+                .new_int(i32::from(settings.context_aware_warnings))
+                .into(),
             "optimization_level" => vm.ctx.new_int(settings.optimize).into(),
             "verbose" => vm.ctx.new_int(settings.verbose).into(),
             "bytes_warning" => vm.ctx.new_int(settings.bytes_warning).into(),

@@ -50,40 +50,12 @@ pub fn enter_scope(
 /// The current API does not keep a stack of scopes.
 pub fn exit_scope() {}
 
-/// Fire a native event using the interpreter's monitoring callbacks.
-/// Exception events consume the raised exception during callbacks and restore it
-/// on success. A callback error replaces it, as for the C exception indicator.
-///
-/// # Safety
-/// `state` must remain valid throughout the call. It is accessed through a raw
-/// pointer so a Python callback may refresh the same state with EnterScope.
-pub unsafe fn fire_event(
-    vm: &VirtualMachine,
-    state: *mut EventState,
-    codelike: &PyObject,
-    offset: i32,
-    event: u8,
-    extra: &[PyObjectRef],
-) -> PyResult<()> {
-    struct NativeState(*mut EventState);
-    impl EventStateAccess for NativeState {
-        fn active(&self) -> u8 {
-            unsafe { (*self.0).active }
-        }
-
-        fn disable(&self, tool: usize) {
-            unsafe { (*self.0).active &= !(1 << tool) };
-        }
-    }
-    fire_event_with_state(vm, &NativeState(state), codelike, offset, event, extra)
-}
-
 pub(crate) trait EventStateAccess {
     fn active(&self) -> u8;
     fn disable(&self, tool: usize);
 }
 
-// The native ABI and thread-safe test fixtures update their actual state after
+// Thread-safe test fixtures update their actual state after
 // each callback, so subsequent callbacks can observe an earlier DISABLE.
 pub(crate) fn fire_event_with_state(
     vm: &VirtualMachine,

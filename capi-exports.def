@@ -2,11 +2,15 @@
 ; CPython v3.15.0: d220409a13b77de7a6c30abe16ea90db01528edc
 ; Misc/stable_abi.toml SHA-256: eab726f2482c71e67a23ea04aaa9c5a11d565bee4472320f813262f273c1e966
 ; Implemented Stable ABI functions/data, including ABI-only names.
-; Non-Stable ABI compatibility export: PyFrame_GetLocals.
 EXPORTS
     PyABIInfo_Check
     PyAIter_Check
     PyBool_FromLong
+    PyBuffer_FromContiguous
+    PyBuffer_GetPointer
+    PyBuffer_IsContiguous
+    PyBuffer_Release
+    PyBuffer_ToContiguous
     PyByteArray_AsString
     PyByteArray_FromObject
     PyByteArray_FromStringAndSize
@@ -20,7 +24,6 @@ EXPORTS
     PyBytes_FromString
     PyBytes_FromStringAndSize
     PyBytes_Size
-    PyCFunction_Call
     PyCFunction_New
     PyCFunction_NewEx
     PyCMethod_New
@@ -193,7 +196,6 @@ EXPORTS
     PyFloat_GetMin
     PyFrame_GetCode
     PyFrame_GetLineNumber
-    PyFrame_GetLocals
     PyFrozenSet_New
     PyGC_Collect
     PyGC_Disable
@@ -358,6 +360,7 @@ EXPORTS
     PyObject_GetAIter
     PyObject_GetAttr
     PyObject_GetAttrString
+    PyObject_GetBuffer
     PyObject_GetItem
     PyObject_GetIter
     PyObject_GetOptionalAttr
