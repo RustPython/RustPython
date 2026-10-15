@@ -642,6 +642,24 @@ impl PyCode {
         }
     }
 
+    /// Compact the linetable if we are opted out of debug ranges, as
+    /// _PyCode_New does.
+    pub(crate) fn remove_column_info(mut self, vm: &VirtualMachine) -> Self {
+        if vm.state.config.settings.code_debug_ranges {
+            return self;
+        }
+        let linetable = bytecode::remove_column_info(&self.code.linetable);
+        let first_line = self.code.first_line_number.map_or(0, |n| n.get() as i32);
+        self.code.locations = rustpython_compiler_core::marshal::linetable_to_locations(
+            &linetable,
+            first_line,
+            self.code.instructions.len(),
+        );
+        self.co_linetable = vm.ctx.new_bytes(linetable.clone());
+        self.code.linetable = linetable.into_boxed_slice();
+        self
+    }
+
     /// The code object `r_object` creates from a TYPE_CODE record. It keeps
     /// the objects read for the object-valued fields.
     pub(crate) fn from_marshal(
@@ -1173,7 +1191,7 @@ impl Constructor for PyCode {
         code.set_names(args.names);
         code.co_linetable = args.linetable;
         code.co_exceptiontable = args.exceptiontable;
-        Ok(code)
+        Ok(code.remove_column_info(vm))
     }
 }
 
@@ -1744,7 +1762,7 @@ impl Py<PyCode> {
         code.set_names(names);
         code.co_linetable = linetable;
         code.co_exceptiontable = exceptiontable;
-        Ok(code)
+        Ok(code.remove_column_info(vm))
     }
 
     #[pymethod]

@@ -3,7 +3,10 @@
 
 use crate::{
     marshal::MarshalError,
-    varint::{read_varint, read_varint_with_start, write_varint_be, write_varint_with_start},
+    varint::{
+        read_varint, read_varint_with_start, write_signed_varint, write_varint_be,
+        write_varint_with_start,
+    },
     {OneIndexed, SourceLocation},
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt, string::String, vec::Vec};
@@ -141,6 +144,66 @@ pub fn decode_exception_table(table: &[u8]) -> Vec<ExceptionTableEntry> {
         });
     }
     entries
+}
+
+/// scan_varint
+fn scan_varint(data: &[u8]) -> u32 {
+    let mut iter = data.iter();
+    let mut read = iter.next().copied().unwrap_or(0);
+    let mut val = u32::from(read & 63);
+    let mut shift = 0;
+    while read & 64 != 0 {
+        read = iter.next().copied().unwrap_or(0);
+        shift += 6;
+        val |= u32::from(read & 63) << shift;
+    }
+    val
+}
+
+/// scan_signed_varint
+fn scan_signed_varint(data: &[u8]) -> i32 {
+    let uval = scan_varint(data);
+    if uval & 1 != 0 {
+        -((uval >> 1) as i32)
+    } else {
+        (uval >> 1) as i32
+    }
+}
+
+/// get_line_delta
+fn get_line_delta(entry: &[u8]) -> i32 {
+    match PyCodeLocationInfoKind::from_code((entry[0] >> 3) & 15) {
+        Some(PyCodeLocationInfoKind::NoColumns | PyCodeLocationInfoKind::Long) => {
+            scan_signed_varint(&entry[1..])
+        }
+        Some(PyCodeLocationInfoKind::OneLine1) => 1,
+        Some(PyCodeLocationInfoKind::OneLine2) => 2,
+        // None, OneLine0 and the short forms stay on the same line.
+        _ => 0,
+    }
+}
+
+/// remove_column_info: rewrite every entry of a linetable that has a
+/// location as a NO_COLUMNS entry with the same length and line delta.
+#[must_use]
+pub fn remove_column_info(locations: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(locations.len());
+    let mut offset = 0;
+    while offset < locations.len() {
+        let header = locations[offset];
+        if (header >> 3) & 15 == PyCodeLocationInfoKind::None as u8 {
+            output.push(header);
+        } else {
+            let blength = (header & 7) + 1;
+            output.push(0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3) | (blength - 1));
+            write_signed_varint(&mut output, get_line_delta(&locations[offset..]));
+        }
+        offset += 1;
+        while offset < locations.len() && locations[offset] & 128 == 0 {
+            offset += 1;
+        }
+    }
+    output
 }
 
 /// Parse linetable to build a boolean mask indicating which code units
