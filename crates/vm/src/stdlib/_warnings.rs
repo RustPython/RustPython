@@ -117,8 +117,8 @@ mod _warnings {
 
         if !cat.fast_issubclass(vm.ctx.exceptions.warning) {
             return Err(vm.new_type_error(format!(
-                "category must be a Warning subclass, not '{}'",
-                cat.class().name()
+                "category must be a Warning subclass, not class '{}'",
+                cat.fully_qualified_name(vm)?
             )));
         }
 

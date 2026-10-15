@@ -627,6 +627,7 @@ pub fn warn_explicit(
         lineno_obj,
         source_line,
         source,
+        module,
         vm,
     )
 }
@@ -641,6 +642,7 @@ fn call_show_warning(
     lineno_obj: PyObjectRef,
     source_line: Option<PyObjectRef>,
     source: Option<PyObjectRef>,
+    module: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
@@ -666,6 +668,7 @@ fn call_show_warning(
             vm.ctx.none(),
             vm.ctx.none(),
             vm.unwrap_or_none(source),
+            vm.unwrap_or_none(module),
         ],
         vm,
     )?;
@@ -769,15 +772,8 @@ fn setup_context(
             f.iframe().code().source_path(),
             f.lineno().max(0) as usize,
         )
-    } else if let Some(frame) = vm.current_frame() {
-        // We have a frame but it wasn't found during stack walking
-        (
-            frame.iframe().globals().to_owned(),
-            vm.ctx.intern_str("<sys>"),
-            1,
-        )
     } else {
-        // No frames on the stack - use sys.__dict__ (interp->sysdict)
+        // An exhausted stack walk uses sys.__dict__ (interp->sysdict).
         let globals = vm
             .sys_module
             .as_object()
