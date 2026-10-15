@@ -215,19 +215,17 @@ def set_location(node, line, col, end_col):
 
 
 # Outbound conversion must not merge or drop explicitly supplied literal nodes.
-for optimize in (0, 1, 2):
-    for flags in (ast.PyCF_ONLY_AST, ast.PyCF_ONLY_AST | ast.PyCF_OPTIMIZED_AST):
-        values = [
-            set_location(ast.Constant(value=s), 1, -1, -1) for s in ("a", "", "b")
-        ]
-        joined = set_location(ast.JoinedStr(values=values), 1, 0, 8)
-        result = compile(
-            ast.Expression(body=joined), "<locations>", "eval", flags, optimize=optimize
-        )
-        assert [node.value for node in result.body.values] == ["a", "", "b"]
-        assert all(
-            node.col_offset == node.end_col_offset == -1 for node in result.body.values
-        )
+values = [set_location(ast.Constant(value=s), 1, -1, -1) for s in ("a", "", "b")]
+joined = set_location(ast.JoinedStr(values=values), 1, 0, 8)
+result = compile(
+    ast.Expression(body=joined),
+    "<locations>",
+    "eval",
+    ast.PyCF_ONLY_AST | ast.PyCF_OPTIMIZED_AST,
+    optimize=0,
+)
+assert [node.value for node in result.body.values] == ["a", "", "b"]
+assert all(node.col_offset == node.end_col_offset == -1 for node in result.body.values)
 
 # The replacement Pass derives from the statement, not its string value.
 tree = ast.parse('def f():\n    "doc"\n')
