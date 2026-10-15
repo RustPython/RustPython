@@ -85,7 +85,7 @@ pub enum CodegenErrorType {
     InvalidFutureBraces,
     RecursionError,
     AstLocation(rustpython_compiler_core::AstLocationError),
-    /// A partial internal AST location map reached a literal merge.
+    /// A partial internal AST location map reached a span operation.
     MixedAstLocationProvenance,
     TooManyStarUnpack,
     TooManyExpressionsInStarUnpackingSequencePattern,
@@ -107,7 +107,7 @@ impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MixedAstLocationProvenance => {
-                write!(f, "mixed AST location provenance in literal merge")
+                write!(f, "mixed AST location provenance")
             }
             Self::AstLocation(error) => match error {
                 rustpython_compiler_core::AstLocationError::ExhaustedNodeIdentities => {

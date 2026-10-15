@@ -4250,7 +4250,7 @@ impl<'warnings> Compiler<'warnings> {
                         self.node_span(expression),
                         self.node_span(expression),
                         attr.as_str(),
-                    ));
+                    )?);
                     emit!(self, Instruction::DeleteAttr { namei });
                 }
                 ast::Expr::Subscript(ast::ExprSubscript {
@@ -8599,7 +8599,7 @@ impl<'warnings> Compiler<'warnings> {
                         self.node_span(target),
                         self.node_span(target),
                         attr.as_str(),
-                    ));
+                    )?);
                     let namei = self.name(attr.as_str());
                     emit!(self, Instruction::StoreAttr { namei });
                 }
@@ -8728,7 +8728,7 @@ impl<'warnings> Compiler<'warnings> {
                 let attr = attr.as_str();
                 self.compile_expression(value)?;
                 let attr_range =
-                    self.update_start_span_to_match_attr(target_span, target_span, attr);
+                    self.update_start_span_to_match_attr(target_span, target_span, attr)?;
                 self.restore_source_span(target_span);
                 emit!(self, Instruction::Copy { i: 1 });
                 let idx = self.name(attr);
@@ -9182,7 +9182,7 @@ impl<'warnings> Compiler<'warnings> {
                         expression_span,
                         expression_span,
                         attr.as_str(),
-                    );
+                    )?;
                     self.restore_source_span(expression_span);
                     let idx = self.name(attr.as_str());
                     match super_type {
@@ -9202,7 +9202,7 @@ impl<'warnings> Compiler<'warnings> {
                         expression_span,
                         expression_span,
                         attr.as_str(),
-                    ));
+                    )?);
                     let idx = self.name(attr.as_str());
                     self.emit_load_attr(idx);
                 }
@@ -9525,7 +9525,7 @@ impl<'warnings> Compiler<'warnings> {
                         compiler.compile_expression(value)?;
 
                         compiler.restore_source_span(
-                            compiler.dict_comprehension_element_span(key, value),
+                            compiler.dict_comprehension_element_span(key, value)?,
                         );
                         emit!(
                             compiler,
@@ -9541,7 +9541,7 @@ impl<'warnings> Compiler<'warnings> {
                         || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
                     expression_span,
-                    self.dict_comprehension_element_span(key, value),
+                    self.dict_comprehension_element_span(key, value)?,
                     self.node_span(key),
                 )?;
             }
@@ -9947,7 +9947,7 @@ impl<'warnings> Compiler<'warnings> {
                     self.node_span(func),
                     self.node_span(func),
                     attr.as_str(),
-                );
+                )?;
                 self.set_source_node(func.range(), func.node_index());
                 let idx = self.name(attr.as_str());
                 match super_type {
@@ -9968,12 +9968,12 @@ impl<'warnings> Compiler<'warnings> {
                         call_range,
                         self.node_span(func),
                         attr.as_str(),
-                    ),
+                    )?,
                     self.update_start_span_to_match_attr(
                         self.node_span(func),
                         self.node_span(func),
                         attr.as_str(),
-                    ),
+                    )?,
                 )?;
             } else {
                 self.compile_expression(value)?;
@@ -9982,7 +9982,7 @@ impl<'warnings> Compiler<'warnings> {
                     self.node_span(func),
                     self.node_span(func),
                     attr.as_str(),
-                );
+                )?;
                 self.restore_source_span(attr_access_range);
                 self.emit_load_attr_method(idx);
                 self.compile_method_call_arguments(
@@ -9991,12 +9991,12 @@ impl<'warnings> Compiler<'warnings> {
                         call_range,
                         self.node_span(func),
                         attr.as_str(),
-                    ),
+                    )?,
                     self.update_start_span_to_match_attr(
                         self.node_span(func),
                         self.node_span(func),
                         attr.as_str(),
-                    ),
+                    )?,
                 )?;
             }
         } else if let Some(kind) =
@@ -10937,10 +10937,10 @@ impl<'warnings> Compiler<'warnings> {
         &self,
         key: &ast::Expr,
         value: &ast::Expr,
-    ) -> CompilerSourceSpan {
+    ) -> CompileResult<CompilerSourceSpan> {
         let key = self.node_span(key);
         let value = self.node_span(value);
-        CompilerSourceSpan {
+        Ok(CompilerSourceSpan {
             range: TextRange::new(key.range.start(), value.range.end().max(key.range.start())),
             // codegen.c: LOCATION(elt->lineno, val->end_lineno,
             //                      elt->col_offset, val->end_col_offset).
@@ -10952,9 +10952,9 @@ impl<'warnings> Compiler<'warnings> {
                     end_col: value.end_col,
                 }),
                 (None, None) => None,
-                _ => unreachable!("explicit AST comprehension must preserve both child locations"),
+                _ => return Err(self.mixed_location_provenance_error()),
             },
-        }
+        })
     }
 
     #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
@@ -12846,12 +12846,21 @@ impl<'warnings> Compiler<'warnings> {
         self.current_source_span = span;
     }
 
+    fn mixed_location_provenance_error(&self) -> CodegenError {
+        CodegenError {
+            error: CodegenErrorType::MixedAstLocationProvenance,
+            location: None,
+            end_location: None,
+            source_path: self.source_file.name().to_owned(),
+        }
+    }
+
     fn update_start_span_to_match_attr(
         &self,
         loc: CompilerSourceSpan,
         attribute: CompilerSourceSpan,
         name: &str,
-    ) -> CompilerSourceSpan {
+    ) -> CompileResult<CompilerSourceSpan> {
         let range = self.update_start_location_to_match_attr(loc.range, attribute.range, name);
         let location = match (loc.location, attribute.location) {
             (Some(mut loc), Some(attribute)) => {
@@ -12875,9 +12884,9 @@ impl<'warnings> Compiler<'warnings> {
             }
             // The parser-only path has no explicit semantic coordinates.
             (None, None) => None,
-            _ => unreachable!("attribute and call must share a location context"),
+            _ => return Err(self.mixed_location_provenance_error()),
         };
-        CompilerSourceSpan { range, location }
+        Ok(CompilerSourceSpan { range, location })
     }
 
     fn update_start_location_to_match_attr(

@@ -2488,7 +2488,7 @@ pub(crate) fn codegen_exception(
             return ast_location_exception(vm, error);
         }
         codegen::error::CodegenErrorType::MixedAstLocationProvenance => {
-            return vm.new_system_error("mixed AST location provenance in literal merge");
+            return vm.new_system_error("mixed AST location provenance");
         }
         _ => {}
     }
