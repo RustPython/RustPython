@@ -798,7 +798,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, self.db.isxidcontinue)
         self.assertRaises(TypeError, self.db.isxidcontinue, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'grapheme_cluster_break'
     def test_grapheme_cluster_break(self):
         gcb = self.db.grapheme_cluster_break
         self.assertEqual(gcb(' '), 'Other')
@@ -896,7 +895,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, gcb, '')
         self.assertRaises(TypeError, gcb, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'indic_conjunct_break'
     def test_indic_conjunct_break(self):
         incb = self.db.indic_conjunct_break
         self.assertEqual(incb(' '), 'None')
@@ -925,7 +923,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, incb, '')
         self.assertRaises(TypeError, incb, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'extended_pictographic'
     def test_extended_pictographic(self):
         ext_pict = self.db.extended_pictographic
         self.assertIs(ext_pict(' '), False)
@@ -946,7 +943,6 @@ class UnicodeFunctionsTest(unittest.TestCase, BaseUnicodeFunctionsTest):
         self.assertRaises(TypeError, ext_pict, '')
         self.assertRaises(TypeError, ext_pict, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_grapheme_break(self):
         def graphemes(*args):
             return list(map(str, self.db.iter_graphemes(*args)))
@@ -1262,7 +1258,6 @@ class UnicodeMiscTest(unittest.TestCase):
                 self.assertEqual(len(lines), 1,
                                  r"%a should not be a linebreak" % c)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_segment_object(self):
         segments = list(unicodedata.iter_graphemes('spa\u0300m'))
         self.assertEqual(len(segments), 4, segments)
@@ -1383,7 +1378,6 @@ class NormalizationTest(unittest.TestCase):
 
 
 class GraphemeBreakTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError module 'unicodedata' has no attribute 'iter_graphemes'
     @requires_resource('network')
     def test_grapheme_break(self):
         TESTDATAFILE = "GraphemeBreakTest.txt"
@@ -1423,7 +1417,6 @@ class GraphemeBreakTest(unittest.TestCase):
                     self.assertEqual([x.start for x in result], breaks[i:-1], comment)
                     self.assertEqual([x.end for x in result], breaks[i+1:], comment)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'unicodedata' has no attribute 'iter_graphemes'
     def test_reference_loops(self):
         # Test that reference loops involving GraphemeBreakIterator or
         # Segment can be broken by the garbage collector.
