@@ -24,6 +24,18 @@ pub(crate) mod module {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
 
+    #[pyfunction]
+    fn get_blocking(fd: crt_fd::Borrowed<'_>, vm: &VirtualMachine) -> PyResult<bool> {
+        vm.allow_threads(|| host_nt::get_blocking(fd))
+            .map_err(|err| err.to_pyexception(vm))
+    }
+
+    #[pyfunction]
+    fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool, vm: &VirtualMachine) -> PyResult<()> {
+        vm.allow_threads(|| host_nt::set_blocking(fd, blocking))
+            .map_err(|err| err.to_pyexception(vm))
+    }
+
     #[pyattr]
     use rustpython_host_env::os::{
         O_BINARY, O_NOINHERIT, O_RANDOM, O_SEQUENTIAL, O_TEMPORARY, O_TEXT,

@@ -698,13 +698,17 @@ impl core::error::Error for CrtErrno {}
 
 /// Build an [`io::Error`] that preserves a raw C runtime `errno`.
 ///
-/// The [`io::ErrorKind`] is derived from the closest Win32 mapping so callers
-/// matching on `kind()` keep working, while the exact `errno` is preserved for
+/// The [`io::ErrorKind`] preserves would-block semantics and otherwise uses the
+/// closest Win32 mapping. The exact `errno` is preserved for
 /// [`ErrorExt::posix_errno`].
 #[cfg(windows)]
 #[must_use]
 pub fn io_error_from_errno(errno: i32) -> io::Error {
-    let kind = io::Error::from_raw_os_error(errno_to_winerror(errno)).kind();
+    let kind = if errno == libc::EAGAIN {
+        io::ErrorKind::WouldBlock
+    } else {
+        io::Error::from_raw_os_error(errno_to_winerror(errno)).kind()
+    };
     io::Error::new(kind, CrtErrno(errno))
 }
 

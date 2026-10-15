@@ -22,6 +22,7 @@ use crate::{
     windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned},
 };
 use libc::intptr_t;
+
 use widestring::WideCString;
 use windows_sys::{
     Win32::{
@@ -74,6 +75,25 @@ pub use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
     FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
+
+pub fn get_blocking(fd: crt_fd::Borrowed<'_>) -> io::Result<bool> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    Ok(mode & windows_sys::Win32::System::Pipes::PIPE_NOWAIT == 0)
+}
+
+pub fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool) -> io::Result<()> {
+    use windows_sys::Win32::System::Pipes::PIPE_NOWAIT;
+
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    let mode = if blocking {
+        mode & !PIPE_NOWAIT
+    } else {
+        mode | PIPE_NOWAIT
+    };
+    crate::winapi::set_named_pipe_handle_state(handle.as_raw_handle(), Some(mode), None, None)
+}
 
 pub type Handle = HANDLE;
 pub const MAX_PATH_USIZE: usize = MAX_PATH as usize;

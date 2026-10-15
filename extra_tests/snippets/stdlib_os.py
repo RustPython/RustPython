@@ -780,3 +780,34 @@ if sys.platform.startswith("linux"):
     assert hasattr(os, "mkfifo")
 if hasattr(os, "mkfifo"):
     mkfifo_paths_and_directory_descriptors()
+
+
+import errno
+
+
+def nonblocking_windows_pipe():
+    reader, writer = os.pipe()
+    try:
+        for fd in (reader, writer):
+            assert os.get_blocking(fd)
+            os.set_blocking(fd, False)
+            assert not os.get_blocking(fd)
+            os.set_blocking(fd, True)
+            assert os.get_blocking(fd)
+            os.set_blocking(fd, False)
+
+        assert os.read(reader, 0) == b""
+        assert os.write(writer, b"") == 0
+        try:
+            os.read(reader, 1)
+        except BlockingIOError as error:
+            assert error.errno == errno.EAGAIN
+        else:
+            raise AssertionError("empty nonblocking pipe did not raise")
+    finally:
+        os.close(reader)
+        os.close(writer)
+
+
+if os.name == "nt":
+    nonblocking_windows_pipe()
