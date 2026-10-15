@@ -4593,6 +4593,7 @@ class TestPythonBufferProtocol(unittest.TestCase):
         with self.assertRaises(OverflowError):
             ba.__buffer__(sys.maxsize + 1)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.testBuf
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_c_buffer(self):
         buf = _testcapi.testBuf()
@@ -4610,12 +4611,14 @@ class TestPythonBufferProtocol(unittest.TestCase):
             buf.__release_buffer__(mv)
         self.assertEqual(buf.references, 0)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.testBuf
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_c_buffer_invalid_flags(self):
         buf = _testcapi.testBuf()
         self.assertRaises(SystemError, buf.__buffer__, PyBUF_READ)
         self.assertRaises(SystemError, buf.__buffer__, PyBUF_WRITE)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.buffer_fill_info
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_c_fill_buffer_invalid_flags(self):
         # PyBuffer_FillInfo
@@ -4625,6 +4628,7 @@ class TestPythonBufferProtocol(unittest.TestCase):
         self.assertRaises(SystemError, _testcapi.buffer_fill_info,
                           source, 0, PyBUF_WRITE)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.buffer_fill_info
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_c_fill_buffer_readonly_and_writable(self):
         source = b"abc"

@@ -1007,6 +1007,7 @@ class ExternalEntityParserCreateErrorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.testcapi = import_helper.import_module('_testcapi')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.set_nomemory
     @unittest.skipIf(support.Py_TRACE_REFS,
                      'Py_TRACE_REFS conflicts with testcapi.set_nomemory')
     def test_error_path_no_crash(self):
@@ -1293,6 +1294,10 @@ class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_activation_threshold__invalid_threshold_type(self):
         return super().test_set_activation_threshold__invalid_threshold_type()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionActivationThreshold'
+    def test_set_activation_threshold__invalid_threshold_range(self):
+        return super().test_set_activation_threshold__invalid_threshold_range()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
     def test_set_maximum_amplification__fail_for_subparser(self):

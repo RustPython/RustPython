@@ -306,16 +306,19 @@ class TestCallingConventions(unittest.TestCase):
     def test_o_ext(self):
         self.assertEqual(self.obj.meth_o(*[1]), (self.expected_self, 1))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_o_error_no_arg(self):
         msg = r"meth_o\(\) takes exactly one argument \(0 given\)"
         self.assertRaisesRegex(TypeError, msg, self.obj.meth_o)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_o_error_two_args(self):
         msg = r"meth_o\(\) takes exactly one argument \(2 given\)"
         self.assertRaisesRegex(
             TypeError, msg, lambda: self.obj.meth_o(1, 2),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_o_error_ext(self):
         msg = r"meth_o\(\) takes exactly one argument \(3 given\)"
         self.assertRaisesRegex(
@@ -340,18 +343,21 @@ class TestCallingConventions(unittest.TestCase):
     def test_noargs_ext(self):
         self.assertEqual(self.obj.meth_noargs(*[]), self.expected_self)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_noargs_error_arg(self):
         msg = r"meth_noargs\(\) takes no arguments \(1 given\)"
         self.assertRaisesRegex(
             TypeError, msg, lambda: self.obj.meth_noargs(1),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_noargs_error_arg2(self):
         msg = r"meth_noargs\(\) takes no arguments \(2 given\)"
         self.assertRaisesRegex(
             TypeError, msg, lambda: self.obj.meth_noargs(1, 2),
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; built-in argument count error message differs
     def test_noargs_error_ext(self):
         msg = r"meth_noargs\(\) takes no arguments \(3 given\)"
         self.assertRaisesRegex(
@@ -541,6 +547,7 @@ class FastCallTests(unittest.TestCase):
                 expected = (*expected[:-1], result[-1])
         self.assertEqual(result, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.pyobject_fastcalldict
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_vectorcall_dict(self):
         # Test PyObject_VectorcallDict()
@@ -561,6 +568,7 @@ class FastCallTests(unittest.TestCase):
                 result = _testcapi.pyobject_fastcalldict(func, args, kwargs)
                 self.check_result(result, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.pyobject_vectorcall
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_vectorcall(self):
         # Test PyObject_Vectorcall()
@@ -626,6 +634,7 @@ def testfunction_kw(self, *, kw):
 @unittest.skipIf(_testcapi is None, "requires _testcapi")
 class TestPEP590(unittest.TestCase):
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrapper_descriptor lacks Py_TPFLAGS_METHOD_DESCRIPTOR
     def test_method_descriptor_flag(self):
         import functools
         cached = functools.lru_cache(1)(testfunction)
@@ -645,6 +654,7 @@ class TestPEP590(unittest.TestCase):
             pass
         self.assertFalse(MethodDescriptorHeap.__flags__ & Py_TPFLAGS_METHOD_DESCRIPTOR)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.MethodDescriptorBase
     def test_vectorcall_flag(self):
         self.assertTrue(_testcapi.MethodDescriptorBase.__flags__ & Py_TPFLAGS_HAVE_VECTORCALL)
         self.assertTrue(_testcapi.MethodDescriptorDerived.__flags__ & Py_TPFLAGS_HAVE_VECTORCALL)
@@ -666,6 +676,7 @@ class TestPEP590(unittest.TestCase):
                 pass
         self.assertFalse(MethodDescriptorHeap.__flags__ & Py_TPFLAGS_HAVE_VECTORCALL)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.MethodDescriptorNopGet
     def test_vectorcall_override(self):
         # Check that tp_call can correctly override vectorcall.
         # MethodDescriptorNopGet implements tp_call but it inherits from
@@ -676,6 +687,7 @@ class TestPEP590(unittest.TestCase):
         f = _testcapi.MethodDescriptorNopGet()
         self.assertIs(f(*args), args)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.make_vectorcall_class
     def test_vectorcall_override_on_mutable_class(self):
         """Setting __call__ should disable vectorcall"""
         TestType = _testcapi.make_vectorcall_class()
@@ -686,6 +698,7 @@ class TestPEP590(unittest.TestCase):
         TestType.__call__ = lambda self: "custom"
         self.assertEqual(instance(), "custom")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.make_vectorcall_class
     def test_vectorcall_override_with_subclass(self):
         """Setting __call__ on a superclass should disable vectorcall"""
         SuperType = _testcapi.make_vectorcall_class()
@@ -728,6 +741,7 @@ class TestPEP590(unittest.TestCase):
         self.assertEqual(_testcapi.has_vectorcall_flag(UnaffectedType2), True)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.MethodDescriptorBase
     def test_vectorcall(self):
         # Test a bunch of different ways to call objects:
         # 1. vectorcall using PyVectorcall_Call()
@@ -804,6 +818,7 @@ class TestPEP590(unittest.TestCase):
                 self.assertEqual(expected, meth(*args1, **kwargs))
                 self.assertEqual(expected, wrapped(*args, **kwargs))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.function_setvectorcall
     def test_setvectorcall(self):
         from _testcapi import function_setvectorcall
         _testinternalcapi = import_helper.import_module("_testinternalcapi")
@@ -815,6 +830,7 @@ class TestPEP590(unittest.TestCase):
         for _ in range(_testinternalcapi.SPECIALIZATION_THRESHOLD):
             assert_equal("overridden", f(num))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.function_setvectorcall
     def test_setvectorcall_load_attr_specialization_skip(self):
         from _testcapi import function_setvectorcall
         _testinternalcapi = import_helper.import_module("_testinternalcapi")
@@ -832,6 +848,7 @@ class TestPEP590(unittest.TestCase):
         for _ in range(_testinternalcapi.SPECIALIZATION_THRESHOLD):
             assert_equal("overridden", x.a)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.function_setvectorcall
     def test_setvectorcall_load_attr_specialization_deopt(self):
         from _testcapi import function_setvectorcall
         _testinternalcapi = import_helper.import_module("_testinternalcapi")
@@ -1117,6 +1134,7 @@ class TestFunctionWithManyArgs(unittest.TestCase):
 
 @unittest.skipIf(_testcapi is None, 'need _testcapi')
 class TestCAPI(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.pycfunction_call
     def test_cfunction_call(self):
         def func(*args, **kwargs):
             return (args, kwargs)
