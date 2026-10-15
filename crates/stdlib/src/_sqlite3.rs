@@ -15,7 +15,7 @@ mod _sqlite3 {
     use core::{
         ffi::{CStr, c_int, c_longlong, c_uint, c_void},
         fmt::Debug,
-        ops::Deref,
+        ops::{Deref, DerefMut},
         ptr::{NonNull, null, null_mut},
     };
     use libsqlite3_sys::{
@@ -1075,43 +1075,51 @@ mod _sqlite3 {
         type Args = ConnectArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            with_deferred_drops(|| {
-                let was_initialized = Radium::swap(&zelf.initialized, false, Ordering::AcqRel);
+            loop {
+                with_deferred_drops(|| {
+                    Radium::store(&zelf.initialized, false, Ordering::Release);
 
-                // Reset factories to their defaults, matching CPython's behavior.
-                zelf.reset_factories(vm);
-
-                if was_initialized {
-                    zelf.drop_db(vm)?;
+                    // Reset factories to their defaults, matching CPython's behavior.
+                    zelf.reset_factories(vm);
+                    zelf.drop_db(vm)
+                })?;
+                // A finalizer may itself reinitialize the connection. Dispose of
+                // that database too before publishing the requested replacement.
+                if zelf.db.lock().is_none() {
+                    break;
                 }
+            }
 
-                // Attempt to open the new database before mutating other state so failures leave
-                // the connection uninitialized (and subsequent operations raise ProgrammingError).
-                let db = Self::initialize_db(&args, vm)?;
+            // Dispose of the old callbacks before publishing the replacement.
+            // Nested native calls still defer their drops to the outer operation.
+            // Attempt to open the new database before mutating other state so failures leave
+            // the connection uninitialized (and subsequent operations raise ProgrammingError).
+            let db = Self::initialize_db(&args, vm)?;
 
-                let ConnectArgs {
-                    detect_types,
-                    isolation_level,
-                    check_same_thread,
-                    autocommit,
-                    cached_statements,
-                    ..
-                } = args;
+            let ConnectArgs {
+                detect_types,
+                isolation_level,
+                check_same_thread,
+                autocommit,
+                cached_statements,
+                ..
+            } = args;
 
-                zelf.statement_cache.lock().capacity = cached_statements.max(0) as usize;
+            zelf.statement_cache.lock().capacity = cached_statements.max(0) as usize;
 
-                zelf.detect_types.store(detect_types, Ordering::Relaxed);
-                zelf.check_same_thread
-                    .store(check_same_thread, Ordering::Relaxed);
-                *zelf.autocommit.lock() = autocommit;
-                *zelf.thread_ident.lock() = std::thread::current().id();
-                let _ = unsafe { zelf.isolation_level.swap(isolation_level.0) };
+            zelf.detect_types.store(detect_types, Ordering::Relaxed);
+            zelf.check_same_thread
+                .store(check_same_thread, Ordering::Relaxed);
+            *zelf.autocommit.lock() = autocommit;
+            *zelf.thread_ident.lock() = std::thread::current().id();
+            let _ = unsafe { zelf.isolation_level.swap(isolation_level.0) };
 
-                let mut guard = zelf.db.lock();
-                *guard = Some(db);
-                Radium::store(&zelf.initialized, true, Ordering::Release);
-                Ok(())
-            })
+            let previous = zelf.db.lock().replace(db);
+            Radium::store(&zelf.initialized, true, Ordering::Release);
+            // An old callback's finalizer can reenter __init__ during teardown.
+            // Release any database it installed without holding the Rust lock.
+            with_deferred_drops(|| drop(previous));
+            Ok(())
         }
     }
 
@@ -1301,12 +1309,14 @@ mod _sqlite3 {
                 )
             });
             db.check(ret, vm)?;
-            drop(db);
-
             let blob = SqliteBlob { blob };
             let blob = Blob {
                 connection: zelf,
-                inner: PyMutex::new(Some(BlobInner { blob, offset: 0 })),
+                inner: PyMutex::new(Some(BlobInner {
+                    blob,
+                    offset: 0,
+                    db: db.0.clone(),
+                })),
             };
             Ok(blob.into_ref(&vm.ctx))
         }
@@ -2837,15 +2847,144 @@ mod _sqlite3 {
         inner: PyMutex<Option<BlobInner>>,
     }
 
-    #[derive(Debug)]
     struct BlobInner {
         blob: SqliteBlob,
         offset: c_int,
+        db: PyRc<Sqlite>,
+    }
+
+    impl Debug for BlobInner {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("BlobInner")
+                .field("blob", &self.blob)
+                .field("offset", &self.offset)
+                .finish_non_exhaustive()
+        }
+    }
+
+    impl BlobInner {
+        fn check(&self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
+            if ret == SQLITE_OK {
+                Ok(())
+            } else {
+                Err(self.db.error_extended(vm))
+            }
+        }
     }
 
     impl Drop for BlobInner {
         fn drop(&mut self) {
-            with_deferred_drops(|| unsafe { sqlite3_blob_close(self.blob.blob) });
+            self.db.pending.lock().blobs.push(self.blob);
+            self.db.flush_cleanup();
+        }
+    }
+
+    struct BlobGuard<'a> {
+        inner: Option<PyMappedMutexGuard<'a, BlobInner>>,
+        _db: SqliteOperation,
+    }
+
+    impl<'a> BlobGuard<'a> {
+        fn new(inner: PyMappedMutexGuard<'a, BlobInner>) -> Self {
+            let db = SqliteOperation(inner.db.clone());
+            Self {
+                inner: Some(inner),
+                _db: db,
+            }
+        }
+    }
+
+    impl Deref for BlobGuard<'_> {
+        type Target = BlobInner;
+
+        fn deref(&self) -> &Self::Target {
+            self.inner.as_deref().unwrap()
+        }
+    }
+
+    impl DerefMut for BlobGuard<'_> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.inner.as_deref_mut().unwrap()
+        }
+    }
+
+    impl Drop for BlobGuard<'_> {
+        fn drop(&mut self) {
+            // The operation drains pending cleanup after releasing the blob lock.
+            self.inner.take();
+        }
+    }
+
+    #[cfg(test)]
+    #[cfg(feature = "threading")]
+    mod tests {
+        use super::*;
+        use core::time::Duration;
+        use std::sync::mpsc;
+
+        #[test]
+        fn blob_operation_drains_contended_cleanup() {
+            let mut raw = null_mut();
+            assert_eq!(
+                unsafe {
+                    sqlite3_open_v2(
+                        c":memory:".as_ptr(),
+                        &mut raw,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+                        null(),
+                    )
+                },
+                SQLITE_OK
+            );
+            let db = PyRc::new(Sqlite::from(SqliteRaw { db: raw }));
+            assert!(
+                db.exec(c"CREATE TABLE t(b); INSERT INTO t VALUES (zeroblob(1))")
+                    .is_ok()
+            );
+            let open_blob = || {
+                let mut blob = null_mut();
+                assert_eq!(
+                    unsafe {
+                        sqlite3_blob_open(
+                            db.db,
+                            c"main".as_ptr(),
+                            c"t".as_ptr(),
+                            c"b".as_ptr(),
+                            1,
+                            0,
+                            &mut blob,
+                        )
+                    },
+                    SQLITE_OK
+                );
+                BlobInner {
+                    blob: SqliteBlob { blob },
+                    offset: 0,
+                    db: db.clone(),
+                }
+            };
+            let inner = PyMutex::new(Some(open_blob()));
+            let retired = open_blob();
+            let guard = BlobGuard::new(PyMutexGuard::map(inner.lock(), |x| x.as_mut().unwrap()));
+            let (locked_tx, locked_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            let other = db.clone();
+            let worker = std::thread::spawn(move || {
+                let _lock = other.raw.lock();
+                locked_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            });
+            locked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            // Reproduce close() losing both nonblocking cleanup attempts.
+            db.pending.lock().clear_callbacks = true;
+            db.flush_cleanup();
+            drop(retired);
+            assert_eq!(db.pending.lock().blobs.len(), 1);
+            release_tx.send(()).unwrap();
+            worker.join().unwrap();
+            assert!(db.pending.lock().clear_callbacks);
+            drop(guard);
+            assert!(db.pending.lock().is_empty());
         }
     }
 
@@ -2854,7 +2993,8 @@ mod _sqlite3 {
         #[pymethod]
         fn close(zelf: &Py<Self>) {
             with_deferred_drops(|| {
-                zelf.inner.lock().take();
+                let inner = zelf.inner.lock().take();
+                drop(inner);
             });
         }
 
@@ -2893,7 +3033,7 @@ mod _sqlite3 {
                 let ret = inner
                     .blob
                     .read(buf.as_mut_ptr().cast(), length, inner.offset);
-                zelf.check(ret, vm)?;
+                inner.check(ret, vm)?;
                 unsafe { buf.set_len(length as usize) };
                 inner.offset += length;
                 Ok(vm.ctx.new_bytes(buf))
@@ -2911,7 +3051,7 @@ mod _sqlite3 {
                 inner.blob.write(buf.as_ptr().cast(), length, inner.offset)
             });
 
-            zelf.check(ret, vm)?;
+            inner.check(ret, vm)?;
             inner.offset += length;
             Ok(())
         }
@@ -2972,12 +3112,12 @@ mod _sqlite3 {
             Ok(())
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, BlobInner>> {
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<BlobGuard<'_>> {
             let guard = self.inner.lock();
             if guard.is_some() {
-                Ok(PyMutexGuard::map(guard, |x| unsafe {
-                    x.as_mut().unwrap_unchecked()
-                }))
+                Ok(BlobGuard::new(PyMutexGuard::map(guard, |x| {
+                    x.as_mut().unwrap()
+                })))
             } else {
                 Err(new_programming_error(
                     vm,
@@ -3040,7 +3180,7 @@ mod _sqlite3 {
                 let index = Self::wrapped_index(index?, needle, blob_len, vm)?;
                 let mut byte: u8 = 0;
                 let ret = inner.blob.read_single(&mut byte, index);
-                self.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
+                inner.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 let blob_len = inner.blob.bytes();
                 let slice = slice.to_saturated(vm)?;
@@ -3053,14 +3193,14 @@ mod _sqlite3 {
                         length as c_int,
                         range.start as c_int,
                     );
-                    self.check(ret, vm)?;
+                    inner.check(ret, vm)?;
                     unsafe { buf.set_len(length) };
                 } else {
                     let iter = SaturatedSliceIter::from_adjust_indices(range, step, length);
                     let mut byte: u8 = 0;
                     for index in iter {
                         let ret = inner.blob.read_single(&mut byte, index as c_int);
-                        self.check(ret, vm)?;
+                        inner.check(ret, vm)?;
                         buf.push(byte);
                     }
                 }
@@ -3108,7 +3248,7 @@ mod _sqlite3 {
                     return Err(vm.new_value_error("byte must be in range(0, 256)"));
                 }
                 let ret = inner.blob.write_single(val as u8, index);
-                self.check(ret, vm)
+                inner.check(ret, vm)
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 // Handle slice assignment: blob[a:b:c] = b"..."
                 let Some(value) = value else {
@@ -3142,7 +3282,7 @@ mod _sqlite3 {
                         buf.len() as c_int,
                         range.start as c_int,
                     );
-                    self.check(ret, vm)
+                    inner.check(ret, vm)
                 } else {
                     let span_len = range.end - range.start;
                     let range_start = range.start;
@@ -3153,7 +3293,7 @@ mod _sqlite3 {
                         span_len as c_int,
                         range_start as c_int,
                     );
-                    self.check(ret, vm)?;
+                    inner.check(ret, vm)?;
 
                     let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
                     for (i_in_src, abs_idx) in iter.enumerate() {
@@ -3165,18 +3305,10 @@ mod _sqlite3 {
                         span_len as c_int,
                         range_start as c_int,
                     );
-                    self.check(ret, vm)
+                    inner.check(ret, vm)
                 }
             } else {
                 Err(vm.new_type_error("Blob indices must be integers"))
-            }
-        }
-
-        fn check(&self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
-            if ret == SQLITE_OK {
-                Ok(())
-            } else {
-                Err(self.connection.db_lock(vm)?.error_extended(vm))
             }
         }
     }
@@ -3452,13 +3584,17 @@ mod _sqlite3 {
     #[derive(Default)]
     struct SqliteCleanup {
         statements: Vec<SqliteStatementRaw>,
+        blobs: Vec<SqliteBlob>,
         rollback: bool,
         clear_callbacks: bool,
     }
 
     impl SqliteCleanup {
         fn is_empty(&self) -> bool {
-            self.statements.is_empty() && !self.rollback && !self.clear_callbacks
+            self.statements.is_empty()
+                && self.blobs.is_empty()
+                && !self.rollback
+                && !self.clear_callbacks
         }
     }
 
@@ -3508,6 +3644,9 @@ mod _sqlite3 {
                     }
                     for statement in pending.statements {
                         unsafe { sqlite3_finalize(statement.st) };
+                    }
+                    for blob in pending.blobs {
+                        unsafe { sqlite3_blob_close(blob.blob) };
                     }
                     let callbacks = pending.clear_callbacks.then(|| self.clear_callbacks());
                     drop(guard);

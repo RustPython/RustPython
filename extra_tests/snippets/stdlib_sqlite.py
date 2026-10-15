@@ -819,13 +819,25 @@ def callback_registration_lifetimes():
         def __call__(self, *args):
             return sqlite.SQLITE_OK
 
+        def __del__(self):
+            if action in ("reinit", "reentrant_reinit"):
+                events.append("drop")
+                try:
+                    self.connection.close()
+                except sqlite.ProgrammingError:
+                    pass
+                if action == "reentrant_reinit" and len(events) == 1:
+                    self.connection.__init__(":memory:")
+                    register(Callback(self.connection), *args)
+
     for method, args in (
         ("set_trace_callback", ()),
         ("set_authorizer", ()),
         ("set_progress_handler", (1,)),
         ("set_progress_handler", (0,)),
     ):
-        for action in ("disable", "replace", "close", "reinit"):
+        for action in ("disable", "replace", "close", "reinit", "reentrant_reinit"):
+            events = []
             connection = sqlite.connect(":memory:")
             cursor = connection.execute("SELECT 1 UNION ALL SELECT 2")
             register = getattr(connection, method)
@@ -842,6 +854,8 @@ def callback_registration_lifetimes():
                 connection.close()
             else:
                 connection.__init__(":memory:")
+                assert events == ["drop"] * (2 if action == "reentrant_reinit" else 1)
+                assert connection.execute("SELECT 1").fetchone() == (1,)
             assert reference() is None, (method, args, action)
             del cursor
             connection.close()
