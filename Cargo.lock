@@ -2324,7 +2324,7 @@ dependencies = [
 [[package]]
 name = "libzstd-rs-sys"
 version = "0.0.1-prerelease.2"
-source = "git+https://github.com/trifectatechfoundation/libzstd-rs-sys?rev=7afaf79f14f4a5ba4722f66d83791d30ebc47e65#7afaf79f14f4a5ba4722f66d83791d30ebc47e65"
+source = "git+https://github.com/youknowone/libzstd-rs-sys?rev=a3e65793c11012ad6ae09c5d9b5dd892d2952c01#a3e65793c11012ad6ae09c5d9b5dd892d2952c01"
 dependencies = [
  "cc",
  "libc",
@@ -4674,7 +4674,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.52.0",

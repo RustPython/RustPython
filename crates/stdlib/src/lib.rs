@@ -28,7 +28,6 @@ mod lzma;
 
 mod zlib;
 
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 mod zstd;
 
 mod blake2;
@@ -328,7 +327,6 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         ))]
         uuid::module_def(ctx),
         zlib::module_def(ctx),
-        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         zstd::module_def(ctx),
     ]
 }
