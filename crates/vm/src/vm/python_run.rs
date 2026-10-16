@@ -468,7 +468,7 @@ impl VirtualMachine {
                 let result = crate::readline::stdio_readline_bytes(prompt, &mut line);
                 prompt = "";
                 match result {
-                    Ok(0) => {
+                    Ok(0) if line.is_empty() => {
                         eprintln!();
                         return Ok(None);
                     }
