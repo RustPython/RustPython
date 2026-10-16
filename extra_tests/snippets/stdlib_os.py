@@ -122,10 +122,24 @@ subprocess.run(
         """
 import errno
 import os
+import sys
+
+known_reference_bug = (
+    sys.implementation.name == "cpython"
+    and sys.platform == "linux"
+    and sys.version_info == (3, 15, 0, "final", 0)
+)
+if known_reference_bug:
+    import sysconfig
+    known_reference_bug = bool(sysconfig.get_config_var("HAVE_CLOSE_RANGE"))
 
 sentinel = os.open(os.devnull, os.O_RDONLY)
 for low, high in ((0, 0), (-1, 0), (sentinel, sentinel),
                   (sentinel + 1, sentinel), (-2, -1)):
+    # TODO: remove once the reference includes python/cpython#159183.
+    # https://github.com/python/cpython/issues/159182
+    if known_reference_bug and (low, high) in ((0, 0), (-1, 0), (-2, -1)):
+        continue
     os.closerange(low, high)
     os.fstat(sentinel)
 
