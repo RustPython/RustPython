@@ -185,10 +185,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            writeln!(output, "Traceback (most recent call last):")?;
-            for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
-            }
+            write_traceback(output, &tb)?;
         }
 
         let varargs = exc.args();
@@ -445,6 +442,17 @@ fn print_source_line<W: Write>(
         }
     }
 
+    Ok(())
+}
+
+pub(crate) fn write_traceback<W: Write>(
+    output: &mut W,
+    traceback: &PyTracebackRef,
+) -> Result<(), W::Error> {
+    writeln!(output, "Traceback (most recent call last):")?;
+    for entry in traceback.iter() {
+        write_traceback_entry(output, &entry)?;
+    }
     Ok(())
 }
 
