@@ -837,13 +837,17 @@ mod _testinternalcapi {
             ..rustpython_codegen::CompileOpts::default()
         };
         opts.future_features |= rustpython_codegen::preprocess::future_features(&converted.ast);
-        let output = rustpython_codegen::compile::compile_codegen(
-            converted.ast,
-            converted.source_file,
+        let output = rustpython_codegen::compile::compile_codegen_ast(
+            rustpython_codegen::compile::AstInput {
+                ast: converted.ast,
+                source_file: converted.source_file,
+                locations: converted.locations,
+            },
             mode,
             opts,
+            None,
         )
-        .map_err(|err| vm.new_syntax_error(&crate::compiler::CompileError::from(err), None))?;
+        .map_err(|err| crate::stdlib::_ast::codegen_exception(vm, err, None))?;
         let seq = PyInstructionSequence::from_rust(output.seq, vm);
         let metadata = vm.ctx.new_dict();
         metadata.set_item("argcount", vm.ctx.new_int(output.argcount).into(), vm)?;
