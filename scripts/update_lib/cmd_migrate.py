@@ -741,7 +741,12 @@ def patch_single_content(
     if patches_document is not None:
         from update_lib.patch_spec import select_remaining_patches
 
-        patches = select_remaining_patches(patches, patches_document, relative_path)
+        patches = select_remaining_patches(
+            patches,
+            patches_document,
+            relative_path,
+            old_content=old_content if lib_path.exists() else None,
+        )
 
     # Apply patches to source content
     src_content = src_path.read_text(encoding="utf-8")
