@@ -1653,6 +1653,81 @@ pub fn prepare_barry_as_flufl_source(
     }
 }
 
+/// Parse-only state for a native interactive record. This never runs codegen,
+/// emits Python warnings, or changes the caller's future flags.
+pub struct InteractiveInput {
+    pub future_features: core::bytecode::CodeFlags,
+    pub empty: bool,
+}
+
+/// The native interactive grammar terminates compound statements with an empty
+/// physical line (or EOF), unlike the module grammar used by the Ruff parser.
+/// Use the parsed statement shape rather than a second ad-hoc source lexer.
+pub fn interactive_input(
+    source: &str,
+    source_path: &str,
+    future_features: core::bytecode::CodeFlags,
+    terminated: bool,
+) -> Result<Option<InteractiveInput>, CompileError> {
+    let source_file = SourceFileBuilder::new(source_path, source).finish();
+    pre_parse_source_error(&source_file)?;
+    let options = parser::ParseOptions::from(parser::Mode::Module);
+    let prepared = prepare_barry_as_flufl_source(
+        source,
+        options.clone(),
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse_unchecked(prepared.source(), options);
+    if let Some(error) = prepared.diagnostic(parsed.errors().first(), &source_file) {
+        return Err(error);
+    }
+    let parsed = first_parse_error(parsed, &source_file, Mode::Single)?;
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        unreachable!()
+    };
+    if let Some(first) = module.body.first()
+        && is_compound_stmt(first)
+    {
+        if let Some(next) = module.body.get(1) {
+            let range = parsed
+                .tokens()
+                .iter()
+                .find(|token| {
+                    token.start() >= next.start()
+                        && token.start() < next.end()
+                        && !token.range().is_empty()
+                })
+                .map_or_else(
+                    || ruff_text_size::TextRange::new(next.start(), next.start()),
+                    Ranged::range,
+                );
+            return Err(CompileError::from_source_error(
+                &source_file,
+                CpythonDiagnostic::new(
+                    "invalid syntax".to_owned(),
+                    range.start().to_usize(),
+                    range.end().to_usize(),
+                ),
+            ));
+        }
+        if !terminated {
+            return Ok(None);
+        }
+    }
+    if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
+        return Err(error);
+    }
+    if let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file) {
+        return Err(error);
+    }
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, &source_file))?;
+    Ok(Some(InteractiveInput {
+        future_features,
+        empty: module.body.is_empty(),
+    }))
+}
+
 pub fn compile_with_syntax_warning_handler<'a>(
     source: &str,
     mode: Mode,

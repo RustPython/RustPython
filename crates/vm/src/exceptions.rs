@@ -123,6 +123,66 @@ impl VirtualMachine {
         }
     }
 
+    /// Report an uncaught exception, returning an unconsumed SystemExit to the host.
+    /// Unlike `print_exception`, this updates the interactive last-exception state
+    /// and performs the sys.excepthook audit.
+    pub fn report_uncaught_exception(&self, exc: &Py<PyBaseException>) -> PyResult<()> {
+        if exc.fast_isinstance(self.ctx.exceptions.system_exit) && !self.inspect_requested() {
+            return Err(exc.to_owned());
+        }
+        let (exc_type, exc_val, exc_tb) = self.split_exception(exc.to_owned());
+        for (name, value) in [
+            ("last_exc", exc_val.clone()),
+            ("last_type", exc_type.clone()),
+            ("last_value", exc_val.clone()),
+            ("last_traceback", exc_tb.clone()),
+        ] {
+            let _ = self.sys_module.set_attr(name, value, self);
+        }
+        let hook = self.sys_module.get_attr("excepthook", self).ok();
+        if let Err(audit_exc) = self.audit("sys.excepthook", || {
+            (
+                hook.clone().unwrap_or_else(|| self.ctx.none()),
+                exc_type.clone(),
+                exc_val.clone(),
+                exc_tb.clone(),
+            )
+        }) {
+            if audit_exc.fast_isinstance(self.ctx.exceptions.runtime_error) {
+                return Ok(());
+            }
+            self.run_unraisable(
+                audit_exc,
+                Some("Exception ignored in audit hook".to_owned()),
+                self.ctx.none(),
+            );
+        }
+        let write_fallback = |error, heading| {
+            if let Ok(stderr) = sys::get_stderr(self) {
+                let mut stderr = py_io::PyWriter(stderr, self);
+                let _ = writeln!(stderr, "{heading}");
+                let _ = self.write_exception(&mut stderr, error);
+            } else {
+                eprintln!("{heading}\nlost sys.stderr");
+                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), error);
+            }
+        };
+        if let Some(hook) = hook {
+            if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
+                if hook_exc.fast_isinstance(self.ctx.exceptions.system_exit)
+                    && !self.inspect_requested()
+                {
+                    return Err(hook_exc);
+                }
+                write_fallback(&hook_exc, "Error in sys.excepthook:");
+                write_fallback(exc, "Original exception was:");
+            }
+        } else {
+            write_fallback(exc, "sys.excepthook is missing");
+        }
+        Ok(())
+    }
+
     pub fn write_exception<W: Write>(
         &self,
         output: &mut W,

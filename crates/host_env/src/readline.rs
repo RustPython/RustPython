@@ -196,3 +196,14 @@ impl<H: Helper> Readline<H> {
         self.0.readline(prompt)
     }
 }
+
+/// Borrow the shared buffered stdin for one physical read. The caller retains
+/// partial bytes across EINTR and checks signals after this lock is released.
+pub fn stdio_readline_bytes(prompt: &str, line: &mut Vec<u8>) -> io::Result<usize> {
+    use std::io::{BufRead, Write};
+    let mut stderr = io::stderr().lock();
+    stderr.write_all(prompt.as_bytes())?;
+    stderr.flush()?;
+    drop(stderr);
+    io::stdin().lock().read_until(b'\n', line)
+}
