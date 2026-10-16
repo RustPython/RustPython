@@ -853,10 +853,14 @@ impl PyType {
             }
         }
 
-        let mros = bases
+        let mut mros: Vec<_> = bases
             .iter()
             .map(|base| base.mro_map_collect(|t| t.to_owned()))
             .collect();
+        if bases.len() > 1 {
+            // C3 also merges the direct bases to preserve their local precedence.
+            mros.push(bases.to_vec());
+        }
         linearise_mro(mros)
     }
 
@@ -3533,24 +3537,6 @@ fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
 
 fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, String> {
     vm_trace!("Linearise MRO: {:?}", bases);
-    // Python requires that the class direct bases are kept in the same order.
-    // This is called local precedence ordering.
-    // This means we must verify that for classes A(), B(A) we must reject C(A, B) even though this
-    // algorithm will allow the mro ordering of [C, B, A, object].
-    // To verify this, we make sure non of the direct bases are in the mro of bases after them.
-    for (i, base_mro) in bases.iter().enumerate() {
-        let base = &base_mro[0]; // MROs cannot be empty.
-        for later_mro in &bases[i + 1..] {
-            // We start at index 1 to skip direct bases.
-            // This will not catch duplicate bases, but such a thing is already tested for.
-            if later_mro[1..].iter().any(|cls| cls.is(base)) {
-                return Err(format!(
-                    "Cannot create a consistent method resolution order (MRO) for bases {}",
-                    bases.iter().map(|x| x.first().unwrap()).format(", ")
-                ));
-            }
-        }
-    }
 
     let mut result = vec![];
     while !bases.is_empty() {
@@ -3559,7 +3545,11 @@ fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, Strin
             // Because this failed, we assume the lists cannot be empty.
             format!(
                 "Cannot create a consistent method resolution order (MRO) for bases {}",
-                bases.iter().map(|x| x.first().unwrap()).format(", ")
+                bases
+                    .iter()
+                    .map(|x| x.first().unwrap())
+                    .unique_by(|x| x.get_id())
+                    .format(", ")
             )
         })?;
 
