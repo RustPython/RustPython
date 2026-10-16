@@ -80,6 +80,15 @@ Frozen_LifetimeTests.test_all_locks = unittest.skip("TODO: RUSTPYTHON")(
     Frozen_LifetimeTests.test_all_locks
 )
 """
+TYPES_DATETIME_GUARD = """# XXX: RUSTPYTHON
+try:
+    import _datetime
+except ImportError:
+    _datetime = None
+"""
+TYPES_UNITTEST_IMPORT = (
+    "import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests\n"
+)
 BYTES_CAPI_UPSTREAM = (
     "    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')\n"
 )
@@ -287,7 +296,7 @@ def _jit_block(contents: str) -> bool:
     )
 
 
-def _preserve_importlib_guard(old, new, upstream, local):
+def _preserve_top_level_block(old, new, upstream, local):
     """Require exact, consecutive top-level AST statements and comment bytes."""
     for contents, fragment in ((old, local), (new, upstream)):
         tree, expected = ast.parse(contents), ast.parse(fragment).body
@@ -308,7 +317,7 @@ def _preserve_importlib_guard(old, new, upstream, local):
             or contents.count(fragment) != 1
             or "".join(lines[first : nodes[-1].end_lineno]) != fragment
         ):
-            raise ValueError("Changed or ambiguous importlib customization anchor")
+            raise ValueError("Changed or ambiguous migration customization anchor")
     return new.replace(upstream, local, 1)
 
 
@@ -323,7 +332,7 @@ def _preserve_multiphase_guard(old, new):
             for n in ast.walk(tree)
         ) != int(local):
             raise ValueError("Ambiguous _testmultiphase anchor")
-    return _preserve_importlib_guard(old, new, MULTIPHASE_UPSTREAM, MULTIPHASE_LOCAL)
+    return _preserve_top_level_block(old, new, MULTIPHASE_UPSTREAM, MULTIPHASE_LOCAL)
 
 
 def _preserve_frozen_lock_skip(old, new):
@@ -351,7 +360,7 @@ def _preserve_frozen_lock_skip(old, new):
     if methods[0] != methods[1]:
         raise ValueError("Frozen lock test changed; review its customization")
     setup = "def setUpModule():\n    thread_info = threading_helper.threading_setup()\n    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)\n"
-    return _preserve_importlib_guard(
+    return _preserve_top_level_block(
         old,
         new,
         LOCK_SPECIALIZATION + "\n\n" + setup,
@@ -404,6 +413,27 @@ def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) ->
         return _preserve_multiphase_guard(old, new)
     if parts == ("Lib", "test", "test_importlib", "test_locks.py"):
         return _preserve_frozen_lock_skip(old, new)
+    if parts == ("Lib", "test", "test_types.py"):
+        for contents in (old, new):
+            if (
+                sum(
+                    isinstance(node, ast.alias) and node.name == "_datetime"
+                    for node in ast.walk(ast.parse(contents))
+                )
+                != 1
+            ):
+                raise ValueError("Ambiguous test_types _datetime import")
+        if any(
+            isinstance(node, ast.alias) and node.name == "unittest"
+            for node in ast.walk(ast.parse(new))
+        ):
+            raise ValueError("Canonical test_types already imports unittest directly")
+        new = _preserve_top_level_block(
+            old, new, "import _datetime\n", TYPES_DATETIME_GUARD
+        )
+        return _preserve_top_level_block(
+            old, new, "import typing\n", "import typing\n\n" + TYPES_UNITTEST_IMPORT
+        )
     return new
 
 

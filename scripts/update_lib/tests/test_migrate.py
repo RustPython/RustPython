@@ -26,6 +26,8 @@ from update_lib.cmd_migrate import (
     MULTIPHASE_UPSTREAM,
     SYSCONFIG_LOCAL,
     SYSCONFIG_UPSTREAM,
+    TYPES_DATETIME_GUARD,
+    TYPES_UNITTEST_IMPORT,
     copy_support_assignments,
     main,
     migrate_package,
@@ -1513,6 +1515,59 @@ class TestImportlibGuardMigration(unittest.TestCase):
             ):
                 with self.subTest(filename=filename), self.assertRaises(ValueError):
                     preserve_migration_customizations(path, changed_old, changed_new)
+
+
+class TestTypesGuardMigration(unittest.TestCase):
+    path = Path("Lib/test/test_types.py")
+    old = (
+        "import copy\n"
+        + TYPES_DATETIME_GUARD
+        + "import gc\nimport unittest.mock\nimport typing\n\n"
+        + TYPES_UNITTEST_IMPORT
+        + "\nVALUE = 1\n"
+    )
+    new = (
+        "import copy\nimport _datetime\nimport gc\nimport unittest.mock\n"
+        "import typing\nimport re\n\nVALUE = 2\n"
+    )
+
+    def test_exact_guards_and_unrelated_canonical_changes_survive_idempotently(self):
+        expected = self.new.replace("import _datetime\n", TYPES_DATETIME_GUARD).replace(
+            "import typing\n", "import typing\n\n" + TYPES_UNITTEST_IMPORT
+        )
+        result = preserve_migration_customizations(self.path, self.old, self.new)
+        self.assertEqual(result, expected)
+        self.assertEqual(
+            preserve_migration_customizations(self.path, result, self.new), expected
+        )
+
+    def test_changed_ambiguous_or_misplaced_local_guards_are_refused(self):
+        for old in (
+            self.old.replace("except ImportError:", "except Exception:"),
+            self.old.replace("_datetime = None", "_datetime = False"),
+            self.old.replace("# XXX: RUSTPYTHON\n", "# changed\n"),
+            self.old.replace("importing to be able to skip tests", "changed reason"),
+            self.old + TYPES_DATETIME_GUARD,
+            self.old + "import _datetime\n",
+            self.old + TYPES_UNITTEST_IMPORT,
+            self.old.replace("import typing\n\n", "import typing\nVALUE = 3\n\n"),
+        ):
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                preserve_migration_customizations(self.path, old, self.new)
+
+    def test_changed_ambiguous_or_nested_canonical_anchors_are_refused(self):
+        for new in (
+            self.new.replace("import _datetime", "import _datetime as other"),
+            self.new.replace("import _datetime\n", "if True:\n    import _datetime\n"),
+            self.new.replace("import _datetime\n", 'TEXT = "import _datetime\\n"\n'),
+            self.new.replace("import typing", "import typing as other"),
+            self.new.replace("import typing\n", "if True:\n    import typing\n"),
+            self.new + "import _datetime\n",
+            self.new + "import typing\n",
+            self.new + "import unittest\n",
+        ):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                preserve_migration_customizations(self.path, self.old, new)
 
 
 if __name__ == "__main__":
