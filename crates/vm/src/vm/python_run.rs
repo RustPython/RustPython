@@ -216,6 +216,311 @@ mod file_run {
     }
 }
 
+/// A physical stdin line or an already decoded editor line.
+pub enum InteractiveLine {
+    Bytes(Vec<u8>),
+    Text(String),
+}
+
+impl VirtualMachine {
+    /// Resolve the current main module without rewriting an existing loader.
+    pub fn stdin_main_module(&self) -> PyResult<crate::PyRef<crate::builtins::PyModule>> {
+        let modules = self.sys_module.get_attr("modules", self)?;
+        if let Ok(module) = modules.get_item("__main__", self)
+            && let Ok(module) = module.downcast::<crate::builtins::PyModule>()
+        {
+            return Ok(module);
+        }
+        self.ensure_main_module()
+    }
+
+    /// Evaluate native interactive records. Input policy belongs to the caller;
+    /// compilation, exception handling and namespace ownership stay in the VM.
+    pub fn run_interactive(
+        &self,
+        mut readline: impl FnMut(&str) -> PyResult<Option<InteractiveLine>>,
+    ) -> PyResult<()> {
+        use crate::{AsObject, bytecode::CodeFlags};
+        for (name, default) in [("ps1", ">>> "), ("ps2", "... ")] {
+            if self.sys_module.dict().get_item_opt(name, self)?.is_none() {
+                self.sys_module
+                    .set_attr(name, self.ctx.new_str(default), self)?;
+            }
+        }
+        let mut future_features = CodeFlags::empty();
+        let mut memory_errors = 0;
+        loop {
+            let mut eof = false;
+            let mut empty_eof = false;
+            let result = (|| {
+                let encoding = self
+                    .sys_module
+                    .get_attr("stdin", self)
+                    .and_then(|stdin| stdin.get_attr("encoding", self))
+                    .ok()
+                    .and_then(|encoding| encoding.downcast::<crate::builtins::PyStr>().ok())
+                    .and_then(|encoding| encoding.to_str().map(str::to_owned))
+                    .unwrap_or_else(|| "utf-8".to_owned());
+                let prompt = |name| {
+                    self.sys_module
+                        .get_attr(name, self)
+                        .and_then(|prompt| prompt.str(self))
+                        .ok()
+                        .and_then(|prompt| prompt.to_str().map(str::to_owned))
+                        .unwrap_or_default()
+                };
+                let ps1 = prompt("ps1");
+                let ps2 = prompt("ps2");
+                self.audit("compile", || (self.ctx.none(), self.ctx.new_str("<stdin>")))?;
+                let mut source = String::new();
+                let mut raw_source = Vec::new();
+                #[cfg(feature = "parser")]
+                let mut warnings = super::compile::InteractiveWarnings::default();
+                loop {
+                    let line = readline(if source.is_empty() { &ps1 } else { &ps2 })?;
+                    let mut terminated = line.is_none();
+                    let mut unterminated_fragment = false;
+                    match line {
+                        None => {
+                            eof = true;
+                            if source.is_empty() {
+                                empty_eof = true;
+                                return Ok(());
+                            }
+                            if !source.ends_with('\n') {
+                                source.push('\n');
+                            }
+                        }
+                        Some(InteractiveLine::Text(mut line)) => {
+                            if !line.ends_with('\n') {
+                                line.push('\n');
+                            }
+                            let line = line.replace("\r\n", "\n");
+                            terminated = line == "\n";
+                            source.push_str(&line);
+                        }
+                        Some(InteractiveLine::Bytes(line)) => {
+                            unterminated_fragment = !line.ends_with(b"\n");
+                            terminated = line == b"\n" || line == b"\r\n";
+                            raw_source.extend_from_slice(&line);
+                            source = self
+                                .state
+                                .codec_registry
+                                .decode_text(
+                                    self.ctx.new_bytes(raw_source.clone()).into(),
+                                    &encoding,
+                                    None,
+                                    self,
+                                )?
+                                .to_str()
+                                .ok_or_else(|| {
+                                    self.new_exception_msg(
+                                        self.ctx.exceptions.unicode_error.to_owned(),
+                                        "stdin source contains surrogates".into(),
+                                    )
+                                })?
+                                .replace("\r\n", "\n");
+                        }
+                    }
+                    #[cfg(feature = "parser")]
+                    self.emit_interactive_parser_warnings(
+                        &source,
+                        "<stdin>",
+                        Some(identifier!(self, __main__)),
+                        Some(compiler::parser::Mode::Module),
+                        future_features.contains(CodeFlags::FUTURE_BARRY_AS_BDFL),
+                        super::compile::ParserWarningState {
+                            emitted_escapes: &[],
+                            interactive: Some(&mut warnings),
+                        },
+                    )
+                    .map_err(|error| {
+                        super::compile::VmCompileError::Warning(error)
+                            .into_pyexception(self, Some(&source))
+                    })?;
+                    let parsed = match compiler::interactive_input(
+                        &source,
+                        "<stdin>",
+                        future_features,
+                        terminated,
+                    ) {
+                        Ok(Some(parsed)) => parsed,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            let unclosed = matches!(&error, compiler::CompileError::Parse(error)
+                                if error.is_unclosed_bracket || error.is_unclosed_string);
+                            let error = super::compile::VmCompileError::Compile(error)
+                                .into_pyexception_maybe_incomplete(
+                                    self,
+                                    Some(&source),
+                                    !terminated,
+                                );
+                            if !eof
+                                && (unclosed
+                                    || (!terminated
+                                        && error.fast_isinstance(
+                                            self.ctx.exceptions.incomplete_input_error,
+                                        )))
+                            {
+                                continue;
+                            }
+                            return Err(error);
+                        }
+                    };
+                    // A raw final fragment is not a completed physical line.
+                    // Warnings and definitive parser errors are observable now,
+                    // but acceptance waits for the transport's EOF transaction.
+                    if unterminated_fragment {
+                        continue;
+                    }
+                    let main = self.stdin_main_module()?;
+                    future_features |= parsed.future_features;
+                    return (|| {
+                        let filename = self.next_interactive_code_filename()?;
+                        let code = self
+                            .compile_after_parser_warnings(
+                                &source,
+                                if parsed.empty {
+                                    compiler::Mode::Exec
+                                } else {
+                                    compiler::Mode::Single
+                                },
+                                filename,
+                                compiler::CompileOpts {
+                                    future_features,
+                                    ..self.compile_opts()
+                                },
+                                Some(identifier!(self, __main__)),
+                            )
+                            .map_err(|error| error.into_pyexception(self, Some(&source)))?;
+                        let linecache = self.import("linecache", 0)?;
+                        linecache.get_attr("_register_code", self)?.call(
+                            (
+                                code.clone(),
+                                self.ctx.new_str(source.as_str()),
+                                self.ctx.new_str("<stdin>"),
+                            ),
+                            self,
+                        )?;
+                        self.audit("exec", || (code.clone(),))?;
+                        self.run_code_obj(code, Scope::with_builtins(None, main.dict(), self))?;
+                        Ok(())
+                    })()
+                    .inspect_err(|error| {
+                        self.repair_interactive_syntax_error_text(error, &source)
+                    });
+                }
+            })();
+            if let Err(error) = result {
+                if error.fast_isinstance(self.ctx.exceptions.memory_error) {
+                    memory_errors += 1;
+                    if memory_errors > 16 {
+                        return Err(error);
+                    }
+                } else {
+                    memory_errors = 0;
+                }
+                self.report_uncaught_exception(&error)?;
+            } else {
+                memory_errors = 0;
+            }
+            self.flush_io();
+            if empty_eof {
+                return Ok(());
+            }
+        }
+    }
+
+    fn repair_interactive_syntax_error_text(
+        &self,
+        error: &crate::builtins::PyBaseExceptionRef,
+        source: &str,
+    ) {
+        use crate::AsObject;
+
+        if !error.fast_isinstance(self.ctx.exceptions.syntax_error) {
+            return;
+        }
+        // Match the interactive run_mod boundary: repair only text and keep
+        // the original exception even if attribute access/conversion fails.
+        let source = self.ctx.new_str(source);
+        let lines = source.splitlines(crate::anystr::SplitLinesArgs { keepends: true }, self);
+        let Ok(lineno) = error
+            .as_object()
+            .get_attr("lineno", self)
+            .and_then(|lineno| lineno.try_into_value::<i32>(self))
+        else {
+            return;
+        };
+        if lineno > 0
+            && let Some(line) = lines.get((lineno - 1) as usize)
+        {
+            let _ = error.as_object().set_attr("text", line.clone(), self);
+        }
+    }
+
+    /// Native fd0 adapter used by sys._baserepl and non-terminal CLI inspection.
+    pub fn run_basic_interactive(&self) -> PyResult<()> {
+        self.run_interactive(|prompt| {
+            let mut line = Vec::new();
+            let mut prompt = prompt;
+            loop {
+                let result = crate::readline::stdio_readline_bytes(prompt, &mut line);
+                prompt = "";
+                match result {
+                    Ok(0) => {
+                        eprintln!();
+                        return Ok(None);
+                    }
+                    Ok(_) => return Ok(Some(InteractiveLine::Bytes(line))),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                        self.check_signals()?;
+                    }
+                    Err(_) if !line.is_empty() => return Ok(Some(InteractiveLine::Bytes(line))),
+                    Err(_) => return Ok(None),
+                }
+            }
+        })
+    }
+
+    /// Evaluate ordinary piped stdin as one file, without prompts or startup.
+    pub fn run_stdin_file(&self) -> PyResult<()> {
+        use std::io::Read;
+        let main = self.stdin_main_module()?;
+        self.with_simple_run("<stdin>", |_| {
+            self.audit("compile", || (self.ctx.none(), self.ctx.new_str("<stdin>")))?;
+            let mut bytes = Vec::new();
+            loop {
+                let result = std::io::stdin().lock().read_to_end(&mut bytes);
+                match result {
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                        self.check_signals()?
+                    }
+                    _ => break,
+                }
+            }
+            #[cfg(feature = "parser")]
+            let source = self.decode_source_bytes(&bytes, "<stdin>", false)?;
+            #[cfg(not(feature = "parser"))]
+            let source =
+                String::from_utf8(bytes).map_err(|error| self.new_os_error(error.to_string()))?;
+            let code = self
+                .compile_with_opts_and_module(
+                    &source,
+                    compiler::Mode::Exec,
+                    "<stdin>",
+                    self.compile_opts(),
+                    Some(identifier!(self, __main__)),
+                    &[],
+                )
+                .map_err(|error| error.into_pyexception(self, Some(&source)))?;
+            self.audit("exec", || (code.clone(),))?;
+            self.run_code_obj(code, Scope::with_builtins(None, main.dict(), self))
+                .map(drop)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::object::AsObject;

@@ -56,7 +56,7 @@ pub mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env,
-        io::{IsTerminal, Read, Write},
+        io::{IsTerminal, Write},
     };
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
@@ -753,16 +753,7 @@ pub mod sys {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
-        // read stdin to end
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-        let mut source = String::new();
-        handle
-            .read_to_string(&mut source)
-            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
-            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
-        Ok(())
+        vm.run_basic_interactive()
     }
 
     #[pyfunction]
@@ -971,6 +962,61 @@ pub mod sys {
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
         PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
+    }
+
+    pub(crate) fn set_inspect_requested(vm: &VirtualMachine, requested: bool) -> PyResult<()> {
+        use crate::class::StaticType;
+        use crate::types::PyStructSequenceData;
+
+        let dict = vm.sys_module.dict();
+        loop {
+            // Retain every encountered key/value before taking the publication
+            // lock: a concurrent deletion must never finalize one under it.
+            let entries = dict.entries.items();
+            let (key, current) = entries
+                .iter()
+                .find(|(key, _)| {
+                    key.class().is(vm.ctx.types.str_type)
+                        && key
+                            .downcast_ref::<PyStr>()
+                            .is_some_and(|name| name.as_bytes() == b"flags")
+                })
+                .ok_or_else(|| vm.new_runtime_error("sys.flags is missing"))?;
+            if !current.class().is(PyFlags::static_type()) {
+                return Err(vm.new_type_error("sys.flags must be a sys.flags instance"));
+            }
+            let tuple = current
+                .downcast_ref::<PyTuple>()
+                .ok_or_else(|| vm.new_type_error("invalid sys.flags payload"))?;
+            let fields = FlagsData::REQUIRED_FIELD_NAMES;
+            let field_count = fields.len() + FlagsData::OPTIONAL_FIELD_NAMES.len();
+            if tuple.as_slice().len() != field_count {
+                return Err(vm.new_type_error("invalid sys.flags field count"));
+            }
+            let inspect_index = fields
+                .iter()
+                .position(|name| *name == "inspect")
+                .expect("sys.flags has an inspect field");
+            let mut values = tuple.as_slice().to_vec();
+            values[inspect_index] = vm.ctx.new_int(u8::from(requested)).into();
+            let replacement: PyObjectRef = PyTuple::new_unchecked(values.into_boxed_slice())
+                .into_ref_with_type(vm, PyFlags::static_type().to_owned())?
+                .into();
+
+            // No Python, hashing, equality, or owner destruction in this section.
+            // A racing publisher or direct sys.flags assignment causes a retry.
+            let mut effective = vm.state.inspect_requested.lock();
+            let removed =
+                dict.entries
+                    .replace_by_identity(key, |value| value.is(current), &replacement);
+            if removed.is_some() {
+                *effective = requested;
+            }
+            drop(effective);
+            if removed.is_some() {
+                return Ok(());
+            }
+        }
     }
 
     #[pyattr]

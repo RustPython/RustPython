@@ -14,6 +14,8 @@ mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
 mod python_run;
+#[cfg(feature = "rustpython-compiler")]
+pub use python_run::InteractiveLine;
 pub mod runtime;
 mod setting;
 pub mod thread;
@@ -61,7 +63,7 @@ use std::{
 };
 
 pub use context::Context;
-pub use interpreter::{Interpreter, InterpreterBuilder};
+pub use interpreter::{Interpreter, InterpreterBuilder, InterpreterExit};
 pub(crate) use method::PyMethod;
 pub use runtime::{
     InterpFeatureFlags, InterpreterConfig, InterpreterGil, InterpreterInfo, InterpreterWhence,
@@ -857,6 +859,10 @@ pub struct PyGlobalState {
     /// becomes *the* process main — see [`runtime::main_interpreter_id`].
     pub is_main: bool,
     pub config: PyConfig,
+    /// Effective runtime inspect state, serialized with sys.flags publication.
+    pub(crate) inspect_requested: PyMutex<bool>,
+    /// Unique source identities shared by all interactive entries in this interpreter.
+    pub(crate) interactive_code_counter: AtomicU64,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -3886,7 +3892,31 @@ impl VirtualMachine {
         excs.stack.iter().rev().find_map(|e| e.clone())
     }
 
+    pub fn inspect_requested(&self) -> bool {
+        *self.state.inspect_requested.lock()
+    }
+
+    /// Publish a fresh immutable sys.flags snapshot and the effective inspect bit.
+    pub fn set_inspect_requested(&self, requested: bool) -> PyResult<()> {
+        stdlib::sys::sys::set_inspect_requested(self, requested)
+    }
+
+    pub fn next_interactive_code_filename(&self) -> PyResult<String> {
+        let serial = self
+            .state
+            .interactive_code_counter
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |serial| {
+                serial.checked_add(1)
+            })
+            .map_err(|_| self.new_overflow_error("interactive code filename counter exhausted"))?;
+        Ok(format!("<stdin-{serial}>"))
+    }
+
     pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
+        let exc = match self.report_uncaught_exception(&exc) {
+            Err(exit) => exit,
+            Ok(()) => return self.handle_reported_exception(&exc),
+        };
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let code = exc
                 .as_object()
@@ -3918,8 +3948,15 @@ impl VirtualMachine {
                 }
             }
             1
-        } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            self.print_exception(&exc);
+        } else {
+            self.handle_reported_exception(&exc)
+        }
+    }
+
+    /// Apply the host exit policy after an exception has already been reported.
+    /// Call only after deciding not to continue into an interactive session.
+    pub fn handle_reported_exception(&self, exc: &Py<PyBaseException>) -> u32 {
+        if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
             cfg_select! {
                 unix => {
                     if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
@@ -3935,7 +3972,6 @@ impl VirtualMachine {
                 _ => 1,
             }
         } else {
-            self.print_exception(&exc);
             1
         }
     }

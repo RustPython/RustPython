@@ -788,6 +788,7 @@ pub mod module {
 
         unsafe {
             // PyGlobalState PyMutex locks
+            reinit_mutex_after_fork(&vm.state.inspect_requested);
             reinit_mutex_after_fork(&vm.state.before_forkers);
             reinit_mutex_after_fork(&vm.state.after_forkers_child);
             reinit_mutex_after_fork(&vm.state.after_forkers_parent);
@@ -838,6 +839,7 @@ pub mod module {
             }
 
             unsafe {
+                reinit_mutex_after_fork(&state.inspect_requested);
                 reinit_mutex_after_fork(&state.before_forkers);
                 reinit_mutex_after_fork(&state.after_forkers_child);
                 reinit_mutex_after_fork(&state.after_forkers_parent);
