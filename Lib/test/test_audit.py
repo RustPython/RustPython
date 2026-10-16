@@ -94,7 +94,6 @@ class AuditTest(unittest.TestCase):
         import_helper.import_module("_posixsubprocess")
         self.do_test("test_posixsubprocess")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_excepthook(self):
         returncode, events, stderr = self.run_python("test_excepthook")
         if not returncode:
@@ -344,6 +343,15 @@ class AuditTest(unittest.TestCase):
         self.assertTrue(any(["cpython.remote_debugger_script" in event for event in events]))
         if returncode:
             self.fail(stderr)
+
+    def test_import_module(self):
+        self.do_test("test_import_module")
+
+    def test_builtin__import__(self):
+        self.do_test("test_builtin__import__")
+
+    def test_import_statement(self):
+        self.do_test("test_import_statement")
 
 if __name__ == "__main__":
     unittest.main()
