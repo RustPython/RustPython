@@ -21,7 +21,7 @@ mod _socket {
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
+            ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, FsPath,
             FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -2441,28 +2441,114 @@ mod _socket {
         #[pymethod]
         fn setsockopt(
             zelf: &Py<Self>,
-            level: i32,
-            name: i32,
-            value: Option<Either<ArgBytesLike, i32>>,
-            optlen: OptionalArg<u32>,
+            args: FuncArgs,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("setsockopt() takes no keyword arguments")
+                    .into());
+            }
+            let nargs = args.args.len();
+            if nargs < 3 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "setsockopt() takes at least 3 arguments ({nargs} given)"
+                    ))
+                    .into());
+            }
+            if nargs > 4 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "setsockopt() takes at most 4 arguments ({nargs} given)"
+                    ))
+                    .into());
+            }
+            let (level, name, value, optlen): (
+                i32,
+                i32,
+                Option<PyObjectRef>,
+                OptionalArg<ArgIndex>,
+            ) = args.bind(vm)?;
+            let optlen = match optlen {
+                OptionalArg::Present(index) => {
+                    let index = index.as_ref();
+                    // CPython's unsigned-int bitfield conversion masks the value,
+                    // warning only when it fits neither a signed nor unsigned int.
+                    if !index.as_bigint().to_i64().is_some_and(|value| {
+                        (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value)
+                    }) {
+                        crate::vm::warn::warn(
+                            vm.ctx.new_str("integer value out of range").into(),
+                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+                            1,
+                            None,
+                            vm,
+                        )?;
+                    }
+                    OptionalArg::Present(index.as_u32_mask())
+                }
+                OptionalArg::Missing => OptionalArg::Missing,
+            };
+            enum Value {
+                Int(i32),
+                Buffer(ArgBytesLike),
+                Null(u32),
+            }
+            let value = match (value, optlen) {
+                (Some(value), OptionalArg::Missing) => {
+                    if let Some(index) = value.try_index_opt(vm) {
+                        Value::Int(index?.try_to_primitive::<i32>(vm)?)
+                    } else if value.check_buffer() {
+                        let buffer = ArgBytesLike::try_from_object(vm, value)?;
+                        #[cfg(windows)]
+                        if buffer.len() > i32::MAX as usize {
+                            return Err(vm
+                                .new_overflow_error(format!(
+                                    "socket option is larger than {} bytes",
+                                    i32::MAX
+                                ))
+                                .into());
+                        }
+                        Value::Buffer(buffer)
+                    } else {
+                        return Err(vm
+                            .new_type_error(format!(
+                                "socket option should be int, bytes-like object or None (got {})",
+                                value.class().fully_qualified_name(vm)?
+                            ))
+                            .into());
+                    }
+                }
+                (None, OptionalArg::Present(optlen)) => Value::Null(optlen),
+                (None, OptionalArg::Missing) => {
+                    return Err(vm
+                        .new_type_error(
+                            "setsockopt() requires 4 arguments when the third argument is None",
+                        )
+                        .into());
+                }
+                (Some(value), OptionalArg::Present(_)) => {
+                    return Err(vm
+                        .new_type_error(format!(
+                            "setsockopt() only takes 4 arguments when the third argument is None (got {})",
+                            value.class().fully_qualified_name(vm)?
+                        ))
+                        .into());
+                }
+            };
+            // Convert Python values before locking the socket; callbacks may close it.
             let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
-            match (value, optlen) {
-                (Some(Either::A(b)), OptionalArg::Missing) => {
-                    b.with_ref(|b| host_socket::setsockopt_bytes(fd as _, level, name, b))?
+            match &value {
+                Value::Int(value) => {
+                    host_socket::setsockopt_int(fd as _, level, name, *value)?;
                 }
-                (Some(Either::B(val)), OptionalArg::Missing) => {
-                    host_socket::setsockopt_int(fd as _, level, name, val)?
+                Value::Buffer(buffer) => {
+                    buffer.with_ref(|b| host_socket::setsockopt_bytes(fd as _, level, name, b))?;
                 }
-                (None, OptionalArg::Present(optlen)) => {
-                    host_socket::setsockopt_none(fd as _, level, name, optlen)?
-                }
-                _ => {
-                    return Err(vm
-                        .new_type_error("expected the value arg xor the optlen arg")
-                        .into());
+                Value::Null(optlen) => {
+                    host_socket::setsockopt_none(fd as _, level, name, *optlen)?;
                 }
             }
             Ok(())
@@ -2962,7 +3048,7 @@ mod _socket {
         #[pyarg(any)]
         host: Option<ArgStrOrBytesLike>,
         #[pyarg(any)]
-        port: Option<Either<ArgStrOrBytesLike, i32>>,
+        port: Option<PyObjectRef>,
 
         #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
@@ -3014,10 +3100,23 @@ mod _socket {
         };
         let host = host_encoded.as_deref();
 
-        // Encode port: str/bytes as service name, int as port number
-        let port_encoded: Option<String> = match opts.port.as_ref() {
-            Some(Either::A(sb)) => {
-                let port_str = match sb {
+        // Check the index protocol before string/bytes conversion, including for
+        // subclasses, and preserve any exception raised by __index__.
+        let port_index = opts
+            .port
+            .as_ref()
+            .and_then(|port| port.try_index_opt(vm))
+            .transpose()?;
+        let port_encoded: Option<String> = match (port_index, opts.port.as_ref()) {
+            (Some(index), _) => Some(crate::vm::builtins::PyInt::repr_str(&index, vm)?),
+            (None, Some(port)) => {
+                if !port.fast_isinstance(vm.ctx.types.str_type)
+                    && !port.fast_isinstance(vm.ctx.types.bytes_type)
+                {
+                    return Err(vm.new_os_error("Int or String expected").into());
+                }
+                let sb = ArgStrOrBytesLike::try_from_object(vm, port.clone())?;
+                let port_str = match &sb {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
@@ -3055,8 +3154,7 @@ mod _socket {
                 };
                 Some(port_str)
             }
-            Some(Either::B(i)) => Some(i.to_string()),
-            None => None,
+            (None, None) => None,
         };
         let port = port_encoded.as_deref();
 
@@ -3070,7 +3168,7 @@ mod _socket {
                         ai.address,
                         ai.socktype,
                         ai.protocol,
-                        ai.canonname,
+                        ai.canonname.unwrap_or_default(),
                         get_ip_addr_tuple(&ai.sockaddr, vm),
                     ))
                     .into()
