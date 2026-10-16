@@ -169,7 +169,7 @@ impl PyModuleDef {
     }
 }
 
-#[pyclass(module = false, name = "module")]
+#[pyclass(module = false, name = "module", traverse = "manual")]
 // The dict lives in the object extension, not the payload. The offset is
 // the dict cell at the front of that extension.
 #[pymember(name = "__dict__", offset = ::rustpython_vm::object::dict_member_offset())]
@@ -177,10 +177,24 @@ impl PyModuleDef {
 pub struct PyModule {
     // PyObject *md_dict;
     pub def: Option<Cow<'static, PyModuleDef>>,
-    // state: Any
+    native_state: crate::object::PyAtomicRef<Option<PyObject>>,
     // weaklist
     // for logging purposes after md_dict is cleared
     pub name: Option<&'static PyStrInterned>,
+}
+
+// SAFETY: Native state is the only owned Python reference in the payload.
+// The module dictionary is visited separately by the object extension.
+unsafe impl crate::object::Traverse for PyModule {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.native_state.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(state) = self.native_state.store(None) {
+            out.push(state);
+        }
+    }
 }
 
 impl PyPayload for PyModule {
@@ -206,6 +220,7 @@ impl PyModule {
     pub const fn new() -> Self {
         Self {
             def: None,
+            native_state: crate::object::PyAtomicRef::new_empty(),
             name: None,
         }
     }
@@ -214,6 +229,7 @@ impl PyModule {
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(Cow::Borrowed(def)),
+            native_state: crate::object::PyAtomicRef::new_empty(),
             name: Some(def.name),
         }
     }
@@ -223,8 +239,20 @@ impl PyModule {
         let name = def.name;
         Self {
             def: Some(Cow::Owned(def)),
+            native_state: crate::object::PyAtomicRef::new_empty(),
             name: Some(name),
         }
+    }
+
+    /// Interpreter-local native state, retained and traversed with the module.
+    #[must_use]
+    pub fn native_state(&self) -> Option<PyObjectRef> {
+        self.native_state.load_owned()
+    }
+
+    /// Replace native state without exposing it in the Python module dictionary.
+    pub fn set_native_state(&self, state: PyObjectRef) {
+        drop(self.native_state.store(Some(state)));
     }
 
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {

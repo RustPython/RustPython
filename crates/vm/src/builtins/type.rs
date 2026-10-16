@@ -1,6 +1,6 @@
 use super::{
-    PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned, PyStrRef,
-    PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
+    PyAnyDict, PyClassMethod, PyDict, PyDictRef, PyList, PyStaticMethod, PyStr, PyStrInterned,
+    PyStrRef, PyTupleRef, PyUtf8StrRef, PyWeak, mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
     AsObject, Context, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -174,6 +174,15 @@ impl TypeCacheEntry {
     fn end_read(&self, previous: u32) -> bool {
         core::sync::atomic::fence(Ordering::Acquire);
         self.sequence.load(Ordering::Relaxed) == previous
+    }
+
+    #[inline]
+    fn matching_version(&self, type_version: &AtomicU32) -> Option<u32> {
+        let entry_version = self.version.load(Ordering::Acquire);
+        let type_version = type_version.load(Ordering::Acquire);
+        // Invalidation can clear both versions after the reader selected an
+        // entry. Zero never identifies a cached result, even when they match.
+        (entry_version != 0 && entry_version == type_version).then_some(entry_version)
     }
 
     /// Null out the cached value pointer.
@@ -844,10 +853,14 @@ impl PyType {
             }
         }
 
-        let mros = bases
+        let mut mros: Vec<_> = bases
             .iter()
             .map(|base| base.mro_map_collect(|t| t.to_owned()))
             .collect();
+        if bases.len() > 1 {
+            // C3 also merges the direct bases to preserve their local precedence.
+            mros.push(bases.to_vec());
+        }
         linearise_mro(mros)
     }
 
@@ -1272,11 +1285,10 @@ impl PyType {
             let name_ptr = name as *const _ as *mut _;
             loop {
                 let seq1 = entry.begin_read();
-                let entry_version = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if entry_version != type_version
-                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
-                {
+                let Some(entry_version) = entry.matching_version(&self.tp_version_tag) else {
+                    break;
+                };
+                if !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr) {
                     break;
                 }
                 let ptr = entry.value.load(Ordering::Acquire);
@@ -1488,9 +1500,7 @@ impl PyType {
             let name_ptr = name as *const _ as *mut _;
             loop {
                 let seq1 = entry.begin_read();
-                let v1 = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if v1 != type_version
+                if entry.matching_version(&self.tp_version_tag).is_none()
                     || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
                 {
                     break;
@@ -1798,24 +1808,14 @@ impl Constructor for PyType {
             }));
         }
 
-        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
+        let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyObjectRef, KwArgs) =
             args.clone().bind_for(vm, Self::NAME)?;
-
-        // A mapping that is not an exact dict (e.g. OrderedDict) keeps its
-        // own iteration order; copy via the mapping protocol so that order
-        // lands in the type dict.
-        let dict = if args.args[2].class().is(vm.ctx.types.dict_type) {
-            dict
-        } else {
-            let copied = vm.ctx.new_dict();
-            copied.merge_object(args.args[2].clone(), vm)?;
-            copied
+        let Some(dict) = PyAnyDict::from_object(&dict) else {
+            return Err(vm.new_type_error(format!(
+                "type.__new__() argument 3 must be dict or frozendict, not {}",
+                dict.class().fully_qualified_name(vm)?
+            )));
         };
-
-        if name.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters"));
-        }
-        let name = name.try_into_utf8(vm)?;
 
         let (metatype, base, bases, base_is_type) = if bases.as_slice().is_empty() {
             let base = vm.ctx.types.object_type.to_owned();
@@ -1855,6 +1855,25 @@ impl Constructor for PyType {
 
             (metatype, base.to_owned(), bases, base_is_type)
         };
+
+        // Copy only after resolving the metaclass: its __new__ receives the
+        // original namespace. A subclass with a custom iterator (e.g.
+        // OrderedDict) keeps its own mapping order in the mutable type dict.
+        let dict = if let Some(dict) = dict.as_object().downcast_ref_if_exact::<PyDict>(vm) {
+            dict.to_owned()
+        } else {
+            let copied = vm.ctx.new_dict();
+            // Like dict.copy(), an empty table bypasses subclass hooks.
+            if !dict.is_empty() {
+                copied.merge_object(dict.to_owned().into(), vm)?;
+            }
+            copied
+        };
+
+        if name.as_bytes().contains(&0) {
+            return Err(vm.new_value_error("type name must not contain null characters"));
+        }
+        let name = name.try_into_utf8(vm)?;
 
         let qualname = dict
             .get_item_opt(identifier!(vm, __qualname__), vm)?
@@ -3518,24 +3537,6 @@ fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
 
 fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, String> {
     vm_trace!("Linearise MRO: {:?}", bases);
-    // Python requires that the class direct bases are kept in the same order.
-    // This is called local precedence ordering.
-    // This means we must verify that for classes A(), B(A) we must reject C(A, B) even though this
-    // algorithm will allow the mro ordering of [C, B, A, object].
-    // To verify this, we make sure non of the direct bases are in the mro of bases after them.
-    for (i, base_mro) in bases.iter().enumerate() {
-        let base = &base_mro[0]; // MROs cannot be empty.
-        for later_mro in &bases[i + 1..] {
-            // We start at index 1 to skip direct bases.
-            // This will not catch duplicate bases, but such a thing is already tested for.
-            if later_mro[1..].iter().any(|cls| cls.is(base)) {
-                return Err(format!(
-                    "Cannot create a consistent method resolution order (MRO) for bases {}",
-                    bases.iter().map(|x| x.first().unwrap()).format(", ")
-                ));
-            }
-        }
-    }
 
     let mut result = vec![];
     while !bases.is_empty() {
@@ -3544,7 +3545,11 @@ fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, Strin
             // Because this failed, we assume the lists cannot be empty.
             format!(
                 "Cannot create a consistent method resolution order (MRO) for bases {}",
-                bases.iter().map(|x| x.first().unwrap()).format(", ")
+                bases
+                    .iter()
+                    .map(|x| x.first().unwrap())
+                    .unique_by(|x| x.get_id())
+                    .format(", ")
             )
         })?;
 
@@ -3828,6 +3833,32 @@ fn mangle_name(class_name: &str, name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_cache_rejects_invalidated_versions() {
+        let entry = TypeCacheEntry::new();
+        let type_version = AtomicU32::new(1);
+        assert_eq!(entry.matching_version(&type_version), None);
+
+        entry.version.store(1, Ordering::Release);
+        // A valid negative cache entry has a null value and a nonzero version.
+        assert!(entry.value.load(Ordering::Acquire).is_null());
+        assert_eq!(entry.matching_version(&type_version), Some(1));
+
+        type_version.store(2, Ordering::Release);
+        assert_eq!(entry.matching_version(&type_version), None);
+
+        // Model invalidation after a reader has selected the cache entry.
+        type_version.store(0, Ordering::Release);
+        assert_eq!(entry.matching_version(&type_version), None);
+        entry.begin_write();
+        entry.version.store(0, Ordering::Release);
+        entry.clear_value();
+        entry.end_write();
+        let sequence = entry.begin_read();
+        assert_eq!(entry.matching_version(&type_version), None);
+        assert!(entry.end_read(sequence));
+    }
 
     fn map_ids(obj: Result<Vec<PyTypeRef>, String>) -> Result<Vec<usize>, String> {
         Ok(obj?.into_iter().map(|x| x.get_id()).collect())

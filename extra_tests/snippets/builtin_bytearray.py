@@ -1504,3 +1504,250 @@ def test_bytearray_callback_exports():
 
 
 test_bytearray_callback_exports()
+
+
+def test_bytearray_contains_builtin_and_callback_exports():
+    for value in (b"", b"a", b"ab\x00\xff", b"\x01"):
+        target = bytearray(value)
+        for needle in (
+            b"",
+            b"a",
+            b"ab",
+            b"z",
+            b"\x00",
+            b"\xff",
+            0,
+            97,
+            255,
+            False,
+            True,
+        ):
+            assert (needle in target) == (needle in value)
+        assert target in target
+
+    def must_raise_buffer_error(action):
+        try:
+            action()
+        except BufferError:
+            return
+        raise AssertionError("resize was not rejected")
+
+    target = bytearray(b"a")
+    view = memoryview(target)
+    try:
+        assert b"a" in target
+        assert 97 in target
+        must_raise_buffer_error(lambda: target.append(0))
+        target[:] = b"b"
+        assert b"b" in target
+        assert 98 in target
+    finally:
+        view.release()
+    target.append(0)
+    assert target == b"b\x00"
+
+    class IndexNeedle:
+        def __index__(self):
+            must_raise_buffer_error(lambda: target.append(0))
+            target[0] = 98
+            return 98
+
+    class BytesNeedle(bytes):
+        __index__ = IndexNeedle.__index__
+
+    for needle in (IndexNeedle(), BytesNeedle(b"\xdd")):
+        target[:] = b"a"
+        assert needle in target
+        assert target == b"b"
+        target.append(0)
+        assert target == b"b\x00"
+
+    for needle in (-1, 256):
+        with assert_raises(ValueError):
+            needle in target
+
+    events = [0, 0]
+
+    class BufferNeedle:
+        def __buffer__(self, flags):
+            must_raise_buffer_error(lambda: target.append(0))
+            target[0] = 98
+            events[0] += 1
+            return memoryview(b"b")
+
+        def __release_buffer__(self, view):
+            must_raise_buffer_error(lambda: target.append(0))
+            events[1] += 1
+
+    target[:] = b"a"
+    assert BufferNeedle() in target
+    assert events == [1, 1]
+    target.append(0)
+    assert target == b"b\x00"
+
+
+test_bytearray_contains_builtin_and_callback_exports()
+
+
+def test_bytearray_take_bytes_bounded():
+    for n, expected, remaining in (
+        (None, b"abcd", b""),
+        (0, b"", b"abcd"),
+        (1, b"a", b"bcd"),
+        (2, b"ab", b"cd"),
+        (4, b"abcd", b""),
+        (-1, b"abc", b"d"),
+        (-4, b"", b"abcd"),
+        (True, b"a", b"bcd"),
+    ):
+        target = bytearray(b"abcd")
+        result = target.take_bytes(n)
+        assert type(result) is bytes
+        assert result == expected
+        assert target == remaining
+        target[:] = b"z"
+        assert result == expected
+    target = bytearray(b"abc")
+    assert target.take_bytes() == b"abc"
+    assert target == b""
+    for n in (None, 0):
+        assert bytearray().take_bytes(n) == b""
+    for n in (5, -5, sys.maxsize + 1, -sys.maxsize - 2):
+        target = bytearray(b"abcd")
+        with assert_raises(IndexError):
+            target.take_bytes(n)
+        assert target == b"abcd"
+    for n in (1.0, "1", b"1", object()):
+        with assert_raises(TypeError):
+            bytearray(b"a").take_bytes(n)
+    with assert_raises(TypeError):
+        bytearray(b"a").take_bytes(n=1)
+    with assert_raises(TypeError):
+        bytearray(b"a").take_bytes(1, 2)
+    for content in (b"", b"abcd"):
+        target = bytearray(content)
+        view = memoryview(target)
+        try:
+            for n in (None, 0, len(content)):
+                with assert_raises(BufferError):
+                    target.take_bytes(n)
+                assert target == content
+            for n in (len(content) + 1, -len(content) - 1):
+                with assert_raises(IndexError):
+                    target.take_bytes(n)
+                assert target == content
+        finally:
+            view.release()
+        assert target.take_bytes() == content
+    target = bytearray(b"abcd")
+    parent = memoryview(target)
+    child = parent[1:3]
+    clone = memoryview(parent)
+    parent.release()
+    try:
+        with assert_raises(BufferError):
+            target.take_bytes(0)
+        child.release()
+        with assert_raises(BufferError):
+            target.take_bytes(1)
+    finally:
+        child.release()
+        clone.release()
+    assert target.take_bytes() == b"abcd"
+
+
+def test_bytearray_take_bytes_reentrant_bounded():
+    class Index:
+        def __init__(self, action, result):
+            self.action = action
+            self.result = result
+
+        def __index__(self):
+            self.action()
+            return self.result
+
+    for replacement, n, expected, remaining in (
+        (b"ab", 2, b"ab", b""),
+        (b"", 0, b"", b""),
+        (b"abcdef", 5, b"abcde", b"f"),
+        (b"ab", -1, b"a", b"b"),
+    ):
+        target = bytearray(b"abcd")
+        index = Index(lambda: target.__setitem__(slice(None), replacement), n)
+        assert target.take_bytes(index) == expected
+        assert target == remaining
+    target = bytearray(b"abcd")
+    with assert_raises(IndexError):
+        target.take_bytes(Index(target.clear, 1))
+    assert target == b""
+    for n, error in ((1, BufferError), (5, IndexError)):
+        target = bytearray(b"abcd")
+        views = []
+        try:
+            with assert_raises(error):
+                target.take_bytes(Index(lambda: views.append(memoryview(target)), n))
+            assert target == b"abcd"
+        finally:
+            for view in views:
+                view.release()
+    for n, error in ((2, None), (5, IndexError)):
+        target = bytearray(b"abcd")
+        view = memoryview(target)
+        try:
+            index = Index(view.release, n)
+            if error is None:
+                assert target.take_bytes(index) == b"ab"
+                assert target == b"cd"
+            else:
+                with assert_raises(error):
+                    target.take_bytes(index)
+                assert target == b"abcd"
+        finally:
+            view.release()
+    target = bytearray(b"abcd")
+    with assert_raises(TypeError):
+        target.take_bytes(Index(lambda: None, "wrong"))
+    assert target == b"abcd"
+
+    def raises():
+        raise ValueError("index callback")
+
+    with assert_raises(ValueError):
+        target.take_bytes(Index(raises, 1))
+    assert target == b"abcd"
+
+    class MembershipIndex:
+        def __index__(self):
+            with assert_raises(IndexError):
+                target.take_bytes(5)
+            with assert_raises(BufferError):
+                target.take_bytes(0)
+            return ord("a")
+
+    assert MembershipIndex() in target
+    assert target.take_bytes() == b"abcd"
+
+
+def test_bytearray_take_bytes_codec_callback_bounded():
+    import codecs
+
+    target = bytearray(b"\xff")
+    calls = []
+
+    def handler(error):
+        with assert_raises(IndexError):
+            target.take_bytes(2)
+        with assert_raises(BufferError):
+            target.take_bytes(0)
+        calls.append(error.start)
+        return ("?", error.end)
+
+    codecs.register_error("bytearray_take_bytes_bounded", handler)
+    assert target.decode("ascii", "bytearray_take_bytes_bounded") == "?"
+    assert calls == [0]
+    assert target.take_bytes() == b"\xff"
+
+
+test_bytearray_take_bytes_bounded()
+test_bytearray_take_bytes_reentrant_bounded()
+test_bytearray_take_bytes_codec_callback_bounded()

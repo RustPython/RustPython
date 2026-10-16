@@ -651,6 +651,7 @@ DEPENDENCIES = {
         "lib": [],
         "test": [
             "test_math.py",
+            "test_math_integer.py",
             "test_math_property.py",
         ],
     },

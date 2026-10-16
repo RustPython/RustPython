@@ -29,7 +29,7 @@ pub(crate) mod _signal {
             use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
 
             use std::os::fd::AsFd;
-        },
+        }
         _ => {}
     }
 
@@ -47,20 +47,26 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
-            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+            static WAKEUP_IS_SOCKET: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
 
             impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
-                fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
+                fn try_from_borrowed_object(
+                    vm: &VirtualMachine,
+                    obj: &'a crate::PyObject,
+                ) -> PyResult<Self> {
                     use num_traits::One;
 
                     let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
                     match fd.try_to_primitive::<usize>(vm) {
                         Ok(fd) => Ok(Self(fd as _)),
-                        Err(e) => if (-fd.as_bigint()).is_one() {
-                            Ok(Self(INVALID_WAKEUP))
-                        } else {
-                            Err(e)
-                        },
+                        Err(e) => {
+                            if (-fd.as_bigint()).is_one() {
+                                Ok(Self(INVALID_WAKEUP))
+                            } else {
+                                Err(e)
+                            }
+                        }
                     }
                 }
             }
@@ -72,6 +78,13 @@ pub(crate) mod _signal {
             static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
         }
     }
+
+    #[cfg(windows)]
+    static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
+
+    // Bounded pending-call storage: signal handlers cannot allocate or lock.
+    #[cfg(windows)]
+    static WAKEUP_SEND_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[allow(unused_imports)]
@@ -344,12 +357,12 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        // TODO: implement warn_on_full_buffer
+        // TODO: implement warn_on_full_buffer for the remaining wakeup write paths.
         let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
-        windows => args.fd.0,
-        _ => args.fd,
-            };
+            windows => args.fd.0,
+            _ => args.fd,
+        };
 
         if !vm.is_main_thread() {
             return Err(vm.new_value_error(
@@ -383,7 +396,10 @@ pub(crate) mod _signal {
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
 
         #[cfg(windows)]
-        WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
+        {
+            WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
+            WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
+        }
 
         #[cfg(windows)]
         if old_fd == INVALID_WAKEUP {
@@ -426,12 +442,11 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
         let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
-            windows => {
-                |_| vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
+            windows => |_| {
+                vm.new_errno_error(libc::EINVAL, "Invalid argument")
+                    .upcast()
             },
-            _ => {
-                |msg| vm.new_value_error(msg)
-            }
+            _ => |msg| vm.new_value_error(msg),
         })?;
 
         vm.allow_threads(|| host_signal::raise_signal(signalnum.into()))
@@ -532,14 +547,57 @@ pub(crate) mod _signal {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
-        host_signal::notify_signal(
+        #[cfg(not(windows))]
+        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
+
+        #[cfg(windows)]
+        let error = host_signal::notify_signal(
             signum,
             WAKEUP.load(Ordering::Relaxed),
-            #[cfg(windows)]
             WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
-            #[cfg(windows)]
             signal::get_sigint_event(),
         );
+        #[cfg(windows)]
+        if let Some(error) = error
+            && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+        {
+            for pending in &WAKEUP_SEND_ERRORS {
+                if pending
+                    .compare_exchange(0, error.0, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    // The VM may have handled the signal on another thread
+                    // before the failed wakeup send completed.
+                    signal::set_triggered();
+                    break;
+                }
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn wakeup_send_errors_pending() -> bool {
+        WAKEUP_SEND_ERRORS
+            .iter()
+            .any(|error| error.load(Ordering::Relaxed) != 0)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn report_wakeup_send_errors(vm: &VirtualMachine) {
+        for pending in &WAKEUP_SEND_ERRORS {
+            let error = pending.swap(0, Ordering::Relaxed);
+            if error != 0 {
+                vm.run_unraisable(
+                    host_signal::WakeupSendError(error)
+                        .into_io_error()
+                        .into_pyexception(vm),
+                    Some(
+                        "Exception ignored while trying to send to the signal wakeup fd".to_owned(),
+                    ),
+                    vm.ctx.none(),
+                );
+            }
+        }
     }
 
     /// Reset wakeup fd after fork in child process.

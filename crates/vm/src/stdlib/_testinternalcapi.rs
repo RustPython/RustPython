@@ -837,13 +837,17 @@ mod _testinternalcapi {
             ..rustpython_codegen::CompileOpts::default()
         };
         opts.future_features |= rustpython_codegen::preprocess::future_features(&converted.ast);
-        let output = rustpython_codegen::compile::compile_codegen(
-            converted.ast,
-            converted.source_file,
+        let output = rustpython_codegen::compile::compile_codegen_ast(
+            rustpython_codegen::compile::AstInput {
+                ast: converted.ast,
+                source_file: converted.source_file,
+                locations: converted.locations,
+            },
             mode,
             opts,
+            None,
         )
-        .map_err(|err| vm.new_syntax_error(&crate::compiler::CompileError::from(err), None))?;
+        .map_err(|err| crate::stdlib::_ast::codegen_exception(vm, err, None))?;
         let seq = PyInstructionSequence::from_rust(output.seq, vm);
         let metadata = vm.ctx.new_dict();
         metadata.set_item("argcount", vm.ctx.new_int(output.argcount).into(), vm)?;
@@ -1125,11 +1129,16 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
     expanded
 }
 
-type CodeNamespaces = (PyRef<PyCode>, Option<PyRef<PyDict>>, Option<PyRef<PyDict>>);
+type CodeNamespaces = (
+    PyRef<PyCode>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
+    Option<PyRef<crate::builtins::PyAnyDict>>,
+);
 
 fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespaces> {
     if let Ok(func) = obj.to_owned().downcast::<PyFunction>() {
-        let builtins = func.builtins.clone().downcast::<PyDict>().ok();
+        let builtins =
+            crate::builtins::PyAnyDict::from_object(&func.builtins).map(ToOwned::to_owned);
         return Ok((
             (*func.code).to_owned(),
             Some(func.globals.clone()),
@@ -1142,19 +1151,22 @@ fn code_or_function(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CodeNamespa
     Err(vm.new_type_error("argument must be a code object or a function"))
 }
 
-fn optional_dict(
+fn optional_dict<T: From<PyRef<PyDict>>>(
     override_ns: OptionalArg<PyObjectRef>,
-    default: Option<PyRef<PyDict>>,
+    default: Option<T>,
     name: &str,
     vm: &VirtualMachine,
-) -> PyResult<Option<PyRef<PyDict>>> {
+) -> PyResult<Option<T>> {
     match override_ns.into_option() {
-        Some(obj) => obj.downcast::<PyDict>().map(Some).map_err(|obj| {
-            vm.new_type_error(format!(
-                "expected a dict for \"{name}\", got {}",
-                obj.class().name()
-            ))
-        }),
+        Some(obj) => obj
+            .downcast::<PyDict>()
+            .map(|dict| Some(dict.into()))
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "expected a dict for \"{name}\", got {}",
+                    obj.class().name()
+                ))
+            }),
         None => Ok(default),
     }
 }
@@ -1280,8 +1292,8 @@ fn set_unbound_var_counts(
     counts: &mut VarCounts,
     globalnames: Option<PyObjectRef>,
     attrnames: Option<PyObjectRef>,
-    globalsns: Option<&Py<PyDict>>,
-    builtinsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let globalnames = optional_set(globalnames, "globalnames", vm)?;
@@ -1317,8 +1329,8 @@ fn identify_unbound_names(
     code: &Py<PyCode>,
     globalnames: Option<PyRef<PySet>>,
     attrnames: Option<PyRef<PySet>>,
-    globalsns: Option<&Py<PyDict>>,
-    builtinsns: Option<&Py<PyDict>>,
+    globalsns: Option<&crate::builtins::PyAnyDict>,
+    builtinsns: Option<&crate::builtins::PyAnyDict>,
     vm: &VirtualMachine,
 ) -> PyResult<(UnboundCounts, i32)> {
     let mut seen_globals = HashSet::new();

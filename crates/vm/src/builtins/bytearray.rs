@@ -1,6 +1,6 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
+    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyInt, PyStrRef, PyTuple, PyTupleRef,
     PyType, PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
@@ -12,18 +12,15 @@ use crate::{
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerReplaceOptions, ByteInnerSplitOptions, ByteInnerStripOptions, ByteInnerSub,
-        ByteInnerTranslateOptions, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerTranslateOptions, ByteOr, BytesJoin, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
-    common::{
-        atomic::{AtomicUsize, Ordering},
-        lock::{
-            PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
-            PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
-        },
+    common::lock::{
+        PyDetachingRwLock, PyDetachingRwLockReadGuard, PyDetachingRwLockWriteGuard,
+        PyMappedDetachingRwLockReadGuard, PyMappedDetachingRwLockWriteGuard, PyMutex,
     },
     convert::{ToPyObject, ToPyResult},
-    function::{ArgBytesLike, FuncArgs, PyComparisonValue, PySsize},
+    function::{ArgBytesLike, FuncArgs, OptionalArg, PyComparisonValue, PySsize},
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -37,12 +34,62 @@ use crate::{
 };
 use bstr::ByteSlice;
 use core::mem::size_of;
+use num_traits::ToPrimitive;
 
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyDetachingRwLock<PyBytesInner>,
-    exports: AtomicUsize,
+    exports: PyMutex<ExportState>,
+}
+
+// While count is nonzero, len is the stable logical length of the payload.
+// Publish both together; the length is meaningless between export epochs.
+#[derive(Debug, Default)]
+struct ExportState {
+    count: usize,
+    len: usize,
+}
+
+impl ExportState {
+    fn snapshot(&self) -> Option<usize> {
+        (self.count != 0).then_some(self.len)
+    }
+
+    fn retain_existing(&mut self) -> Option<usize> {
+        let len = self.snapshot()?;
+        self.count += 1;
+        Some(len)
+    }
+
+    // The caller holds a payload read guard, so first publication cannot
+    // overlap a resize and an existing epoch has the same length.
+    fn retain(&mut self, len: usize) {
+        if self.count == 0 {
+            self.len = len;
+        }
+        self.count += 1;
+    }
+
+    fn release(&mut self) {
+        self.count -= 1;
+    }
+}
+
+struct ByteArrayExportGuard<'a> {
+    owner: &'a PyByteArray,
+    len: usize,
+}
+
+impl Drop for ByteArrayExportGuard<'_> {
+    fn drop(&mut self) {
+        self.owner.exports.lock().release();
+    }
+}
+
+enum ResizeAccess<'a> {
+    Exclusive(PyDetachingRwLockWriteGuard<'a, PyBytesInner>),
+    Exported { len: usize },
 }
 
 pub(crate) type PyByteArrayRef = PyRef<PyByteArray>;
@@ -95,7 +142,7 @@ impl PyByteArray {
     const fn from_inner(inner: PyBytesInner) -> Self {
         Self {
             inner: PyDetachingRwLock::new(inner),
-            exports: AtomicUsize::new(0),
+            exports: PyMutex::new(ExportState { count: 0, len: 0 }),
         }
     }
 
@@ -103,15 +150,54 @@ impl PyByteArray {
         PyDetachingRwLockReadGuard::map(self.inner.read(), |inner| &*inner.elements)
     }
 
+    /// Borrow for in-place byte replacement only. Do not change the length,
+    /// replace or reallocate storage, or hold this guard across Python calls.
+    /// Operations that may resize or reallocate must use export-checked access.
     pub fn borrow_buf_mut(&self) -> PyMappedDetachingRwLockWriteGuard<'_, Vec<u8>> {
         PyDetachingRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
     }
 
+    fn begin_export(&self) -> ByteArrayExportGuard<'_> {
+        // Existing epochs need no payload lock, including in codec callbacks
+        // that already hold a payload read guard.
+        let existing_len = { self.exports.lock().retain_existing() };
+        let len = match existing_len {
+            Some(len) => len,
+            None => {
+                // Never wait for the payload with the metadata lock held.
+                // An earlier resize must finish before first publication.
+                let inner = self.inner.read();
+                let len = inner.elements.len();
+                self.exports.lock().retain(len);
+                len
+            }
+        };
+        ByteArrayExportGuard { owner: self, len }
+    }
+
+    fn resize_access(&self) -> ResizeAccess<'_> {
+        // An export is a borrow someone else still holds, so it is answered
+        // before the lock rather than by waiting on it.
+        let exported_len = { self.exports.lock().snapshot() };
+        if let Some(len) = exported_len {
+            return ResizeAccess::Exported { len };
+        }
+        let inner = self.inner.write();
+        // An export may have started while we waited. Capture its length in
+        // the same decision, without borrowing the payload a second time.
+        let exported_len = { self.exports.lock().snapshot() };
+        match exported_len {
+            Some(len) => {
+                drop(inner);
+                ResizeAccess::Exported { len }
+            }
+            None => ResizeAccess::Exclusive(inner),
+        }
+    }
+
     fn with_export<R>(&self, f: impl FnOnce(usize) -> R) -> R {
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
-        // Reading the length also waits for any earlier resize to finish.
-        f(self.__len__())
+        let export = self.begin_export();
+        f(export.len)
     }
 
     fn buffer_snapshot(buffer: &PyBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -317,9 +403,23 @@ impl PyByteArray {
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        // Exact builtins cannot call Python while preparing the needle. The
+        // read lock alone protects their search; a temporary export would make
+        // a concurrent resize fail instead of waiting for that lock.
+        if let Some(bytes) = needle.downcast_ref_if_exact::<PyBytes>(vm) {
+            return Ok(self.borrow_buf().contains_str(bytes.as_bytes()));
+        }
+        let int = if needle.class().is(vm.ctx.types.bool_type) {
+            needle.downcast_ref::<PyInt>()
+        } else {
+            needle.downcast_ref_if_exact::<PyInt>(vm)
+        };
+        if let Some(int) = int {
+            let byte = int.as_bigint().byte_or(vm)?;
+            return Ok(self.borrow_buf().contains(&byte));
+        }
         // Converting the needle runs Python, which must not resize this bytearray.
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let _export = self.begin_export();
         let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
         self.inner().contains(needle, vm)
     }
@@ -354,7 +454,9 @@ impl PyByteArray {
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Formatting calls the values' conversion methods, which can reach
-        // this bytearray, so the format is taken by value.
+        // this bytearray, so the format is taken by value. It also stays
+        // exported until formatting ends, so resizing it raises BufferError.
+        let _export = self.begin_export();
         let format = self.inner().clone();
         let formatted = format.cformat(values, vm)?;
         Ok(formatted.into())
@@ -488,6 +590,64 @@ impl Py<PyByteArray> {
     }
 
     #[pymethod]
+    fn take_bytes(&self, n: OptionalArg, vm: &VirtualMachine) -> PyResult<PyBytes> {
+        // __index__ can resize self or acquire/release exports. Convert before
+        // observing either the payload or the export epoch.
+        let n = match n.into_option().filter(|n| !vm.is_none(n)) {
+            None => None,
+            Some(n) => {
+                let index = n
+                    .try_index_opt(vm)
+                    .ok_or_else(|| vm.new_type_error("n must be an integer or None"))??;
+                Some(index.as_bigint().to_isize().ok_or_else(|| {
+                    vm.new_index_error(format!(
+                        "cannot fit '{}' into an index-sized integer",
+                        n.class().slot_name()
+                    ))
+                })?)
+            }
+        };
+        let access = self.resize_access();
+        let len = match &access {
+            ResizeAccess::Exclusive(inner) => inner.elements.len(),
+            ResizeAccess::Exported { len } => *len,
+        };
+        // Vec<u8> lengths fit isize. Adding a nonnegative length to a negative
+        // index cannot overflow; preserve the adjusted index in the error.
+        let to_take = match n {
+            None => len as isize,
+            Some(n) if n < 0 => n + len as isize,
+            Some(n) => n,
+        };
+        if to_take < 0 || to_take as usize > len {
+            drop(access);
+            return Err(
+                vm.new_index_error(format!("can't take {to_take} bytes outside size {len}"))
+            );
+        }
+        let ResizeAccess::Exclusive(mut inner) = access else {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        };
+        let to_take = to_take as usize;
+        let result = if to_take == 0 {
+            Vec::new()
+        } else if to_take == len {
+            core::mem::take(&mut inner.elements)
+        } else {
+            let mut result = Vec::new();
+            if result.try_reserve_exact(to_take).is_err() {
+                drop(inner);
+                return Err(vm.no_memory_error());
+            }
+            result.extend_from_slice(&inner.elements[..to_take]);
+            inner.elements.drain(..to_take);
+            result
+        };
+        drop(inner);
+        Ok(PyBytes::from(result))
+    }
+
+    #[pymethod]
     fn __reduce_ex__(
         &self,
         args: ByteArrayReduceExArgs,
@@ -510,7 +670,7 @@ impl Py<PyByteArray> {
     #[cfg(debug_assertions)]
     #[pygetset]
     fn exports(&self) -> usize {
-        self.exports.load(Ordering::Relaxed)
+        self.exports.lock().count
     }
 
     #[pymethod]
@@ -605,8 +765,7 @@ impl Py<PyByteArray> {
         // is borrowed, with the buffer exported so that resizing this
         // bytearray from there raises BufferError.
         let (sep, bytes_per_sep) = {
-            self.exports.fetch_add(1, Ordering::Release);
-            scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+            let _export = self.begin_export();
             options.resolve(vm)?
         };
         Ok(self.inner().hex(sep, bytes_per_sep))
@@ -672,9 +831,8 @@ impl Py<PyByteArray> {
     fn join(&self, iterable_of_bytes: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyByteArray> {
         // Export before driving the iterable: resizing is forbidden, but
         // same-size mutations must be reflected in the joined result.
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
-        let separator_len = self.__len__();
+        let _export = self.begin_export();
+        let separator_len = _export.len;
         let items = BytesJoin::new(iterable_of_bytes, vm)?;
         Ok(items
             .join(separator_len, || self.borrow_buf().into(), vm)?
@@ -769,12 +927,12 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn strip(&self, options: ByteInnerStripOptions) -> PyByteArray {
-        self.inner().strip(options.bytes).into()
+        self.inner().strip(options.bytes).to_vec().into()
     }
 
     #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> PyByteArray {
-        self.inner().removeprefix(prefix).into()
+        self.inner().removeprefix(prefix).to_vec().into()
     }
 
     #[pymethod]
@@ -786,8 +944,7 @@ impl Py<PyByteArray> {
     fn split(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // Converting the separator runs Python, which must not resize this
         // bytearray, so the arguments are bound with the buffer exported.
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let _export = self.begin_export();
         let options: ByteInnerSplitOptions = args.bind_for(vm, "split")?;
         self.inner()
             .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
@@ -795,8 +952,7 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn rsplit(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        self.exports.fetch_add(1, Ordering::Release);
-        scopeguard::defer! { self.exports.fetch_sub(1, Ordering::Release); }
+        let _export = self.begin_export();
         let options: ByteInnerSplitOptions = args.bind_for(vm, "rsplit")?;
         self.inner()
             .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
@@ -850,7 +1006,7 @@ impl Py<PyByteArray> {
         options: ByteInnerReplaceOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().replace(options, vm)?.into())
+        Ok(self.inner().replace(options, vm)?.into_owned().into())
     }
 
     #[pymethod]
@@ -986,17 +1142,14 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
         )
         .into()
     },
-    release: |buffer| {
-        buffer
-            .obj_as::<PyByteArray>()
-            .exports
-            .fetch_sub(1, Ordering::Release);
-    },
+    release: |buffer| buffer.obj_as::<PyByteArray>().exports.lock().release(),
     retain: |buffer| {
+        // as_buffer holds the payload read guard until PyBuffer::new returns.
         buffer
             .obj_as::<PyByteArray>()
             .exports
-            .fetch_add(1, Ordering::Release);
+            .lock()
+            .retain(buffer.desc.len);
     },
 };
 
@@ -1030,14 +1183,10 @@ impl BufferResizeGuard for PyByteArray {
     type Resizable<'a> = PyDetachingRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
-        // An export is a borrow someone else still holds, so it is answered
-        // before the lock rather than by waiting on it.
-        if self.exports.load(Ordering::SeqCst) != 0 {
-            return None;
+        match self.resize_access() {
+            ResizeAccess::Exclusive(inner) => Some(inner),
+            ResizeAccess::Exported { .. } => None,
         }
-        let inner = self.inner.write();
-        // An export may have been acquired while we waited for the lock.
-        (self.exports.load(Ordering::SeqCst) == 0).then_some(inner)
     }
 }
 
@@ -1224,5 +1373,46 @@ impl IterNext for PyByteArrayIterator {
                 buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod export_state_tests {
+    use super::ExportState;
+
+    #[test]
+    fn export_epoch_length_is_stable_until_last_release() {
+        let mut state = ExportState::default();
+        assert_eq!(state.snapshot(), None);
+        assert_eq!(state.retain_existing(), None);
+        state.retain(3);
+        assert_eq!(state.snapshot(), Some(3));
+        assert_eq!(state.retain_existing(), Some(3));
+        state.retain(3);
+        assert_eq!(state.count, 3);
+        state.release();
+        state.release();
+        assert_eq!(state.count, 1);
+        assert_eq!(state.snapshot(), Some(3));
+        let rejected_length = state.snapshot();
+        state.release();
+        assert_eq!(state.snapshot(), None);
+        state.retain(7);
+        assert_eq!(state.snapshot(), Some(7));
+        assert_eq!(rejected_length, Some(3));
+        state.release();
+        assert_eq!(state.snapshot(), None);
+    }
+
+    #[test]
+    fn empty_export_is_distinct_from_no_export() {
+        let mut state = ExportState::default();
+        state.retain(0);
+        assert_eq!(state.snapshot(), Some(0));
+        assert_eq!(state.retain_existing(), Some(0));
+        state.release();
+        assert_eq!(state.snapshot(), Some(0));
+        state.release();
+        assert_eq!(state.snapshot(), None);
     }
 }

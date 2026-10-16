@@ -2,13 +2,13 @@
 
 */
 
-use super::{PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyIntRef};
+use super::{PyAnyDict, PyAsyncGen, PyCode, PyCoroutine, PyGenerator, PyIntRef};
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{FrameObject, FrameOwner},
     function::PySetterValue,
-    types::{Destructor, Representable},
+    types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
 use num_traits::Zero;
@@ -242,29 +242,30 @@ pub(crate) mod stack_analysis {
                             }
                         }
                     }
-                    Instruction::GetIter | Instruction::GetAiter => {
+                    Instruction::GetIter { .. } => {
+                        next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
+                        next_stack = push_value(next_stack, Kind::Iterator as i64);
+                        if next_i < stacks.len() {
+                            stacks[next_i] = next_stack;
+                        }
+                    }
+                    Instruction::GetAiter => {
                         next_stack = push_value(pop_value(next_stack), Kind::Iterator as i64);
                         if next_i < stacks.len() {
                             stacks[next_i] = next_stack;
                         }
                     }
                     Instruction::ForIter { .. } => {
-                        // Fall-through (iteration continues): pushes the next value
-                        let body_stack = push_value(next_stack, Kind::Object as i64);
+                        // Both the body and the END_FOR target start with the
+                        // next value pushed.
+                        let target_stack = push_value(next_stack, Kind::Object as i64);
                         if next_i < stacks.len() {
-                            stacks[next_i] = body_stack;
+                            stacks[next_i] = target_stack;
                         }
-                        // Exhaustion path: relative forward from after_caches
-                        let mut j = next_i + oparg as usize;
-                        if j < instructions.len() {
-                            let target_op =
-                                instructions[j].op.to_base().unwrap_or(instructions[j].op);
-                            if matches!(target_op, Instruction::EndFor) {
-                                j += 1;
-                            }
-                        }
-                        if j < stacks.len() && stacks[j] == UNINITIALIZED {
-                            stacks[j] = next_stack;
+                        let j = next_i + oparg as usize;
+                        if j < stacks.len() {
+                            debug_assert!(stacks[j] == UNINITIALIZED || stacks[j] == target_stack);
+                            stacks[j] = target_stack;
                         }
                     }
                     Instruction::EndAsyncFor => {
@@ -514,19 +515,19 @@ impl Py<FrameObject> {
         );
         match owner {
             FrameOwner::Generator => {
-                // FRAME_SUSPENDED (lasti > 0) cannot be cleared. FRAME_CREATED
-                // and finished frames go through the owner finalizer.
-                if self.lasti() != 0 {
-                    return Err(vm.new_runtime_error("cannot clear a suspended frame"));
-                }
+                // RETURN_GENERATOR executes the creation preamble, so lasti
+                // no longer distinguishes a created frame from a suspended one.
                 if let Some(owner) = self.iframe().generator.to_owned() {
-                    if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
-                        let _ = PyCoroutine::del(coro, vm);
+                    let coro = if let Some(coro) = owner.downcast_ref::<PyCoroutine>() {
+                        coro.as_coro()
                     } else if let Some(async_gen) = owner.downcast_ref::<PyAsyncGen>() {
-                        let _ = PyAsyncGen::del(async_gen, vm);
+                        async_gen.as_coro()
                     } else if let Some(generator) = owner.downcast_ref::<PyGenerator>() {
-                        let _ = PyGenerator::del(generator, vm);
-                    }
+                        generator.as_coro()
+                    } else {
+                        unreachable!("generator-owned frame has no coroutine owner")
+                    };
+                    coro.clear_frame(&owner, vm)?;
                 }
                 return Ok(());
             }
@@ -630,6 +631,11 @@ impl Py<FrameObject> {
             let mut cur = crate::vm::thread::get_current_frame();
             while !cur.is_null() {
                 if core::ptr::eq(cur, prev) {
+                    // SAFETY: cur was found on this thread's live active chain.
+                    let cur = unsafe { crate::frame::first_complete_iframe(cur) };
+                    if cur.is_null() {
+                        return None;
+                    }
                     let iframe_ref = unsafe { &*cur };
                     let fo = iframe_ref.materialize(vm);
                     return Some(fo.to_owned());
@@ -652,6 +658,11 @@ impl Py<FrameObject> {
             // return and free the stack-allocated iframe at any time.
             vm.state.stop_the_world.stop_the_world(&vm.state);
             scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+            // SAFETY: the world is stopped, preserving the live chain.
+            let prev = unsafe { crate::frame::first_complete_iframe(prev) };
+            if prev.is_null() {
+                return None;
+            }
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {
@@ -659,7 +670,7 @@ impl Py<FrameObject> {
             }
             // Slow path: copy the whole chain, linked through retained_back.
             // SAFETY: the world is stopped, so the owning thread is parked.
-            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
+            let fo = unsafe { prev_ref.materialize_complete_detached_chain(vm) };
             return Some(fo);
         }
 
@@ -668,7 +679,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    pub fn f_globals(&self) -> PyDictRef {
+    pub fn f_globals(&self) -> PyRef<PyAnyDict> {
         self.iframe().globals().to_owned()
     }
 

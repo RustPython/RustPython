@@ -16,6 +16,14 @@ import shutil
 import sys
 
 
+def _ignore_bytecode_caches(directory: str, names: list[str]) -> set[str]:
+    return {
+        name
+        for name in names
+        if name == "__pycache__" and (pathlib.Path(directory) / name).is_dir()
+    }
+
+
 def _copy_single(
     src_path: pathlib.Path,
     lib_path: pathlib.Path,
@@ -38,7 +46,7 @@ def _copy_single(
         if verbose:
             print(f"Copying directory: {src_path} -> {lib_path}")
         lib_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src_path, lib_path)
+        shutil.copytree(src_path, lib_path, ignore=_ignore_bytecode_caches)
     else:
         if verbose:
             print(f"Copying file: {src_path} -> {lib_path}")

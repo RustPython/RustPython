@@ -107,6 +107,12 @@ if sys.platform == "win32":
         assert local[:6] == time.gmtime(timestamp + local.tm_gmtoff)[:6]
         assert time.ctime(timestamp) == time.asctime(local)
 
+if sys.platform == "win32":
+    # The explicit 64-bit CRT ABI must accept timestamps beyond 2038.
+    for timestamp in (2_208_988_800, 2_208_988_800.0):
+        assert time.gmtime(timestamp) == (2040, 1, 1, 0, 0, 0, 6, 1, 0)
+
+
 x = time.gmtime(1000)
 
 assert x.tm_year == 1970

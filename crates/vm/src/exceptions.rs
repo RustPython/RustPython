@@ -2738,7 +2738,9 @@ pub(super) mod types {
                             .filter(|f| !vm.is_none(f));
 
                         let winerror: Option<PyObjectRef> = cfg_select! {
-                            windows => obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w)),
+                            windows => {
+                                obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w))
+                            }
                             _ => None,
                         };
 

@@ -22,6 +22,7 @@ use crate::{
     windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned},
 };
 use libc::intptr_t;
+
 use widestring::WideCString;
 use windows_sys::{
     Win32::{
@@ -74,6 +75,25 @@ pub use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_SPARSE_FILE, FILE_ATTRIBUTE_SYSTEM,
     FILE_ATTRIBUTE_TEMPORARY, FILE_ATTRIBUTE_VIRTUAL,
 };
+
+pub fn get_blocking(fd: crt_fd::Borrowed<'_>) -> io::Result<bool> {
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    Ok(mode & windows_sys::Win32::System::Pipes::PIPE_NOWAIT == 0)
+}
+
+pub fn set_blocking(fd: crt_fd::Borrowed<'_>, blocking: bool) -> io::Result<()> {
+    use windows_sys::Win32::System::Pipes::PIPE_NOWAIT;
+
+    let handle = crt_fd::as_handle(fd)?;
+    let mode = crate::winapi::get_named_pipe_handle_state(handle.as_raw_handle())?;
+    let mode = if blocking {
+        mode & !PIPE_NOWAIT
+    } else {
+        mode | PIPE_NOWAIT
+    };
+    crate::winapi::set_named_pipe_handle_state(handle.as_raw_handle(), Some(mode), None, None)
+}
 
 pub type Handle = HANDLE;
 pub const MAX_PATH_USIZE: usize = MAX_PATH as usize;
@@ -129,16 +149,16 @@ struct FileAttributeTagInfo {
     reparse_tag: u32,
 }
 
-const fn win32_large_integer_to_time(li: i64) -> (libc::time_t, i32) {
+const fn win32_large_integer_to_time(li: i64) -> (crate::time::TimeT, i32) {
     let nsec = ((li % 10_000_000) * 100) as i32;
-    let sec = (li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = li / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
-const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (libc::time_t, i32) {
+const fn win32_filetime_to_time(ft_low: u32, ft_high: u32) -> (crate::time::TimeT, i32) {
     let ticks = ((ft_high as i64) << 32) | (ft_low as i64);
     let nsec = ((ticks % 10_000_000) * 100) as i32;
-    let sec = (ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS) as libc::time_t;
+    let sec = ticks / 10_000_000 - crate::fileutils::windows::SECS_BETWEEN_EPOCHS;
     (sec, nsec)
 }
 
@@ -591,10 +611,10 @@ impl ScandirEntry {
         if reparse_tag == IO_REPARSE_TAG_SYMLINK {
             mode = (mode & !libc::S_IFMT) | S_IFLNK;
         }
-        let to_time = |ticks: u64| -> (libc::time_t, i32) {
+        let to_time = |ticks: u64| -> (crate::time::TimeT, i32) {
             let ticks = ticks as i64;
             (
-                (ticks / 10_000_000 - SECS_BETWEEN_EPOCHS) as libc::time_t,
+                ticks / 10_000_000 - SECS_BETWEEN_EPOCHS,
                 ((ticks % 10_000_000) * 100) as i32,
             )
         };

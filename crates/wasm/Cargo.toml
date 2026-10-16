@@ -12,9 +12,10 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["freeze-stdlib", "doc"]
+default = ["freeze-stdlib", "doc", "ucd_3_2_0"]
 doc = ["rustpython-vm/doc", "rustpython-stdlib?/doc"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib", "rustpython-stdlib/ssl"]
+ucd_3_2_0 = ["rustpython-stdlib?/ucd_3_2_0"]
 no-start-func = []
 
 [dependencies]

@@ -26,10 +26,11 @@ Written by Marc-Andre Lemburg (mal@lemburg.com).
 
 (c) Copyright CNRI, All Rights Reserved. NO WARRANTY.
 
-"""#"
+"""
 
 import codecs
 import sys
+from _codecs import _normalize_encoding
 from . import aliases
 
 _cache = {}
@@ -62,18 +63,7 @@ def normalize_encoding(encoding):
             "Support for non-ascii encoding names will be removed in 3.17",
             DeprecationWarning, stacklevel=2)
 
-    chars = []
-    punct = False
-    for c in encoding:
-        if c.isalnum() or c == '.':
-            if punct and chars:
-                chars.append('_')
-            if c.isascii():
-                chars.append(c)
-            punct = False
-        else:
-            punct = True
-    return ''.join(chars)
+    return _normalize_encoding(encoding)
 
 def search_function(encoding):
 

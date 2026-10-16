@@ -19,11 +19,9 @@ impl InterpreterBuilderExt for InterpreterBuilder {
         let builder = builder.init_hook(install_default_tls_provider);
 
         cfg_select! {
-            feature = "freeze-stdlib" => {
-                builder
-                    .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
-                    .init_hook(set_frozen_stdlib_dir)
-            }
+            feature = "freeze-stdlib" => builder
+                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .init_hook(set_frozen_stdlib_dir),
             _ => builder.init_hook(setup_dynamic_stdlib),
         }
     }

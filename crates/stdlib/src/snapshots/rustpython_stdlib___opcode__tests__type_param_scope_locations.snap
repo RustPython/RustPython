@@ -1,0 +1,66 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ntype BoundGenericAlias[X: int] = set[X]\n\"#, true)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-1:39            LOAD_CONST               0 (<code object <generic parameters of BoundGenericAlias> at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:39            MAKE_FUNCTION
+1:0-1:39            PUSH_NULL
+1:0-1:39            CALL                     0
+1:0-1:39            STORE_NAME               0 (BoundGenericAlias)
+1:0-1:39            LOAD_COMMON_CONSTANT     7 (None)
+1:0-1:39            RETURN_VALUE
+
+Disassembly of <code object <generic parameters of BoundGenericAlias> at 0xdeadbeef, file "<?>", line 1>:
+  --                 MAKE_CELL                0 (X)
+
+1:0-1:0              RESUME                   0
+1:0-1:39             LOAD_CONST               0 ('BoundGenericAlias')
+1:23-1:29            LOAD_CONST               1 ('X')
+1:26-1:29            LOAD_CONST               2 ((1,))
+1:26-1:29            LOAD_CONST               3 (<code object X at 0xdeadbeef, file "<?>", line 1>)
+1:26-1:29            MAKE_FUNCTION
+1:26-1:29            SET_FUNCTION_ATTRIBUTE   1 (defaults)
+1:23-1:29            CALL_INTRINSIC_2         2 (INTRINSIC_TYPEVAR_WITH_BOUND)
+1:23-1:29            COPY                     1
+1:23-1:29            STORE_DEREF              0 (X)
+1:23-1:29            BUILD_TUPLE              1
+1:0-1:39             LOAD_CONST               2 ((1,))
+1:0-1:39             LOAD_FAST_BORROW         0 (X)
+1:0-1:39             BUILD_TUPLE              1
+1:0-1:39             LOAD_CONST               4 (<code object BoundGenericAlias at 0xdeadbeef, file "<?>", line 1>)
+1:0-1:39             MAKE_FUNCTION
+1:0-1:39             SET_FUNCTION_ATTRIBUTE   8 (closure)
+1:0-1:39             SET_FUNCTION_ATTRIBUTE   1 (defaults)
+1:0-1:39             BUILD_TUPLE              3
+1:0-1:39             CALL_INTRINSIC_1        11 (INTRINSIC_TYPEALIAS)
+1:0-1:39             RETURN_VALUE
+
+Disassembly of <code object X at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+1:26-1:29            LOAD_FAST_BORROW         0 (.format)
+1:26-1:29            LOAD_SMALL_INT           2
+1:26-1:29            COMPARE_OP             132 (>)
+1:26-1:29            POP_JUMP_IF_FALSE        3 (to L1)
+1:26-1:29            NOT_TAKEN
+1:26-1:29            LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:26-1:29            RAISE_VARARGS            1
+1:26-1:29    L1:     LOAD_GLOBAL              0 (int)
+1:26-1:29            RETURN_VALUE
+
+Disassembly of <code object BoundGenericAlias at 0xdeadbeef, file "<?>", line 1>:
+  --                 COPY_FREE_VARS           1
+
+1:0-1:0              RESUME                   0
+1:0-1:39             LOAD_FAST_BORROW         0 (.format)
+1:0-1:39             LOAD_SMALL_INT           2
+1:0-1:39             COMPARE_OP             132 (>)
+1:0-1:39             POP_JUMP_IF_FALSE        3 (to L1)
+1:0-1:39             NOT_TAKEN
+1:0-1:39             LOAD_COMMON_CONSTANT     1 (NotImplementedError)
+1:0-1:39             RAISE_VARARGS            1
+1:33-1:36    L1:     LOAD_GLOBAL              0 (set)
+1:37-1:38            LOAD_DEREF               1 (X)
+1:33-1:39            BINARY_OP               26 ([])
+1:0-1:39             RETURN_VALUE

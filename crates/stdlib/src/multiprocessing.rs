@@ -408,16 +408,22 @@ mod _multiprocessing {
 
     #[pyfunction]
     fn recv(socket: usize, size: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
-            .map_err(|_| vm.new_last_os_error())
+        let mut buf = vm
+            .allow_threads(|| {
+                host_multiprocessing::recv_socket(socket as host_multiprocessing::RawSocket, size)
+            })
+            .map_err(|error| error.to_pyexception(vm))?;
+        buf.shrink_to_fit();
+        Ok(buf)
     }
 
     #[pyfunction]
     fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
-        buf.with_ref(|b| {
-            host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, b)
+        let buf = buf.borrow_buf_unlocked(vm)?;
+        vm.allow_threads(|| {
+            host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, &buf)
         })
-        .map_err(|_| vm.new_last_os_error())
+        .map_err(|error| error.to_pyexception(vm))
     }
 }
 

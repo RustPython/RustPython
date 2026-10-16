@@ -55,8 +55,8 @@ impl VirtualMachine {
     }
 
     pub fn new_code(&self, code: impl IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_code_object(self);
-        PyRef::new_ref(PyCode::new(code), self.ctx.types.code_type.to_owned(), None)
+        let code = code.into_pycode(self);
+        PyRef::new_ref(code, self.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {
@@ -83,15 +83,16 @@ impl VirtualMachine {
     }
 
     pub fn new_scope_with_main(&self) -> PyResult<Scope> {
-        let scope = self.new_scope_with_builtins();
-        let main_module = self.new_module("__main__", scope.globals.clone(), None);
+        let globals = self.ctx.new_dict();
+        let scope = Scope::with_builtins(None, globals.clone(), self);
+        let main_module = self.new_module("__main__", globals.clone(), None);
 
         self.sys_module.get_attr("modules", self)?.set_item(
             "__main__",
             main_module.into(),
             self,
         )?;
-        self.set_main_builtin_importer(&scope.globals)?;
+        self.set_main_builtin_importer(&globals)?;
 
         Ok(scope)
     }
@@ -621,16 +622,18 @@ impl VirtualMachine {
             feature = "parser" => {
                 match error {
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(
-                            LexicalErrorType::TabError
-                            | LexicalErrorType::TooDeepIndentation
-                            | LexicalErrorType::LineContinuationError
-                            | LexicalErrorType::UnclosedBracket { .. },
-                        ),
+                        error:
+                            ParseErrorType::Lexical(
+                                LexicalErrorType::TabError
+                                | LexicalErrorType::TooDeepIndentation
+                                | LexicalErrorType::LineContinuationError
+                                | LexicalErrorType::UnclosedBracket { .. },
+                            ),
                         ..
                     }) => Some(0),
                     crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
-                        error: ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                        error:
+                            ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                             | ParseErrorType::UnexpectedIndentation,
                         ..
                     }) => Some(-1),

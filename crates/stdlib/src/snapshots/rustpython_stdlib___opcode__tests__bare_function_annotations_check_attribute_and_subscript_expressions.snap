@@ -11,7 +11,7 @@ expression: "dis(r#\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].ne
               MAKE_FUNCTION
               SET_FUNCTION_ATTRIBUTE  16 (annotate)
               STORE_NAME               0 (f)
-              LOAD_CONST               2 (None)
+              LOAD_COMMON_CONSTANT     7 (None)
               RETURN_VALUE
 
 Disassembly of <code object __annotate__ at 0xdeadbeef, file "<?>", line 1>:

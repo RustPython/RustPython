@@ -1,0 +1,103 @@
+---
+source: crates/stdlib/src/_opcode.rs
+expression: "dis(r#\"\ndef f(xs):\n    return (x for x in xs)\n\nasync def g(xs):\n    return (x async for x in xs)\n\"#,\ntrue)"
+---
+0:0-1:0             RESUME                   0
+
+1:0-2:26            LOAD_CONST               0 (<code object f at 0xdeadbeef, file "<?>", line 1>)
+1:0-2:26            MAKE_FUNCTION
+1:0-2:26            STORE_NAME               0 (f)
+
+4:0-5:32            LOAD_CONST               1 (<code object g at 0xdeadbeef, file "<?>", line 4>)
+4:0-5:32            MAKE_FUNCTION
+4:0-5:32            STORE_NAME               1 (g)
+4:0-5:32            LOAD_COMMON_CONSTANT     7 (None)
+4:0-5:32            RETURN_VALUE
+
+Disassembly of <code object f at 0xdeadbeef, file "<?>", line 1>:
+1:0-1:0              RESUME                   0
+
+2:11-2:26            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 2>)
+2:11-2:26            MAKE_FUNCTION
+2:23-2:25            LOAD_FAST_BORROW         0 (xs)
+2:11-2:26            CALL                     0
+2:4-2:26             RETURN_VALUE
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 2>:
+  --                 RESUME                   4
+
+2:23-2:25            LOAD_FAST                0 (.0)
+2:23-2:25            GET_ITER                 0
+2:?-2:?              RETURN_GENERATOR
+2:?-2:?              POP_TOP
+2:0-2:0      L1:     RESUME                   0
+2:23-2:25    L2:     FOR_ITER                 7 (to L3)
+2:18-2:19            STORE_FAST_LOAD_FAST    17 (x, x)
+2:12-2:13            YIELD_VALUE              0
+2:12-2:13            RESUME                   9
+2:12-2:13            POP_TOP
+2:12-2:13            JUMP_BACKWARD            9 (to L2)
+2:23-2:25    L3:     END_FOR
+2:23-2:25            POP_ITER
+2:23-2:25            LOAD_COMMON_CONSTANT     7 (None)
+2:23-2:25            RETURN_VALUE
+
+  --         L4:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L4 -> L4 [2] lasti
+
+Disassembly of <code object g at 0xdeadbeef, file "<?>", line 4>:
+4:?-4:?              RETURN_GENERATOR
+4:?-4:?              POP_TOP
+4:0-4:0      L1:     RESUME                   0
+
+5:11-5:32            LOAD_CONST               0 (<code object <genexpr> at 0xdeadbeef, file "<?>", line 5>)
+5:11-5:32            MAKE_FUNCTION
+5:29-5:31            LOAD_FAST_BORROW         0 (xs)
+5:11-5:32            CALL                     0
+5:4-5:32             RETURN_VALUE
+
+  --         L2:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                 RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L2 [0] lasti
+
+Disassembly of <code object <genexpr> at 0xdeadbeef, file "<?>", line 5>:
+  --                  RESUME                   4
+
+5:29-5:31             LOAD_FAST_BORROW         0 (.0)
+5:29-5:31             GET_AITER
+5:?-5:?               RETURN_GENERATOR
+5:?-5:?               POP_TOP
+5:0-5:0       L1:     RESUME                   0
+5:11-5:32     L2:     GET_ANEXT
+5:11-5:32             PUSH_NULL
+5:11-5:32             LOAD_COMMON_CONSTANT     7 (None)
+5:11-5:32     L3:     SEND                     4 (to L6)
+5:11-5:32     L4:     YIELD_VALUE              1
+5:11-5:32     L5:     RESUME                   3
+5:11-5:32             JUMP_BACKWARD_NO_INTERRUPT 6 (to L3)
+5:11-5:32     L6:     END_SEND
+5:24-5:25     L7:     STORE_FAST_LOAD_FAST    17 (x, x)
+5:12-5:13             CALL_INTRINSIC_1         4 (INTRINSIC_ASYNC_GEN_WRAP)
+5:12-5:13             YIELD_VALUE              0
+5:12-5:13             RESUME                   9
+5:12-5:13             POP_TOP
+5:12-5:13             JUMP_BACKWARD           18 (to L2)
+5:11-5:32     L8:     CLEANUP_THROW
+5:11-5:32     L9:     JUMP_BACKWARD_NO_INTERRUPT 11 (to L6)
+5:11-5:32    L10:     END_ASYNC_FOR           12 (from L6)
+5:11-5:32             LOAD_COMMON_CONSTANT     7 (None)
+5:11-5:32             RETURN_VALUE
+
+  --         L11:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+  --                  RERAISE                  1
+ExceptionTable:
+  L1 to L2 -> L11 [1] lasti
+  L2 to L4 -> L10 [1]
+  L4 to L5 -> L8 [4]
+  L5 to L7 -> L10 [1]
+  L7 to L8 -> L11 [1] lasti
+  L8 to L9 -> L10 [1]
+  L10 to L11 -> L11 [1] lasti

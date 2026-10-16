@@ -439,7 +439,6 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             con.execute("drop table t")
             con.commit()
 
-    @unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
     def test_table_lock_cursor_non_readonly_select(self):
         with memory_database() as con:
             con.execute("create table t(t)")

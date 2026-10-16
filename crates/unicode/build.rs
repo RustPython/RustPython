@@ -678,10 +678,14 @@ fn generate_numeric_value(
         "(u32, u32, f64)",
         &mut values_latest,
     );
+    #[cfg(feature = "ucd_3_2_0")]
     let mut ucd32_diffs: Vec<_> = ucd32_diffs
         .into_iter()
         .map(|((start, end), value)| (start, end, value))
         .collect();
+    #[cfg(not(feature = "ucd_3_2_0"))]
+    let mut ucd32_diffs = Vec::new();
+
     write_slice_debug(
         &mut writer,
         "NUMERIC_VALUES_DIFF",

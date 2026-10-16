@@ -69,6 +69,92 @@ sys.settrace(None)
 
 assert ("demo", "call", None) in events
 
+# The eager iterator prefix of a generator expression is not traced, but
+# monitoring still reports the error it raises.
+
+
+class GoodIterable:
+    def __iter__(self):
+        return iter([1])
+
+
+class BadIterable:
+    def __iter__(self):
+        raise ValueError("eager iterator")
+
+
+def create_genexpr(iterable):
+    return (value for value in iterable)
+
+
+events = []
+
+
+def trc(frame, event, arg):
+    if frame.f_code.co_name in ("create_genexpr", "<genexpr>", "__iter__"):
+        events.append((frame.f_code.co_name, event))
+    return trc
+
+
+sys.settrace(trc)
+try:
+    create_genexpr(GoodIterable()).close()
+    try:
+        create_genexpr(BadIterable())
+    except ValueError as error:
+        tb_names = []
+        tb = error.__traceback__
+        while tb is not None:
+            tb_names.append(tb.tb_frame.f_code.co_name)
+            tb = tb.tb_next
+    else:
+        raise AssertionError("expected eager iterator error")
+finally:
+    sys.settrace(None)
+assert events == [
+    ("create_genexpr", "call"),
+    ("create_genexpr", "line"),
+    ("__iter__", "call"),
+    ("__iter__", "line"),
+    ("__iter__", "return"),
+    ("create_genexpr", "return"),
+    ("create_genexpr", "call"),
+    ("create_genexpr", "line"),
+    ("__iter__", "call"),
+    ("__iter__", "line"),
+    ("__iter__", "exception"),
+    ("__iter__", "return"),
+    ("create_genexpr", "exception"),
+    ("create_genexpr", "return"),
+    ("create_genexpr", "exception"),
+    ("create_genexpr", "return"),
+], events
+assert tb_names == ["<module>", "create_genexpr", "__iter__"], tb_names
+
+monitoring = sys.monitoring
+event_names = ("PY_START", "PY_RESUME", "PY_UNWIND", "RAISE", "LINE", "INSTRUCTION")
+records = []
+monitoring.use_tool_id(2, "genexpr-prefix")
+try:
+    for name in event_names:
+
+        def callback(code, *args, name=name):
+            if code.co_name == "<genexpr>":
+                records.append(name)
+
+        monitoring.register_callback(2, getattr(monitoring.events, name), callback)
+    monitoring.set_events(
+        2, sum(getattr(monitoring.events, name) for name in event_names)
+    )
+    create_genexpr(GoodIterable()).close()
+    assert records == [], records
+    with assert_raises(ValueError):
+        create_genexpr(BadIterable())
+finally:
+    monitoring.set_events(2, 0)
+    monitoring.free_tool_id(2)
+assert records == ["RAISE", "PY_UNWIND"], records
+
 assert sys.exc_info() == (None, None, None)
 
 try:

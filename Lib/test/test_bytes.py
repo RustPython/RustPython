@@ -1393,7 +1393,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             except OSError:
                 pass
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
     def test_mod_concurrent_mutation(self):
         # Prevent crash in __mod__ when formatting mutates the bytearray.
         # Regression test for https://github.com/python/cpython/issues/142557.

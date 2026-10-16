@@ -7,7 +7,7 @@ pub(crate) mod typevar {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyTuple, PyTupleRef, PyType, PyTypeRef, make_union},
-        common::lock::PyMutex,
+        common::{lock::PyMutex, wtf8::Wtf8Buf},
         function::{FuncArgs, PyComparisonValue},
         protocol::PyNumberMethods,
         stdlib::_typing::{call_typing_func_object, decl::const_evaluator_alloc},
@@ -675,8 +675,16 @@ pub(crate) mod typevar {
     pub struct TypeVarTuple {
         #[pymember(name = "__name__")]
         name: PyObjectRef,
+        #[pymember(name = "__bound__")]
+        bound: Option<PyObjectRef>,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
+        #[pymember(name = "__covariant__")]
+        covariant: bool,
+        #[pymember(name = "__contravariant__")]
+        contravariant: bool,
+        #[pymember(name = "__infer_variance__")]
+        infer_variance: bool,
     }
 
     #[pyclass(
@@ -783,11 +791,20 @@ pub(crate) mod typevar {
                     ));
                 }
             } else if args.args.len() == 1 {
+                if kwargs.contains_key("name") {
+                    return Err(vm.new_type_error(
+                        "argument for typevartuple() given by name ('name') and position (1)",
+                    ));
+                }
                 args.args[0].clone()
             } else {
                 return Err(vm.new_type_error("TypeVarTuple() takes at most 1 positional argument"));
             };
 
+            let bound = kwargs.swap_remove("bound");
+            let covariant = kwargs.swap_remove("covariant");
+            let contravariant = kwargs.swap_remove("contravariant");
+            let infer_variance = kwargs.swap_remove("infer_variance");
             let default = kwargs.swap_remove("default");
 
             // Check for unexpected keyword arguments
@@ -796,6 +813,33 @@ pub(crate) mod typevar {
                     Some("typevartuple"),
                     &invalid_key.to_string(),
                 ));
+            }
+
+            // Clinic validates the argument layout and name before invoking __bool__.
+            if !name.downcastable::<crate::builtins::PyStr>() {
+                return Err(vm.new_type_error(format!(
+                    "typevartuple() argument 'name' must be str, not {}",
+                    name.class().name()
+                )));
+            }
+            let covariant = covariant
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let contravariant = contravariant
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+            let infer_variance = infer_variance
+                .map(|value| value.try_to_bool(vm))
+                .transpose()?
+                .unwrap_or(false);
+
+            if covariant && contravariant {
+                return Err(vm.new_value_error("Bivariant types are not supported."));
+            }
+            if infer_variance && (covariant || contravariant) {
+                return Err(vm.new_value_error("Variance cannot be specified with infer_variance."));
             }
 
             // Handle default value
@@ -808,8 +852,12 @@ pub(crate) mod typevar {
 
             let typevartuple = Self {
                 name,
+                bound,
                 default_value: PyMutex::new(default_value),
                 evaluate_default: PyMutex::new(evaluate_default),
+                covariant,
+                contravariant,
+                infer_variance,
             };
 
             let obj = typevartuple.into_ref_with_type(vm, cls)?;
@@ -825,9 +873,23 @@ pub(crate) mod typevar {
 
     impl Representable for TypeVarTuple {
         #[inline(always)]
-        fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name = zelf.name.str(vm)?;
-            Ok(name.to_string())
+        fn repr_wtf8(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+            let name = zelf
+                .name
+                .downcast_ref::<crate::builtins::PyStr>()
+                .expect("TypeVarTuple name must be a string");
+            let prefix = if zelf.infer_variance {
+                ""
+            } else if zelf.covariant {
+                "+"
+            } else if zelf.contravariant {
+                "-"
+            } else {
+                "~"
+            };
+            let mut result = Wtf8Buf::from(prefix);
+            result.push_wtf8(name.as_wtf8());
+            Ok(result)
         }
     }
 
@@ -835,8 +897,12 @@ pub(crate) mod typevar {
         pub fn new(name: PyObjectRef, vm: &VirtualMachine) -> Self {
             Self {
                 name,
+                bound: None,
                 default_value: PyMutex::new(vm.ctx.typing_no_default.clone().into()),
                 evaluate_default: PyMutex::new(vm.ctx.none()),
+                covariant: false,
+                contravariant: false,
+                infer_variance: true,
             }
         }
     }

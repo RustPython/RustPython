@@ -15,7 +15,7 @@ use crate::{
     },
     bytecode::{
         BorrowedConstant, CodeFlags, Constant, Instruction,
-        oparg::{OpArg, OpArgState},
+        oparg::{CommonConstant, OpArg, OpArgState},
     },
     protocol::PyBuffer,
 };
@@ -340,7 +340,7 @@ impl SharedValue {
                 // Stateless functions have no globals, so `__main__` is used,
                 // just like for builtins such as exec().
                 let globals = vm.main_namespace()?;
-                Ok(PyFunction::new(code, globals, vm)?.into_pyobject(vm))
+                Ok(PyFunction::new(code, globals.into(), vm)?.into_pyobject(vm))
             }
             Self::Pickled(data) => pickle_loads(&data, vm),
         }
@@ -763,7 +763,12 @@ pub(crate) fn walk_instructions(
 
 /// `_PyFunction_VerifyStateless`.
 fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<()> {
-    // `__globals__` is a dict by construction, so only the builtins are checked.
+    let globals = func.globals.as_mutable().ok_or_else(|| {
+        vm.new_type_error(format!(
+            "unsupported globals {}",
+            render_repr(func.globals.as_object(), vm)
+        ))
+    })?;
     let builtins = func.builtins.downcast_ref::<PyDict>().ok_or_else(|| {
         vm.new_type_error(format!(
             "unsupported builtins {}",
@@ -786,7 +791,7 @@ fn verify_stateless_function(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyRe
     {
         return Err(vm.new_value_error("closures not supported"));
     }
-    verify_stateless(&func.code, Some((&func.globals, builtins)), vm)
+    verify_stateless(&func.code, Some((globals, builtins)), vm)
 }
 
 /// `verify_script`: a script takes no arguments and returns only None.
@@ -824,42 +829,26 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
         return false;
     }
     let units = &code.instructions;
-    let Some(last) = units.len().checked_sub(1) else {
-        return true;
-    };
-    // The last instruction either returns or raises. We can take advantage
-    // of that for a quick exit.
-    let final_op = units.read_op(last).deoptimize();
-
     // Look up None in co_consts.
-    let Some(none_index) = code
+    let none_index = code
         .constants
         .iter()
-        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None))
-    else {
-        // None wasn't there, which means there was no implicit return,
-        // "return", or "return None".
-
-        // That means there must be an explicit return (non-None), or it only
-        // raises.
-        if matches!(final_op, Instruction::ReturnValue) {
-            // It was an explicit return (non-None).
-            return false;
-        }
-        // It must end with a raise then. We still have to walk the bytecode
-        // to see if there's any explicit return (non-None).
-        return !walk_instructions(code).any(|(_, op, _)| matches!(op, Instruction::ReturnValue));
-    };
-    // Walk the bytecode, looking for RETURN_VALUE.
+        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None));
+    // We don't worry about EXTENDED_ARG for now.
     for (at, op, _) in walk_instructions(code) {
         if !matches!(op, Instruction::ReturnValue) {
             continue;
         }
-        // Ignore it if it returns None.
-        if let Some(prev) = at.checked_sub(1)
-            && matches!(units.read_op(prev).deoptimize(), Instruction::LoadConst { .. })
-            // We don't worry about EXTENDED_ARG for now.
-            && usize::from(u8::from(units.read_arg(prev))) == none_index
+        debug_assert_ne!(at, 0);
+        let prev_op = units.read_op(at - 1).deoptimize();
+        let prev_arg = u32::from(u8::from(units.read_arg(at - 1)));
+        if matches!(prev_op, Instruction::LoadCommonConstant { .. })
+            && prev_arg == u32::from(CommonConstant::None)
+        {
+            continue;
+        }
+        if matches!(prev_op, Instruction::LoadConst { .. })
+            && none_index.is_some_and(|none_index| prev_arg as usize == none_index)
         {
             continue;
         }

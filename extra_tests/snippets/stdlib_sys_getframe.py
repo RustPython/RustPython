@@ -23,3 +23,26 @@ class TestClass:
 
 
 TestClass()
+
+
+# A frame entered from a generator expression's eager iterator prefix sees
+# the creating function as its caller.
+iterator_frames = []
+
+
+class Iterable:
+    def __iter__(self):
+        iterator_frames.append((sys._getframe(), sys._getframe(1)))
+        return iter([7])
+
+
+def create():
+    return (value for value in Iterable())
+
+
+generator = create()
+frame, caller = iterator_frames[0]
+assert caller.f_code.co_name == "create"
+assert frame.f_back is caller
+assert generator.gi_frame.f_back is None
+assert list(generator) == [7]

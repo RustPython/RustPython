@@ -78,7 +78,7 @@ impl PyNativeFunction {
         self.zelf.as_deref().or(self.module_object.as_deref())
     }
 
-    pub const fn as_func(&self) -> &'static dyn PyNativeFn {
+    pub const fn as_func(&self) -> &dyn PyNativeFn {
         self.value.func
     }
 }
@@ -140,7 +140,7 @@ impl Representable for PyNativeFunction {
         if let Some(bound) = zelf
             .zelf
             .as_ref()
-            .filter(|b| !b.class().is(vm.ctx.types.module_type))
+            .filter(|b| !b.class().is_subtype(vm.ctx.types.module_type))
         {
             Ok(format!(
                 "<built-in method {} of {} object at {:#x}>",
@@ -169,7 +169,7 @@ impl PyNativeFunction {
     fn __qualname__(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let zelf = zelf.0;
         let qualname = if let Some(bound) = &zelf.zelf {
-            if bound.class().is(vm.ctx.types.module_type) {
+            if bound.class().is_subtype(vm.ctx.types.module_type) {
                 return Ok(vm.ctx.intern_str(zelf.value.name).to_owned());
             }
             let prefix = if bound.class().is(vm.ctx.types.type_type) {
@@ -243,10 +243,12 @@ impl PyNativeFunction {
     name = "builtin_method",
     module = false,
     base = PyNativeFunction,
-    ctx = "builtin_method_type"
+    ctx = "builtin_method_type",
+    traverse
 )]
 pub struct PyNativeMethod {
     pub(crate) func: PyNativeFunction,
+    #[pytraverse(skip)]
     pub(crate) class: &'static Py<PyType>,
 }
 

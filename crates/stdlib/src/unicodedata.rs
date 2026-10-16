@@ -33,7 +33,7 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeFormArg {
 mod unicodedata {
     use super::{NormalizeFormArg, unicode_core};
     use crate::vm::{
-        Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyModule, PyStr, PyStrRef},
         function::OptionalArg,
     };
@@ -244,8 +244,9 @@ mod unicodedata {
         }
     }
 
+    #[cfg(feature = "ucd_3_2_0")]
     #[pyattr]
-    fn ucd_3_2_0(vm: &VirtualMachine) -> PyRef<Ucd> {
+    fn ucd_3_2_0(vm: &VirtualMachine) -> crate::vm::PyRef<Ucd> {
         Ucd::new(false).into_ref(&vm.ctx)
     }
 

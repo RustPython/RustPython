@@ -9,6 +9,28 @@ from testutils import assert_raises
 assert os.name == "posix" or os.name == "nt"
 
 
+def windows_stat_preserves_time64():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        filename = os.path.join(directory, "time64")
+        with open(filename, "wb"):
+            pass
+        timestamp = 2_208_988_800  # 2040-01-01, beyond signed 32-bit seconds.
+        os.utime(filename, (timestamp, timestamp))
+        with open(filename, "rb") as file:
+            results = [os.stat(filename), os.fstat(file.fileno())]
+        with os.scandir(directory) as entries:
+            results.append(next(entries).stat())
+        for result in results:
+            assert result.st_mtime == timestamp
+            assert result.st_mtime_ns == timestamp * 1_000_000_000
+
+
+if sys.platform == "win32":
+    windows_stat_preserves_time64()
+
+
 def stat_rejects_negative_file_descriptors():
     import errno
     import os
@@ -758,3 +780,34 @@ if sys.platform.startswith("linux"):
     assert hasattr(os, "mkfifo")
 if hasattr(os, "mkfifo"):
     mkfifo_paths_and_directory_descriptors()
+
+
+import errno
+
+
+def nonblocking_windows_pipe():
+    reader, writer = os.pipe()
+    try:
+        for fd in (reader, writer):
+            assert os.get_blocking(fd)
+            os.set_blocking(fd, False)
+            assert not os.get_blocking(fd)
+            os.set_blocking(fd, True)
+            assert os.get_blocking(fd)
+            os.set_blocking(fd, False)
+
+        assert os.read(reader, 0) == b""
+        assert os.write(writer, b"") == 0
+        try:
+            os.read(reader, 1)
+        except BlockingIOError as error:
+            assert error.errno == errno.EAGAIN
+        else:
+            raise AssertionError("empty nonblocking pipe did not raise")
+    finally:
+        os.close(reader)
+        os.close(writer)
+
+
+if os.name == "nt":
+    nonblocking_windows_pipe()

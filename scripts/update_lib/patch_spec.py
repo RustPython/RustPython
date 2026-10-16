@@ -11,10 +11,12 @@ from __future__ import annotations
 import ast
 import collections
 import contextlib
+import doctest
 import enum
 import re
 import textwrap
 import typing
+from pathlib import Path
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterator
@@ -121,7 +123,9 @@ class PatchSpec(typing.NamedTuple):
         # If our ut_method has args then,
         # we need to search for a constant that contains our `COMMENT`.
         # Otherwise we need to search it in the raw source code :/
-        if ut_method.has_args():
+        if ut_method.has_args() and not (
+            ut_method is UtMethod.Skip and isinstance(node, ast.Attribute)
+        ):
             reason = next(
                 (
                     inner_node.value
@@ -197,7 +201,10 @@ class PatchEntryVisitor(ast.NodeVisitor):
                 patch = patch._replace(test_name="__self__")
                 self.patches.append(patch)
 
-            self.generic_visit(node)
+            # Keep conditional methods in this namespace, but do not enter
+            # nested classes or the bodies of methods.
+            for item in _iter_class_methods(node):
+                self.visit(item)
 
 
 class PatchEntry(typing.NamedTuple):
@@ -228,22 +235,35 @@ class PatchEntry(typing.NamedTuple):
         yield from visitor.patches
 
 
+def _iter_module_classes(node: ast.AST) -> "Iterator[ast.ClassDef]":
+    """Find module-scope classes, including conditional definitions.
+
+    Function-local and class-nested definitions have different namespaces and
+    cannot be addressed by the patch format's unqualified class names.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            yield child
+        elif not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            yield from _iter_module_classes(child)
+
+
+def _iter_class_methods(
+    node: ast.AST,
+) -> "Iterator[ast.FunctionDef | ast.AsyncFunctionDef]":
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield child
+        elif not isinstance(child, (ast.ClassDef, ast.Lambda)):
+            yield from _iter_class_methods(child)
+
+
 def iter_tests(
     tree: ast.Module,
 ) -> "Iterator[tuple[ast.ClassDef, ast.FunctionDef | ast.AsyncFunctionDef]]":
-    for key, nodes in ast.iter_fields(tree):
-        if key != "body":
-            continue
-
-        for cls_node in nodes:
-            if not isinstance(cls_node, ast.ClassDef):
-                continue
-
-            for fn_node in cls_node.body:
-                if not isinstance(fn_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-
-                yield (cls_node, fn_node)
+    for cls_node in _iter_module_classes(tree):
+        for fn_node in _iter_class_methods(cls_node):
+            yield (cls_node, fn_node)
 
 
 def iter_patches(contents: str) -> "Iterator[PatchEntry]":
@@ -286,24 +306,43 @@ def _iter_patch_lines(
     # Track class bases for inherited async method lookup
     class_bases: dict[str, list[str]] = {}
     all_classes = set()
-    all_class_nodes = []
-    for node in tree.body:
-        if not isinstance(node, ast.ClassDef):
-            continue
-
+    all_class_nodes = list(_iter_module_classes(tree))
+    # Only names used to place a patch (including inherited methods) need a
+    # unique definition. Conditional, unpatched helpers are common upstream.
+    relevant_classes = set(patches)
+    while True:
+        ancestors = {
+            base.id
+            for node in all_class_nodes
+            if node.name in relevant_classes
+            for base in node.bases
+            if isinstance(base, ast.Name)
+        }
+        expanded = relevant_classes | ancestors
+        if expanded == relevant_classes:
+            break
+        relevant_classes = expanded
+    for node in all_class_nodes:
+        if node.name in all_classes and node.name in relevant_classes:
+            raise ValueError(f"Ambiguous module-scope class name: {node.name}")
         all_classes.add(node.name)
-        all_class_nodes.append(node)
+        method_counts = collections.Counter(
+            item.name for item in _iter_class_methods(node)
+        )
+        for method in patches.get(node.name, {}):
+            if method_counts[method] > 1:
+                raise ValueError(f"Ambiguous method name: {node.name}.{method}")
 
-    for node in tree.body:
+    for node in all_class_nodes:
         if isinstance(node, ast.ClassDef):
-            cache[node.name] = node.end_lineno
+            cache[node.name] = (node.end_lineno, node.col_offset + len(DEFAULT_INDENT))
             class_bases[node.name] = [
                 base.id
                 for base in node.bases
                 if isinstance(base, ast.Name) and base.id in all_classes
             ]
             cls_async: set[str] = set()
-            for item in node.body:
+            for item in _iter_class_methods(node):
                 if isinstance(item, ast.AsyncFunctionDef):
                     cls_async.add(item.name)
             if cls_async:
@@ -319,10 +358,11 @@ def _iter_patch_lines(
 
     # Phase 2: Iterate and mark inherited tests
     for cls_name, tests in sorted(patches.items()):
-        lineno = cache.get(cls_name)
-        if not lineno:
+        location = cache.get(cls_name)
+        if not location:
             print(f"WARNING: {cls_name} does not exist in remote file", file=sys.stderr)
             continue
+        lineno, indent = location
 
         for test_name, specs in sorted(tests.items()):
             if test_name == "__self__":
@@ -356,7 +396,7 @@ async def {test_name}(self):
 def {test_name}(self):
 {DEFAULT_INDENT}return super().{test_name}()
 """.rstrip()
-            yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
+            yield (lineno, textwrap.indent(patch_lines, " " * indent))
 
     # Phase 3: Mark the class itself
     for cls_node in all_class_nodes:
@@ -393,8 +433,36 @@ def _find_import_insert_line(tree: ast.Module) -> int:
     return 0
 
 
+def _expand_inline_class_suites(contents: str, patches: Patches) -> str:
+    """Make room for inherited overrides without changing existing class bodies."""
+    tree = ast.parse(contents)
+    lines = contents.splitlines()
+    replacements = []
+    for node in _iter_module_classes(tree):
+        methods = {method.name for method in _iter_class_methods(node)}
+        inherited = set(patches.get(node.name, {})) - methods - {"__self__"}
+        if not inherited:
+            continue
+        first = node.body[0]
+        line = lines[first.lineno - 1].encode("utf-8")
+        header = line[: first.col_offset].decode("utf-8")
+        if not header.strip():
+            continue
+        body = line[first.col_offset :].decode("utf-8")
+        replacements.append(
+            (
+                first.lineno - 1,
+                header.rstrip() + "\n" + " " * (node.col_offset + 4) + body,
+            )
+        )
+    for index, replacement in sorted(replacements, reverse=True):
+        lines[index] = replacement
+    return "\n".join(lines) + "\n"
+
+
 def apply_patches(contents: str, patches: Patches) -> str:
     """Apply patches to file contents and return modified contents."""
+    contents = _expand_inline_class_suites(contents, patches)
     tree = ast.parse(contents)
     lines = contents.splitlines()
 
@@ -415,6 +483,7 @@ def apply_patches(contents: str, patches: Patches) -> str:
         lines.insert(lineno, patch)
 
     joined = "\n".join(lines)
+    ast.parse(joined)
     return f"{joined}\n"
 
 
@@ -480,3 +549,140 @@ def temp_attr(obj: object, attr: str, value: object):
         yield obj
     finally:
         setattr(obj, attr, old)
+
+
+def select_remaining_patches(current, document, relative_path: Path):
+    if not isinstance(document, dict) or (
+        set(document) not in ({"target", "patches"}, {"target", "patches", "doctests"})
+    ):
+        raise ValueError("Expected target and patches metadata")
+    if (
+        relative_path.parts[:2] != ("Lib", "test")
+        or relative_path.suffix != ".py"
+        or document["target"] != relative_path.as_posix()
+    ):
+        raise ValueError("Marker override target does not match the test file")
+    if "doctests" in document and not isinstance(document["doctests"], dict):
+        raise ValueError("Doctests metadata must be an object")
+    try:
+        remaining = patches_from_json(document["patches"])
+    except (TypeError, KeyError, AttributeError, ValueError) as error:
+        raise ValueError("Invalid remaining marker metadata") from error
+    for cls, methods in remaining.items():
+        if cls not in current or any(method not in current[cls] for method in methods):
+            raise ValueError("Marker override cannot add targets")
+    for cls, methods in current.items():
+        for method, existing in methods.items():
+            pending = list(existing)
+            omitted = []
+            for marker in remaining.get(cls, {}).get(method, []):
+                if marker not in pending:
+                    raise ValueError(
+                        "Marker override cannot add, change, or reorder markers"
+                    )
+                index = pending.index(marker)
+                omitted.extend(pending[:index])
+                pending = pending[index + 1 :]
+            omitted.extend(pending)
+            if any(marker.ut_method != UtMethod.ExpectedFailure for marker in omitted):
+                raise ValueError(
+                    "Only unconditional expectedFailure markers may be removed"
+                )
+    return remaining
+
+
+EXPECTED_FAILURE = doctest.register_optionflag("EXPECTED_FAILURE")
+CANONICAL_LOAD_TESTS = """def load_tests(loader, tests, pattern):
+    tests.addTest(doctest.DocTestSuite())
+    return tests"""
+PATCHED_LOAD_TESTS = """def load_tests(loader, tests, pattern):
+    from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(checker=DocTestChecker()))  # TODO: RUSTPYTHON
+    return tests"""
+
+
+def _examples(contents):
+    tree = ast.parse(contents)
+    if not tree.body or not isinstance(tree.body[0], ast.Expr):
+        raise ValueError("Missing module doctest")
+    doc = tree.body[0].value
+    if not isinstance(doc, ast.Constant) or not isinstance(doc.value, str):
+        raise ValueError("Missing module doctest")
+    # Raw docstring offsets map directly to source lines, unlike cleaned docs.
+    return tree, doc, doctest.DocTestParser().get_examples(doc.value)
+
+
+def apply_doctest_metadata(old, canonical, metadata):
+    """Preserve only listed guards, without carrying old expected output."""
+    if not isinstance(metadata, dict) or any(
+        not isinstance(source, str)
+        or not isinstance(reason, str)
+        or "\n" in reason
+        or "\r" in reason
+        for source, reason in metadata.items()
+    ):
+        raise ValueError("Doctest metadata must map exact input to single-line reasons")
+    _, _, old_examples = _examples(old)
+    tree, doc, examples = _examples(canonical)
+    lines = canonical.splitlines(keepends=True)
+    for source in metadata:
+        old_matches = [
+            example
+            for example in old_examples
+            if re.sub(r"\s+# TODO: RUSTPYTHON[^\n]*", "", example.source) == source
+        ]
+        if len(old_matches) != 1 or not old_matches[0].options.get(EXPECTED_FAILURE):
+            raise ValueError("Missing or ambiguous existing doctest guard")
+        matches = [example for example in examples if example.source == source]
+        if len(matches) != 1 or matches[0].options:
+            raise ValueError("Missing, ambiguous, or already marked canonical doctest")
+        index = doc.lineno - 1 + matches[0].lineno
+        line = lines[index]
+        if (
+            ">>>" not in line
+            or line.split(">>>", 1)[1].strip() != source.splitlines()[0]
+        ):
+            raise ValueError("Unrecognized canonical doctest prompt")
+        lines[index] = (
+            line.rstrip("\n")
+            + "  # TODO: RUSTPYTHON; "
+            + metadata[source]
+            + " # doctest: +EXPECTED_FAILURE\n"
+        )
+
+    if not metadata:
+        return canonical
+
+    loaders = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "load_tests"
+    ]
+    if len(loaders) != 1 or loaders[0] not in tree.body:
+        raise ValueError("Missing or ambiguous doctest loader")
+    if ast.get_source_segment(canonical, loaders[0]) != CANONICAL_LOAD_TESTS:
+        raise ValueError("Changed canonical doctest loader")
+    result = "".join(lines)
+    if result.count(CANONICAL_LOAD_TESTS) != 1:
+        raise ValueError("Ambiguous canonical doctest loader text")
+    return result.replace(CANONICAL_LOAD_TESTS, PATCHED_LOAD_TESTS, 1)
+
+
+def extract_doctest_guards(contents: str) -> dict[str, str]:
+    """Extract guarded module-docstring inputs without executing examples."""
+    tree = ast.parse(contents)
+    if not tree.body or not isinstance(tree.body[0], ast.Expr):
+        return {}
+    doc = tree.body[0].value
+    if not isinstance(doc, ast.Constant) or not isinstance(doc.value, str):
+        return {}
+    guards = {}
+    for example in doctest.DocTestParser().get_examples(doc.value):
+        if not example.options.get(EXPECTED_FAILURE):
+            continue
+        source = re.sub(r"\s+# TODO: RUSTPYTHON[^\n]*", "", example.source)
+        if source in guards:
+            raise ValueError("Ambiguous existing doctest guard")
+        guards[source] = example.source
+    return guards

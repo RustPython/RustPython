@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc
-  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,doc,ucd_3_2_0
+  CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env,doc,ucd_3_2_0
   CARGO_ARGS_MOST_FEATS: --features capi,encodings,jit,sqlite,threading
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
@@ -43,6 +43,7 @@ jobs:
     outputs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
+      update_lib: ${{ steps.check_update_lib.outputs.changed }}
       # WASM demo / notebook / example_projects, independent of rust_code.
       wasm_code: ${{ steps.check_wasm_code.outputs.changed }}
       # Cross-target cargo check is skipped unless the diff can change
@@ -77,8 +78,20 @@ jobs:
             ':examples/**' \
             ':benches/**' \
             ':example_projects/**' \
+            ':extra_tests/snippets/**' \
             ':.github/workflows/ci.yaml' \
           ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
+      - name: Check if update_lib changed
+        id: check_update_lib
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- ':scripts/update_lib/**' ':.python-version'; then
               echo "changed=false" >> "$GITHUB_OUTPUT"
           else
               echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -208,6 +221,7 @@ jobs:
     env:
       RUST_BACKTRACE: full
       RUN_RUST_TESTS: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
+      RUN_UPDATE_LIB_TESTS: ${{ needs.determine_changes.outputs.update_lib == 'true' }}
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
     # renames the check and drops it from the required list.
@@ -221,10 +235,10 @@ jobs:
     steps:
       - name: Skip rust tests when sources did not change
         if: env.RUN_RUST_TESTS != 'true'
-        run: echo "No rust source changes; required check is green without rebuilding."
+        run: echo "No rust source changes; skipping Rust build and tests."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: env.RUN_RUST_TESTS == 'true'
+        if: env.RUN_RUST_TESTS == 'true' || (env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux')
         with:
           persist-credentials: false
 
@@ -344,9 +358,19 @@ jobs:
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: cargo build --locked
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: env.RUN_RUST_TESTS != 'true' && env.RUN_UPDATE_LIB_TESTS == 'true' && runner.os == 'Linux'
+        with:
+          python-version-file: .python-version
+
       - name: run update_lib tests
-        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
-        run: target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
+        if: (env.RUN_RUST_TESTS == 'true' || env.RUN_UPDATE_LIB_TESTS == 'true') && runner.os == 'Linux'
+        run: |
+          if [ "$RUN_RUST_TESTS" = "true" ]; then
+            target/debug/rustpython -m unittest discover -s scripts/update_lib/tests -v
+          else
+            python -m unittest update_lib.tests.test_patch_spec update_lib.tests.test_migrate -v
+          fi
         env:
           PYTHONPATH: scripts
 
@@ -733,7 +757,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-shear
           fallback: none
@@ -762,7 +786,7 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@2085657ab2c7f48c58edcc767fba576f63bea76b # v1.77.0
+        uses: reviewdog/action-actionlint@1758727be30241166609dad4c97588b6ad411f32 # v1.79.1
 
       - name: zizmor
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
@@ -775,7 +799,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
+        uses: j178/prek-action@1382ad72dea72f9d53832f2bcb65b3e87a947204 # v3.0.1
         with:
           cache: false
           show-verbose-logs: false
@@ -789,9 +813,7 @@ jobs:
         with:
           repository: python/cpython
           path: cpython
-          # RustPython still uses the 3.14 bytecode format; this source is only
-          # for opcode metadata, independent of the 3.15 runtime target.
-          ref: "v3.14.7"
+          ref: "v3.15.0"
           persist-credentials: false
 
       - name: prek run (manual stage)
@@ -1009,10 +1031,71 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       RUN_WASM_WASI: ${{ needs.determine_changes.outputs.rust_code == 'true' || github.ref == 'refs/heads/main' }}
-      # Passing snippets under wasm32-wasip1.
-      WASM_WASI_SNIPPETS: >-
-        stdlib_random
-        stdlib_time
+      # extra_tests/snippets files that still fail or hang under wasm32-wasip1;
+      # every other snippet is discovered and run automatically.
+      WASM_WASI_SNIPPET_EXCLUDE: >-
+        builtin_bytearray
+        builtin_bytes
+        builtin_hash
+        builtin_int
+        builtin_iter
+        builtin_list
+        builtin_map
+        builtin_memoryview
+        builtin_open
+        builtin_posixshmem
+        builtin_slice
+        builtin_str
+        builtin_thread
+        cli_int_max_str_digits
+        protocol_index_argument
+        recursion
+        stdlib_ast
+        stdlib_asyncio
+        stdlib_collections_deque
+        stdlib_contextvars
+        stdlib_ctypes
+        stdlib_ctypes_byvalue
+        stdlib_ctypes_calls
+        stdlib_ctypes_from_buffer
+        stdlib_genericalias
+        stdlib_io
+        stdlib_io_blocking_buffer
+        stdlib_itertools
+        stdlib_json
+        stdlib_mmap
+        stdlib_multiprocessing_condition
+        stdlib_multiprocessing_fork_sharer
+        stdlib_multiprocessing_sharedctypes
+        stdlib_os
+        stdlib_pwd
+        stdlib_queue_signal
+        stdlib_select
+        stdlib_socket
+        stdlib_sqlite
+        stdlib_ssl
+        stdlib_ssl_short_recv
+        stdlib_struct
+        stdlib_subinterpreters
+        stdlib_subprocess
+        stdlib_sys
+        stdlib_sys_audit
+        stdlib_threading_current_frames
+        stdlib_threading_gc_frame_race
+        stdlib_threading_gc_import
+        stdlib_threading_generator
+        stdlib_threading_set_repr
+        stdlib_threading_type_cache
+        stdlib_thread_native_id
+        stdlib_types
+        stdlib_typing
+        stdlib_urllib_https_misaligned_recv
+        stdlib_zoneinfo_cache
+        syntax_async
+        syntax_async_comprehension
+        syntax_deep_nesting
+        vm_frame_locals
+        xfail_assert
       # Passing Lib/test files under wasm32-wasip1
       WASM_WASI_TEST_FILES: >-
         test_int
@@ -1030,7 +1113,7 @@ jobs:
     steps:
       - name: Skip wasm-wasi when rust sources did not change
         if: env.RUN_WASM_WASI != 'true'
-        run: echo "No rust source changes; required check is green without rebuilding."
+        run: echo "No rust source changes; skipping Rust build and tests."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.RUN_WASM_WASI == 'true'
@@ -1071,13 +1154,18 @@ jobs:
 
       - name: build rustpython
         if: env.RUN_WASM_WASI == 'true'
-        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc --verbose
+        run: cargo build --locked --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env,doc,ucd_3_2_0 --verbose
       - name: run snippets
         if: env.RUN_WASM_WASI == 'true'
         run: |
-          for name in $WASM_WASI_SNIPPETS; do
-            echo "::group::extra_tests/snippets/${name}.py"
-            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/${name}.py"
+          exclude=" $WASM_WASI_SNIPPET_EXCLUDE "
+          for path in extra_tests/snippets/*.py; do
+            name=$(basename "$path" .py)
+            case "$exclude" in
+              *" $name "*) continue ;;
+            esac
+            echo "::group::${path}"
+            wasmer run --volume "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/${path}"
             echo "::endgroup::"
           done
       - name: run cpython unittest

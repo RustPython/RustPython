@@ -1,7 +1,7 @@
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
-    builtins::{PyStr, PyStrRef},
+    builtins::{PyBytes, PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::{BufferFlags, PyBuffer},
 };
@@ -55,13 +55,12 @@ impl ArgBytesLike {
     /// `borrow_buf` may answer with a lock that every other thread writing to
     /// the same object waits on, and a thread waiting on a lock never reaches
     /// a safepoint, so keeping one across a wait for a peer, a pipe or a
-    /// signal stops the world from being stopped at all. Bytes reached that
-    /// way are copied out first. Bytes that lock nothing -- an immutable
-    /// object's -- are borrowed where they lie, which is all CPython holds in
-    /// either case.
+    /// signal stops the world from being stopped at all. Only storage owned
+    /// by `bytes` can be borrowed across that wait. Other exporters are copied:
+    /// an unlocked or readonly buffer may still alias writable raw memory.
     pub fn borrow_buf_unlocked(&self, vm: &VirtualMachine) -> PyResult<UnlockedBuf<'_>> {
         let borrowed = self.borrow_buf();
-        if !borrowed.is_locked() {
+        if !borrowed.is_locked() && self.source_object().downcast_ref::<PyBytes>().is_some() {
             return Ok(UnlockedBuf::Borrowed(borrowed));
         }
         let mut copy = Vec::new();

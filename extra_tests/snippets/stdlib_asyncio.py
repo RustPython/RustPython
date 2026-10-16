@@ -76,9 +76,9 @@ finally:
 # to the same future; the field must not be locked while that runs.
 
 
-class Reentrant:
+class Reentrant(_asyncio.Future):
     def __hash__(self):
-        _asyncio.future_add_to_awaited_by(awaited, Reentrant())
+        _asyncio.future_add_to_awaited_by(awaited, Reentrant(loop=object()))
         return 1
 
     def __eq__(self, other):
@@ -86,15 +86,15 @@ class Reentrant:
 
 
 awaited = _asyncio.Future(loop=object())
-_asyncio.future_add_to_awaited_by(awaited, Reentrant())
+_asyncio.future_add_to_awaited_by(awaited, Reentrant(loop=object()))
 with assert_raises(RecursionError):
     # converting the single waiter into a set hashes both of them
-    _asyncio.future_add_to_awaited_by(awaited, Reentrant())
+    _asyncio.future_add_to_awaited_by(awaited, Reentrant(loop=object()))
 
 plain = _asyncio.Future(loop=object())
-waiter = object()
+waiter = _asyncio.Future(loop=object())
 _asyncio.future_add_to_awaited_by(plain, waiter)
-_asyncio.future_add_to_awaited_by(plain, object())
+_asyncio.future_add_to_awaited_by(plain, _asyncio.Future(loop=object()))
 assert waiter in plain._asyncio_awaited_by
 _asyncio.future_discard_from_awaited_by(plain, waiter)
 assert waiter not in plain._asyncio_awaited_by

@@ -21,7 +21,7 @@ pub fn warn(
 mod _warnings {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::TryFromObject,
         function::OptionalArg,
     };
@@ -117,8 +117,8 @@ mod _warnings {
 
         if !cat.fast_issubclass(vm.ctx.exceptions.warning) {
             return Err(vm.new_type_error(format!(
-                "category must be a Warning subclass, not '{}'",
-                cat.class().name()
+                "category must be a Warning subclass, not class '{}'",
+                cat.fully_qualified_name(vm)?
             )));
         }
 
@@ -180,7 +180,7 @@ mod _warnings {
         let source_line = if let Some(mg) = args.module_globals.into_option() {
             if vm.is_none(&mg) {
                 None
-            } else if !mg.class().is(vm.ctx.types.dict_type) {
+            } else if mg.downcast_ref::<PyDict>().is_none() {
                 return Err(vm.new_type_error(format!(
                     "module_globals must be a dict, not '{}'",
                     mg.class().name()

@@ -1094,13 +1094,14 @@ pub fn get_current_frame() -> *const InterpreterFrame {
 /// Called from push_exception/pop_exception/set_exception.
 #[cfg(feature = "threading")]
 pub fn update_thread_exception(exc: Option<PyBaseExceptionRef>) {
-    CURRENT_THREAD_SLOT.with(|slot| {
-        if let Some(s) = slot.borrow().as_ref() {
-            // SAFETY: Called only from the owning thread. The old ref is dropped
-            // here on the owning thread, which is safe.
-            let _old = unsafe { s.exception.swap(exc) };
-        }
+    // Release the TLS borrow before dropping either exception: traceback
+    // locals can finalize another interpreter and re-enter this thread slot.
+    let slot = current_thread_slot();
+    let old = slot.and_then(|s| {
+        // SAFETY: Called only from the owning thread.
+        unsafe { s.exception.swap(exc) }
     });
+    drop(old);
 }
 
 /// Collect all threads' current exceptions for sys._current_exceptions().
