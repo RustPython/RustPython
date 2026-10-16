@@ -5,12 +5,20 @@ Migrate test file(s) from CPython, preserving RustPython markers.
 Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py --patches remaining.json
+    python scripts/update_lib migrate cpython/Lib/test/test_foo --canonical-removals removals.json --dry-run
 
 Remaining metadata names the exact repository-relative target and its existing
 decorator patches. An optional "doctests" object selects existing guarded inputs
 by exact source text, mapping each to a single-line reason. Guarded doctests need
 this explicit selection; an empty object retires all their guards. Canonical
 expected output is never copied from the old file.
+
+Canonical removals are a separate, explicit operation. JSON source metadata
+pins path (Lib/test/test_*), commit and tree; removals maps explicit relative
+filenames to sha256 and upstream_commit. The caller must first verify and
+review historical provenance, including release-branch evidence. This command
+checks pinned canonical absence and exact local bytes; it does not authenticate
+historical evidence. --dry-run performs all validation without deleting files.
 
 This will:
     1. Extract patches from Lib/test/test_foo.py (if exists)
@@ -25,8 +33,11 @@ import collections
 import copy
 import hashlib
 import json
+import os
 import pathlib
+import re
 import shutil
+import subprocess
 import sys
 import textwrap
 
@@ -50,6 +61,24 @@ else:
 """
 EXCEPTION_LOOP = """for excname in PYTHON2_EXCEPTIONS:
     NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
+"""
+MULTIPHASE_UPSTREAM = (
+    "# gh-116303: Skip test module dependent tests if test modules are unavailable\n"
+    'import_helper.import_module("_testmultiphase")\n'
+)
+MULTIPHASE_LOCAL = """try: # TODO: RUSTPYTHON
+    import_helper.import_module("_testmultiphase")
+except unittest.SkipTest:
+    _testmultiphase = None
+"""
+LOCK_SPECIALIZATION = """(Frozen_LifetimeTests,
+ Source_LifetimeTests
+ ) = test_util.test_both(LifetimeTests, init=init)
+"""
+LOCK_SKIP = """# TODO: RUSTPYTHON; dead weakref module locks not cleaned up in frozen bootstrap
+Frozen_LifetimeTests.test_all_locks = unittest.skip("TODO: RUSTPYTHON")(
+    Frozen_LifetimeTests.test_all_locks
+)
 """
 BYTES_CAPI_UPSTREAM = (
     "    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')\n"
@@ -258,6 +287,78 @@ def _jit_block(contents: str) -> bool:
     )
 
 
+def _preserve_importlib_guard(old, new, upstream, local):
+    """Require exact, consecutive top-level AST statements and comment bytes."""
+    for contents, fragment in ((old, local), (new, upstream)):
+        tree, expected = ast.parse(contents), ast.parse(fragment).body
+        nodes = [
+            _unique_anchor(
+                contents,
+                tree,
+                lambda node: ast.dump(node) == ast.dump(item),
+                direct=True,
+            )
+            for item in expected
+        ]
+        start = tree.body.index(nodes[0])
+        lines = contents.splitlines(keepends=True)
+        first = nodes[0].lineno - expected[0].lineno
+        if (
+            tree.body[start : start + len(nodes)] != nodes
+            or contents.count(fragment) != 1
+            or "".join(lines[first : nodes[-1].end_lineno]) != fragment
+        ):
+            raise ValueError("Changed or ambiguous importlib customization anchor")
+    return new.replace(upstream, local, 1)
+
+
+def _preserve_multiphase_guard(old, new):
+    for contents, local in ((old, True), (new, False)):
+        tree = ast.parse(contents)
+        if sum(
+            isinstance(n, ast.Constant) and n.value == "_testmultiphase"
+            for n in ast.walk(tree)
+        ) != 1 or sum(
+            isinstance(n, ast.Name) and n.id == "_testmultiphase"
+            for n in ast.walk(tree)
+        ) != int(local):
+            raise ValueError("Ambiguous _testmultiphase anchor")
+    return _preserve_importlib_guard(old, new, MULTIPHASE_UPSTREAM, MULTIPHASE_LOCAL)
+
+
+def _preserve_frozen_lock_skip(old, new):
+    methods = []
+    for contents, local in ((old, True), (new, False)):
+        tree = ast.parse(contents)
+        owner = _unique_anchor(
+            contents,
+            tree,
+            lambda n: isinstance(n, ast.ClassDef) and n.name == "LifetimeTests",
+            direct=True,
+        )
+        method = _unique_anchor(
+            contents,
+            owner,
+            lambda n: isinstance(n, ast.FunctionDef) and n.name == "test_all_locks",
+            direct=True,
+        )
+        methods.append(ast.dump(method))
+        if sum(
+            isinstance(n, ast.Name) and n.id == "Frozen_LifetimeTests"
+            for n in ast.walk(tree)
+        ) != (3 if local else 1):
+            raise ValueError("Ambiguous frozen lock specialization")
+    if methods[0] != methods[1]:
+        raise ValueError("Frozen lock test changed; review its customization")
+    setup = "def setUpModule():\n    thread_info = threading_helper.threading_setup()\n    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)\n"
+    return _preserve_importlib_guard(
+        old,
+        new,
+        LOCK_SPECIALIZATION + "\n\n" + setup,
+        LOCK_SPECIALIZATION + "\n" + LOCK_SKIP + "\n" + setup,
+    )
+
+
 def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) -> str:
     """Fail closed if either known local patch or its canonical anchor changes."""
     parts = path.parts
@@ -299,6 +400,10 @@ def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) ->
         lines = new.splitlines(keepends=True)
         lines[anchor.lineno - 1 : anchor.end_lineno] = [BYTES_CAPI_LOCAL]
         return _preserve_bytes_allocations(old, "".join(lines))
+    if parts == ("Lib", "test", "test_importlib", "util.py"):
+        return _preserve_multiphase_guard(old, new)
+    if parts == ("Lib", "test", "test_importlib", "test_locks.py"):
+        return _preserve_frozen_lock_skip(old, new)
     return new
 
 
@@ -622,6 +727,8 @@ def patch_single_content(
             )
         if selection is not None:
             src_content = apply_doctest_metadata(old_content, src_content, selection)
+    if not src_content and not patches:
+        return src_content
     return apply_patches(src_content, patches)
 
 
@@ -849,6 +956,157 @@ def migrate_package(
         legacy.unlink()
 
 
+def remove_canonical_files(src_dir, manifest_path, *, dry_run=False):
+    """Remove only explicitly reviewed files, validating the whole batch first."""
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate removal metadata key: {key}")
+            result[key] = value
+        return result
+
+    def relative(name):
+        path = pathlib.PurePosixPath(name) if isinstance(name, str) else None
+        if (
+            not path
+            or not path.parts
+            or path.is_absolute()
+            or ".." in path.parts
+            or "\\" in name
+            or path.as_posix() != name
+            or "\0" in name
+        ):
+            raise ValueError("Expected an exact relative POSIX filename")
+        return pathlib.Path(path)
+
+    def no_symlinks(path):
+        if any(p.is_symlink() for p in (path, *path.parents)):
+            raise ValueError(f"Symlink in removal path: {path}")
+
+    def git(*args):
+        result = subprocess.run(
+            ["git", "-C", str(src_dir), *args],
+            env={
+                **os.environ,
+                "GIT_NO_LAZY_FETCH": "1",
+                "GIT_NO_REPLACE_OBJECTS": "1",
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError("Cannot verify pinned canonical source")
+        return result.stdout.decode().strip()
+
+    document = json.loads(manifest_path.read_text(), object_pairs_hook=unique_object)
+    if not isinstance(document, dict) or set(document) != {"source", "removals"}:
+        raise ValueError("Expected source and removals metadata")
+    source, removals = document["source"], document["removals"]
+    if not isinstance(source, dict) or set(source) != {"path", "commit", "tree"}:
+        raise ValueError("Expected source path, commit and tree")
+    package = relative(source["path"])
+    if (
+        len(package.parts) != 3
+        or package.parts[:2] != ("Lib", "test")
+        or not package.name.startswith("test_")
+        or not package.name.isidentifier()
+    ):
+        raise ValueError("Removals require an exact Lib/test/test_* package")
+    if any(
+        not isinstance(source[k], str) or not re.fullmatch(r"[0-9a-f]{40}", source[k])
+        for k in ("commit", "tree")
+    ):
+        raise ValueError("Source commit and tree must be full Git hashes")
+    if not isinstance(removals, dict) or not removals:
+        raise ValueError("Removals must be a nonempty filename map")
+    src_dir = src_dir.absolute()
+    destination = pathlib.Path.cwd() / package
+    for path in (src_dir, destination):
+        no_symlinks(path)
+        if not path.is_dir():
+            raise ValueError("Source and destination packages must exist")
+    if (
+        src_dir == destination
+        or src_dir in destination.parents
+        or destination in src_dir.parents
+    ):
+        raise ValueError("Source and destination overlap")
+    if (
+        src_dir != pathlib.Path(git("rev-parse", "--show-toplevel")) / package
+        or git("rev-parse", "HEAD") != source["commit"]
+        or git("rev-parse", f"HEAD:{package.as_posix()}") != source["tree"]
+    ):
+        raise ValueError("Canonical source identity differs from the pinned input")
+    canonical = set(
+        git(
+            "ls-tree",
+            "--full-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            "HEAD",
+            "--",
+            package.as_posix(),
+        ).split("\0")
+    )
+    snapshots, receipt = {}, {"source": source, "dry_run": dry_run, "removals": {}}
+    for name, entry in sorted(removals.items()):
+        path = relative(name)
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"sha256", "upstream_commit"}
+            or any(
+                not isinstance(entry[k], str)
+                or not re.fullmatch(f"[0-9a-f]{{{length}}}", entry[k])
+                for k, length in (("sha256", 64), ("upstream_commit", 40))
+            )
+        ):
+            raise ValueError(f"Missing or invalid hash/provenance pins: {name}")
+        target = destination / path
+        no_symlinks(target)
+        no_symlinks(src_dir / path)
+        if (package / path).as_posix() in canonical or (src_dir / path).exists():
+            raise ValueError(f"Selected file is still canonical: {name}")
+        if target.exists() and not target.is_file():
+            raise ValueError(f"Removal target is not a regular file: {name}")
+        data = target.read_bytes() if target.exists() else None
+        if data is not None and (
+            hashlib.sha256(data).hexdigest() != entry["sha256"]
+            or b"rustpython" in data.lower()
+        ):
+            raise ValueError(f"Changed bytes or RustPython customization: {name}")
+        snapshots[target] = data
+        receipt["removals"][name] = {
+            **entry,
+            "status": "already_absent"
+            if data is None
+            else "would_remove"
+            if dry_run
+            else "removed",
+        }
+    if git("rev-parse", "HEAD") != source["commit"]:
+        raise ValueError("Canonical source changed during validation")
+    for target, data in snapshots.items():
+        no_symlinks(target)
+        canonical_path = src_dir / target.relative_to(destination)
+        no_symlinks(canonical_path)
+        if canonical_path.exists():
+            raise ValueError("Canonical source changed during validation")
+        if (target.exists() and not target.is_file()) or (
+            target.read_bytes() if target.exists() else None
+        ) != data:
+            raise ValueError(f"Removal target changed during validation: {target}")
+    if not dry_run:
+        for target, data in snapshots.items():
+            if data is not None:
+                target.unlink()
+    print(json.dumps(receipt, sort_keys=True))
+    return receipt
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -864,6 +1122,16 @@ def main(argv: list[str] | None = None) -> int:
         "--legacy-map",
         type=pathlib.Path,
         help="Explicit legacy-file/class to package-file JSON mapping",
+    )
+    parser.add_argument(
+        "--canonical-removals",
+        type=pathlib.Path,
+        help="Remove only selected unchanged historical files absent from a pinned canonical tree",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate canonical removals without deleting",
     )
 
     parser.add_argument(
@@ -882,6 +1150,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.canonical_removals is not None:
+            if (
+                args.legacy_map is not None
+                or args.patches is not None
+                or args.support_assignments
+                or args.support_exports
+                or args.source_sha256
+                or args.destination_sha256
+            ):
+                raise ValueError(
+                    "Canonical removals cannot combine with other migration modes"
+                )
+            try:
+                remove_canonical_files(
+                    args.path, args.canonical_removals, dry_run=args.dry_run
+                )
+            except (OSError, UnicodeError) as exc:
+                raise ValueError(str(exc)) from exc
+            return 0
+        if args.dry_run:
+            raise ValueError("--dry-run requires --canonical-removals")
         if args.support_assignments:
             if args.legacy_map is not None or args.patches is not None:
                 raise ValueError(
