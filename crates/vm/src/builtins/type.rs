@@ -1904,19 +1904,25 @@ impl Constructor for PyType {
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyClassMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __class_getitem__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyClassMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyClassMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __new__))
             && f.class().is(vm.ctx.types.function_type)
         {
-            *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
+            let callable = f.clone();
+            *f = PyStaticMethod::from(callable.clone()).into_pyobject(vm);
+            super::classmethod::functools_wraps(f, &callable, vm)?;
         }
 
         if let Some(globals) = crate::frame::current_globals() {
@@ -2869,20 +2875,22 @@ impl Py<PyType> {
             return Err(vm.new_type_error("__annotate__ must be callable or None"));
         }
 
-        let _prev_values = PyType::with_type_lock(vm, || {
+        let clear_annotations = !vm.is_none(&value);
+        let old_annotate = PyType::with_type_lock(vm, || {
             self.modified_inner();
-            // Clear cached annotations only when setting to a new callable
-            let removed = if !vm.is_none(&value) {
+            self.attributes
+                .insert(identifier!(vm, __annotate_func__), value)
+        });
+        drop(old_annotate);
+        // Clear cached annotations only when setting to a new callable.
+        if clear_annotations {
+            let old_annotations = PyType::with_type_lock(vm, || {
+                self.modified_inner();
                 self.attributes
                     .remove(identifier!(vm, __annotations_cache__))
-            } else {
-                None
-            };
-            let prev = self
-                .attributes
-                .insert(identifier!(vm, __annotate_func__), value);
-            (removed, prev)
-        });
+            });
+            drop(old_annotations);
+        }
 
         Ok(())
     }
@@ -2931,10 +2939,10 @@ impl Py<PyType> {
         let annotations = if annotate.is_callable() {
             // Call __annotate__(1) where 1 is FORMAT_VALUE
             let result = annotate.call((1i32,), vm)?;
-            if !result.class().is(vm.ctx.types.dict_type) {
+            if !result.downcastable::<PyDict>() {
                 return Err(vm.new_type_error(format!(
-                    "__annotate__ returned non-dict of type '{}'",
-                    result.class().name()
+                    "__annotate__() must return a dict, not {}",
+                    result.class().fully_qualified_name(vm)?
                 )));
             }
             result
@@ -2942,22 +2950,14 @@ impl Py<PyType> {
             vm.ctx.new_dict().into()
         };
 
-        let (result, _prev) = PyType::with_type_lock(vm, || {
-            if let Some(existing) = self.attributes.get(annotations_key)
-                && !existing.class().is(vm.ctx.types.getset_type)
-            {
-                return (existing, None);
-            }
-            if let Some(existing) = self.attributes.get(annotations_cache_key) {
-                return (existing, None);
-            }
+        drop(annotate);
+        let old_annotations = PyType::with_type_lock(vm, || {
             self.modified_inner();
-            let prev = self
-                .attributes
-                .insert(annotations_cache_key, annotations.clone());
-            (annotations, prev)
+            self.attributes
+                .insert(annotations_cache_key, annotations.clone())
         });
-        Ok(result)
+        drop(old_annotations);
+        Ok(annotations)
     }
 
     #[pygetset(setter)]
@@ -2973,49 +2973,43 @@ impl Py<PyType> {
             )));
         }
 
-        let _prev_values = PyType::with_type_lock(vm, || {
+        let deleting = matches!(&value, PySetterValue::Delete);
+        let (has_annotations, old_annotations) = PyType::with_type_lock(vm, || {
             self.modified_inner();
             let has_annotations = self.attributes.contains(identifier!(vm, __annotations__));
-
-            let mut prev = Vec::new();
-            match value {
-                crate::function::PySetterValue::Assign(value) => {
-                    let key = if has_annotations {
-                        identifier!(vm, __annotations__)
-                    } else {
-                        identifier!(vm, __annotations_cache__)
-                    };
-                    prev.extend(self.attributes.insert(key, value));
-                    if has_annotations {
-                        prev.extend(
-                            self.attributes
-                                .remove(identifier!(vm, __annotations_cache__)),
-                        );
-                    }
-                }
-                crate::function::PySetterValue::Delete => {
-                    let removed = if has_annotations {
-                        self.attributes.remove(identifier!(vm, __annotations__))
-                    } else {
-                        self.attributes
-                            .remove(identifier!(vm, __annotations_cache__))
-                    };
-                    if removed.is_none() {
-                        return Err(vm.new_attribute_error("__annotations__"));
-                    }
-                    prev.extend(removed);
-                    if has_annotations {
-                        prev.extend(
-                            self.attributes
-                                .remove(identifier!(vm, __annotations_cache__)),
-                        );
-                    }
-                }
-            }
-            prev.extend(self.attributes.remove(identifier!(vm, __annotate_func__)));
-            prev.extend(self.attributes.remove(identifier!(vm, __annotate__)));
-            Ok(prev)
-        })?;
+            let key = if has_annotations {
+                identifier!(vm, __annotations__)
+            } else {
+                identifier!(vm, __annotations_cache__)
+            };
+            let old_annotations = match value {
+                crate::function::PySetterValue::Assign(value) => self.attributes.insert(key, value),
+                crate::function::PySetterValue::Delete => self.attributes.remove(key),
+            };
+            (has_annotations, old_annotations)
+        });
+        if deleting && old_annotations.is_none() {
+            return Err(vm.new_attribute_error("__annotations__"));
+        }
+        drop(old_annotations);
+        if has_annotations {
+            let old_cache = PyType::with_type_lock(vm, || {
+                self.modified_inner();
+                self.attributes
+                    .remove(identifier!(vm, __annotations_cache__))
+            });
+            drop(old_cache);
+        }
+        for key in [
+            identifier!(vm, __annotate_func__),
+            identifier!(vm, __annotate__),
+        ] {
+            let old_annotate = PyType::with_type_lock(vm, || {
+                self.modified_inner();
+                self.attributes.remove(key)
+            });
+            drop(old_annotate);
+        }
 
         Ok(())
     }
