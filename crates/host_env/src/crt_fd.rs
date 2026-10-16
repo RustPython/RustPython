@@ -319,7 +319,10 @@ impl AsRawFd for Borrowed<'_> {
 
 #[inline]
 fn ebadf() -> io::Error {
-    io::Error::from_raw_os_error(c::EBADF)
+    cfg_select! {
+        windows => crate::os::io_error_from_errno(c::EBADF),
+        _ => io::Error::from_raw_os_error(c::EBADF),
+    }
 }
 
 pub fn open(path: &ffi::CStr, flags: i32, mode: i32) -> io::Result<Owned> {
@@ -397,7 +400,12 @@ fn close_range_slow(low: Raw, high: Raw) {
 }
 
 pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
-    let ret = unsafe { suppress_iph!(c::ftruncate(fd.as_raw(), len)) };
+    ftruncate_raw(fd.as_raw(), len)
+}
+
+/// Truncate a caller-supplied descriptor, letting the CRT validate its value.
+pub fn ftruncate_raw(fd: Raw, len: Offset) -> io::Result<()> {
+    let ret = unsafe { suppress_iph!(c::ftruncate(fd, len)) };
     // On Windows, _chsize_s returns 0 on success, or a positive error code (errno value) on failure.
     // On other platforms, ftruncate returns 0 on success, or -1 on failure with errno set.
     cfg_select! {

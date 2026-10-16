@@ -49,6 +49,10 @@ pub mod module {
     #[pyattr]
     use rustpython_host_env::posix::PIDFD_NONBLOCK;
 
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    #[pyattr]
+    use rustpython_host_env::posix::NODEV;
+
     #[cfg(target_os = "macos")]
     #[pyattr]
     use rustpython_host_env::posix::{
@@ -881,7 +885,11 @@ pub mod module {
 
     /// Warn if forking from a multi-threaded process.
     /// `num_os_threads` should be captured before parent after-fork hooks run.
-    fn warn_if_multi_threaded(name: &str, num_os_threads: isize, vm: &VirtualMachine) {
+    fn warn_if_multi_threaded(
+        name: &str,
+        num_os_threads: isize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let num_threads = if num_os_threads > 0 {
             num_os_threads as usize
         } else {
@@ -895,7 +903,7 @@ pub mod module {
                 .and_then(|m| m.get_item("threading", vm))
             {
                 Ok(m) => m,
-                Err(_) => return,
+                Err(_) => return Ok(()),
             };
             let active = threading.get_attr("_active", vm).ok();
             let limbo = threading.get_attr("_limbo", vm).ok();
@@ -920,10 +928,9 @@ pub mod module {
             );
 
             // Match PyErr_WarnFormat(..., stacklevel=1) in CPython.
-            // Best effort: ignore failures like CPython does in this path.
-            let _ =
-                crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm);
+            crate::stdlib::_warnings::warn(vm.ctx.exceptions.deprecation_warning, msg, 1, vm)?;
         }
+        Ok(())
     }
 
     #[pyfunction]
@@ -960,7 +967,7 @@ pub mod module {
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
                 // Warn only after parent callback path resumes the world.
-                warn_if_multi_threaded("fork", num_os_threads, vm);
+                warn_if_multi_threaded("fork", num_os_threads, vm)?;
                 Ok(pid)
             }
             Err(err) => {
@@ -1002,7 +1009,7 @@ pub mod module {
             Ok((pid, master)) => {
                 let num_os_threads = get_number_of_os_threads();
                 py_os_after_fork_parent(vm);
-                warn_if_multi_threaded("forkpty", num_os_threads, vm);
+                warn_if_multi_threaded("forkpty", num_os_threads, vm)?;
                 Ok((pid, master))
             }
             Err(err) => {
@@ -2347,23 +2354,10 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
-        // Get a pointer to the login name string. The string is statically
-        // allocated and might be overwritten on subsequent calls to this
-        // function or to `cuserid()`. See man getlogin(3) for more information.
-        let Some(login) = rustpython_host_env::posix::getlogin() else {
-            return Err(vm.new_os_error("unable to determine login name"));
-        };
-        login.to_str().map(|s| s.to_owned()).map_err(|e| {
-            vm.new_unicode_decode_error(
-                vm.ctx.new_str("utf-8"),
-                vm.ctx.new_bytes(login.as_bytes().to_vec()),
-                e.valid_up_to(),
-                e.error_len()
-                    .map_or(login.as_bytes().len(), |n| e.valid_up_to() + n),
-                vm.ctx.new_str("unable to decode login name"),
-            )
-        })
+    fn getlogin(vm: &VirtualMachine) -> PyResult<crate::builtins::PyStrRef> {
+        let login =
+            rustpython_host_env::posix::getlogin().map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.fsdecode(std::ffi::OsString::from_vec(login.into_bytes())))
     }
 
     // cfg from nix
@@ -2868,10 +2862,16 @@ pub mod module {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[derive(FromArgs)]
-    struct SendFileArgs<'fd> {
-        out_fd: BorrowedFd<'fd>,
-        in_fd: BorrowedFd<'fd>,
+    struct SendFileArgs {
+        out_fd: i32,
+        in_fd: i32,
+        #[cfg(target_os = "linux")]
+        offset: PyObjectRef,
+        #[cfg(target_os = "macos")]
         offset: rustpython_host_env::crt_fd::Offset,
+        #[cfg(target_os = "linux")]
+        count: isize,
+        #[cfg(target_os = "macos")]
         count: i64,
         #[cfg(target_os = "macos")]
         // Missing means an empty header list.
@@ -2882,35 +2882,58 @@ pub mod module {
         #[pyarg(any, optional, py_default = "()")]
         trailers: OptionalArg<PyObjectRef>,
         #[cfg(target_os = "macos")]
-        #[allow(dead_code)]
         #[pyarg(any, default)]
-        // TODO: not implemented
         flags: i32,
     }
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
-        let mut file_offset = args.offset;
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        if args.count < 0 {
+            return Err(vm.new_value_error("count cannot be negative"));
+        }
+        let mut file_offset = if vm.is_none(&args.offset) {
+            None
+        } else {
+            Some(args.offset.try_into_value(vm)?)
+        };
 
-        let res = rustpython_host_env::posix::sendfile(
-            args.out_fd,
-            args.in_fd,
-            &mut file_offset,
-            args.count as usize,
-        )
-        .map_err(|err| err.into_pyexception(vm))?;
-        Ok(vm.ctx.new_int(res as u64).into())
+        loop {
+            let result = vm.allow_threads(|| {
+                rustpython_host_env::posix::sendfile(
+                    args.out_fd,
+                    args.in_fd,
+                    file_offset.as_mut(),
+                    args.count as usize,
+                )
+            });
+            match result {
+                Ok(written) => return Ok(vm.ctx.new_int(written).into()),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => vm.check_signals()?,
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
     }
 
     #[cfg(target_os = "macos")]
     fn _extract_vec_bytes(
         x: OptionalArg,
+        kind: &str,
         vm: &VirtualMachine,
     ) -> PyResult<Option<Vec<crate::function::ArgBytesLike>>> {
         x.into_option()
             .map(|x| {
-                let v: Vec<crate::function::ArgBytesLike> = x.try_to_value(vm)?;
+                let sequence = x.try_sequence(vm).map_err(|_| {
+                    vm.new_type_error(format!("sendfile() {kind}s must be a sequence"))
+                })?;
+                let count = sequence.length(vm)?;
+                if count > i32::MAX as usize {
+                    return Err(vm.new_overflow_error(format!("sendfile() {kind} is too large")));
+                }
+                let mut v = Vec::with_capacity(count);
+                for index in 0..count {
+                    v.push(sequence.get_item(index as isize, vm)?.try_into_value(vm)?);
+                }
                 Ok(if v.is_empty() { None } else { Some(v) })
             })
             .transpose()
@@ -2919,47 +2942,78 @@ pub mod module {
 
     #[cfg(target_os = "macos")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
-        let headers = _extract_vec_bytes(args.headers, vm)?;
-        let count = headers
-            .as_ref()
-            .map_or(0, |v| v.iter().map(|s| s.len()).sum()) as i64
-            + args.count;
+    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+        if args.count < 0 {
+            return Err(vm.new_value_error("count cannot be negative"));
+        }
+        let headers = _extract_vec_bytes(args.headers, "header", vm)?;
+        let mut count = args.count;
+        if let Some(headers) = &headers {
+            for header in headers {
+                let length = i64::try_from(header.len())
+                    .map_err(|_| vm.new_overflow_error("sendfile() header is too large"))?;
+                if count >= i64::MAX - length {
+                    return Err(vm.new_overflow_error("sendfile() header is too large"));
+                }
+                count += length;
+            }
+        }
 
+        let trailers = _extract_vec_bytes(args.trailers, "trailer", vm)?;
+        // Complete all Python argument callbacks before snapshotting mutable
+        // exporters. No buffer lock may survive another callback or blocking I/O.
         let headers = headers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
+            .map(|v| {
+                v.iter()
+                    .map(|b| b.borrow_buf_unlocked(vm))
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .transpose()?;
         let headers = headers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
         let headers = headers.as_deref();
 
-        let trailers = _extract_vec_bytes(args.trailers, vm)?;
         let trailers = trailers
             .as_ref()
-            .map(|v| v.iter().map(|b| b.borrow_buf()).collect::<Vec<_>>());
+            .map(|v| {
+                v.iter()
+                    .map(|b| b.borrow_buf_unlocked(vm))
+                    .collect::<PyResult<Vec<_>>>()
+            })
+            .transpose()?;
         let trailers = trailers
             .as_ref()
             .map(|v| v.iter().map(|borrowed| &**borrowed).collect::<Vec<_>>());
         let trailers = trailers.as_deref();
 
-        let (res, written) = rustpython_host_env::posix::sendfile(
-            args.in_fd,
-            args.out_fd,
-            args.offset,
-            count,
-            headers,
-            trailers,
-        );
-        // On macOS, sendfile can return EAGAIN even when some bytes were written.
-        // In that case, we should return the number of bytes written rather than
-        // raising an exception. Only raise an error if no bytes were written.
-        if let Err(err) = res
-            && written == 0
-        {
-            return Err(err.into_pyexception(vm));
+        let mut written = count;
+        loop {
+            let result = vm.allow_threads(|| {
+                rustpython_host_env::posix::sendfile(
+                    args.in_fd,
+                    args.out_fd,
+                    args.offset,
+                    &mut written,
+                    headers,
+                    trailers,
+                    args.flags,
+                )
+            });
+            match result {
+                Ok(()) => return Ok(vm.ctx.new_int(written).into()),
+                Err(err) if err.raw_os_error() == Some(libc::EINTR) => vm.check_signals()?,
+                // CPython permits partial success only for EAGAIN or EBUSY.
+                Err(err)
+                    if written != 0
+                        && matches!(err.raw_os_error(), Some(libc::EAGAIN | libc::EBUSY)) =>
+                {
+                    return Ok(vm.ctx.new_int(written).into());
+                }
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
         }
-        Ok(vm.ctx.new_int(written as u64).into())
     }
 
     #[cfg(target_os = "linux")]

@@ -1,6 +1,7 @@
 """Tests for migrate.py - file migration operations."""
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -16,6 +17,7 @@ from update_lib.cmd_migrate import (
     LOCAL_CALL,
     SYSCONFIG_LOCAL,
     SYSCONFIG_UPSTREAM,
+    copy_support_assignments,
     main,
     migrate_package,
     patch_directory,
@@ -33,6 +35,235 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
+
+
+class TestSupportAssignments(unittest.TestCase):
+    names = ["_available", "requires_available", "requires_unavailable"]
+    exports = names[1:]
+    imports = "import os\nimport unittest\n\n"
+    export_line = '    "requires_available", "requires_unavailable",\n'
+    block = (
+        "_available = hasattr(os, 'geteuid') and os.geteuid() == 0\n"
+        'requires_available = unittest.skipUnless(_available, "needs privilege")\n'
+        'requires_unavailable = unittest.skipIf(_available, "needs no privilege")\n\n\n'
+    )
+    source = (
+        imports
+        + '__all__ = [\n    "existing",\n'
+        + export_line
+        + "]\n\n\n"
+        + block
+        + "STATUS = 1\n"
+    )
+    destination = (
+        imports
+        + '__all__ = [\n    "existing",\n]\n\n\ndef legacy():\n    return "keep π"\n\n\nSTATUS = 1\n'
+    )
+
+    def test_canonical_bytes_and_unrelated_helpers_are_preserved(self):
+        result = copy_support_assignments(
+            self.source, self.destination, self.names, self.exports
+        )
+        self.assertEqual(
+            result,
+            self.destination.replace(
+                "__all__ = [\n", "__all__ = [\n" + self.export_line
+            ).replace("STATUS = 1\n", self.block + "STATUS = 1\n"),
+        )
+
+    def test_missing_ambiguous_and_noncontiguous_assignments_are_rejected(self):
+        for source in (
+            self.source.replace("_available =", "_other ="),
+            self.source + "_available = False\n",
+            self.source + "def requires_available(): pass\n",
+            self.source + "import other as requires_unavailable\n",
+            self.source.replace(
+                "requires_available =", "unselected = 0\nrequires_available ="
+            ),
+            self.source.replace("_available =", "unselected = 0; _available =", 1),
+            self.source.replace("STATUS = 1", ""),
+        ):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                copy_support_assignments(
+                    source, self.destination, self.names, self.exports
+                )
+
+    def test_existing_bindings_dependencies_and_anchor_fail_closed(self):
+        for destination in (
+            self.destination + "_available = False\n",
+            self.destination + "def requires_available(): pass\n",
+            self.destination + "import other as requires_unavailable\n",
+            self.destination.replace("import os\n", ""),
+            self.destination.replace("import os\n", "import os as other\n"),
+            self.destination.replace("import os\n", "") + "import os\n",
+            self.destination.replace("STATUS = 1", "STATUS = 2"),
+            self.destination + "STATUS = 1\n",
+        ):
+            with self.subTest(destination=destination), self.assertRaises(ValueError):
+                copy_support_assignments(
+                    self.source, destination, self.names, self.exports
+                )
+
+    def test_invalid_exports_are_rejected(self):
+        for source, destination, exports in (
+            (self.source, self.destination, self.exports + self.exports),
+            (self.source, self.destination, ["unselected"]),
+            (self.source, self.destination, list(reversed(self.exports))),
+            (self.source, self.destination, self.exports[:1]),
+            (
+                self.source,
+                self.destination.replace('"existing"', '"requires_available"'),
+                self.exports,
+            ),
+            (self.source.replace(self.export_line, ""), self.destination, self.exports),
+            (
+                self.source,
+                self.destination.replace('[\n    "existing",\n]', '("existing",)'),
+                self.exports,
+            ),
+            (self.source.replace('"existing"', "3"), self.destination, self.exports),
+            (self.source, self.destination.replace('"existing"', "3"), self.exports),
+        ):
+            with self.subTest(exports=exports), self.assertRaises(ValueError):
+                copy_support_assignments(source, destination, self.names, exports)
+
+    def test_dependency_rebinding_deletion_and_builtin_shadowing_are_rejected(self):
+        for binding in (
+            "os = replacement",
+            "del os",
+            "import other as os",
+            "hasattr = replacement",
+            "del hasattr",
+            "if condition:\n    unittest = replacement",
+        ):
+            for source_side in (False, True):
+                source, destination = self.source, self.destination
+                if source_side:
+                    source = source.replace("__all__ = [", binding + "\n__all__ = [")
+                else:
+                    destination = destination.replace(
+                        "__all__ = [", binding + "\n__all__ = ["
+                    )
+                with (
+                    self.subTest(binding=binding, source_side=source_side),
+                    self.assertRaisesRegex(ValueError, "Ambiguous dependency binding"),
+                ):
+                    copy_support_assignments(
+                        source, destination, self.names, self.exports
+                    )
+
+    def test_decorated_and_partial_line_anchors_are_rejected(self):
+        for replacement in (
+            "@decorator\ndef anchor(): pass",
+            "STATUS = 1; other = 2",
+            "other = 2; STATUS = 1",
+        ):
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                copy_support_assignments(
+                    self.source.replace("STATUS = 1", replacement),
+                    self.destination.replace("STATUS = 1", replacement),
+                    self.names,
+                    self.exports,
+                )
+
+    def test_wildcard_import_dependencies_are_rejected(self):
+        for source, destination in (
+            ("from other import *\n" + self.source, self.destination),
+            (self.source, "from other import *\n" + self.destination),
+        ):
+            with self.assertRaisesRegex(ValueError, "Wildcard import"):
+                copy_support_assignments(source, destination, self.names, self.exports)
+
+    def test_cli_hash_pins_scope_and_receipt(self):
+        with tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
+            source = pathlib.Path("canonical/Lib/test/support/__init__.py")
+            target = pathlib.Path("Lib/test/support/__init__.py")
+            source.parent.mkdir(parents=True)
+            target.parent.mkdir(parents=True)
+            source.write_text(self.source)
+            target.write_text(self.destination)
+            args = [
+                str(source),
+                "--support-assignments",
+                *self.names,
+                "--support-exports",
+                *self.exports,
+                "--source-sha256",
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+                "--destination-sha256",
+                "0" * 64,
+            ]
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(args), 1)
+                self.assertEqual(
+                    main([str(source), "--support-assignments", *self.names]), 1
+                )
+            self.assertEqual(target.read_text(), self.destination)
+            args[-1] = hashlib.sha256(target.read_bytes()).hexdigest()
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(args), 0)
+            self.assertIn('"destination_after_sha256"', output.getvalue())
+            self.assertIn(self.block, target.read_text())
+            for path in (
+                "canonical/Lib/os.py",
+                "canonical/Lib/test/support/../../os.py",
+            ):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main([path, *args[1:]]), 1)
+
+    def test_selective_mode_rejects_existing_modes_before_reading_metadata(self):
+        for mode in ("--patches", "--legacy-map"):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(
+                    main(
+                        [
+                            "missing/Lib/test/support/example.py",
+                            "--support-assignments",
+                            *self.names,
+                            mode,
+                            "missing-metadata.json",
+                        ]
+                    ),
+                    1,
+                )
+            self.assertIn("cannot combine", errors.getvalue())
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(
+                    main(
+                        [
+                            "missing/Lib/test/support/example.py",
+                            "--support-exports",
+                            *self.exports,
+                            mode,
+                            "missing-metadata.json",
+                        ]
+                    ),
+                    1,
+                )
+            self.assertIn("require --support-assignments", errors.getvalue())
+
+    def test_default_syntax_error_behavior_is_unchanged(self):
+        with patch(
+            "update_lib.cmd_migrate.patch_file", side_effect=SyntaxError("invalid")
+        ):
+            with self.assertRaises(SyntaxError):
+                main(["missing/Lib/test/support/example.py"])
+        with patch(
+            "update_lib.cmd_migrate.migrate_support_assignments",
+            side_effect=SyntaxError("invalid"),
+        ):
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(
+                    main(
+                        [
+                            "missing/Lib/test/support/example.py",
+                            "--support-assignments",
+                            *self.names,
+                        ]
+                    ),
+                    1,
+                )
+            self.assertIn("invalid", errors.getvalue())
 
 
 class TestPatchSingleContent(unittest.TestCase):
