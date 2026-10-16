@@ -551,9 +551,65 @@ def temp_attr(obj: object, attr: str, value: object):
         setattr(obj, attr, old)
 
 
-def select_remaining_patches(current, document, relative_path: Path):
+def _conditional_retirements(document, old_content):
+    entries = document.get("retire_conditional", [])
+    if not isinstance(entries, list):
+        raise ValueError("Conditional retirements must be a list")
+    if not entries:
+        return {}
+    if not isinstance(old_content, str):
+        raise ValueError("Conditional retirements require original source")
+    tree = ast.parse(old_content)
+    lines = old_content.splitlines(keepends=True)
+    result = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "class",
+            "method",
+            "decorator",
+        }:
+            raise ValueError("Invalid conditional retirement metadata")
+        if not all(isinstance(value, str) and value for value in entry.values()):
+            raise ValueError("Conditional retirement fields must be nonempty strings")
+        key = (entry["class"], entry["method"])
+        if key in result:
+            raise ValueError("Duplicate conditional retirement")
+        classes = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == key[0]
+        ]
+        if len(classes) != 1:
+            raise ValueError("Missing or ambiguous conditional retirement class")
+        methods = [
+            node for node in _iter_class_methods(classes[0]) if node.name == key[1]
+        ]
+        if len(methods) != 1:
+            raise ValueError("Missing or ambiguous conditional retirement method")
+        matches = [
+            node
+            for node in methods[0].decorator_list
+            if "".join(lines[node.lineno - 1 : node.end_lineno]) == entry["decorator"]
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Original conditional decorator does not match exactly once"
+            )
+        marker = PatchSpec.try_from_ast_node(matches[0], old_content.splitlines())
+        if marker is None or marker.ut_method != UtMethod.ExpectedFailureIf:
+            raise ValueError(
+                "Only explicit expectedFailureIf retirements are supported"
+            )
+        result[key] = marker
+    return result
+
+
+def select_remaining_patches(
+    current, document, relative_path: Path, *, old_content=None
+):
     if not isinstance(document, dict) or (
-        set(document) not in ({"target", "patches"}, {"target", "patches", "doctests"})
+        not {"target", "patches"} <= set(document)
+        or not set(document) <= {"target", "patches", "doctests", "retire_conditional"}
     ):
         raise ValueError("Expected target and patches metadata")
     if (
@@ -568,6 +624,8 @@ def select_remaining_patches(current, document, relative_path: Path):
         remaining = patches_from_json(document["patches"])
     except (TypeError, KeyError, AttributeError, ValueError) as error:
         raise ValueError("Invalid remaining marker metadata") from error
+    retirements = _conditional_retirements(document, old_content)
+    consumed = set()
     for cls, methods in remaining.items():
         if cls not in current or any(method not in current[cls] for method in methods):
             raise ValueError("Marker override cannot add targets")
@@ -584,10 +642,21 @@ def select_remaining_patches(current, document, relative_path: Path):
                 omitted.extend(pending[:index])
                 pending = pending[index + 1 :]
             omitted.extend(pending)
-            if any(marker.ut_method != UtMethod.ExpectedFailure for marker in omitted):
-                raise ValueError(
-                    "Only unconditional expectedFailure markers may be removed"
-                )
+            for marker in omitted:
+                if marker.ut_method == UtMethod.ExpectedFailure:
+                    continue
+                key = (cls, method)
+                if (
+                    key in consumed
+                    or retirements.get(key) != marker
+                    or existing.count(marker) != 1
+                ):
+                    raise ValueError(
+                        "Conditional removal requires an exact explicit retirement"
+                    )
+                consumed.add(key)
+    if consumed != set(retirements):
+        raise ValueError("Conditional retirement was not removed exactly once")
     return remaining
 
 
