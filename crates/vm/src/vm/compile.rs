@@ -11,6 +11,19 @@ use crate::{
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
 
+/// Warnings delivered while collecting one physical interactive record.
+#[cfg(feature = "parser")]
+#[derive(Default)]
+pub(super) struct InteractiveWarnings {
+    emitted: alloc::collections::BTreeSet<(usize, String)>,
+}
+
+#[cfg(feature = "parser")]
+pub(super) struct ParserWarningState<'a> {
+    pub emitted_escapes: &'a [usize],
+    pub interactive: Option<&'a mut InteractiveWarnings>,
+}
+
 #[derive(Debug)]
 pub enum VmCompileError {
     Compile(CompileError),
@@ -578,6 +591,20 @@ impl VirtualMachine {
             self.emit_string_escape_warnings(source, &source_path, module, emitted_escapes)
                 .map_err(VmCompileError::Warning)?;
         }
+        self.compile_after_parser_warnings(source, mode, source_path, opts, module)
+    }
+
+    pub(super) fn compile_after_parser_warnings(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        source_path: impl Into<String>,
+        opts: CompileOpts,
+        module: Option<&Py<PyStr>>,
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
+        let source_path = source_path.into();
+        #[cfg(not(feature = "parser"))]
+        let _ = module;
         #[cfg(feature = "parser")]
         let code = {
             // A warning the filter escalates to an exception is stashed here so
@@ -698,6 +725,24 @@ mod escape_warnings {
     pub(super) enum InvalidEscape {
         Char { ch: char, offset: usize },
         Octal { digits: [u8; 3], offset: usize },
+    }
+
+    enum ParserWarning {
+        Escape(InvalidEscape, Option<usize>),
+        Numeric {
+            offset: usize,
+            last_offset: usize,
+            message: String,
+        },
+    }
+
+    impl ParserWarning {
+        fn offset(&self) -> usize {
+            match self {
+                Self::Escape(escape, _) => escape.offset(),
+                Self::Numeric { offset, .. } => *offset,
+            }
+        }
     }
 
     impl InvalidEscape {
@@ -1158,38 +1203,46 @@ mod escape_warnings {
         )
     }
 
-    fn warn_quoted_literal(
+    fn collect_quoted_literal_warning(
         source: &str,
-        quote_index: usize,
+        literal_start: usize,
         end: usize,
         is_bytes: bool,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
+        warnings: &mut Vec<ParserWarning>,
+    ) {
         if let Some((start, content_end)) =
-            content_bounds(source, text_range_from_bounds(quote_index, end))
+            content_bounds(source, text_range_from_bounds(literal_start, end))
             && let Some(escape) = first_invalid_escape(source, start, content_end, is_bytes)
         {
-            warn_invalid_escape_sequence(source, escape, filename, module, vm)?;
+            let before_escape = &source[start..escape.offset()];
+            // string_parser.c counts leading quotes from the token start.
+            // A bytes prefix contributes none to its first-line error range.
+            // Keep the actual escape offset for warning order and deduplication.
+            let error_column = (is_bytes && !before_escape.contains(['\r', '\n'])).then(|| {
+                let (_, column) = line_offset_at(source, escape.offset());
+                column.saturating_sub(start - literal_start)
+            });
+            warnings.push(ParserWarning::Escape(escape, error_column));
         }
-        Ok(())
     }
 
-    fn warn_fstring_literal_part(
+    fn collect_fstring_literal_warning(
         source: &str,
         start: usize,
         end: usize,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
+        warnings: &mut Vec<ParserWarning>,
+    ) {
         if start >= end || end > source.len() {
-            return Ok(());
+            return;
         }
         if let Some(escape) = first_invalid_escape(source, start, end, false) {
-            return warn_invalid_escape_sequence(source, escape, filename, module, vm);
+            warnings.push(ParserWarning::Escape(escape, None));
+            return;
         }
+        // In CPython, _PyTokenizer_warn_invalid_escape_sequence handles
+        // `\{` and `\}` for FSTRING_MIDDLE/FSTRING_END tokens. Ruff splits
+        // before the delimiter, leaving the backslash at the literal's end.
+        // An even number of trailing backslashes is already escaped.
         let trailing_bs = source.as_bytes()[start..end]
             .iter()
             .rev()
@@ -1199,18 +1252,14 @@ mod escape_warnings {
             && let Some(&after) = source.as_bytes().get(end)
             && (after == b'{' || after == b'}')
         {
-            warn_invalid_escape_sequence(
-                source,
+            warnings.push(ParserWarning::Escape(
                 InvalidEscape::Char {
                     ch: after as char,
                     offset: end - 1,
                 },
-                filename,
-                module,
-                vm,
-            )?;
+                None,
+            ));
         }
-        Ok(())
     }
 
     fn find_interpolation_end(bytes: &[u8], open: usize, limit: usize) -> usize {
@@ -1267,10 +1316,8 @@ mod escape_warnings {
         start: usize,
         end: usize,
         is_raw: bool,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
+        warnings: &mut Vec<ParserWarning>,
+    ) {
         let bytes = source.as_bytes();
         let mut index = start;
         let mut literal_start = start;
@@ -1281,26 +1328,17 @@ mod escape_warnings {
                 }
                 b'{' => {
                     if !is_raw {
-                        warn_fstring_literal_part(
-                            source,
-                            literal_start,
-                            index,
-                            filename,
-                            module,
-                            vm,
-                        )?;
+                        collect_fstring_literal_warning(source, literal_start, index, warnings);
                     }
                     let close = find_interpolation_end(bytes, index, end);
                     let body_end = if close > index + 1 { close - 1 } else { close };
-                    emit_string_escape_warnings_in_range(
+                    collect_string_escape_warnings_in_range(
                         source,
                         index + 1,
                         body_end,
                         Some(is_raw),
-                        filename,
-                        module,
-                        vm,
-                    )?;
+                        warnings,
+                    );
                     index = close.max(index + 1);
                     literal_start = index;
                 }
@@ -1312,31 +1350,19 @@ mod escape_warnings {
             }
         }
         if !is_raw {
-            warn_fstring_literal_part(source, literal_start, end, filename, module, vm)?;
+            collect_fstring_literal_warning(source, literal_start, end, warnings);
         }
-        Ok(())
     }
 
     /// Scan quoted literals without a successful parse, matching the tokenizer
     /// path that warns before the parser rejects the rest of the source.
-    fn emit_string_escape_warnings_unparsed(
-        source: &str,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
-        emit_string_escape_warnings_in_range(source, 0, source.len(), None, filename, module, vm)
-    }
-
-    fn emit_string_escape_warnings_in_range(
+    fn collect_string_escape_warnings_in_range(
         source: &str,
         start: usize,
         end: usize,
         format_spec_raw: Option<bool>,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
+        warnings: &mut Vec<ParserWarning>,
+    ) {
         let bytes = source.as_bytes();
         let end = end.min(bytes.len());
         let mut index = start;
@@ -1368,21 +1394,24 @@ mod escape_warnings {
                                         content_start,
                                         content_end.min(end),
                                         is_raw,
-                                        filename,
-                                        module,
-                                        vm,
-                                    )?;
+                                        warnings,
+                                    );
                                 }
                             } else if !is_raw {
-                                warn_quoted_literal(
-                                    source, index, quote_end, is_bytes, filename, module, vm,
-                                )?;
+                                collect_quoted_literal_warning(
+                                    // Non-raw ordinary prefixes are one-byte b/u.
+                                    source,
+                                    index - 1,
+                                    quote_end,
+                                    is_bytes,
+                                    warnings,
+                                );
                             }
                         }
                         StringPrefix::None => {
-                            warn_quoted_literal(
-                                source, index, quote_end, false, filename, module, vm,
-                            )?;
+                            collect_quoted_literal_warning(
+                                source, index, quote_end, false, warnings,
+                            );
                         }
                         StringPrefix::Invalid => {}
                     }
@@ -1393,16 +1422,8 @@ mod escape_warnings {
                     && bracket == 0
                     && brace == 0 =>
                 {
-                    scan_interpolated_content(
-                        source,
-                        index + 1,
-                        end,
-                        is_raw,
-                        filename,
-                        module,
-                        vm,
-                    )?;
-                    return Ok(());
+                    scan_interpolated_content(source, index + 1, end, is_raw, warnings);
+                    return;
                 }
                 b'(' if format_spec_raw.is_some() => {
                     paren += 1;
@@ -1431,15 +1452,9 @@ mod escape_warnings {
                 _ => index += 1,
             }
         }
-        Ok(())
     }
 
-    fn emit_numeric_literal_warnings(
-        source: &str,
-        filename: &str,
-        module: Option<&Py<PyStr>>,
-        vm: &VirtualMachine,
-    ) -> Result<(), CompileWarningError> {
+    fn collect_numeric_literal_warnings(source: &str, warnings: &mut Vec<ParserWarning>) {
         let bytes = source.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
@@ -1466,64 +1481,40 @@ mod escape_warnings {
                         continue;
                     };
                     if end > index && numeric_keyword_suffix(&bytes[end..]) {
-                        warn_syntax_at_offset(
-                            source,
-                            filename,
-                            module,
-                            index,
-                            format!("invalid {kind} literal"),
-                            vm,
-                        )?;
+                        warnings.push(ParserWarning::Numeric {
+                            offset: index,
+                            last_offset: end - 1,
+                            message: format!("invalid {kind} literal"),
+                        });
                     }
                     index = end.max(index + 1);
                 }
                 _ => index += 1,
             }
         }
-        Ok(())
     }
 
-    struct EscapeWarningVisitor<'a> {
+    struct EscapeWarningVisitor<'a, 'w> {
         source: &'a str,
-        filename: &'a str,
-        module: Option<&'a Py<PyStr>>,
-        vm: &'a VirtualMachine,
-        error: Option<CompileWarningError>,
-        emitted_escapes: &'a [usize],
+        warnings: &'w mut Vec<ParserWarning>,
+        interactive: bool,
         /// This pass runs before the compile that rejects an over-nested
         /// tree, so it has to stop itself.
         depth: usize,
         depth_limit: usize,
     }
 
-    impl<'a> EscapeWarningVisitor<'a> {
-        fn record_warning(&mut self, result: Result<(), CompileWarningError>) {
-            if self.error.is_none()
-                && let Err(err) = result
-            {
-                self.error = Some(err);
-            }
-        }
-
+    impl<'a> EscapeWarningVisitor<'a, '_> {
         /// Check a quoted string/bytes literal for invalid escapes.
         /// The range must include the prefix and quote delimiters.
         fn check_quoted_literal(&mut self, range: TextRange, is_bytes: bool) {
-            if let Some((start, end)) = content_bounds(self.source, range)
-                && let Some(escape) = first_invalid_escape(self.source, start, end, is_bytes)
-                && self
-                    .emitted_escapes
-                    .binary_search(&escape.offset())
-                    .is_err()
-            {
-                let result = warn_invalid_escape_sequence(
-                    self.source,
-                    escape,
-                    self.filename,
-                    self.module,
-                    self.vm,
-                );
-                self.record_warning(result);
-            }
+            collect_quoted_literal_warning(
+                self.source,
+                range.start().to_usize(),
+                range.end().to_usize(),
+                is_bytes,
+                self.warnings,
+            );
         }
 
         /// Check an f-string literal element for invalid escapes.
@@ -1533,70 +1524,32 @@ mod escape_warnings {
         /// equivalent to `_PyTokenizer_warn_invalid_escape_sequence` handling
         /// `FSTRING_MIDDLE` / `FSTRING_END` tokens.
         fn check_fstring_literal(&mut self, range: TextRange) {
-            let start = range.start().to_usize();
-            let end = range.end().to_usize();
-            if start >= end || end > self.source.len() {
-                return;
-            }
-            if let Some(escape) = first_invalid_escape(self.source, start, end, false) {
-                if self.emitted_escapes.binary_search(&escape.offset()).is_ok() {
-                    return;
-                }
-                let result = warn_invalid_escape_sequence(
-                    self.source,
-                    escape,
-                    self.filename,
-                    self.module,
-                    self.vm,
-                );
-                self.record_warning(result);
-                return;
-            }
-            // In CPython, _PyTokenizer_warn_invalid_escape_sequence handles
-            // `\{` and `\}` for FSTRING_MIDDLE/FSTRING_END tokens.  Ruff
-            // splits the literal element before the interpolation delimiter,
-            // so the `\` sits at the end of the literal range and the `{`/`}`
-            // sits just after it.  Only warn when the number of trailing
-            // backslashes is odd (an even count means they are all escaped).
-            let trailing_bs = self.source.as_bytes()[start..end]
-                .iter()
-                .rev()
-                .take_while(|&&b| b == b'\\')
-                .count();
-            if trailing_bs % 2 == 1
-                && let Some(&after) = self.source.as_bytes().get(end)
-                && (after == b'{' || after == b'}')
-                && self.emitted_escapes.binary_search(&(end - 1)).is_err()
-            {
-                let result = warn_invalid_escape_sequence(
-                    self.source,
-                    InvalidEscape::Char {
-                        ch: after as char,
-                        offset: end - 1,
-                    },
-                    self.filename,
-                    self.module,
-                    self.vm,
-                );
-                self.record_warning(result);
-            }
+            collect_fstring_literal_warning(
+                self.source,
+                range.start().to_usize(),
+                range.end().to_usize(),
+                self.warnings,
+            );
         }
 
         /// Visit f-string elements, checking literals and recursing into
         /// interpolation expressions and format specs.
-        fn visit_fstring_elements(&mut self, elements: &'a ast::InterpolatedStringElements) {
+        fn visit_fstring_elements(
+            &mut self,
+            elements: &'a ast::InterpolatedStringElements,
+            raw: bool,
+        ) {
             for element in elements {
-                if self.error.is_some() {
-                    return;
-                }
                 match element {
                     ast::InterpolatedStringElement::Literal(lit) => {
-                        self.check_fstring_literal(lit.range);
+                        if !raw {
+                            self.check_fstring_literal(lit.range);
+                        }
                     }
                     ast::InterpolatedStringElement::Interpolation(interp) => {
                         self.visit_expr(&interp.expression);
                         if let Some(spec) = &interp.format_spec {
-                            self.visit_fstring_elements(&spec.elements);
+                            self.visit_fstring_elements(&spec.elements, raw);
                         }
                     }
                 }
@@ -1604,11 +1557,8 @@ mod escape_warnings {
         }
     }
 
-    impl<'a> Visitor<'a> for EscapeWarningVisitor<'a> {
+    impl<'a> Visitor<'a> for EscapeWarningVisitor<'a, '_> {
         fn visit_expr(&mut self, expr: &'a ast::Expr) {
-            if self.error.is_some() {
-                return;
-            }
             match expr {
                 // Regular string literals — decode_unicode_with_escapes path
                 ast::Expr::StringLiteral(string) => {
@@ -1646,15 +1596,28 @@ mod escape_warnings {
                                 }
                             }
                             ast::FStringPartRef::FString(fstring) => {
-                                if matches!(
-                                    fstring.flags.prefix(),
-                                    ast::str_prefix::FStringPrefix::Raw { .. }
-                                ) {
+                                if !self.interactive
+                                    && matches!(
+                                        fstring.flags.prefix(),
+                                        ast::str_prefix::FStringPrefix::Raw { .. }
+                                    )
+                                {
                                     continue;
                                 }
-                                self.visit_fstring_elements(&fstring.elements);
+                                self.visit_fstring_elements(
+                                    &fstring.elements,
+                                    matches!(
+                                        fstring.flags.prefix(),
+                                        ast::str_prefix::FStringPrefix::Raw { .. }
+                                    ),
+                                );
                             }
                         }
+                    }
+                }
+                ast::Expr::TString(tstring) if self.interactive => {
+                    for part in tstring.value.as_slice() {
+                        self.visit_fstring_elements(&part.elements, part.flags.prefix().is_raw());
                     }
                 }
                 _ => {
@@ -1669,19 +1632,29 @@ mod escape_warnings {
     }
 
     impl VirtualMachine {
-        /// Emit tokenizer-level SyntaxWarnings raised before
-        /// code generation.
+        // Keep ordinary source compilation's existing warning order and
+        // recovery surface; interactive records use the bounded parser below.
         pub(super) fn emit_tokenizer_syntax_warnings(
             &self,
             source: &str,
             filename: &str,
             module: Option<&Py<PyStr>>,
         ) -> Result<(), CompileWarningError> {
-            emit_numeric_literal_warnings(source, filename, module, self)
+            let mut warnings = Vec::new();
+            collect_numeric_literal_warnings(source, &mut warnings);
+            self.emit_collected_parser_warnings(
+                source,
+                filename,
+                module,
+                warnings,
+                super::ParserWarningState {
+                    emitted_escapes: &[],
+                    interactive: None,
+                },
+            )?;
+            Ok(())
         }
 
-        /// Walk all string literals in `source` and emit `SyntaxWarning` for
-        /// each that contains an invalid escape sequence.
         pub(super) fn emit_string_escape_warnings(
             &self,
             source: &str,
@@ -1689,39 +1662,219 @@ mod escape_warnings {
             module: Option<&Py<PyStr>>,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
-            // The compile that follows rejects this source; parsing it here
-            // would build a tree that exhausts the stack when dropped.
             let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
             if compiler::pre_parse_source_error(&source_file).is_err() {
                 return Ok(());
             }
-            let Ok(parsed) =
+            let mut warnings = Vec::new();
+            if let Ok(parsed) =
                 ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
-            else {
-                return emit_string_escape_warnings_unparsed(source, filename, module, self);
-            };
-            let ast = parsed.into_syntax();
-            let mut visitor = EscapeWarningVisitor {
+            {
+                let mut visitor = EscapeWarningVisitor {
+                    source,
+                    warnings: &mut warnings,
+                    interactive: false,
+                    depth: 0,
+                    depth_limit: compiler::CompileOpts::default().recursion_limit,
+                };
+                match parsed.syntax() {
+                    ast::Mod::Module(module) => {
+                        for stmt in &module.body {
+                            visitor.visit_stmt(stmt);
+                        }
+                    }
+                    ast::Mod::Expression(expr) => visitor.visit_expr(&expr.body),
+                }
+            } else {
+                collect_string_escape_warnings_in_range(
+                    source,
+                    0,
+                    source.len(),
+                    None,
+                    &mut warnings,
+                );
+            }
+            self.emit_collected_parser_warnings(
                 source,
                 filename,
                 module,
-                vm: self,
-                error: None,
+                warnings,
+                super::ParserWarningState {
+                    emitted_escapes,
+                    interactive: None,
+                },
+            )?;
+            Ok(())
+        }
+
+        pub(in crate::vm) fn emit_interactive_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&Py<PyStr>>,
+            mode: Option<ruff_python_parser::Mode>,
+            inherited_barry_as_flufl: bool,
+            state: super::ParserWarningState<'_>,
+        ) -> Result<Vec<usize>, CompileWarningError> {
+            let mut warnings = Vec::new();
+            collect_numeric_literal_warnings(source, &mut warnings);
+            // The compile that follows rejects this source; parsing it here
+            // would build a tree that exhausts the stack when dropped.
+            let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
+            if compiler::pre_parse_source_error(&source_file).is_ok()
+                && let Some(mode) = mode
+            {
+                let options = ruff_python_parser::ParseOptions::from(mode);
+                let barry_source = compiler::prepare_barry_as_flufl_source(
+                    source,
+                    options.clone(),
+                    inherited_barry_as_flufl,
+                );
+                let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), options);
+                if parsed.has_valid_syntax() {
+                    let mut visitor = EscapeWarningVisitor {
+                        source,
+                        warnings: &mut warnings,
+                        interactive: true,
+                        depth: 0,
+                        depth_limit: compiler::CompileOpts::default().recursion_limit,
+                    };
+                    match parsed.syntax() {
+                        ast::Mod::Module(module) => {
+                            for stmt in &module.body {
+                                visitor.visit_stmt(stmt);
+                            }
+                        }
+                        ast::Mod::Expression(expr) => visitor.visit_expr(&expr.body),
+                    }
+                } else {
+                    // The tokenizer can read the token at which parsing fails,
+                    // but later recovered statements were never parsed by
+                    // CPython and must not produce string/parser warnings.
+                    let end = parsed
+                        .errors()
+                        .iter()
+                        // An unclosed-bracket diagnostic points back to its
+                        // opening token, not where parsing stopped. Other
+                        // errors retain that boundary; otherwise it was EOF.
+                        .filter(|error| {
+                            !matches!(
+                                error.error,
+                                ruff_python_parser::ParseErrorType::Lexical(
+                                    ruff_python_parser::LexicalErrorType::UnclosedBracket { .. }
+                                )
+                            )
+                        })
+                        .min_by_key(|error| error.location.start())
+                        .map_or(source.len(), |error| {
+                            // Tokens after a complete statement or eval
+                            // expression were not decoded by CPython.
+                            if matches!(
+                                error.error,
+                                ruff_python_parser::ParseErrorType::SimpleStatementsOnSameLine
+                                    | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken
+                            ) {
+                                error.location.start().to_usize()
+                            } else {
+                                error.location.end().to_usize()
+                            }
+                        });
+                    collect_string_escape_warnings_in_range(source, 0, end, None, &mut warnings);
+                }
+            } else if mode.is_none() && compiler::pre_parse_source_error(&source_file).is_ok() {
+                // Function-type input has a separate AST parser; its return
+                // expression follows an arrow that expression mode rejects.
+                // There are no import statements in this grammar.
+                collect_string_escape_warnings_in_range(
+                    source,
+                    0,
+                    source.len(),
+                    None,
+                    &mut warnings,
+                );
+            }
+            warnings.sort_by_key(ParserWarning::offset);
+            self.emit_collected_parser_warnings(source, filename, module, warnings, state)
+        }
+
+        fn emit_collected_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&Py<PyStr>>,
+            warnings: Vec<ParserWarning>,
+            state: super::ParserWarningState<'_>,
+        ) -> Result<Vec<usize>, CompileWarningError> {
+            let super::ParserWarningState {
                 emitted_escapes,
-                depth: 0,
-                depth_limit: compiler::CompileOpts::default().recursion_limit,
-            };
-            match &ast {
-                ast::Mod::Module(module) => {
-                    for stmt in &module.body {
-                        visitor.visit_stmt(stmt);
+                mut interactive,
+            } = state;
+            let mut considered_escapes = Vec::new();
+            for warning in warnings {
+                if let Some(state) = interactive.as_deref_mut() {
+                    let message = match &warning {
+                        ParserWarning::Escape(escape, _) => escape.warning_message(),
+                        ParserWarning::Numeric { message, .. } => message.clone(),
+                    };
+                    if !state.emitted.insert((warning.offset(), message)) {
+                        continue;
                     }
                 }
-                ast::Mod::Expression(expr) => {
-                    visitor.visit_expr(&expr.body);
+                match warning {
+                    ParserWarning::Escape(escape, error_column) => {
+                        let offset = escape.offset();
+                        if considered_escapes.last() == Some(&offset) {
+                            continue;
+                        }
+                        considered_escapes.push(offset);
+                        if emitted_escapes.binary_search(&offset).is_err() {
+                            warn_invalid_escape_sequence(source, escape, filename, module, self)
+                                .map_err(|mut error| {
+                                    if interactive.is_some()
+                                        && let Some(column) = error_column
+                                    {
+                                        error.offset = column;
+                                        if let Some(replacement) = &mut error.replacement {
+                                            replacement.end_offset = column + 2;
+                                        }
+                                    }
+                                    error
+                                })?;
+                        }
+                    }
+                    ParserWarning::Numeric {
+                        offset,
+                        last_offset,
+                        message,
+                    } => {
+                        warn_syntax_at_offset(
+                            source,
+                            filename,
+                            module,
+                            if interactive.is_some() {
+                                last_offset
+                            } else {
+                                offset
+                            },
+                            message.clone(),
+                            self,
+                        )
+                        .map_err(|mut error| {
+                            // Tokenizer numeric warnings become a zero-width
+                            // error at the literal's last character, in character
+                            // columns rather than grammar-action byte columns.
+                            if interactive.is_some() {
+                                error.replacement = Some(SyntaxErrorReplacement {
+                                    message,
+                                    end_offset: error.offset,
+                                });
+                            }
+                            error
+                        })?;
+                    }
                 }
             }
-            visitor.error.map_or(Ok(()), Err)
+            Ok(considered_escapes)
         }
     }
 
