@@ -179,7 +179,7 @@ mod unicodedata {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<GraphemeBreakIterator>> {
+    ) -> PyResult<crate::vm::PyRef<GraphemeBreakIterator>> {
         // Convert in argument order, including overflow, before adjusting bounds.
         let index = |arg: OptionalArg<PyObjectRef>, default| -> PyResult<isize> {
             match arg {
