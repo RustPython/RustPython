@@ -344,12 +344,15 @@ class AuditTest(unittest.TestCase):
         if returncode:
             self.fail(stderr)
 
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
     def test_import_module(self):
         self.do_test("test_import_module")
 
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
     def test_builtin__import__(self):
         self.do_test("test_builtin__import__")
 
+    @unittest.expectedFailureIf(__import__("importlib.util", fromlist=["find_spec"]).find_spec("_testcapi") is None, "TODO: RUSTPYTHON; requires the absent _testcapi module for extension import audit events; recheck when discoverable")
     def test_import_statement(self):
         self.do_test("test_import_statement")
 

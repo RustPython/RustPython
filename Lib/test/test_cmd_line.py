@@ -1285,6 +1285,7 @@ class CmdLineTest(unittest.TestCase):
         assert_python_failure('-X', 'importtime=-1', '-c', code)
         assert_python_failure('-X', 'importtime=3', '-c', code)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; -X importtime=2 timing output and surrogate module import exception semantics are not implemented correctly
     def test_import_time_unencodable_module_name(self):
         code = textwrap.dedent("""
             import sys, types
@@ -1370,6 +1371,7 @@ class CmdLineTest(unittest.TestCase):
         proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
         self.assertEqual(proc.out.rstrip(), b"presite func")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; explicit PYTHONHOME startup path configuration and fatal encodings failure reporting are not implemented
     def test_dump_path_config(self):
         # gh-151253: At the first import (import encodings) during Python
         # startup, if the import fails, dump the Python path configuration.

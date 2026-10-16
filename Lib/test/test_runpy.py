@@ -794,6 +794,7 @@ s = "non-ASCII: h\xe9"
             result = run_path(filename)
             self.assertEqual(result['s'], "non-ASCII: h\xe9")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; current frozen SourceLoader.get_code/source_to_code omit fullname when calling compile, so module-specific SyntaxWarning filters lack module attribution; recheck after coherent importlib synchronization
     def test_run_module_filter_syntax_warnings_by_module(self):
         module_re = r'test\.test_import\.data\.syntax_warnings\z'
         with (temp_dir() as tmpdir,
