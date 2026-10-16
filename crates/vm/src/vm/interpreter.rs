@@ -587,6 +587,24 @@ impl Interpreter {
         self.vm.new_thread()
     }
 
+    /// Move the main execution context into a separate owner, leaving this
+    /// handle available to create worker VMs for the same interpreter.
+    ///
+    /// The returned interpreter must run and finalize on the original thread.
+    /// This handle should only create worker VMs and must not be finalized.
+    /// Unlike `new_thread()`, this preserves the main VM's signal handlers and
+    /// all of its other thread-local state.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn take_main_thread(&mut self) -> Self {
+        let replacement = self.vm.new_thread().vm;
+        let vm = core::mem::replace(&mut self.vm, replacement);
+        Self {
+            global_state: self.global_state.clone(),
+            vm,
+        }
+    }
+
     /// Run a function with the main virtual machine and return a PyResult of the result.
     ///
     /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
