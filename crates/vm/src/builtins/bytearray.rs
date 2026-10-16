@@ -585,7 +585,21 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_resizable(vm)?.elements.clear();
+        let old = match self.resize_access() {
+            ResizeAccess::Exported { len: 0 } => return Ok(()),
+            ResizeAccess::Exported { .. } => {
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
+                );
+            }
+            ResizeAccess::Exclusive(mut inner) => {
+                if inner.elements.is_empty() {
+                    return Ok(());
+                }
+                core::mem::take(&mut inner.elements)
+            }
+        };
+        drop(old);
         Ok(())
     }
 

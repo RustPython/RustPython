@@ -11,6 +11,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from update_lib.cmd_migrate import (
+    BYTES_ALLOCATION_COMMENTS,
+    BYTES_CAPI_LOCAL,
+    BYTES_CAPI_UPSTREAM,
     CANONICAL_CALL,
     EXCEPTION_LOOP,
     JIT_ERROR,
@@ -35,6 +38,240 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
+
+
+class TestBytesPreservation(unittest.TestCase):
+    path = Path("Lib/test/test_bytes.py")
+    prefix = "class ByteArrayTest(BaseBytesTest, unittest.TestCase):\n"
+    allocations = """
+    def test_alloc(self):
+        b = bytearray()
+        alloc = b.__alloc__()
+        self.assertGreaterEqual(alloc, 0)
+        # existing allocation adaptation
+        self.assertGreaterEqual(alloc, len(b))
+
+    def test_init_alloc(self):
+        b = bytearray()
+        def g():
+            alloc = b.__alloc__()
+            self.assertGreaterEqual(alloc, len(b))
+            yield 1
+        b.__init__(g())
+        alloc = b.__alloc__()
+        self.assertGreaterEqual(alloc, len(b))
+"""
+    canonical_allocations = allocations.replace(
+        "assertGreaterEqual(alloc, len(b))", "assertGreater(alloc, len(b))"
+    ).replace("        # existing allocation adaptation\n", "")
+    for name, comment in BYTES_ALLOCATION_COMMENTS.items():
+        allocations = allocations.replace(
+            f"    def {name}(", comment + f"    def {name}("
+        )
+    old = prefix + BYTES_CAPI_LOCAL + allocations
+    canonical = prefix + BYTES_CAPI_UPSTREAM + canonical_allocations
+
+    def assert_rejected(self, changed, *, local):
+        with self.assertRaises(ValueError):
+            preserve_migration_customizations(
+                self.path,
+                changed if local else self.old,
+                self.canonical if local else changed,
+            )
+
+    def test_preserves_existing_blocks_and_is_idempotent(self):
+        source = self.canonical + "\nnew_canonical_content = True\n"
+        expected = self.old + "\nnew_canonical_content = True\n"
+        result = preserve_migration_customizations(self.path, self.old, source)
+        self.assertEqual(result, expected)
+        self.assertEqual(
+            preserve_migration_customizations(self.path, result, source), result
+        )
+
+    def test_earlier_nested_import_and_decoy_text_are_untouched(self):
+        earlier = (
+            "class BaseBytesTest:\n    def test_sq_item(self):\n    "
+            + BYTES_CAPI_UPSTREAM
+        )
+        decoy = 'description = """\n' + BYTES_CAPI_UPSTREAM + '"""\n'
+        prefix = earlier + decoy
+        self.assertEqual(
+            preserve_migration_customizations(
+                self.path, prefix + self.old, prefix + self.canonical
+            ),
+            prefix + self.old,
+        )
+
+    def test_import_missing_duplicate_changed_and_moved_fail_closed(self):
+        for local, block, allocations in (
+            (True, BYTES_CAPI_LOCAL, self.allocations),
+            (False, BYTES_CAPI_UPSTREAM, self.canonical_allocations),
+        ):
+            source = self.prefix + block + allocations
+            for changed in (
+                self.prefix + "    pass\n" + allocations,
+                source + block,
+                source + source,
+                source.replace("ByteArrayTest", "OtherTest"),
+                source.replace("_testlimitedcapi", "_other"),
+                source.replace("ImportError", "Exception")
+                if local
+                else source.replace("import_module", "other"),
+                "if True:\n"
+                + "".join("    " + line for line in source.splitlines(True)),
+            ):
+                with self.subTest(local=local, changed=changed):
+                    self.assert_rejected(changed, local=local)
+
+    def test_import_and_owner_shadows_fail_closed(self):
+        shadows = (
+            "    _testlimitedcapi = None\n",
+            "    del _testlimitedcapi\n",
+            "    import other as _testlimitedcapi\n",
+            "    def _testlimitedcapi(self): pass\n",
+            "    async def _testlimitedcapi(self): pass\n",
+            "    class _testlimitedcapi: pass\n",
+            "    try:\n        pass\n"
+            "    except Exception as _testlimitedcapi:\n        pass\n",
+            "    match None:\n        case _testlimitedcapi: pass\n",
+            "    global _testlimitedcapi\n",
+            "ByteArrayTest = Other\n",
+            "del ByteArrayTest\n",
+            "from other import ByteArrayTest\n",
+            "def ByteArrayTest(): pass\n",
+            "async def ByteArrayTest(): pass\n",
+            "try:\n    pass\nexcept Exception as ByteArrayTest:\n    pass\n",
+            "match None:\n    case ByteArrayTest: pass\n",
+        )
+        for local, source in ((True, self.old), (False, self.canonical)):
+            for shadow in shadows:
+                with self.subTest(local=local, shadow=shadow):
+                    self.assert_rejected(source + shadow, local=local)
+
+    def test_decoy_cannot_validate_changed_real_import(self):
+        for local, block, allocations in (
+            (True, BYTES_CAPI_LOCAL, self.allocations),
+            (False, BYTES_CAPI_UPSTREAM, self.canonical_allocations),
+        ):
+            decoy = '    """\n' + block + '    """\n'
+            changed = (
+                self.prefix
+                + decoy
+                + block.replace("_testlimitedcapi =", "_testlimitedcapi  =")
+                + allocations
+            )
+            with self.subTest(local=local):
+                self.assert_rejected(changed, local=local)
+        self.assert_rejected(
+            self.canonical.replace(
+                BYTES_CAPI_UPSTREAM,
+                BYTES_CAPI_UPSTREAM.rstrip() + "; unrelated = 1\n",
+            ),
+            local=False,
+        )
+        self.assert_rejected(
+            self.old.replace("# TODO: RUSTPYTHON;", "# changed existing comment;"),
+            local=True,
+        )
+
+    def test_changed_allocation_methods_fail_closed(self):
+        for local, source in ((True, self.old), (False, self.canonical)):
+            for changed in (
+                source.replace("len(b)", "len(other)", 1),
+                source.replace(
+                    "def test_alloc(self):",
+                    "def test_alloc(self):\n        changed = True",
+                ),
+                source.replace("def test_alloc(self):", "def renamed(self):"),
+                source.replace("def test_alloc(self):", "async def test_alloc(self):"),
+                source + "\n    def test_alloc(self): pass\n",
+            ):
+                with self.subTest(local=local, changed=changed):
+                    self.assert_rejected(changed, local=local)
+        for changed in (
+            self.old.replace(
+                "assertGreaterEqual(alloc, len(b))", "assertEqual(alloc, len(b))", 1
+            ),
+            self.old.replace("self.assertGreaterEqual(alloc, len(b))", "pass", 1),
+            self.old.replace(
+                "self.assertGreaterEqual(alloc, len(b))",
+                "self.assertGreaterEqual(alloc, len(b)); "
+                "self.assertGreaterEqual(alloc, len(b))",
+                1,
+            ),
+        ):
+            self.assert_rejected(changed, local=True)
+
+    def test_allocation_method_shadows_fail_closed(self):
+        for name in ("test_alloc", "test_init_alloc"):
+            for local, source in ((True, self.old), (False, self.canonical)):
+                for shadow in (
+                    f"    {name} = None\n",
+                    f"    del {name}\n",
+                    f"    from other import {name}\n",
+                    f"    async def {name}(self): pass\n",
+                    f"    class {name}: pass\n",
+                    "    try:\n        pass\n"
+                    f"    except Exception as {name}:\n        pass\n",
+                    f"    match None:\n        case {name}: pass\n",
+                ):
+                    with self.subTest(name=name, local=local, shadow=shadow):
+                        self.assert_rejected(source + shadow, local=local)
+
+    def test_changed_allocation_explanation_fails_closed(self):
+        for comment in BYTES_ALLOCATION_COMMENTS.values():
+            for replacement in ("", comment.replace("RUSTPYTHON", "changed")):
+                with self.subTest(comment=comment, replacement=replacement):
+                    self.assert_rejected(
+                        self.old.replace(comment, replacement), local=True
+                    )
+
+    def test_other_paths_are_untouched(self):
+        for path in ("Lib/test/other.py", "Lib/other/test_bytes.py"):
+            self.assertEqual(
+                preserve_migration_customizations(Path(path), "old", "new"), "new"
+            )
+
+    def test_file_migration_preserves_guards_and_rejection_writes_nothing(self):
+        guard = (
+            "\n    @unittest.expectedFailure  # TODO: RUSTPYTHON\n"
+            "    def test_example(self):\n        pass\n"
+        )
+        canonical_test = "\n    def test_example(self):\n        pass\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / self.path
+            output.parent.mkdir(parents=True)
+            output.write_text("import unittest\n" + self.old + guard, encoding="utf-8")
+            source = root / "canonical.py"
+            source.write_text(
+                "import unittest\n" + self.canonical + canonical_test, encoding="utf-8"
+            )
+            before_source = source.read_bytes()
+            before_guards = patches_to_json(extract_patches(output.read_text()))
+            module_file = root / "scripts/update_lib/cmd_migrate.py"
+            with patch("update_lib.cmd_migrate.__file__", str(module_file)):
+                patch_file(source, output, verbose=False)
+                self.assertEqual(
+                    output.read_text(), "import unittest\n" + self.old + guard
+                )
+                self.assertEqual(source.read_bytes(), before_source)
+                self.assertEqual(
+                    patches_to_json(extract_patches(output.read_text())), before_guards
+                )
+                self.assertEqual(
+                    patch_single_content(source, output), output.read_text()
+                )
+                before_output = output.read_bytes()
+                source.write_text(
+                    source.read_text().replace("ByteArrayTest", "OtherTest"),
+                    encoding="utf-8",
+                )
+                rejected_source = source.read_bytes()
+                with self.assertRaises(ValueError):
+                    patch_file(source, output, verbose=False)
+                self.assertEqual(output.read_bytes(), before_output)
+                self.assertEqual(source.read_bytes(), rejected_source)
 
 
 class TestSupportAssignments(unittest.TestCase):
