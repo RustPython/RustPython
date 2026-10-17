@@ -16,7 +16,11 @@ use windows_sys::{
                 FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
                 FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
             },
-            LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+            LibraryLoader::{
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
+                GetModuleHandleExW, GetModuleHandleW,
+            },
             SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
             Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
         },
@@ -47,6 +51,23 @@ pub fn init_winsock() {
         let mut wsa_data = core::mem::MaybeUninit::uninit();
         let _ = WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
+}
+
+/// Handle of the already-loaded image containing this RustPython runtime.
+/// The handle is borrowed and must not be passed to `FreeLibrary`.
+pub fn runtime_module_handle() -> io::Result<usize> {
+    let mut module = core::ptr::null_mut();
+    // FROM_ADDRESS treats this pointer as an address inside the image, not a
+    // string. UNCHANGED_REFCOUNT avoids loading a second copy or owning a ref.
+    unsafe {
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            runtime_module_handle as *const () as *const u16,
+            &mut module,
+        )
+    }
+    .check_win32_bool()?;
+    Ok(module as usize)
 }
 
 /// Win32 BOOL convention: 0 = failure, nonzero = success.

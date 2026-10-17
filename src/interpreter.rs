@@ -56,7 +56,16 @@ fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
-    state.config.paths.stdlib_dir = Some(rustpython_pylib::LIB_PATH.to_owned());
+    if !state
+        .config
+        .settings
+        .home
+        .as_ref()
+        .is_some_and(|home| !home.is_empty())
+    {
+        state.config.paths.stdlib_dir =
+            Some(canonical_stdlib_path(rustpython_pylib::LIB_PATH.to_owned()));
+    }
 }
 
 /// Setup dynamic standard library loading from filesystem
@@ -65,22 +74,19 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
+    // An explicit home must not silently fall back to the build-tree library.
+    if state
+        .config
+        .settings
+        .home
+        .as_ref()
+        .is_some_and(|home| !home.is_empty())
+    {
+        return;
+    }
     let paths: Vec<String> = collect_stdlib_paths()
         .into_iter()
-        .map(|p| {
-            std::fs::canonicalize(&p)
-                .map(|canonical| {
-                    let s = canonical.to_string_lossy();
-                    #[cfg(windows)]
-                    {
-                        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-                            return stripped.to_owned();
-                        }
-                    }
-                    s.into_owned()
-                })
-                .unwrap_or(p)
-        })
+        .map(canonical_stdlib_path)
         .collect();
 
     // Set stdlib_dir to the first stdlib path if available
@@ -92,6 +98,21 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     for path in paths.into_iter().rev() {
         state.config.paths.module_search_paths.insert(0, path);
     }
+}
+
+/// Resolve the build-tree library link consistently for both backends.
+#[cfg(feature = "stdlib")]
+fn canonical_stdlib_path(path: String) -> String {
+    std::fs::canonicalize(&path)
+        .map(|canonical| {
+            let value = canonical.to_string_lossy();
+            #[cfg(windows)]
+            if let Some(stripped) = value.strip_prefix(r"\\?\") {
+                return stripped.to_owned();
+            }
+            value.into_owned()
+        })
+        .unwrap_or(path)
 }
 
 /// Collect standard library paths from build-time configuration

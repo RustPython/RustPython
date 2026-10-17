@@ -231,6 +231,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
 
     let get_env = |env| (!ignore_environment).then(|| env::var_os(env)).flatten();
 
+    settings.home = get_env("PYTHONHOME")
+        .filter(|home| !home.is_empty())
+        .map(|home| home.to_string_lossy().into_owned());
+
     let env_count = |env| {
         get_env(env).filter(|v| !v.is_empty()).map_or(0, |val| {
             val.to_str().and_then(|v| v.parse::<u8>().ok()).unwrap_or(1)
