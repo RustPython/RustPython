@@ -56,25 +56,27 @@ fn shell_exec(
         Err(err) => {
             if matches!(
                 &err,
-                VmCompileError::Compile(CompileError::Parse(ParseError {
-                    error: ParseErrorType::Lexical(
-                        LexicalErrorType::Eof
-                            | LexicalErrorType::FStringError(
-                                InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
-                            )
-                            | LexicalErrorType::TStringError(
-                                InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
-                            )
-                            | LexicalErrorType::UnclosedStringError {
-                                triple_quoted: true,
-                                ..
-                            }
-                    ),
-                    ..
-                })) | VmCompileError::Compile(CompileError::Parse(ParseError {
-                    is_unclosed_bracket: true,
-                    ..
-                }))
+                VmCompileError::Compile(CompileError::Parse(
+                    ParseError {
+                        error: ParseErrorType::Lexical(
+                            LexicalErrorType::Eof
+                                | LexicalErrorType::FStringError(
+                                    InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+                                )
+                                | LexicalErrorType::TStringError(
+                                    InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+                                )
+                                | LexicalErrorType::UnclosedStringError {
+                                    triple_quoted: true,
+                                    ..
+                                }
+                        ),
+                        ..
+                    } | ParseError {
+                        is_unclosed_bracket: true,
+                        ..
+                    }
+                ))
             ) {
                 return ShellExecResult::ContinueLine;
             }
