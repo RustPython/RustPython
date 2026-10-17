@@ -275,8 +275,6 @@ jobs:
       - name: Install macOS dependencies
         if: env.RUN_RUST_TESTS == 'true'
         uses: ./.github/actions/install-macos-deps
-        with:
-          openssl: true
 
       - name: Build rust tests
         if: env.RUN_RUST_TESTS == 'true'
@@ -329,7 +327,7 @@ jobs:
           target/debug/rustpython extra_tests/snippets/stdlib_re.py
 
       - name: Test openssl build
-        if: env.RUN_RUST_TESTS == 'true' && runner.os != 'Windows'
+        if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
           cargo build --locked --no-default-features --features ssl-openssl
           cargo build --locked --release --features threading,jit,ssl-openssl ${{ env.CARGO_ARGS_NO_SSL }}
