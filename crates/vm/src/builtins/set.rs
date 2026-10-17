@@ -1151,7 +1151,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_subtract: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__isub__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1163,7 +1165,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_and: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__iand__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1175,7 +1179,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_xor: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__ixor__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
@@ -1187,7 +1193,9 @@ impl AsNumber for PySet {
                 }
             }),
             inplace_or: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PySet>() {
+                if let Some(a) = a.downcast_ref::<PySet>()
+                    && PyRef::<PyAnySet>::check(b, vm)
+                {
                     PySet::__ior__(
                         a.to_owned(),
                         PyRef::<PyAnySet>::try_from_object(vm, b.to_owned())?,
