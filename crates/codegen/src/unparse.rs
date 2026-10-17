@@ -616,7 +616,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 .to_string();
         if let Some(debug_text) = debug_text {
             let (text, _) = interpolation_debug_text(self.source, debug_text, val.range());
-            self.p(&text)?;
+            self.unparse_fstring_str(&text)?;
             if conversion == ast::ConversionFlag::None && spec.is_none() {
                 conversion = ast::ConversionFlag::Repr;
             }
@@ -726,7 +726,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         if let Some(debug_text) = &interpolation.debug_text {
             let (text, _) =
                 interpolation_debug_text(self.source, debug_text, interpolation.expression.range());
-            self.p(&text)?;
+            self.unparse_fstring_str(&text)?;
             if conversion == ast::ConversionFlag::None && interpolation.format_spec.is_none() {
                 conversion = ast::ConversionFlag::Repr;
             }

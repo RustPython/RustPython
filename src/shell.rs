@@ -62,6 +62,9 @@ fn shell_exec(
                             | LexicalErrorType::FStringError(
                                 InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
                             )
+                            | LexicalErrorType::TStringError(
+                                InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. },
+                            )
                             | LexicalErrorType::UnclosedStringError {
                                 triple_quoted: true,
                                 ..
