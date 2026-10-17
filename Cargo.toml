@@ -68,6 +68,13 @@ rustls-graviola = { workspace = true }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
 
+# Only the criterion benchmarks below are measured. Without `bench = false`,
+# `cargo bench` (and `cargo codspeed build`) also builds the library and binary
+# unit-test harnesses with the LTO bench profile, adding a full extra link of
+# the interpreter that is never run.
+[lib]
+bench = false
+
 [[bench]]
 name = "execution"
 harness = false
@@ -79,6 +86,7 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+bench = false
 
 [[example]]
 name = "custom_tls_providers"
