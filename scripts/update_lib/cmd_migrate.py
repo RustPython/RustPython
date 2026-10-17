@@ -22,11 +22,13 @@ import argparse
 import ast
 import builtins
 import collections
+import copy
 import hashlib
 import json
 import pathlib
 import shutil
 import sys
+import textwrap
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
@@ -49,6 +51,144 @@ else:
 EXCEPTION_LOOP = """for excname in PYTHON2_EXCEPTIONS:
     NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
 """
+BYTES_CAPI_UPSTREAM = (
+    "    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')\n"
+)
+BYTES_CAPI_LOCAL = """    # TODO: RUSTPYTHON; import_helper.import_module here cause the entire test stopping
+    # _testlimitedcapi = import_helper.import_module('_testlimitedcapi')
+    try:
+        import _testlimitedcapi
+    except ImportError:
+        _testlimitedcapi = None
+"""
+BYTES_ALLOCATION_COMMENTS = {
+    "test_alloc": """    # NOTE: RUSTPYTHON:
+    #
+    # The second instance of self.assertGreater was replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
+""",
+    "test_init_alloc": """    # NOTE: RUSTPYTHON:
+    #
+    # The usages of self.assertGreater were replaced with
+    # self.assertGreaterEqual since, in RustPython, the underlying storage
+    # is a Vec which doesn't require trailing null byte.
+""",
+}
+
+
+def _bytes_bindings(root, name):
+    """Find bindings conservatively, including nested or indirect shadows."""
+    for node in ast.walk(root):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound = node.id
+        elif isinstance(node, ast.alias):
+            bound = node.asname or node.name.split(".")[0]
+        elif isinstance(
+            node,
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+                ast.ClassDef,
+                ast.ExceptHandler,
+                ast.MatchAs,
+                ast.MatchStar,
+            ),
+        ):
+            bound = node.name
+        elif isinstance(node, ast.MatchMapping):
+            bound = node.rest
+        elif isinstance(node, ast.arg):
+            bound = node.arg
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bound = name if name in node.names else None
+        else:
+            continue
+        if bound == name:
+            yield node
+
+
+def _bytes_owner(contents):
+    tree = ast.parse(contents)
+    owner = _unique_anchor(
+        contents,
+        tree,
+        lambda node: isinstance(node, ast.ClassDef) and node.name == "ByteArrayTest",
+        direct=True,
+    )
+    if list(_bytes_bindings(tree, "ByteArrayTest")) != [owner]:
+        raise ValueError("Shadowed bytes test class")
+    return owner
+
+
+def _verify_bytes_capi(contents: str, block: str) -> ast.stmt:
+    owner = _bytes_owner(contents)
+    expected = ast.parse(textwrap.dedent(block)).body[0]
+    anchor = _unique_anchor(
+        contents, owner, lambda node: ast.dump(node) == ast.dump(expected), direct=True
+    )
+    allowed = set(ast.walk(anchor))
+    if any(node not in allowed for node in _bytes_bindings(owner, "_testlimitedcapi")):
+        raise ValueError("Shadowed optional bytes C API import")
+    start = anchor.lineno - 1 - (2 if block == BYTES_CAPI_LOCAL else 0)
+    anchored_text = "".join(
+        contents.splitlines(keepends=True)[start : anchor.end_lineno]
+    )
+    if start < 0 or anchored_text != block:
+        raise ValueError("Missing, changed, or ambiguous optional bytes C API import")
+    return anchor
+
+
+def _preserve_bytes_allocations(old: str, new: str) -> str:
+    """Keep only the existing three Vec allocation assertion adaptations."""
+    owners = [_bytes_owner(contents) for contents in (old, new)]
+    replacements = []
+    for name, count in (("test_alloc", 1), ("test_init_alloc", 2)):
+        methods = [
+            _unique_anchor(
+                contents,
+                owner,
+                lambda node: (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == name
+                ),
+                direct=True,
+            )
+            for contents, owner in zip((old, new), owners)
+        ]
+        if any(
+            list(_bytes_bindings(owner, name)) != [method]
+            for owner, method in zip(owners, methods)
+        ):
+            raise ValueError("Shadowed bytes allocation test")
+        if any(not isinstance(method, ast.FunctionDef) for method in methods):
+            raise ValueError("Changed bytes allocation test kind")
+        normalized = copy.deepcopy(methods[0])
+        expected = ast.parse("self.assertGreaterEqual(alloc, len(b))", mode="eval").body
+        matches = [
+            node
+            for node in ast.walk(normalized)
+            if isinstance(node, ast.Call) and ast.dump(node) == ast.dump(expected)
+        ]
+        if len(matches) != count:
+            raise ValueError("Changed local bytes allocation contract")
+        for node in matches:
+            node.func.attr = "assertGreater"
+        if ast.dump(normalized) != ast.dump(methods[1]):
+            raise ValueError("Changed canonical bytes allocation contract")
+        old_lines = old.splitlines(keepends=True)
+        comment = BYTES_ALLOCATION_COMMENTS[name]
+        start = methods[0].lineno - 1 - len(comment.splitlines())
+        if start < 0 or "".join(old_lines[start : methods[0].lineno - 1]) != comment:
+            raise ValueError("Changed local bytes allocation explanation")
+        local = "".join(old_lines[start : methods[0].end_lineno])
+        replacements.append((methods[1].lineno - 1, methods[1].end_lineno, local))
+    lines = new.splitlines(keepends=True)
+    for start, end, local in sorted(replacements, reverse=True):
+        lines[start:end] = [local]
+    result = "".join(lines)
+    ast.parse(result)
+    return result
 
 
 def _unique_anchor(contents, root, predicate, *, direct=False, exact=None):
@@ -153,6 +293,12 @@ def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) ->
         _verify_call(old, LOCAL_CALL)
         _verify_call(new, CANONICAL_CALL)
         return new.replace(CANONICAL_CALL, LOCAL_CALL, 1)
+    if parts == ("Lib", "test", "test_bytes.py"):
+        _verify_bytes_capi(old, BYTES_CAPI_LOCAL)
+        anchor = _verify_bytes_capi(new, BYTES_CAPI_UPSTREAM)
+        lines = new.splitlines(keepends=True)
+        lines[anchor.lineno - 1 : anchor.end_lineno] = [BYTES_CAPI_LOCAL]
+        return _preserve_bytes_allocations(old, "".join(lines))
     return new
 
 
