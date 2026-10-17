@@ -3820,7 +3820,9 @@ impl ExecutingFrame<'_> {
                 && self.trace_lines_is_set()
                 && !matches!(
                     self.code.instructions.read_op(idx),
-                    Instruction::Resume { .. } | Instruction::InstrumentedResume
+                    Instruction::Resume { .. }
+                        | Instruction::ResumeCheck
+                        | Instruction::InstrumentedResume
                 )
             {
                 let line = self.code.addr2line(idx as i32 * 2);
@@ -3906,7 +3908,10 @@ impl ExecutingFrame<'_> {
                     && self.trace_opcodes_is_set()
                     && !matches!(
                         op.into(),
-                        Opcode::Resume | Opcode::InstrumentedResume | Opcode::ExtendedArg
+                        Opcode::Resume
+                            | Opcode::ResumeCheck
+                            | Opcode::InstrumentedResume
+                            | Opcode::ExtendedArg
                     )
                 {
                     vm.trace_event(crate::protocol::TraceEvent::Opcode, None)?;

@@ -428,6 +428,7 @@ mod decl {
                 buf.write_u32(value);
             }
             let co_code = co.get_code(vm);
+            let co_qualname = co.co_qualname();
             let mut write_field = |buf: &mut Vec<u8>, field: &PyObject| {
                 write_object_depth(buf, field, refs, version, allow_code, vm, depth - 1)
             };
@@ -439,7 +440,7 @@ mod decl {
                 co.co_localspluskinds.as_object(),
                 co.source_path().as_object(),
                 co.co_name.as_object(),
-                code.qualname.as_object(),
+                co_qualname.as_object(),
             ] {
                 write_field(buf, field)?;
             }
@@ -652,7 +653,8 @@ mod decl {
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            let code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            let mut code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            code.apply_debug_ranges(self.vm);
             Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
