@@ -664,9 +664,6 @@ fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyRe
             state
                 .legacy_branch_callbacks
                 .retain(|(cb_tool, _)| *cb_tool != tool);
-            if free {
-                state.tool_names[tool] = None;
-            }
             callbacks
         } else {
             Vec::new()
@@ -676,6 +673,10 @@ fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyRe
     };
     // Callback finalizers may reenter monitoring; release owners after unlocking.
     drop(callbacks);
+    // Keep the name visible during callback finalization, as CPython does.
+    if free {
+        vm.state.monitoring.lock().tool_names[tool] = None;
+    }
     Ok(())
 }
 
@@ -866,14 +867,14 @@ fn fire(
         event,
         MonitoringEvent::BranchLeft | MonitoringEvent::BranchRight
     ) {
-        Some(branch_source_opcode(code, offset))
+        Some(branch_source_events(code, offset))
     } else {
         None
     };
 
     // Collect callbacks without holding the monitoring lock across Python code.
     let callbacks = {
-        let state = vm.state.monitoring.lock();
+        let mut state = vm.state.monitoring.lock();
         let mut cbs = Vec::new();
         for tool in 0..TOOL_LIMIT {
             let global = state.global_events[tool];
@@ -891,23 +892,38 @@ fn fire(
             {
                 continue;
             }
-            if let Some(cb) = state.callbacks.get(&(tool, event_id)) {
+            if state.callbacks.contains_key(&(tool, event_id)) {
                 let legacy_branch = state.legacy_branch_callbacks.contains(&(tool, event_id));
                 if legacy_branch
-                    && branch_source
-                        .and_then(|op| event_for_opcode(op, 0))
-                        .is_some_and(|source_event| {
-                            state.disabled.contains(&(
-                                code_id,
-                                offset as usize,
-                                source_event as usize,
-                                tool,
-                            ))
+                    && branch_source.as_ref().is_some_and(|events| {
+                        !events.iter().any(|source_event| {
+                            (0..TOOL_LIMIT).any(|source_tool| {
+                                let active = state.global_events[source_tool]
+                                    | state
+                                        .local_events
+                                        .get(&(source_tool, code_id))
+                                        .copied()
+                                        .unwrap_or(0);
+                                state.tool_names[source_tool].is_some()
+                                    && active & source_event.mask() != 0
+                                    && !state.disabled.contains(&(
+                                        code_id,
+                                        offset as usize,
+                                        *source_event as usize,
+                                        source_tool,
+                                    ))
+                            })
                         })
+                    })
                 {
+                    // The legacy wrapper returns DISABLE without calling the
+                    // user when the source instruction is no longer instrumented.
+                    state
+                        .disabled
+                        .insert((code_id, offset as usize, event_id, tool));
                     continue;
                 }
-                cbs.push((tool, cb.clone(), legacy_branch));
+                cbs.push((tool, state.callbacks[&(tool, event_id)].clone()));
             }
         }
         cbs
@@ -922,41 +938,13 @@ fn fire(
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
-    for (tool, cb, legacy_branch) in callbacks {
+    for (tool, cb) in callbacks {
         if call_instrument(vm, event, &cb, args.clone())? {
             if is_instrumented_event(event_id) {
                 let mut state = vm.state.monitoring.lock();
                 state
                     .disabled
                     .insert((code_id, offset as usize, event_id, tool));
-                if legacy_branch {
-                    use rustpython_compiler_core::bytecode::Opcode;
-                    // Both edges report the conditional's source offset, even
-                    // though CPython instruments its NOT_TAKEN separately.
-                    let paired_event = match branch_source.map(|op| op.as_opcode()) {
-                        Some(
-                            Opcode::PopJumpIfFalse
-                            | Opcode::PopJumpIfTrue
-                            | Opcode::PopJumpIfNone
-                            | Opcode::PopJumpIfNotNone,
-                        ) => Some(if event == MonitoringEvent::BranchLeft {
-                            MonitoringEvent::BranchRight
-                        } else {
-                            MonitoringEvent::BranchLeft
-                        }),
-                        Some(Opcode::ForIter) if event == MonitoringEvent::BranchRight => {
-                            Some(MonitoringEvent::BranchLeft)
-                        }
-                        // As in CPython, left FOR_ITER and orphaned NOT_TAKEN
-                        // do not explicitly disable an opposite instruction.
-                        _ => None,
-                    };
-                    if let Some(other) = paired_event {
-                        state
-                            .disabled
-                            .insert((code_id, offset as usize, other as usize, tool));
-                    }
-                }
             } else if event_id < UNGROUPED_EVENTS_COUNT {
                 // Non-instrumented events are disabled for this whole code
                 // object by removing only the local subscription. Global
@@ -977,26 +965,30 @@ fn fire(
     Ok(())
 }
 
-// Branch sources can be wrapped by LINE and INSTRUCTION instrumentation.
-fn branch_source_opcode(
-    code: &Py<PyCode>,
-    offset: u32,
-) -> rustpython_compiler_core::bytecode::Instruction {
+// Model the source's instrumentation layers without changing its bytecode.
+// A layer stays instrumented until its last subscribed tool disables it.
+fn branch_source_events(code: &Py<PyCode>, offset: u32) -> Vec<MonitoringEvent> {
     use rustpython_compiler_core::bytecode::Instruction;
     let index = offset as usize / 2;
     let data = code.monitoring_data.lock();
+    let mut events = Vec::with_capacity(3);
     let mut op = code.code.instructions.read_op(index);
     if let Some(data) = data.as_ref() {
         if matches!(op, Instruction::InstrumentedLine) {
+            events.push(MonitoringEvent::Line);
             op = Instruction::try_from(data.line_opcodes[index])
                 .expect("INSTRUMENTED_LINE without original opcode");
         }
         if matches!(op, Instruction::InstrumentedInstruction) {
+            events.push(MonitoringEvent::Instruction);
             op = Instruction::try_from(data.per_instruction_opcodes[index])
                 .expect("INSTRUMENTED_INSTRUCTION without original opcode");
         }
     }
-    op.deoptimize()
+    if let Some(event) = event_for_opcode(op, code.code.instructions.read_arg(index).as_u8()) {
+        events.push(event);
+    }
+    events
 }
 
 // Restore tracing state before processing a callback result or exception.
