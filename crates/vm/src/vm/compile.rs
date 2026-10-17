@@ -11,17 +11,14 @@ use crate::{
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
 
-/// Warnings delivered while collecting one physical interactive record.
+/// Warnings already emitted while reading one interactive statement.
+///
+/// The source is warned about again after each line is read, but the
+/// tokenizer warns about each token only once.
 #[cfg(feature = "parser")]
 #[derive(Default)]
 pub(super) struct InteractiveWarnings {
     emitted: alloc::collections::BTreeSet<(usize, String)>,
-}
-
-#[cfg(feature = "parser")]
-pub(super) struct ParserWarningState<'a> {
-    pub emitted_escapes: &'a [usize],
-    pub interactive: Option<&'a mut InteractiveWarnings>,
 }
 
 #[derive(Debug)]
@@ -1642,17 +1639,7 @@ mod escape_warnings {
         ) -> Result<(), CompileWarningError> {
             let mut warnings = Vec::new();
             collect_numeric_literal_warnings(source, &mut warnings);
-            self.emit_collected_parser_warnings(
-                source,
-                filename,
-                module,
-                warnings,
-                super::ParserWarningState {
-                    emitted_escapes: &[],
-                    interactive: None,
-                },
-            )?;
-            Ok(())
+            self.emit_collected_parser_warnings(source, filename, module, warnings, &[], None)
         }
 
         pub(super) fn emit_string_escape_warnings(
@@ -1699,32 +1686,28 @@ mod escape_warnings {
                 filename,
                 module,
                 warnings,
-                super::ParserWarningState {
-                    emitted_escapes,
-                    interactive: None,
-                },
-            )?;
-            Ok(())
+                emitted_escapes,
+                None,
+            )
         }
 
+        /// Emit the tokenizer warnings for the interactive input read so far.
         pub(in crate::vm) fn emit_interactive_parser_warnings(
             &self,
             source: &str,
             filename: &str,
             module: Option<&Py<PyStr>>,
-            mode: Option<ruff_python_parser::Mode>,
             inherited_barry_as_flufl: bool,
-            state: super::ParserWarningState<'_>,
-        ) -> Result<Vec<usize>, CompileWarningError> {
+            emitted: &mut super::InteractiveWarnings,
+        ) -> Result<(), CompileWarningError> {
             let mut warnings = Vec::new();
             collect_numeric_literal_warnings(source, &mut warnings);
             // The compile that follows rejects this source; parsing it here
             // would build a tree that exhausts the stack when dropped.
             let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
-            if compiler::pre_parse_source_error(&source_file).is_ok()
-                && let Some(mode) = mode
-            {
-                let options = ruff_python_parser::ParseOptions::from(mode);
+            if compiler::pre_parse_source_error(&source_file).is_ok() {
+                let options =
+                    ruff_python_parser::ParseOptions::from(ruff_python_parser::Mode::Module);
                 let barry_source = compiler::prepare_barry_as_flufl_source(
                     source,
                     options.clone(),
@@ -1781,20 +1764,16 @@ mod escape_warnings {
                         });
                     collect_string_escape_warnings_in_range(source, 0, end, None, &mut warnings);
                 }
-            } else if mode.is_none() && compiler::pre_parse_source_error(&source_file).is_ok() {
-                // Function-type input has a separate AST parser; its return
-                // expression follows an arrow that expression mode rejects.
-                // There are no import statements in this grammar.
-                collect_string_escape_warnings_in_range(
-                    source,
-                    0,
-                    source.len(),
-                    None,
-                    &mut warnings,
-                );
             }
             warnings.sort_by_key(ParserWarning::offset);
-            self.emit_collected_parser_warnings(source, filename, module, warnings, state)
+            self.emit_collected_parser_warnings(
+                source,
+                filename,
+                module,
+                warnings,
+                &[],
+                Some(emitted),
+            )
         }
 
         fn emit_collected_parser_warnings(
@@ -1803,13 +1782,10 @@ mod escape_warnings {
             filename: &str,
             module: Option<&Py<PyStr>>,
             warnings: Vec<ParserWarning>,
-            state: super::ParserWarningState<'_>,
-        ) -> Result<Vec<usize>, CompileWarningError> {
-            let super::ParserWarningState {
-                emitted_escapes,
-                mut interactive,
-            } = state;
-            let mut considered_escapes = Vec::new();
+            emitted_escapes: &[usize],
+            mut interactive: Option<&mut super::InteractiveWarnings>,
+        ) -> Result<(), CompileWarningError> {
+            let mut last_escape = None;
             for warning in warnings {
                 if let Some(state) = interactive.as_deref_mut() {
                     let message = match &warning {
@@ -1823,10 +1799,10 @@ mod escape_warnings {
                 match warning {
                     ParserWarning::Escape(escape, error_column) => {
                         let offset = escape.offset();
-                        if considered_escapes.last() == Some(&offset) {
+                        if last_escape == Some(offset) {
                             continue;
                         }
-                        considered_escapes.push(offset);
+                        last_escape = Some(offset);
                         if emitted_escapes.binary_search(&offset).is_err() {
                             warn_invalid_escape_sequence(source, escape, filename, module, self)
                                 .map_err(|mut error| {
@@ -1874,7 +1850,7 @@ mod escape_warnings {
                     }
                 }
             }
-            Ok(considered_escapes)
+            Ok(())
         }
     }
 

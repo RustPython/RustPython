@@ -114,6 +114,19 @@ impl VirtualMachine {
         Ok(module)
     }
 
+    /// PyImport_AddModuleRef("__main__")
+    pub fn add_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
+        if let Ok(module) = modules.get_item(identifier!(self, __main__), self)
+            && let Ok(module) = module.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let module = self.new_module("__main__", self.ctx.new_dict(), None);
+        modules.set_item(identifier!(self, __main__), module.clone().into(), self)?;
+        Ok(module)
+    }
+
     /// Set `__main__.__loader__` to BuiltinImporter when it is missing or None.
     pub fn set_main_builtin_importer(
         &self,

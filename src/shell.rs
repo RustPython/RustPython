@@ -7,12 +7,11 @@ use rustpython_vm::{
     vm::InteractiveLine,
 };
 
-/// Root-only editor/history policy, adapting into the VM's shared evaluator.
+/// Enter a repl loop
+///
+/// rustyline takes the role of `PyOS_Readline` with the readline module,
+/// adding line editing, completion and history.
 pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() {
-        return vm.run_basic_interactive();
-    }
     let mut repl = Readline::new(helper::ShellHelper::new(vm, scope.globals));
     let history = dirs::config_dir().map_or_else(
         || ".repl_history.txt".into(),
@@ -23,7 +22,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         },
     );
     let _ = repl.load_history(&history);
-    let result = vm.run_interactive(|prompt| match repl.readline(prompt) {
+    let result = vm.run_interactive_loop(|prompt| match repl.readline(prompt) {
         ReadlineResult::Line(line) => {
             let _ = repl.add_history_entry(line.trim_end());
             Ok(Some(InteractiveLine::Text(line)))
