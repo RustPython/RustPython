@@ -664,6 +664,23 @@ jobs:
         shell: bash
         run: python -I scripts/whats_left.py --rustpython target/release/rustpython
 
+      # Keep this after the default-backend checks: rebuilding replaces the
+      # release interpreter. Windows still needs a nonblocking OpenSSL driver.
+      - name: Build optional OpenSSL runtime
+        if: runner.os != 'Windows'
+        run: cargo build --locked --release --features threading,jit,ssl-openssl ${{ env.CARGO_ARGS_NO_SSL }}
+        timeout-minutes: 20
+
+      - name: Run optional OpenSSL SSL regressions
+        if: runner.os != 'Windows'
+        run: target/release/rustpython -B extra_tests/snippets/stdlib_ssl.py
+        timeout-minutes: 3
+
+      - name: Run optional OpenSSL SSL tests
+        if: runner.os != 'Windows'
+        run: target/release/rustpython -B -m test -v --single-process --timeout=300 test_ssl
+        timeout-minutes: 6
+
   clippy:
     # Named after the matrix entry rather than left to be named for it: a
     # generated name lists every value in the entry, so adding or removing one
