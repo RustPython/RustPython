@@ -13821,18 +13821,13 @@ impl<'warnings> Compiler<'warnings> {
 
             self.compile_expression(&interp.expression)?;
 
-            let expr_range = interp.expression.range();
-            let expr_source = if interp.range.start() < expr_range.start()
-                && interp.range.end() >= expr_range.end()
-            {
-                let after_brace = interp.range.start() + TextSize::new(1);
-                self.source_file
-                    .source_text()
-                    .slice(TextRange::new(after_brace, expr_range.end()))
-            } else {
-                self.source_file.source_text().slice(expr_range)
-            }
-            .to_string();
+            let expr_source = crate::interpolation_expression_text(&self.source_file, interp)
+                .unwrap_or_else(|| {
+                    self.source_file
+                        .source_text()
+                        .slice(interp.expression.range())
+                        .to_owned()
+                });
             self.set_source_node(interp.range, &interp.node_index);
             self.emit_load_const(ConstantData::Str {
                 value: expr_source.into(),
