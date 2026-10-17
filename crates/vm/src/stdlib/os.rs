@@ -209,16 +209,17 @@ pub(super) mod _os {
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
     use crate::{
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         builtins::{
-            PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
+            PyBytes, PyBytesRef, PyFloat, PyGenericAlias, PyIntRef, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef,
         },
         class::PyClassDef,
         common::lock::{OnceCell, PyRwLock},
         convert::{IntoPyException, ToPyException, ToPyObject},
         exceptions::{OSErrorBuilder, ToOSErrorBuilder},
         function::{
-            ArgBytesLike, ArgMemoryBuffer, ArgumentError, FromArgs, FsPath, FuncArgs, Param,
+            ArgBytesLike, ArgMemoryBuffer, ArgumentError, Either, FromArgs, FsPath, FuncArgs, Param,
         },
         host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
@@ -1911,41 +1912,35 @@ pub(super) mod _os {
     }
 
     fn file_time(obj: &PyObject, vm: &VirtualMachine) -> PyResult<FileTime> {
-        if let Some(float) = obj.downcast_ref::<PyFloat>() {
-            let value = float.to_f64();
-            if value.is_nan() {
-                return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-            }
-            let mut seconds = value.trunc();
-            let mut nanoseconds = (value.fract() * 1_000_000_000.0).floor();
-            if nanoseconds < 0.0 {
-                nanoseconds += 1_000_000_000.0;
-                seconds -= 1.0;
-            }
-            let minimum = FileTimeSeconds::MIN as f64;
-            // The signed maximum rounds up when represented by f64.
-            if !(minimum..-minimum).contains(&seconds) {
-                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
-            }
-            Ok(FileTime {
-                seconds: seconds as FileTimeSeconds,
-                nanoseconds: nanoseconds as libc::c_long,
-            })
-        } else {
-            let seconds = match file_time_seconds(obj, vm) {
-                Err(err) if err.fast_isinstance(vm.ctx.exceptions.type_error) => {
-                    return Err(vm.new_type_error(format!(
-                        "argument must be int or float, not {}",
-                        obj.class().fully_qualified_name(vm)?
-                    )));
-                }
-                result => result?,
-            };
-            Ok(FileTime {
-                seconds,
+        if obj.number().is_index() {
+            return Ok(FileTime {
+                seconds: file_time_seconds(obj, vm)?,
                 nanoseconds: 0,
-            })
+            });
         }
+        let value = if let Some(float) = obj.downcast_ref::<PyFloat>() {
+            float.to_f64()
+        } else {
+            obj.try_float(vm)?.to_f64()
+        };
+        if value.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+        }
+        let mut seconds = value.trunc();
+        let mut nanoseconds = (value.fract() * 1_000_000_000.0).floor();
+        if nanoseconds < 0.0 {
+            nanoseconds += 1_000_000_000.0;
+            seconds -= 1.0;
+        }
+        let minimum = FileTimeSeconds::MIN as f64;
+        // The signed maximum rounds up when represented by f64.
+        if !(minimum..-minimum).contains(&seconds) {
+            return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+        }
+        Ok(FileTime {
+            seconds: seconds as FileTimeSeconds,
+            nanoseconds: nanoseconds as libc::c_long,
+        })
     }
 
     #[pyfunction]
@@ -2183,9 +2178,30 @@ pub(super) mod _os {
         crate::host_env::time::strerror(code)
     }
 
-    #[pyfunction]
     pub(crate) fn ftruncate(fd: crt_fd::Borrowed<'_>, length: crt_fd::Offset) -> io::Result<()> {
         crt_fd::ftruncate(fd, length)
+    }
+
+    #[pyfunction(name = "ftruncate")]
+    fn py_ftruncate(fd: i32, length: crt_fd::Offset, vm: &VirtualMachine) -> PyResult<()> {
+        ftruncate_impl(fd, length, vm)
+    }
+
+    fn ftruncate_impl(
+        fd: crt_fd::Raw,
+        length: crt_fd::Offset,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        use crate::host_env::os::ErrorExt;
+
+        vm.audit("os.truncate", || (fd, length))?;
+        loop {
+            match vm.allow_threads(|| crt_fd::ftruncate_raw(fd, length)) {
+                Ok(()) => return Ok(()),
+                Err(err) if err.posix_errno() == libc::EINTR => vm.check_signals()?,
+                Err(err) => return Err(err.into_pyexception(vm)),
+            }
+        }
     }
 
     #[derive(FromArgs)]
@@ -2193,17 +2209,35 @@ pub(super) mod _os {
         #[pyarg(any)]
         path: PyObjectRef,
         #[pyarg(any)]
-        length: crt_fd::Offset,
+        length: PyObjectRef,
     }
 
     #[pyfunction]
     fn truncate(args: TruncateArgs, vm: &VirtualMachine) -> PyResult<()> {
         let TruncateArgs { path, length } = args;
-        match path.clone().try_into_value::<crt_fd::Borrowed<'_>>(vm) {
-            Ok(fd) => return ftruncate(fd, length).map_err(|e| e.into_pyexception(vm)),
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.warning) => return Err(e),
-            Err(_) => {}
-        }
+        let index =
+            if path.downcast_ref::<PyStr>().is_some() || path.downcast_ref::<PyBytes>().is_some() {
+                None
+            } else {
+                path.try_index_opt(vm)
+            };
+        let path = if let Some(index) = index {
+            super::warn_if_bool_fd(&path, vm)?;
+            Either::A(index?.try_to_primitive::<crt_fd::Raw>(vm)?)
+        } else {
+            Either::B(
+                PathConverter::new()
+                    .function("truncate")
+                    .try_path_inner(path, true, vm)?,
+            )
+        };
+        let length = length.try_into_value::<crt_fd::Offset>(vm)?;
+        let path = match path {
+            Either::A(fd) => {
+                return ftruncate_impl(fd, length, vm);
+            }
+            Either::B(path) => path,
+        };
 
         #[cold]
         fn error(
@@ -2214,7 +2248,8 @@ pub(super) mod _os {
             OSErrorBuilder::with_filename(&error, path, vm)
         }
 
-        let path = OsPath::try_from_object(vm, path)?;
+        vm.audit("os.truncate", || (path.filename(vm), length))?;
+
         // TODO: just call libc::truncate() on POSIX
         let f = match crate::host_env::fs::open_write(&path) {
             Ok(f) => f,
@@ -2439,6 +2474,7 @@ pub(super) mod _os {
             SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
             SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
+            SupportFunc::new("lstat", Some(false), Some(STAT_DIR_FD), Some(false)),
             SupportFunc::new("fstat", Some(false), Some(false), Some(false)),
             SupportFunc::new("symlink", Some(false), Some(SYMLINK_DIR_FD), Some(false)),
             SupportFunc::new("truncate", Some(true), Some(false), Some(false)),

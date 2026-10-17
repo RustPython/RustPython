@@ -18,6 +18,7 @@ pub mod compile;
 pub mod error;
 pub mod ir;
 pub mod preprocess;
+pub mod source_location;
 mod string_parser;
 pub mod symboltable;
 mod unparse;

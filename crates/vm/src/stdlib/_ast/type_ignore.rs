@@ -1,5 +1,5 @@
+use super::AstSourceContext;
 use super::*;
-use rustpython_compiler_core::SourceFile;
 
 pub(super) enum TypeIgnore {
     None,
@@ -8,7 +8,7 @@ pub(super) enum TypeIgnore {
 
 // sum
 impl Node for TypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &AstSourceContext) -> PyObjectRef {
         match self {
             Self::None => vm.ctx.none(),
             Self::TypeIgnore(cons) => cons.ast_to_object(vm, source_file),
@@ -16,7 +16,7 @@ impl Node for TypeIgnore {
     }
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(if vm.is_none(&object) {
@@ -43,7 +43,7 @@ pub(super) struct TypeIgnoreTypeIgnore {
 
 // constructor
 impl Node for TypeIgnoreTypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &AstSourceContext) -> PyObjectRef {
         let Self { lineno, tag } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -60,7 +60,7 @@ impl Node for TypeIgnoreTypeIgnore {
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_file: &SourceFile,
+        _source_file: &AstSourceContext,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {

@@ -527,6 +527,21 @@ impl Coro {
         self.started.load()
     }
 
+    pub(crate) fn state_name(&self, names: [&'static str; 4]) -> &'static str {
+        // Closing publishes the terminal state before releasing frame locals,
+        // whose finalizers can observe us while the running claim is held.
+        let index = if self.closed() {
+            3
+        } else if self.running() {
+            1
+        } else if self.started() {
+            2
+        } else {
+            0
+        };
+        names[index]
+    }
+
     pub fn suspended(&self) -> bool {
         !self.closed.load() && !self.running.load() && self.started()
     }
