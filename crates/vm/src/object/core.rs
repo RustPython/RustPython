@@ -738,9 +738,9 @@ impl WeakRefList {
             }
         }
 
-        // Allocate OUTSIDE the stripe lock. PyRef::new_ref may trigger
-        // maybe_collect → GC → WeakRefList::clear on another object that
-        // hashes to the same stripe, which would deadlock on the spinlock.
+        // Allocate untracked: gc.get_objects() must not expose this node
+        // before its referent is published. Tracking below can trigger GC,
+        // so it must also happen outside the stripe lock.
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
             wr_object: Radium::new(ptr::null_mut()),
@@ -792,6 +792,12 @@ impl WeakRefList {
         // must never try to unlink an unpublished node.
         weak.wr_object
             .store(obj as *const PyObject as *mut PyObject, Ordering::Release);
+
+        drop(_lock);
+        // SAFETY: this fresh allocation opted out of automatic tracking.
+        // Our strong reference keeps it alive, and it cannot enter a GC
+        // candidate list before tracking, so its gc_bits are still zero.
+        unsafe { crate::gc_state::track_new_object(NonNull::from(weak.as_object())) };
 
         weak
     }
@@ -3633,6 +3639,76 @@ mod tests {
         let ctx = crate::Context::genesis();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);
+    }
+
+    #[test]
+    fn weakref_allocation_defers_gc_tracking_until_publication() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let target = vm.ctx.new_class(
+                None,
+                "WeakrefTarget",
+                vm.ctx.types.object_type.to_owned(),
+                Default::default(),
+            );
+            let subclass = vm.ctx.new_class(
+                None,
+                "WeakrefSubclass",
+                vm.ctx.types.weakref_type.to_owned(),
+                Default::default(),
+            );
+            for class in [
+                vm.ctx.types.weakref_type.to_owned(),
+                vm.ctx.types.weakproxy_type.to_owned(),
+                vm.ctx.types.weakcallableproxy_type.to_owned(),
+                subclass,
+            ] {
+                let dict = class
+                    .slots
+                    .flags
+                    .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+                    .then(|| vm.ctx.new_dict());
+                // Exercise the allocator boundary directly: an uninitialized
+                // weakref must not be published through GC generation lists.
+                let unpublished = PyRef::new_ref(
+                    PyWeak {
+                        pointers: Pointers::new(),
+                        wr_object: Radium::new(ptr::null_mut()),
+                        referent_addr: target.as_object() as *const PyObject as usize,
+                        callback: UnsafeCell::new(None),
+                        hash: Radium::new(crate::common::hash::SENTINEL),
+                    },
+                    class.clone(),
+                    dict,
+                );
+                assert_eq!(unpublished.as_object().0.gc_bits.load(Ordering::Relaxed), 0);
+                assert!(!unpublished.as_object().is_gc_tracked());
+                assert!(
+                    !vm.state
+                        .gc
+                        .get_objects(None)
+                        .iter()
+                        .any(|object| object.is(unpublished.as_object()))
+                );
+                drop(unpublished);
+
+                let published = target
+                    .as_object()
+                    .downgrade_with_typ(None, class, vm)
+                    .unwrap();
+                assert!(published.as_object().is_gc_tracked());
+                assert!(
+                    vm.state
+                        .gc
+                        .get_objects(None)
+                        .iter()
+                        .any(|object| object.is(published.as_object()))
+                );
+                assert_eq!(
+                    published.wr_object.load(Ordering::Acquire),
+                    target.as_object() as *const PyObject as *mut PyObject,
+                );
+            }
+        });
     }
 
     /// A weakref node stays linked into its target's list until its own
