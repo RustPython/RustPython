@@ -74,7 +74,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -84,8 +84,10 @@ where
     let (config, all_module_defs, frozen, int_max_str_digits) = if let Some(parent) = parent_state {
         // Subinterpreter: clone config and module tables from parent, fresh runtime state.
         let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
+        let mut config = parent.config.clone();
+        config.settings.inspect = parent.inspect.load(Ordering::Relaxed);
         (
-            parent.config.clone(),
+            config,
             parent.module_defs.clone(),
             parent.frozen.clone(),
             int_max_str_digits,
@@ -153,6 +155,8 @@ where
         runtime_root_id,
         whence,
         is_main,
+        inspect: AtomicBool::new(config.settings.inspect),
+        interactive_src_count: AtomicUsize::new(0),
         config,
         module_defs: all_module_defs,
         frozen,
@@ -584,6 +588,24 @@ impl Interpreter {
         self.vm.new_thread()
     }
 
+    /// Move the main execution context into a separate owner, leaving this
+    /// handle available to create worker VMs for the same interpreter.
+    ///
+    /// The returned interpreter must run and finalize on the original thread.
+    /// This handle should only create worker VMs and must not be finalized.
+    /// Unlike `new_thread()`, this preserves the main VM's signal handlers and
+    /// all of its other thread-local state.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn take_main_thread(&mut self) -> Self {
+        let replacement = self.vm.new_thread().vm;
+        let vm = core::mem::replace(&mut self.vm, replacement);
+        Self {
+            global_state: self.global_state.clone(),
+            vm,
+        }
+    }
+
     /// Run a function with the main virtual machine and return a PyResult of the result.
     ///
     /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
@@ -632,6 +654,18 @@ impl Interpreter {
         self.finalize(res.err())
     }
 
+    /// Py_RunMain
+    ///
+    /// Run a function that reports its own errors and returns the exit code,
+    /// then finalize with that exit code.
+    pub fn run_main<F>(self, f: F) -> u32
+    where
+        F: FnOnce(&VirtualMachine) -> u32,
+    {
+        let exit_code = self.enter(f);
+        self.finalize_with_exit_code(exit_code)
+    }
+
     /// Finalize vm and turns an exception to exit code.
     ///
     /// Finalization steps (matching Py_FinalizeEx):
@@ -647,15 +681,22 @@ impl Interpreter {
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
-        self.enter(|vm| {
+        self.finalize_inner(|vm| exc.map_or(0, |exc| vm.handle_exit_exception(exc)))
+    }
+
+    /// Finalize vm with an exit code the caller has already determined.
+    ///
+    /// See [`Interpreter::finalize`] for the finalization steps.
+    pub fn finalize_with_exit_code(self, exit_code: u32) -> u32 {
+        self.finalize_inner(|_| exit_code)
+    }
+
+    fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
+        let exit_code = self.enter(|vm| {
             let mut flush_status = vm.flush_std();
 
             // See if any exception leaked out:
-            let exit_code = if let Some(exc) = exc {
-                vm.handle_exit_exception(exc)
-            } else {
-                0
-            };
+            let exit_code = exit_code(vm);
 
             // Wait for thread shutdown - call threading._shutdown() if available.
             // This waits for all non-daemon threads to complete.
@@ -733,7 +774,12 @@ impl Interpreter {
             crate::object::qsbr::QSBR.process();
 
             exit_code
-        })
+        });
+        if crate::signal::unhandled_keyboard_interrupt() {
+            crate::signal::exit_sigint()
+        } else {
+            exit_code
+        }
     }
 }
 

@@ -56,7 +56,7 @@ pub mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env,
-        io::{IsTerminal, Read, Write},
+        io::{IsTerminal, Write},
     };
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
@@ -753,15 +753,10 @@ pub mod sys {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
-        // read stdin to end
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-        let mut source = String::new();
-        handle
-            .read_to_string(&mut source)
-            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
-            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
+        // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
+        if let Err(exc) = vm.run_any_stdin() {
+            vm.print_uncaught_exception(&exc)?;
+        }
         Ok(())
     }
 
@@ -971,6 +966,36 @@ pub mod sys {
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
         PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
+    }
+
+    /// _PySys_SetFlagObj
+    pub(crate) fn set_flag_obj(
+        vm: &VirtualMachine,
+        name: &str,
+        value: PyObjectRef,
+    ) -> PyResult<()> {
+        use crate::{class::StaticType, types::PyStructSequenceData};
+
+        let old_flags = vm
+            .sys_module
+            .get_attr("flags", vm)
+            .map_err(|_| vm.new_runtime_error("lost sys.flags"))?;
+        let old_flags = old_flags
+            .downcast_ref::<PyTuple>()
+            .filter(|flags| {
+                flags.len()
+                    == FlagsData::REQUIRED_FIELD_NAMES.len() + FlagsData::OPTIONAL_FIELD_NAMES.len()
+            })
+            .ok_or_else(|| vm.new_type_error("sys.flags must be a sys.flags instance"))?;
+        let pos = FlagsData::REQUIRED_FIELD_NAMES
+            .iter()
+            .position(|field| *field == name)
+            .expect("unknown sys.flags field");
+        let mut values = old_flags.as_slice().to_vec();
+        values[pos] = value;
+        let new_flags = PyTuple::new_unchecked(values.into_boxed_slice())
+            .into_ref_with_type(vm, PyFlags::static_type().to_owned())?;
+        vm.sys_module.set_attr("flags", new_flags, vm)
     }
 
     #[pyattr]

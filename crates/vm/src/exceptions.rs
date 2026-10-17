@@ -101,25 +101,83 @@ impl VirtualMachine {
     /// Print exception chain by calling sys.excepthook
     pub fn print_exception(&self, exc: &Py<PyBaseException>) {
         let vm = self;
-        let write_fallback = |exc, errstr| {
-            if let Ok(stderr) = sys::get_stderr(vm) {
-                let mut stderr = py_io::PyWriter(stderr, vm);
-                // if this fails stderr might be closed -- ignore it
-                let _ = writeln!(stderr, "{errstr}");
-                let _ = self.write_exception(&mut stderr, exc);
-            } else {
-                eprintln!("{errstr}\nlost sys.stderr");
-                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
-            }
-        };
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.to_owned());
             if let Err(eh_exc) = excepthook.call((exc_type, exc_val, exc_tb), vm) {
-                write_fallback(&eh_exc, "Error in sys.excepthook:");
-                write_fallback(exc, "Original exception was:");
+                self.write_exception_fallback(&eh_exc, "Error in sys.excepthook:");
+                self.write_exception_fallback(exc, "Original exception was:");
             }
         } else {
-            write_fallback(exc, "missing sys.excepthook");
+            self.write_exception_fallback(exc, "missing sys.excepthook");
+        }
+    }
+
+    /// PyErr_Print
+    ///
+    /// Record the exception as `sys.last_exc` and display it through
+    /// `sys.excepthook`. A `SystemExit` that should end the process is returned
+    /// instead, and the caller exits with it.
+    pub fn print_uncaught_exception(&self, exc: &Py<PyBaseException>) -> PyResult<()> {
+        self.handle_system_exit(exc)?;
+        let (exc_type, exc_val, exc_tb) = self.split_exception(exc.to_owned());
+        for (name, value) in [
+            ("last_exc", &exc_val),
+            ("last_type", &exc_type),
+            ("last_value", &exc_val),
+            ("last_traceback", &exc_tb),
+        ] {
+            let _ = self.sys_module.set_attr(name, value.clone(), self);
+        }
+        let hook = self.sys_module.get_attr("excepthook", self).ok();
+        if let Err(audit_exc) = self.audit("sys.excepthook", || {
+            (
+                hook.clone().unwrap_or_else(|| self.ctx.none()),
+                exc_type.clone(),
+                exc_val.clone(),
+                exc_tb.clone(),
+            )
+        }) {
+            if audit_exc.fast_isinstance(self.ctx.exceptions.runtime_error) {
+                return Ok(());
+            }
+            self.run_unraisable(
+                audit_exc,
+                Some("Exception ignored in audit hook".to_owned()),
+                self.ctx.none(),
+            );
+        }
+        if let Some(hook) = hook {
+            if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
+                self.handle_system_exit(&hook_exc)?;
+                self.write_exception_fallback(&hook_exc, "Error in sys.excepthook:");
+                self.write_exception_fallback(exc, "\nOriginal exception was:");
+            }
+        } else {
+            self.write_exception_fallback(exc, "sys.excepthook is missing");
+        }
+        Ok(())
+    }
+
+    /// handle_system_exit, except that the caller performs `Py_Exit()` with
+    /// the returned `SystemExit`.
+    fn handle_system_exit(&self, exc: &Py<PyBaseException>) -> PyResult<()> {
+        if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
+            crate::signal::set_unhandled_keyboard_interrupt();
+        } else if !self.config_inspect() && exc.fast_isinstance(self.ctx.exceptions.system_exit) {
+            return Err(exc.to_owned());
+        }
+        Ok(())
+    }
+
+    fn write_exception_fallback(&self, exc: &Py<PyBaseException>, heading: &str) {
+        if let Ok(stderr) = sys::get_stderr(self) {
+            let mut stderr = py_io::PyWriter(stderr, self);
+            // if this fails stderr might be closed -- ignore it
+            let _ = writeln!(stderr, "{heading}");
+            let _ = self.write_exception(&mut stderr, exc);
+        } else {
+            eprintln!("{heading}\nlost sys.stderr");
+            let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
         }
     }
 
@@ -185,10 +243,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            writeln!(output, "Traceback (most recent call last):")?;
-            for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
-            }
+            write_traceback(output, &tb)?;
         }
 
         let varargs = exc.args();
@@ -445,6 +500,17 @@ fn print_source_line<W: Write>(
         }
     }
 
+    Ok(())
+}
+
+pub(crate) fn write_traceback<W: Write>(
+    output: &mut W,
+    traceback: &PyTracebackRef,
+) -> Result<(), W::Error> {
+    writeln!(output, "Traceback (most recent call last):")?;
+    for entry in traceback.iter() {
+        write_traceback_entry(output, &entry)?;
+    }
     Ok(())
 }
 

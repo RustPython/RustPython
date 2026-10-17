@@ -423,7 +423,7 @@ mod _testinternalcapi {
         global.set_item("dev_mode", vm.ctx.new_bool(settings.dev_mode).into(), vm)?;
         global.set_item("verbose", vm.ctx.new_int(settings.verbose).into(), vm)?;
         global.set_item("quiet", vm.ctx.new_bool(settings.quiet).into(), vm)?;
-        global.set_item("inspect", vm.ctx.new_bool(settings.inspect).into(), vm)?;
+        global.set_item("inspect", vm.ctx.new_bool(vm.config_inspect()).into(), vm)?;
         global.set_item(
             "interactive",
             vm.ctx.new_bool(settings.interactive).into(),

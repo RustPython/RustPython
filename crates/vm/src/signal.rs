@@ -58,6 +58,33 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
 
+/// `_PyRuntime.signals.unhandled_keyboard_interrupt`
+static UNHANDLED_KEYBOARD_INTERRUPT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn set_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(true, Ordering::Relaxed);
+}
+
+pub(crate) fn unhandled_keyboard_interrupt() -> bool {
+    UNHANDLED_KEYBOARD_INTERRUPT.load(Ordering::Relaxed)
+}
+
+/// exit_sigint: exit through the default SIGINT handler so that the parent
+/// process sees that a KeyboardInterrupt went unhandled.
+pub(crate) fn exit_sigint() -> u32 {
+    cfg_select! {
+        unix => {
+            if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
+                let _ = crate::host_env::signal::send_sigint_to_self();
+            }
+            libc::SIGINT as u32 + 128
+        }
+        // STATUS_CONTROL_C_EXIT
+        windows => 0xC000013A,
+        _ => 2 + 128,
+    }
+}
+
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
     /// handler is running, new signals are deferred until it completes.

@@ -955,7 +955,8 @@ pub fn too_deeply_nested_error(
 /// A bare generator expression is one: `f(x for x in y)` is the `primary
 /// genexp` alternative of a call, and a class header only takes `arguments`,
 /// which has no such alternative. A format spec nested more than two deep is
-/// the other; the tokenizer runs out of nesting levels for it.
+/// the other; the tokenizer runs out of nesting levels for it. A lazy
+/// `__future__` import is rejected by the `checked_from_import` action.
 #[doc(hidden)]
 #[must_use]
 pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
@@ -1009,6 +1010,18 @@ pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Op
     impl<'a> Visitor<'a> for Checker<'_> {
         fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
             if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ImportFrom(import) = stmt
+                && import.is_lazy
+                && import.level == 0
+                && import
+                    .module
+                    .as_ref()
+                    .is_some_and(|module| module.as_str() == "__future__")
+            {
+                let lazy = ruff_text_size::TextRange::at(import.range.start(), 4.into());
+                self.fail("lazy from __future__ import is not allowed", lazy);
                 return;
             }
             if let ast::Stmt::ClassDef(class_def) = stmt
@@ -1118,8 +1131,30 @@ pub fn single_mode_multiple_statements_error(
     let ast::Mod::Module(module) = parsed.syntax() else {
         return None;
     };
-    if is_compound_stmt(module.body.first()?) {
-        return None;
+    let first = module.body.first()?;
+    if is_compound_stmt(first) {
+        // The interactive grammar ends a compound statement with a NEWLINE,
+        // so the first token of a following statement is invalid syntax.
+        let next = module.body.get(1)?;
+        if parsed
+            .errors()
+            .iter()
+            .any(|error| error.location.start() <= next.start())
+        {
+            return None;
+        }
+        let token = parsed
+            .tokens()
+            .iter()
+            .find(|token| token.start() >= next.start() && !token.range().is_empty())?;
+        return Some(CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                token.start().to_usize(),
+                token.end().to_usize(),
+            ),
+        ));
     }
     let tokens = parsed.tokens();
     let newline_index = tokens
@@ -1589,6 +1624,56 @@ pub fn prepare_barry_as_flufl_source(
         not_equal,
         legacy_not_equal: replacements,
     }
+}
+
+/// Parse-only state for a native interactive record. This never runs codegen,
+/// emits Python warnings, or changes the caller's future flags.
+pub struct InteractiveInput {
+    pub future_features: core::bytecode::CodeFlags,
+    pub empty: bool,
+}
+
+/// The native interactive grammar terminates compound statements with an empty
+/// physical line (or EOF), unlike the module grammar used by the Ruff parser.
+/// Use the parsed statement shape rather than a second ad-hoc source lexer.
+pub fn interactive_input(
+    source: &str,
+    source_path: &str,
+    future_features: core::bytecode::CodeFlags,
+    terminated: bool,
+) -> Result<Option<InteractiveInput>, CompileError> {
+    let source_file = SourceFileBuilder::new(source_path, source).finish();
+    pre_parse_source_error(&source_file)?;
+    let options = parser::ParseOptions::from(parser::Mode::Module);
+    let prepared = prepare_barry_as_flufl_source(
+        source,
+        options.clone(),
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse_unchecked(prepared.source(), options);
+    if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
+        return Err(error);
+    }
+    if let Some(error) = prepared.diagnostic(parsed.errors().first(), &source_file) {
+        return Err(error);
+    }
+    let parsed = first_parse_error(parsed, &source_file, Mode::Single)?;
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        unreachable!()
+    };
+    // A compound statement ends with an empty line or EOF.
+    if !terminated && module.body.first().is_some_and(is_compound_stmt) {
+        return Ok(None);
+    }
+    if let Some(error) = unsupported_grammar_error(parsed.syntax(), &source_file) {
+        return Err(error);
+    }
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, &source_file))?;
+    Ok(Some(InteractiveInput {
+        future_features,
+        empty: module.body.is_empty(),
+    }))
 }
 
 pub fn compile_with_syntax_warning_handler<'a>(
