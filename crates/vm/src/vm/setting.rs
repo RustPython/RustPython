@@ -148,7 +148,8 @@ pub struct Settings {
     /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
-    // wchar_t *home;
+    /// PYTHONHOME: explicit prefix, optionally followed by the exec prefix.
+    pub home: Option<String>,
     // wchar_t *platlibdir;
     /// -d command line switch
     pub debug: u8,
@@ -210,6 +211,7 @@ impl Default for Settings {
             context_aware_warnings: false,
             warnoptions: vec![],
             path_list: vec![],
+            home: None,
             argv: vec![],
             hash_seed: None,
             faulthandler: false,
