@@ -372,3 +372,20 @@ def store_subscr_list_int_finalizer_reads_list():
 
 
 store_subscr_list_int_finalizer_reads_list()
+
+
+def store_attr_uses_setter_without_getter():
+    class IntegerField:
+        def __set__(self, obj, value):
+            obj.__dict__["value"] = int(value)
+
+    class Model:
+        value = IntegerField()
+
+    obj = Model()
+    for _ in range(300):
+        obj.value = "42"
+    assert obj.value == 42
+
+
+store_attr_uses_setter_without_getter()
