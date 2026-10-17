@@ -652,7 +652,8 @@ mod decl {
                         .new_value_error("unmarshalling code objects is disallowed"),
                 ));
             }
-            let code = PyCode::from_marshal(code, fields, &self.vm.ctx)?;
+            let code =
+                PyCode::from_marshal(code, fields, &self.vm.ctx)?.remove_column_info(self.vm);
             Ok(code.into_ref(&self.vm.ctx).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {

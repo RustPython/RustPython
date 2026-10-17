@@ -3387,6 +3387,7 @@ class TestSignatureObject(unittest.TestCase):
                 self.assertEqual(inspect.signature(builtin),
                                  inspect.signature(template))
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.DocStringUnrepresentableSignatureTest
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_signature_parsing_with_defaults(self):

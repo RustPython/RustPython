@@ -1235,6 +1235,7 @@ class BytesTest(BaseBytesTest, unittest.TestCase):
                               BytesSubclass(b'abc'))
 
     # Test PyBytes_FromFormat()
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs ctypes.pythonapi
     def test_from_format(self):
         ctypes = import_helper.import_module('ctypes')
         _testcapi = import_helper.import_module('_testcapi')

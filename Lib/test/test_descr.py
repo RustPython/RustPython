@@ -815,6 +815,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             class X(int(), C):
                 pass
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.HeapCTypeMetaclassNullNew
     @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
     def test_type_with_null_new_metaclass(self):
         metaclass = _testcapi.HeapCTypeMetaclassNullNew
@@ -5099,6 +5100,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertRegex(repr(method),
             r"<bound method qualname of <object object at .*>>")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.bad_get
     @unittest.skipIf(_testcapi is None, 'need the _testcapi module')
     def test_bpo25750(self):
         # bpo-25750: calling a descriptor (implemented as built-in

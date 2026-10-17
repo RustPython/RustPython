@@ -197,6 +197,7 @@ class BaseLocalTest:
         self.assertIsNone(wr())
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs _testcapi.call_in_temporary_c_thread
     def test_threading_local_clear_race(self):
         # See https://github.com/python/cpython/issues/100892
 

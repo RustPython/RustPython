@@ -76,6 +76,11 @@ mod syslog {
 
     #[pyfunction]
     fn openlog(args: OpenLogArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // Since the sys.openlog changes the process level state of syslog library,
+        // this operation is only allowed for the main interpreter.
+        if !vm.state.is_main_interpreter() {
+            return Err(vm.new_runtime_error("subinterpreter can't use syslog.openlog()"));
+        }
         let logoption = args.logoption;
         let facility = args.facility;
         let ident = match args.ident.clone() {
@@ -115,7 +120,13 @@ mod syslog {
 
         vm.audit("syslog.syslog", || (priority, msg.clone()))?;
 
+        // if log is not opened, open it now
         if !host_syslog::is_open() {
+            if !vm.state.is_main_interpreter() {
+                return Err(vm.new_runtime_error(
+                    "subinterpreter can't use syslog.syslog() until the syslog is opened by the main interpreter",
+                ));
+            }
             openlog(
                 OpenLogArgs {
                     facility: LOG_USER,
@@ -132,6 +143,11 @@ mod syslog {
 
     #[pyfunction]
     fn closelog(vm: &VirtualMachine) -> PyResult<()> {
+        // Since the sys.closelog changes the process level state of syslog library,
+        // this operation is only allowed for the main interpreter.
+        if !vm.state.is_main_interpreter() {
+            return Err(vm.new_runtime_error("subinterpreter can't use syslog.closelog()"));
+        }
         vm.audit("syslog.closelog", || ())?;
 
         host_syslog::closelog();

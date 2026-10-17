@@ -7014,6 +7014,7 @@ class IranTest(ZoneInfoTest):
     zonename = 'Asia/Tehran'
 
 
+@unittest.skip("TODO: RUSTPYTHON; setUp needs _testcapi.test_datetime_capi")
 @unittest.skipIf(_testcapi is None, 'need _testcapi module')
 class CapiTest(unittest.TestCase):
     def setUp(self):

@@ -1804,6 +1804,7 @@ class GeneralModuleTests(unittest.TestCase):
                                flags=socket.AI_NUMERICSERV)
         str(cm.exception)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError for an out-of-range int port
     @unittest.skipIf(_testcapi is None, "requires _testcapi")
     def test_getaddrinfo_int_port_overflow(self):
         # gh-74895: Test that getaddrinfo does not raise OverflowError on port.

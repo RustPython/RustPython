@@ -1708,7 +1708,18 @@ impl VirtualMachine {
             err_msg: self.new_pyobj(msg),
             object,
         };
-        if let Err(e) = unraisablehook.call((args,), self) {
+        let hook_args = args.to_pyobject(self);
+        if let Err(e) = self.audit("sys.unraisablehook", || {
+            (unraisablehook.clone(), hook_args.clone())
+        }) {
+            self.write_unraisable_to_stderr(
+                &e,
+                Some("Exception ignored in audit hook"),
+                &self.ctx.none(),
+            );
+            return;
+        }
+        if let Err(e) = unraisablehook.call((hook_args,), self) {
             println!("{}", e.as_object().repr(self).unwrap());
         }
     }

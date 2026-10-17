@@ -1100,6 +1100,7 @@ class DisTests(DisTestBase):
         ])
         self.do_disassembly_test(f, expect, show_positions=True)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AST nodes without columns compile to column 0
     @requires_debug_ranges()
     def test_dis_with_linenos_but_no_columns(self):
         code = "def f():\n\tx = 1"

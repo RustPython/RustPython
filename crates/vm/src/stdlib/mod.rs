@@ -15,6 +15,7 @@ mod _string;
 mod _symtable;
 mod _sysconfig;
 mod _sysconfigdata;
+mod _testcapi;
 pub(crate) mod _testinternalcapi;
 mod _types;
 pub mod _typing;
@@ -135,6 +136,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _sre::module_def(ctx),
         _stat::module_def(ctx),
         _string::module_def(ctx),
+        _testcapi::module_def(ctx),
         _testinternalcapi::module_def(ctx),
         #[cfg(feature = "compiler")]
         _symtable::module_def(ctx),
