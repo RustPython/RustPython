@@ -593,27 +593,44 @@ mod weakref_lock {
 
     static LOCKS: [AtomicU8; NUM_WEAKREF_LOCKS] = [const { AtomicU8::new(0) }; NUM_WEAKREF_LOCKS];
 
+    #[derive(Debug)]
+    pub(super) struct WeakrefLock {
+        lock: &'static AtomicU8,
+    }
+
     pub(super) struct WeakrefLockGuard {
-        idx: usize,
+        lock: &'static AtomicU8,
     }
 
     impl Drop for WeakrefLockGuard {
         fn drop(&mut self) {
-            LOCKS[self.idx].store(0, Ordering::Release);
+            self.lock.store(0, Ordering::Release);
+        }
+    }
+
+    impl WeakrefLock {
+        pub(super) fn lock(&self) -> WeakrefLockGuard {
+            loop {
+                if self
+                    .lock
+                    .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    return WeakrefLockGuard { lock: self.lock };
+                }
+                core::hint::spin_loop();
+            }
+        }
+    }
+
+    pub(super) fn select(addr: usize) -> WeakrefLock {
+        WeakrefLock {
+            lock: &LOCKS[(addr >> 4) % NUM_WEAKREF_LOCKS],
         }
     }
 
     pub(super) fn lock(addr: usize) -> WeakrefLockGuard {
-        let idx = (addr >> 4) % NUM_WEAKREF_LOCKS;
-        loop {
-            if LOCKS[idx]
-                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                .is_ok()
-            {
-                return WeakrefLockGuard { idx };
-            }
-            core::hint::spin_loop();
-        }
+        select(addr).lock()
     }
 
     /// Reset all weakref stripe locks after fork in child process.
@@ -628,14 +645,27 @@ mod weakref_lock {
 
 #[cfg(not(feature = "threading"))]
 mod weakref_lock {
+    #[derive(Debug)]
+    pub(super) struct WeakrefLock;
+
     pub(super) struct WeakrefLockGuard;
 
     impl Drop for WeakrefLockGuard {
         fn drop(&mut self) {}
     }
 
-    pub(super) fn lock(_addr: usize) -> WeakrefLockGuard {
-        WeakrefLockGuard
+    impl WeakrefLock {
+        pub(super) fn lock(&self) -> WeakrefLockGuard {
+            WeakrefLockGuard
+        }
+    }
+
+    pub(super) fn select(_addr: usize) -> WeakrefLock {
+        WeakrefLock
+    }
+
+    pub(super) fn lock(addr: usize) -> WeakrefLockGuard {
+        select(addr).lock()
     }
 }
 
@@ -744,7 +774,7 @@ impl WeakRefList {
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
             wr_object: Radium::new(ptr::null_mut()),
-            referent_addr: obj as *const PyObject as usize,
+            weakrefs_lock: weakref_lock::select(obj as *const PyObject as usize),
             callback: UnsafeCell::new(callback),
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
@@ -1022,10 +1052,10 @@ pub struct PyWeak {
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
-    /// Immutable key for the original referent stripe, like CPython's
-    /// weakrefs_lock. Used only for locking, never dereferenced, so the same
-    /// stripe protects the callback even after wr_object becomes null.
-    referent_addr: usize,
+    /// Handle to the original static referent stripe, like CPython's
+    /// weakrefs_lock. The same stripe protects the callback even after
+    /// wr_object becomes null and the referent is freed.
+    weakrefs_lock: weakref_lock::WeakrefLock,
     /// Owned callback edge, protected by the original referent stripe.
     /// GC can retain this edge after unlinking the weakref.
     callback: UnsafeCell<Option<PyObjectRef>>,
@@ -1072,7 +1102,7 @@ impl PyWeak {
 
     /// Get the owned callback, which GC can retain after clearing the referent.
     pub(crate) fn get_callback(&self) -> Option<PyObjectRef> {
-        let _lock = weakref_lock::lock(self.referent_addr);
+        let _lock = self.weakrefs_lock.lock();
         // SAFETY: the original referent stripe protects the callback.
         unsafe { &*self.callback.get() }.clone()
     }
@@ -1080,7 +1110,7 @@ impl PyWeak {
     /// Unlink and steal the callback under the original referent stripe.
     /// Return ownership so callers release it only after unlocking.
     fn clear(&self) -> Option<PyObjectRef> {
-        let _lock = weakref_lock::lock(self.referent_addr);
+        let _lock = self.weakrefs_lock.lock();
         // SAFETY: the original referent stripe protects both fields, including
         // callbacks retained by GC after the weakref was already unlinked.
         unsafe {
@@ -1091,7 +1121,7 @@ impl PyWeak {
 
     /// _PyWeakref_ClearRef: unlink without releasing the callback.
     fn clear_ref(&self) {
-        let _lock = weakref_lock::lock(self.referent_addr);
+        let _lock = self.weakrefs_lock.lock();
         // SAFETY: the original referent stripe is held.
         unsafe { self.clear_ref_lock_held() };
     }
@@ -1132,7 +1162,7 @@ unsafe impl Traverse for PyWeak {
         // Stripe critical sections never suspend or run Python, so a stopped
         // thread cannot own this lock. Also synchronize gc.get_referents(),
         // which traverses while other threads are running.
-        let _lock = weakref_lock::lock(self.referent_addr);
+        let _lock = self.weakrefs_lock.lock();
         // SAFETY: the original referent stripe protects the callback.
         unsafe { &*self.callback.get() }.traverse(tracer_fn);
     }
@@ -3673,7 +3703,9 @@ mod tests {
                     PyWeak {
                         pointers: Pointers::new(),
                         wr_object: Radium::new(ptr::null_mut()),
-                        referent_addr: target.as_object() as *const PyObject as usize,
+                        weakrefs_lock: weakref_lock::select(
+                            target.as_object() as *const PyObject as usize
+                        ),
                         callback: UnsafeCell::new(None),
                         hash: Radium::new(crate::common::hash::SENTINEL),
                     },
