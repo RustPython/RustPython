@@ -230,6 +230,33 @@ value = [
         frame.clear()
         self.assertEqual(len(events), 1)
 
+    def test_closed_coroutine_state_is_visible_to_frame_local_finalizers(self):
+        events = []
+
+        class ReentrantFinalizer:
+            def __del__(self):
+                events.append(getattr(owner, state_attribute))
+
+        async def coroutine(value):
+            return value
+
+        async def async_generator(value):
+            yield value
+
+        for factory, state_attribute, closed in (
+            (coroutine, "cr_state", "CORO_CLOSED"),
+            (async_generator, "ag_state", "AGEN_CLOSED"),
+        ):
+            with self.subTest(state_attribute=state_attribute):
+                events.clear()
+                owner = factory(ReentrantFinalizer())
+                if state_attribute == "cr_state":
+                    owner.close()
+                else:
+                    with self.assertRaises(StopIteration):
+                        owner.aclose().send(None)
+                self.assertEqual(events, [closed])
+
     def test_unoptimized_frame_locals_are_readable_from_another_thread(self):
         ready = threading.Event()
         release = threading.Event()

@@ -175,6 +175,7 @@ where
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
         type_mutex: PyMutex::default(),
+        common_type_descriptors: crate::builtins::type_::CommonTypeDescriptors::new(&ctx),
         #[cfg(feature = "threading")]
         main_thread_ident,
         #[cfg(feature = "threading")]

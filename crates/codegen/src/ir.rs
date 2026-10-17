@@ -7,7 +7,7 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_wtf8::Wtf8Buf;
 
 use rustpython_compiler_core::{
-    OneIndexed, SourceLocation,
+    OneIndexed, SourceLocation, SourceLocationRange as LineTableLocation,
     bytecode::{
         AnyInstruction, AnyOpcode, CO_FAST_ARG_KW, CO_FAST_ARG_POS, CO_FAST_ARG_VAR, CO_FAST_CELL,
         CO_FAST_FREE, CO_FAST_HIDDEN, CO_FAST_LOCAL, CodeFlags, CodeObject, CodeUnit, CodeUnits,
@@ -17,17 +17,9 @@ use rustpython_compiler_core::{
     varint::{write_signed_varint, write_varint},
 };
 
-/// Location info for linetable generation (allows line 0 for RESUME)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct LineTableLocation {
-    line: i32,
-    end_line: i32,
-    col: i32,
-    end_col: i32,
-}
-
 #[derive(Clone, Copy)]
 struct InstructionLocation {
+    semantic_location: Option<LineTableLocation>,
     location: SourceLocation,
     end_location: SourceLocation,
     lineno_override: Option<i32>,
@@ -326,6 +318,7 @@ pub struct InstructionInfo {
     pub location: SourceLocation,
     pub end_location: SourceLocation,
     pub except_handler: Option<ExceptHandlerInfo>,
+    pub semantic_location: Option<LineTableLocation>,
     /// Override line number for linetable (e.g., line 0 for module RESUME)
     pub lineno_override: Option<i32>,
 }
@@ -352,6 +345,7 @@ impl InstructionInfo {
         end_location: SourceLocation,
         lineno_override: Option<i32>,
     ) {
+        self.semantic_location = None;
         self.location = location;
         self.end_location = end_location;
         self.lineno_override = lineno_override;
@@ -359,6 +353,7 @@ impl InstructionInfo {
 
     fn instr_location(&self) -> InstructionLocation {
         InstructionLocation {
+            semantic_location: self.semantic_location,
             location: self.location,
             end_location: self.end_location,
             lineno_override: self.lineno_override,
@@ -367,6 +362,7 @@ impl InstructionInfo {
 
     fn instr_set_location(&mut self, loc: InstructionLocation) {
         self.instr_set_loc(loc.location, loc.end_location, loc.lineno_override);
+        self.semantic_location = loc.semantic_location;
     }
 
     fn set_to_nop(&mut self) {
@@ -391,6 +387,7 @@ impl InstructionInfo {
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
             except_handler: None,
+            semantic_location: None,
             lineno_override: None,
         }
     }
@@ -424,6 +421,12 @@ impl InstructionInfo {
     }
 
     fn instruction_linetable_location(&self) -> LineTableLocation {
+        let location = self.semantic_location.unwrap_or_else(|| LineTableLocation {
+            line: self.location.line.get() as i32,
+            end_line: self.end_location.line.get() as i32,
+            col: self.location.character_offset.to_zero_indexed() as i32,
+            end_col: self.end_location.character_offset.to_zero_indexed() as i32,
+        });
         match self.lineno_override {
             Some(NO_LOCATION_OVERRIDE) => LineTableLocation {
                 line: NO_LOCATION_OVERRIDE,
@@ -432,24 +435,13 @@ impl InstructionInfo {
                 end_col: NO_LOCATION_OVERRIDE,
             },
             Some(LINE_ONLY_LOCATION_OVERRIDE) => LineTableLocation {
-                line: self.location.line.get() as i32,
-                end_line: self.end_location.line.get() as i32,
                 col: -1,
                 end_col: -1,
+                ..location
             },
             Some(NEXT_LOCATION_OVERRIDE) => next_linetable_location(),
-            Some(lineno) => LineTableLocation {
-                line: lineno,
-                end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
-            },
-            None => LineTableLocation {
-                line: self.location.line.get() as i32,
-                end_line: self.end_location.line.get() as i32,
-                col: self.location.character_offset.to_zero_indexed() as i32,
-                end_col: self.end_location.character_offset.to_zero_indexed() as i32,
-            },
+            Some(line) => LineTableLocation { line, ..location },
+            None => location,
         }
     }
 
@@ -520,7 +512,7 @@ impl InstructionInfo {
 
     fn instruction_lineno(&self) -> i32 {
         match self.lineno_override {
-            Some(LINE_ONLY_LOCATION_OVERRIDE) | None => self.location.line.get() as i32,
+            Some(LINE_ONLY_LOCATION_OVERRIDE) | None => self.instruction_linetable_location().line,
             Some(lineno) => lineno,
         }
     }
@@ -551,6 +543,7 @@ pub struct ExceptHandlerInfo {
 
 fn no_instruction_location() -> InstructionLocation {
     InstructionLocation {
+        semantic_location: None,
         location: SourceLocation::default(),
         end_location: SourceLocation::default(),
         lineno_override: Some(NO_LOCATION_OVERRIDE),
@@ -859,6 +852,12 @@ fn instruction_info_from_python(
             character_offset: end_col,
         },
         except_handler: None,
+        semantic_location: Some(LineTableLocation {
+            line: lineno,
+            end_line: end_lineno,
+            col: col_offset,
+            end_col: end_col_offset,
+        }),
         lineno_override,
     }
 }
@@ -889,6 +888,7 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::Inter
                         location: SourceLocation::default(),
                         end_location: SourceLocation::default(),
                         except_handler: None,
+                        semantic_location: None,
                         lineno_override: None,
                     },
                     ZERO_EXCEPTION_HANDLER_INFO,
@@ -1263,11 +1263,9 @@ fn assemble_location_info(
             } else {
                 debug_assert!(i < instr_sequence.instr_used - 1);
                 let next = instr_sequence.instrs[i + 1].info;
-                instr_sequence.instrs[i].info.instr_set_loc(
-                    next.location,
-                    next.end_location,
-                    next.lineno_override,
-                );
+                instr_sequence.instrs[i]
+                    .info
+                    .instr_set_location(next.instr_location());
             }
         }
     }
@@ -2039,6 +2037,7 @@ impl Blocks {
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
             except_handler: None,
+            semantic_location: None,
             lineno_override: None,
         };
         nop.instr_set_op0(Instruction::Nop.into());
@@ -3102,6 +3101,7 @@ impl Blocks {
                     location: SourceLocation::default(),
                     end_location: SourceLocation::default(),
                     except_handler: None,
+                    semantic_location: None,
                     lineno_override: Some(NO_LOCATION_OVERRIDE),
                 })?;
                 self[explicit_jump].cold = true;
@@ -3228,6 +3228,7 @@ impl Blocks {
             location: loc_source.location,
             end_location: loc_source.end_location,
             except_handler: None,
+            semantic_location: loc_source.semantic_location,
             lineno_override: loc_source.lineno_override,
         })?;
         let last = block.basicblock_last_instr_mut().expect("missing jump");
@@ -3268,6 +3269,7 @@ impl Blocks {
                     let location = instr.location;
                     let end_location = instr.end_location;
                     let except_handler = instr.except_handler;
+                    let semantic_location = instr.semantic_location;
                     let lineno_override = instr.lineno_override;
                     let copy = InstructionInfo {
                         instr: Opcode::Copy.into(),
@@ -3276,6 +3278,7 @@ impl Blocks {
                         location,
                         end_location,
                         except_handler,
+                        semantic_location,
                         lineno_override,
                     };
                     block.basicblock_insert_instruction(i, copy)?;
@@ -3288,6 +3291,7 @@ impl Blocks {
                         location,
                         end_location,
                         except_handler,
+                        semantic_location,
                         lineno_override,
                     };
                     block.basicblock_insert_instruction(i, to_bool)?;
@@ -3322,6 +3326,7 @@ impl Blocks {
                 location: last_ins.location,
                 end_location: last_ins.end_location,
                 except_handler: None,
+                semantic_location: last_ins.semantic_location,
                 lineno_override: last_ins.lineno_override,
             };
 
@@ -3352,6 +3357,7 @@ impl Blocks {
             location: loc,
             end_location: end_loc,
             except_handler: None,
+            semantic_location: last_ins.semantic_location,
             lineno_override: last_ins.lineno_override,
         })?;
         self.basicblock_add_jump(
@@ -3462,11 +3468,8 @@ impl Blocks {
                         continue;
                     }
                     if next_lineno < 0 {
-                        self[block_idx].instructions[src + 1].instr_set_loc(
-                            instr.location,
-                            instr.end_location,
-                            instr.lineno_override,
-                        );
+                        self[block_idx].instructions[src + 1]
+                            .instr_set_location(instr.instr_location());
                         continue;
                     }
                 } else {
@@ -4068,6 +4071,7 @@ impl CodeInfo {
                 location: SourceLocation::default(),
                 end_location: SourceLocation::default(),
                 except_handler: None,
+                semantic_location: None,
                 lineno_override: Some(NO_LOCATION_OVERRIDE),
             },
         )
@@ -4453,6 +4457,7 @@ fn insert_prefix_instructions(
                     location: SourceLocation::default(),
                     end_location: SourceLocation::default(),
                     except_handler: None,
+                    semantic_location: None,
                     lineno_override: Some(NO_LOCATION_OVERRIDE),
                 },
             )?;
@@ -4470,6 +4475,7 @@ fn insert_prefix_instructions(
                 location: SourceLocation::default(),
                 end_location: SourceLocation::default(),
                 except_handler: None,
+                semantic_location: None,
                 lineno_override: Some(NO_LOCATION_OVERRIDE),
             },
         )?;
@@ -7295,6 +7301,7 @@ mod tests {
             location: test_location(line),
             end_location: test_location(line),
             except_handler: None,
+            semantic_location: None,
             lineno_override: None,
         }
     }
@@ -7421,6 +7428,7 @@ mod tests {
             location: SourceLocation::default(),
             end_location: SourceLocation::default(),
             except_handler: None,
+            semantic_location: None,
             lineno_override: None,
         };
         let handler = push_except_block(&mut stack, setup, &mut blocks).unwrap();

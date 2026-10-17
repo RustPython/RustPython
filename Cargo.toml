@@ -32,7 +32,7 @@ ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
-ucd_3_2_0 = ["rustpython-stdlib?/ucd_3_2_0", "rustpython-capi?/ucd_3_2_0"]
+ucd_3_2_0 = ["rustpython-stdlib?/ucd_3_2_0"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -68,6 +68,13 @@ rustls-graviola = { workspace = true }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
 
+# Only the criterion benchmarks below are measured. Without `bench = false`,
+# `cargo bench` (and `cargo codspeed build`) also builds the library and binary
+# unit-test harnesses with the LTO bench profile, adding a full extra link of
+# the interpreter that is never run.
+[lib]
+bench = false
+
 [[bench]]
 name = "execution"
 harness = false
@@ -79,6 +86,7 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+bench = false
 
 [[example]]
 name = "custom_tls_providers"
@@ -170,7 +178,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
-rustpython-capi = { path = "crates/capi", version = "0.6.1", default-features = false }
+rustpython-capi = { path = "crates/capi", version = "0.6.1" }
 rustpython-compiler-core = { path = "crates/compiler-core", version = "0.6.1" }
 rustpython-compiler = { path = "crates/compiler", version = "0.6.1" }
 rustpython-codegen = { path = "crates/codegen", version = "0.6.1" }

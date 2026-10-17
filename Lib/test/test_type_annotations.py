@@ -310,7 +310,7 @@ class AnnotateTests(unittest.TestCase):
             print(f.__annotations__)
 
         f.__annotate__ = lambda x: 42
-        with self.assertRaisesRegex(TypeError, r"__annotate__ returned non-dict of type 'int'"):
+        with self.assertRaisesRegex(TypeError, r"__annotate__\(\) must return a dict, not int"):
             print(f.__annotations__)
 
         f.__annotate__ = lambda x: {"x": x}
@@ -783,21 +783,6 @@ class ConditionalAnnotationTests(unittest.TestCase):
 
 
 class RegressionTests(unittest.TestCase):
-    # gh-154902
-    def test_conditional_annotations_rebound(self):
-        # user code can rebind __conditional_annotations__ to any object
-        lefts = ("__conditional_annotations__",
-                 'globals()["__conditional_annotations__"]')
-        values = ("0", "{}", "[]", "''", "object()", "frozenset()")
-        for left, value in itertools.product(lefts, values):
-            with self.subTest(left=left, value=value):
-                code = f"""
-                    {left} = {value}
-                    x: int
-                """
-                with self.assertRaises(TypeError):
-                    run_code(code)
-
     # gh-132479
     def test_complex_comprehension_inlining(self):
         # Test that the various repro cases from the issue don't crash
@@ -871,9 +856,9 @@ class RegressionTests(unittest.TestCase):
         """
         ns = run_code(code)
         method = ns["Outer"].method
+        self.assertEqual(method.__annotate__.__qualname__, "Outer.method.__annotate__")
         self.assertEqual(ns["f"].__annotate__.__qualname__, "f.__annotate__")
         self.assertEqual(ns["f"]().__annotate__.__qualname__, "f.<locals>.nested.__annotate__")
-        self.assertEqual(method.__annotate__.__qualname__, "Outer.method.__annotate__")
         self.assertEqual(ns["Outer"].__annotate__.__qualname__, "Outer.__annotate__")
 
     # gh-138349
@@ -912,3 +897,18 @@ class RegressionTests(unittest.TestCase):
                 mod = build_module(code)
                 annos = mod.__annotations__
                 self.assertEqual(annos, {"annotated_name": 0})
+
+    # gh-154902
+    def test_conditional_annotations_rebound(self):
+        # user code can rebind __conditional_annotations__ to any object
+        lefts = ("__conditional_annotations__",
+                 'globals()["__conditional_annotations__"]')
+        values = ("0", "{}", "[]", "''", "object()", "frozenset()")
+        for left, value in itertools.product(lefts, values):
+            with self.subTest(left=left, value=value):
+                code = f"""
+                    {left} = {value}
+                    x: int
+                """
+                with self.assertRaises(TypeError):
+                    run_code(code)
