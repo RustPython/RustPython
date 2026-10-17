@@ -2576,7 +2576,6 @@ class TestTier2Optimizer(CheckEvents):
 
 class TestMonitoringAtShutdown(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - requires subprocess support
     def test_monitoring_live_at_shutdown(self):
         # gh-115832: An object destructor running during the final GC of
         # interpreter shutdown triggered an infinite loop in the
