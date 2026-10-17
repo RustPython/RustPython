@@ -8,7 +8,7 @@ extern crate log;
 
 extern crate alloc;
 
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use rustpython_compiler_core::bytecode::ConstantData;
 
 type IndexMap<K, V> = indexmap::IndexMap<K, V, rapidhash::quality::RandomState>;

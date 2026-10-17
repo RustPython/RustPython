@@ -71,6 +71,9 @@ fn shell_exec(
                             }
                     ),
                     ..
+                })) | VmCompileError::Compile(CompileError::Parse(ParseError {
+                    is_unclosed_bracket: true,
+                    ..
                 }))
             ) {
                 return ShellExecResult::ContinueLine;
