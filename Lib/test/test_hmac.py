@@ -21,10 +21,10 @@ import functools
 import hmac
 import hashlib
 import random
-import types
 import unittest
 import warnings
 from _operator import _compare_digest as operator_compare_digest
+from test import support
 from test.support import _4G, bigmemtest
 from test.support import check_disallow_instantiation
 from test.support import hashlib_helper, import_helper
@@ -161,7 +161,7 @@ class ThroughModuleAPIMixin(ModuleMixin, CreatorMixin, DigestMixin):
         return _call_digest_func(self.hmac.digest, key, msg, digestmod)
 
 
-@hashlib_helper.requires_hashlib()
+@hashlib_helper.requires_openssl_hashlib()
 class ThroughOpenSSLAPIMixin(CreatorMixin, DigestMixin):
     """Mixin delegating to _hashlib.hmac_new() and _hashlib.hmac_digest()."""
 
@@ -303,7 +303,7 @@ class AssertersMixin(CreatorMixin, DigestMixin, ObjectCheckerMixin):
 
     def check_hmac_new(
         self, key, msg, hexdigest, hashname, digest_size, block_size,
-        hmac_new_func, hmac_new_kwds=types.MappingProxyType({}),
+        hmac_new_func, hmac_new_kwds=frozendict(),
     ):
         """Check that HMAC(key, msg) == digest.
 
@@ -349,7 +349,7 @@ class AssertersMixin(CreatorMixin, DigestMixin, ObjectCheckerMixin):
 
     def check_hmac_hexdigest(
         self, key, msg, hexdigest, digest_size,
-        hmac_digest_func, hmac_digest_kwds=types.MappingProxyType({}),
+        hmac_digest_func, hmac_digest_kwds=frozendict(),
     ):
         """Check and return a HMAC digest computed by hmac_digest_func().
 
@@ -965,7 +965,7 @@ class PyModuleConstructorTestCase(ThroughModuleAPIMixin, PyConstructorBaseMixin,
         with self.assertRaisesRegex(RuntimeError, "custom exception"):
             func(b'key', b'msg', raiser)
 
-        with self.assertRaisesRegex(ValueError, 'hash type'):
+        with self.assertRaisesRegex(ValueError, 'unsupported hash algorithm'):
             func(b'key', b'msg', 'unknown')
 
         with self.assertRaisesRegex(AttributeError, 'new'):
@@ -1024,6 +1024,13 @@ class OpenSSLConstructorTestCase(ThroughOpenSSLAPIMixin,
                 self.assert_raises_unknown_digestmod(),
             ):
                 self.hmac_digest(b'key', b'msg', value)
+
+    @support.subTests("xof_name", ("shake_128", "shake_256"))
+    def test_hmac_new_xof_digestmod(self, xof_name):
+        # gh-145200: XOF digests (SHAKE) are not supported by HMAC.
+        # Verify that the error path does not leak the EVP_MAC_CTX.
+        with self.assertRaises(_hashlib.UnsupportedDigestmodError):
+            self.hmac_new(b'key', digestmod=xof_name)
 
 
 class BuiltinConstructorTestCase(ThroughBuiltinAPIMixin,
@@ -1440,7 +1447,7 @@ class HMACCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
             self.assertIs(self.compare_digest, operator_compare_digest)
 
 
-@hashlib_helper.requires_hashlib()
+@hashlib_helper.requires_openssl_hashlib()
 class OpenSSLCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
     compare_digest = openssl_compare_digest
 
@@ -1452,19 +1459,25 @@ class OperatorCompareDigestTestCase(CompareDigestMixin, unittest.TestCase):
 class PyMiscellaneousTests(unittest.TestCase):
     """Miscellaneous tests for the pure Python HMAC module."""
 
+    @staticmethod
+    def mock__compute_digest_fallback(hmac):
+        fn = getattr(hmac, meth := "_compute_digest_fallback")
+        return patch.object(hmac, meth, wraps=fn)
+
+    @staticmethod
+    def mock_HMAC_method(hmac, method):
+        fn = getattr(hmac.HMAC, method)
+        return patch.object(hmac.HMAC, method, autospec=True, wraps=fn)
+
     @hashlib_helper.requires_builtin_hmac()
     def test_hmac_constructor_uses_builtin(self):
         # Block the OpenSSL implementation and check that
         # HMAC() uses the built-in implementation instead.
         hmac = import_fresh_module("hmac", blocked=["_hashlib"])
 
-        def watch_method(cls, name):
-            wraps = getattr(cls, name)
-            return patch.object(cls, name, autospec=True, wraps=wraps)
-
         with (
-            watch_method(hmac.HMAC, '_init_openssl_hmac') as f,
-            watch_method(hmac.HMAC, '_init_builtin_hmac') as g,
+            self.mock_HMAC_method(hmac, '_init_openssl_hmac') as f,
+            self.mock_HMAC_method(hmac, '_init_builtin_hmac') as g,
         ):
             _ = hmac.HMAC(b'key', b'msg', digestmod="sha256")
             f.assert_not_called()
@@ -1518,7 +1531,7 @@ class PyMiscellaneousTests(unittest.TestCase):
         hmac = import_fresh_module("hmac", blocked=["_hmac"])
         self.do_test_hmac_digest_overflow_error_switch_to_slow(hmac, size)
 
-    @hashlib_helper.requires_builtin_hashdigest("_md5", "md5")
+    @hashlib_helper.requires_builtin_hashdigest("md5")
     @bigmemtest(size=_4G + 5, memuse=2, dry_run=False)
     def test_hmac_digest_overflow_error_builtin_only(self, size):
         hmac = import_fresh_module("hmac", blocked=["_hashlib"])
@@ -1535,11 +1548,11 @@ class PyMiscellaneousTests(unittest.TestCase):
         bigkey = b'K' * size
         bigmsg = b'M' * size
 
-        with patch.object(hmac, "_compute_digest_fallback") as slow:
+        with self.mock__compute_digest_fallback(hmac) as slow:
             hmac.digest(bigkey, b'm', "md5")
             slow.assert_called_once()
 
-        with patch.object(hmac, "_compute_digest_fallback") as slow:
+        with self.mock__compute_digest_fallback(hmac) as slow:
             hmac.digest(b'k', bigmsg, "md5")
             slow.assert_called_once()
 
@@ -1550,7 +1563,7 @@ class PyMiscellaneousTests(unittest.TestCase):
 
         for key, msg in [(b'K' * size, b'm'), (b'k', b'M' * size)]:
             with self.subTest(keysize=len(key), msgsize=len(msg)):
-                with patch.object(hmac, "_compute_digest_fallback") as slow:
+                with self.mock__compute_digest_fallback(hmac) as slow:
                     hmac.digest(key, msg, "md5")
                     slow.assert_called_once()
 
