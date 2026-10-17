@@ -12311,9 +12311,8 @@ impl ExecutingFrame<'_> {
         let attr_name = self.code.names[attr_idx as usize];
         let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
-            let descr_cls = descr.class();
-            descr_cls.slots().descr_get.load().is_some()
-                && descr_cls.slots().descr_set.load().is_some()
+            // Assignment must honor __set__ even without __get__.
+            descr.class().slots().descr_set.load().is_some()
         });
 
         if has_data_descr {
