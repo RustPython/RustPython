@@ -426,6 +426,20 @@ fn calculate_stdlib_dir(prefix: &str) -> Option<String> {
     }
 }
 
+/// Add compiled-in library paths after environment entries and the default ZIP.
+/// Preserve an embedding hook's custom search order by appending instead when
+/// the calculated paths have already been replaced or modified.
+pub fn add_build_time_paths(settings: &Settings, paths: &mut Paths, extra: Vec<String>) {
+    let calculated =
+        build_module_search_paths(settings, &paths.base_prefix, &paths.base_exec_prefix);
+    let index = if paths.module_search_paths == calculated {
+        settings.path_list.len() + 1
+    } else {
+        paths.module_search_paths.len()
+    };
+    paths.module_search_paths.splice(index..index, extra);
+}
+
 /// Build the complete module_search_paths (sys.path)
 fn build_module_search_paths(settings: &Settings, prefix: &str, exec_prefix: &str) -> Vec<String> {
     let mut paths = Vec::new();
@@ -510,6 +524,52 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_time_paths_follow_configured_paths_and_zip() {
+        for configured in [vec![], vec!["first".to_owned(), "second".to_owned()]] {
+            let settings = Settings {
+                path_list: configured,
+                ..Settings::default()
+            };
+            let calculated = build_module_search_paths(&settings, "prefix", "exec-prefix");
+            let mut paths = Paths {
+                base_prefix: "prefix".to_owned(),
+                base_exec_prefix: "exec-prefix".to_owned(),
+                module_search_paths: calculated.clone(),
+                ..Paths::default()
+            };
+            let extra = vec!["build-first".to_owned(), "build-second".to_owned()];
+            add_build_time_paths(&settings, &mut paths, extra.clone());
+            let boundary = settings.path_list.len() + 1;
+            let mut expected = calculated[..boundary].to_vec();
+            expected.extend(extra);
+            expected.extend_from_slice(&calculated[boundary..]);
+            assert_eq!(paths.module_search_paths, expected);
+        }
+    }
+
+    #[test]
+    fn build_time_paths_preserve_custom_search_order() {
+        let settings = Settings {
+            path_list: vec!["configured".to_owned()],
+            ..Settings::default()
+        };
+        let mut modified = build_module_search_paths(&settings, "prefix", "exec-prefix");
+        modified.push("custom".to_owned());
+        for custom in [vec![], modified] {
+            let mut paths = Paths {
+                base_prefix: "prefix".to_owned(),
+                base_exec_prefix: "exec-prefix".to_owned(),
+                module_search_paths: custom.clone(),
+                ..Paths::default()
+            };
+            add_build_time_paths(&settings, &mut paths, vec!["build".to_owned()]);
+            let mut expected = custom;
+            expected.push("build".to_owned());
+            assert_eq!(paths.module_search_paths, expected);
+        }
+    }
 
     #[test]
     fn init_path_config_basic() {

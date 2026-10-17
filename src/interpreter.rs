@@ -81,10 +81,11 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
         state.config.paths.stdlib_dir = Some(first_path.clone());
     }
 
-    // Insert at the beginning so stdlib comes before user paths
-    for path in paths.into_iter().rev() {
-        state.config.paths.module_search_paths.insert(0, path);
-    }
+    rustpython_vm::getpath::add_build_time_paths(
+        &state.config.settings,
+        &mut state.config.paths,
+        paths,
+    );
 }
 
 // Preserve a discovered library. Only an explicit nonempty prefix half of

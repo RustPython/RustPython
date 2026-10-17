@@ -21,6 +21,7 @@ fn main() {
         println!("cargo:rerun-if-changed={display}");
     }
     println!("cargo:rerun-if-changed=../../Lib/importlib/_bootstrap.py");
+    println!("cargo:rerun-if-changed=../../Lib/zipimport.py");
 
     // = 3.15.0alpha
     python_version(3, 15, 0, "alpha", 0);
