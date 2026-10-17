@@ -24,6 +24,7 @@ use alloc::fmt;
 use core::{
     any::TypeId,
     borrow::Borrow,
+    cell::UnsafeCell,
     marker::PhantomData,
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -580,6 +581,9 @@ unsafe impl Traverse for PyObject {
 }
 
 // === Stripe lock for weakref list protection (WEAKREF_LIST_LOCK) ===
+// Like CPython's _Py_LOCK_DONT_DETACH weakref stripes, these critical sections
+// must not run Python, release Python references, or suspend an attached thread.
+// Traversal visitors must not recursively acquire a weakref stripe.
 
 #[cfg(feature = "threading")]
 mod weakref_lock {
@@ -740,7 +744,8 @@ impl WeakRefList {
         let weak_payload = PyWeak {
             pointers: Pointers::new(),
             wr_object: Radium::new(ptr::null_mut()),
-            callback: PyRwLock::new(callback),
+            referent_addr: obj as *const PyObject as usize,
+            callback: UnsafeCell::new(callback),
             hash: Radium::new(crate::common::hash::SENTINEL),
         };
         let weak = PyRef::new_ref(weak_payload, cls, dict);
@@ -831,7 +836,8 @@ impl WeakRefList {
         match NonNull::new(candidate_ptr) {
             Some(candidate) => {
                 let node = unsafe { candidate.as_ref() };
-                let has_callback = node.payload.callback.read().is_some();
+                // SAFETY: the referent stripe is held by the caller.
+                let has_callback = unsafe { &*node.payload.callback.get() }.is_some();
                 let node_cls = node.class();
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
@@ -865,13 +871,14 @@ impl WeakRefList {
             if wr.ref_count.safe_inc() {
                 let owner = unsafe { PyRef::<PyWeak>::from_raw(wr as *const Py<PyWeak>) };
                 callbacks.push((owner, None));
-                // Keep the owner in the outer batch before accessing a lock.
+                // Keep the owner in the outer batch before taking its callback.
                 let entry = callbacks.last_mut().unwrap();
-                entry.1 = wr.payload.callback.write().take();
+                // SAFETY: the referent stripe protects the callback as well.
+                entry.1 = unsafe { &mut *wr.payload.callback.get() }.take();
             }
             unsafe { unlink_weakref(self, node) };
-            // This must be the last access if safe_inc failed: a concurrent
-            // deallocator may skip the stripe after observing the null pointer.
+            // Publish death only after unlinking, while the original stripe
+            // still protects this node from a concurrent deallocator.
             wr.payload
                 .wr_object
                 .store(ptr::null_mut(), Ordering::Release);
@@ -901,13 +908,15 @@ impl WeakRefList {
         while let Some(node) = current {
             let next = unsafe { WeakLink::pointers(node).as_ref().get_next() };
             let wr = unsafe { node.as_ref() };
-            if wr.payload.callback.read().is_some() {
+            // SAFETY: the referent stripe protects this borrowed callback.
+            let callback = unsafe { &*wr.payload.callback.get() };
+            if callback.is_some() {
                 owners.reserve(1);
                 callbacks.reserve(1);
                 if !is_unreachable(wr.as_object()) && wr.ref_count.safe_inc() {
                     let owner = unsafe { PyRef::<PyWeak>::from_raw(wr as *const Py<PyWeak>) };
                     owners.push(owner);
-                    let callback = wr.payload.callback.read().clone();
+                    let callback = callback.clone();
                     if let Some(callback) = callback {
                         callbacks.push((owners.last().unwrap().clone(), callback));
                     }
@@ -1007,14 +1016,20 @@ pub struct PyWeak {
     /// Direct pointer to the referent object, null when dead.
     /// Equivalent to wr_object in PyWeakReference.
     wr_object: PyAtomic<*mut PyObject>,
-    /// Owned callback edge, protected independently of the referent list.
+    /// Immutable key for the original referent stripe, like CPython's
+    /// weakrefs_lock. Used only for locking, never dereferenced, so the same
+    /// stripe protects the callback even after wr_object becomes null.
+    referent_addr: usize,
+    /// Owned callback edge, protected by the original referent stripe.
     /// GC can retain this edge after unlinking the weakref.
-    callback: PyRwLock<Option<PyObjectRef>>,
+    callback: UnsafeCell<Option<PyObjectRef>>,
     pub(crate) hash: PyAtomic<crate::common::hash::PyHash>,
 }
 
 cfg_select! {
     feature = "threading" => {
+        // SAFETY: mutable callback and list access is serialized by the
+        // original referent stripe; referent and hash reads are atomic.
         unsafe impl Send for PyWeak {}
         unsafe impl Sync for PyWeak {}
     }
@@ -1051,22 +1066,38 @@ impl PyWeak {
 
     /// Get the owned callback, which GC can retain after clearing the referent.
     pub(crate) fn get_callback(&self) -> Option<PyObjectRef> {
-        self.callback.read().clone()
+        let _lock = weakref_lock::lock(self.referent_addr);
+        // SAFETY: the original referent stripe protects the callback.
+        unsafe { &*self.callback.get() }.clone()
+    }
+
+    /// Unlink and steal the callback under the original referent stripe.
+    /// Return ownership so callers release it only after unlocking.
+    fn clear(&self) -> Option<PyObjectRef> {
+        let _lock = weakref_lock::lock(self.referent_addr);
+        // SAFETY: the original referent stripe protects both fields, including
+        // callbacks retained by GC after the weakref was already unlinked.
+        unsafe {
+            self.clear_ref_lock_held();
+            (&mut *self.callback.get()).take()
+        }
     }
 
     /// _PyWeakref_ClearRef: unlink without releasing the callback.
     fn clear_ref(&self) {
-        let obj_ptr = self.wr_object.load(Ordering::Acquire);
-        if obj_ptr.is_null() {
-            return; // Already cleared by WeakRefList::clear()
-        }
+        let _lock = weakref_lock::lock(self.referent_addr);
+        // SAFETY: the original referent stripe is held.
+        unsafe { self.clear_ref_lock_held() };
+    }
 
-        let _lock = weakref_lock::lock(obj_ptr as usize);
-
-        // Double-check under lock
+    /// Unlink without releasing the callback.
+    ///
+    /// # Safety
+    /// The original referent stripe must be held.
+    unsafe fn clear_ref_lock_held(&self) {
         let obj_ptr = self.wr_object.load(Ordering::Relaxed);
         if obj_ptr.is_null() {
-            return; // Cleared between our check and lock acquisition
+            return;
         }
 
         let obj = unsafe { &*obj_ptr };
@@ -1092,16 +1123,16 @@ impl PyWeak {
 // SAFETY: the callback is the only owned Python edge; wr_object is borrowed.
 unsafe impl Traverse for PyWeak {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // A stopped thread may hold this lock. Missing a busy edge can
-        // postpone collection, but must not deadlock the collector.
-        if let Some(callback) = self.callback.try_read() {
-            callback.traverse(tracer_fn);
-        }
+        // Stripe critical sections never suspend or run Python, so a stopped
+        // thread cannot own this lock. Also synchronize gc.get_referents(),
+        // which traverses while other threads are running.
+        let _lock = weakref_lock::lock(self.referent_addr);
+        // SAFETY: the original referent stripe protects the callback.
+        unsafe { &*self.callback.get() }.traverse(tracer_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        self.clear_ref();
-        let callback = self.callback.write().take();
+        let callback = Self::clear(self);
         if let Some(callback) = callback {
             out.push(callback);
         }
@@ -1113,7 +1144,7 @@ impl Drop for PyWeak {
     fn drop(&mut self) {
         // we do NOT have actual exclusive access!
         let me: &Self = self;
-        me.clear_ref();
+        drop(me.clear());
     }
 }
 
