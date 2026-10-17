@@ -454,7 +454,9 @@ impl PyByteArray {
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         // Formatting calls the values' conversion methods, which can reach
-        // this bytearray, so the format is taken by value.
+        // this bytearray, so the format is taken by value. It also stays
+        // exported until formatting ends, so resizing it raises BufferError.
+        let _export = self.begin_export();
         let format = self.inner().clone();
         let formatted = format.cformat(values, vm)?;
         Ok(formatted.into())
@@ -583,7 +585,21 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        self.try_resizable(vm)?.elements.clear();
+        let old = match self.resize_access() {
+            ResizeAccess::Exported { len: 0 } => return Ok(()),
+            ResizeAccess::Exported { .. } => {
+                return Err(
+                    vm.new_buffer_error("Existing exports of data: object cannot be re-sized")
+                );
+            }
+            ResizeAccess::Exclusive(mut inner) => {
+                if inner.elements.is_empty() {
+                    return Ok(());
+                }
+                core::mem::take(&mut inner.elements)
+            }
+        };
+        drop(old);
         Ok(())
     }
 
@@ -925,12 +941,12 @@ impl Py<PyByteArray> {
 
     #[pymethod]
     fn strip(&self, options: ByteInnerStripOptions) -> PyByteArray {
-        self.inner().strip(options.bytes).into()
+        self.inner().strip(options.bytes).to_vec().into()
     }
 
     #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> PyByteArray {
-        self.inner().removeprefix(prefix).into()
+        self.inner().removeprefix(prefix).to_vec().into()
     }
 
     #[pymethod]
@@ -1004,7 +1020,7 @@ impl Py<PyByteArray> {
         options: ByteInnerReplaceOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyByteArray> {
-        Ok(self.inner().replace(options, vm)?.into())
+        Ok(self.inner().replace(options, vm)?.into_owned().into())
     }
 
     #[pymethod]

@@ -1,4 +1,4 @@
-// spell-checker: words LDSHARED ARFLAGS CPPFLAGS CCSHARED BASECFLAGS BLDSHARED
+// spell-checker: words LDSHARED LDCXXSHARED ARFLAGS CPPFLAGS CCSHARED BASECFLAGS BLDSHARED
 
 pub(crate) use _sysconfigdata::module_def;
 
@@ -60,6 +60,7 @@ mod _sysconfigdata {
             "CPPFLAGS" => "",
             "LDFLAGS" => "",
             "LDSHARED" => "cc -shared",
+            "LDCXXSHARED" => "c++ -shared",
             "CCSHARED" => "",
             "SHLIB_SUFFIX" => ".so",
             "SO" => ".so",

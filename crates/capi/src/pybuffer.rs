@@ -326,7 +326,8 @@ mod tests {
             let buffer = PyBuffer::<u8>::get(&bytearray).unwrap();
             assert_eq!(buffer.dimensions(), 1);
             assert_eq!(buffer.item_count(), 5);
-            buffer.as_mut_slice(py).unwrap()[0].replace(b'H');
+            // SAFETY: There are no other references to the buffer.
+            unsafe { buffer.as_slice_ptr().unwrap().as_mut()[0] = b'H' };
             drop(buffer);
             assert_eq!(bytearray.to_vec(), b"Hello");
         });

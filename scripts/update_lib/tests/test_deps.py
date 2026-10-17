@@ -110,6 +110,18 @@ class TestGetTestPaths(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertEqual(paths[0], pathlib.Path("cpython/Lib/test/test_regrtest"))
 
+    def test_io_package(self):
+        self.assertEqual(
+            get_test_paths("io", "cpython"),
+            (pathlib.Path("cpython/Lib/test/test_io"),),
+        )
+
+    def test_file_alias_uses_io_package(self):
+        self.assertEqual(
+            get_test_paths("file", "cpython"),
+            (pathlib.Path("cpython/Lib/test/test_io"),),
+        )
+
     def test_default_directory(self):
         """Test default to test_name/ directory."""
         with tempfile.TemporaryDirectory() as tmpdir:

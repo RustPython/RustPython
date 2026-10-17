@@ -43,6 +43,9 @@ impl TlsError {
                 use rustls::PeerIncompatible;
                 match peer_err {
                     PeerIncompatible::NoCipherSuitesInCommon => Self::NoCipherSuites,
+                    PeerIncompatible::NoSignatureSchemesInCommon => {
+                        Self::Ssl("no signature schemes in common".to_owned())
+                    }
                     _ => Self::Eof,
                 }
             }
@@ -64,5 +67,40 @@ impl TlsError {
 impl From<std::io::Error> for TlsError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signature_incompatibility_is_not_transport_eof() {
+        let error = TlsError::from_rustls(rustls::Error::PeerIncompatible(
+            rustls::PeerIncompatible::NoSignatureSchemesInCommon,
+        ));
+        assert!(!error.is_eof());
+        assert!(matches!(error, TlsError::Ssl(_)));
+    }
+
+    #[test]
+    fn unrelated_negotiation_and_transport_errors_keep_their_classification() {
+        assert!(matches!(
+            TlsError::from_rustls(rustls::Error::PeerIncompatible(
+                rustls::PeerIncompatible::NoCipherSuitesInCommon,
+            )),
+            TlsError::NoCipherSuites
+        ));
+        assert!(matches!(
+            TlsError::from_rustls(rustls::Error::PeerIncompatible(
+                rustls::PeerIncompatible::Tls12NotOffered,
+            )),
+            TlsError::Eof
+        ));
+        let os_error = std::io::Error::from_raw_os_error(10053);
+        match TlsError::from(os_error) {
+            TlsError::Io(error) => assert_eq!(error.raw_os_error(), Some(10053)),
+            error => panic!("OS error was reclassified: {error:?}"),
+        }
     }
 }

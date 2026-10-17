@@ -3,6 +3,39 @@ from io import BufferedReader, BytesIO, FileIO, RawIOBase, StringIO, TextIOWrapp
 
 from testutils import assert_raises
 
+# Overwriting replaces characters, even when their encoded widths differ.
+for initial, replacement in (
+    ("abc", "é"),
+    ("ébc", "a"),
+    ("а😀в", "XY"),
+    ("a\ud800c", "\udfffé"),
+):
+    stream = StringIO("prefix:" + initial)
+    stream.seek(7)
+    assert stream.write(replacement) == len(replacement)
+    assert stream.getvalue() == "prefix:" + replacement + initial[len(replacement) :]
+    assert stream.tell() == 7 + len(replacement)
+    assert stream.read() == initial[len(replacement) :]
+    assert stream.tell() == 7 + len(initial)
+
+# Truncation keeps the character position, then pads in characters on writing.
+stream = StringIO("é😀abc")
+stream.seek(4)
+stream.truncate(1)
+assert stream.tell() == 4
+assert stream.read() == ""
+assert stream.tell() == 4
+assert stream.write("") == 0
+assert stream.getvalue() == "é"
+state = stream.__getstate__()
+stream = StringIO()
+stream.__setstate__(state)
+assert stream.tell() == 4
+stream.write("Ж")
+assert stream.getvalue() == "é\0\0\0Ж"
+assert stream.tell() == 5
+
+
 fi = FileIO("README.md")
 assert fi.seekable()
 bb = BufferedReader(fi)

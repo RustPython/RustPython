@@ -4,11 +4,15 @@ import ast
 import unittest
 
 from update_lib.patch_spec import (
+    CANONICAL_LOAD_TESTS,
     COMMENT,
+    PATCHED_LOAD_TESTS,
     PatchSpec,
     UtMethod,
     _find_import_insert_line,
+    apply_doctest_metadata,
     apply_patches,
+    extract_doctest_guards,
     extract_patches,
     iter_tests,
 )
@@ -98,6 +102,41 @@ def factory():
             pass
 """
         self.assertEqual(extract_patches(code), {})
+
+    def test_bare_marked_skip_roundtrip(self):
+        clean = """class Owner:
+    def test_value(self):
+        return 42
+"""
+        marked = clean.replace(
+            "    def test_value",
+            "    @unittest.skip  # TODO: RUSTPYTHON; original guard\n    def test_value",
+        )
+        patches = extract_patches(marked)
+        self.assertEqual(
+            patches["Owner"]["test_value"],
+            [PatchSpec(UtMethod.Skip, reason="original guard")],
+        )
+        result = apply_patches(clean, patches)
+        self.assertIn('@unittest.skip("TODO: RUSTPYTHON; original guard")', result)
+        self.assertEqual(apply_patches(clean, extract_patches(result)), result)
+        method = list(iter_tests(ast.parse(result)))[0][1]
+        self.assertEqual(ast.dump(method.body[0]), "Return(value=Constant(value=42))")
+
+    def test_unmarked_bare_skip_and_unrelated_decorators_are_not_patches(self):
+        code = """class Owner:
+    @unittest.skip
+    def test_unmarked(self):
+        pass
+    @other.skip  # TODO: RUSTPYTHON; unrelated
+    def test_other(self):
+        pass
+    @unittest.other  # TODO: RUSTPYTHON; unrelated
+    def test_unknown(self):
+        pass
+"""
+        self.assertEqual(extract_patches(code), {})
+        self.assertEqual(apply_patches(code, {}), code)
 
     def test_extract_expected_failure(self):
         """Test extracting @unittest.expectedFailure decorator."""
@@ -264,6 +303,43 @@ else:
             apply_patches(
                 code,
                 {"Duplicate": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}},
+            )
+
+    def test_unpatched_conditional_helpers_are_allowed(self):
+        code = """if enabled:
+    class Helper:
+        pass
+else:
+    class Helper:
+        pass
+class Target:
+    helper = Helper
+    def test_value(self):
+        return 1
+"""
+        result = apply_patches(
+            code, {"Target": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}}
+        )
+        self.assertEqual(result.count("class Helper:"), 2)
+        self.assertEqual(result.count("@unittest.expectedFailure"), 1)
+
+    def test_ambiguous_transitive_ancestor_is_rejected(self):
+        code = """if enabled:
+    class Ancestor:
+        async def test_value(self):
+            pass
+else:
+    class Ancestor:
+        def test_value(self):
+            pass
+class Middle(Ancestor):
+    pass
+class Target(Middle):
+    pass
+"""
+        with self.assertRaisesRegex(ValueError, "Ambiguous.*Ancestor"):
+            apply_patches(
+                code, {"Target": {"test_value": [PatchSpec(UtMethod.ExpectedFailure)]}}
             )
 
     def test_local_class_names_do_not_shadow_module_class(self):
@@ -571,6 +647,91 @@ class Foo:
         tree = ast.parse(code)
         line = _find_import_insert_line(tree)
         self.assertEqual(line, 0)
+
+
+DOCTEST_SOURCE = "raise X, Y\n"
+DOCTEST_METADATA = {DOCTEST_SOURCE: "known mismatch"}
+DOCTEST_OLD = (
+    '''"""
+>>> raise X, Y  # TODO: RUSTPYTHON; old reason # doctest: +EXPECTED_FAILURE
+Traceback (most recent call last):
+SyntaxError: old message
+"""
+'''
+    + PATCHED_LOAD_TESTS
+    + "\n"
+)
+DOCTEST_CANONICAL = (
+    '''"""
+>>> raise X, Y
+Traceback (most recent call last):
+SyntaxError: final message
+"""
+'''
+    + CANONICAL_LOAD_TESTS
+    + "\n"
+)
+
+
+class ExactDoctestTests(unittest.TestCase):
+    def test_extracts_only_existing_guards(self):
+        self.assertEqual(set(extract_doctest_guards(DOCTEST_OLD)), {DOCTEST_SOURCE})
+        self.assertEqual(extract_doctest_guards(DOCTEST_CANONICAL), {})
+        self.assertEqual(extract_doctest_guards("value = 1\n"), {})
+
+    def test_duplicate_existing_guards_are_rejected(self):
+        duplicate = DOCTEST_OLD.replace(
+            ">>> raise X, Y  # TODO:",
+            ">>> raise X, Y  # TODO: RUSTPYTHON; duplicate # doctest: +EXPECTED_FAILURE\n"
+            ">>> raise X, Y  # TODO:",
+        )
+        with self.assertRaises(ValueError):
+            extract_doctest_guards(duplicate)
+
+    def test_preserves_final_output_and_roundtrips(self):
+        result = apply_doctest_metadata(
+            DOCTEST_OLD, DOCTEST_CANONICAL, DOCTEST_METADATA
+        )
+        self.assertIn("SyntaxError: final message", result)
+        self.assertNotIn("old message", result)
+        self.assertEqual(result.count("doctest: +EXPECTED_FAILURE"), 1)
+        self.assertIn(PATCHED_LOAD_TESTS, result)
+        self.assertEqual(
+            apply_doctest_metadata(result, DOCTEST_CANONICAL, DOCTEST_METADATA), result
+        )
+
+    def test_duplicate_input_is_rejected(self):
+        duplicate = DOCTEST_CANONICAL.replace(
+            ">>> raise X, Y\n", ">>> raise X, Y\n>>> raise X, Y\n"
+        )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(DOCTEST_OLD, duplicate, DOCTEST_METADATA)
+
+    def test_missing_canonical_or_old_case_is_rejected(self):
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD,
+                DOCTEST_CANONICAL.replace("raise X, Y", "raise X"),
+                DOCTEST_METADATA,
+            )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD.replace("raise X, Y", "raise X"),
+                DOCTEST_CANONICAL,
+                DOCTEST_METADATA,
+            )
+
+    def test_changed_loader_and_unmarked_old_case_are_rejected(self):
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_OLD,
+                DOCTEST_CANONICAL.replace("DocTestSuite()", "DocTestSuite(None)"),
+                DOCTEST_METADATA,
+            )
+        with self.assertRaises(ValueError):
+            apply_doctest_metadata(
+                DOCTEST_CANONICAL, DOCTEST_CANONICAL, DOCTEST_METADATA
+            )
 
 
 if __name__ == "__main__":

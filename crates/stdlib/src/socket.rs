@@ -3,7 +3,14 @@
 pub(crate) use _socket::module_def;
 
 #[cfg(feature = "ssl")]
-pub(super) use _socket::{PySocket, SockWaitKind, sock_wait, timeout_error_msg};
+pub(super) use _socket::{PySocket, timeout_error_msg};
+#[cfg(any(
+    feature = "__ssl-rustls",
+    all(feature = "ssl-openssl", not(all(unix, not(target_os = "aix"))))
+))]
+pub(super) use _socket::{SockWaitKind, sock_wait};
+#[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+pub(crate) use _socket::{SocketCloseObserver, SocketIdentity};
 
 #[pymodule]
 mod _socket {
@@ -21,7 +28,7 @@ mod _socket {
         },
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
+            ArgBytesLike, ArgIndex, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, FsPath,
             FuncArgs, OptionalArg,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
@@ -44,6 +51,10 @@ mod _socket {
         Ok(())
     }
 
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use alloc::sync::{Arc, Weak};
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use core::sync::atomic::AtomicBool;
     use core::sync::atomic::{AtomicI32, Ordering};
     use core::{
         mem::ManuallyDrop,
@@ -53,6 +64,8 @@ mod _socket {
     use crossbeam_utils::atomic::AtomicCell;
     use host_socket::raw::Socket;
     use num_traits::ToPrimitive;
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    use std::sync::Mutex;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -1058,6 +1071,66 @@ mod _socket {
         flags: i32,
     }
 
+    /// A native-only wakeup. Implementations must not execute Python.
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    pub(crate) trait SocketCloseObserver: Send + Sync {
+        fn socket_closed(&self);
+    }
+
+    /// Identifies one initialization, even when a later socket reuses its fd.
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    #[derive(Debug, Default)]
+    pub(crate) struct SocketIdentity {
+        closed: AtomicBool,
+        observers: Mutex<Vec<Weak<dyn SocketCloseObserver>>>,
+    }
+
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    impl SocketIdentity {
+        pub(crate) fn is_closed(&self) -> bool {
+            self.closed.load(Ordering::Acquire)
+        }
+
+        /// Register atomically with the closed check, so close-before-wait
+        /// cannot lose a wakeup. The caller retains the strong observer.
+        pub(crate) fn subscribe(&self, observer: Arc<dyn SocketCloseObserver>) -> bool {
+            let mut observers = self.observers.lock().unwrap();
+            if self.is_closed() {
+                return false;
+            }
+            observers.retain(|observer| observer.strong_count() != 0);
+            let observer = Arc::downgrade(&observer);
+            if !observers.iter().any(|current| current.ptr_eq(&observer)) {
+                observers.push(observer);
+            }
+            true
+        }
+
+        pub(crate) fn unsubscribe(&self, observer: Arc<dyn SocketCloseObserver>) {
+            let observer = Arc::downgrade(&observer);
+            self.observers
+                .lock()
+                .unwrap()
+                .retain(|current| !current.ptr_eq(&observer));
+        }
+
+        // The socket write lock is held by the caller. Return weak observers
+        // rather than invoking them while either lock is held.
+        fn invalidate(&self) -> Vec<Weak<dyn SocketCloseObserver>> {
+            let mut observers = self.observers.lock().unwrap();
+            self.closed.store(true, Ordering::Release);
+            core::mem::take(&mut *observers)
+        }
+
+        fn notify_closed(observers: Vec<Weak<dyn SocketCloseObserver>>) {
+            for observer in observers {
+                if let Some(observer) = observer.upgrade() {
+                    observer.socket_closed();
+                }
+            }
+        }
+    }
+
     #[pyattr(name = "socket")]
     #[pyattr(name = "SocketType")]
     #[pyclass(name = "socket")]
@@ -1071,6 +1144,10 @@ mod _socket {
         proto: AtomicI32,
         pub(crate) timeout: AtomicCell<f64>,
         sock: PyRwLock<Option<Socket>>,
+        // Shared access takes `sock` first, in socket -> identity-slot order.
+        // Ordinary sockets never allocate an identity or observer list.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        ssl_identity: Mutex<Option<Arc<SocketIdentity>>>,
     }
 
     const _: () = assert!(core::mem::size_of::<Option<Socket>>() == core::mem::size_of::<Socket>());
@@ -1083,6 +1160,19 @@ mod _socket {
                 proto: AtomicI32::new(0),
                 timeout: AtomicCell::new(-1.0),
                 sock: PyRwLock::new(None),
+                #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+                ssl_identity: Mutex::new(None),
+            }
+        }
+    }
+
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    impl Drop for PySocket {
+        fn drop(&mut self) {
+            // Rust destruction must also notify when Python __del__ did not run.
+            // Keep ordinary socket destruction free of additional locking.
+            if self.ssl_identity.get_mut().unwrap().is_some() {
+                drop(self.take_sock());
             }
         }
     }
@@ -1117,6 +1207,64 @@ mod _socket {
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
             self.sock_opt()
                 .ok_or_else(|| io::Error::from_raw_os_error(CLOSED_ERR))
+        }
+
+        /// Capture the current initialization under the socket read lock.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        pub(crate) fn ssl_identity(&self) -> io::Result<Arc<SocketIdentity>> {
+            let _sock = self.sock()?;
+            let mut identity = self.ssl_identity.lock().unwrap();
+            Ok(identity
+                .get_or_insert_with(|| Arc::new(SocketIdentity::default()))
+                .clone())
+        }
+
+        /// Hold this guard only around a truly nonblocking transport syscall,
+        /// never around SSL processing, Python callbacks, or readiness waits.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        pub(crate) fn sock_for_ssl_identity(
+            &self,
+            identity: &Arc<SocketIdentity>,
+        ) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
+            let sock = self.sock()?;
+            let current = self.ssl_identity.lock().unwrap();
+            if !current
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, identity) && !identity.is_closed())
+            {
+                return Err(io::Error::from_raw_os_error(CLOSED_ERR));
+            }
+            Ok(sock)
+        }
+
+        // Caller holds the socket write lock. Notifications must be delivered
+        // only after releasing that lock, including on initialization failure.
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        fn invalidate_ssl_identity_locked(&self) -> Vec<Weak<dyn SocketCloseObserver>> {
+            self.ssl_identity
+                .lock()
+                .unwrap()
+                .take()
+                .map_or_else(Vec::new, |identity| identity.invalidate())
+        }
+
+        fn take_sock(&self) -> Option<Socket> {
+            let mut guard = self.sock.write();
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            let observers = self.invalidate_ssl_identity_locked();
+            let sock = guard.take();
+            drop(guard);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            SocketIdentity::notify_closed(observers);
+            sock
+        }
+
+        #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+        fn invalidate_failed_ssl_init(&self) {
+            let guard = self.sock.write();
+            let observers = self.invalidate_ssl_identity_locked();
+            drop(guard);
+            SocketIdentity::notify_closed(observers);
         }
 
         /// Snapshot the inner socket without holding `self.sock` across a syscall.
@@ -1171,7 +1319,18 @@ mod _socket {
             self.kind.store(masked_kind, Ordering::Relaxed);
             self.proto.store(proto, Ordering::Relaxed);
             let mut s = self.sock.write();
-            let sock = s.insert(sock);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            let observers = self.invalidate_ssl_identity_locked();
+            let old_socket = s.replace(sock);
+            // Closing a lingering socket may block. Unlock and wake old SSL
+            // operations first, including if initialization unwinds.
+            let mut s = scopeguard::guard(s, move |s| {
+                drop(s);
+                #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+                SocketIdentity::notify_closed(observers);
+                drop(old_socket);
+            });
+            let sock = s.as_mut().unwrap();
             // If SOCK_NONBLOCK is set, use timeout 0 (non-blocking)
             #[cfg(any(
                 target_os = "android",
@@ -1202,10 +1361,13 @@ mod _socket {
             )))]
             let timeout = DEFAULT_TIMEOUT.load();
             self.timeout.store(timeout);
-            if timeout >= 0.0 {
-                sock.set_nonblocking(true)?;
-            }
-            Ok(())
+            let result = if timeout >= 0.0 {
+                sock.set_nonblocking(true)
+            } else {
+                Ok(())
+            };
+            drop(s);
+            result
         }
 
         /// returns Err(blocking)
@@ -1691,7 +1853,14 @@ mod _socket {
         type Args = SocketInitArgs;
 
         fn init(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-            Self::_init(zelf, args, vm).map_err(|e| e.into_pyexception(vm))
+            let result = Self::_init(zelf, args, vm);
+            #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+            if result.is_err() {
+                // _init can fail before reaching init_inner, leaving an older
+                // raw socket in place but invalidating its SSL initialization.
+                zelf.invalidate_failed_ssl_init();
+            }
+            result.map_err(|e| e.into_pyexception(vm))
         }
     }
 
@@ -2326,7 +2495,7 @@ mod _socket {
 
         #[pymethod]
         fn close(zelf: &Py<Self>) -> io::Result<()> {
-            let sock = zelf.sock.write().take();
+            let sock = zelf.take_sock();
             if let Some(sock) = sock {
                 close_inner(into_sock_fileno(sock))?;
             }
@@ -2336,7 +2505,7 @@ mod _socket {
         #[pymethod]
         #[inline]
         fn detach(zelf: &Py<Self>) -> i64 {
-            let sock = zelf.sock.write().take();
+            let sock = zelf.take_sock();
             sock.map_or(INVALID_SOCKET as i64, |s| into_sock_fileno(s) as i64)
         }
 
@@ -2441,28 +2610,114 @@ mod _socket {
         #[pymethod]
         fn setsockopt(
             zelf: &Py<Self>,
-            level: i32,
-            name: i32,
-            value: Option<Either<ArgBytesLike, i32>>,
-            optlen: OptionalArg<u32>,
+            args: FuncArgs,
             vm: &VirtualMachine,
         ) -> Result<(), IoOrPyException> {
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("setsockopt() takes no keyword arguments")
+                    .into());
+            }
+            let nargs = args.args.len();
+            if nargs < 3 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "setsockopt() takes at least 3 arguments ({nargs} given)"
+                    ))
+                    .into());
+            }
+            if nargs > 4 {
+                return Err(vm
+                    .new_type_error(format!(
+                        "setsockopt() takes at most 4 arguments ({nargs} given)"
+                    ))
+                    .into());
+            }
+            let (level, name, value, optlen): (
+                i32,
+                i32,
+                Option<PyObjectRef>,
+                OptionalArg<ArgIndex>,
+            ) = args.bind(vm)?;
+            let optlen = match optlen {
+                OptionalArg::Present(index) => {
+                    let index = index.as_ref();
+                    // CPython's unsigned-int bitfield conversion masks the value,
+                    // warning only when it fits neither a signed nor unsigned int.
+                    if !index.as_bigint().to_i64().is_some_and(|value| {
+                        (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value)
+                    }) {
+                        crate::vm::warn::warn(
+                            vm.ctx.new_str("integer value out of range").into(),
+                            Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+                            1,
+                            None,
+                            vm,
+                        )?;
+                    }
+                    OptionalArg::Present(index.as_u32_mask())
+                }
+                OptionalArg::Missing => OptionalArg::Missing,
+            };
+            enum Value {
+                Int(i32),
+                Buffer(ArgBytesLike),
+                Null(u32),
+            }
+            let value = match (value, optlen) {
+                (Some(value), OptionalArg::Missing) => {
+                    if let Some(index) = value.try_index_opt(vm) {
+                        Value::Int(index?.try_to_primitive::<i32>(vm)?)
+                    } else if value.check_buffer() {
+                        let buffer = ArgBytesLike::try_from_object(vm, value)?;
+                        #[cfg(windows)]
+                        if buffer.len() > i32::MAX as usize {
+                            return Err(vm
+                                .new_overflow_error(format!(
+                                    "socket option is larger than {} bytes",
+                                    i32::MAX
+                                ))
+                                .into());
+                        }
+                        Value::Buffer(buffer)
+                    } else {
+                        return Err(vm
+                            .new_type_error(format!(
+                                "socket option should be int, bytes-like object or None (got {})",
+                                value.class().fully_qualified_name(vm)?
+                            ))
+                            .into());
+                    }
+                }
+                (None, OptionalArg::Present(optlen)) => Value::Null(optlen),
+                (None, OptionalArg::Missing) => {
+                    return Err(vm
+                        .new_type_error(
+                            "setsockopt() requires 4 arguments when the third argument is None",
+                        )
+                        .into());
+                }
+                (Some(value), OptionalArg::Present(_)) => {
+                    return Err(vm
+                        .new_type_error(format!(
+                            "setsockopt() only takes 4 arguments when the third argument is None (got {})",
+                            value.class().fully_qualified_name(vm)?
+                        ))
+                        .into());
+                }
+            };
+            // Convert Python values before locking the socket; callbacks may close it.
             let sock = zelf.sock()?;
             let fd = sock_fileno(&sock);
-            match (value, optlen) {
-                (Some(Either::A(b)), OptionalArg::Missing) => {
-                    b.with_ref(|b| host_socket::setsockopt_bytes(fd as _, level, name, b))?
+            match &value {
+                Value::Int(value) => {
+                    host_socket::setsockopt_int(fd as _, level, name, *value)?;
                 }
-                (Some(Either::B(val)), OptionalArg::Missing) => {
-                    host_socket::setsockopt_int(fd as _, level, name, val)?
+                Value::Buffer(buffer) => {
+                    buffer.with_ref(|b| host_socket::setsockopt_bytes(fd as _, level, name, b))?;
                 }
-                (None, OptionalArg::Present(optlen)) => {
-                    host_socket::setsockopt_none(fd as _, level, name, optlen)?
-                }
-                _ => {
-                    return Err(vm
-                        .new_type_error("expected the value arg xor the optlen arg")
-                        .into());
+                Value::Null(optlen) => {
+                    host_socket::setsockopt_none(fd as _, level, name, *optlen)?;
                 }
             }
             Ok(())
@@ -2919,7 +3174,10 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
-    #[cfg(feature = "ssl")]
+    #[cfg(any(
+        feature = "__ssl-rustls",
+        all(feature = "ssl-openssl", not(all(unix, not(target_os = "aix"))))
+    ))]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,
@@ -2962,7 +3220,7 @@ mod _socket {
         #[pyarg(any)]
         host: Option<ArgStrOrBytesLike>,
         #[pyarg(any)]
-        port: Option<Either<ArgStrOrBytesLike, i32>>,
+        port: Option<PyObjectRef>,
 
         #[pyarg(any, default = c::AF_UNSPEC)]
         family: i32,
@@ -3014,10 +3272,23 @@ mod _socket {
         };
         let host = host_encoded.as_deref();
 
-        // Encode port: str/bytes as service name, int as port number
-        let port_encoded: Option<String> = match opts.port.as_ref() {
-            Some(Either::A(sb)) => {
-                let port_str = match sb {
+        // Check the index protocol before string/bytes conversion, including for
+        // subclasses, and preserve any exception raised by __index__.
+        let port_index = opts
+            .port
+            .as_ref()
+            .and_then(|port| port.try_index_opt(vm))
+            .transpose()?;
+        let port_encoded: Option<String> = match (port_index, opts.port.as_ref()) {
+            (Some(index), _) => Some(crate::vm::builtins::PyInt::repr_str(&index, vm)?),
+            (None, Some(port)) => {
+                if !port.fast_isinstance(vm.ctx.types.str_type)
+                    && !port.fast_isinstance(vm.ctx.types.bytes_type)
+                {
+                    return Err(vm.new_os_error("Int or String expected").into());
+                }
+                let sb = ArgStrOrBytesLike::try_from_object(vm, port.clone())?;
+                let port_str = match &sb {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
@@ -3055,8 +3326,7 @@ mod _socket {
                 };
                 Some(port_str)
             }
-            Some(Either::B(i)) => Some(i.to_string()),
-            None => None,
+            (None, None) => None,
         };
         let port = port_encoded.as_deref();
 
@@ -3070,7 +3340,7 @@ mod _socket {
                         ai.address,
                         ai.socktype,
                         ai.protocol,
-                        ai.canonname,
+                        ai.canonname.unwrap_or_default(),
                         get_ip_addr_tuple(&ai.sockaddr, vm),
                     ))
                     .into()
@@ -3551,5 +3821,113 @@ mod _socket {
         let length = length.try_index(vm)?.try_to_primitive_in_range(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
+    }
+
+    #[cfg(test)]
+    #[cfg(all(feature = "ssl-openssl", unix, not(target_os = "aix")))]
+    mod ssl_identity_tests {
+        use super::{PySocket, SocketCloseObserver, SocketIdentity};
+        use alloc::sync::{Arc, Weak};
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Observer {
+            identity: Weak<SocketIdentity>,
+            notifications: AtomicUsize,
+        }
+
+        impl Observer {
+            fn new(identity: &Arc<SocketIdentity>) -> Arc<Self> {
+                Arc::new(Self {
+                    identity: Arc::downgrade(identity),
+                    notifications: AtomicUsize::new(0),
+                })
+            }
+        }
+
+        impl SocketCloseObserver for Observer {
+            fn socket_closed(&self) {
+                if let Some(identity) = self.identity.upgrade() {
+                    assert!(identity.is_closed());
+                    assert!(identity.observers.try_lock().is_ok());
+                }
+                self.notifications.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        #[test]
+        fn subscribe_before_close_notifies_after_invalidation() {
+            let identity = Arc::new(SocketIdentity::default());
+            let observer = Observer::new(&identity);
+            assert!(identity.subscribe(observer.clone()));
+            assert!(identity.subscribe(observer.clone()));
+            let notifications = identity.invalidate();
+            assert!(identity.is_closed());
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 0);
+            assert_eq!(notifications.len(), 1);
+            SocketIdentity::notify_closed(notifications);
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 1);
+            assert!(identity.invalidate().is_empty());
+        }
+
+        #[test]
+        fn close_before_subscribe_rejects_registration() {
+            let identity = Arc::new(SocketIdentity::default());
+            SocketIdentity::notify_closed(identity.invalidate());
+            let observer = Observer::new(&identity);
+            assert!(!identity.subscribe(observer.clone()));
+            assert_eq!(observer.notifications.load(Ordering::Relaxed), 0);
+        }
+
+        #[test]
+        fn registrations_do_not_keep_observers_alive() {
+            let identity = Arc::new(SocketIdentity::default());
+            let observer = Observer::new(&identity);
+            let weak = Arc::downgrade(&observer);
+            assert!(identity.subscribe(observer.clone()));
+            drop(observer);
+            assert!(weak.upgrade().is_none());
+            let next = Observer::new(&identity);
+            assert!(identity.subscribe(next.clone()));
+            let notifications = identity.invalidate();
+            assert_eq!(notifications.len(), 1);
+            SocketIdentity::notify_closed(notifications);
+            assert_eq!(next.notifications.load(Ordering::Relaxed), 1);
+        }
+
+        #[test]
+        fn uninitialized_socket_keeps_identity_unallocated() {
+            let socket = PySocket::default();
+            assert!(socket.ssl_identity.lock().unwrap().is_none());
+            assert!(socket.ssl_identity().is_err());
+            assert!(socket.ssl_identity.lock().unwrap().is_none());
+        }
+
+        #[test]
+        fn failed_initialization_and_rust_drop_invalidate_identity() {
+            // Exercise lifecycle bookkeeping without creating an OS socket.
+            let socket = PySocket::default();
+            let old = Arc::new(SocketIdentity::default());
+            let old_observer = Observer::new(&old);
+            assert!(old.subscribe(old_observer.clone()));
+            {
+                let _socket = socket.sock.write();
+                *socket.ssl_identity.lock().unwrap() = Some(old.clone());
+            }
+            socket.invalidate_failed_ssl_init();
+            assert!(old.is_closed());
+            assert_eq!(old_observer.notifications.load(Ordering::Relaxed), 1);
+
+            let new = Arc::new(SocketIdentity::default());
+            let new_observer = Observer::new(&new);
+            assert!(new.subscribe(new_observer.clone()));
+            {
+                let _socket = socket.sock.write();
+                *socket.ssl_identity.lock().unwrap() = Some(new.clone());
+            }
+            assert!(!new.is_closed());
+            drop(socket);
+            assert!(new.is_closed());
+            assert_eq!(new_observer.notifications.load(Ordering::Relaxed), 1);
+        }
     }
 }

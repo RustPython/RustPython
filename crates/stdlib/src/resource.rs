@@ -17,9 +17,7 @@ mod resource {
 
     #[cfg_attr(target_os = "android", expect(deprecated))]
     const RLIM_NLIMITS: i32 = cfg_select! {
-        target_os = "android" => {
-            host_resource::RLIM_NLIMITS
-        }
+        target_os = "android" => host_resource::RLIM_NLIMITS,
         _ => {
             // This constant isn't abi-stable across os versions, so we just
             // pick a high number so we don't get false positive ValueErrors and just bubble up the

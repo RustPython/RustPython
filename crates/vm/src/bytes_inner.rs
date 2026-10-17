@@ -21,6 +21,7 @@ use crate::{
 /// [`crate::byte::bytearray_from_object`].
 pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
 
+use alloc::borrow::Cow;
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -419,17 +420,24 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
-fn bytearray_repr_char_len(ch: u8) -> usize {
+fn bytearray_repr_char_len(ch: u8, quote: u8) -> usize {
+    if ch == quote {
+        return 2;
+    }
     match ch {
-        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        b'\\' | b'\t' | b'\r' | b'\n' => 2,
         0x20..=0x7e => 1,
         _ => 4, // \xHH
     }
 }
 
-fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+fn write_bytearray_repr_char(ch: u8, quote: u8, buf: &mut String) {
+    if ch == quote {
+        buf.push('\\');
+        buf.push(ch as char);
+        return;
+    }
     match ch {
-        b'\'' => buf.push_str(r#"\'"#),
         b'\\' => buf.push_str(r#"\\"#),
         b'\t' => buf.push_str(r#"\t"#),
         b'\n' => buf.push_str(r#"\n"#),
@@ -477,7 +485,7 @@ impl PyBytesInner {
             .elements
             .iter()
             .try_fold(0usize, |len, &ch| {
-                len.checked_add(bytearray_repr_char_len(ch))
+                len.checked_add(bytearray_repr_char_len(ch, quote as u8))
             })
             .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let len = class_name
@@ -491,7 +499,7 @@ impl PyBytesInner {
         buf.push('b');
         buf.push(quote);
         for &ch in &self.elements {
-            write_bytearray_repr_char(ch, &mut buf);
+            write_bytearray_repr_char(ch, quote as u8, &mut buf);
         }
         buf.push(quote);
         buf.push(')');
@@ -834,14 +842,12 @@ impl PyBytesInner {
         res
     }
 
-    pub fn strip(&self, chars: Option<Self>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim(),
-            )
-            .to_vec()
+    pub fn strip(&self, chars: Option<Self>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim(),
+        )
     }
 
     pub fn lstrip(&self, chars: Option<Self>) -> &[u8] {
@@ -861,21 +867,19 @@ impl PyBytesInner {
     }
 
     // new in Python 3.9
-    pub fn removeprefix(&self, prefix: Self) -> Vec<u8> {
+    pub fn removeprefix(&self, prefix: Self) -> &[u8] {
         self.elements
             .py_removeprefix(&prefix.elements, prefix.elements.len(), |s, p| {
                 s.starts_with(p)
             })
-            .to_vec()
     }
 
     // new in Python 3.9
-    pub fn removesuffix(&self, suffix: Self) -> Vec<u8> {
+    pub fn removesuffix(&self, suffix: Self) -> &[u8] {
         self.elements
             .py_removesuffix(&suffix.elements, suffix.elements.len(), |s, p| {
                 s.ends_with(p)
             })
-            .to_vec()
     }
 
     pub fn split<F>(
@@ -1000,7 +1004,7 @@ impl PyBytesInner {
         result
     }
 
-    fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Vec<u8> {
+    fn replace_delete(&self, from: Self, max_count: Option<usize>) -> Cow<'_, [u8]> {
         let count = count_substring(
             self.elements.as_slice(),
             from.elements.as_slice(),
@@ -1008,7 +1012,7 @@ impl PyBytesInner {
         );
         if count == 0 {
             // no matches
-            return self.elements.clone();
+            return Cow::Borrowed(&self.elements);
         }
 
         let result_len = self.len() - (count * from.len());
@@ -1026,10 +1030,15 @@ impl PyBytesInner {
             }
         }
         result.extend_from_slice(&self.elements[last_end..]);
-        result
+        Cow::Owned(result)
     }
 
-    pub fn replace_in_place(&self, from: Self, to: Self, max_count: Option<usize>) -> Vec<u8> {
+    pub fn replace_in_place(
+        &self,
+        from: Self,
+        to: Self,
+        max_count: Option<usize>,
+    ) -> Cow<'_, [u8]> {
         let len = from.len();
         let mut iter = self.elements.find_iter(&from.elements);
 
@@ -1037,11 +1046,11 @@ impl PyBytesInner {
             let mut new = self.elements.clone();
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             if max_count == Some(1) {
-                return new;
+                return Cow::Owned(new);
             }
             new
         } else {
-            return self.elements.clone();
+            return Cow::Borrowed(&self.elements);
         };
 
         let mut count = max_count.unwrap_or(usize::MAX) - 1;
@@ -1052,7 +1061,7 @@ impl PyBytesInner {
                 break;
             }
         }
-        new
+        Cow::Owned(new)
     }
 
     fn replace_general(
@@ -1061,7 +1070,7 @@ impl PyBytesInner {
         to: Self,
         max_count: Option<usize>,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<u8>> {
+    ) -> PyResult<Cow<'_, [u8]>> {
         let count = count_substring(
             self.elements.as_slice(),
             from.elements.as_slice(),
@@ -1069,7 +1078,7 @@ impl PyBytesInner {
         );
         if count == 0 {
             // no matches, return unchanged
-            return Ok(self.elements.clone());
+            return Ok(Cow::Borrowed(&self.elements));
         }
 
         // Check for overflow
@@ -1097,10 +1106,14 @@ impl PyBytesInner {
             }
         }
         result.extend_from_slice(&self.elements[last_end..]);
-        Ok(result)
+        Ok(Cow::Owned(result))
     }
 
-    pub fn replace(&self, args: ByteInnerReplaceOptions, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn replace(
+        &self,
+        args: ByteInnerReplaceOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Cow<'_, [u8]>> {
         let ByteInnerReplaceOptions {
             old: from,
             new: to,
@@ -1110,9 +1123,9 @@ impl PyBytesInner {
         let max_count = if max_count >= 0 {
             if max_count == 0 || (self.elements.is_empty() && !from.is_empty()) {
                 // nothing to do; return the original bytes
-                return Ok(self.elements.clone());
+                return Ok(Cow::Borrowed(&self.elements));
             } else if self.elements.is_empty() && from.is_empty() {
-                return Ok(to.elements);
+                return Ok(Cow::Owned(to.elements));
             }
             Some(max_count as usize)
         } else {
@@ -1123,19 +1136,19 @@ impl PyBytesInner {
         if from.elements.is_empty() {
             if to.elements.is_empty() {
                 // nothing to do; return the original bytes
-                return Ok(self.elements.clone());
+                return Ok(Cow::Borrowed(&self.elements));
             }
             // insert the 'to' bytes everywhere.
             //     >>> b"Python".replace(b"", b".")
             //     b'.P.y.t.h.o.n.'
-            return Ok(self.replace_interleave(to, max_count));
+            return Ok(Cow::Owned(self.replace_interleave(to, max_count)));
         }
 
         // Except for b"".replace(b"", b"A") == b"A" there is no way beyond this
         // point for an empty self bytes to generate a non-empty bytes
         // Special case so the remaining code always gets a non-empty bytes
         if self.elements.is_empty() {
-            return Ok(self.elements.clone());
+            return Ok(Cow::Borrowed(&self.elements));
         }
 
         if to.elements.is_empty() {
@@ -1348,7 +1361,7 @@ pub struct ByteInnerReplaceOptions {
     old: PyBytesInner,
     #[pyarg(positional)]
     new: PyBytesInner,
-    #[pyarg(positional, default = -1)]
+    #[pyarg(any, default = -1)]
     count: isize,
 }
 
@@ -1431,7 +1444,7 @@ fn hex_impl(bytes: &[u8], sep: u8, bytes_per_sep: isize) -> String {
     let len = bytes.len();
 
     let buf = if bytes_per_sep < 0 {
-        let bytes_per_sep = core::cmp::min(len, (-bytes_per_sep) as usize);
+        let bytes_per_sep = core::cmp::min(len, bytes_per_sep.unsigned_abs());
         let chunks = (len - 1) / bytes_per_sep;
         let chunked = chunks * bytes_per_sep;
         let unchunked = len - chunked;

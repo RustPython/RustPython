@@ -15,6 +15,10 @@ pub use super::posix_unix_like::*;
 
 pub use libc::{c_char, pid_t};
 
+/// `<sys/param.h>` on glibc defines NODEV as `(dev_t)-1`.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub const NODEV: i32 = -1;
+
 /// `<sysexits.h>`. The `libc` crate does not bind these.
 pub const EX_OK: i32 = 0;
 pub const EX_USAGE: i32 = 64;
@@ -1148,13 +1152,22 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
-pub fn getlogin() -> Option<CString> {
+pub fn getlogin() -> std::io::Result<CString> {
+    let old_errno = crate::os::get_errno();
+    crate::os::clear_errno();
     let ptr = unsafe { libc::getlogin() };
-    if ptr.is_null() {
-        None
+    let result = if ptr.is_null() {
+        let errno = crate::os::get_errno();
+        Err(if errno == 0 {
+            std::io::Error::other("unable to determine login name")
+        } else {
+            std::io::Error::from_raw_os_error(errno)
+        })
     } else {
-        Some(unsafe { CStr::from_ptr(ptr) }.to_owned())
-    }
+        Ok(unsafe { CStr::from_ptr(ptr) }.to_owned())
+    };
+    crate::os::set_errno(old_errno);
+    result
 }
 
 pub fn restore_signals() {
@@ -1945,26 +1958,71 @@ pub fn posix_spawn(config: PosixSpawnConfig<'_>) -> std::io::Result<libc::pid_t>
 
 #[cfg(target_os = "linux")]
 pub fn sendfile(
-    out_fd: BorrowedFd<'_>,
-    in_fd: BorrowedFd<'_>,
-    offset: &mut crate::crt_fd::Offset,
+    out_fd: i32,
+    in_fd: i32,
+    offset: Option<&mut crate::crt_fd::Offset>,
     count: usize,
 ) -> std::io::Result<usize> {
-    nix::sys::sendfile::sendfile(out_fd, in_fd, Some(offset), count).map_err(std::io::Error::from)
+    let offset = offset.map_or(core::ptr::null_mut(), |offset| offset as *mut _);
+    // The syscall validates raw descriptor numbers; no Rust fd lifetime is claimed.
+    let result = unsafe { libc::sendfile(out_fd, in_fd, offset, count) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(result as usize)
+    }
 }
 
 #[cfg(target_os = "macos")]
 pub fn sendfile(
-    in_fd: BorrowedFd<'_>,
-    out_fd: BorrowedFd<'_>,
+    in_fd: i32,
+    out_fd: i32,
     offset: crate::crt_fd::Offset,
-    count: i64,
+    written: &mut i64,
     headers: Option<&[&[u8]]>,
     trailers: Option<&[&[u8]]>,
-) -> (std::io::Result<()>, i64) {
-    let (res, written) =
-        nix::sys::sendfile::sendfile(in_fd, out_fd, offset, Some(count), headers, trailers);
-    (res.map_err(std::io::Error::from), written)
+    flags: i32,
+) -> std::io::Result<()> {
+    let header_count = headers.map_or(0, |buffers| buffers.len());
+    let trailer_count = trailers.map_or(0, |buffers| buffers.len());
+    let (Ok(header_count), Ok(trailer_count)) =
+        (i32::try_from(header_count), i32::try_from(trailer_count))
+    else {
+        return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+    };
+    let iovecs = |buffers: Option<&[&[u8]]>| {
+        buffers
+            .unwrap_or_default()
+            .iter()
+            .map(|buffer| libc::iovec {
+                iov_base: buffer.as_ptr().cast_mut().cast(),
+                iov_len: buffer.len(),
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut headers = iovecs(headers);
+    let mut trailers = iovecs(trailers);
+    let mut hdtr = libc::sf_hdtr {
+        headers: if headers.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            headers.as_mut_ptr()
+        },
+        hdr_cnt: header_count,
+        trailers: if trailers.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            trailers.as_mut_ptr()
+        },
+        trl_cnt: trailer_count,
+    };
+    // The slices and both iovec arrays remain live for this synchronous call.
+    let result = unsafe { libc::sendfile(in_fd, out_fd, offset, written, &mut hdtr, flags) };
+    if result < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(any(

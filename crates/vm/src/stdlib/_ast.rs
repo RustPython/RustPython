@@ -7,6 +7,8 @@
 pub(crate) use python::_ast::module_def;
 
 mod pyast;
+mod source_location;
+use source_location::{AstNodeRange, AstSourceContext};
 
 use crate::builtins::{PyInt, PyStr};
 use crate::stdlib::_ast::module::{Mod, ModFunctionType, ModInteractive, ModModule};
@@ -99,7 +101,7 @@ fn get_node_field_required(
 
 fn get_required_identifier_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -113,7 +115,7 @@ fn get_required_identifier_field<T: Node>(
 
 fn get_required_node_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -140,7 +142,7 @@ fn get_node_field_opt(
 
 fn get_node_list_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -170,7 +172,7 @@ fn get_node_list_field_object(
 
 fn convert_node_list_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     list: &Py<PyList>,
     field: &'static str,
     typ: &str,
@@ -202,7 +204,7 @@ fn convert_node_list_field<T: Node>(
 
 fn get_node_boxed_slice_field<T: Node>(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
@@ -323,50 +325,8 @@ fn get_ast_string_field_opt(
 }
 
 struct PySourceRange {
-    start: PySourceLocation,
-    end: PySourceLocation,
-}
-
-pub(crate) struct PySourceLocation {
-    row: Row,
-    column: Column,
-}
-
-impl PySourceLocation {
-    const fn to_source_location(&self) -> SourceLocation {
-        SourceLocation {
-            line: self.row.get_one_indexed(),
-            character_offset: self.column.get_one_indexed(),
-        }
-    }
-}
-
-/// A one-based index into the lines.
-#[derive(Clone, Copy)]
-struct Row(OneIndexed);
-
-impl Row {
-    const fn get(self) -> usize {
-        self.0.get()
-    }
-
-    const fn get_one_indexed(self) -> OneIndexed {
-        self.0
-    }
-}
-
-/// An UTF-8 index into the line.
-#[derive(Clone, Copy)]
-struct Column(TextSize);
-
-impl Column {
-    const fn get(self) -> usize {
-        self.0.to_usize()
-    }
-
-    const fn get_one_indexed(self) -> OneIndexed {
-        OneIndexed::from_zero_indexed(self.get())
-    }
+    start: SourceLocation,
+    end: SourceLocation,
 }
 
 fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -> PySourceRange {
@@ -375,31 +335,14 @@ fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -
 
     if source.is_empty() {
         return PySourceRange {
-            start: PySourceLocation {
-                row: Row(OneIndexed::from_zero_indexed(0)),
-                column: Column(TextSize::new(0)),
-            },
-            end: PySourceLocation {
-                row: Row(OneIndexed::from_zero_indexed(0)),
-                column: Column(TextSize::new(0)),
-            },
+            start: SourceLocation::default(),
+            end: SourceLocation::default(),
         };
     }
 
-    let start_row = index.line_index(text_range.start());
-    let end_row = index.line_index(text_range.end());
-    let start_col = text_range.start() - index.line_start(start_row, source);
-    let end_col = text_range.end() - index.line_start(end_row, source);
-
     PySourceRange {
-        start: PySourceLocation {
-            row: Row(start_row),
-            column: Column(start_col),
-        },
-        end: PySourceLocation {
-            row: Row(end_row),
-            column: Column(end_col),
-        },
+        start: index.source_location(text_range.start(), source, PositionEncoding::Utf8),
+        end: index.source_location(text_range.end(), source, PositionEncoding::Utf8),
     }
 }
 
@@ -704,95 +647,101 @@ fn synthetic_source_from_ast_object(vm: &VirtualMachine, object: &PyObject) -> P
 
 fn range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
     name: &str,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, name, false)
 }
 
 fn type_param_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "type_param", true)
 }
 
 fn expr_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "expr", false)
 }
 
 fn stmt_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "stmt", false)
 }
 
 fn pattern_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "pattern", true)
 }
 
 fn excepthandler_range_from_object(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     range_from_object_impl(vm, source_file, object, "excepthandler", false)
 }
 
 fn excepthandler_range_from_object_unvalidated(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     let start_row = get_int_field(vm, object, "lineno", "excepthandler")?;
     let start_column = get_int_field(vm, object, "col_offset", "excepthandler")?;
     let end_row = get_opt_int_field(vm, object, "end_lineno")?.unwrap_or(start_row);
     let end_column = get_opt_int_field(vm, object, "end_col_offset")?.unwrap_or(start_column);
 
     let location = PySourceRange {
-        start: PySourceLocation {
-            row: Row(if start_row > 0 {
+        start: SourceLocation {
+            line: if start_row > 0 {
                 OneIndexed::new(start_row as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(start_column.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(start_column.max(0) as usize),
         },
-        end: PySourceLocation {
-            row: Row(if end_row > 0 {
+        end: SourceLocation {
+            line: if end_row > 0 {
                 OneIndexed::new(end_row as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(end_column.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(end_column.max(0) as usize),
         },
     };
 
-    Ok(source_range_to_text_range_unvalidated(
-        source_file,
-        location,
-    ))
+    source_file.register(
+        vm,
+        source_range_to_text_range(source_file, location),
+        Some(rustpython_compiler_core::SourceLocationRange {
+            line: start_row,
+            end_line: end_row,
+            col: start_column,
+            end_col: end_column,
+        }),
+    )
 }
 
 fn range_from_object_impl(
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
     object: &PyObject,
     name: &str,
     end_required: bool,
-) -> PyResult<TextRange> {
+) -> PyResult<AstNodeRange> {
     let start_row = get_int_field(vm, object, "lineno", name)?;
     let start_column = get_int_field(vm, object, "col_offset", name)?;
     let end_row = if end_required {
@@ -832,25 +781,34 @@ fn range_from_object_impl(
     }
 
     let location = PySourceRange {
-        start: PySourceLocation {
-            row: Row(if start_row_val > 0 {
+        start: SourceLocation {
+            line: if start_row_val > 0 {
                 OneIndexed::new(start_row_val as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(start_col_val.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(start_col_val.max(0) as usize),
         },
-        end: PySourceLocation {
-            row: Row(if end_row_val > 0 {
+        end: SourceLocation {
+            line: if end_row_val > 0 {
                 OneIndexed::new(end_row_val as usize).unwrap_or(OneIndexed::MIN)
             } else {
                 OneIndexed::MIN
-            }),
-            column: Column(TextSize::new(end_col_val.max(0) as u32)),
+            },
+            character_offset: OneIndexed::from_zero_indexed(end_col_val.max(0) as usize),
         },
     };
 
-    Ok(source_range_to_text_range(source_file, location))
+    source_file.register(
+        vm,
+        source_range_to_text_range(source_file, location),
+        Some(rustpython_compiler_core::SourceLocationRange {
+            line: start_row,
+            end_line: end_row,
+            col: start_column,
+            end_col: end_column,
+        }),
+    )
 }
 
 fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange) -> TextRange {
@@ -861,46 +819,33 @@ fn source_range_to_text_range(source_file: &SourceFile, location: PySourceRange)
         return TextRange::new(TextSize::new(0), TextSize::new(0));
     }
 
-    let start = index.offset(
-        location.start.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-    let end = index.offset(
-        location.end.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
+    let start = index.offset(location.start, source, PositionEncoding::Utf8);
+    let end = index.offset(location.end, source, PositionEncoding::Utf8);
 
-    TextRange::new(start, end)
+    // Navigation is allowed to collapse normalized coordinates; semantic
+    // signed coordinates remain in AstSourceContext.
+    TextRange::new(start, end.max(start))
 }
 
-fn source_range_to_text_range_unvalidated(
-    source_file: &SourceFile,
-    location: PySourceRange,
-) -> TextRange {
-    let index = LineIndex::from_source_text(source_file.clone().source_text());
-    let source = &source_file.source_text();
-
-    if source.is_empty() {
-        return TextRange::new(TextSize::new(0), TextSize::new(0));
-    }
-
-    let start = index.offset(
-        location.start.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-    let end = index.offset(
-        location.end.to_source_location(),
-        source,
-        PositionEncoding::Utf8,
-    );
-
-    if start <= end {
-        TextRange::new(start, end)
+fn node_add_location_for_node(
+    dict: &Py<PyDict>,
+    range: TextRange,
+    vm: &VirtualMachine,
+    source_file: &AstSourceContext,
+    node_index: ast::NodeIndex,
+) {
+    if let Some(location) = source_file.location(node_index) {
+        for (field, value) in [
+            ("lineno", location.line),
+            ("end_lineno", location.end_line),
+            ("col_offset", location.col),
+            ("end_col_offset", location.end_col),
+        ] {
+            dict.set_item(field, vm.ctx.new_int(value).into(), vm)
+                .unwrap();
+        }
     } else {
-        TextRange::empty(start)
+        node_add_location(dict, range, vm, source_file);
     }
 }
 
@@ -908,22 +853,30 @@ fn node_add_location(
     dict: &Py<PyDict>,
     range: TextRange,
     vm: &VirtualMachine,
-    source_file: &SourceFile,
+    source_file: &AstSourceContext,
 ) {
     let range = text_range_to_source_range(source_file, range);
-    dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
+    dict.set_item("lineno", vm.ctx.new_int(range.start.line.get()).into(), vm)
         .unwrap();
     dict.set_item(
         "col_offset",
-        vm.ctx.new_int(range.start.column.get()).into(),
+        vm.ctx
+            .new_int(range.start.character_offset.to_zero_indexed())
+            .into(),
         vm,
     )
     .unwrap();
-    dict.set_item("end_lineno", vm.ctx.new_int(range.end.row.get()).into(), vm)
-        .unwrap();
+    dict.set_item(
+        "end_lineno",
+        vm.ctx.new_int(range.end.line.get()).into(),
+        vm,
+    )
+    .unwrap();
     dict.set_item(
         "end_col_offset",
-        vm.ctx.new_int(range.end.column.get()).into(),
+        vm.ctx
+            .new_int(range.end.character_offset.to_zero_indexed())
+            .into(),
         vm,
     )
     .unwrap();
@@ -1024,8 +977,8 @@ fn type_comment_parse_error(
     ParseError {
         error: parser::ParseErrorType::OtherError(message.to_owned()),
         raw_location: range,
-        location: source_range.start.to_source_location(),
-        end_location: source_range.end.to_source_location(),
+        location: source_range.start,
+        end_location: source_range.end,
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
         is_unclosed_string: false,
@@ -1754,8 +1707,8 @@ fn ipython_escape_command_syntax_error(
         ParseError {
             error: parser::ParseErrorType::OtherError("invalid syntax".to_owned()),
             raw_location: range,
-            location: source_range.start.to_source_location(),
-            end_location: source_range.end.to_source_location(),
+            location: source_range.start,
+            end_location: source_range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -1838,8 +1791,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(CompileError::from(ParseError {
             error: parse_error.error,
             raw_location: parse_error.location,
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
+            location: range.start,
+            end_location: range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -1868,8 +1821,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         return Err(CompileError::from(ParseError {
             error: parser::ParseErrorType::OtherError(error.to_string()),
             raw_location: error.range(),
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
+            location: range.start,
+            end_location: range.end,
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
@@ -1958,7 +1911,8 @@ pub(crate) fn parse<E: From<CompileError>>(
         }),
         ast::Mod::Expression(e) => Mod::Expression(e),
     };
-    let obj = top.ast_to_object(vm, &source_file);
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let obj = top.ast_to_object(vm, &ast_context);
     if let Some(lines) = &type_comment_source
         && obj.class().is(pyast::NodeModModule::static_type())
     {
@@ -2051,8 +2005,8 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
-                location: range.start.to_source_location(),
-                end_location: range.end.to_source_location(),
+                location: range.start,
+                end_location: range.end,
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
@@ -2086,8 +2040,8 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             CompileError::from(ParseError {
                 error: parse_error.error,
                 raw_location: parse_error.location,
-                location: range.start.to_source_location(),
-                end_location: range.end.to_source_location(),
+                location: range.start,
+                end_location: range.end,
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
@@ -2149,7 +2103,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
         runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new(filename.to_owned(), source.to_owned()).finish();
-    Ok(func_type.ast_to_object(vm, &source_file))
+    Ok(func_type.ast_to_object(vm, &AstSourceContext::new(source_file)))
 }
 
 fn type_ignores_from_source(
@@ -2417,6 +2371,43 @@ fn number_to_complex(number: &ast::Number) -> Option<(f64, f64, bool)> {
 }
 
 #[cfg(feature = "codegen")]
+fn ast_location_exception(
+    vm: &VirtualMachine,
+    error: rustpython_compiler_core::AstLocationError,
+) -> crate::builtins::PyBaseExceptionRef {
+    use rustpython_compiler_core::AstLocationError;
+    match error {
+        AstLocationError::ExhaustedNodeIdentities => {
+            vm.new_memory_error("too many AST location identities")
+        }
+        AstLocationError::ConflictingLocation => {
+            vm.new_system_error("conflicting AST location identity")
+        }
+        AstLocationError::CoordinateOverflow => {
+            vm.new_value_error("AST location coordinate overflow")
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+pub(crate) fn codegen_exception(
+    vm: &VirtualMachine,
+    error: codegen::error::CodegenError,
+    source: Option<&str>,
+) -> crate::builtins::PyBaseExceptionRef {
+    match error.error {
+        codegen::error::CodegenErrorType::AstLocation(error) => {
+            return ast_location_exception(vm, error);
+        }
+        codegen::error::CodegenErrorType::MixedAstLocationProvenance => {
+            return vm.new_system_error("mixed AST location provenance");
+        }
+        _ => {}
+    }
+    vm.new_syntax_error(&error.into(), source)
+}
+
+#[cfg(feature = "codegen")]
 pub(crate) fn preprocess_ast_object(
     vm: &VirtualMachine,
     object: PyObjectRef,
@@ -2428,7 +2419,8 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
 
@@ -2441,12 +2433,17 @@ pub(crate) fn preprocess_ast_object(
                 })?;
             let future_annotations = explicit_future_annotations
                 || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-            codegen::preprocess::preprocess_mod(
-                &mut ast,
-                optimize,
-                future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_mod_with_locations(
+                        &mut ast,
+                        optimize,
+                        future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             let ast::Mod::Module(processed_module) = ast else {
                 unreachable!();
             };
@@ -2462,22 +2459,32 @@ pub(crate) fn preprocess_ast_object(
             })?;
             let future_annotations = explicit_future_annotations
                 || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-            codegen::preprocess::preprocess_statements(
-                &mut interactive.body,
-                optimize,
-                future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_statements_with_locations(
+                        &mut interactive.body,
+                        optimize,
+                        future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             Mod::Interactive(interactive)
         }
         Mod::Expression(expression) => {
             let mut ast = ast::Mod::Expression(expression);
-            codegen::preprocess::preprocess_mod(
-                &mut ast,
-                optimize,
-                explicit_future_annotations,
-                syntax_check_only,
-            );
+            ast_context
+                .preprocess_locations(|locations| {
+                    codegen::preprocess::preprocess_mod_with_locations(
+                        &mut ast,
+                        optimize,
+                        explicit_future_annotations,
+                        syntax_check_only,
+                        locations,
+                    )
+                })
+                .map_err(|error| ast_location_exception(vm, error))?;
             let ast::Mod::Expression(expression) = ast else {
                 unreachable!();
             };
@@ -2485,7 +2492,7 @@ pub(crate) fn preprocess_ast_object(
         }
         Mod::FunctionType(function_type) => Mod::FunctionType(function_type),
     };
-    let result = ast.ast_to_object(vm, &source_file);
+    let result = ast.ast_to_object(vm, &ast_context);
     copy_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
 }
@@ -2494,6 +2501,7 @@ pub(crate) fn preprocess_ast_object(
 pub(crate) struct RustModFromObject {
     pub ast: ast::Mod,
     pub source_file: SourceFile,
+    pub locations: Option<rustpython_compiler_core::AstLocations>,
 }
 
 #[cfg(feature = "codegen")]
@@ -2511,7 +2519,8 @@ pub(crate) fn rust_mod_from_object(
     }
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2526,7 +2535,11 @@ pub(crate) fn rust_mod_from_object(
             return Err(vm.new_runtime_error("this compiler does not handle FunctionTypes"));
         }
     };
-    Ok(RustModFromObject { ast, source_file })
+    Ok(RustModFromObject {
+        ast,
+        source_file,
+        locations: ast_context.take_locations(),
+    })
 }
 
 #[cfg(feature = "codegen")]
@@ -2542,7 +2555,8 @@ pub(crate) fn compile(
     let _ = module;
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file);
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2560,6 +2574,11 @@ pub(crate) fn compile(
     opts.future_features |= codegen::preprocess::future_features(&ast);
     let source = text.clone();
     let source_file = SourceFileBuilder::new(filename, text).finish();
+    let input = codegen::compile::AstInput {
+        ast,
+        source_file,
+        locations: ast_context.take_locations(),
+    };
     #[cfg(feature = "parser")]
     let code = {
         let source_path = filename.to_owned();
@@ -2597,9 +2616,8 @@ pub(crate) fn compile(
                 marker
             })
         };
-        let result = codegen::compile::compile_top_with_syntax_warning_handler(
-            ast,
-            source_file,
+        let result = codegen::compile::compile_ast_with_syntax_warning_handler(
+            input,
             mode,
             opts,
             Some(&mut syntax_warning_handler),
@@ -2612,15 +2630,16 @@ pub(crate) fn compile(
         }
     };
     #[cfg(not(feature = "parser"))]
-    let code = codegen::compile::compile_top(ast, source_file, mode, opts);
-    let code = code.map_err(|err| vm.new_syntax_error(&err.into(), Some(source.as_str())))?;
+    let code = codegen::compile::compile_ast_with_syntax_warning_handler(input, mode, opts, None);
+    let code = code.map_err(|err| codegen_exception(vm, err, Some(source.as_str())))?;
     Ok(crate::builtins::PyCode::new_ref_from_bytecode(vm, code).into())
 }
 
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let ast = Node::ast_from_object(vm, &source_file, object)?;
+    let ast_context = AstSourceContext::new(source_file.clone());
+    let ast = Node::ast_from_object(vm, &ast_context, object)?;
     validate::validate_mod(vm, &ast)?;
     Ok(())
 }
