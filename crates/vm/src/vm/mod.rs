@@ -886,6 +886,8 @@ pub struct PyGlobalState {
     pub global_profile_func: PyMutex<Option<PyObjectRef>>,
     /// Global type mutation/versioning mutex for CPython-style FT type operations.
     pub type_mutex: PyMutex<()>,
+    /// Object-owned descriptors shared by heap types in this interpreter.
+    pub(crate) common_type_descriptors: builtins::type_::CommonTypeDescriptors,
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
