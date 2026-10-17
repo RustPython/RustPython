@@ -145,10 +145,16 @@ impl CompilationSource {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
+                // Without symlink support git checks a symlink out as a text file
+                // holding its target, which is relative to the file's own directory.
                 if cfg!(windows)
-                    && let Ok(real_path) = fs::read_to_string(path.canonicalize().unwrap())
+                    && let Ok(target) = fs::read_to_string(path)
                 {
-                    return fs::read_dir(real_path.trim());
+                    let target_dir = path
+                        .parent()
+                        .unwrap_or_else(|| Path::new(""))
+                        .join(target.trim());
+                    return fs::read_dir(target_dir);
                 }
                 Err(e)
             })
