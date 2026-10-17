@@ -316,10 +316,10 @@ fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str) -> String {
         if Path::new(prefix).join(&landmark).is_dir() {
             return prefix.to_owned();
         }
-        if let Some(dir) = exe_dir {
-            if let Some(exec_prefix) = search_up_dir(dir, &[&landmark]) {
-                return exec_prefix.to_string_lossy().into_owned();
-            }
+        if let Some(dir) = exe_dir
+            && let Some(exec_prefix) = search_up_dir(dir, &[&landmark])
+        {
+            return exec_prefix.to_string_lossy().into_owned();
         }
         // Fallback: same as prefix
         prefix.to_owned()
