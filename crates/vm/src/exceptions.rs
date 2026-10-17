@@ -115,10 +115,10 @@ impl VirtualMachine {
     /// PyErr_Print
     ///
     /// Record the exception as `sys.last_exc` and display it through
-    /// `sys.excepthook`. A `SystemExit` that should end the process is returned
-    /// instead, and the caller exits with it.
-    pub fn print_uncaught_exception(&self, exc: &Py<PyBaseException>) -> PyResult<()> {
-        self.handle_system_exit(exc)?;
+    /// `sys.excepthook`. A `SystemExit` exits the process unless inspect mode
+    /// is enabled.
+    pub fn print_uncaught_exception(&self, exc: &Py<PyBaseException>) {
+        self.handle_system_exit(exc);
         let (exc_type, exc_val, exc_tb) = self.split_exception(exc.to_owned());
         for (name, value) in [
             ("last_exc", &exc_val),
@@ -138,7 +138,7 @@ impl VirtualMachine {
             )
         }) {
             if audit_exc.fast_isinstance(self.ctx.exceptions.runtime_error) {
-                return Ok(());
+                return;
             }
             self.run_unraisable(
                 audit_exc,
@@ -148,25 +148,20 @@ impl VirtualMachine {
         }
         if let Some(hook) = hook {
             if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
-                self.handle_system_exit(&hook_exc)?;
+                self.handle_system_exit(&hook_exc);
                 self.write_exception_fallback(&hook_exc, "Error in sys.excepthook:");
                 self.write_exception_fallback(exc, "\nOriginal exception was:");
             }
         } else {
             self.write_exception_fallback(exc, "sys.excepthook is missing");
         }
-        Ok(())
     }
 
-    /// handle_system_exit, except that the caller performs `Py_Exit()` with
-    /// the returned `SystemExit`.
-    fn handle_system_exit(&self, exc: &Py<PyBaseException>) -> PyResult<()> {
-        if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            crate::signal::set_unhandled_keyboard_interrupt();
-        } else if !self.config_inspect() && exc.fast_isinstance(self.ctx.exceptions.system_exit) {
-            return Err(exc.to_owned());
+    /// handle_system_exit
+    fn handle_system_exit(&self, exc: &Py<PyBaseException>) {
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(exc) {
+            self.exit_process(exit_code);
         }
-        Ok(())
     }
 
     fn write_exception_fallback(&self, exc: &Py<PyBaseException>, heading: &str) {

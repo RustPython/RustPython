@@ -3931,12 +3931,8 @@ impl VirtualMachine {
         if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(&exc) {
             return exit_code;
         }
-        match self.print_uncaught_exception(&exc) {
-            Ok(()) => 1,
-            Err(exc) => self
-                .handle_system_exit_and_keyboard_interrupt(&exc)
-                .unwrap_or(1),
-        }
+        self.print_uncaught_exception(&exc);
+        1
     }
 
     /// _Py_HandleSystemExitAndKeyboardInterrupt

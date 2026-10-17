@@ -376,25 +376,24 @@ fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
     let result = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_string(scope.clone(), &command, "<string>")
-                .map(|_| 0)
+            vm.run_string(scope, &command, "<string>").map(|_| 0)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");
             vm.run_module(&module).map(|()| 0)
         }
-        RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm).map(|()| 0),
+        RunMode::InstallPip(installer) => install_pip(installer, scope, vm).map(|()| 0),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
             debug!("Running script {script_path}");
-            run_file(vm, scope.clone(), &script_path)
+            run_file(vm, scope, &script_path)
         }
-        RunMode::Repl => Ok(pymain_run_stdin(vm, scope.clone())),
+        RunMode::Repl => Ok(pymain_run_stdin(vm, scope)),
     };
     let mut exitcode = result.unwrap_or_else(|exc| vm.handle_exit_exception(exc));
     vm.check_signals()?;
 
-    pymain_repl(vm, scope, !is_repl, &mut exitcode);
+    pymain_repl(vm, !is_repl, &mut exitcode);
     Ok(exitcode)
 }
 
@@ -405,9 +404,8 @@ fn pymain_err_print(vm: &VirtualMachine, exc: PyBaseExceptionRef) -> Option<u32>
     if let Some(exitcode) = vm.handle_system_exit_and_keyboard_interrupt(&exc) {
         return Some(exitcode);
     }
-    vm.print_uncaught_exception(&exc)
-        .err()
-        .map(|exc| vm.handle_exit_exception(exc))
+    vm.print_uncaught_exception(&exc);
+    None
 }
 
 // pymain_set_inspect
@@ -485,18 +483,18 @@ fn pymain_run_stdin(vm: &VirtualMachine, scope: Scope) -> u32 {
         // do exit on SystemExit
         pymain_set_inspect(vm, false);
 
-        if let Some(exitcode) = pymain_run_startup(vm, scope.clone()) {
+        if let Some(exitcode) = pymain_run_startup(vm, scope) {
             return exitcode;
         }
         if let Some(exitcode) = pymain_run_interactive_hook(vm) {
             return exitcode;
         }
     }
-    pymain_run_repl(vm, scope, false)
+    pymain_run_repl(vm, false)
 }
 
 // pymain_repl
-fn pymain_repl(vm: &VirtualMachine, scope: Scope, run_code: bool, exitcode: &mut u32) {
+fn pymain_repl(vm: &VirtualMachine, run_code: bool, exitcode: &mut u32) {
     // Check this environment variable at the end, to give programs the
     // opportunity to set it from Python.
     if !vm.config_inspect()
@@ -516,15 +514,15 @@ fn pymain_repl(vm: &VirtualMachine, scope: Scope, run_code: bool, exitcode: &mut
         return;
     }
 
-    *exitcode = pymain_run_repl(vm, scope, true);
+    *exitcode = pymain_run_repl(vm, true);
 }
 
 // _pymain_run_repl
-fn pymain_run_repl(vm: &VirtualMachine, scope: Scope, startup: bool) -> u32 {
-    run_repl(vm, scope, startup).unwrap_or_else(|exc| vm.handle_exit_exception(exc))
+fn pymain_run_repl(vm: &VirtualMachine, startup: bool) -> u32 {
+    run_repl(vm, startup).unwrap_or_else(|exc| vm.handle_exit_exception(exc))
 }
 
-fn run_repl(vm: &VirtualMachine, scope: Scope, startup: bool) -> PyResult<u32> {
+fn run_repl(vm: &VirtualMachine, startup: bool) -> PyResult<u32> {
     vm.check_signals()?;
     vm.audit("cpython.run_stdin", || ())?;
 
@@ -544,11 +542,7 @@ fn run_repl(vm: &VirtualMachine, scope: Scope, startup: bool) -> PyResult<u32> {
     }
 
     // _PyRun_AnyFile(stdin, "<stdin>")
-    if tty {
-        shell::run_shell(vm, scope)?;
-    } else {
-        vm.run_any_stdin()?;
-    }
+    vm.run_any_stdin()?;
     Ok(0)
 }
 

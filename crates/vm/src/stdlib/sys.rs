@@ -760,12 +760,11 @@ pub mod sys {
 
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
-    fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
+    fn _baserepl(vm: &VirtualMachine) {
         // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
         if let Err(exc) = vm.run_any_stdin() {
-            vm.print_uncaught_exception(&exc)?;
+            vm.print_uncaught_exception(&exc);
         }
-        Ok(())
     }
 
     #[pyfunction]

@@ -696,93 +696,112 @@ impl Interpreter {
 
     fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
         let exit_code = self.enter(|vm| {
-            let mut flush_status = vm.flush_std();
+            let flush_status = vm.flush_std();
 
             // See if any exception leaked out:
             let exit_code = exit_code(vm);
 
-            // Wait for thread shutdown - call threading._shutdown() if available.
-            // This waits for all non-daemon threads to complete.
-            // threading module may not be imported, so ignore import errors.
-            #[cfg(feature = "threading")]
-            if let Ok(threading) = vm.import("threading", 0)
-                && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
-                && let Err(e) = shutdown.call((), vm)
-            {
-                vm.run_unraisable(
-                    e,
-                    Some("Exception ignored in threading shutdown".to_owned()),
-                    threading,
-                );
-            }
-
-            // Run atexit handlers before setting finalizing flag.
-            // This allows unraisable exceptions from atexit handlers to be reported.
-            atexit::_run_exitfuncs(vm);
-
-            // Clean up any lingering subinterpreters. This has to happen before
-            // the finalizing flag is set, or else threads might get prematurely
-            // blocked.
-            #[cfg(feature = "threading")]
-            finalize_subinterpreters(vm);
-
-            // Remaining daemon threads hang in `_PyThreadState_HangThread` when
-            // they next attach (or at the eval-breaker if they are already
-            // running). Their `_ThreadHandle` stays not-done so `is_alive()`
-            // is still true for `join()` during the GC that follows.
-            #[cfg(feature = "threading")]
-            {
-                vm.state.stop_the_world.stop_the_world(&vm.state);
-                vm.state
-                    .finalizing_thread_ident
-                    .store(crate::stdlib::_thread::get_ident());
-            }
-            vm.state.finalizing.store(true, Ordering::Release);
-            #[cfg(feature = "threading")]
-            {
-                thread::set_other_threads_shutting_down(&vm.state);
-                vm.state.stop_the_world.start_the_world(&vm.state);
-                crate::signal::set_finalizing_bit();
-            }
-
-            // GC pass - collect cycles before module cleanup
-            vm.state.gc.collect_force(2);
-
-            // Module finalization: remove modules from sys.modules, GC collect
-            // (while builtins is still available for __del__), then clear module dicts.
-            vm.finalize_modules();
-
-            // CPython clears low-level cross-interpreter container data from
-            // _PyAtExit_Fini(), after Python atexit callbacks and module
-            // finalization.  In particular, values sent by an atexit callback
-            // must also become unbound when this interpreter goes away.
-            let interpreter_id = vm.state.interpreter_id;
-            crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
-            crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
-
-            if vm.flush_std() < 0 && flush_status == 0 {
-                flush_status = -1;
-            }
-
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            let exit_code = if exit_code == 0 && flush_status < 0 {
+            if vm.finalize_ex(flush_status) < 0 && exit_code == 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
-            };
-
-            // Daemon threads may still exist, so use the safe `process()`,
-            // not `drain_all()`.
-            #[cfg(feature = "threading")]
-            crate::object::qsbr::QSBR.process();
-
-            exit_code
+            }
         });
         if crate::signal::unhandled_keyboard_interrupt() {
             crate::signal::exit_sigint()
         } else {
             exit_code
         }
+    }
+}
+
+impl VirtualMachine {
+    /// Py_Exit
+    ///
+    /// Finalize the interpreter and exit the process with `status`.
+    pub fn exit_process(&self, status: u32) -> ! {
+        let status = if self.finalize_ex(self.flush_std()) < 0 {
+            EXITCODE_FLUSH_FAILURE
+        } else {
+            status
+        };
+        crate::host_env::os::exit_with_cleanup(status as i32)
+    }
+
+    /// The steps of Py_FinalizeEx after the first flush of stdout and stderr.
+    /// Return a negative value if any flush failed.
+    fn finalize_ex(&self, mut flush_status: i32) -> i32 {
+        let vm = self;
+        // Wait for thread shutdown - call threading._shutdown() if available.
+        // This waits for all non-daemon threads to complete.
+        // threading module may not be imported, so ignore import errors.
+        #[cfg(feature = "threading")]
+        if let Ok(threading) = vm.import("threading", 0)
+            && let Ok(shutdown) = threading.get_attr("_shutdown", vm)
+            && let Err(e) = shutdown.call((), vm)
+        {
+            vm.run_unraisable(
+                e,
+                Some("Exception ignored in threading shutdown".to_owned()),
+                threading,
+            );
+        }
+
+        // Run atexit handlers before setting finalizing flag.
+        // This allows unraisable exceptions from atexit handlers to be reported.
+        atexit::_run_exitfuncs(vm);
+
+        // Clean up any lingering subinterpreters. This has to happen before
+        // the finalizing flag is set, or else threads might get prematurely
+        // blocked.
+        #[cfg(feature = "threading")]
+        finalize_subinterpreters(vm);
+
+        // Remaining daemon threads hang in `_PyThreadState_HangThread` when
+        // they next attach (or at the eval-breaker if they are already
+        // running). Their `_ThreadHandle` stays not-done so `is_alive()`
+        // is still true for `join()` during the GC that follows.
+        #[cfg(feature = "threading")]
+        {
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            vm.state
+                .finalizing_thread_ident
+                .store(crate::stdlib::_thread::get_ident());
+        }
+        vm.state.finalizing.store(true, Ordering::Release);
+        #[cfg(feature = "threading")]
+        {
+            thread::set_other_threads_shutting_down(&vm.state);
+            vm.state.stop_the_world.start_the_world(&vm.state);
+            crate::signal::set_finalizing_bit();
+        }
+
+        // GC pass - collect cycles before module cleanup
+        vm.state.gc.collect_force(2);
+
+        // Module finalization: remove modules from sys.modules, GC collect
+        // (while builtins is still available for __del__), then clear module dicts.
+        vm.finalize_modules();
+
+        // CPython clears low-level cross-interpreter container data from
+        // _PyAtExit_Fini(), after Python atexit callbacks and module
+        // finalization.  In particular, values sent by an atexit callback
+        // must also become unbound when this interpreter goes away.
+        let interpreter_id = vm.state.interpreter_id;
+        crate::stdlib::_interpchannels::clear_interpreter(interpreter_id);
+        crate::stdlib::_interpqueues::clear_interpreter(interpreter_id);
+
+        if vm.flush_std() < 0 && flush_status == 0 {
+            flush_status = -1;
+        }
+
+        // Daemon threads may still exist, so use the safe `process()`,
+        // not `drain_all()`.
+        #[cfg(feature = "threading")]
+        crate::object::qsbr::QSBR.process();
+
+        flush_status
     }
 }
 

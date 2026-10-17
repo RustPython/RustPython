@@ -519,6 +519,12 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
     }
 }
 
+/// Terminate the process through the C `exit()`, which runs the C atexit
+/// handlers and flushes C stdio.
+pub fn exit_with_cleanup(code: i32) -> ! {
+    std::process::exit(code)
+}
+
 pub fn exit(code: i32) -> ! {
     // These callers require immediate termination without C exit handlers.
     cfg_select! {
