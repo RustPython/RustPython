@@ -4,7 +4,9 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,8 +20,14 @@ from update_lib.cmd_migrate import (
     EXCEPTION_LOOP,
     JIT_ERROR,
     LOCAL_CALL,
+    LOCK_SKIP,
+    LOCK_SPECIALIZATION,
+    MULTIPHASE_LOCAL,
+    MULTIPHASE_UPSTREAM,
     SYSCONFIG_LOCAL,
     SYSCONFIG_UPSTREAM,
+    TYPES_DATETIME_GUARD,
+    TYPES_UNITTEST_IMPORT,
     copy_support_assignments,
     main,
     migrate_package,
@@ -27,6 +35,7 @@ from update_lib.cmd_migrate import (
     patch_file,
     patch_single_content,
     preserve_migration_customizations,
+    remove_canonical_files,
 )
 from update_lib.patch_spec import (
     CANONICAL_LOAD_TESTS,
@@ -711,6 +720,17 @@ class TestFoo(unittest.TestCase):
 class TestPatchDirectory(unittest.TestCase):
     """Tests for patch_directory function."""
 
+    def test_empty_canonical_fixture_stays_byte_empty(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / "canonical", Path(temporary) / "local"
+            source.mkdir()
+            target.mkdir()
+            (source / "empty.py").write_bytes(b"")
+            (target / "empty.py").write_bytes(b"\n")
+            for _ in range(2):
+                patch_directory(source, target, verbose=False)
+                self.assertEqual((target / "empty.py").read_bytes(), b"")
+
     def test_excludes_cache_directories_but_preserves_canonical_assets(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -1280,6 +1300,363 @@ class TestMigratePackage(unittest.TestCase):
     def test_unmarked_syntax_error_prevents_all_writes(self):
         (self.src / "broken.py").write_text("class :\n")
         self.assert_rejected()
+
+
+class TestCanonicalRemovals(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.source = self.root / "canonical/Lib/test/test_example"
+        self.target = self.root / "local/Lib/test/test_example"
+        self.source.mkdir(parents=True)
+        self.target.mkdir(parents=True)
+        (self.source / "__init__.py").write_bytes(b"")
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.git("commit", "-qm", "canonical test fixture")
+        self.document = {
+            "source": {
+                "path": "Lib/test/test_example",
+                "commit": self.git("rev-parse", "HEAD"),
+                "tree": self.git("rev-parse", "HEAD:Lib/test/test_example"),
+            },
+            "removals": {},
+        }
+        for name, data in (("a.py", b"old\n"), ("data/z.bin", b"\x00\xff")):
+            path = self.target / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(data)
+            self.document["removals"][name] = {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "upstream_commit": "1" * 40,
+            }
+        self.manifest = self.root / "removals.json"
+
+    def git(self, *args):
+        return subprocess.check_output(
+            ["git", "-C", str(self.source.parents[2]), *args],
+            env={
+                **os.environ,
+                "GIT_AUTHOR_NAME": "Fixture",
+                "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+                "GIT_COMMITTER_NAME": "Fixture",
+                "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+            },
+            text=True,
+        ).strip()
+
+    def run_removal(self, dry_run=False):
+        self.manifest.write_text(json.dumps(self.document))
+        with (
+            contextlib.chdir(self.target.parents[2]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            return remove_canonical_files(self.source, self.manifest, dry_run=dry_run)
+
+    def test_dry_run_explicit_scope_receipt_and_idempotence(self):
+        (self.target / "unselected").write_text("keep")
+        for dry_run, expected in (
+            (True, "would_remove"),
+            (False, "removed"),
+            (False, "already_absent"),
+        ):
+            receipt = self.run_removal(dry_run)
+            self.assertEqual(receipt["source"], self.document["source"])
+            self.assertEqual(
+                {v["status"] for v in receipt["removals"].values()}, {expected}
+            )
+            self.assertEqual((self.target / "a.py").exists(), dry_run)
+            self.assertEqual((self.target / "unselected").read_text(), "keep")
+
+    def test_junction_components_reject_the_whole_batch(self):
+        before = {
+            name: (self.target / name).read_bytes()
+            for name in self.document["removals"]
+        }
+        for junction in (
+            self.source,
+            self.source.parent,
+            self.source / "data",
+            self.target,
+            self.target.parent,
+            self.target / "data",
+        ):
+            for dry_run in (True, False):
+                with self.subTest(junction=junction, dry_run=dry_run):
+                    self.assertFalse(junction.is_symlink())
+                    with (
+                        patch.object(
+                            Path,
+                            "is_junction",
+                            autospec=True,
+                            side_effect=lambda path: path == junction,
+                        ),
+                        self.assertRaisesRegex(ValueError, "[Jj]unction"),
+                    ):
+                        self.run_removal(dry_run)
+                    self.assertEqual(
+                        {name: (self.target / name).read_bytes() for name in before},
+                        before,
+                    )
+
+    def test_junction_revalidation_prevents_partial_removal(self):
+        for junction in (self.target / "data", self.source / "data"):
+            checks = 0
+
+            def becomes_junction(path):
+                nonlocal checks
+                if path == junction:
+                    checks += 1
+                    return checks > 1
+                return False
+
+            with self.subTest(junction=junction):
+                with (
+                    patch.object(
+                        Path, "is_junction", autospec=True, side_effect=becomes_junction
+                    ),
+                    self.assertRaisesRegex(ValueError, "[Jj]unction"),
+                ):
+                    self.run_removal()
+                self.assertEqual(checks, 2)
+                self.assertEqual((self.target / "a.py").read_bytes(), b"old\n")
+                self.assertEqual((self.target / "data/z.bin").read_bytes(), b"\x00\xff")
+
+    def test_utf8_manifest_ignores_non_utf8_default_encoding(self):
+        name = "caf\u00e9.py"
+        target = self.target / name
+        target.write_bytes(b"old\n")
+        self.document["removals"][name] = dict(self.document["removals"]["a.py"])
+        self.manifest.write_bytes(
+            json.dumps(self.document, ensure_ascii=False).encode("utf-8")
+        )
+        with (
+            patch(
+                "pathlib.io.text_encoding",
+                side_effect=lambda encoding, *args: (
+                    "latin-1" if encoding is None else encoding
+                ),
+            ),
+            contextlib.chdir(self.target.parents[2]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertNotEqual(
+                self.manifest.read_text(), self.manifest.read_text(encoding="utf-8")
+            )
+            for dry_run, expected in (
+                (True, "would_remove"),
+                (False, "removed"),
+                (False, "already_absent"),
+            ):
+                receipt = remove_canonical_files(
+                    self.source, self.manifest, dry_run=dry_run
+                )
+                self.assertEqual(
+                    set(receipt["removals"]), set(self.document["removals"])
+                )
+                self.assertEqual(receipt["removals"][name]["status"], expected)
+                self.assertEqual(target.exists(), dry_run)
+
+    def test_cli_dry_run_never_migrates_or_changes_destination_bytes(self):
+        def snapshot():
+            return {
+                p.relative_to(self.target): p.read_bytes()
+                for p in self.target.rglob("*")
+                if p.is_file()
+            }
+
+        before = snapshot()
+        self.manifest.write_text(json.dumps(self.document))
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(contextlib.chdir(self.target.parents[2]))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            for name in (
+                "patch_file",
+                "patch_directory",
+                "migrate_package",
+                "migrate_support_assignments",
+            ):
+                stack.enter_context(
+                    patch(
+                        f"update_lib.cmd_migrate.{name}",
+                        side_effect=AssertionError("Dry-run must not migrate"),
+                    )
+                )
+            self.assertEqual(
+                main(
+                    [
+                        str(self.source),
+                        "--canonical-removals",
+                        str(self.manifest),
+                        "--dry-run",
+                    ]
+                ),
+                0,
+            )
+        self.assertEqual(snapshot(), before)
+
+    def test_hash_customization_and_all_batch_preflight(self):
+        path = self.target / "data/z.bin"
+        for data, repin in ((b"changed", False), (b"# TODO: RUSTPYTHON", True)):
+            path.write_bytes(data)
+            if repin:
+                self.document["removals"]["data/z.bin"]["sha256"] = hashlib.sha256(
+                    data
+                ).hexdigest()
+            with self.assertRaises(ValueError):
+                self.run_removal()
+            self.assertEqual((self.target / "a.py").read_bytes(), b"old\n")
+
+    def test_canonical_source_identity_and_tracked_absence(self):
+        for key, value in (
+            ("commit", "0" * 40),
+            ("tree", "0" * 40),
+            ("path", "Lib/test/test_other"),
+        ):
+            old = self.document["source"][key]
+            self.document["source"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.run_removal()
+            self.document["source"][key] = old
+        (self.source / "__init__.py").unlink()
+        self.document["removals"]["__init__.py"] = self.document["removals"]["a.py"]
+        with self.assertRaisesRegex(ValueError, "still canonical"):
+            self.run_removal()
+        self.assertTrue((self.target / "a.py").exists())
+
+    def test_invalid_paths_symlinks_directories_and_empty_selection(self):
+        original = self.document["removals"]
+        for name in ("../a.py", "/a.py", "./a.py", "data//z.bin", "data\\z.bin"):
+            self.document["removals"] = {name: original["a.py"]}
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.run_removal()
+        self.document["removals"] = {}
+        with self.assertRaises(ValueError):
+            self.run_removal()
+        self.document["removals"] = original
+        target = self.target / "a.py"
+        target.unlink()
+        target.symlink_to(self.target / "data/z.bin")
+        with self.assertRaisesRegex(ValueError, "Symlink"):
+            self.run_removal()
+        target.unlink()
+        target.mkdir()
+        with self.assertRaisesRegex(ValueError, "regular file"):
+            self.run_removal()
+
+    def test_cli_refuses_combined_modes_and_duplicate_metadata(self):
+        for option in ("--patches", "--legacy-map", "--support-assignments"):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    main(
+                        [
+                            str(self.source),
+                            "--canonical-removals",
+                            "unused",
+                            option,
+                            "unused",
+                        ]
+                    ),
+                    1,
+                )
+        self.manifest.write_text('{"source": {}, "source": {}}')
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            remove_canonical_files(self.source, self.manifest)
+
+
+class TestImportlibGuardMigration(unittest.TestCase):
+    def test_exact_guards_preserved_and_changed_ambiguous_anchors_refused(self):
+        setup = "def setUpModule():\n    thread_info = threading_helper.threading_setup()\n    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)\n"
+        cases = (
+            ("util.py", MULTIPHASE_LOCAL, MULTIPHASE_UPSTREAM),
+            (
+                "test_locks.py",
+                "class LifetimeTests:\n    def test_all_locks(self): pass\n\n"
+                + LOCK_SPECIALIZATION
+                + "\n"
+                + LOCK_SKIP
+                + "\n"
+                + setup,
+                "class LifetimeTests:\n    def test_all_locks(self): pass\n\n"
+                + LOCK_SPECIALIZATION
+                + "\n\n"
+                + setup,
+            ),
+        )
+        for filename, old, new in cases:
+            path = Path("Lib/test/test_importlib") / filename
+            result = preserve_migration_customizations(path, old, new + "VALUE = 2\n")
+            self.assertEqual(result, old + "VALUE = 2\n")
+            self.assertEqual(
+                preserve_migration_customizations(path, result, new + "VALUE = 2\n"),
+                result,
+            )
+            for changed_old, changed_new in (
+                (old + old, new),
+                (old, new + new),
+                (old.replace("TODO: RUSTPYTHON", "changed"), new),
+                (
+                    old,
+                    "if True:\n"
+                    + "".join("    " + line for line in new.splitlines(keepends=True)),
+                ),
+            ):
+                with self.subTest(filename=filename), self.assertRaises(ValueError):
+                    preserve_migration_customizations(path, changed_old, changed_new)
+
+
+class TestTypesGuardMigration(unittest.TestCase):
+    path = Path("Lib/test/test_types.py")
+    old = (
+        "import copy\n"
+        + TYPES_DATETIME_GUARD
+        + "import gc\nimport unittest.mock\nimport typing\n\n"
+        + TYPES_UNITTEST_IMPORT
+        + "\nVALUE = 1\n"
+    )
+    new = (
+        "import copy\nimport _datetime\nimport gc\nimport unittest.mock\n"
+        "import typing\nimport re\n\nVALUE = 2\n"
+    )
+
+    def test_exact_guards_and_unrelated_canonical_changes_survive_idempotently(self):
+        expected = self.new.replace("import _datetime\n", TYPES_DATETIME_GUARD).replace(
+            "import typing\n", "import typing\n\n" + TYPES_UNITTEST_IMPORT
+        )
+        result = preserve_migration_customizations(self.path, self.old, self.new)
+        self.assertEqual(result, expected)
+        self.assertEqual(
+            preserve_migration_customizations(self.path, result, self.new), expected
+        )
+
+    def test_changed_ambiguous_or_misplaced_local_guards_are_refused(self):
+        for old in (
+            self.old.replace("except ImportError:", "except Exception:"),
+            self.old.replace("_datetime = None", "_datetime = False"),
+            self.old.replace("# XXX: RUSTPYTHON\n", "# changed\n"),
+            self.old.replace("importing to be able to skip tests", "changed reason"),
+            self.old + TYPES_DATETIME_GUARD,
+            self.old + "import _datetime\n",
+            self.old + TYPES_UNITTEST_IMPORT,
+            self.old.replace("import typing\n\n", "import typing\nVALUE = 3\n\n"),
+        ):
+            with self.subTest(old=old), self.assertRaises(ValueError):
+                preserve_migration_customizations(self.path, old, self.new)
+
+    def test_changed_ambiguous_or_nested_canonical_anchors_are_refused(self):
+        for new in (
+            self.new.replace("import _datetime", "import _datetime as other"),
+            self.new.replace("import _datetime\n", "if True:\n    import _datetime\n"),
+            self.new.replace("import _datetime\n", 'TEXT = "import _datetime\\n"\n'),
+            self.new.replace("import typing", "import typing as other"),
+            self.new.replace("import typing\n", "if True:\n    import typing\n"),
+            self.new + "import _datetime\n",
+            self.new + "import typing\n",
+            self.new + "import unittest\n",
+        ):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                preserve_migration_customizations(self.path, self.old, new)
 
 
 if __name__ == "__main__":
