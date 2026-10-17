@@ -99,6 +99,8 @@ fn next_func_version() -> u32 {
 unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
+        // Both fields own a reference, even when builtins aliases globals.
+        self.builtins.traverse(tracer_fn);
         if let Some(closure) = self.closure.as_ref() {
             // Visit the closure tuple itself as an edge, not its cells: the
             // tuple is a tracked object that can join a reference cycle, and
