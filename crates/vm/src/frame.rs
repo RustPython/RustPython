@@ -4667,9 +4667,12 @@ impl ExecutingFrame<'_> {
                     vm.ctx.empty_str.to_owned()
                 };
 
-                let expression = self.pop_value().downcast::<PyStr>().map_err(|_| {
-                    vm.new_type_error("BUILD_INTERPOLATION expected str for expression")
-                })?;
+                let expression = self.pop_value();
+                if !vm.is_none(&expression) && expression.downcast_ref::<PyStr>().is_none() {
+                    return Err(vm.new_type_error(
+                        "BUILD_INTERPOLATION expected str or None for expression",
+                    ));
+                }
                 let value = self.pop_value();
 
                 // conversion: 0=None, 1=Str, 2=Repr, 3=Ascii
