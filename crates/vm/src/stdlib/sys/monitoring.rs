@@ -842,6 +842,19 @@ fn fire(
     offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
+    fire_at(vm, event, code, offset, offset, cb_extra)
+}
+
+// The physical instruction owns DISABLE state; branch callback source offsets
+// can differ from that instruction when NOT_TAKEN follows a branch or wrapper.
+fn fire_at(
+    vm: &VirtualMachine,
+    event: MonitoringEvent,
+    code: &Py<PyCode>,
+    offset: u32,
+    source_offset: u32,
+    cb_extra: &[PyObjectRef],
+) -> PyResult<()> {
     // Prevent recursive event firing
     if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
         return Ok(());
@@ -867,7 +880,7 @@ fn fire(
         event,
         MonitoringEvent::BranchLeft | MonitoringEvent::BranchRight
     ) {
-        Some(branch_source_events(code, offset))
+        Some(branch_source_events(code, source_offset))
     } else {
         None
     };
@@ -897,22 +910,7 @@ fn fire(
                 if legacy_branch
                     && branch_source.as_ref().is_some_and(|events| {
                         !events.iter().any(|source_event| {
-                            (0..TOOL_LIMIT).any(|source_tool| {
-                                let active = state.global_events[source_tool]
-                                    | state
-                                        .local_events
-                                        .get(&(source_tool, code_id))
-                                        .copied()
-                                        .unwrap_or(0);
-                                state.tool_names[source_tool].is_some()
-                                    && active & source_event.mask() != 0
-                                    && !state.disabled.contains(&(
-                                        code_id,
-                                        offset as usize,
-                                        *source_event as usize,
-                                        source_tool,
-                                    ))
-                            })
+                            event_active_at(&state, code_id, source_offset, *source_event)
                         })
                     })
                 {
@@ -963,6 +961,36 @@ fn fire(
         }
     }
     Ok(())
+}
+
+fn event_active_at(
+    state: &MonitoringState,
+    code_id: usize,
+    offset: u32,
+    event: MonitoringEvent,
+) -> bool {
+    (0..TOOL_LIMIT).any(|tool| {
+        let active = state.global_events[tool]
+            | state
+                .local_events
+                .get(&(tool, code_id))
+                .copied()
+                .unwrap_or(0);
+        state.tool_names[tool].is_some()
+            && active & event.mask() != 0
+            && !state
+                .disabled
+                .contains(&(code_id, offset as usize, event as usize, tool))
+    })
+}
+
+pub(crate) fn is_event_active_at(
+    vm: &VirtualMachine,
+    code: &Py<PyCode>,
+    offset: u32,
+    event: MonitoringEvent,
+) -> bool {
+    event_active_at(&vm.state.monitoring.lock(), code.get_id(), offset, event)
 }
 
 // Model the source's instrumentation layers without changing its bytecode.
@@ -1295,13 +1323,15 @@ pub(crate) fn fire_jump(
 pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
+    site: u32,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
-    fire(
+    fire_at(
         vm,
         MonitoringEvent::BranchLeft,
         code,
+        site,
         offset,
         &[
             vm.ctx.new_int(offset).into(),

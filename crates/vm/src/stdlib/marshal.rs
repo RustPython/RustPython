@@ -344,7 +344,9 @@ mod decl {
                 write_float_str(buf, cv.re);
                 write_float_str(buf, cv.im);
             }
-        } else if let Some(s) = obj.downcast_ref::<PyStr>() {
+        } else if let Some(s) = obj.downcast_ref::<PyStr>()
+            && obj.class().is(PyStr::static_type())
+        {
             let bytes = s.as_wtf8().as_bytes();
             // Only the formats that carry back-references tell an interned
             // string apart, and only those from 4 on have the ascii-only forms.

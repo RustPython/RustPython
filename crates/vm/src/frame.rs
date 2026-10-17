@@ -8236,6 +8236,17 @@ impl ExecutingFrame<'_> {
         arg: bytecode::OpArg,
         vm: &VirtualMachine,
     ) -> FrameResult {
+        self.execute_instrumented_from(instruction, arg, false, vm)
+    }
+
+    #[cold]
+    fn execute_instrumented_from(
+        &mut self,
+        instruction: Instruction,
+        arg: bytecode::OpArg,
+        wrapper_dispatch: bool,
+        vm: &VirtualMachine,
+    ) -> FrameResult {
         debug_assert!(
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
@@ -8410,7 +8421,13 @@ impl ExecutingFrame<'_> {
                 if continued {
                     if self.monitoring_mask & MonitoringEvent::BranchLeft.mask() != 0 {
                         let dest_offset = (self.lasti() + 1) * 2; // after caches
-                        monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
+                        monitoring::fire_branch_left(
+                            vm,
+                            self.code,
+                            src_offset,
+                            src_offset,
+                            dest_offset,
+                        )?;
                     }
                 } else if self.monitoring_mask & MonitoringEvent::BranchRight.mask() != 0 {
                     // INSTRUMENTED_POP_ITER: dest is the instruction after
@@ -8517,9 +8534,14 @@ impl ExecutingFrame<'_> {
                     {
                         branch_idx -= 1;
                     }
-                    let src_offset = (branch_idx as u32) * 2;
+                    let site = not_taken_idx as u32 * 2;
+                    let src_offset = if wrapper_dispatch {
+                        site
+                    } else {
+                        (branch_idx as u32) * 2
+                    };
                     let dest_offset = self.lasti() * 2;
-                    monitoring::fire_branch_left(vm, self.code, src_offset, dest_offset)?;
+                    monitoring::fire_branch_left(vm, self.code, site, src_offset, dest_offset)?;
                 }
                 Ok(None)
             }
@@ -8572,6 +8594,17 @@ impl ExecutingFrame<'_> {
                     "INSTRUMENTED_LINE at {idx} without stored opcode"
                 );
 
+                let line_active =
+                    monitoring::is_event_active_at(vm, self.code, offset, MonitoringEvent::Line);
+                let instruction_active = also_instruction
+                    && monitoring::is_event_active_at(
+                        vm,
+                        self.code,
+                        offset,
+                        MonitoringEvent::Instruction,
+                    );
+                let wrapper_dispatch = line_active || instruction_active;
+
                 // Fire LINE event only if line changed
                 if let Some((loc, _)) = self.code.locations.get(idx) {
                     let line = loc.line.get() as u32;
@@ -8581,8 +8614,16 @@ impl ExecutingFrame<'_> {
                     }
                 }
 
-                // If the LINE position also had INSTRUCTION, fire that event too
-                if also_instruction {
+                // Removing the last LINE layer changes its saved opcode in CPython.
+                // That redispatch skips nested INSTRUCTION once, not on later visits.
+                let line_removed = line_active
+                    && !monitoring::is_event_active_at(
+                        vm,
+                        self.code,
+                        offset,
+                        MonitoringEvent::Line,
+                    );
+                if also_instruction && !line_removed {
                     monitoring::fire_instruction(vm, self.code, offset)?;
                 }
 
@@ -8599,7 +8640,7 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in side-table chain");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented(original_op, arg, vm)
+                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
@@ -8624,6 +8665,13 @@ impl ExecutingFrame<'_> {
                     "INSTRUMENTED_INSTRUCTION at {idx} without stored opcode"
                 );
 
+                let wrapper_dispatch = monitoring::is_event_active_at(
+                    vm,
+                    self.code,
+                    offset,
+                    MonitoringEvent::Instruction,
+                );
+
                 // Fire INSTRUCTION event
                 monitoring::fire_instruction(vm, self.code, offset)?;
 
@@ -8632,7 +8680,7 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in instruction side-table");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented(original_op, arg, vm)
+                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
                 } else {
                     let mut do_extend_arg = false;
                     self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)

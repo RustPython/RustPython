@@ -658,6 +658,10 @@ impl PyCode {
             obj.downcast().map_err(|_| MarshalError::BadType)
         }
         code.constants = bytecode::Constants::new(LiteralTuple(downcast(fields.consts)?));
+        // The compiler's string conversion is lossy for surrogates; retain the
+        // decoded value and apply code construction's exact-string interning.
+        let qualname = downcast::<super::PyStr>(fields.qualname)?;
+        code.qualname = ctx.intern_str(qualname.as_wtf8());
         let mut code = Self::new(code, ctx);
         code.set_names(downcast(fields.names)?);
         code.set_localsplusnames(downcast(fields.localsplusnames)?);
