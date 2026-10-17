@@ -950,55 +950,6 @@ pub fn too_deeply_nested_error(
     }))
 }
 
-/// Source-only rejection performed by CPython's checked_from_import parser action.
-#[doc(hidden)]
-#[must_use]
-pub fn lazy_future_import_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
-    use ast::statement_visitor::StatementVisitor;
-
-    struct Checker<'a> {
-        pending: Vec<&'a ast::Stmt>,
-    }
-
-    impl<'a> StatementVisitor<'a> for Checker<'a> {
-        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
-            self.pending.push(stmt);
-        }
-    }
-
-    let ast::Mod::Module(module) = ast else {
-        return None;
-    };
-    let mut checker = Checker {
-        pending: module.body.iter().collect(),
-    };
-    let mut first = None;
-    while let Some(stmt) = checker.pending.pop() {
-        if let ast::Stmt::ImportFrom(import) = stmt
-            && import.is_lazy
-            && import.level == 0
-            && import
-                .module
-                .as_ref()
-                .is_some_and(|name| name.as_str() == "__future__")
-        {
-            let start = import.range.start().to_usize();
-            first = Some(first.map_or(start, |previous: usize| previous.min(start)));
-        }
-        ast::statement_visitor::walk_stmt(&mut checker, stmt);
-    }
-    first.map(|start| {
-        CompileError::from_source_error(
-            source_file,
-            CpythonDiagnostic::new(
-                "lazy from __future__ import is not allowed".to_owned(),
-                start,
-                start + 4,
-            ),
-        )
-    })
-}
-
 /// Syntax the reference grammar has no rule for, but that this parser accepts.
 ///
 /// A bare generator expression is one: `f(x for x in y)` is the `primary
@@ -1180,8 +1131,30 @@ pub fn single_mode_multiple_statements_error(
     let ast::Mod::Module(module) = parsed.syntax() else {
         return None;
     };
-    if is_compound_stmt(module.body.first()?) {
-        return None;
+    let first = module.body.first()?;
+    if is_compound_stmt(first) {
+        // The interactive grammar ends a compound statement with a NEWLINE,
+        // so the first token of a following statement is invalid syntax.
+        let next = module.body.get(1)?;
+        if parsed
+            .errors()
+            .iter()
+            .any(|error| error.location.start() <= next.start())
+        {
+            return None;
+        }
+        let token = parsed
+            .tokens()
+            .iter()
+            .find(|token| token.start() >= next.start() && !token.range().is_empty())?;
+        return Some(CompileError::from_source_error(
+            source_file,
+            CpythonDiagnostic::new(
+                "invalid syntax".to_owned(),
+                token.start().to_usize(),
+                token.end().to_usize(),
+            ),
+        ));
     }
     let tokens = parsed.tokens();
     let newline_index = tokens
@@ -1678,6 +1651,9 @@ pub fn interactive_input(
         future_features.contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     let parsed = parser::parse_unchecked(prepared.source(), options);
+    if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
+        return Err(error);
+    }
     if let Some(error) = prepared.diagnostic(parsed.errors().first(), &source_file) {
         return Err(error);
     }
@@ -1685,39 +1661,11 @@ pub fn interactive_input(
     let ast::Mod::Module(module) = parsed.syntax() else {
         unreachable!()
     };
-    if let Some(first) = module.body.first()
-        && is_compound_stmt(first)
-    {
-        if let Some(next) = module.body.get(1) {
-            let range = parsed
-                .tokens()
-                .iter()
-                .find(|token| {
-                    token.start() >= next.start()
-                        && token.start() < next.end()
-                        && !token.range().is_empty()
-                })
-                .map_or_else(
-                    || ruff_text_size::TextRange::new(next.start(), next.start()),
-                    Ranged::range,
-                );
-            return Err(CompileError::from_source_error(
-                &source_file,
-                CpythonDiagnostic::new(
-                    "invalid syntax".to_owned(),
-                    range.start().to_usize(),
-                    range.end().to_usize(),
-                ),
-            ));
-        }
-        if !terminated {
-            return Ok(None);
-        }
+    // A compound statement ends with an empty line or EOF.
+    if !terminated && module.body.first().is_some_and(is_compound_stmt) {
+        return Ok(None);
     }
-    if let Some(error) = single_mode_multiple_statements_error(&source_file, &parsed) {
-        return Err(error);
-    }
-    if let Some(error) = lazy_future_import_error(parsed.syntax(), &source_file) {
+    if let Some(error) = unsupported_grammar_error(parsed.syntax(), &source_file) {
         return Err(error);
     }
     let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
