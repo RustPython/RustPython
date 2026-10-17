@@ -55,14 +55,8 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
 fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    if !state
-        .config
-        .settings
-        .home
-        .as_ref()
-        .is_some_and(|home| !home.is_empty())
-    {
+    if use_build_stdlib(vm) {
+        let state = PyRc::get_mut(&mut vm.state).unwrap();
         state.config.paths.stdlib_dir =
             Some(canonical_stdlib_path(rustpython_pylib::LIB_PATH.to_owned()));
     }
@@ -73,17 +67,10 @@ fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
 fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
-    let state = PyRc::get_mut(&mut vm.state).unwrap();
-    // An explicit home must not silently fall back to the build-tree library.
-    if state
-        .config
-        .settings
-        .home
-        .as_ref()
-        .is_some_and(|home| !home.is_empty())
-    {
+    if !use_build_stdlib(vm) {
         return;
     }
+    let state = PyRc::get_mut(&mut vm.state).unwrap();
     let paths: Vec<String> = collect_stdlib_paths()
         .into_iter()
         .map(canonical_stdlib_path)
@@ -98,6 +85,19 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     for path in paths.into_iter().rev() {
         state.config.paths.module_search_paths.insert(0, path);
     }
+}
+
+// Preserve a discovered library. Only an explicit nonempty prefix half of
+// PYTHONHOME forbids falling back to the build-tree pure-Python library.
+#[cfg(feature = "stdlib")]
+fn use_build_stdlib(vm: &crate::VirtualMachine) -> bool {
+    vm.state.config.paths.stdlib_dir.is_none()
+        && vm.state.config.settings.home.as_deref().is_none_or(|home| {
+            let (prefix, _) = home
+                .split_once(if cfg!(windows) { ';' } else { ':' })
+                .unwrap_or((home, home));
+            prefix.is_empty()
+        })
 }
 
 /// Resolve the build-tree library link consistently for both backends.
