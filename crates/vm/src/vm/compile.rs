@@ -11,17 +11,14 @@ use crate::{
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
 
-/// Warnings delivered while collecting one physical interactive record.
+/// Warnings already emitted while reading one interactive statement.
+///
+/// The source is warned about again after each line is read, but the
+/// tokenizer warns about each token only once.
 #[cfg(feature = "parser")]
 #[derive(Default)]
 pub(super) struct InteractiveWarnings {
     emitted: alloc::collections::BTreeSet<(usize, String)>,
-}
-
-#[cfg(feature = "parser")]
-pub(super) struct ParserWarningState<'a> {
-    pub emitted_escapes: &'a [usize],
-    pub interactive: Option<&'a mut InteractiveWarnings>,
 }
 
 #[derive(Debug)]
@@ -1766,7 +1763,7 @@ mod escape_warnings {
     enum WarningEmission<'a> {
         Standard { emitted_escapes: &'a [usize] },
         Ast { tokenizer_recovery: bool },
-        Interactive(super::ParserWarningState<'a>),
+        Interactive(&'a mut super::InteractiveWarnings),
     }
 
     impl VirtualMachine {
@@ -1868,24 +1865,29 @@ mod escape_warnings {
             )
         }
 
+        /// Emit the tokenizer warnings for the interactive input read so far.
         pub(in crate::vm) fn emit_interactive_parser_warnings(
             &self,
             source: &str,
             filename: &str,
             module: Option<&Py<PyStr>>,
-            mode: Option<ruff_python_parser::Mode>,
             inherited_barry_as_flufl: bool,
-            state: super::ParserWarningState<'_>,
-        ) -> Result<Vec<usize>, CompileWarningError> {
-            let (warnings, _) =
-                collect_parser_warnings(source, filename, mode, inherited_barry_as_flufl);
+            emitted: &mut super::InteractiveWarnings,
+        ) -> Result<(), CompileWarningError> {
+            let (warnings, _) = collect_parser_warnings(
+                source,
+                filename,
+                Some(ruff_python_parser::Mode::Module),
+                inherited_barry_as_flufl,
+            );
             self.emit_parser_warning_batch(
                 source,
                 filename,
                 module,
                 warnings,
-                WarningEmission::Interactive(state),
+                WarningEmission::Interactive(emitted),
             )
+            .map(|_| ())
         }
 
         fn emit_parser_warning_batch(
@@ -1899,9 +1901,7 @@ mod escape_warnings {
             let (emitted_escapes, ast_tokenizer_recovery, mut interactive) = match emission {
                 WarningEmission::Standard { emitted_escapes } => (emitted_escapes, false, None),
                 WarningEmission::Ast { tokenizer_recovery } => (&[][..], tokenizer_recovery, None),
-                WarningEmission::Interactive(state) => {
-                    (state.emitted_escapes, false, state.interactive)
-                }
+                WarningEmission::Interactive(emitted) => (&[][..], false, Some(emitted)),
             };
             let mut considered_escapes = Vec::new();
             let mut parser_error = None;

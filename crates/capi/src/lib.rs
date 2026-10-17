@@ -4,7 +4,7 @@ use crate::pyerrors::init_exception_statics;
 use crate::pylifecycle::{MAIN_INTERP, MAIN_INTERP_PTR};
 use core::sync::atomic::Ordering;
 pub use rustpython_vm::PyObject;
-use rustpython_vm::{Context, Interpreter, PyResult, VirtualMachine};
+use rustpython_vm::{Context, Interpreter, VirtualMachine};
 use std::sync::MutexGuard;
 
 extern crate alloc;
@@ -72,20 +72,12 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     );
 }
 
-/// Run and finalize the main VM while leaving C API thread attachment available.
+/// Py_RunMain for an interpreter that C API threads can attach to.
+///
+/// `f` reports its own errors and returns the exit code.
 pub fn run_main_interpreter(
-    interpreter: Interpreter,
-    f: impl FnOnce(&VirtualMachine) -> PyResult<()>,
-) -> u32 {
-    run_main_interpreter_with_exit_status(interpreter, |vm| {
-        f(vm).map(|()| rustpython_vm::vm::InterpreterExit::Code(0))
-    })
-}
-
-/// Preserve the main VM and an already-reported result through C API shutdown.
-pub fn run_main_interpreter_with_exit_status(
     mut interpreter: Interpreter,
-    f: impl FnOnce(&VirtualMachine) -> PyResult<rustpython_vm::vm::InterpreterExit>,
+    f: impl FnOnce(&VirtualMachine) -> u32,
 ) -> u32 {
     let main_thread = interpreter.take_main_thread();
     init_main_interpreter(interpreter);
@@ -107,5 +99,5 @@ pub fn run_main_interpreter_with_exit_status(
     // The registered interpreter is an inactive worker-VM template. Running
     // the original VM locally preserves main-thread state without keeping the
     // global mutex locked across Python execution or finalization callbacks.
-    main_thread.run_with_exit_status(f)
+    main_thread.run_main(f)
 }

@@ -19,13 +19,6 @@ type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
 const EXITCODE_FLUSH_FAILURE: u32 = 120;
 
-/// An execution result whose Python exception has already been reported.
-/// Unreported exceptions continue to travel separately through `PyResult`.
-pub enum InterpreterExit {
-    Code(u32),
-    ReportedException(PyBaseExceptionRef),
-}
-
 /// Configuration builder for constructing an Interpreter.
 ///
 /// This is the preferred way to configure and create an interpreter with custom modules.
@@ -81,7 +74,7 @@ where
     use crate::codecs::CodecsRegistry;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -92,7 +85,7 @@ where
         // Subinterpreter: clone config and module tables from parent, fresh runtime state.
         let int_max_str_digits = AtomicCell::new(parent.int_max_str_digits.load());
         let mut config = parent.config.clone();
-        config.settings.inspect = *parent.inspect_requested.lock();
+        config.settings.inspect = parent.inspect.load(Ordering::Relaxed);
         (
             config,
             parent.module_defs.clone(),
@@ -163,8 +156,8 @@ where
         runtime_root_id,
         whence,
         is_main,
-        inspect_requested: PyMutex::new(config.settings.inspect),
-        interactive_code_counter: AtomicU64::new(0),
+        inspect: AtomicBool::new(config.settings.inspect),
+        interactive_src_count: AtomicUsize::new(0),
         config,
         module_defs: all_module_defs,
         frozen,
@@ -660,20 +653,20 @@ impl Interpreter {
     where
         F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
-        self.run_with_exit_status(|vm| f(vm).map(|()| InterpreterExit::Code(0)))
+        let res = self.enter(|vm| f(vm));
+        self.finalize(res.err())
     }
 
-    /// Run and finalize while preserving a host status for already-reported errors.
-    /// Errors returned by the callback are still reported during finalization.
-    pub fn run_with_exit_status<F>(self, f: F) -> u32
+    /// Py_RunMain
+    ///
+    /// Run a function that reports its own errors and returns the exit code,
+    /// then finalize with that exit code.
+    pub fn run_main<F>(self, f: F) -> u32
     where
-        F: FnOnce(&VirtualMachine) -> PyResult<InterpreterExit>,
+        F: FnOnce(&VirtualMachine) -> u32,
     {
-        let (exc, exit_code) = match self.enter(f) {
-            Ok(exit_code) => (None, exit_code),
-            Err(exc) => (Some(exc), InterpreterExit::Code(0)),
-        };
-        self.finalize_with_exit_status(exc, exit_code)
+        let exit_code = self.enter(f);
+        self.finalize_with_exit_code(exit_code)
     }
 
     /// Finalize vm and turns an exception to exit code.
@@ -691,28 +684,22 @@ impl Interpreter {
     ///
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u32 {
-        self.finalize_with_exit_status(exc, InterpreterExit::Code(0))
+        self.finalize_inner(|vm| exc.map_or(0, |exc| vm.handle_exit_exception(exc)))
     }
 
-    /// Finalize with an explicit status when no unreported exception remains.
-    /// A pending exception takes precedence over the supplied status.
-    pub fn finalize_with_exit_status(
-        self,
-        exc: Option<PyBaseExceptionRef>,
-        status: InterpreterExit,
-    ) -> u32 {
-        self.enter(|vm| {
+    /// Finalize vm with an exit code the caller has already determined.
+    ///
+    /// See [`Interpreter::finalize`] for the finalization steps.
+    pub fn finalize_with_exit_code(self, exit_code: u32) -> u32 {
+        self.finalize_inner(|_| exit_code)
+    }
+
+    fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
+        let exit_code = self.enter(|vm| {
             let mut flush_status = vm.flush_std();
 
             // See if any exception leaked out:
-            let exit_code = if let Some(exc) = exc {
-                vm.handle_exit_exception(exc)
-            } else {
-                match status {
-                    InterpreterExit::Code(code) => code,
-                    InterpreterExit::ReportedException(exc) => vm.handle_reported_exception(&exc),
-                }
-            };
+            let exit_code = exit_code(vm);
 
             // Wait for thread shutdown - call threading._shutdown() if available.
             // This waits for all non-daemon threads to complete.
@@ -790,7 +777,12 @@ impl Interpreter {
             crate::object::qsbr::QSBR.process();
 
             exit_code
-        })
+        });
+        if crate::signal::unhandled_keyboard_interrupt() {
+            crate::signal::exit_sigint()
+        } else {
+            exit_code
+        }
     }
 }
 

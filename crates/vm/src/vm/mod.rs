@@ -54,7 +54,7 @@ use alloc::{borrow::Cow, collections::BTreeMap};
 use core::ptr::NonNull;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -63,7 +63,7 @@ use std::{
 };
 
 pub use context::Context;
-pub use interpreter::{Interpreter, InterpreterBuilder, InterpreterExit};
+pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
 pub use runtime::{
     InterpFeatureFlags, InterpreterConfig, InterpreterGil, InterpreterInfo, InterpreterWhence,
@@ -860,10 +860,10 @@ pub struct PyGlobalState {
     /// becomes *the* process main — see [`runtime::main_interpreter_id`].
     pub is_main: bool,
     pub config: PyConfig,
-    /// Effective runtime inspect state, serialized with sys.flags publication.
-    pub(crate) inspect_requested: PyMutex<bool>,
-    /// Unique source identities shared by all interactive entries in this interpreter.
-    pub(crate) interactive_code_counter: AtomicU64,
+    /// `config.inspect`, which `PyConfig_Set` can change at runtime.
+    pub(crate) inspect: AtomicBool,
+    /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
+    pub(crate) interactive_src_count: AtomicUsize,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -2347,9 +2347,7 @@ impl VirtualMachine {
         path: &str,
         run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
     ) -> PyResult<()> {
-        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
-        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
-        let module_dict = main_module.dict().expect("main module must have __dict__");
+        let module_dict = self.add_main_module()?.dict();
 
         // Track whether we set __file__ (for cleanup)
         let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
@@ -3913,88 +3911,81 @@ impl VirtualMachine {
         excs.stack.iter().rev().find_map(|e| e.clone())
     }
 
-    pub fn inspect_requested(&self) -> bool {
-        *self.state.inspect_requested.lock()
+    /// The current `config.inspect`.
+    pub fn config_inspect(&self) -> bool {
+        self.state.inspect.load(Ordering::Relaxed)
     }
 
-    /// Publish a fresh immutable sys.flags snapshot and the effective inspect bit.
-    pub fn set_inspect_requested(&self, requested: bool) -> PyResult<()> {
-        stdlib::sys::sys::set_inspect_requested(self, requested)
+    /// `PyConfig_Set("inspect", value)`: update the config and `sys.flags.inspect`.
+    pub fn config_set_inspect(&self, inspect: bool) -> PyResult<()> {
+        let value: PyObjectRef = self.ctx.new_int(u8::from(inspect)).into();
+        self.audit("cpython.PyConfig_Set", || ("inspect", value.clone()))?;
+        self.state.inspect.store(inspect, Ordering::Relaxed);
+        stdlib::sys::sys::set_flag_obj(self, "inspect", value)
     }
 
-    pub fn next_interactive_code_filename(&self) -> PyResult<String> {
-        let serial = self
-            .state
-            .interactive_code_counter
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |serial| {
-                serial.checked_add(1)
-            })
-            .map_err(|_| self.new_overflow_error("interactive code filename counter exhausted"))?;
-        Ok(format!("<stdin-{serial}>"))
-    }
-
+    /// pymain_exit_err_print
+    ///
+    /// Report an exception that reached the top level and return the exit code.
     pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
-        let exc = match self.report_uncaught_exception(&exc) {
-            Err(exit) => exit,
-            Ok(()) => return self.handle_reported_exception(&exc),
-        };
-        if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
-            let code = exc
-                .as_object()
-                .get_attr("code", self)
-                .unwrap_or_else(|_| exc.as_object().to_owned());
-            let msg = match_class!(match code {
-                ref i @ PyInt => {
-                    use num_traits::cast::ToPrimitive;
-                    // Try u32 first, then i32 (for negative values), else -1 for overflow
-                    let code = i
-                        .as_bigint()
-                        .to_u32()
-                        .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
-                        .unwrap_or(-1i32 as u32);
-                    return code;
-                }
-                code => {
-                    if self.is_none(&code) {
-                        return 0;
-                    }
-                    code.str(self).ok()
-                }
-            });
-            if let Some(msg) = msg {
-                // Write using Python's write() to use stderr's error handler (backslashreplace)
-                if let Ok(stderr) = stdlib::sys::get_stderr(self) {
-                    let _ = self.call_method(&stderr, "write", (msg,));
-                    let _ = self.call_method(&stderr, "write", ("\n",));
-                }
-            }
-            1
-        } else {
-            self.handle_reported_exception(&exc)
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(&exc) {
+            return exit_code;
+        }
+        match self.print_uncaught_exception(&exc) {
+            Ok(()) => 1,
+            Err(exc) => self
+                .handle_system_exit_and_keyboard_interrupt(&exc)
+                .unwrap_or(1),
         }
     }
 
-    /// Apply the host exit policy after an exception has already been reported.
-    /// Call only after deciding not to continue into an interactive session.
-    pub fn handle_reported_exception(&self, exc: &Py<PyBaseException>) -> u32 {
+    /// _Py_HandleSystemExitAndKeyboardInterrupt
+    ///
+    /// Return the exit code of a `SystemExit` that should end the process.
+    /// A `KeyboardInterrupt` is remembered so that the process exits through SIGINT.
+    pub fn handle_system_exit_and_keyboard_interrupt(
+        &self,
+        exc: &Py<PyBaseException>,
+    ) -> Option<u32> {
         if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            cfg_select! {
-                unix => {
-                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
-                        self.flush_std();
-                        crate::host_env::signal::send_sigint_to_self()
-                            .expect("Expect to be killed.");
-                    }
-
-                    (libc::SIGINT as u32) + 128
-                }
-                // STATUS_CONTROL_C_EXIT - same as CPython
-                windows => 0xC000013A,
-                _ => 1,
-            }
-        } else {
-            1
+            crate::signal::set_unhandled_keyboard_interrupt();
+            return None;
         }
+        // Don't exit if -i flag was given. This flag is set to 0
+        // when entering interactive mode for inspecting.
+        if self.config_inspect() || !exc.fast_isinstance(self.ctx.exceptions.system_exit) {
+            return None;
+        }
+        let code = exc
+            .as_object()
+            .get_attr("code", self)
+            .unwrap_or_else(|_| exc.as_object().to_owned());
+        let msg = match_class!(match code {
+            ref i @ PyInt => {
+                use num_traits::cast::ToPrimitive;
+                // Try u32 first, then i32 (for negative values), else -1 for overflow
+                let code = i
+                    .as_bigint()
+                    .to_u32()
+                    .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
+                    .unwrap_or(-1i32 as u32);
+                return Some(code);
+            }
+            code => {
+                if self.is_none(&code) {
+                    return Some(0);
+                }
+                code.str(self).ok()
+            }
+        });
+        if let Some(msg) = msg {
+            // Write using Python's write() to use stderr's error handler (backslashreplace)
+            if let Ok(stderr) = stdlib::sys::get_stderr(self) {
+                let _ = self.call_method(&stderr, "write", (msg,));
+                let _ = self.call_method(&stderr, "write", ("\n",));
+            }
+        }
+        Some(1)
     }
 
     #[doc(hidden)]

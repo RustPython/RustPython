@@ -761,7 +761,11 @@ pub mod sys {
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
     fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
-        vm.run_basic_interactive()
+        // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
+        if let Err(exc) = vm.run_any_stdin() {
+            vm.print_uncaught_exception(&exc)?;
+        }
+        Ok(())
     }
 
     #[pyfunction]
@@ -1030,59 +1034,34 @@ pub mod sys {
         PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
     }
 
-    pub(crate) fn set_inspect_requested(vm: &VirtualMachine, requested: bool) -> PyResult<()> {
-        use crate::class::StaticType;
-        use crate::types::PyStructSequenceData;
+    /// _PySys_SetFlagObj
+    pub(crate) fn set_flag_obj(
+        vm: &VirtualMachine,
+        name: &str,
+        value: PyObjectRef,
+    ) -> PyResult<()> {
+        use crate::{class::StaticType, types::PyStructSequenceData};
 
-        let dict = vm.sys_module.dict();
-        loop {
-            // Retain every encountered key/value before taking the publication
-            // lock: a concurrent deletion must never finalize one under it.
-            let entries = dict.entries.items();
-            let (key, current) = entries
-                .iter()
-                .find(|(key, _)| {
-                    key.class().is(vm.ctx.types.str_type)
-                        && key
-                            .downcast_ref::<PyStr>()
-                            .is_some_and(|name| name.as_bytes() == b"flags")
-                })
-                .ok_or_else(|| vm.new_runtime_error("sys.flags is missing"))?;
-            if !current.class().is(PyFlags::static_type()) {
-                return Err(vm.new_type_error("sys.flags must be a sys.flags instance"));
-            }
-            let tuple = current
-                .downcast_ref::<PyTuple>()
-                .ok_or_else(|| vm.new_type_error("invalid sys.flags payload"))?;
-            let fields = FlagsData::REQUIRED_FIELD_NAMES;
-            let field_count = fields.len() + FlagsData::OPTIONAL_FIELD_NAMES.len();
-            if tuple.as_slice().len() != field_count {
-                return Err(vm.new_type_error("invalid sys.flags field count"));
-            }
-            let inspect_index = fields
-                .iter()
-                .position(|name| *name == "inspect")
-                .expect("sys.flags has an inspect field");
-            let mut values = tuple.as_slice().to_vec();
-            values[inspect_index] = vm.ctx.new_int(u8::from(requested)).into();
-            let replacement: PyObjectRef = PyTuple::new_unchecked(values.into_boxed_slice())
-                .into_ref_with_type(vm, PyFlags::static_type().to_owned())?
-                .into();
-
-            // No Python, hashing, equality, or owner destruction in this section.
-            // A racing publisher or direct sys.flags assignment causes a retry.
-            let mut effective = vm.state.inspect_requested.lock();
-            let removed =
-                dict.entries
-                    .replace_by_identity(key, |value| value.is(current), &replacement);
-            if removed.is_some() {
-                *effective = requested;
-            }
-            drop(effective);
-            if removed.is_some() {
-                return Ok(());
-            }
-        }
+        let old_flags = vm
+            .sys_module
+            .get_attr("flags", vm)
+            .map_err(|_| vm.new_runtime_error("lost sys.flags"))?;
+        let old_flags = old_flags
+            .downcast_ref::<PyTuple>()
+            .filter(|flags| {
+                flags.len()
+                    == FlagsData::REQUIRED_FIELD_NAMES.len() + FlagsData::OPTIONAL_FIELD_NAMES.len()
+            })
+            .ok_or_else(|| vm.new_type_error("sys.flags must be a sys.flags instance"))?;
+        let pos = FlagsData::REQUIRED_FIELD_NAMES
+            .iter()
+            .position(|field| *field == name)
+            .expect("unknown sys.flags field");
+        let mut values = old_flags.as_slice().to_vec();
+        values[pos] = value;
+        let new_flags = PyTuple::new_unchecked(values.into_boxed_slice())
+            .into_ref_with_type(vm, PyFlags::static_type().to_owned())?;
+        vm.sys_module.set_attr("flags", new_flags, vm)
     }
 
     #[pyattr]

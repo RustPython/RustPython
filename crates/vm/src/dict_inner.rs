@@ -424,24 +424,6 @@ impl<T> DictInner<T> {
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
-    /// Replace a retained entry without hashing, equality calls, or releasing owners.
-    /// The caller must keep key, expected, and replacement alive until its own
-    /// outer locks are released, and drop the returned owner only afterwards.
-    pub(crate) fn replace_by_identity(
-        &self,
-        key: &PyObject,
-        matches: impl FnOnce(&T) -> bool,
-        replacement: &T,
-    ) -> Option<T> {
-        let mut inner = self.write();
-        let entry = inner
-            .entries
-            .iter_mut()
-            .flatten()
-            .find(|entry| entry.key.is(key))?;
-        matches(&entry.value).then(|| core::mem::replace(&mut entry.value, replacement.clone()))
-    }
-
     /// Current keys-version stamp, or 0 if none has been assigned since the
     /// last key-set change. Equal nonzero stamps guarantee an unchanged key
     /// set (values may differ).
