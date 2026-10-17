@@ -1369,6 +1369,95 @@ class TestCanonicalRemovals(unittest.TestCase):
             self.assertEqual((self.target / "a.py").exists(), dry_run)
             self.assertEqual((self.target / "unselected").read_text(), "keep")
 
+    def test_junction_components_reject_the_whole_batch(self):
+        before = {
+            name: (self.target / name).read_bytes()
+            for name in self.document["removals"]
+        }
+        for junction in (
+            self.source,
+            self.source.parent,
+            self.source / "data",
+            self.target,
+            self.target.parent,
+            self.target / "data",
+        ):
+            for dry_run in (True, False):
+                with self.subTest(junction=junction, dry_run=dry_run):
+                    self.assertFalse(junction.is_symlink())
+                    with (
+                        patch.object(
+                            Path,
+                            "is_junction",
+                            autospec=True,
+                            side_effect=lambda path: path == junction,
+                        ),
+                        self.assertRaisesRegex(ValueError, "[Jj]unction"),
+                    ):
+                        self.run_removal(dry_run)
+                    self.assertEqual(
+                        {name: (self.target / name).read_bytes() for name in before},
+                        before,
+                    )
+
+    def test_junction_revalidation_prevents_partial_removal(self):
+        for junction in (self.target / "data", self.source / "data"):
+            checks = 0
+
+            def becomes_junction(path):
+                nonlocal checks
+                if path == junction:
+                    checks += 1
+                    return checks > 1
+                return False
+
+            with self.subTest(junction=junction):
+                with (
+                    patch.object(
+                        Path, "is_junction", autospec=True, side_effect=becomes_junction
+                    ),
+                    self.assertRaisesRegex(ValueError, "[Jj]unction"),
+                ):
+                    self.run_removal()
+                self.assertEqual(checks, 2)
+                self.assertEqual((self.target / "a.py").read_bytes(), b"old\n")
+                self.assertEqual((self.target / "data/z.bin").read_bytes(), b"\x00\xff")
+
+    def test_utf8_manifest_ignores_non_utf8_default_encoding(self):
+        name = "caf\u00e9.py"
+        target = self.target / name
+        target.write_bytes(b"old\n")
+        self.document["removals"][name] = dict(self.document["removals"]["a.py"])
+        self.manifest.write_bytes(
+            json.dumps(self.document, ensure_ascii=False).encode("utf-8")
+        )
+        with (
+            patch(
+                "pathlib.io.text_encoding",
+                side_effect=lambda encoding, *args: (
+                    "latin-1" if encoding is None else encoding
+                ),
+            ),
+            contextlib.chdir(self.target.parents[2]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertNotEqual(
+                self.manifest.read_text(), self.manifest.read_text(encoding="utf-8")
+            )
+            for dry_run, expected in (
+                (True, "would_remove"),
+                (False, "removed"),
+                (False, "already_absent"),
+            ):
+                receipt = remove_canonical_files(
+                    self.source, self.manifest, dry_run=dry_run
+                )
+                self.assertEqual(
+                    set(receipt["removals"]), set(self.document["removals"])
+                )
+                self.assertEqual(receipt["removals"][name]["status"], expected)
+                self.assertEqual(target.exists(), dry_run)
+
     def test_cli_dry_run_never_migrates_or_changes_destination_bytes(self):
         def snapshot():
             return {

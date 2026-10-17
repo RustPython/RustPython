@@ -1012,8 +1012,8 @@ def remove_canonical_files(src_dir, manifest_path, *, dry_run=False):
         return pathlib.Path(path)
 
     def no_symlinks(path):
-        if any(p.is_symlink() for p in (path, *path.parents)):
-            raise ValueError(f"Symlink in removal path: {path}")
+        if any(p.is_symlink() or p.is_junction() for p in (path, *path.parents)):
+            raise ValueError(f"Symlink or junction in removal path: {path}")
 
     def git(*args):
         result = subprocess.run(
@@ -1031,7 +1031,9 @@ def remove_canonical_files(src_dir, manifest_path, *, dry_run=False):
             raise ValueError("Cannot verify pinned canonical source")
         return result.stdout.decode().strip()
 
-    document = json.loads(manifest_path.read_text(), object_pairs_hook=unique_object)
+    document = json.loads(
+        manifest_path.read_text(encoding="utf-8"), object_pairs_hook=unique_object
+    )
     if not isinstance(document, dict) or set(document) != {"source", "removals"}:
         raise ValueError("Expected source and removals metadata")
     source, removals = document["source"], document["removals"]
