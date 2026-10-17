@@ -309,7 +309,7 @@ icu_locale = "2"
 icu_properties = "2"
 icu_normalizer = "2"
 uuid = "1.23.2"
-unicode_names2 = { version = "3", default-features = false, features = ["no_std"] }
+unicode_names2 = { version = "4", default-features = false, features = ["no_std"] }
 widestring = "1.2.0"
 windows-sys = "0.61.2"
 wasm-bindgen = "0.2.106"
