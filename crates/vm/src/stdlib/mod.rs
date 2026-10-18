@@ -96,7 +96,7 @@ pub(crate) fn ctypes_buffer_base(_obj: &crate::PyObject) -> Option<crate::PyObje
         not(any(target_env = "musl", target_env = "sgx"))
     ))]
     if let Some(cdata) = _obj.downcast_ref::<_ctypes::PyCData>() {
-        return cdata.base.read().clone();
+        return cdata.buffer_base();
     }
     None
 }

@@ -500,4 +500,10 @@ overlap.a[:] = range(8)
 memoryview(overlap.a).cast("B")[::2] = memoryview(overlap.b).cast("B")[:4]
 assert list(overlap.a) == [0, 1, 1, 3, 2, 5, 3, 7]
 
+backing = bytearray(range(8))
+view = (ctypes.c_ubyte * 7).from_buffer(backing, 1)
+view._objects.clear()  # Alias detection must not depend on mutable retention metadata.
+memoryview(view).cast("B")[::2] = memoryview(backing)[:4]
+assert list(backing) == [0, 0, 2, 1, 4, 2, 6, 3]
+
 print("done")

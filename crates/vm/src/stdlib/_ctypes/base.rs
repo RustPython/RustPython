@@ -424,6 +424,8 @@ pub struct PyCData {
     pub buffer: PyRwLock<Cow<'static, [u8]>>,
     /// pointer to base object or None (b_base)
     pub base: PyRwLock<Option<PyObjectRef>>,
+    /// Original from_buffer view, independent of the Python-mutable _objects dict.
+    buffer_source: Option<PyObjectRef>,
     /// byte offset within base's buffer (for field access)
     pub base_offset: AtomicCell<usize>,
     /// index into base's b_objects list (b_index)
@@ -445,6 +447,7 @@ impl PyCData {
         Self {
             buffer: PyRwLock::new(Cow::Owned(vec![0u8; stg_info.size])),
             base: PyRwLock::new(None),
+            buffer_source: None,
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(0),
             objects: PyRwLock::new(None),
@@ -458,6 +461,7 @@ impl PyCData {
         Self {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
+            buffer_source: None,
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(0),
             objects: PyRwLock::new(objects),
@@ -475,6 +479,7 @@ impl PyCData {
         Self {
             buffer: PyRwLock::new(Cow::Owned(data)),
             base: PyRwLock::new(None),
+            buffer_source: None,
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(0),
             objects: PyRwLock::new(objects),
@@ -496,6 +501,7 @@ impl PyCData {
         Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
+            buffer_source: None,
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(0),
             objects: PyRwLock::new(None),
@@ -525,6 +531,7 @@ impl PyCData {
         Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(Some(base_obj)),
+            buffer_source: None,
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(idx),
             objects: PyRwLock::new(None),
@@ -554,18 +561,26 @@ impl PyCData {
         // Python stores the reference in a dict with key "-1" (unique_key pattern)
         let objects_dict = vm.ctx.new_dict();
         objects_dict
-            .set_item("-1", source, vm)
+            .set_item("-1", source.clone(), vm)
             .expect("Failed to store buffer reference");
 
         Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
             base: PyRwLock::new(None),
+            buffer_source: Some(source),
             base_offset: AtomicCell::new(0),
             index: AtomicCell::new(0),
             objects: PyRwLock::new(Some(objects_dict.into())),
             length: AtomicCell::new(length),
             kept_refs: PyRwLock::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Storage owner used to detect aliased buffers without consulting _objects.
+    pub(crate) fn buffer_base(&self) -> Option<PyObjectRef> {
+        self.buffer_source
+            .clone()
+            .or_else(|| self.base.read().clone())
     }
 
     /// Common implementation for from_buffer class method.
