@@ -166,21 +166,20 @@ class ParseArgsTestCase(unittest.TestCase):
                 ns = self.parse_args([opt])
                 self.assertTrue(ns.randomize)
 
-        with os_helper.EnvironmentVarGuard() as env:
-            # with SOURCE_DATE_EPOCH
-            env['SOURCE_DATE_EPOCH'] = '1697839080'
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertFalse(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, str)
-            self.assertEqual(regrtest.random_seed, '1697839080')
+    @os_helper.with_source_date_epoch(epoch=1697839080)
+    def test_randomize_with_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertFalse(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, str)
+        self.assertEqual(regrtest.random_seed, '1697839080')
 
-            # without SOURCE_DATE_EPOCH
-            del env['SOURCE_DATE_EPOCH']
-            ns = self.parse_args(['--randomize'])
-            regrtest = main.Regrtest(ns)
-            self.assertTrue(regrtest.randomize)
-            self.assertIsInstance(regrtest.random_seed, int)
+    @os_helper.without_source_date_epoch
+    def test_randomize_without_source_date_epoch(self):
+        ns = self.parse_args(['--randomize'])
+        regrtest = main.Regrtest(ns)
+        self.assertTrue(regrtest.randomize)
+        self.assertIsInstance(regrtest.random_seed, int)
 
     def test_no_randomize(self):
         ns = self.parse_args([])
@@ -570,6 +569,13 @@ class ParseArgsTestCase(unittest.TestCase):
             regrtest = self.create_regrtest(args)
         self.assertEqual(regrtest.num_workers, 0)
         self.assertTrue(regrtest.single_process)
+
+    def test_pythoninfo(self):
+        ns = self.parse_args([])
+        self.assertFalse(ns.pythoninfo)
+
+        ns = self.parse_args(['--pythoninfo'])
+        self.assertTrue(ns.pythoninfo)
 
 
 @dataclasses.dataclass(slots=True)
@@ -2141,7 +2147,7 @@ class ArgsTestCase(BaseTestCase):
         self.check_executed_tests(output, [testname],
                                   failed=[testname],
                                   parallel=True,
-                                  stats=TestStats(1, 1, 0))
+                                  stats=TestStats(1, 2, 1))
 
     def _check_random_seed(self, run_workers: bool):
         # gh-109276: When -r/--randomize is used, random.seed() is called
@@ -2427,6 +2433,11 @@ class ArgsTestCase(BaseTestCase):
         tests = output.strip().split()
         self.assertNotIn('test_re', tests)
         self.assertEqual(len(tests), len(pgo_tests) - 1)
+
+    def test_pythoninfo(self):
+        testname = self.create_test()
+        output = self.run_tests('--pythoninfo', testname)
+        self.assertIn("Python build information", output)
 
 
 class TestUtils(unittest.TestCase):
