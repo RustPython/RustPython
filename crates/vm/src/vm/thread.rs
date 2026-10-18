@@ -1467,6 +1467,7 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
             importlib: self.importlib.clone(),
+            import_timing: Cell::default(),
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),

@@ -8,11 +8,108 @@ use crate::{
     vm::{VirtualMachine, resolve_frozen_alias, thread},
 };
 
+use core::{cell::Cell, sync::atomic::Ordering, time::Duration};
+use std::{io::Write, time::Instant};
+
+/// Nested imports are timed per thread, so concurrent imports do not subtract
+/// each other's elapsed time. The output header belongs to the interpreter.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ImportTimingState {
+    depth: usize,
+    children: Duration,
+}
+
+fn import_time_header(vm: &VirtualMachine) {
+    let mut stderr = std::io::stderr().lock();
+    if !vm.state.import_time_header.swap(true, Ordering::Relaxed) {
+        let _ = writeln!(
+            stderr,
+            "import time: self [us] | cumulative | imported package"
+        );
+    }
+}
+
+fn import_time_name(name: &Py<PyStr>) -> String {
+    use core::fmt::Write;
+    let mut output = String::with_capacity(name.as_bytes().len());
+    for codepoint in name.as_wtf8().code_points() {
+        match codepoint.to_char() {
+            Some(ch) => output.push(ch),
+            None => {
+                let _ = write!(output, "\\u{:04x}", codepoint.to_u32());
+            }
+        }
+    }
+    output
+}
+
+pub(crate) fn report_cached_import(name: &Py<PyStr>, vm: &VirtualMachine) {
+    if vm.state.config.settings.import_time == 2 {
+        import_time_header(vm);
+        let name = import_time_name(name);
+        // printf("%*s") counts encoded bytes, not Unicode scalar values.
+        let padding = (vm.import_timing.get().depth * 2).saturating_sub(name.len());
+        let _ = writeln!(
+            std::io::stderr(),
+            "import time: cached    | cached     | {:padding$}{}",
+            "",
+            name
+        );
+    }
+}
+
+struct ImportTimer<'a> {
+    state: &'a Cell<ImportTimingState>,
+    parent: ImportTimingState,
+    start: Instant,
+    name: &'a Py<PyStr>,
+}
+
+impl<'a> ImportTimer<'a> {
+    fn start(name: &'a Py<PyStr>, vm: &'a VirtualMachine) -> Option<Self> {
+        if vm.state.config.settings.import_time == 0 {
+            return None;
+        }
+        import_time_header(vm);
+        let parent = vm.import_timing.replace(ImportTimingState {
+            depth: vm.import_timing.get().depth + 1,
+            children: Duration::ZERO,
+        });
+        Some(Self {
+            state: &vm.import_timing,
+            parent,
+            start: Instant::now(),
+            name,
+        })
+    }
+}
+
+impl Drop for ImportTimer<'_> {
+    fn drop(&mut self) {
+        let cumulative = self.start.elapsed();
+        let own = cumulative.saturating_sub(self.state.get().children);
+        self.state.set(ImportTimingState {
+            depth: self.parent.depth,
+            children: self.parent.children.saturating_add(cumulative),
+        });
+        let width = self.parent.depth * 2;
+        let _ = writeln!(
+            std::io::stderr(),
+            "import time: {:9} | {:10} | {:width$}{}",
+            own.as_nanos().div_ceil(1000),
+            cumulative.as_nanos().div_ceil(1000),
+            "",
+            import_time_name(self.name),
+        );
+    }
+}
+
 pub(crate) fn find_and_load(
     name: &Py<PyStr>,
     function: &'static str,
     vm: &VirtualMachine,
 ) -> PyResult {
+    let _timer = ImportTimer::start(name, vm);
     vm.importlib
         .get_attr(function, vm)?
         .call((name.to_owned(), vm.import_func.clone()), vm)
@@ -194,6 +291,7 @@ fn import_ensure_initialized(
         let lock_unlock = vm.importlib.get_attr("_lock_unlock_module", vm)?;
         lock_unlock.call((name.to_owned(),), vm)?;
     }
+    report_cached_import(name, vm);
     Ok(())
 }
 
