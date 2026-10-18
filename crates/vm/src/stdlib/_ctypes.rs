@@ -769,6 +769,9 @@ pub(crate) mod _ctypes {
         // 5. Resize the buffer
         let new_size = size as usize;
         let mut buffer = cdata.buffer.write();
+        if new_size == buffer.len() {
+            return Ok(());
+        }
         let old_data = buffer.to_vec();
         *buffer = Cow::Owned(rustpython_host_env::ctypes::resize_owned_bytes(
             &old_data, new_size,

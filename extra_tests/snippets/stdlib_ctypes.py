@@ -469,4 +469,25 @@ del callback, address
 gc.collect()
 assert roundtrip(41) == 42
 
+
+class ArrayField(ctypes.Structure):
+    _fields_ = [("prefix", ctypes.c_int), ("values", ctypes.c_int * 3)]
+
+
+owner = ArrayField(99, (1, 2, 3))
+view = owner.values
+assert view._b_base_ is owner
+assert ctypes.addressof(view) == ctypes.addressof(owner) + ArrayField.values.offset
+ctypes.resize(owner, ctypes.sizeof(owner))
+assert ctypes.addressof(view) == ctypes.addressof(owner) + ArrayField.values.offset
+pointer = ctypes.cast(view, ctypes.POINTER(ctypes.c_int))
+pointer[1] = 42
+assert list(owner.values) == [1, 42, 3]
+owner.values[0] = 7
+assert bytes(view) == bytes(owner.values)
+memoryview(view).cast("B")[:] = bytes((ctypes.c_int * 3)(7, 42, 9))
+assert list(owner.values) == [7, 42, 9]
+del owner
+assert list(view) == [7, 42, 9]
+
 print("done")
