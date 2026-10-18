@@ -560,6 +560,19 @@ impl VirtualMachine {
                     self.ctx.exceptions.indentation_error
                 }
             }
+            // _is_end_of_source: the parser failed at the end of the input,
+            // where more input can still follow.
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error,
+                raw_location,
+                ..
+            }) if !matches!(error, ParseErrorType::Lexical(_))
+                && source
+                    .is_some_and(|source| raw_location.start().to_usize() >= source.len()) =>
+            {
+                incomplete_or_syntax(allow_incomplete)
+            }
             #[cfg(feature = "parser")]
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
