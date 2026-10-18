@@ -104,11 +104,14 @@ impl VirtualMachine {
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.to_owned());
             if let Err(eh_exc) = excepthook.call((exc_type, exc_val, exc_tb), vm) {
-                self.write_exception_fallback(&eh_exc, "Error in sys.excepthook:");
-                self.write_exception_fallback(exc, "Original exception was:");
+                writeln!(sys::PyStderr(vm), "Error in sys.excepthook:");
+                vm.display_exception(&eh_exc);
+                writeln!(sys::PyStderr(vm), "Original exception was:");
+                vm.display_exception(exc);
             }
         } else {
-            self.write_exception_fallback(exc, "missing sys.excepthook");
+            writeln!(sys::PyStderr(vm), "missing sys.excepthook");
+            vm.display_exception(exc);
         }
     }
 
@@ -149,11 +152,15 @@ impl VirtualMachine {
         if let Some(hook) = hook {
             if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
                 self.handle_system_exit(&hook_exc);
-                self.write_exception_fallback(&hook_exc, "Error in sys.excepthook:");
-                self.write_exception_fallback(exc, "\nOriginal exception was:");
+                let _ = io::Write::flush(&mut io::stdout());
+                writeln!(sys::PyStderr(self), "Error in sys.excepthook:");
+                self.display_exception(&hook_exc);
+                writeln!(sys::PyStderr(self), "\nOriginal exception was:");
+                self.display_exception(exc);
             }
         } else {
-            self.write_exception_fallback(exc, "sys.excepthook is missing");
+            writeln!(sys::PyStderr(self), "sys.excepthook is missing");
+            self.display_exception(exc);
         }
     }
 
@@ -164,16 +171,45 @@ impl VirtualMachine {
         }
     }
 
-    fn write_exception_fallback(&self, exc: &Py<PyBaseException>, heading: &str) {
-        if let Ok(stderr) = sys::get_stderr(self) {
-            let mut stderr = py_io::PyWriter(stderr, self);
-            // if this fails stderr might be closed -- ignore it
-            let _ = writeln!(stderr, "{heading}");
-            let _ = self.write_exception(&mut stderr, exc);
-        } else {
-            eprintln!("{heading}\nlost sys.stderr");
-            let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
+    /// PyErr_Display
+    ///
+    /// Display `exc` on `sys.stderr`; nothing is written when it is `None`.
+    pub fn display_exception(&self, exc: &Py<PyBaseException>) {
+        let file = self.sys_module.dict().get_item_opt("stderr", self);
+        if let Ok(Some(file)) = &file {
+            if !self.is_none(file) {
+                self.display_exception_to(file, exc);
+            }
+            return;
         }
+        self.dump_object(exc.as_object());
+        eprintln!("lost sys.stderr");
+        if let Err(err) = file {
+            self.dump_object(err.as_object());
+        }
+    }
+
+    /// _PyErr_Display
+    ///
+    /// Display `exc` through `traceback._print_exception_bltin`, falling back
+    /// to the native printer writing to `file`.
+    pub(crate) fn display_exception_to(&self, file: &PyObject, exc: &Py<PyBaseException>) {
+        if let Ok(print_exception) = self
+            .import("traceback", 0)
+            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
+            && print_exception.is_callable()
+            && print_exception.call((exc.to_owned(),), self).is_ok()
+        {
+            return;
+        }
+        if self
+            .write_exception(&mut py_io::PyWriter(file.to_owned(), self), exc)
+            .is_err()
+        {
+            self.dump_object(exc.as_object());
+            eprintln!("lost sys.stderr");
+        }
+        let _ = self.call_method(file, "flush", ());
     }
 
     pub fn write_exception<W: Write>(

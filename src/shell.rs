@@ -22,12 +22,9 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         },
     );
     let _ = repl.load_history(&history);
-    // A SystemExit exits the process from inside the loop, so the history
-    // is saved after every line.
-    vm.run_interactive_loop(|prompt| match repl.readline(prompt) {
+    let result = vm.run_interactive_loop(|prompt| match repl.readline(prompt) {
         ReadlineResult::Line(line) => {
             let _ = repl.add_history_entry(line.trim_end());
-            let _ = repl.save_history(&history);
             Ok(Some(InteractiveLine::Text(line)))
         }
         ReadlineResult::Eof => Ok(None),
@@ -38,5 +35,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         #[cfg(unix)]
         ReadlineResult::OsError(_) => Ok(None),
         ReadlineResult::Other(_) => Ok(None),
-    })
+    });
+    let _ = repl.save_history(&history);
+    result
 }

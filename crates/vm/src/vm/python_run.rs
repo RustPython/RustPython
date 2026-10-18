@@ -264,8 +264,12 @@ impl VirtualMachine {
                     } else {
                         nomem_count = 0;
                     }
+                    if !self.config_inspect()
+                        && exc.fast_isinstance(self.ctx.exceptions.system_exit)
+                    {
+                        return Err(exc);
+                    }
                     self.print_uncaught_exception(&exc);
-                    self.flush_io();
                 }
             }
         }

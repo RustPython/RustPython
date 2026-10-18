@@ -924,8 +924,8 @@ pub struct PyGlobalState {
     pub feature_flags: runtime::InterpFeatureFlags,
     /// Whether the interpreter was configured with `gil="own"`.
     pub own_gil: bool,
-    /// Whether `__main__` is currently executing via `_interpreters.exec` / `run_*`.
-    pub running_main: AtomicBool,
+    /// `threads.main`: the ident of the thread running `__main__`, if any.
+    pub running_main: AtomicCell<Option<u64>>,
     /// True after `initialize()` has finished (CPython "ready").
     pub ready: AtomicBool,
     /// Optional ID refcount used by `_interpreters.create(reqrefs=True)`.
@@ -963,6 +963,44 @@ impl PyGlobalState {
     #[must_use]
     pub fn allow_daemon_threads(&self) -> bool {
         self.feature_flags.allow_daemon_threads
+    }
+
+    /// _PyInterpreterState_SetRunningMain
+    ///
+    /// Record the calling thread as the one running `__main__`. Return `false`
+    /// when a thread already does.
+    pub fn set_running_main(&self) -> bool {
+        self.running_main
+            .compare_exchange(None, Some(crate::frame::current_thread_ident()))
+            .is_ok()
+    }
+
+    /// _PyInterpreterState_SetNotRunningMain
+    pub fn set_not_running_main(&self) {
+        debug_assert!(self.thread_is_running_main());
+        self.running_main.store(None);
+    }
+
+    /// _PyInterpreterState_IsRunningMain
+    #[must_use]
+    pub fn is_running_main(&self) -> bool {
+        self.running_main.load().is_some()
+    }
+
+    /// _PyThreadState_IsRunningMain
+    #[must_use]
+    pub fn thread_is_running_main(&self) -> bool {
+        self.running_main.load() == Some(crate::frame::current_thread_ident())
+    }
+
+    /// _PyInterpreterState_ReinitRunningMain
+    ///
+    /// After a fork only the forking thread survives, so `__main__` is no
+    /// longer running unless that thread was running it.
+    pub(crate) fn reinit_running_main(&self) {
+        if !self.thread_is_running_main() {
+            self.running_main.store(None);
+        }
     }
 
     /// The config this interpreter was created with, rebuilt from the flags it

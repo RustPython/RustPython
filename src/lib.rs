@@ -252,10 +252,14 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<u32> {
 }
 
 fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<u32> {
-    let program = &vm.state.config.paths.executable;
+    let program_name = &vm.state.config.paths.program_name;
     let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
     let errno = err.raw_os_error().unwrap_or(2);
-    eprintln!("{program}: can't open file {filename_repr}: [Errno {errno}] {err}");
+    let strerror = vm::host_env::errno::strerror_string(errno).unwrap_or_default();
+    writeln!(
+        vm::stdlib::sys::PyStderr(vm),
+        "{program_name}: can't open file {filename_repr}: [Errno {errno}] {strerror}"
+    );
     Ok(2)
 }
 
@@ -372,6 +376,19 @@ fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
         eprintln!("Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.");
     }
 
+    let set_running_main = vm.state.set_running_main();
+    let exitcode =
+        pymain_run_main(vm, scope, run_mode).unwrap_or_else(|exc| vm.handle_exit_exception(exc));
+    if set_running_main {
+        vm.state.set_not_running_main();
+    }
+    Ok(exitcode)
+}
+
+/// The part of pymain_run_python that runs while the main thread owns
+/// `__main__`.
+fn pymain_run_main(vm: &VirtualMachine, scope: Scope, run_mode: RunMode) -> PyResult<u32> {
+    let is_repl = matches!(run_mode, RunMode::Repl);
     vm.check_signals()?;
     let result = match run_mode {
         RunMode::Command(command) => {
@@ -412,7 +429,7 @@ fn pymain_err_print(vm: &VirtualMachine, exc: PyBaseExceptionRef) -> Option<u32>
 fn pymain_set_inspect(vm: &VirtualMachine, inspect: bool) {
     if let Err(exc) = vm.config_set_inspect(inspect) {
         eprintln!("Could not set the inspect flag");
-        vm.print_exception(&exc);
+        vm.print_uncaught_exception(&exc);
     }
 }
 

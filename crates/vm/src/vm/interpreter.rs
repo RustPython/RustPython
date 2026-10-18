@@ -197,7 +197,7 @@ where
         stop_the_world: StopTheWorldState::new(),
         feature_flags,
         own_gil,
-        running_main: AtomicBool::new(false),
+        running_main: AtomicCell::new(None),
         ready: AtomicBool::new(false),
         id_refcount: AtomicI64::new(0),
         require_idref: AtomicBool::new(false),
@@ -660,13 +660,20 @@ impl Interpreter {
     /// Py_RunMain
     ///
     /// Run a function that reports its own errors and returns the exit code,
-    /// then finalize with that exit code.
+    /// then finalize with that exit code. An unhandled `KeyboardInterrupt`
+    /// exits through the default SIGINT handler instead.
     pub fn run_main<F>(self, f: F) -> u32
     where
         F: FnOnce(&VirtualMachine) -> u32,
     {
+        crate::signal::clear_unhandled_keyboard_interrupt();
         let exit_code = self.enter(f);
-        self.finalize_with_exit_code(exit_code)
+        let exit_code = self.finalize_with_exit_code(exit_code);
+        if crate::signal::unhandled_keyboard_interrupt() {
+            crate::signal::exit_sigint()
+        } else {
+            exit_code
+        }
     }
 
     /// Finalize vm and turns an exception to exit code.
@@ -695,7 +702,7 @@ impl Interpreter {
     }
 
     fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
-        let exit_code = self.enter(|vm| {
+        self.enter(|vm| {
             let flush_status = vm.flush_std();
 
             // See if any exception leaked out:
@@ -707,12 +714,7 @@ impl Interpreter {
             } else {
                 exit_code
             }
-        });
-        if crate::signal::unhandled_keyboard_interrupt() {
-            crate::signal::exit_sigint()
-        } else {
-            exit_code
-        }
+        })
     }
 }
 
@@ -721,6 +723,9 @@ impl VirtualMachine {
     ///
     /// Finalize the interpreter and exit the process with `status`.
     pub fn exit_process(&self, status: u32) -> ! {
+        if self.state.thread_is_running_main() {
+            self.state.set_not_running_main();
+        }
         let status = if self.finalize_ex(self.flush_std()) < 0 {
             EXITCODE_FLUSH_FAILURE
         } else {

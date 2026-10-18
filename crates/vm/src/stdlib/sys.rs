@@ -861,7 +861,6 @@ pub mod sys {
         traceback: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let stderr = super::get_stderr(vm)?;
         // Keep runtime SyntaxErrors on the normal traceback path.
         let has_traceback = !vm.is_none(&traceback);
         match vm.normalize_exception(exctype, value.clone(), traceback) {
@@ -881,19 +880,11 @@ pub mod sys {
                         .and_then(|text| text.downcast::<PyStr>().ok())
                         .is_some_and(|text| text.to_string_lossy().trim_end() == "\\");
                 if native_syntax_error_display {
+                    let stderr = super::get_stderr(vm)?;
                     return vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc);
                 }
-                // PyErr_Display: try traceback._print_exception_bltin first
-                if let Ok(tb_mod) = vm.import("traceback", 0)
-                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
-                    && print_exc_builtin
-                        .call((exc.as_object().to_owned(),), vm)
-                        .is_ok()
-                {
-                    return Ok(());
-                }
-                // Fallback to Rust-level exception printing
-                vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+                vm.display_exception(&exc);
+                Ok(())
             }
             Err(_) => {
                 let type_name = value.class().name();
@@ -901,6 +892,7 @@ pub mod sys {
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
                 use crate::py_io::Write;
+                let stderr = super::get_stderr(vm)?;
                 write!(&mut crate::py_io::PyWriter(stderr, vm), "{msg}")?;
                 Ok(())
             }

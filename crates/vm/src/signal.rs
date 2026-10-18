@@ -65,6 +65,10 @@ pub(crate) fn set_unhandled_keyboard_interrupt() {
     UNHANDLED_KEYBOARD_INTERRUPT.store(true, Ordering::Relaxed);
 }
 
+pub(crate) fn clear_unhandled_keyboard_interrupt() {
+    UNHANDLED_KEYBOARD_INTERRUPT.store(false, Ordering::Relaxed);
+}
+
 pub(crate) fn unhandled_keyboard_interrupt() -> bool {
     UNHANDLED_KEYBOARD_INTERRUPT.load(Ordering::Relaxed)
 }
