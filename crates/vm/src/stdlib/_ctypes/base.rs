@@ -372,7 +372,16 @@ pub(super) static CDATA_BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes_mut: |buffer| {
         rustpython_common::lock::PyRwLockWriteGuard::map(
             buffer.obj_as::<PyCData>().buffer.write(),
-            |x| x.to_mut().as_mut_slice(),
+            |x| match x {
+                // ctypes buffers are writable, including views into their base object.
+                // SAFETY: requires valid writable storage and exclusive access.
+                // This guard only locks this view, not its owner or sibling views;
+                // ctypes does not enforce these requirements across aliases.
+                Cow::Borrowed(slice) => unsafe {
+                    rustpython_host_env::ctypes::borrowed_slice_as_mut(slice)
+                },
+                Cow::Owned(vec) => vec.as_mut_slice(),
+            },
         )
         .into()
     },
@@ -409,7 +418,9 @@ pub struct PyCData {
     ///
     /// SAFETY: Borrowed variant's 'static lifetime is not actually static.
     /// When created via from_address or from_base_obj, only valid for the lifetime of the source memory.
-    /// Same behavior as CPython's b_ptr (user responsibility, kept alive via b_base).
+    /// A base reference keeps the owner alive but does not pin its allocation.
+    /// Resizing the owner may invalidate the slice; locks on distinct views
+    /// do not synchronize access to their shared storage.
     pub buffer: PyRwLock<Cow<'static, [u8]>>,
     /// pointer to base object or None (b_base)
     pub base: PyRwLock<Option<PyObjectRef>>,
@@ -493,36 +504,15 @@ impl PyCData {
         }
     }
 
-    /// Create from base object with offset and data copy
-    ///
-    /// Similar to from_base_with_offset, but also stores a copy of the data.
-    /// This is used for arrays where we need our own buffer for the buffer protocol,
-    /// but still maintain the base reference for KeepRef and tracking.
-    pub fn from_base_with_data(
-        base_obj: PyObjectRef,
-        offset: usize,
-        idx: usize,
-        length: usize,
-        data: Vec<u8>,
-    ) -> Self {
-        Self {
-            buffer: PyRwLock::new(Cow::Owned(data)), // Has its own buffer copy
-            base: PyRwLock::new(Some(base_obj)),     // But still tracks base
-            base_offset: AtomicCell::new(offset),    // And offset for writes
-            index: AtomicCell::new(idx),
-            objects: PyRwLock::new(None),
-            length: AtomicCell::new(length),
-            kept_refs: PyRwLock::new(std::collections::HashMap::new()),
-        }
-    }
-
     /// Create from base object's buffer
     ///
     /// This creates a borrowed view into the base's buffer at the given address.
-    /// The base object is stored in b_base to keep the memory alive.
+    /// The base object is stored in b_base to keep the owner alive, not to pin its allocation.
     ///
     /// # Safety
-    /// ptr must point into base_obj's buffer and remain valid as long as base_obj is alive.
+    /// `ptr` must cover `size` valid bytes for the lifetime of the returned view.
+    /// Keeping `base_obj` alive does not prevent reallocation or incompatible
+    /// access through another alias; the caller must account for both.
     pub unsafe fn from_base_obj(
         ptr: *mut u8,
         size: usize,
@@ -530,7 +520,7 @@ impl PyCData {
         idx: usize,
     ) -> Self {
         // = PyCData_FromBaseObj
-        // SAFETY: ptr points into base_obj's buffer, kept alive via base reference
+        // SAFETY: the caller must uphold the storage validity and aliasing requirements above.
         let slice = unsafe { rustpython_host_env::ctypes::borrow_memory(ptr, size) };
         Self {
             buffer: PyRwLock::new(Cow::Borrowed(slice)),
@@ -1051,13 +1041,21 @@ impl PyCData {
                 return Ok(vm.ctx.new_str(wchar_array_field_value(data)).into());
             }
 
-            // Other array types - create array with a copy of data from the base's buffer
-            // The array also keeps a reference to the base for keeping it alive and for writes
-            let array_data = buffer[offset..offset + size].to_vec();
+            // Array fields share their storage with the containing object.
+            // SAFETY: the field lies within the currently locked base buffer.
+            // The base reference retains the owner, not the allocation address;
+            // a reallocating resize can invalidate this view, as with other ctypes views.
+            let cdata_obj = unsafe {
+                Self::from_base_obj(
+                    buffer.as_ptr().add(offset).cast_mut(),
+                    size,
+                    base_obj,
+                    index,
+                )
+            };
+            cdata_obj.base_offset.store(offset);
+            cdata_obj.length.store(stg.length);
             drop(buffer);
-
-            let cdata_obj =
-                Self::from_base_with_data(base_obj, offset, index, stg.length, array_data);
             let array_type: PyTypeRef = proto
                 .to_owned()
                 .downcast()

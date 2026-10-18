@@ -469,6 +469,77 @@ del callback, address
 gc.collect()
 assert roundtrip(41) == 42
 
+
+class ArrayField(ctypes.Structure):
+    _fields_ = [("prefix", ctypes.c_int), ("values", ctypes.c_int * 3)]
+
+
+owner = ArrayField(99, (1, 2, 3))
+view = owner.values
+assert view._b_base_ is owner
+assert ctypes.addressof(view) == ctypes.addressof(owner) + ArrayField.values.offset
+ctypes.resize(owner, ctypes.sizeof(owner))
+assert ctypes.addressof(view) == ctypes.addressof(owner) + ArrayField.values.offset
+pointer = ctypes.cast(view, ctypes.POINTER(ctypes.c_int))
+pointer[1] = 42
+assert list(owner.values) == [1, 42, 3]
+owner.values[0] = 7
+assert bytes(view) == bytes(owner.values)
+memoryview(view).cast("B")[:] = bytes((ctypes.c_int * 3)(7, 42, 9))
+assert list(owner.values) == [7, 42, 9]
+del owner
+assert list(view) == [7, 42, 9]
+
+
+class OverlappingFields(ctypes.Union):
+    _fields_ = [("a", ctypes.c_ubyte * 8), ("b", ctypes.c_ubyte * 8)]
+
+
+overlap = OverlappingFields()
+overlap.a[:] = range(8)
+memoryview(overlap.a).cast("B")[::2] = memoryview(overlap.b).cast("B")[:4]
+assert list(overlap.a) == [0, 1, 1, 3, 2, 5, 3, 7]
+
+backing = bytearray(range(8))
+view = (ctypes.c_ubyte * 7).from_buffer(backing, 1)
+view._objects.clear()  # Alias detection must not depend on mutable retention metadata.
+memoryview(view).cast("B")[::2] = memoryview(backing)[:4]
+assert list(backing) == [0, 0, 2, 1, 4, 2, 6, 3]
+
+raw_owner = (ctypes.c_ubyte * 8)()
+raw_views = [type(raw_owner).from_address(ctypes.addressof(raw_owner))]
+if _sys.version_info >= (3, 14):
+    raw_views.append(
+        ctypes.memoryview_at(ctypes.addressof(raw_owner), ctypes.sizeof(raw_owner))
+    )
+for raw_view in raw_views:
+    for source, dest in ((raw_owner, raw_view), (raw_view, raw_owner)):
+        raw_owner[:] = range(8)
+        memoryview(dest).cast("B")[::2] = memoryview(source).cast("B")[:4]
+        assert list(raw_owner) == [0, 1, 1, 3, 2, 5, 3, 7]
+
+# A snapshotted source's release hook must run after the destination write.
+raw_owner[:] = range(8)
+destination_buffer = bytearray(b"abcdefgh")
+destination_view = memoryview(destination_buffer)
+release_events = []
+
+
+class ReleasingBuffer:
+    def __buffer__(self, flags):
+        return memoryview(raw_views[0]).cast("B")
+
+    def __release_buffer__(self, view):
+        release_events.append(bytes(destination_buffer))
+        destination_view.release()
+        destination_buffer.clear()
+
+
+destination_view[:] = ReleasingBuffer()
+assert release_events == [bytes(raw_owner)]
+assert destination_buffer == b""
+
+
 # byref carries an address, including its byte offset, rather than the value
 # stored in the referenced object.
 pair = (ctypes.c_int * 2)(42, 99)
