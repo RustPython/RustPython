@@ -64,7 +64,8 @@ pub struct Settings {
 
     // int tracemalloc;
     // int perf_profiling;
-    // int import_time;
+    /// -X importtime, PYTHONPROFILEIMPORTTIME: 2 also reports cached imports.
+    pub import_time: u8,
     /// -X no_debug_ranges: disable column info in bytecode
     pub code_debug_ranges: bool,
     // int show_ref_count;
@@ -222,6 +223,7 @@ impl Default for Settings {
             argv: vec![],
             hash_seed: None,
             faulthandler: false,
+            import_time: 0,
             code_debug_ranges: true,
             buffered_stdio: true,
             check_hash_pycs_mode: CheckHashPycsMode::Default,
