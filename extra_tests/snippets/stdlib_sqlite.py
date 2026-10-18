@@ -809,3 +809,236 @@ def concurrent_sqlite_transactions():
 script_stops_after_close()
 concurrent_sqlite_results()
 concurrent_sqlite_transactions()
+
+
+def callback_registration_lifetimes():
+    class Callback:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __call__(self, *args):
+            return sqlite.SQLITE_OK
+
+        def __del__(self):
+            if action in ("reinit", "reentrant_reinit"):
+                events.append("drop")
+                try:
+                    self.connection.close()
+                except sqlite.ProgrammingError:
+                    pass
+                if action == "reentrant_reinit" and len(events) == 1:
+                    self.connection.__init__(":memory:")
+                    register(Callback(self.connection), *args)
+
+    for method, args in (
+        ("set_trace_callback", ()),
+        ("set_authorizer", ()),
+        ("set_progress_handler", (1,)),
+        ("set_progress_handler", (0,)),
+    ):
+        for action in ("disable", "replace", "close", "reinit", "reentrant_reinit"):
+            if args == (0,) and action != "disable":
+                continue
+            events = []
+            connection = sqlite.connect(":memory:")
+            cursor = connection.execute("SELECT 1 UNION ALL SELECT 2")
+            register = getattr(connection, method)
+            callback = Callback(connection)
+            reference = weakref.ref(callback)
+            register(callback, *args)
+            del callback
+            assert reference() is not None
+            if action == "disable":
+                register(None, *args)
+            elif action == "replace":
+                register(lambda *args: 0, *args)
+            elif action == "close":
+                connection.close()
+            else:
+                connection.__init__(":memory:")
+                assert events == ["drop"] * (2 if action == "reentrant_reinit" else 1)
+                assert connection.execute("SELECT 1").fetchone() == (1,)
+            assert reference() is None, (method, args, action)
+            del cursor
+            connection.close()
+
+
+def callback_self_removal_lifetime():
+    for method, args in (
+        ("set_trace_callback", ()),
+        ("set_authorizer", ()),
+        ("set_progress_handler", (1,)),
+    ):
+        connection = sqlite.connect(":memory:")
+        register = getattr(connection, method)
+        events = []
+
+        class Result:
+            def __bool__(self):
+                assert events == ["call"]
+                return False
+
+        class Callback:
+            def __call__(self, *unused):
+                register(None, *args)
+                events.append("call")
+                return Result() if args else sqlite.SQLITE_OK
+
+            def __del__(self):
+                events.append(("drop", connection.execute("SELECT 2").fetchone()))
+
+        register(Callback(), *args)
+        # The callable connection also prepares statements and invokes authorizers.
+        if method == "set_authorizer":
+            connection("SELECT 1")
+        else:
+            connection.execute("SELECT 1").fetchall()
+        assert events == ["call", ("drop", (2,))], (method, events)
+        connection.close()
+
+
+callback_registration_lifetimes()
+callback_self_removal_lifetime()
+
+
+def blob_close_during_cursor_reset():
+    import tempfile
+    import threading
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = directory + "/blob.db"
+        connection = sqlite.connect(path, isolation_level=None, check_same_thread=False)
+        connection.execute("CREATE TABLE t(value)")
+        connection.execute("INSERT INTO t VALUES (zeroblob(1)), (zeroblob(1))")
+        resetting = threading.Event()
+        release = threading.Event()
+        cursor_closed = threading.Event()
+        blob_closed = threading.Event()
+        failures = []
+
+        class Window:
+            def step(self, value):
+                pass
+
+            def value(self):
+                return 0
+
+            def finalize(self):
+                resetting.set()
+                if not release.wait(5):
+                    failures.append("cursor reset timed out")
+                return 0
+
+        connection.create_window_function("hold", 1, Window)
+        blob = connection.blobopen("t", "value", 1)
+        cursor = connection.execute(
+            "SELECT hold(rowid) OVER (ROWS UNBOUNDED PRECEDING) FROM t"
+        )
+
+        def close(resource, finished):
+            resource.close()
+            finished.set()
+
+        resetter = threading.Thread(
+            target=close, args=(cursor, cursor_closed), daemon=True
+        )
+        closer = threading.Thread(target=close, args=(blob, blob_closed), daemon=True)
+        resetter.start()
+        assert resetting.wait(5)
+        closer.start()
+        # CPython waits for reset; RustPython may queue the BLOB for later cleanup.
+        blob_closed.wait(0.2)
+        release.set()
+        resetter.join(5)
+        closer.join(5)
+        assert not resetter.is_alive() and not closer.is_alive()
+        assert cursor_closed.is_set() and blob_closed.is_set()
+        assert not failures, failures
+        other = sqlite.connect(path, timeout=0, isolation_level=None)
+        try:
+            # No intervening call on connection may be needed to release its lock.
+            other.execute("UPDATE t SET value=zeroblob(1)")
+        finally:
+            other.close()
+            connection.close()
+
+
+blob_close_during_cursor_reset()
+
+
+def reinit_during_isolation_cleanup():
+    import threading
+
+    failures = []
+    armed = False
+
+    class Callback:
+        def __call__(self, sql):
+            pass
+
+        def __del__(self):
+            try:
+                connection.close()
+            except Exception as exc:
+                failures.append(exc)
+
+    def replace():
+        try:
+            connection.__init__(":memory:", check_same_thread=False, autocommit=True)
+            connection.set_trace_callback(Callback())
+        except Exception as exc:
+            failures.append(exc)
+
+    class Level(str):
+        def __del__(self):
+            # CPython releases this subclass during argument conversion;
+            # RustPython retains it until the isolation level is replaced.
+            if armed:
+                worker = threading.Thread(target=replace, daemon=True)
+                worker.start()
+                worker.join(5)
+                if worker.is_alive():
+                    failures.append("reentrant initializer blocked")
+
+    connection = sqlite.connect(
+        ":memory:", isolation_level=Level(""), check_same_thread=False
+    )
+    armed = True
+    try:
+        connection.__init__(":memory:", check_same_thread=False, autocommit=False)
+        assert not failures, failures
+        assert connection.execute("SELECT 1").fetchone() == (1,)
+        assert connection.autocommit is False
+        assert connection.in_transaction
+    finally:
+        connection.close()
+
+
+reinit_during_isolation_cleanup()
+
+
+def reinit_restores_factories_after_callback_cleanup():
+    connection = sqlite.connect(":memory:")
+    events = []
+
+    class Callback:
+        def __call__(self, sql):
+            pass
+
+        def __del__(self):
+            connection.row_factory = sqlite.Row
+            connection.text_factory = bytes
+            events.append("factories changed")
+
+    connection.set_trace_callback(Callback())
+    try:
+        connection.__init__(":memory:")
+        assert events == ["factories changed"]
+        assert connection.row_factory is None
+        assert connection.text_factory is str
+        assert connection.execute("SELECT 'hello'").fetchone() == ("hello",)
+    finally:
+        connection.close()
+
+
+reinit_restores_factories_after_callback_cleanup()
