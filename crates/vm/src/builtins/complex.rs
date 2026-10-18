@@ -1,9 +1,9 @@
-use super::{PyStr, PyType, PyTypeRef, float};
+use super::{PyInt, PyStr, PyType, PyTypeRef, float};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyUtf8StrRef,
     class::{PyClassDef, PyClassImpl},
-    common::wtf8::Wtf8Buf,
+    common::{float_ops, wtf8::Wtf8Buf},
     convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::PyNumberMethods,
@@ -623,17 +623,20 @@ impl Comparable for PyComplex {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
+            let value = zelf.as_complex();
             let result = if let Some(other) = other.downcast_ref::<Self>() {
-                zelf.as_complex() == other.as_complex()
+                value == other.as_complex()
+            } else if let Some(other) = other.downcast_ref::<PyInt>() {
+                // Compare with the exact integer, as float does, instead of
+                // rounding the integer to the nearest float first.
+                value.im == 0.0 && float_ops::eq_int(value.re, other.as_bigint())
+            } else if let Some(other) = other.downcast_ref::<float::PyFloat>() {
+                value == other.to_f64().into()
             } else {
-                match float::to_op_float(other, vm) {
-                    Ok(Some(other)) => zelf.as_complex() == other.into(),
-                    Err(_) => false,
-                    Ok(None) => return Ok(PyComparisonValue::NotImplemented),
-                }
+                return Ok(PyComparisonValue::NotImplemented);
             };
             Ok(PyComparisonValue::Implemented(result))
         })
