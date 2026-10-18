@@ -140,3 +140,63 @@ for args, kwargs in (
         pass
     else:
         assert False, "invalid normalization arguments were accepted"
+
+
+# Registry removal and competing lookup results may run Python destructors.
+def test_registry_reentrant_cleanup():
+    released = []
+
+    class ErrorHandler:
+        def __call__(self, error):
+            raise AssertionError("handler should not be called")
+
+        def __del__(self):
+            codecs.lookup_error("strict")
+            released.append("handler")
+
+    codecs.register_error("test_registry_cleanup", ErrorHandler())
+    assert _codecs._unregister_error("test_registry_cleanup")
+    assert released == ["handler"]
+    released.clear()
+
+    class Codec(tuple):
+        def __new__(cls, label):
+            result = super().__new__(cls, (None, None, None, None))
+            result.label = label
+            return result
+
+        def __del__(self):
+            codecs.lookup_error("strict")
+            released.append(self.label)
+
+    def search(name):
+        if name == "test_registry_cleanup":
+            return Codec("cached")
+
+    codecs.register(search)
+    codecs.lookup("test_registry_cleanup")
+    codecs.unregister(search)
+    assert released == ["cached"]
+    released.clear()
+
+    entered = False
+
+    def reentrant_search(name):
+        nonlocal entered
+        if name == "test_registry_reentry":
+            if not entered:
+                entered = True
+                codecs.lookup(name)
+                return Codec("outer")
+            return Codec("inner")
+
+    codecs.register(reentrant_search)
+    try:
+        codecs.lookup("test_registry_reentry")
+        assert len(released) == 1
+    finally:
+        codecs.unregister(reentrant_search)
+    assert sorted(released) == ["inner", "outer"]
+
+
+test_registry_reentrant_cleanup()
