@@ -472,6 +472,12 @@ class Doc:
                                 "https://docs.python.org/%d.%d/library"
                                 % sys.version_info[:2])
     STDLIB_DIR = sysconfig.get_path('stdlib')
+    # TODO: RUSTPYTHON; Cargo builds keep Lib outside sysconfig's install paths.
+    if (sys.implementation.name == 'rustpython'
+            and getattr(sys, '_is_python_build', False)
+            and not sysconfig.is_python_build()
+            and getattr(sys, '_stdlib_dir', None)):
+        STDLIB_DIR = sys._stdlib_dir
 
     def document(self, object, name=None, *args):
         """Generate documentation for an object."""

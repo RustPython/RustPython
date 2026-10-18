@@ -299,6 +299,11 @@ pub mod sys {
         vm.state.config.paths.stdlib_dir.clone().to_pyobject(vm)
     }
 
+    #[pyattr]
+    fn _is_python_build(vm: &VirtualMachine) -> bool {
+        crate::getpath::source_directory(&vm.state.config.paths).is_some()
+    }
+
     // alphabetical order with segments of pyattr and others
 
     #[pyattr]
