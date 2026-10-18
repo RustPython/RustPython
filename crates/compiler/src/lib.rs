@@ -37,6 +37,60 @@ pub struct ParseError {
     pub is_unclosed_bracket: bool,
     /// Set when a string is still open at EOF and more input could close it.
     pub is_unclosed_string: bool,
+    /// Set when the parser failed on a token made up at the end of the input.
+    pub eof_token: Option<Box<EofToken>>,
+}
+
+/// The tokenizer state at the end of the input, where it makes up the
+/// NEWLINE, DEDENT and ENDMARKER tokens that close it. Those tokens have no
+/// column, so an error on one of them is placed where the tokenizer stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EofToken {
+    /// `tok->lineno`: the number of lines read, 0 for empty input.
+    pub lineno: usize,
+    /// The last line read, which the tokenizer stopped at the end of.
+    pub line: String,
+    /// The error is raised at the token itself, as the generic syntax error
+    /// and a missing forced token are, so its columns are 0.
+    pub known_location: bool,
+}
+
+impl EofToken {
+    fn new(source: &str, mode: Mode, known_location: bool) -> Self {
+        let lineno = source.split_inclusive('\n').count();
+        let mut line = source
+            .split_inclusive('\n')
+            .next_back()
+            .unwrap_or_default()
+            .to_owned();
+        // translate_newlines: exec input that does not end with a newline
+        // gets one.
+        if matches!(mode, Mode::Exec | Mode::BlockExpr) && !line.is_empty() && !line.ends_with('\n')
+        {
+            line.push('\n');
+        }
+        Self {
+            lineno,
+            line,
+            known_location,
+        }
+    }
+
+    /// `SyntaxError.offset`
+    #[must_use]
+    pub fn offset(&self) -> usize {
+        if self.known_location {
+            0
+        } else {
+            self.line.chars().count()
+        }
+    }
+
+    /// `SyntaxError.end_offset`
+    #[must_use]
+    pub const fn end_offset(&self) -> isize {
+        if self.known_location { 0 } else { -1 }
+    }
 }
 
 impl ::core::fmt::Display for ParseError {
@@ -61,6 +115,7 @@ impl CompileError {
         mode: Mode,
     ) -> Self {
         let raw_location = error.location;
+        let at_eof_token = fails_at_eof_token(&error, source_file.source_text(), mode);
         let diagnostic = match cpython_parse_diagnostic_override(&error, source_file, mode) {
             Some(diagnostic) => diagnostic,
             None => {
@@ -80,6 +135,11 @@ impl CompileError {
             }
         };
 
+        let eof_token = at_eof_token.then(|| {
+            let source = source_file.source_text();
+            let known_location = is_raised_at_token(&diagnostic.error, source, raw_location);
+            Box::new(EofToken::new(source, mode, known_location))
+        });
         Self::Parse(ParseError {
             error: diagnostic.error,
             raw_location,
@@ -88,6 +148,7 @@ impl CompileError {
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: diagnostic.is_unclosed_bracket,
             is_unclosed_string: diagnostic.is_unclosed_string,
+            eof_token,
         })
     }
 
@@ -105,6 +166,7 @@ impl CompileError {
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
     }
 
@@ -117,8 +179,14 @@ impl CompileError {
     }
 
     #[must_use]
-    pub const fn python_location(&self) -> (usize, usize) {
-        if let Some(location) = self.location() {
+    pub fn python_location(&self) -> (usize, usize) {
+        if let Self::Parse(ParseError {
+            eof_token: Some(eof_token),
+            ..
+        }) = self
+        {
+            (eof_token.lineno, eof_token.offset())
+        } else if let Some(location) = self.location() {
             (location.line.get(), location.character_offset.get())
         } else {
             (0, 0)
@@ -314,6 +382,92 @@ fn cpython_parse_diagnostic_override(
     }
 
     None
+}
+
+/// Whether the parser fails on a token made up at the end of the input.
+fn fails_at_eof_token(error: &parser::ParseError, source: &str, mode: Mode) -> bool {
+    let start = error.location.start().to_usize();
+    match &error.error {
+        parser::ParseErrorType::Lexical(_) => false,
+        // `NEWLINE !INDENT` fails on the token after the newline, and the
+        // error is reported at the newline when only blank lines and comments
+        // follow it.
+        parser::ParseErrorType::ExpectedIndentedBlock { .. } => {
+            let end = error.location.end().to_usize();
+            source[start..end].chars().all(|c| c.is_ascii_whitespace())
+                && is_blank_python_source(&source[end..])
+        }
+        _ if start < source.len() => false,
+        // Exec input gets a newline appended, which is a real NEWLINE token,
+        // so the error is at the end only when it stays there once the
+        // newline is added.
+        _ if matches!(mode, Mode::Exec | Mode::BlockExpr)
+            && !source.is_empty()
+            && !source.ends_with('\n') =>
+        {
+            let source = format!("{source}\n");
+            let parsed =
+                parser::parse_unchecked(&source, parser::ParseOptions::from(parser::Mode::Module));
+            parsed
+                .errors()
+                .first()
+                .is_none_or(|error| error.location.start().to_usize() >= source.len())
+        }
+        _ => true,
+    }
+}
+
+/// Whether the error is raised at the token the parser failed on, as the
+/// generic syntax error and a missing forced token are, rather than where the
+/// tokenizer stopped.
+fn is_raised_at_token(
+    error: &parser::ParseErrorType,
+    source: &str,
+    range: ruff_text_size::TextRange,
+) -> bool {
+    match error {
+        // Only `else`, `try`, `finally` and `def` force their `:`; the other
+        // clause headers report a missing one from an `invalid_*` rule.
+        parser::ParseErrorType::ExpectedToken {
+            expected: TokenKind::Colon,
+            found: TokenKind::Newline,
+        } => matches!(
+            clause_keyword(source, range.start()),
+            Some(TokenKind::Else | TokenKind::Try | TokenKind::Finally | TokenKind::Def)
+        ),
+        parser::ParseErrorType::ExpectedToken { .. }
+        | parser::ParseErrorType::ExpectedExpression
+        | parser::ParseErrorType::ExpectedIdentifier
+        | parser::ParseErrorType::UnexpectedExpressionToken
+        | parser::ParseErrorType::SimpleStatementsOnSameLine
+        | parser::ParseErrorType::SimpleAndCompoundStatementOnSameLine
+        | parser::ParseErrorType::InvalidStarredExpressionUsage => true,
+        parser::ParseErrorType::OtherError(message) => message == "invalid syntax",
+        _ => false,
+    }
+}
+
+/// The keyword that starts the logical line `offset` is in, after `async`.
+fn clause_keyword(source: &str, offset: TextSize) -> Option<TokenKind> {
+    let parsed = parser::parse_unchecked(source, parser::ParseOptions::from(parser::Mode::Module));
+    let mut keyword = None;
+    let mut at_line_start = true;
+    for token in parsed
+        .tokens()
+        .iter()
+        .take_while(|token| token.start() < offset)
+    {
+        match token.kind() {
+            TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent => at_line_start = true,
+            TokenKind::NonLogicalNewline | TokenKind::Comment | TokenKind::Async => {}
+            kind if at_line_start => {
+                keyword = Some(kind);
+                at_line_start = false;
+            }
+            _ => {}
+        }
+    }
+    keyword
 }
 
 fn eof_parse_diagnostic(
@@ -775,6 +929,7 @@ fn single_mode_blank_source_error(source_file: &SourceFile) -> Option<CompileErr
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }));
     }
     Some(CompileError::from_source_error(

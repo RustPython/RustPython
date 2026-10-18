@@ -614,7 +614,16 @@ impl VirtualMachine {
         // Tokenizer/parser errors attach the current source line. Compiler
         // errors load that line with ProgramText, which is None when the
         // filename cannot be opened (compile of a string).
-        let mut statement = if matches!(error, crate::compiler::CompileError::Codegen(_)) {
+        let eof_token = match error {
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                eof_token: Some(eof_token),
+                ..
+            }) => Some(eof_token),
+            _ => None,
+        };
+        let mut statement = if let Some(eof_token) = eof_token {
+            Some(eof_token.line.clone())
+        } else if matches!(error, crate::compiler::CompileError::Codegen(_)) {
             self.program_text(error.source_path(), error.python_location().0)
         } else {
             source.and_then(|src| get_statement(src, error.location()))
@@ -727,7 +736,9 @@ impl VirtualMachine {
                         .as_deref()
                         .and_then(|line| line.chars().next())
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
-            let (end_lineno, end_offset) = if no_end_offset {
+            let (end_lineno, end_offset) = if let Some(eof_token) = eof_token {
+                (eof_token.lineno, eof_token.end_offset())
+            } else if no_end_offset {
                 (end_lineno, -1)
             } else if let Some(end_offset) = tokenizer_end_offset {
                 (end_lineno, end_offset)
