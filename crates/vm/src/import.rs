@@ -46,11 +46,14 @@ fn import_time_name(name: &Py<PyStr>) -> String {
 pub(crate) fn report_cached_import(name: &Py<PyStr>, vm: &VirtualMachine) {
     if vm.state.config.settings.import_time == 2 {
         import_time_header(vm);
-        let width = vm.import_timing.get().depth * 2;
+        let name = import_time_name(name);
+        // printf("%*s") counts encoded bytes, not Unicode scalar values.
+        let padding = (vm.import_timing.get().depth * 2).saturating_sub(name.len());
         let _ = writeln!(
             std::io::stderr(),
-            "import time: cached    | cached     | {:>width$}",
-            import_time_name(name)
+            "import time: cached    | cached     | {:padding$}{}",
+            "",
+            name
         );
     }
 }
