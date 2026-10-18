@@ -95,6 +95,7 @@ pub struct VirtualMachine {
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
     pub(crate) importlib: PyObjectRef,
+    pub(crate) import_timing: Cell<import::ImportTimingState>,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
@@ -875,6 +876,7 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
     pub finalizing: AtomicBool,
@@ -1353,6 +1355,7 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func,
             importlib,
+            import_timing: Cell::default(),
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
@@ -3373,6 +3376,7 @@ impl VirtualMachine {
             && builtins.is(self.builtins.dict().as_object())
             && let Some(cached) = self.try_import_cached(module)?
         {
+            import::report_cached_import(module, self);
             return Ok(cached);
         }
 

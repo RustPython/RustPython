@@ -166,6 +166,7 @@ where
         atexit_funcs: PyMutex::default(),
         audit_hooks: PyMutex::default(),
         codec_registry,
+        import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
         finalizing: AtomicBool::new(false),
