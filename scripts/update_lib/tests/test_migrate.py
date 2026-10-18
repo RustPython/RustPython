@@ -24,11 +24,15 @@ from update_lib.cmd_migrate import (
     LOCK_SPECIALIZATION,
     MULTIPHASE_LOCAL,
     MULTIPHASE_UPSTREAM,
+    SYMLINK_LEGACY,
+    SYMLINK_LOCAL,
+    SYMLINK_UPSTREAM,
     SYSCONFIG_LOCAL,
     SYSCONFIG_UPSTREAM,
     TYPES_DATETIME_GUARD,
     TYPES_UNITTEST_IMPORT,
     copy_support_assignments,
+    copy_support_python_symlink,
     main,
     migrate_package,
     patch_directory,
@@ -47,6 +51,149 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
+
+
+class TestPythonSymlinkMigration(unittest.TestCase):
+    prefix = """class PythonSymlink:
+    if sys.platform == "win32":
+        def _platform_specific(self):
+            self._env = {}
+"""
+    suffix = """    else:
+        def _platform_specific(self):
+            pass
+"""
+    canonical = prefix + SYMLINK_UPSTREAM + suffix
+    adapted = prefix + SYMLINK_LOCAL + suffix
+    legacy = prefix + SYMLINK_LEGACY + suffix
+
+    def test_canonical_and_legacy_import_are_idempotent(self):
+        for before in (self.canonical, self.legacy, self.adapted):
+            with self.subTest(before=before):
+                self.assertEqual(
+                    copy_support_python_symlink(self.canonical, before), self.adapted
+                )
+
+    def test_unrelated_support_content_is_preserved(self):
+        destination = "existing_guard = True\n" + self.legacy + "other_helper = 1\n"
+        self.assertEqual(
+            copy_support_python_symlink(
+                "new_upstream = 1\n" + self.canonical, destination
+            ),
+            "existing_guard = True\n" + self.adapted + "other_helper = 1\n",
+        )
+
+    def test_changed_missing_duplicate_or_nested_class_fails_closed(self):
+        for value in (self.canonical, self.legacy):
+            for changed in (
+                value.replace("PythonSymlink", "OtherHelper"),
+                value + value,
+                "if True:\n"
+                + "".join("    " + line for line in value.splitlines(True)),
+                value.replace("sys.platform", "other.platform"),
+                value.replace("self._env = {}", "self._env = None"),
+            ):
+                with self.subTest(changed=changed):
+                    with self.assertRaises(ValueError):
+                        copy_support_python_symlink(self.canonical, changed)
+
+    def test_source_anchor_drift_fails_closed(self):
+        for changed in (
+            self.canonical.replace("'VPATH'", "'OTHER'"),
+            self.canonical.replace("sys.platform", "other.platform"),
+            self.canonical.replace("sysconfig.is_python_build()", "True"),
+            self.canonical.replace(SYMLINK_UPSTREAM, SYMLINK_UPSTREAM * 2),
+            self.adapted,
+        ):
+            with self.subTest(changed=changed):
+                with self.assertRaises(ValueError):
+                    copy_support_python_symlink(changed, self.legacy)
+
+    def test_class_shadow_fails_closed(self):
+        for shadow in (
+            "PythonSymlink = None\n",
+            "del PythonSymlink\n",
+            "import other as PythonSymlink\n",
+        ):
+            with self.subTest(shadow=shadow):
+                for source, target in (
+                    (self.canonical + shadow, self.legacy),
+                    (self.canonical, self.legacy + shadow),
+                ):
+                    with self.assertRaises(ValueError):
+                        copy_support_python_symlink(source, target)
+
+    def test_cli_pins_inputs_rejects_conflicts_and_repeats(self):
+        with tempfile.TemporaryDirectory() as root, contextlib.chdir(root):
+            source = Path("canonical/Lib/test/support/__init__.py")
+            target = Path("Lib/test/support/__init__.py")
+            for path, contents in ((source, self.canonical), (target, self.legacy)):
+                path.parent.mkdir(parents=True)
+                path.write_text(contents)
+            base = [str(source), "--support-python-symlink"]
+            source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+            destination_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+            pins = [
+                "--source-sha256",
+                source_hash,
+                "--destination-sha256",
+                destination_hash,
+            ]
+            for args in (
+                base,
+                base
+                + [
+                    "--source-sha256",
+                    "0" * 64,
+                    "--destination-sha256",
+                    destination_hash,
+                ],
+                base
+                + ["--source-sha256", source_hash, "--destination-sha256", "0" * 64],
+                base + pins + ["--support-assignments", "other"],
+                base + pins + ["--support-exports", "other"],
+                base + pins + ["--patches", "unused.json"],
+                base + pins + ["--dry-run"],
+            ):
+                with (
+                    self.subTest(args=args),
+                    contextlib.redirect_stdout(io.StringIO()),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(main(args), 1)
+                    self.assertEqual(target.read_text(), self.legacy)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(base + pins), 0)
+                self.assertEqual(target.read_text(), self.adapted)
+                pins[-1] = hashlib.sha256(target.read_bytes()).hexdigest()
+                self.assertEqual(main(base + pins), 0)
+                self.assertEqual(target.read_text(), self.adapted)
+
+    def test_adapted_environment_preserves_cpython_and_sets_rustpython_library(self):
+        import textwrap
+        from types import SimpleNamespace
+
+        for implementation, build, expected_home, expected_path in (
+            ("cpython", False, "/build", None),
+            ("cpython", True, os.path.join("/build", "source"), None),
+            ("rustpython", False, "/build", "/actual/Lib"),
+        ):
+            helper = SimpleNamespace(_env={"KEEP": "value"}, real="/build/python")
+            namespace = {
+                "self": helper,
+                "os": os,
+                "sys": SimpleNamespace(
+                    implementation=SimpleNamespace(name=implementation)
+                ),
+                "sysconfig": SimpleNamespace(
+                    is_python_build=lambda: build, get_config_var=lambda name: "source"
+                ),
+                "STDLIB_DIR": "/actual/Lib",
+            }
+            exec(textwrap.dedent(SYMLINK_LOCAL), namespace)
+            self.assertEqual(helper._env["PYTHONHOME"], expected_home)
+            self.assertEqual(helper._env.get("PYTHONPATH"), expected_path)
+            self.assertEqual(helper._env["KEEP"], "value")
 
 
 class TestBytesPreservation(unittest.TestCase):

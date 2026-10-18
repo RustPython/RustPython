@@ -469,6 +469,121 @@ def _verify_call(contents: str, expected: str) -> None:
         raise ValueError("Ambiguous environment-reset call text")
 
 
+SYMLINK_UPSTREAM = """            home = os.path.dirname(self.real)
+            if sysconfig.is_python_build():
+                home = os.path.join(home, sysconfig.get_config_var('VPATH'))
+            self._env["PYTHONHOME"] = home
+"""
+SYMLINK_LEGACY = """            self._env["PYTHONHOME"] = os.path.dirname(self.real)
+            if sysconfig.is_python_build():
+                self._env["PYTHONPATH"] = STDLIB_DIR
+"""
+SYMLINK_LOCAL = (
+    SYMLINK_UPSTREAM
+    + """            # TODO: RUSTPYTHON; Cargo builds do not use CPython's Modules/Setup.
+            if sys.implementation.name == 'rustpython':
+                self._env["PYTHONPATH"] = STDLIB_DIR
+"""
+)
+
+
+def copy_support_python_symlink(source, destination):
+    """Adapt only the canonical Windows symlink helper's library environment."""
+    owners = []
+    for contents in (source, destination):
+        tree = ast.parse(contents)
+        owner = _unique_anchor(
+            contents,
+            tree,
+            lambda node: (
+                isinstance(node, ast.ClassDef) and node.name == "PythonSymlink"
+            ),
+            direct=True,
+        )
+        if list(_bytes_bindings(tree, "PythonSymlink")) != [owner]:
+            raise ValueError("Shadowed PythonSymlink class")
+        owners.append(owner)
+    canonical = ast.get_source_segment(source, owners[0]) + "\n"
+    current = ast.get_source_segment(destination, owners[1]) + "\n"
+    if canonical.count(SYMLINK_UPSTREAM) != 1 or SYMLINK_LOCAL in canonical:
+        raise ValueError("Changed canonical PythonSymlink environment anchor")
+    platform = _unique_anchor(
+        canonical,
+        ast.parse(canonical).body[0],
+        lambda node: (
+            isinstance(node, ast.If)
+            and ast.dump(node.test)
+            == ast.dump(ast.parse("sys.platform == 'win32'", mode="eval").body)
+        ),
+        direct=True,
+    )
+    method = _unique_anchor(
+        canonical,
+        ast.Module(body=platform.body, type_ignores=[]),
+        lambda node: (
+            isinstance(node, ast.FunctionDef) and node.name == "_platform_specific"
+        ),
+        direct=True,
+    )
+    condition = _unique_anchor(
+        canonical,
+        method,
+        lambda node: (
+            isinstance(node, ast.If)
+            and ast.dump(node.test)
+            == ast.dump(ast.parse("sysconfig.is_python_build()", mode="eval").body)
+        ),
+        direct=True,
+    )
+    lines = canonical.splitlines(keepends=True)
+    if (
+        "".join(lines[condition.lineno - 2 : condition.end_lineno + 1])
+        != SYMLINK_UPSTREAM
+    ):
+        raise ValueError("Changed canonical PythonSymlink environment body")
+    adapted = canonical.replace(SYMLINK_UPSTREAM, SYMLINK_LOCAL, 1)
+    legacy = canonical.replace(SYMLINK_UPSTREAM, SYMLINK_LEGACY, 1)
+    if current not in (canonical, legacy, adapted):
+        raise ValueError("Changed local PythonSymlink; review before migration")
+    lines = destination.splitlines(keepends=True)
+    lines[owners[1].lineno - 1 : owners[1].end_lineno] = [adapted]
+    result = "".join(lines)
+    ast.parse(result)
+    return result
+
+
+def migrate_support_python_symlink(path, source_hash, destination_hash):
+    target = parse_lib_path(path)
+    if target.parts != ("Lib", "test", "support", "__init__.py"):
+        raise ValueError(
+            "PythonSymlink migration requires Lib/test/support/__init__.py"
+        )
+    source, destination = path.read_bytes(), target.read_bytes()
+    for label, contents, expected in (
+        ("source", source, source_hash),
+        ("destination", destination, destination_hash),
+    ):
+        if hashlib.sha256(contents).hexdigest() != expected:
+            raise ValueError(f"{label} SHA256 does not match the pinned input")
+    result = copy_support_python_symlink(
+        source.decode("utf-8"), destination.decode("utf-8")
+    ).encode("utf-8")
+    if target.read_bytes() != destination:
+        raise ValueError("Destination changed during PythonSymlink preparation")
+    target.write_bytes(result)
+    print(
+        json.dumps(
+            {
+                "helper": "PythonSymlink",
+                "source_sha256": source_hash,
+                "destination_before_sha256": destination_hash,
+                "destination_after_sha256": hashlib.sha256(result).hexdigest(),
+            },
+            sort_keys=True,
+        )
+    )
+
+
 def copy_support_assignments(source, destination, names, exports):
     """Copy contiguous canonical assignments and export lines, failing closed.
 
@@ -1176,6 +1291,11 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         help="Add selected canonical test.support assignments",
     )
+    parser.add_argument(
+        "--support-python-symlink",
+        action="store_true",
+        help="Adapt the canonical Windows PythonSymlink library environment",
+    )
     parser.add_argument("--support-exports", nargs="+", default=[])
     parser.add_argument("--source-sha256")
     parser.add_argument("--destination-sha256")
@@ -1187,6 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.legacy_map is not None
                 or args.patches is not None
                 or args.support_assignments
+                or args.support_python_symlink
                 or args.support_exports
                 or args.source_sha256
                 or args.destination_sha256
@@ -1203,6 +1324,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.dry_run:
             raise ValueError("--dry-run requires --canonical-removals")
+        if args.support_python_symlink:
+            if (
+                args.legacy_map is not None
+                or args.patches is not None
+                or args.support_assignments
+                or args.support_exports
+            ):
+                raise ValueError(
+                    "PythonSymlink migration cannot combine with other migration modes"
+                )
+            migrate_support_python_symlink(
+                args.path, args.source_sha256, args.destination_sha256
+            )
+            return 0
         if args.support_assignments:
             if args.legacy_map is not None or args.patches is not None:
                 raise ValueError(
