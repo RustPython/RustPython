@@ -227,17 +227,15 @@ mod _imp {
         Vec::new()
     }
 
-    // CPython removes the name from its pending lazy-module registry here.
-    // RustPython currently performs only eager imports, so that registry is empty.
+    // This hook is also used by eager imports that satisfy pending lazy targets.
     #[pyfunction]
     fn _set_lazy_attributes(
         _modobj: PyObjectRef,
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // Even an empty set checks the hash of a str subclass.
-        name.as_object().hash(vm)?;
-        Ok(())
+        crate::lazy_import::clear_submodule(&name, false, vm)?;
+        vm.state.lazy_imports.modules.discard(name.into(), vm)
     }
 
     #[pyfunction]

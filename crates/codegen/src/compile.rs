@@ -3683,6 +3683,19 @@ impl<'warnings> Compiler<'warnings> {
         })
     }
 
+    fn import_policy(&mut self, explicit: bool, star: bool) -> u32 {
+        if explicit {
+            1
+        } else if star
+            || self.current_symbol_table().typ != CompilerScope::Module
+            || self.in_exception_handler()
+        {
+            2
+        } else {
+            0
+        }
+    }
+
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
         let prev_source_range = self.current_source_span;
@@ -3703,7 +3716,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         match &statement {
-            ast::Stmt::Import(ast::StmtImport { names, .. }) => {
+            ast::Stmt::Import(ast::StmtImport { names, is_lazy, .. }) => {
                 // import a, b, c as d
                 for name in names {
                     let name = &name;
@@ -3711,15 +3724,7 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    // force eager import in try/except block
-                    let low = if self.in_exception_handler()
-                        || self.current_symbol_table().typ != CompilerScope::Module
-                    {
-                        2
-                    } else {
-                        0
-                    };
-                    let namei = (self.name(&name.name) << 2) | low;
+                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3744,6 +3749,7 @@ impl<'warnings> Compiler<'warnings> {
                 level,
                 module,
                 names,
+                is_lazy,
                 ..
             }) => {
                 let import_star = names.first().is_some_and(|n| &n.name == "*");
@@ -3764,16 +3770,8 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                // forced non-lazy import due to try/except or import *
-                let low = if self.in_exception_handler()
-                    || self.current_symbol_table().typ != CompilerScope::Module
-                    || import_star
-                {
-                    2
-                } else {
-                    0
-                };
-                let module_idx = (self.name(module_name) << 2) | low;
+                let module_idx =
+                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
@@ -13821,18 +13819,13 @@ impl<'warnings> Compiler<'warnings> {
 
             self.compile_expression(&interp.expression)?;
 
-            let expr_range = interp.expression.range();
-            let expr_source = if interp.range.start() < expr_range.start()
-                && interp.range.end() >= expr_range.end()
-            {
-                let after_brace = interp.range.start() + TextSize::new(1);
-                self.source_file
-                    .source_text()
-                    .slice(TextRange::new(after_brace, expr_range.end()))
-            } else {
-                self.source_file.source_text().slice(expr_range)
-            }
-            .to_string();
+            let expr_source = crate::interpolation_expression_text(&self.source_file, interp)
+                .unwrap_or_else(|| {
+                    self.source_file
+                        .source_text()
+                        .slice(interp.expression.range())
+                        .to_owned()
+                });
             self.set_source_node(interp.range, &interp.node_index);
             self.emit_load_const(ConstantData::Str {
                 value: expr_source.into(),
@@ -17530,10 +17523,6 @@ class C[T]: pass
     }
 
     #[test]
-    #[expect(
-        clippy::literal_string_with_formatting_args,
-        reason = "the literal is the expected t-string annotation"
-    )]
     fn future_tstring_annotation_preserves_interpolation_source_like_cpython() {
         let code = compile_exec(
             "from __future__ import annotations\nx: t'{a    +  b}'\ny: t'{ a + b }'\nz: f'{a    + b =}'\nu: t'{a    + b =}'\nv: t'{a    + b =:>10}'\np: t'{(a)}'\nq: t'{((a))!r}'\nr: t'{ ((a)) = !r:>10}'\ns: t'{(a)=}'\nt: t'{a == b = }'\na1: t'''{a= # x=y\n}'''\na2: t'''{a # x=y\n}'''\na3: t'''{(a # x=y\n)}'''\na4: t'''{a # x=y\n!r}'''\na5: t'''{a # x=y\n:>10}'''\na6: t'''{'#'}'''\na7: t'''{('#', a) # c=d\n}'''\n",
@@ -17556,22 +17545,22 @@ class C[T]: pass
             annotation_strings,
             [
                 "t'{a    +  b}'",
-                "t'{ a + b}'",
+                "t'{ a + b }'",
                 "f'a    + b ={a + b!r}'",
-                "t'a    + b ={a    + b!r}'",
-                "t'a    + b ={a    + b:>10}'",
+                "t'a    + b ={a    + b !r}'",
+                "t'a    + b ={a    + b :>10}'",
                 "t'{(a)}'",
                 "t'{((a))!r}'",
-                "t' ((a)) = { ((a))!r:>10}'",
+                "t' ((a)) = { ((a)) !r:>10}'",
                 "t'(a)={(a)!r}'",
-                "t'a == b = {a == b!r}'",
+                "t'a == b = {a == b !r}'",
                 "t'a= \\n{a!r}'",
-                "t'{a}'",
+                "t'{a \\n}'",
                 "t'{(a \\n)}'",
-                "t'{a!r}'",
-                "t'{a:>10}'",
+                "t'{a \\n!r}'",
+                "t'{a \\n:>10}'",
                 "t\"{'#'}\"",
-                "t\"{('#', a)}\"",
+                "t\"{('#', a) \\n}\"",
             ]
         );
     }

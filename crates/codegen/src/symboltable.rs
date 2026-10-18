@@ -1081,6 +1081,7 @@ struct SymbolTableBuilder {
     comprehension_yield_context: Option<&'static str>,
     // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
     in_conditional_block: bool,
+    lazy_prohibited_scopes: Vec<usize>,
     // Mirrors symtable ENTER_RECURSIVE guards during compilation.
     recursion_depth: usize,
     recursion_limit: usize,
@@ -1122,6 +1123,7 @@ impl SymbolTableBuilder {
             in_iter_def_exp: false,
             comprehension_yield_context: None,
             in_conditional_block: false,
+            lazy_prohibited_scopes: Vec::new(),
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
             next_block_index: 0,
@@ -1630,6 +1632,36 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    fn validate_lazy_import(&self, statement: &ast::Stmt) -> SymbolTableResult {
+        let (kind, star) = match statement {
+            ast::Stmt::Import(node) if node.is_lazy => ("import", false),
+            ast::Stmt::ImportFrom(node) if node.is_lazy => (
+                "from ... import",
+                node.names
+                    .first()
+                    .is_some_and(|name| name.name.as_str() == "*"),
+            ),
+            _ => return Ok(()),
+        };
+        let reason = if self.lazy_prohibited_scopes.contains(&self.tables.len()) {
+            Some(format!("lazy {kind} not allowed inside try/except blocks"))
+        } else {
+            match self.tables.last().unwrap().typ {
+                CompilerScope::Function | CompilerScope::AsyncFunction => {
+                    Some(format!("lazy {kind} not allowed inside functions"))
+                }
+                CompilerScope::Class => Some(format!("lazy {kind} not allowed inside classes")),
+                _ if star => Some("lazy from ... import * is not allowed".to_owned()),
+                _ => None,
+            }
+        };
+        if let Some(reason) = reason {
+            Err(self.error_ranged(reason, statement.range()))
+        } else {
+            Ok(())
+        }
+    }
+
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
         if self.recursion_depth >= self.recursion_limit {
             return Err(SymbolTableError {
@@ -1641,6 +1673,7 @@ impl SymbolTableBuilder {
         self.recursion_depth += 1;
         let result = (|| {
             use ast::*;
+            self.validate_lazy_import(statement)?;
             self.track_future_statement(statement)?;
             match &statement {
                 Stmt::Global(StmtGlobal { names, .. }) => {
@@ -2005,6 +2038,7 @@ impl SymbolTableBuilder {
                     // PEP 649: Track conditional block for annotations
                     let saved_in_conditional_block = self.in_conditional_block;
                     self.in_conditional_block = true;
+                    self.lazy_prohibited_scopes.push(self.tables.len());
                     self.scan_statements(body)?;
                     for handler in handlers {
                         let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -2023,6 +2057,7 @@ impl SymbolTableBuilder {
                     }
                     self.scan_statements(orelse)?;
                     self.scan_statements(finalbody)?;
+                    self.lazy_prohibited_scopes.pop();
                     self.in_conditional_block = saved_in_conditional_block;
                 }
                 Stmt::Match(StmtMatch { subject, cases, .. }) => {

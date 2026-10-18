@@ -3214,11 +3214,17 @@ impl SetAttr for PyType {
             } else {
                 let prev_value = zelf.attributes().remove(attr_name);
                 if prev_value.is_none() {
-                    return Err(vm.new_attribute_error(format!(
+                    let exc = vm.new_attribute_error(format!(
                         "type object '{}' has no attribute '{}'",
                         zelf.name(),
                         attr_name,
-                    )));
+                    ));
+                    vm.set_attribute_error_context(
+                        &exc,
+                        zelf.to_owned().into(),
+                        attr_name.to_owned(),
+                    );
+                    return Err(exc);
                 }
                 prev_value
             };

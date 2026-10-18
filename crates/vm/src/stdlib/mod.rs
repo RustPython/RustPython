@@ -140,6 +140,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _symtable::module_def(ctx),
         _sysconfigdata::module_def(ctx),
         _sysconfig::module_def(ctx),
+        _sysconfig::_missing_stdlib_info::module_def(ctx),
         #[cfg(feature = "threading")]
         _thread::module_def(ctx),
         _interpchannels::module_def(ctx),

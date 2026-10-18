@@ -177,6 +177,10 @@ impl CompilationSource {
                 };
                 code_map.extend(self.compile_dir(base, &path, &nparent, mode, compiler)?);
             } else if file_name.ends_with(".py") {
+                // These fixtures must be parsed at import time to exercise syntax errors.
+                if parent == "test.test_lazy_import.data.badsyntax" {
+                    continue;
+                }
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
                 let module_name = if is_init {

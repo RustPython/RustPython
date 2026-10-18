@@ -351,14 +351,14 @@ impl_node!(
 impl_node!(
     #[pyclass(module = "ast", name = "Import", base = NodeStmt)]
     pub(crate) struct NodeStmtImport,
-    fields: ["names"],
+    fields: ["names", "is_lazy"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
 impl_node!(
     #[pyclass(module = "ast", name = "ImportFrom", base = NodeStmt)]
     pub(crate) struct NodeStmtImportFrom,
-    fields: ["module", "names", "level"],
+    fields: ["module", "names", "level", "is_lazy"],
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
@@ -1209,13 +1209,20 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
             ("msg", FieldType::Optional("expr")),
         ],
     ),
-    ("Import", &[("names", FieldType::ListOf("alias"))]),
+    (
+        "Import",
+        &[
+            ("names", FieldType::ListOf("alias")),
+            ("is_lazy", FieldType::OptionalBuiltin("int")),
+        ],
+    ),
     (
         "ImportFrom",
         &[
             ("module", FieldType::OptionalBuiltin("str")),
             ("names", FieldType::ListOf("alias")),
             ("level", FieldType::OptionalBuiltin("int")),
+            ("is_lazy", FieldType::OptionalBuiltin("int")),
         ],
     ),
     ("Global", &[("names", FieldType::ListOfBuiltin("str"))]),

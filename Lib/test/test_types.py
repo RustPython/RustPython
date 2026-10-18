@@ -46,7 +46,6 @@ def clear_typing_caches():
 
 class TypesTests(unittest.TestCase):
 
-    @unittest.expectedFailureIf(not hasattr(c_types, "LazyImportType"), "TODO: RUSTPYTHON; PEP 810 LazyImportType is not implemented")
     def test_names(self):
         c_only_names = {'CapsuleType', 'LazyImportType'}
         ignored = {'new_class', 'resolve_bases', 'prepare_class',

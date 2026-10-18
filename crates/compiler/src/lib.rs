@@ -955,7 +955,8 @@ pub fn too_deeply_nested_error(
 /// A bare generator expression is one: `f(x for x in y)` is the `primary
 /// genexp` alternative of a call, and a class header only takes `arguments`,
 /// which has no such alternative. A format spec nested more than two deep is
-/// the other; the tokenizer runs out of nesting levels for it.
+/// the other; the tokenizer runs out of nesting levels for it. A lazy
+/// `__future__` import is rejected by the `checked_from_import` action.
 #[doc(hidden)]
 #[must_use]
 pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
@@ -1009,6 +1010,18 @@ pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Op
     impl<'a> Visitor<'a> for Checker<'_> {
         fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
             if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ImportFrom(import) = stmt
+                && import.is_lazy
+                && import.level == 0
+                && import
+                    .module
+                    .as_ref()
+                    .is_some_and(|module| module.as_str() == "__future__")
+            {
+                let lazy = ruff_text_size::TextRange::at(import.range.start(), 4.into());
+                self.fail("lazy from __future__ import is not allowed", lazy);
                 return;
             }
             if let ast::Stmt::ClassDef(class_def) = stmt
