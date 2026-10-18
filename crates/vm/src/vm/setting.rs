@@ -5,6 +5,8 @@ use std::ffi::OsString;
 /// Path configuration computed at runtime (like PyConfig path outputs)
 #[derive(Debug, Clone, Default)]
 pub struct Paths {
+    /// program_name: the name the interpreter was invoked as
+    pub program_name: String,
     /// sys.executable
     pub executable: String,
     /// sys._base_executable (original interpreter in venv)

@@ -27,7 +27,7 @@ use rustpython_host_env::ctypes::ComMethodError;
 use rustpython_host_env::ctypes::{
     CTypeLayout, CallError, CallOptions, CallRet, CallValue, FfiCif, FfiCodePtr, FfiType,
     RawMemoryView, RawMemoryViewError, StringAtError, call, ffi_pointer_type, ffi_type_from_code,
-    ffi_void_type, has_pointer_width, offset_address, pointer_bytes, pointer_format, pointer_size,
+    ffi_void_type, has_pointer_width, pointer_bytes, pointer_format, pointer_size,
     simple_type_is_pointer, write_pointer_to_buffer_at, write_prefix_limited,
 };
 
@@ -388,17 +388,26 @@ impl Debug for PyCFuncPtr {
     }
 }
 
+// c_void_p accepts only P-tagged argument wrappers.
+fn carg_pointer(arg: &PyObject) -> Option<usize> {
+    let carg = arg.downcast_ref::<CArgObject>()?;
+    if carg.tag != b'P' {
+        return None;
+    }
+    match &carg.value {
+        CArgValue::Pointer(address) => Some(*address),
+        CArgValue::Typed { code: 'P', bytes } => {
+            Some(rustpython_host_env::ctypes::read_pointer_from_buffer(bytes))
+        }
+        _ => None,
+    }
+}
+
 /// Extract pointer value from a ctypes argument (c_void_p conversion)
 fn extract_ptr_from_arg(arg: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
-    // Try CArgObject first - extract the wrapped pointer value, applying offset
-    if let Some(carg) = arg.downcast_ref::<super::_ctypes::CArgObject>() {
-        if carg.offset != 0
-            && let Some(cdata) = carg.obj.downcast_ref::<PyCData>()
-        {
-            let base = cdata.buffer.read().as_ptr() as usize;
-            return Ok(offset_address(base, carg.offset));
-        }
-        return extract_ptr_from_arg(&carg.obj, vm);
+    // byref() has already stored the address, including its byte offset.
+    if let Some(address) = carg_pointer(arg) {
+        return Ok(address);
     }
     // Try to get pointer value from various ctypes types
     if let Some(ptr) = arg.downcast_ref::<PyCPointer>() {
@@ -549,6 +558,8 @@ pub(super) fn cast_impl(
     let ptr_value: usize = if vm.is_none(obj) {
         // None → NULL pointer
         0
+    } else if let Some(address) = carg_pointer(obj) {
+        address
     } else if let Ok(int_val) = obj.try_int(vm) {
         // int/long → direct pointer value
         int_val.as_bigint().to_usize().unwrap_or(0)

@@ -56,7 +56,7 @@ pub mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env,
-        io::{IsTerminal, Read, Write},
+        io::{IsTerminal, Write},
     };
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
@@ -760,17 +760,11 @@ pub mod sys {
 
     #[cfg(feature = "rustpython-compiler")]
     #[pyfunction]
-    fn _baserepl(vm: &VirtualMachine) -> PyResult<()> {
-        // read stdin to end
-        let stdin = std::io::stdin();
-        let mut handle = stdin.lock();
-        let mut source = String::new();
-        handle
-            .read_to_string(&mut source)
-            .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
-            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
-        Ok(())
+    fn _baserepl(vm: &VirtualMachine) {
+        // PyRun_AnyFileExFlags(stdin, "<stdin>", 0, &cf)
+        if let Err(exc) = vm.run_any_stdin() {
+            vm.print_uncaught_exception(&exc);
+        }
     }
 
     #[pyfunction]
@@ -867,7 +861,6 @@ pub mod sys {
         traceback: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let stderr = super::get_stderr(vm)?;
         // Keep runtime SyntaxErrors on the normal traceback path.
         let has_traceback = !vm.is_none(&traceback);
         match vm.normalize_exception(exctype, value.clone(), traceback) {
@@ -887,19 +880,11 @@ pub mod sys {
                         .and_then(|text| text.downcast::<PyStr>().ok())
                         .is_some_and(|text| text.to_string_lossy().trim_end() == "\\");
                 if native_syntax_error_display {
+                    let stderr = super::get_stderr(vm)?;
                     return vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc);
                 }
-                // PyErr_Display: try traceback._print_exception_bltin first
-                if let Ok(tb_mod) = vm.import("traceback", 0)
-                    && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
-                    && print_exc_builtin
-                        .call((exc.as_object().to_owned(),), vm)
-                        .is_ok()
-                {
-                    return Ok(());
-                }
-                // Fallback to Rust-level exception printing
-                vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc)
+                vm.display_exception(&exc);
+                Ok(())
             }
             Err(_) => {
                 let type_name = value.class().name();
@@ -907,6 +892,7 @@ pub mod sys {
                     "TypeError: print_exception(): Exception expected for value, {type_name} found\n"
                 );
                 use crate::py_io::Write;
+                let stderr = super::get_stderr(vm)?;
                 write!(&mut crate::py_io::PyWriter(stderr, vm), "{msg}")?;
                 Ok(())
             }
@@ -1037,6 +1023,36 @@ pub mod sys {
     #[pyattr]
     fn flags(vm: &VirtualMachine) -> PyTupleRef {
         PyFlags::from_data(FlagsData::from_settings(&vm.state.config.settings), vm)
+    }
+
+    /// _PySys_SetFlagObj
+    pub(crate) fn set_flag_obj(
+        vm: &VirtualMachine,
+        name: &str,
+        value: PyObjectRef,
+    ) -> PyResult<()> {
+        use crate::{class::StaticType, types::PyStructSequenceData};
+
+        let old_flags = vm
+            .sys_module
+            .get_attr("flags", vm)
+            .map_err(|_| vm.new_runtime_error("lost sys.flags"))?;
+        let old_flags = old_flags
+            .downcast_ref::<PyTuple>()
+            .filter(|flags| {
+                flags.len()
+                    == FlagsData::REQUIRED_FIELD_NAMES.len() + FlagsData::OPTIONAL_FIELD_NAMES.len()
+            })
+            .ok_or_else(|| vm.new_type_error("sys.flags must be a sys.flags instance"))?;
+        let pos = FlagsData::REQUIRED_FIELD_NAMES
+            .iter()
+            .position(|field| *field == name)
+            .expect("unknown sys.flags field");
+        let mut values = old_flags.as_slice().to_vec();
+        values[pos] = value;
+        let new_flags = PyTuple::new_unchecked(values.into_boxed_slice())
+            .into_ref_with_type(vm, PyFlags::static_type().to_owned())?;
+        vm.sys_module.set_attr("flags", new_flags, vm)
     }
 
     #[pyattr]

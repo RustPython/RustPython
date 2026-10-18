@@ -39,7 +39,6 @@ winresource = "0.1"
 
 [dependencies]
 rustpython-capi = { workspace = true, optional = true }
-rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, default-features = false, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
@@ -62,6 +61,7 @@ rustyline = { workspace = true }
 mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [dev-dependencies]
+rustpython-compiler = { workspace = true }
 criterion = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 rustls-graviola = { workspace = true }
