@@ -506,4 +506,16 @@ view._objects.clear()  # Alias detection must not depend on mutable retention me
 memoryview(view).cast("B")[::2] = memoryview(backing)[:4]
 assert list(backing) == [0, 0, 2, 1, 4, 2, 6, 3]
 
+raw_owner = (ctypes.c_ubyte * 8)()
+raw_views = [type(raw_owner).from_address(ctypes.addressof(raw_owner))]
+if _sys.version_info >= (3, 14):
+    raw_views.append(
+        ctypes.memoryview_at(ctypes.addressof(raw_owner), ctypes.sizeof(raw_owner))
+    )
+for raw_view in raw_views:
+    for source, dest in ((raw_owner, raw_view), (raw_view, raw_owner)):
+        raw_owner[:] = range(8)
+        memoryview(dest).cast("B")[::2] = memoryview(source).cast("B")[:4]
+        assert list(raw_owner) == [0, 1, 1, 3, 2, 5, 3, 7]
+
 print("done")

@@ -661,7 +661,11 @@ impl Py<PyMemoryView> {
         // copy_buffer reads the source as it stood before the copy began, which an
         // overlapping assignment depends on and which also keeps the two borrows
         // below off the same storage.
-        let src = if root_exporter(&src).is(&root_exporter(&dest.buffer)) {
+        let may_overlap = match (root_exporter(&src), root_exporter(&dest.buffer)) {
+            (Some(src), Some(dest)) => src.is(&dest),
+            _ => true,
+        };
+        let src = if may_overlap {
             let owned = src.to_contiguous(vm);
             drop(src);
             owned
@@ -1543,13 +1547,15 @@ static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
 
 /// The object that ultimately owns the bytes a buffer reads, seen through the
 /// payloads that only forward to another export: a view, the wrapper holding what
-/// a `__buffer__` returned, the window handed to `__release_buffer__`, and a
-/// ctypes field with a base object.
+/// a `__buffer__` returned, and the window handed to `__release_buffer__`.
 ///
 /// Two buffers that resolve to the same object address the same storage, so
 /// borrowing one for writing while the other is borrowed for reading would
 /// deadlock on a shared lock or create overlapping references with separate locks.
-fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
+/// Borrowed ctypes storage has no reliable exporter identity: a field, pointer,
+/// or from_address view can alias another object without sharing its owner.
+/// Return None for that storage so either operand forces a source snapshot.
+fn root_exporter(buffer: &PyBuffer) -> Option<PyObjectRef> {
     let mut obj = buffer.obj.clone();
     loop {
         let next = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
@@ -1558,10 +1564,10 @@ fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
             wrapper.view.obj.clone()
         } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
             window.source.obj.clone()
-        } else if let Some(base) = crate::stdlib::ctypes_buffer_base(&obj) {
-            base
+        } else if crate::stdlib::is_borrowed_ctypes_buffer(&obj) {
+            return None;
         } else {
-            return obj;
+            return Some(obj);
         };
         obj = next;
     }
