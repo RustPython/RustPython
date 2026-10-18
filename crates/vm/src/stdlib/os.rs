@@ -1746,7 +1746,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn _exit(status: ExitStatus) {
-        crate::host_env::os::exit(status.status)
+        crate::host_env::os::exit_immediately(status.status)
     }
 
     #[pyfunction]

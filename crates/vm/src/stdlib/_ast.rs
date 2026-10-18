@@ -996,6 +996,7 @@ fn type_comment_parse_error(
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
         is_unclosed_string: false,
+        eof_token: None,
     }
     .into()
 }
@@ -1726,6 +1727,7 @@ fn ipython_escape_command_syntax_error(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into(),
     )
@@ -1810,6 +1812,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1840,6 +1843,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1974,6 +1978,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into()
     };
@@ -2003,6 +2008,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     };
@@ -2024,6 +2030,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
@@ -2059,6 +2066,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {

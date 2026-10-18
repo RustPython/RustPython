@@ -309,8 +309,13 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         settings.lazy_imports = parse_lazy_imports(val.to_str(), "PYTHON_LAZY_IMPORTS");
     }
 
-    // CPython uses the first occurrence of this -X option.
+    if let Some(value) = get_env("PYTHONPROFILEIMPORTTIME").filter(|value| !value.is_empty()) {
+        settings.import_time = parse_import_time(value.to_str(), "PYTHONPROFILEIMPORTTIME");
+    }
+
+    // CPython uses the first occurrence of these -X options.
     let mut lazy_imports_option_seen = false;
+    let mut import_time_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -318,6 +323,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
         match &*name {
             "dev" => settings.dev_mode = true,
+            "importtime" if !import_time_option_seen => {
+                settings.import_time = parse_import_time(value, "-X importtime");
+                import_time_option_seen = true;
+            }
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
             "utf8" => {
@@ -502,6 +511,32 @@ fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
             .map(Some)
             .ok_or(()),
     }
+}
+
+/// = config_init_import_time
+fn parse_import_time(value: Option<&str>, source: &str) -> u8 {
+    let value = value
+        .and_then(|value| {
+            value
+                .trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c'])
+                .parse::<i32>()
+                .ok()
+        })
+        .unwrap_or(1);
+    if !(0..=2).contains(&value) {
+        let numeric = if source == "PYTHONPROFILEIMPORTTIME" {
+            "numeric "
+        } else {
+            ""
+        };
+        eprintln!(
+            "Fatal Python error: config_init_import_time: {source}: \
+             {numeric}values other than 1 and 2 are reserved for future use.\n\
+             Python runtime state: preinitialized\n"
+        );
+        std::process::exit(1);
+    }
+    value as u8
 }
 
 /// = config_init_lazy_imports

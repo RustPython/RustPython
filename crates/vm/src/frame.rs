@@ -2729,7 +2729,7 @@ impl Py<FrameObject> {
 /// 0 doubles as "no thread", which is what `attached_tid` wants for a build
 /// that cannot have a frame running anywhere else.
 #[inline]
-fn current_thread_ident() -> u64 {
+pub(crate) fn current_thread_ident() -> u64 {
     #[cfg(feature = "threading")]
     {
         crate::stdlib::_thread::get_ident()

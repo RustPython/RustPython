@@ -932,16 +932,7 @@ where
         ));
     }
 
-    if state
-        .running_main
-        .compare_exchange(
-            false,
-            true,
-            core::sync::atomic::Ordering::AcqRel,
-            core::sync::atomic::Ordering::Acquire,
-        )
-        .is_err()
-    {
+    if !state.set_running_main() {
         return Err(crate::stdlib::_interpreters::interpreter_error(
             caller,
             "interpreter already running",
@@ -951,9 +942,7 @@ where
     struct RunningGuard<'a>(&'a crate::vm::PyGlobalState);
     impl Drop for RunningGuard<'_> {
         fn drop(&mut self) {
-            self.0
-                .running_main
-                .store(false, core::sync::atomic::Ordering::Release);
+            self.0.set_not_running_main();
         }
     }
     let _guard = RunningGuard(&state);
@@ -965,6 +954,5 @@ where
 
 #[must_use]
 pub fn is_running(id: i64) -> bool {
-    crate::vm::runtime::lookup_interpreter(id)
-        .is_some_and(|s| s.is_main || s.running_main.load(core::sync::atomic::Ordering::Acquire))
+    crate::vm::runtime::lookup_interpreter(id).is_some_and(|s| s.is_running_main())
 }

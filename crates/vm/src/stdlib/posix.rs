@@ -755,6 +755,8 @@ pub mod module {
             crate::object::qsbr::QSBR.reset_after_fork()
         };
 
+        vm.state.reinit_running_main();
+
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]

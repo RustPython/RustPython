@@ -232,13 +232,16 @@ pub(crate) fn init_type(ctx: &'static Context) {
     PyLazyImport::extend_class(ctx, ctx.types.lazy_import_type);
 }
 
-pub(crate) fn is_module_level(vm: &VirtualMachine) -> bool {
+pub(crate) fn is_module_level() -> bool {
     let frame = frame::current_thread_iframe();
     if frame.is_null() {
         return false;
     }
     let frame = unsafe { &*frame };
-    frame.globals().as_object().is(frame.locals.as_object(vm))
+    frame
+        .locals
+        .get()
+        .is_some_and(|locals| frame.globals().as_object().is(locals.obj()))
 }
 
 fn optional_item(
@@ -266,9 +269,9 @@ pub(crate) fn import_name(
     let explicit = policy & 1 != 0;
     let globals = vm.current_globals();
     let mut lazy =
-        explicit || (vm.state.lazy_imports.all.load(Ordering::Acquire) && is_module_level(vm));
+        explicit || (vm.state.lazy_imports.all.load(Ordering::Acquire) && is_module_level());
     if !lazy
-        && is_module_level(vm)
+        && is_module_level()
         && let Some(names) = optional_item(
             globals.as_object(),
             vm.ctx.intern_str("__lazy_modules__"),
@@ -316,7 +319,7 @@ pub(crate) fn create(
     vm: &VirtualMachine,
 ) -> PyResult {
     let absolute = crate::import::absolute_import_name(name, Some(globals), level, vm)?;
-    if !is_module_level(vm) {
+    if !is_module_level() {
         return Err(vm.new_exception_msg(
             vm.ctx.exceptions.syntax_error.to_owned(),
             "'lazy import' is only allowed at module level".into(),

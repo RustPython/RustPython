@@ -1246,6 +1246,114 @@ class MarkerOverrideTests(unittest.TestCase):
                 select_remaining_patches(current, document, Path(document["target"]))
 
 
+class ConditionalMarkerOverrideTests(unittest.TestCase):
+    decorator = (
+        '    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")\n'
+    )
+
+    def fixture(self):
+        old = OVERRIDE_CLEAN.replace(
+            "    def test_known", self.decorator + "    def test_known"
+        )
+        current = extract_patches(old)
+        document = {
+            "target": "Lib/test/test_example.py",
+            "patches": {},
+            "retire_conditional": [
+                {
+                    "class": "Example",
+                    "method": "test_known",
+                    "decorator": self.decorator,
+                }
+            ],
+        }
+        return old, current, document
+
+    def select(self, old, current, document):
+        return select_remaining_patches(
+            current,
+            document,
+            Path(document["target"]),
+            old_content=old,
+        )
+
+    def test_explicit_conditional_retirement(self):
+        old, current, document = self.fixture()
+        self.assertEqual(self.select(old, current, document), {})
+
+    def test_omitted_conditional_without_authorization_fails(self):
+        old, current, document = self.fixture()
+        del document["retire_conditional"]
+        with self.assertRaises(ValueError):
+            self.select(old, current, document)
+
+    def test_absent_duplicate_modified_and_retained_fail_closed(self):
+        for change in (
+            "absent",
+            "duplicate",
+            "text",
+            "condition",
+            "retained",
+            "duplicate_source",
+        ):
+            old, current, document = self.fixture()
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                if change == "absent":
+                    document["retire_conditional"][0]["method"] = "missing"
+                elif change == "duplicate":
+                    document["retire_conditional"] *= 2
+                elif change == "text":
+                    document["retire_conditional"][0]["decorator"] = (
+                        self.decorator.replace('"', "'")
+                    )
+                elif change == "condition":
+                    old = old.replace("not support.is_android", "support.is_android")
+                    current = extract_patches(old)
+                elif change == "retained":
+                    document["patches"] = patches_to_json(current)
+                elif change == "duplicate_source":
+                    old = old.replace(self.decorator, self.decorator * 2)
+                    current = extract_patches(old)
+                self.select(old, current, document)
+
+    def test_other_guards_and_original_source_required(self):
+        for replacement in ("skipIf", "expectedFailureIfWindows"):
+            old, current, document = self.fixture()
+            old = old.replace("expectedFailureIf", replacement)
+            document["retire_conditional"][0]["decorator"] = self.decorator.replace(
+                "expectedFailureIf", replacement
+            )
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                self.select(old, extract_patches(old), document)
+        old, current, document = self.fixture()
+        with self.assertRaises(ValueError):
+            self.select(None, current, document)
+
+    def test_cli_conditional_retirement_preserves_remaining_markers(self):
+        old = OVERRIDE_OLD.replace(
+            "    @unittest.expectedFailure  # TODO: RUSTPYTHON; old failure\n",
+            self.decorator,
+        )
+
+        def authorize(document):
+            document["retire_conditional"] = [
+                {
+                    "class": "Example",
+                    "method": "test_known",
+                    "decorator": self.decorator,
+                }
+            ]
+
+        with patch(__name__ + ".OVERRIDE_OLD", old):
+            status, result = MarkerOverrideTests().invoke(authorize)
+            self.assertEqual(status, 0)
+            self.assertNotIn("expectedFailureIf", result)
+            self.assertIn('unittest.skip("TODO: RUSTPYTHON; retained guard")', result)
+            status, result = MarkerOverrideTests().invoke()
+            self.assertEqual(status, 1)
+            self.assertEqual(result, old)
+
+
 PACKAGE_MARKED = """import unittest
 class Example:
     @unittest.expectedFailure  # TODO: RUSTPYTHON; retained reason

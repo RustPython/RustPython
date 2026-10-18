@@ -539,4 +539,31 @@ destination_view[:] = ReleasingBuffer()
 assert release_events == [bytes(raw_owner)]
 assert destination_buffer == b""
 
+
+# byref carries an address, including its byte offset, rather than the value
+# stored in the referenced object.
+pair = (ctypes.c_int * 2)(42, 99)
+for offset in (0, ctypes.sizeof(ctypes.c_int)):
+    ref = ctypes.byref(pair, offset)
+    assert ctypes.cast(ref, ctypes.c_void_p).value == ctypes.addressof(pair) + offset
+    assert (
+        ctypes.string_at(ref, ctypes.sizeof(ctypes.c_int))
+        == bytes(pair)[offset : offset + ctypes.sizeof(ctypes.c_int)]
+    )
+zero = ctypes.c_size_t(0)
+assert ctypes.string_at(ctypes.byref(zero), ctypes.sizeof(zero)) == bytes(zero)
+param = ctypes.c_void_p.from_param(ctypes.addressof(zero))
+assert ctypes.cast(param, ctypes.c_void_p).value == ctypes.addressof(zero)
+assert ctypes.string_at(param, ctypes.sizeof(zero)) == bytes(zero)
+for read in (
+    lambda p: ctypes.cast(p, ctypes.c_void_p),
+    lambda p: ctypes.string_at(p, 0),
+):
+    try:
+        read(ctypes.c_char_p.from_param(b"x"))
+    except (TypeError, ctypes.ArgumentError):
+        pass
+    else:
+        raise AssertionError("non-pointer argument wrapper accepted")
+
 print("done")
