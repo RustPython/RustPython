@@ -278,7 +278,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                     "Fatal Python error: config_init_cpu_count: \
                      -X cpu_count=n option: n is missing or an invalid number, \
                      n must be greater than 0\n\
-                     Python runtime state: preinitialized"
+                     Python runtime state: preinitialized\n"
                 );
                 std::process::exit(1);
             }
@@ -524,9 +524,14 @@ fn parse_import_time(value: Option<&str>, source: &str) -> u8 {
         })
         .unwrap_or(1);
     if !(0..=2).contains(&value) {
+        let numeric = if source == "PYTHONPROFILEIMPORTTIME" {
+            "numeric "
+        } else {
+            ""
+        };
         eprintln!(
             "Fatal Python error: config_init_import_time: {source}: \
-             values other than 1 and 2 are reserved for future use.\n\
+             {numeric}values other than 1 and 2 are reserved for future use.\n\
              Python runtime state: preinitialized"
         );
         std::process::exit(1);
