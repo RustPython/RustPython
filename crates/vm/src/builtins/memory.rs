@@ -1543,11 +1543,12 @@ static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
 
 /// The object that ultimately owns the bytes a buffer reads, seen through the
 /// payloads that only forward to another export: a view, the wrapper holding what
-/// a `__buffer__` returned, and the window handed to `__release_buffer__`.
+/// a `__buffer__` returned, the window handed to `__release_buffer__`, and a
+/// ctypes field with a base object.
 ///
 /// Two buffers that resolve to the same object address the same storage, so
 /// borrowing one for writing while the other is borrowed for reading would
-/// deadlock on it.
+/// deadlock on a shared lock or create overlapping references with separate locks.
 fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
     let mut obj = buffer.obj.clone();
     loop {
@@ -1557,6 +1558,8 @@ fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
             wrapper.view.obj.clone()
         } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
             window.source.obj.clone()
+        } else if let Some(base) = crate::stdlib::ctypes_buffer_base(&obj) {
+            base
         } else {
             return obj;
         };

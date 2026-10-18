@@ -490,4 +490,14 @@ assert list(owner.values) == [7, 42, 9]
 del owner
 assert list(view) == [7, 42, 9]
 
+
+class OverlappingFields(ctypes.Union):
+    _fields_ = [("a", ctypes.c_ubyte * 8), ("b", ctypes.c_ubyte * 8)]
+
+
+overlap = OverlappingFields()
+overlap.a[:] = range(8)
+memoryview(overlap.a).cast("B")[::2] = memoryview(overlap.b).cast("B")[:4]
+assert list(overlap.a) == [0, 1, 1, 3, 2, 5, 3, 7]
+
 print("done")

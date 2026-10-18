@@ -83,6 +83,24 @@ mod winsound;
 
 use crate::{Context, builtins::PyModuleDef};
 
+// Keep ctypes-specific alias detection available to memoryview on all targets.
+pub(crate) fn ctypes_buffer_base(_obj: &crate::PyObject) -> Option<crate::PyObjectRef> {
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    if let Some(cdata) = _obj.downcast_ref::<_ctypes::PyCData>() {
+        return cdata.base.read().clone();
+    }
+    None
+}
+
 /// Returns module definitions for multi-phase init modules.
 ///
 /// These modules use multi-phase initialization pattern:
