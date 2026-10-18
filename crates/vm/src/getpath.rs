@@ -19,6 +19,7 @@ mod platform {
     pub(super) const BUILD_LANDMARK: &str = "Modules/Setup.local";
     pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
     pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib/os.py";
+    pub(super) const DEFAULT_PROGRAM_NAME: &str = "python3";
 
     pub(super) fn stdlib_subdir() -> String {
         format!("lib/python{}.{}", version::MAJOR, version::MINOR)
@@ -51,6 +52,7 @@ mod platform {
     pub(super) const VENV_LANDMARK: &str = "pyvenv.cfg";
     pub(super) const BUILDSTDLIB_LANDMARK: &str = "Lib\\os.py";
     pub(super) const STDLIB_SUBDIR: &str = "Lib";
+    pub(super) const DEFAULT_PROGRAM_NAME: &str = "python";
 
     pub(super) fn stdlib_landmarks() -> [String; 2] {
         ["Lib\\os.py".into(), "Lib\\os.pyc".into()]
@@ -106,7 +108,10 @@ fn search_up_dir<P: AsRef<Path>>(start: P, landmarks: &[&str]) -> Option<PathBuf
 /// This function should be called before interpreter initialization.
 /// It returns a Paths struct with all computed path values.
 pub fn init_path_config(settings: &Settings) -> Paths {
-    let mut paths = Paths::default();
+    let mut paths = Paths {
+        program_name: program_name(),
+        ..Paths::default()
+    };
 
     // Step 0: Get executable path
     let executable = get_executable_path();
@@ -486,6 +491,22 @@ fn env_executable_override() -> Option<String> {
         }
     }
     None
+}
+
+/// CALCULATE program_name: `argv[0]`, with the executable suffix added when
+/// only the suffixed file exists.
+fn program_name() -> String {
+    let program_name = env::args()
+        .next()
+        .filter(|arg| !arg.is_empty())
+        .unwrap_or_else(|| platform::DEFAULT_PROGRAM_NAME.to_owned());
+    if cfg!(windows) && !program_name.to_lowercase().ends_with(".exe") {
+        let suffixed = format!("{program_name}.exe");
+        if Path::new(&suffixed).is_file() {
+            return suffixed;
+        }
+    }
+    program_name
 }
 
 /// Get the current executable path
