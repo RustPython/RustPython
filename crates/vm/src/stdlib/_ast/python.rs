@@ -293,7 +293,7 @@ pub(crate) mod _ast {
     impl Constructor for NodeAst {
         type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Keep _instance for parser-internal shared operator/context nodes,
             // but match CPython's public constructor behavior by allocating a
             // fresh object for Python-level ast.Load()/ast.Add()/... calls.
@@ -310,10 +310,6 @@ pub(crate) mod _ast {
                 None
             };
             let zelf = vm.ctx.new_base_object(cls, dict);
-
-            // type.__call__ does not invoke slot_init after slot_new
-            // for types with a custom slot_new, so we must call it here.
-            Self::slot_init(&zelf, args, vm)?;
 
             Ok(zelf)
         }
