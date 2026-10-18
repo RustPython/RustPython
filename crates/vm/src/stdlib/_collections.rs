@@ -11,8 +11,8 @@ mod _collections {
         VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyType,
-            PyTypeRef, locked_step,
+            PositionIterInternal, PyAnyDict, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+            PyType, PyTypeRef, locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -1072,7 +1072,7 @@ mod _collections {
                     rhs.class().name()
                 )));
             };
-            if !other.fast_isinstance(vm.ctx.types.dict_type) {
+            if PyAnyDict::from_object(other).is_none() {
                 return not_implemented();
             }
 
