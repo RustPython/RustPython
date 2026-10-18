@@ -319,6 +319,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         );
     }
 
+    // CPython activates configured all-mode after site to avoid startup cycles.
+    vm.apply_startup_lazy_imports();
+
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
     if !vm.state.config.settings.safe_path {
         let path0: Option<String> = match &run_mode {

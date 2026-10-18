@@ -244,7 +244,6 @@ class ComplexTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertIs(operator.ne(1+1j, 2+2j), True)
         self.assertIs(operator.eq(1+1j, 2.0), False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: True is not False
     def test_richcompare_boundaries(self):
         def check(n, deltas, is_equal, imag = 0.0):
             for delta in deltas:

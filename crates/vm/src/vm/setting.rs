@@ -100,6 +100,10 @@ pub struct Settings {
     /// -X context_aware_warnings, whether warnings are context aware
     pub context_aware_warnings: bool,
 
+    /// -X lazy_imports, PYTHON_LAZY_IMPORTS: -1 for normal, 1 for all.
+    /// This startup value is independent of later sys.set_lazy_imports() calls.
+    pub lazy_imports: i8,
+
     /// -i
     pub inspect: bool,
 
@@ -208,6 +212,7 @@ impl Default for Settings {
             warn_default_encoding: false,
             thread_inherit_context: false,
             context_aware_warnings: false,
+            lazy_imports: -1,
             warnoptions: vec![],
             path_list: vec![],
             argv: vec![],

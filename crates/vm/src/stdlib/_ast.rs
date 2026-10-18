@@ -465,12 +465,26 @@ fn copy_ast_passthrough_fields(
             &["kind"]
         } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
             &["str"]
+        } else if is_node_instance(vm, target, pyast::NodeStmtImport::static_type())?
+            || is_node_instance(vm, target, pyast::NodeStmtImportFrom::static_type())?
+        {
+            &["is_lazy"]
         } else {
             &[]
         };
 
     for field in fields {
         if let Some(value) = vm.get_attribute_opt(source, *field)? {
+            let value = if *field == "is_lazy" {
+                let value = if vm.is_none(&value) {
+                    0
+                } else {
+                    node_object_to_i32(vm, &value)?
+                };
+                vm.ctx.new_int(value).into()
+            } else {
+                value
+            };
             target.set_attr(*field, value, vm)?;
         }
     }

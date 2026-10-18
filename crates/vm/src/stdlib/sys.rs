@@ -961,6 +961,64 @@ pub mod sys {
     }
 
     #[pyfunction]
+    fn get_lazy_imports(vm: &VirtualMachine) -> &'static str {
+        if vm
+            .state
+            .lazy_imports
+            .all
+            .load(core::sync::atomic::Ordering::Acquire)
+        {
+            "all"
+        } else {
+            "normal"
+        }
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports(mode: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let mode = mode
+            .downcast_ref::<PyStr>()
+            .ok_or_else(|| vm.new_type_error("mode must be a string: 'normal' or 'all'"))?;
+        let all = match mode.to_str() {
+            Some("normal") => false,
+            Some("all") => true,
+            _ => return Err(vm.new_value_error("mode must be 'normal' or 'all'")),
+        };
+        vm.state
+            .lazy_imports
+            .all
+            .store(all, core::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn get_lazy_imports_filter(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state
+            .lazy_imports
+            .filter()
+            .unwrap_or_else(|| vm.ctx.none())
+    }
+
+    #[pyfunction]
+    fn set_lazy_imports_filter(filter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let filter = if vm.is_none(&filter) {
+            None
+        } else {
+            if !filter.is_callable() {
+                return Err(vm.new_value_error("filter provided but is not callable"));
+            }
+            Some(filter)
+        };
+        vm.state.lazy_imports.set_filter(filter);
+        Ok(())
+    }
+
+    #[pyattr]
+    fn lazy_modules(vm: &VirtualMachine) -> PyObjectRef {
+        vm.state.lazy_imports.modules.clone().into()
+    }
+
+    #[pyfunction]
     fn exc_info(vm: &VirtualMachine) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         match vm.topmost_exception() {
             Some(exception) => vm.split_exception(exception),
@@ -1605,6 +1663,11 @@ pub mod sys {
         #[pygetset]
         fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
             vm.state.config.settings.thread_inherit_context
+        }
+
+        #[pygetset]
+        fn lazy_imports(&self, vm: &VirtualMachine) -> i8 {
+            vm.state.config.settings.lazy_imports
         }
     }
 

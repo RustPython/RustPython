@@ -301,7 +301,20 @@ impl Ucd {
         if let Some(ch) = unicode_names2::character(search_name)
             .or_else(|| AlgorithmicName::check_name(search_name))
         {
-            return self.membership(ch).then_some(LookupResult::Character(ch));
+            if self.modern {
+                return Some(LookupResult::Character(ch));
+            }
+            cold_path();
+
+            if !self.membership(ch) {
+                return None;
+            }
+
+            // 3.2.0 doesn't have aliases but unicode_names2 supports aliases so reject them.
+            if lookup_alias(search_name).is_some() {
+                return None;
+            }
+            return Some(LookupResult::Character(ch));
         }
         if !self.modern {
             return None;

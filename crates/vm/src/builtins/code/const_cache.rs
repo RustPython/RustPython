@@ -58,6 +58,7 @@ impl CompileBag<'_> {
     /// merges them, in the same order.
     fn new_code(&self, code: CodeObject) -> PyCode {
         let mut code = PyCode::new(code, &self.vm.ctx);
+        code.apply_debug_ranges(self.vm);
         code.co_exceptiontable = self.merge_one(code.co_exceptiontable);
         code.co_linetable = self.merge_one(code.co_linetable);
         code.co_names = self.merge_one(code.co_names);

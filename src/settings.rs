@@ -95,6 +95,8 @@ Options (and corresponding environment variables):
          also PYTHONWARNINGS=arg
 -x     : skip first line of source, allowing use of non-Unix forms of #!cmd
 -X opt : set implementation-specific option
+-X lazy_imports=all|normal: control global lazy imports (default: normal);
+         also PYTHON_LAZY_IMPORTS
 --check-hash-based-pycs always|default|never:
          control how Python invalidates hash-based .pyc files
 --help-env: print help about Python environment variables and exit
@@ -299,6 +301,12 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         };
     }
 
+    if let Some(val) = get_env("PYTHON_LAZY_IMPORTS").filter(|val| !val.is_empty()) {
+        settings.lazy_imports = parse_lazy_imports(val.to_str(), "PYTHON_LAZY_IMPORTS");
+    }
+
+    // CPython uses the first occurrence of this -X option.
+    let mut lazy_imports_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -325,6 +333,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             }
             "no_sig_int" => settings.install_signal_handlers = false,
             "no_debug_ranges" => settings.code_debug_ranges = false,
+            "lazy_imports" if !lazy_imports_option_seen => {
+                settings.lazy_imports = parse_lazy_imports(value, "-X lazy_imports");
+                lazy_imports_option_seen = true;
+            }
             "cpu_count" => {
                 settings.cpu_count = match parse_cpu_count(value) {
                     Ok(cpu_count) => cpu_count,
@@ -485,6 +497,22 @@ fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
             .filter(|count: &NonZeroI32| count.get() > 0)
             .map(Some)
             .ok_or(()),
+    }
+}
+
+/// = config_init_lazy_imports
+fn parse_lazy_imports(value: Option<&str>, source: &str) -> i8 {
+    match value {
+        Some("normal") => -1,
+        Some("all") => 1,
+        _ => {
+            eprintln!(
+                "Fatal Python error: config_init_lazy_imports: \
+                 {source}: invalid value; expected 'all' or 'normal'\n\
+                 Python runtime state: preinitialized\n"
+            );
+            std::process::exit(1);
+        }
     }
 }
 

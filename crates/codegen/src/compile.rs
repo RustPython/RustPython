@@ -3683,6 +3683,19 @@ impl<'warnings> Compiler<'warnings> {
         })
     }
 
+    fn import_policy(&mut self, explicit: bool, star: bool) -> u32 {
+        if explicit {
+            1
+        } else if star
+            || self.current_symbol_table().typ != CompilerScope::Module
+            || self.in_exception_handler()
+        {
+            2
+        } else {
+            0
+        }
+    }
+
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {statement:?}");
         let prev_source_range = self.current_source_span;
@@ -3703,7 +3716,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         match &statement {
-            ast::Stmt::Import(ast::StmtImport { names, .. }) => {
+            ast::Stmt::Import(ast::StmtImport { names, is_lazy, .. }) => {
                 // import a, b, c as d
                 for name in names {
                     let name = &name;
@@ -3711,15 +3724,7 @@ impl<'warnings> Compiler<'warnings> {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    // force eager import in try/except block
-                    let low = if self.in_exception_handler()
-                        || self.current_symbol_table().typ != CompilerScope::Module
-                    {
-                        2
-                    } else {
-                        0
-                    };
-                    let namei = (self.name(&name.name) << 2) | low;
+                    let namei = (self.name(&name.name) << 2) | self.import_policy(*is_lazy, false);
                     emit!(self, Instruction::ImportName { namei });
                     if let Some(alias) = &name.asname {
                         let parts: Vec<&str> = name.name.split('.').skip(1).collect();
@@ -3744,6 +3749,7 @@ impl<'warnings> Compiler<'warnings> {
                 level,
                 module,
                 names,
+                is_lazy,
                 ..
             }) => {
                 let import_star = names.first().is_some_and(|n| &n.name == "*");
@@ -3764,16 +3770,8 @@ impl<'warnings> Compiler<'warnings> {
                 });
 
                 let module_name = module.as_ref().map_or("", |s| s.as_str());
-                // forced non-lazy import due to try/except or import *
-                let low = if self.in_exception_handler()
-                    || self.current_symbol_table().typ != CompilerScope::Module
-                    || import_star
-                {
-                    2
-                } else {
-                    0
-                };
-                let module_idx = (self.name(module_name) << 2) | low;
+                let module_idx =
+                    (self.name(module_name) << 2) | self.import_policy(*is_lazy, import_star);
                 emit!(self, Instruction::ImportName { namei: module_idx });
 
                 if import_star {
