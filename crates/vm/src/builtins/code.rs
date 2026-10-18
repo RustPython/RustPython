@@ -391,7 +391,9 @@ pub trait IntoCodeObject {
     where
         Self: Sized,
     {
-        PyCode::new(self.into_code_object(vm), &vm.ctx)
+        let mut code = PyCode::new(self.into_code_object(vm), &vm.ctx);
+        code.apply_debug_ranges(vm);
+        code
     }
 }
 
@@ -444,7 +446,6 @@ pub struct PyCode {
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
     #[pymember(name = "co_kwonlyargcount", path = "kwonlyarg_count")]
     #[pymember(name = "co_stacksize", path = "max_stackdepth")]
-    #[pymember(name = "co_qualname", path = "qualname")]
     #[pymember(name = "co_flags", path = "flags")]
     pub code: CodeObject,
     /// Slot-indexed names, equivalent to CPython's `co_localsplusnames`.
@@ -452,6 +453,8 @@ pub struct PyCode {
     /// merged cell variables.
     localsplus_names: Box<[&'static PyStrInterned]>,
     pub(crate) co_name: PyStrRef,
+    #[pymember(name = "co_qualname")]
+    qualified_name: PyStrRef,
     pub(crate) co_names: PyTupleRef,
     pub(crate) co_localsplusnames: PyTupleRef,
     pub(crate) co_localspluskinds: PyBytesRef,
@@ -625,6 +628,7 @@ impl PyCode {
         Self {
             first_traceable,
             co_name: code.obj_name.to_owned(),
+            qualified_name: code.qualname.to_owned(),
             co_names: names_tuple(&code.names),
             co_localsplusnames: names_tuple(&localsplus_names),
             co_localspluskinds: ctx.new_bytes(code.localspluskinds.to_vec()),
@@ -654,6 +658,10 @@ impl PyCode {
             obj.downcast().map_err(|_| MarshalError::BadType)
         }
         code.constants = bytecode::Constants::new(LiteralTuple(downcast(fields.consts)?));
+        // The compiler's string conversion is lossy for surrogates; retain the
+        // decoded value and apply code construction's exact-string interning.
+        let qualname = downcast::<super::PyStr>(fields.qualname)?;
+        code.qualname = ctx.intern_str(qualname.as_wtf8());
         let mut code = Self::new(code, ctx);
         code.set_names(downcast(fields.names)?);
         code.set_localsplusnames(downcast(fields.localsplusnames)?);
@@ -676,6 +684,19 @@ impl PyCode {
         if holds_names(&localsplusnames, &self.localsplus_names) {
             self.co_localsplusnames = localsplusnames;
         }
+    }
+
+    pub(crate) fn apply_debug_ranges(&mut self, vm: &VirtualMachine) {
+        if !vm.state.config.settings.code_debug_ranges
+            && let Some(linetable) = remove_column_info(&self.code.linetable)
+        {
+            self.code.linetable = linetable;
+            self.co_linetable = vm.ctx.new_bytes(self.code.linetable.to_vec());
+        }
+    }
+
+    pub(crate) fn co_qualname(&self) -> PyStrRef {
+        self.qualified_name.clone()
     }
 
     #[inline(always)]
@@ -734,11 +755,9 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(
-            Self::new(code, &vm.ctx),
-            vm.ctx.types.code_type.to_owned(),
-            None,
-        )
+        let mut code = Self::new(code, &vm.ctx);
+        code.apply_debug_ranges(vm);
+        PyRef::new_ref(code, vm.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -1170,9 +1189,13 @@ impl Constructor for PyCode {
 
         let mut code = Self::new(code, &vm.ctx);
         code.co_name = args.name;
+        if !args.qualname.class().is(vm.ctx.types.str_type) {
+            code.qualified_name = args.qualname;
+        }
         code.set_names(args.names);
         code.co_linetable = args.linetable;
         code.co_exceptiontable = args.exceptiontable;
+        code.apply_debug_ranges(vm);
         Ok(code)
     }
 }
@@ -1633,7 +1656,7 @@ impl Py<PyCode> {
 
         let qualname = match co_qualname {
             OptionalArg::Present(qualname) => qualname,
-            OptionalArg::Missing => self.code.qualname.to_owned(),
+            OptionalArg::Missing => self.qualified_name.clone(),
         };
 
         // Room for one value is always reserved, even where nothing is pushed.
@@ -1741,9 +1764,13 @@ impl Py<PyCode> {
 
         let mut code = PyCode::new(new_code, &vm.ctx);
         code.co_name = obj_name;
+        if !qualname.class().is(vm.ctx.types.str_type) {
+            code.qualified_name = qualname;
+        }
         code.set_names(names);
         code.co_linetable = linetable;
         code.co_exceptiontable = exceptiontable;
+        code.apply_debug_ranges(vm);
         Ok(code)
     }
 
@@ -1797,6 +1824,78 @@ impl ToPyObject for CodeObject {
 impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         PyCode::new_ref_from_bytecode(vm, self).into()
+    }
+}
+
+// Preserve entry lengths and line deltas while dropping columns, as code
+// construction does under -X no_debug_ranges in CPython. Decode and re-encode
+// signed deltas to normalize redundant encodings, including negative zero.
+// Leave unconvertible tables unchanged rather than inventing line deltas or
+// introducing new constructor errors. This is not a general table validator.
+fn remove_column_info(linetable: &[u8]) -> Option<Box<[u8]>> {
+    let mut result = Vec::with_capacity(linetable.len());
+    let mut reader = LineTableReader::new(linetable);
+    while let Some(header) = reader.read_byte() {
+        if header & 0x80 == 0 {
+            return None;
+        }
+        let kind = (header >> 3) & 15;
+        if kind == PyCodeLocationInfoKind::None as u8 {
+            result.push(header);
+        } else {
+            result.push(0x80 | ((PyCodeLocationInfoKind::NoColumns as u8) << 3) | (header & 7));
+            let delta = match PyCodeLocationInfoKind::from_code(kind) {
+                Some(PyCodeLocationInfoKind::Long | PyCodeLocationInfoKind::NoColumns) => {
+                    read_location_delta(&mut reader)?
+                }
+                Some(PyCodeLocationInfoKind::OneLine1) => 1,
+                Some(PyCodeLocationInfoKind::OneLine2) => 2,
+                _ => 0,
+            };
+            let mut encoded = (delta.unsigned_abs() << 1) | u32::from(delta < 0);
+            while encoded >= 64 {
+                result.push(0x40 | (encoded & 0x3f) as u8);
+                encoded >>= 6;
+            }
+            result.push(encoded as u8);
+        }
+        while reader.peek_byte().is_some_and(|byte| byte & 0x80 == 0) {
+            reader.read_byte();
+        }
+    }
+    Some(result.into_boxed_slice())
+}
+
+// Location deltas use an unsigned 32-bit sign/magnitude representation. Allow
+// redundant zero groups, but reject overflow and truncation without unchecked
+// shifts or consuming the next header. This does not validate absolute lines.
+fn read_location_delta(reader: &mut LineTableReader<'_>) -> Option<i32> {
+    let mut value = 0u32;
+    let mut shift = 0;
+    loop {
+        let byte = reader.peek_byte()?;
+        if byte & 0x80 != 0 {
+            return None;
+        }
+        reader.read_byte();
+        let digit = u32::from(byte & 0x3f);
+        if shift < u32::BITS {
+            if digit > (u32::MAX >> shift) {
+                return None;
+            }
+            value |= digit << shift;
+        } else if digit != 0 {
+            return None;
+        }
+        if byte & 0x40 == 0 {
+            let magnitude = (value >> 1) as i32;
+            return Some(if value & 1 != 0 {
+                -magnitude
+            } else {
+                magnitude
+            });
+        }
+        shift = (shift + 6).min(u32::BITS);
     }
 }
 

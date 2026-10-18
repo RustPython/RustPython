@@ -207,7 +207,7 @@ impl PyFunction {
             vm.ctx.none()
         };
 
-        let qualname = vm.ctx.new_str(code.qualname.as_str());
+        let qualname = code.co_qualname();
         let func = Self {
             code: PyAtomicRef::from(code),
             globals,
