@@ -115,15 +115,15 @@ mod _multiprocessing {
 
     #[derive(FromArgs)]
     struct SemLockNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         kind: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         value: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         maxvalue: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: String,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         unlink: bool,
     }
 
@@ -515,15 +515,15 @@ mod _multiprocessing {
 
     #[derive(FromArgs)]
     struct SemLockNewArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         kind: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         value: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         maxvalue: i32,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         name: String,
-        #[pyarg(positional)]
+        #[pyarg(any)]
         unlink: bool,
     }
 
