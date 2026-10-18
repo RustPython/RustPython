@@ -469,4 +469,40 @@ del callback, address
 gc.collect()
 assert roundtrip(41) == 42
 
+
+# All ctypes metaclasses use sequence repetition in either direction.
+class RepeatStruct(ctypes.Structure):
+    _fields_ = [("value", ctypes.c_int)]
+
+
+class RepeatUnion(ctypes.Union):
+    _fields_ = [("value", ctypes.c_int)]
+
+
+for element_type in (
+    ctypes.c_int,
+    ctypes.c_int * 1,
+    ctypes.POINTER(ctypes.c_int),
+    RepeatStruct,
+    RepeatUnion,
+    Unary,
+):
+    assert 2 * element_type is element_type * 2
+
+
+class ArrayLength:
+    def __index__(self):
+        return 2
+
+
+assert ArrayLength() * ctypes.c_int is ctypes.c_int * 2
+
+
+class ReflectedLength(ArrayLength):
+    def __rmul__(self, other):
+        return "reflected"
+
+
+assert ctypes.c_int * ReflectedLength() == "reflected"
+
 print("done")
