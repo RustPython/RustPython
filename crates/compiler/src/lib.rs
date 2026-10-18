@@ -394,8 +394,10 @@ fn fails_at_eof_token(error: &parser::ParseError, source: &str, mode: Mode) -> b
         // follow it.
         parser::ParseErrorType::ExpectedIndentedBlock { .. } => {
             let end = error.location.end().to_usize();
-            source[start..end].chars().all(|c| c.is_ascii_whitespace())
-                && is_blank_python_source(&source[end..])
+            source
+                .get(start..end)
+                .is_some_and(|text| text.chars().all(|c| c.is_ascii_whitespace()))
+                && source.get(end..).is_some_and(is_blank_python_source)
         }
         _ if start < source.len() => false,
         // Exec input gets a newline appended, which is a real NEWLINE token,
