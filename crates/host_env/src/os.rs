@@ -521,12 +521,22 @@ pub fn device_encoding(_fd: i32) -> Option<String> {
 
 /// Terminate the process through the C `exit()`, which runs the C atexit
 /// handlers and flushes C stdio.
-pub fn exit_with_cleanup(code: i32) -> ! {
-    std::process::exit(code)
+pub fn exit(code: i32) -> ! {
+    cfg_select! {
+        // std::process::exit ends in ExitProcess here, which skips the CRT
+        // atexit handlers and the stdio flush.
+        windows => {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            unsafe { libc::exit(code) }
+        }
+        _ => std::process::exit(code),
+    }
 }
 
-pub fn exit(code: i32) -> ! {
-    // These callers require immediate termination without C exit handlers.
+/// Terminate the process through `_exit()`, without running the C atexit
+/// handlers or flushing C stdio.
+pub fn exit_immediately(code: i32) -> ! {
     cfg_select! {
         any(unix, windows, target_os = "wasi") => unsafe { libc::_exit(code) },
         _ => std::process::exit(code),

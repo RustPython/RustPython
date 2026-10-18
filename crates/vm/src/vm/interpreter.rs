@@ -731,7 +731,7 @@ impl VirtualMachine {
         } else {
             status
         };
-        crate::host_env::os::exit_with_cleanup(status as i32)
+        crate::host_env::os::exit(status as i32)
     }
 
     /// The steps of Py_FinalizeEx after the first flush of stdout and stderr.

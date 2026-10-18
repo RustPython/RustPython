@@ -997,6 +997,7 @@ impl PyGlobalState {
     ///
     /// After a fork only the forking thread survives, so `__main__` is no
     /// longer running unless that thread was running it.
+    #[cfg(all(feature = "host_env", unix))]
     pub(crate) fn reinit_running_main(&self) {
         if !self.thread_is_running_main() {
             self.running_main.store(None);
