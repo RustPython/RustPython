@@ -518,4 +518,25 @@ for raw_view in raw_views:
         memoryview(dest).cast("B")[::2] = memoryview(source).cast("B")[:4]
         assert list(raw_owner) == [0, 1, 1, 3, 2, 5, 3, 7]
 
+# A snapshotted source's release hook must run after the destination write.
+raw_owner[:] = range(8)
+destination_buffer = bytearray(b"abcdefgh")
+destination_view = memoryview(destination_buffer)
+release_events = []
+
+
+class ReleasingBuffer:
+    def __buffer__(self, flags):
+        return memoryview(raw_views[0]).cast("B")
+
+    def __release_buffer__(self, view):
+        release_events.append(bytes(destination_buffer))
+        destination_view.release()
+        destination_buffer.clear()
+
+
+destination_view[:] = ReleasingBuffer()
+assert release_events == [bytes(raw_owner)]
+assert destination_buffer == b""
+
 print("done")

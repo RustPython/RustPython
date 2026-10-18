@@ -665,17 +665,14 @@ impl Py<PyMemoryView> {
             (Some(src), Some(dest)) => src.is(&dest),
             _ => true,
         };
-        let src = if may_overlap {
-            let owned = src.to_contiguous(vm);
-            drop(src);
-            owned
-        } else {
-            src
-        };
+        // Keep the source acquisition alive until after the copy and its byte
+        // guards: releasing it can run Python that releases or resizes dest.
+        let snapshot = may_overlap.then(|| src.to_contiguous(vm));
+        let copy_src = snapshot.as_ref().unwrap_or(&src);
 
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
-        let src_bytes = src.obj_bytes();
-        dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
+        let src_bytes = copy_src.obj_bytes();
+        dest.desc.zip_eq(&copy_src.desc, true, |a_range, b_range| {
             let a_range = a_range.start as usize..a_range.end as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
             bytes_mut[a_range].copy_from_slice(&src_bytes[b_range]);
