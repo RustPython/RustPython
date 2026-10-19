@@ -239,9 +239,12 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
-        name.to_str()
-            .is_some_and(|name| vm.state.module_defs.contains_key(name))
+    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> i32 {
+        match name.to_str() {
+            Some("sys" | "builtins") => -1,
+            Some(name) => i32::from(vm.state.module_defs.contains_key(name)),
+            None => 0,
+        }
     }
 
     #[pyfunction]
