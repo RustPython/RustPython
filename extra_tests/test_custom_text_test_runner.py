@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 from custom_text_test_runner import CustomTextTestRunner
 
@@ -204,6 +205,77 @@ class RunnerResultTests(unittest.TestCase):
                         )
                     finally:
                         del sys.modules[module.__name__]
+
+    def test_unprintable_subtest_parameters(self):
+        self.addCleanup(sys.set_int_max_str_digits, sys.get_int_max_str_digits())
+        sys.set_int_max_str_digits(4300)
+
+        class BadRepr:
+            def __repr__(self):
+                raise ValueError("unprintable parameter")
+
+        class Cases(unittest.TestCase):
+            def test_body(self):
+                for value in (10**5000, BadRepr()):
+                    for outcome in ("passed", "failed", "error", "skipped"):
+                        with self.subTest(value=value, outcome=outcome):
+                            if outcome == "failed":
+                                self.fail("original failure")
+                            if outcome == "error":
+                                raise RuntimeError("original error")
+                            if outcome == "skipped":
+                                self.skipTest("original skip")
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = pathlib.Path(temp) / "results.json"
+            log = io.StringIO()
+            result = CustomTextTestRunner(
+                stream=log, verbosity=2, results_file_path=str(path)
+            ).run(unittest.TestSuite([Cases("test_body")]))
+            self.assertEqual(
+                (
+                    result.testsRun,
+                    len(result.failures),
+                    len(result.errors),
+                    len(result.skipped),
+                ),
+                (1, 2, 2, 2),
+            )
+            data = json.loads(path.read_text())
+            case = next(iter(next(iter(data["suites"].values()))["cases"].values()))
+            self.assertEqual(
+                [s["result"] for s in case["subtests"]],
+                ["passed", "failed", "error", "skipped"] * 2,
+            )
+            self.assertTrue(
+                all(
+                    s["id"].startswith(Cases("test_body").id())
+                    and "id unavailable: ValueError" in s["id"]
+                    for s in case["subtests"]
+                )
+            )
+            self.assertIn("RuntimeError: original error", log.getvalue())
+            self.assertIn("AssertionError: original failure", log.getvalue())
+
+    def test_discovery_preserves_qualified_names_and_import_errors(self):
+        from jsontests import loadTestsOrSkip
+
+        loader = unittest.TestLoader()
+        with mock.patch.object(loader, "loadTestsFromName") as load:
+            for name in ("test_example", "test.test_package.test_example"):
+                loadTestsOrSkip(loader, name)
+            self.assertEqual(
+                load.call_args_list,
+                [
+                    mock.call("test.test_example"),
+                    mock.call("test.test_package.test_example"),
+                ],
+            )
+        result = unittest.TestResult()
+        loadTestsOrSkip(loader, "test.__runner_missing_module__").run(result)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("__runner_missing_module__", result.errors[0][1])
+        self.assertNotIn("test.test.__runner_missing_module__", result.errors[0][1])
 
     def test_interruption_keeps_original_exception(self):
         class Interrupted(unittest.TestCase):

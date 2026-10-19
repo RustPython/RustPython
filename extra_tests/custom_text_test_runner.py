@@ -37,6 +37,14 @@ from functools import reduce
 from unittest.runner import registerResult, result
 
 
+def _subtest_id(parent, subtest):
+    try:
+        return subtest.id()
+    except Exception as exc:
+        # Parameter formatting must not change the test's outcome.
+        return f"{parent.id()} (<subtest id unavailable: {type(exc).__name__}>)"
+
+
 def _get_method_dict(test):
     """Get the __dict__ of the underlying function for a test method.
 
@@ -477,6 +485,7 @@ class CustomTextTestResult(result.TestResult):
         case = self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]
+        subtest_id = _subtest_id(test, subtest)
         status = "passed"
         traceback_text = None
         if err is not None:
@@ -485,12 +494,12 @@ class CustomTextTestResult(result.TestResult):
             if case["result"] != "error":
                 case["result"] = status
             key = "failures" if status == "failed" else "errors"
-            case[key] = (case[key] or "") + subtest.id() + "\n" + traceback_text
+            case[key] = (case[key] or "") + subtest_id + "\n" + traceback_text
             if self.show_test_info:
-                self.stream.writeln("%s: %s" % (status.upper(), subtest.id()))
+                self.stream.writeln("%s: %s" % (status.upper(), subtest_id))
         case["subtests"].append(
             {
-                "id": subtest.id(),
+                "id": subtest_id,
                 "result": status,
                 "traceback": traceback_text,
             }
@@ -557,7 +566,7 @@ class CustomTextTestResult(result.TestResult):
                 self.current_case_number
             ]["subtests"].append(
                 {
-                    "id": test.id(),
+                    "id": _subtest_id(self.current_test, test),
                     "result": "skipped",
                     "reason": reason,
                 }

@@ -7,6 +7,8 @@ from test.libregrtest.setup import setup_process
 
 
 def loadTestsOrSkip(loader, name):
+    if not name.startswith("test."):
+        name = "test." + name
     try:
         return loader.loadTestsFromName(name)
     except unittest.SkipTest as exc:
@@ -28,9 +30,7 @@ def main():
     testnames.insert(0, "test_importlib")
 
     loader = unittest.defaultTestLoader
-    suite = loader.suiteClass(
-        [loadTestsOrSkip(loader, "test." + name) for name in testnames]
-    )
+    suite = loader.suiteClass([loadTestsOrSkip(loader, name) for name in testnames])
 
     resultsfile = os.path.join(os.path.dirname(__file__), "cpython_tests_results.json")
     if os.path.exists(resultsfile):
