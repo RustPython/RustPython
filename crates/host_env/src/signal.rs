@@ -425,7 +425,7 @@ impl WakeupError {
     }
 }
 
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 fn write_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
     let sigbyte = signum as u8;
     loop {
@@ -437,6 +437,13 @@ fn write_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
             return Some(WakeupError::Write(errno));
         }
     }
+}
+
+#[cfg(windows)]
+fn write_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
+    crate::crt_fd::write_signal_byte(wakeup_fd, signum as u8)
+        .err()
+        .map(WakeupError::Write)
 }
 
 #[cfg(windows)]

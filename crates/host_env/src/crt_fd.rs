@@ -439,30 +439,55 @@ fn _write(fd: Raw, buf: &[u8]) -> io::Result<usize> {
     let count = cmp::min(buf.len(), MAX_RW);
     #[cfg(windows)]
     {
-        let mut count = count;
-        loop {
-            unsafe { c::_set_doserrno(0) };
-            let n = unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) };
-            if n >= 0 {
-                return Ok(n as usize);
-            }
-            let errno = crate::os::get_errno();
-            // The CRT reports a successful zero-byte WriteFile as ENOSPC.
-            // A nonblocking pipe may still accept a smaller prefix.
-            if errno != libc::ENOSPC || dos_error() != 0 {
-                return Err(crate::os::io_error_from_errno(errno));
-            }
-            count /= 2;
-            if count == 0 {
-                return Err(crate::os::io_error_from_errno(libc::EAGAIN));
-            }
-        }
+        write_raw(fd, &buf[..count]).map_err(crate::os::io_error_from_errno)
     }
     #[cfg(not(windows))]
     {
         let n = cvt(unsafe { suppress_iph!(c::write(fd, buf.as_ptr() as _, count as _)) })?;
         Ok(n as usize)
     }
+}
+
+// Keep errors as integers so the signal handler never allocates an io::Error.
+#[cfg(windows)]
+fn write_raw(fd: Raw, buf: &[u8]) -> Result<usize, i32> {
+    let mut count = buf.len();
+    loop {
+        unsafe { c::_set_doserrno(0) };
+        let (n, errno, doserrno) = unsafe {
+            suppress_iph!({
+                let n = c::write(fd, buf.as_ptr() as _, count as _);
+                (n, crate::os::get_errno(), dos_error())
+            })
+        };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        // The CRT reports a successful zero-byte WriteFile as ENOSPC.
+        // A nonblocking pipe may still accept a smaller prefix.
+        if errno != libc::ENOSPC || doserrno != 0 {
+            return Err(errno);
+        }
+        count /= 2;
+        if count == 0 {
+            return Err(libc::EAGAIN);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn write_signal_byte(fd: Raw, byte: u8) -> Result<(), i32> {
+    let saved_errno = crate::os::get_errno();
+    let saved_doserrno = dos_error();
+    let result = loop {
+        match write_raw(fd, &[byte]) {
+            Err(libc::EINTR) => continue,
+            result => break result.map(|_| ()),
+        }
+    };
+    unsafe { c::_set_doserrno(saved_doserrno) };
+    crate::os::set_errno(saved_errno);
+    result
 }
 
 fn _read(fd: Raw, buf: &mut [u8]) -> io::Result<usize> {
