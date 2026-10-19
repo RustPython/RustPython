@@ -313,12 +313,13 @@ impl PyCPointer {
             .stg_info_opt()
             .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
-        // Create instance that references the memory directly
-        // PyCData.into_ref_with_type works for all ctypes (simple, structure, union, array, pointer)
-        let cdata = unsafe { super::base::PyCData::at_address(ptr_val as *const u8, element_size) };
-        cdata
-            .into_ref_with_type(vm, proto_type.to_owned())
-            .map(Into::into)
+        // SAFETY: the pointer must designate valid native memory. Retaining it
+        // keeps Python-owned referents alive, but cannot validate arbitrary addresses.
+        let cdata = unsafe {
+            PyCData::from_base_obj(ptr_val as *mut u8, element_size, zelf.to_owned().into(), 0)
+        };
+        cdata.length.store(proto_type.stg_info(vm)?.length);
+        cdata.into_view(proto_type.to_owned(), vm)
     }
 
     // contents setter - stores address in b_ptr and keeps reference
@@ -400,9 +401,14 @@ impl PyCPointer {
         // offset = index * iteminfo->size
         let addr = pointer_item_address(ptr_value, index, element_size);
 
-        // Check if it's a simple type (has _type_ attribute)
-        if let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
-            && let Ok(type_str) = type_attr.str(vm)
+        // Only direct simple types return a scalar; their subclasses and
+        // aggregate types return a view of the indexed object.
+        if proto_type
+            .base
+            .deref()
+            .is_some_and(|base| base.is(PyCSimple::static_type()))
+            && let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
+            && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
         {
             let type_code = type_str.to_string();
             return Ok(Self::read_value_at_address(
@@ -415,11 +421,19 @@ impl PyCPointer {
 
         // Complex type: create instance that references the memory directly (not a copy)
         // This allows p[i].val = x to modify the original memory
-        // PyCData.into_ref_with_type works for all ctypes (array, structure, union, pointer)
-        let cdata = unsafe { super::base::PyCData::at_address(addr as *const u8, element_size) };
-        cdata
-            .into_ref_with_type(vm, proto_type.to_owned())
-            .map(Into::into)
+        // SAFETY: pointer indexing relies on the caller providing valid native
+        // memory. Retaining the pointer keeps its Python-owned referents alive,
+        // but does not make arbitrary addresses or concurrent native access safe.
+        let cdata = unsafe {
+            PyCData::from_base_obj(
+                addr as *mut u8,
+                element_size,
+                zelf.to_owned().into(),
+                index as usize,
+            )
+        };
+        cdata.length.store(proto_type.stg_info(vm)?.length);
+        cdata.into_view(proto_type.to_owned(), vm)
     }
 
     // Pointer_subscript slice handling (manual parsing, not PySlice_Unpack)

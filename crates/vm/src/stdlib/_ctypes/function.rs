@@ -645,6 +645,24 @@ pub(super) fn cast_impl(
 }
 
 impl PyCFuncPtr {
+    pub(super) fn from_cdata(data: PyCData) -> Self {
+        Self {
+            _base: data,
+            thunk: PyRwLock::new(None),
+            callable: PyRwLock::new(None),
+            converters: PyRwLock::new(None),
+            argtypes: PyRwLock::new(None),
+            restype: PyRwLock::new(None),
+            checker: PyRwLock::new(None),
+            errcheck: PyRwLock::new(None),
+            #[cfg(windows)]
+            index: PyRwLock::new(None),
+            #[cfg(windows)]
+            iid: PyRwLock::new(None),
+            paramflags: PyRwLock::new(None),
+        }
+    }
+
     /// Get function pointer address from buffer
     fn get_func_ptr(&self) -> usize {
         let buffer = self._base.buffer.read();
@@ -670,23 +688,9 @@ impl Constructor for PyCFuncPtr {
         let ptr_size = pointer_size();
 
         if args.args.is_empty() {
-            return Self {
-                _base: PyCData::from_bytes(vec![0u8; ptr_size], None),
-                thunk: PyRwLock::new(None),
-                callable: PyRwLock::new(None),
-                converters: PyRwLock::new(None),
-                argtypes: PyRwLock::new(None),
-                restype: PyRwLock::new(None),
-                checker: PyRwLock::new(None),
-                errcheck: PyRwLock::new(None),
-                #[cfg(windows)]
-                index: PyRwLock::new(None),
-                #[cfg(windows)]
-                iid: PyRwLock::new(None),
-                paramflags: PyRwLock::new(None),
-            }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into);
+            return Self::from_cdata(PyCData::from_bytes(vec![0u8; ptr_size], None))
+                .into_ref_with_type(vm, cls)
+                .map(Into::into);
         }
 
         let first_arg = &args.args[0];
@@ -847,9 +851,13 @@ impl Constructor for PyCFuncPtr {
 
             // Store the thunk as a Python object to keep it alive
             let thunk_ref: PyRef<PyCThunk> = thunk.into_ref(&vm.ctx);
+            let base = PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None);
+            let objects = vm.ctx.new_dict();
+            objects.set_item("0", thunk_ref.clone().into(), vm)?;
+            *base.objects.write() = Some(objects.into());
 
             return Self {
-                _base: PyCData::from_bytes(Self::make_ptr_buffer(ptr_val), None),
+                _base: base,
                 thunk: PyRwLock::new(Some(thunk_ref)),
                 callable: PyRwLock::new(Some(first_arg.clone())),
                 converters: PyRwLock::new(None),

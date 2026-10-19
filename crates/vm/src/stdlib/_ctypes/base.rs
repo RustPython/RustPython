@@ -696,9 +696,18 @@ impl PyCData {
     pub fn unique_key(&self, index: usize) -> String {
         let mut key = format!("{index:x}");
         // Walk up the base chain to build hierarchical key
-        if self.base.read().is_some() {
-            let parent_index = self.index.load();
-            key.push_str(&format!(":{parent_index:x}"));
+        let mut base = self.base.read().clone();
+        if base.is_some() {
+            key.push_str(&format!(":{:x}", self.index.load()));
+        }
+        while let Some(parent) = base.take() {
+            let Some(cdata) = parent.downcast_ref::<Self>() else {
+                break;
+            };
+            base.clone_from(&cdata.base.read());
+            if base.is_some() {
+                key.push_str(&format!(":{:x}", cdata.index.load()));
+            }
         }
         key
     }
@@ -758,8 +767,11 @@ impl PyCData {
             *objects = Some(dict.into());
         }
 
+        // Replacing a reference can run a finalizer that accesses this object.
+        let dict_obj = objects.clone();
+        drop(objects);
         // Store in dict with unique key
-        if let Some(dict_obj) = objects.as_ref()
+        if let Some(dict_obj) = dict_obj
             && let Some(dict) = dict_obj.downcast_ref::<PyDict>()
         {
             let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
@@ -779,28 +791,26 @@ impl PyCData {
         if let Some(base_obj) = base {
             let root = Self::find_root_object(&base_obj);
             if let Some(cdata) = root.downcast_ref::<Self>() {
-                cdata.kept_refs.write().insert(key, obj);
+                let old = cdata.kept_refs.write().insert(key, obj);
+                drop(old);
                 return;
             }
         }
-        self.kept_refs.write().insert(key, obj);
+        let old = self.kept_refs.write().insert(key, obj);
+        drop(old);
     }
 
     /// Find the root object (one without a base) by walking up the base chain
     fn find_root_object(obj: &PyObject) -> PyObjectRef {
-        // Try to get base from different ctypes types
-        let base = if let Some(cdata) = obj.downcast_ref::<Self>() {
-            cdata.base.read().clone()
-        } else {
-            None
-        };
-
-        // Recurse if there's a base, otherwise this is the root
-        if let Some(base_obj) = base {
-            Self::find_root_object(&base_obj)
-        } else {
-            obj.to_owned()
+        let mut root = obj.to_owned();
+        while let Some(cdata) = root.downcast_ref::<Self>() {
+            let base = cdata.base.read().clone();
+            match base {
+                Some(base) if base.downcast_ref::<Self>().is_some() => root = base,
+                _ => break,
+            }
         }
+        root
     }
 
     /// Store a value in an object's _objects dict with the given key
@@ -834,8 +844,10 @@ impl PyCData {
             *objects = Some(dict.into());
         }
 
+        let dict_obj = objects.clone();
+        drop(objects);
         // Store in dict
-        if let Some(dict_obj) = objects.as_ref()
+        if let Some(dict_obj) = dict_obj
             && let Some(dict) = dict_obj.downcast_ref::<PyDict>()
         {
             let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
@@ -846,12 +858,43 @@ impl PyCData {
     }
 
     /// Get kept objects from a CData instance
-    /// Returns the _objects of the CData, or an empty dict if None.
+    /// Returns the _objects of the root CData, or an empty dict if None.
     pub fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
-        value
+        Self::find_root_object(value)
             .downcast_ref::<Self>()
             .and_then(|cdata| cdata.objects.read().clone())
             .unwrap_or_else(|| vm.ctx.new_dict().into())
+    }
+
+    // Copying a view must retain its root's references, including private
+    // backing allocations used for null-terminated strings.
+    pub(super) fn keep_cdata(
+        &self,
+        index: usize,
+        value: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let root = Self::find_root_object(value);
+        let hidden: Vec<_> = root
+            .downcast_ref::<Self>()
+            .map(|cdata| cdata.kept_refs.read().values().cloned().collect())
+            .unwrap_or_default();
+        self.keep_ref(index, Self::get_kept_objects(&root, vm), vm)?;
+        if !hidden.is_empty() {
+            self.keep_alive(index, vm.ctx.new_tuple(hidden).into());
+        }
+        Ok(())
+    }
+
+    // A scalar owns one reference; a scalar view stores it in its root instead.
+    pub(super) fn keep_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if self.base.read().is_some() {
+            self.keep_ref(0, value, vm)
+        } else {
+            let old = self.objects.write().replace(value);
+            drop(old);
+            Ok(())
+        }
     }
 
     /// Check if a value should be stored in _objects
@@ -997,11 +1040,20 @@ impl PyCData {
         if let Some(converted) = converted_value {
             self.keep_ref(index, converted, vm)?;
         } else if Self::should_keep_ref(&value) {
-            let to_keep = Self::get_kept_objects(&value, vm);
-            self.keep_ref(index, to_keep, vm)?;
+            self.keep_cdata(index, &value, vm)?;
         }
 
         Ok(())
+    }
+
+    pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
+            super::function::PyCFuncPtr::from_cdata(self)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        } else {
+            self.into_ref_with_type(vm, cls).map(Into::into)
+        }
     }
 
     /// PyCData_get
@@ -1108,8 +1160,9 @@ impl PyCData {
         if proto_metaclass.fast_issubclass(super::structure::PyCStructType::static_type())
             || proto_metaclass.fast_issubclass(super::union::PyCUnionType::static_type())
             || proto_metaclass.fast_issubclass(super::pointer::PyCPointerType::static_type())
+            || proto_type.fast_issubclass(super::function::PyCFuncPtr::static_type())
         {
-            cdata_obj.into_ref_with_type(vm, proto_type).map(Into::into)
+            cdata_obj.into_view(proto_type, vm)
         } else {
             // Fallback
             Ok(vm.ctx.new_int(0).into())

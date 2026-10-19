@@ -979,7 +979,7 @@ impl Constructor for PyCSimple {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     let buffer = rustpython_host_env::ctypes::pointer_bytes(ptr);
                     let cdata = PyCData::from_bytes(buffer, Some(v.clone()));
-                    *cdata.base.write() = Some(kept_alive);
+                    cdata.keep_alive(0, kept_alive);
                     return Self(cdata).into_ref_with_type(vm, cls).map(Into::into);
                 }
             } else if _type_ == "Z"
@@ -1166,19 +1166,19 @@ impl Py<PyCSimple> {
         if type_code == "z" {
             if let Some(bytes) = value.downcast_ref::<PyBytes>() {
                 let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                *zelf.0.buffer.write() =
-                    alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
-                *zelf.0.objects.write() = Some(value);
-                *zelf.0.base.write() = Some(kept_alive);
+                zelf.0
+                    .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
+                zelf.0.keep_alive(0, kept_alive);
+                zelf.0.keep_value(value, vm)?;
                 return Ok(());
             }
         } else if type_code == "Z"
             && let Some(s) = value.downcast_ref::<PyStr>()
         {
             let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
-            *zelf.0.buffer.write() =
-                alloc::borrow::Cow::Owned(rustpython_host_env::ctypes::pointer_bytes(ptr));
-            *zelf.0.objects.write() = Some(holder);
+            zelf.0
+                .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
+            zelf.0.keep_value(holder, vm)?;
             return Ok(());
         }
 
@@ -1198,11 +1198,12 @@ impl Py<PyCSimple> {
         // Otherwise replace with new owned buffer
         let mut buffer = zelf.0.buffer.write();
         write_simple_storage_buffer(&mut buffer, &buffer_bytes);
+        drop(buffer);
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // keep the reference in _objects
         if type_code == "z" || type_code == "Z" || type_code == "O" {
-            *zelf.0.objects.write() = Some(value);
+            zelf.0.keep_value(value, vm)?;
         }
         Ok(())
     }

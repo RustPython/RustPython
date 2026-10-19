@@ -4,6 +4,7 @@ import itertools
 import os as _os
 import sys as _sys
 import types as _types
+import weakref
 from _ctypes import RTLD_GLOBAL, RTLD_LOCAL, Array, _SimpleCData, sizeof
 from _ctypes import CFuncPtr as _CFuncPtr
 from struct import calcsize as _calcsize
@@ -604,3 +605,93 @@ for read in (
         raise AssertionError("non-pointer argument wrapper accepted")
 
 print("done")
+
+
+# Indexed compound objects are views of the element, not decoded scalars.
+class IndexedPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int)]
+
+
+class IndexedInt(ctypes.c_int):
+    pass
+
+
+for _element in (IndexedPoint, IndexedInt, ctypes.c_int * 2):
+    _owner = (_element * 2)()
+    _view = _owner[1]
+    assert type(_view) is _element
+    assert _view._b_base_ is _owner
+    assert ctypes.addressof(_view) == ctypes.addressof(_owner) + ctypes.sizeof(_element)
+
+_array = (ctypes.c_int * 2)(1, 2)
+_pointer = ctypes.pointer(_array)
+for _value, _view in enumerate((_pointer[0], _pointer.contents), 42):
+    assert _view._b_base_ is _pointer
+    assert len(_view) == 2
+    _view[1] = _value
+    assert _array[1] == _value
+
+_callback_type = ctypes.CFUNCTYPE(ctypes.c_int)
+_callbacks = (_callback_type * 1)(_callback_type(lambda: 42))
+_callback = _callbacks[0]
+assert _callback._b_base_ is _callbacks
+_copied_callbacks = (_callback_type * 1)(_callback)
+del _callback, _callbacks
+gc.collect()
+assert _copied_callbacks[0]() == 42
+
+
+class CallbackField(ctypes.Structure):
+    _fields_ = [("callback", _callback_type)]
+
+
+assert CallbackField(_copied_callbacks[0]).callback() == 42
+
+# Nested element keys and copies must retain both pointees after the source dies.
+_nested = (((ctypes.POINTER(ctypes.c_int) * 1) * 1) * 2)()
+_refs = []
+for _index in range(2):
+    _item = ctypes.c_int(_index)
+    _refs.append(weakref.ref(_item))
+    _nested[_index][0][0] = ctypes.pointer(_item)
+_copy = type(_nested)(*_nested)
+del _nested, _item
+gc.collect()
+assert [ref().value for ref in _refs] == [0, 1]
+
+# Replacing a callback may reenter the same array from its finalizer.
+_finalized = []
+
+
+class ReenteringCallback:
+    def __call__(self):
+        return 1
+
+    def __del__(self):
+        _finalized.append(_copied_callbacks[0]())
+        _copied_callbacks[0] = _callback_type(lambda: 3)
+
+
+_copied_callbacks[0] = _callback_type(ReenteringCallback())
+_copied_callbacks[0] = _callback_type(lambda: 2)
+assert _finalized == [2]
+assert _copied_callbacks[0]() == 3
+
+# Pointer-valued scalar views retain their owner and write through to it.
+for _type, _old, _new in (
+    (ctypes.c_char_p, b"old", b"new"),
+    (ctypes.c_wchar_p, "old", "new"),
+):
+
+    class IndexedStringPointer(_type):
+        pass
+
+    _owner = (IndexedStringPointer * 1)(_old)
+    _view = _owner[0]
+    _view.value = _new
+    assert _view._b_base_ is _owner
+    assert _owner[0].value == _new
+    _copy = type(_owner)(_view)
+    del _owner, _view
+    gc.collect()
+    assert _copy[0].value == _new

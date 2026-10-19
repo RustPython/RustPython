@@ -545,23 +545,40 @@ impl PyCArray {
         let index = index as usize;
         let element_size = stg.as_ref().map_or(0, |i| i.element_size);
         let offset = index * element_size;
+        if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
+            && !element_type
+                .base
+                .deref()
+                .is_some_and(|base| base.is(super::PyCSimple::static_type()))
+        {
+            let length = element_type.stg_info(vm)?.length;
+            let buffer = zelf.0.buffer.read();
+            let Some(data) = buffer.get(offset..offset + element_size) else {
+                drop(buffer);
+                return Err(vm.new_index_error("invalid index"));
+            };
+            // SAFETY: this element lies within the array's live buffer. The view
+            // retains the array; ctypes users must still avoid reallocating or
+            // concurrently accessing the same native memory through aliases.
+            let view = unsafe {
+                PyCData::from_base_obj(
+                    data.as_ptr().cast_mut(),
+                    element_size,
+                    zelf.to_owned().into(),
+                    index,
+                )
+            };
+            view.base_offset.store(offset);
+            view.length.store(length);
+            drop(buffer);
+            return view.into_view(element_type.clone(), vm);
+        }
         let type_code = Self::get_element_type_code(zelf, vm);
 
-        // Get target buffer and offset (base's buffer if available, otherwise own)
-        let base_obj = zelf.0.base.read().clone();
-        let (buffer_lock, final_offset) = if let Some(cdata) = base_obj
-            .as_ref()
-            .and_then(|b| b.downcast_ref::<super::PyCData>())
-        {
-            (&cdata.buffer, zelf.0.base_offset.load() + offset)
-        } else {
-            (&zelf.0.buffer, offset)
-        };
-
-        let buffer = buffer_lock.read();
+        let buffer = zelf.0.buffer.read();
         Ok(Self::read_element_from_buffer(
             &buffer,
-            final_offset,
+            offset,
             element_size,
             type_code.as_deref(),
             vm,
@@ -589,10 +606,7 @@ impl PyCArray {
     }
 
     /// Helper to write an element value to a buffer at given offset
-    /// This is extracted to share code between direct write and base-buffer write
-    #[allow(clippy::too_many_arguments)]
     fn write_element_to_buffer(
-        buffer: &mut [u8],
         offset: usize,
         element_size: usize,
         type_code: Option<&str>,
@@ -601,20 +615,22 @@ impl PyCArray {
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        // Conversions and reference replacement may call Python. Only the raw
+        // storage write runs under the buffer lock.
+        let write = |value| {
+            let mut buffer = zelf.0.buffer.write();
+            write_array_element(cow_bytes_as_mut(&mut buffer), offset, value);
+        };
         match type_code {
             Some("c") => {
                 if let Some(b) = value.downcast_ref::<PyBytes>() {
-                    write_array_element(
-                        buffer,
-                        offset,
-                        ArrayElementWriteValue::Byte(b.as_bytes().first().copied().unwrap_or(0)),
-                    );
+                    write(ArrayElementWriteValue::Byte(
+                        b.as_bytes().first().copied().unwrap_or(0),
+                    ));
                 } else if let Ok(int_val) = value.try_int(vm) {
-                    write_array_element(
-                        buffer,
-                        offset,
-                        ArrayElementWriteValue::Byte(int_val.as_bigint().to_u8().unwrap_or(0)),
-                    );
+                    write(ArrayElementWriteValue::Byte(
+                        int_val.as_bigint().to_u8().unwrap_or(0),
+                    ));
                 } else {
                     return Err(vm.new_type_error("an integer or bytes of length 1 is required"));
                 }
@@ -622,7 +638,7 @@ impl PyCArray {
             Some("u") => {
                 if let Some(s) = value.downcast_ref::<PyStr>() {
                     let code = s.as_wtf8().code_points().next().map_or(0, |c| c.to_u32());
-                    write_array_element(buffer, offset, ArrayElementWriteValue::Wchar(code));
+                    write(ArrayElementWriteValue::Wchar(code));
                 } else {
                     return Err(vm.new_type_error("unicode string expected"));
                 }
@@ -650,14 +666,10 @@ impl PyCArray {
                         value.class().name()
                     )));
                 };
-                write_array_element(
-                    buffer,
-                    offset,
-                    ArrayElementWriteValue::Pointer {
-                        value: ptr_val,
-                        size: element_size,
-                    },
-                );
+                write(ArrayElementWriteValue::Pointer {
+                    value: ptr_val,
+                    size: element_size,
+                });
                 if let Some(c) = converted {
                     return zelf.0.keep_ref(index, c, vm);
                 }
@@ -681,14 +693,10 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("unicode string or integer address expected"));
                 };
-                write_array_element(
-                    buffer,
-                    offset,
-                    ArrayElementWriteValue::Pointer {
-                        value: ptr_val,
-                        size: element_size,
-                    },
-                );
+                write(ArrayElementWriteValue::Pointer {
+                    value: ptr_val,
+                    size: element_size,
+                });
                 if let Some(c) = converted {
                     return zelf.0.keep_ref(index, c, vm);
                 }
@@ -702,14 +710,10 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("a float is required"));
                 };
-                write_array_element(
-                    buffer,
-                    offset,
-                    ArrayElementWriteValue::Float {
-                        value: f32_val.into(),
-                        size: 4,
-                    },
-                );
+                write(ArrayElementWriteValue::Float {
+                    value: f32_val.into(),
+                    size: 4,
+                });
             }
             Some("d" | "g") => {
                 // c_double / c_longdouble: convert int/float to f64 bytes
@@ -720,39 +724,27 @@ impl PyCArray {
                 } else {
                     return Err(vm.new_type_error("a float is required"));
                 };
-                write_array_element(
-                    buffer,
-                    offset,
-                    ArrayElementWriteValue::Float {
-                        value: f64_val,
-                        size: 8,
-                    },
-                );
+                write(ArrayElementWriteValue::Float {
+                    value: f64_val,
+                    size: 8,
+                });
                 // For "g" type, remaining bytes stay zero
             }
             _ => {
                 // Handle ctypes instances (copy their buffer)
                 if let Some(cdata) = value.downcast_ref::<PyCData>() {
-                    let src_buffer = cdata.buffer.read();
-                    write_array_element(
-                        buffer,
-                        offset,
-                        ArrayElementWriteValue::Bytes {
-                            bytes: &src_buffer,
-                            size: element_size,
-                        },
-                    );
+                    let src_buffer = cdata.buffer.read().to_vec();
+                    write(ArrayElementWriteValue::Bytes {
+                        bytes: &src_buffer,
+                        size: element_size,
+                    });
                 // Other types: use int_to_bytes
                 } else if let Ok(int_val) = value.try_int(vm) {
                     let bytes = Self::int_to_bytes(int_val.as_bigint(), element_size);
-                    write_array_element(
-                        buffer,
-                        offset,
-                        ArrayElementWriteValue::Bytes {
-                            bytes: &bytes,
-                            size: element_size,
-                        },
-                    );
+                    write(ArrayElementWriteValue::Bytes {
+                        bytes: &bytes,
+                        size: element_size,
+                    });
                 } else {
                     return Err(vm.new_type_error(format!(
                         "expected {} instance, not {}",
@@ -765,8 +757,7 @@ impl PyCArray {
 
         // KeepRef
         if super::base::PyCData::should_keep_ref(value) {
-            let to_keep = super::base::PyCData::get_kept_objects(value, vm);
-            zelf.0.keep_ref(index, to_keep, vm)?;
+            zelf.0.keep_cdata(index, value, vm)?;
         }
 
         Ok(())
@@ -789,49 +780,17 @@ impl PyCArray {
         let offset = index * element_size;
         let type_code = Self::get_element_type_code(zelf, vm);
 
-        // Get target buffer and offset (base's buffer if available, otherwise own)
-        let base_obj = zelf.0.base.read().clone();
-        let (buffer_lock, final_offset) = if let Some(cdata) = base_obj
-            .as_ref()
-            .and_then(|b| b.downcast_ref::<super::PyCData>())
-        {
-            (&cdata.buffer, zelf.0.base_offset.load() + offset)
-        } else {
-            (&zelf.0.buffer, offset)
-        };
-
-        let mut buffer = buffer_lock.write();
-
-        // For shared memory (Cow::Borrowed), we need to write directly to the memory
-        // For owned memory (Cow::Owned), we can write to the owned buffer
-        match &mut *buffer {
-            Cow::Borrowed(slice) => {
-                // SAFETY: For from_buffer, the slice points to writable shared memory.
-                // Python's from_buffer requires writable buffer, so this is safe.
-                let owned_slice =
-                    unsafe { rustpython_host_env::ctypes::borrowed_slice_as_mut(slice) };
-                Self::write_element_to_buffer(
-                    owned_slice,
-                    final_offset,
-                    element_size,
-                    type_code.as_deref(),
-                    value,
-                    zelf,
-                    index,
-                    vm,
-                )
-            }
-            Cow::Owned(vec) => Self::write_element_to_buffer(
-                vec,
-                final_offset,
-                element_size,
-                type_code.as_deref(),
-                value,
-                zelf,
-                index,
-                vm,
-            ),
-        }
+        // A view's buffer already points to its element. Its base can be a
+        // pointer object, whose own buffer stores an address rather than data.
+        Self::write_element_to_buffer(
+            offset,
+            element_size,
+            type_code.as_deref(),
+            value,
+            zelf,
+            index,
+            vm,
+        )
     }
 
     // Array_subscript
