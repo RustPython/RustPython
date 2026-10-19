@@ -1369,7 +1369,6 @@ class CmdLineTest(unittest.TestCase):
         proc = assert_python_ok("-X", f"presite={entrypoint}", "-c", "pass")
         self.assertEqual(proc.out.rstrip(), b"presite func")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; explicit PYTHONHOME startup path configuration and fatal encodings failure reporting are not implemented
     def test_dump_path_config(self):
         # gh-151253: At the first import (import encodings) during Python
         # startup, if the import fails, dump the Python path configuration.
