@@ -110,6 +110,7 @@ pub struct VirtualMachine {
     pub(crate) lazy_imports_resolving: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
+    pub(crate) import_bootstrap_complete: bool,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
     /// where the stack pointer cannot be read. Everywhere else the native
@@ -1368,6 +1369,7 @@ impl VirtualMachine {
             lazy_imports_resolving: RefCell::default(),
             state,
             initialized: false,
+            import_bootstrap_complete: false,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1448,7 +1450,7 @@ impl VirtualMachine {
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
         let (ascii_module_name, utf8_module_name, latin1_module_name) =
-            if cfg!(feature = "freeze-stdlib") {
+            if cfg!(feature = "freeze-stdlib") && self.state.config.settings.use_frozen_modules {
                 ("encodings.ascii", "encodings.utf_8", "encodings.latin_1")
             } else {
                 ("encodings_ascii", "encodings_utf_8", "encodings_latin_1")
@@ -1642,6 +1644,7 @@ impl VirtualMachine {
 
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
+        self.import_bootstrap_complete = true;
 
         #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library

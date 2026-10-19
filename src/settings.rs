@@ -313,9 +313,15 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         settings.import_time = parse_import_time(value.to_str(), "PYTHONPROFILEIMPORTTIME");
     }
 
+    if let Some(value) = get_env("PYTHON_FROZEN_MODULES").filter(|value| !value.is_empty()) {
+        settings.use_frozen_modules =
+            parse_frozen_modules(Some(&value.to_string_lossy()), "PYTHON_FROZEN_MODULES");
+    }
+
     // CPython uses the first occurrence of these -X options.
     let mut lazy_imports_option_seen = false;
     let mut import_time_option_seen = false;
+    let mut frozen_modules_option_seen = false;
     let xopts = args.implementation_option.into_iter().map(|s| {
         let (name, value) = match s.split_once('=') {
             Some((name, value)) => (name.to_owned(), Some(value)),
@@ -326,6 +332,10 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
             "importtime" if !import_time_option_seen => {
                 settings.import_time = parse_import_time(value, "-X importtime");
                 import_time_option_seen = true;
+            }
+            "frozen_modules" if !frozen_modules_option_seen => {
+                settings.use_frozen_modules = parse_frozen_modules(value, "-X frozen_modules");
+                frozen_modules_option_seen = true;
             }
             "faulthandler" => settings.faulthandler = true,
             "warn_default_encoding" => settings.warn_default_encoding = true,
@@ -510,6 +520,19 @@ fn parse_cpu_count(value: Option<&str>) -> Result<Option<NonZeroI32>, ()> {
             .filter(|count: &NonZeroI32| count.get() > 0)
             .map(Some)
             .ok_or(()),
+    }
+}
+
+fn parse_frozen_modules(value: Option<&str>, source: &str) -> bool {
+    match value {
+        None | Some("" | "on") => true,
+        Some("off") => false,
+        _ => {
+            eprintln!(
+                "Fatal Python error: config_init_import: bad value for {source} (expected \"on\" or \"off\")"
+            );
+            std::process::exit(1);
+        }
     }
 }
 
