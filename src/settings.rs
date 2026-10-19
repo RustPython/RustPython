@@ -334,7 +334,8 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
                 import_time_option_seen = true;
             }
             "frozen_modules" if !frozen_modules_option_seen => {
-                settings.use_frozen_modules = parse_frozen_modules(value, "-X frozen_modules");
+                settings.use_frozen_modules =
+                    parse_frozen_modules(value, "option -X frozen_modules");
                 frozen_modules_option_seen = true;
             }
             "faulthandler" => settings.faulthandler = true,
