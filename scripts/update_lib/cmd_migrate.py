@@ -57,7 +57,7 @@ def _preserve_block(old, new, canonical, local):
     return new.replace(canonical, local, 1)
 
 
-def copy_support_assignments(source, destination, names, exports):
+def copy_selected_assignments(source, destination, names, exports):
     """Copy contiguous canonical assignments and export lines, failing closed.
 
     Only additions are supported. Dependencies must already be imported with the
@@ -258,16 +258,10 @@ def copy_support_assignments(source, destination, names, exports):
     return result
 
 
-def migrate_support_assignments(path, names, exports, source_hash, destination_hash):
+def migrate_selected_assignments(path, names, exports, source_hash, destination_hash):
     target = parse_lib_path(path)
-    if (
-        target.parts[:3] != ("Lib", "test", "support")
-        or ".." in target.parts
-        or target.suffix != ".py"
-    ):
-        raise ValueError(
-            "Selective assignments are restricted to Lib/test/support Python files"
-        )
+    if target.parts[:1] != ("Lib",) or ".." in target.parts or target.suffix != ".py":
+        raise ValueError("Selective assignments require an explicit Lib Python file")
     source, destination = path.read_bytes(), target.read_bytes()
     for label, contents, expected in (
         ("source", source, source_hash),
@@ -275,7 +269,7 @@ def migrate_support_assignments(path, names, exports, source_hash, destination_h
     ):
         if hashlib.sha256(contents).hexdigest() != expected:
             raise ValueError(f"{label} SHA256 does not match the pinned input")
-    result = copy_support_assignments(
+    result = copy_selected_assignments(
         source.decode("utf-8"), destination.decode("utf-8"), names, exports
     ).encode("utf-8")
     if target.read_bytes() != destination:
@@ -783,11 +777,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Single-file target, remaining decorator patches, and optional doctests JSON",
     )
     parser.add_argument(
-        "--support-assignments",
+        "--assignments",
         nargs="+",
-        help="Add selected canonical test.support assignments",
+        help="Copy selected canonical assignments",
     )
-    parser.add_argument("--support-exports", nargs="+", default=[])
+    parser.add_argument("--exports", nargs="+", default=[])
     parser.add_argument("--source-sha256")
     parser.add_argument("--destination-sha256")
     args = parser.parse_args(argv)
@@ -797,8 +791,8 @@ def main(argv: list[str] | None = None) -> int:
             if (
                 args.legacy_map is not None
                 or args.patches is not None
-                or args.support_assignments
-                or args.support_exports
+                or args.assignments
+                or args.exports
                 or args.source_sha256
                 or args.destination_sha256
             ):
@@ -814,24 +808,24 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.dry_run:
             raise ValueError("--dry-run requires --canonical-removals")
-        if args.support_assignments:
+        if args.assignments:
             if args.legacy_map is not None or args.patches is not None:
                 raise ValueError(
-                    "Selective support imports cannot combine with --legacy-map or --patches"
+                    "Selective imports cannot combine with --legacy-map or --patches"
                 )
             try:
-                migrate_support_assignments(
+                migrate_selected_assignments(
                     args.path,
-                    args.support_assignments,
-                    args.support_exports,
+                    args.assignments,
+                    args.exports,
                     args.source_sha256,
                     args.destination_sha256,
                 )
             except (SyntaxError, UnicodeError) as exc:
                 raise ValueError(str(exc)) from exc
             return 0
-        if args.support_exports or args.source_sha256 or args.destination_sha256:
-            raise ValueError("Selective options require --support-assignments")
+        if args.exports or args.source_sha256 or args.destination_sha256:
+            raise ValueError("Selective options require --assignments")
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):

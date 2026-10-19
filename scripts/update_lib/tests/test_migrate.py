@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from update_lib.cmd_migrate import (
     _preserve_block,
-    copy_support_assignments,
+    copy_selected_assignments,
     main,
     migrate_package,
     patch_directory,
@@ -34,7 +34,7 @@ from update_lib.patch_spec import (
 )
 
 
-class TestSupportAssignments(unittest.TestCase):
+class TestSelectedAssignments(unittest.TestCase):
     names = ["_available", "requires_available", "requires_unavailable"]
     exports = names[1:]
     imports = "import os\nimport unittest\n\n"
@@ -58,7 +58,7 @@ class TestSupportAssignments(unittest.TestCase):
     )
 
     def test_canonical_bytes_and_unrelated_helpers_are_preserved(self):
-        result = copy_support_assignments(
+        result = copy_selected_assignments(
             self.source, self.destination, self.names, self.exports
         )
         self.assertEqual(
@@ -81,7 +81,7 @@ class TestSupportAssignments(unittest.TestCase):
             self.source.replace("STATUS = 1", ""),
         ):
             with self.subTest(source=source), self.assertRaises(ValueError):
-                copy_support_assignments(
+                copy_selected_assignments(
                     source, self.destination, self.names, self.exports
                 )
 
@@ -97,7 +97,7 @@ class TestSupportAssignments(unittest.TestCase):
             self.destination + "STATUS = 1\n",
         ):
             with self.subTest(destination=destination), self.assertRaises(ValueError):
-                copy_support_assignments(
+                copy_selected_assignments(
                     self.source, destination, self.names, self.exports
                 )
 
@@ -122,7 +122,7 @@ class TestSupportAssignments(unittest.TestCase):
             (self.source, self.destination.replace('"existing"', "3"), self.exports),
         ):
             with self.subTest(exports=exports), self.assertRaises(ValueError):
-                copy_support_assignments(source, destination, self.names, exports)
+                copy_selected_assignments(source, destination, self.names, exports)
 
     def test_dependency_rebinding_deletion_and_builtin_shadowing_are_rejected(self):
         for binding in (
@@ -145,7 +145,7 @@ class TestSupportAssignments(unittest.TestCase):
                     self.subTest(binding=binding, source_side=source_side),
                     self.assertRaisesRegex(ValueError, "Ambiguous dependency binding"),
                 ):
-                    copy_support_assignments(
+                    copy_selected_assignments(
                         source, destination, self.names, self.exports
                     )
 
@@ -156,7 +156,7 @@ class TestSupportAssignments(unittest.TestCase):
             "other = 2; STATUS = 1",
         ):
             with self.subTest(replacement=replacement), self.assertRaises(ValueError):
-                copy_support_assignments(
+                copy_selected_assignments(
                     self.source.replace("STATUS = 1", replacement),
                     self.destination.replace("STATUS = 1", replacement),
                     self.names,
@@ -169,21 +169,21 @@ class TestSupportAssignments(unittest.TestCase):
             (self.source, "from other import *\n" + self.destination),
         ):
             with self.assertRaisesRegex(ValueError, "Wildcard import"):
-                copy_support_assignments(source, destination, self.names, self.exports)
+                copy_selected_assignments(source, destination, self.names, self.exports)
 
     def test_cli_hash_pins_scope_and_receipt(self):
         with tempfile.TemporaryDirectory() as temp, contextlib.chdir(temp):
-            source = pathlib.Path("canonical/Lib/test/support/__init__.py")
-            target = pathlib.Path("Lib/test/support/__init__.py")
+            source = pathlib.Path("canonical/Lib/example.py")
+            target = pathlib.Path("Lib/example.py")
             source.parent.mkdir(parents=True)
             target.parent.mkdir(parents=True)
             source.write_text(self.source)
             target.write_text(self.destination)
             args = [
                 str(source),
-                "--support-assignments",
+                "--assignments",
                 *self.names,
-                "--support-exports",
+                "--exports",
                 *self.exports,
                 "--source-sha256",
                 hashlib.sha256(source.read_bytes()).hexdigest(),
@@ -192,9 +192,7 @@ class TestSupportAssignments(unittest.TestCase):
             ]
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(main(args), 1)
-                self.assertEqual(
-                    main([str(source), "--support-assignments", *self.names]), 1
-                )
+                self.assertEqual(main([str(source), "--assignments", *self.names]), 1)
             self.assertEqual(target.read_text(), self.destination)
             args[-1] = hashlib.sha256(target.read_bytes()).hexdigest()
             with contextlib.redirect_stdout(io.StringIO()) as output:
@@ -202,8 +200,8 @@ class TestSupportAssignments(unittest.TestCase):
             self.assertIn('"destination_after_sha256"', output.getvalue())
             self.assertIn(self.block, target.read_text())
             for path in (
-                "canonical/Lib/os.py",
-                "canonical/Lib/test/support/../../os.py",
+                "canonical/Lib/example.txt",
+                "canonical/Lib/../outside.py",
             ):
                 with contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main([path, *args[1:]]), 1)
@@ -214,8 +212,8 @@ class TestSupportAssignments(unittest.TestCase):
                 self.assertEqual(
                     main(
                         [
-                            "missing/Lib/test/support/example.py",
-                            "--support-assignments",
+                            "missing/Lib/example.py",
+                            "--assignments",
                             *self.names,
                             mode,
                             "missing-metadata.json",
@@ -228,8 +226,8 @@ class TestSupportAssignments(unittest.TestCase):
                 self.assertEqual(
                     main(
                         [
-                            "missing/Lib/test/support/example.py",
-                            "--support-exports",
+                            "missing/Lib/example.py",
+                            "--exports",
                             *self.exports,
                             mode,
                             "missing-metadata.json",
@@ -237,24 +235,24 @@ class TestSupportAssignments(unittest.TestCase):
                     ),
                     1,
                 )
-            self.assertIn("require --support-assignments", errors.getvalue())
+            self.assertIn("require --assignments", errors.getvalue())
 
     def test_default_syntax_error_behavior_is_unchanged(self):
         with patch(
             "update_lib.cmd_migrate.patch_file", side_effect=SyntaxError("invalid")
         ):
             with self.assertRaises(SyntaxError):
-                main(["missing/Lib/test/support/example.py"])
+                main(["missing/Lib/example.py"])
         with patch(
-            "update_lib.cmd_migrate.migrate_support_assignments",
+            "update_lib.cmd_migrate.migrate_selected_assignments",
             side_effect=SyntaxError("invalid"),
         ):
             with contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(
                     main(
                         [
-                            "missing/Lib/test/support/example.py",
-                            "--support-assignments",
+                            "missing/Lib/example.py",
+                            "--assignments",
                             *self.names,
                         ]
                     ),
@@ -1232,7 +1230,7 @@ class TestCanonicalRemovals(unittest.TestCase):
                 "patch_file",
                 "patch_directory",
                 "migrate_package",
-                "migrate_support_assignments",
+                "migrate_selected_assignments",
             ):
                 stack.enter_context(
                     patch(
@@ -1303,7 +1301,7 @@ class TestCanonicalRemovals(unittest.TestCase):
             self.run_removal()
 
     def test_cli_refuses_combined_modes_and_duplicate_metadata(self):
-        for option in ("--patches", "--legacy-map", "--support-assignments"):
+        for option in ("--patches", "--legacy-map", "--assignments"):
             with contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(
                     main(
