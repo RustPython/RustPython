@@ -395,18 +395,47 @@ pub fn wakeup_fd_is_socket(fd: libc::SOCKET) -> io::Result<bool> {
     Ok(false)
 }
 
-#[cfg(windows)]
-pub struct WakeupSendError(pub i32);
+#[cfg(any(unix, windows))]
+pub enum WakeupError {
+    Write(i32),
+    #[cfg(windows)]
+    Send(i32),
+}
 
-#[cfg(windows)]
-impl WakeupSendError {
+#[cfg(any(unix, windows))]
+impl WakeupError {
     pub fn is_would_block(&self) -> bool {
-        self.0 == windows_sys::Win32::Networking::WinSock::WSAEWOULDBLOCK
+        match *self {
+            Self::Write(errno) => errno == libc::EAGAIN || errno == libc::EWOULDBLOCK,
+            #[cfg(windows)]
+            Self::Send(errno) => errno == windows_sys::Win32::Networking::WinSock::WSAEWOULDBLOCK,
+        }
     }
 
     // Only convert to an allocating error outside the OS signal handler.
     pub fn into_io_error(self) -> io::Error {
-        io::Error::from_raw_os_error(self.0)
+        match self {
+            #[cfg(unix)]
+            Self::Write(errno) => io::Error::from_raw_os_error(errno),
+            #[cfg(windows)]
+            Self::Write(errno) => crate::os::io_error_from_errno(errno),
+            #[cfg(windows)]
+            Self::Send(errno) => io::Error::from_raw_os_error(errno),
+        }
+    }
+}
+
+#[cfg(any(unix, windows))]
+fn write_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
+    let sigbyte = signum as u8;
+    loop {
+        if unsafe { libc::write(wakeup_fd, &sigbyte as *const u8 as *const _, 1) } >= 0 {
+            return None;
+        }
+        let errno = crate::os::get_errno();
+        if errno != libc::EINTR {
+            return Some(WakeupError::Write(errno));
+        }
     }
 }
 
@@ -416,7 +445,8 @@ pub fn notify_signal(
     wakeup_fd: libc::SOCKET,
     wakeup_is_socket: bool,
     sigint_event: Option<isize>,
-) -> Option<WakeupSendError> {
+) -> Option<WakeupError> {
+    let saved_errno = crate::os::get_errno();
     if signum == libc::SIGINT
         && let Some(handle) = sigint_event
     {
@@ -425,12 +455,10 @@ pub fn notify_signal(
         }
     }
 
-    if wakeup_fd == INVALID_SOCKET {
-        return None;
-    }
-
-    let sigbyte = signum as u8;
-    if wakeup_is_socket {
+    let error = if wakeup_fd == INVALID_SOCKET {
+        None
+    } else if wakeup_is_socket {
+        let sigbyte = signum as u8;
         let result = unsafe {
             windows_sys::Win32::Networking::WinSock::send(
                 wakeup_fd,
@@ -440,21 +468,31 @@ pub fn notify_signal(
             )
         };
         if result < 0 {
-            Some(WakeupSendError(unsafe {
+            Some(WakeupError::Send(unsafe {
                 windows_sys::Win32::Networking::WinSock::WSAGetLastError()
             }))
         } else {
             None
         }
     } else {
-        unsafe {
-            let _ = libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1);
-        }
-        None
-    }
+        write_signal(signum, wakeup_fd as _)
+    };
+    crate::os::set_errno(saved_errno);
+    error
 }
 
-#[cfg(any(unix, target_os = "wasi"))]
+#[cfg(unix)]
+pub fn notify_signal(signum: i32, wakeup_fd: i32) -> Option<WakeupError> {
+    if wakeup_fd == -1 {
+        return None;
+    }
+    let saved_errno = crate::os::get_errno();
+    let error = write_signal(signum, wakeup_fd);
+    crate::os::set_errno(saved_errno);
+    error
+}
+
+#[cfg(target_os = "wasi")]
 pub fn notify_signal(signum: i32, wakeup_fd: i32) {
     if wakeup_fd == -1 {
         return;
