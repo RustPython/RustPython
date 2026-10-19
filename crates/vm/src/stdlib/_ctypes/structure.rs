@@ -2,9 +2,9 @@ use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
-use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
+use crate::protocol::{BufferDescriptor, PyBuffer, PySequenceMethods};
 use crate::stdlib::_warnings;
-use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, SetAttr};
+use crate::types::{AsBuffer, AsSequence, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
@@ -129,7 +129,7 @@ impl Initializer for PyCStructType {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(AsNumber, Constructor, Initializer, SetAttr))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Constructor, Initializer, SetAttr))]
 impl PyCStructType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -565,35 +565,11 @@ impl PyCStructType {
 
         Ok(())
     }
-
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::array_type_from_ctype;
-
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-        }
-        // Use cached array type creation
-        array_type_from_ctype(cls.into(), n as usize, vm)
-    }
 }
 
-impl AsNumber for PyCStructType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                let cls = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("expected type"))?;
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                PyCStructType::__mul__(cls.to_owned(), n, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCStructType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 

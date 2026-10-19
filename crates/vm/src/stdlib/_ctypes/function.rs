@@ -12,8 +12,8 @@ use crate::{
     builtins::{PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
     function::FuncArgs,
-    protocol::{BufferDescriptor, PyBuffer, PyNumberMethods},
-    types::{AsBuffer, AsNumber, Callable, Constructor, Initializer, Representable},
+    protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods},
+    types::{AsBuffer, AsNumber, AsSequence, Callable, Constructor, Initializer, Representable},
     vm::thread::with_current_vm,
 };
 use alloc::borrow::Cow;
@@ -331,7 +331,7 @@ impl Initializer for PyCFuncPtrType {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Initializer))]
+#[pyclass(flags(IMMUTABLETYPE), with(AsSequence, Initializer))]
 impl PyCFuncPtrType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -2029,6 +2029,12 @@ impl Py<PyCThunk> {
     #[pygetset]
     fn callable(&self) -> PyObjectRef {
         self.callable.clone()
+    }
+}
+
+impl AsSequence for PyCFuncPtrType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 

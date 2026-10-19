@@ -470,6 +470,42 @@ gc.collect()
 assert roundtrip(41) == 42
 
 
+# All ctypes metaclasses use sequence repetition in either direction.
+class RepeatStruct(ctypes.Structure):
+    _fields_ = [("value", ctypes.c_int)]
+
+
+class RepeatUnion(ctypes.Union):
+    _fields_ = [("value", ctypes.c_int)]
+
+
+for element_type in (
+    ctypes.c_int,
+    ctypes.c_int * 1,
+    ctypes.POINTER(ctypes.c_int),
+    RepeatStruct,
+    RepeatUnion,
+    Unary,
+):
+    assert 2 * element_type is element_type * 2
+
+
+class ArrayLength:
+    def __index__(self):
+        return 2
+
+
+assert ArrayLength() * ctypes.c_int is ctypes.c_int * 2
+
+
+class ReflectedLength(ArrayLength):
+    def __rmul__(self, other):
+        return "reflected"
+
+
+assert ctypes.c_int * ReflectedLength() == "reflected"
+
+
 class ArrayField(ctypes.Structure):
     _fields_ = [("prefix", ctypes.c_int), ("values", ctypes.c_int * 3)]
 
@@ -517,6 +553,7 @@ for raw_view in raw_views:
         raw_owner[:] = range(8)
         memoryview(dest).cast("B")[::2] = memoryview(source).cast("B")[:4]
         assert list(raw_owner) == [0, 1, 1, 3, 2, 5, 3, 7]
+
 
 # A snapshotted source's release hook must run after the destination write.
 raw_owner[:] = range(8)
