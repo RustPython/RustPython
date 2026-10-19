@@ -695,3 +695,80 @@ for _type, _old, _new in (
     del _owner, _view
     gc.collect()
     assert _copy[0].value == _new
+
+
+# Reentry must see matching pointer bytes and owners, including private copies.
+class StringField(ctypes.Structure):
+    _fields_ = [("text", ctypes.c_char_p)]
+
+
+class ReenteringBytes(bytes):
+    def __del__(self):
+        if _replace_record:
+            _strings[0] = StringField(_inner)
+            _events.append(_strings[0].text)
+        else:
+            _strings.text = _inner
+            _events.append(_strings.text)
+
+
+_inner = b"inner replacement" * 20
+for _replace_record in (False, True):
+    _events = []
+    if _replace_record:
+        _strings = (StringField * 1)(StringField(ReenteringBytes(b"old")))
+        _strings[0] = StringField(b"outer replacement")
+        assert _strings[0].text == _inner
+    else:
+        _strings = StringField(ReenteringBytes(b"old"))
+        _strings.text = b"outer replacement"
+        assert _strings.text == _inner
+    assert _events == [_inner]
+
+
+# py_object views locate the referent in their owner, including after a copy.
+class IndexedObject(ctypes.py_object):
+    pass
+
+
+_object = {}
+_object_scalar = IndexedObject(_object)
+_objects = (IndexedObject * 1)(_object_scalar)
+assert type(_objects).from_buffer(memoryview(_objects))[0].value is _object
+_object_pointer = ctypes.cast(_objects, ctypes.POINTER(IndexedObject))
+_object_pointer[0] = _object_scalar
+_object_scalar.value = object()
+assert _object_pointer[0].value is _object
+_copy = type(_objects)(_objects[0])
+del _objects, _object_pointer
+gc.collect()
+assert _copy[0].value is _object
+_copy[0].value = None
+assert _copy[0].value is None
+
+# Generated endian types return scalars, but their user subclasses return views.
+_swapped = (
+    ctypes.c_uint32.__ctype_be__
+    if _sys.byteorder == "little"
+    else ctypes.c_uint32.__ctype_le__
+)
+_words = (_swapped * 1).from_buffer_copy(b"\x01\x02\x03\x04")
+_word_pointer = ctypes.cast(_words, ctypes.POINTER(_swapped))
+_expected = int.from_bytes(
+    bytes(_words), "big" if _sys.byteorder == "little" else "little"
+)
+assert type(_words[0]) is type(_word_pointer[0]) is int
+assert _words[0] == _word_pointer[0] == _expected
+_words[0] = 0x11223344
+assert bytes(_words) == bytes(_swapped(0x11223344))
+_word_pointer[0] = 0x55667788
+assert bytes(_words) == bytes(_swapped(0x55667788))
+
+
+class IndexedSwapped(_swapped):
+    pass
+
+
+_words = (IndexedSwapped * 1).from_buffer_copy(b"\x01\x02\x03\x04")
+assert type(_words[0]) is IndexedSwapped
+assert _words[0].value == int.from_bytes(bytes(_words), _sys.byteorder)

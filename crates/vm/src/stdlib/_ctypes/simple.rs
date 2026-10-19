@@ -1,11 +1,12 @@
 use super::_ctypes::CArgObject;
 use super::array::PyCArray;
 use super::base::{
-    CArgValue, CDATA_BUFFER_METHODS, PyCData, StgInfo, StgInfoFlags, bytes_to_pyobject,
+    CArgValue, CDATA_BUFFER_METHODS, ParamFunc, PyCData, StgInfo, StgInfoFlags, bytes_to_pyobject,
 };
 use super::function::PyCFuncPtr;
 use super::pointer::PyCPointer;
 use crate::builtins::{PyByteArray, PyBytes, PyInt, PyNone, PyStr, PyType, PyTypeRef};
+use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::function::{Either, FuncArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods};
@@ -654,6 +655,7 @@ fn create_swapped_types(
         && let Some(mut sw_stg) = swapped_type_ref.get_type_data_mut::<StgInfo>()
     {
         // Swapped: little-endian system uses big-endian prefix and vice versa
+        sw_stg.big_endian = is_little_endian;
         sw_stg.format = Some(alloc_format_string_for_type(
             type_str.chars().next().unwrap_or('?'),
             is_little_endian,
@@ -702,6 +704,33 @@ impl Debug for PyCSimple {
             .field("size", &self.0.buffer.read().len())
             .finish()
     }
+}
+
+pub(super) fn is_swapped(cls: &Py<PyType>) -> bool {
+    cls.stg_info_opt().is_some_and(|info| {
+        info.paramfunc == ParamFunc::Simple && info.big_endian != cfg!(target_endian = "big")
+    })
+}
+
+pub(super) fn returns_scalar(cls: &Py<PyType>) -> bool {
+    cls.base
+        .deref()
+        .is_some_and(|base| base.is(PyCSimple::static_type()))
+        || is_swapped(cls)
+}
+
+pub(super) fn swapped_value_bytes(
+    type_code: &str,
+    value: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<Vec<u8>> {
+    // Convert once before writing: numeric conversion may reenter ctypes.
+    let value = match type_code {
+        "f" | "d" | "g" => SimpleStorageValue::Float(value.try_float(vm)?.to_f64()),
+        "?" | "v" => SimpleStorageValue::Bool(value.to_owned().try_to_bool(vm)?),
+        _ => SimpleStorageValue::Signed(bigint_to_i128_wrapping(value.try_index(vm)?.as_bigint())),
+    };
+    Ok(simple_storage_value_to_bytes_endian(type_code, value, true))
 }
 
 fn value_to_bytes_endian(
@@ -1006,10 +1035,15 @@ impl Constructor for PyCSimple {
             }
         };
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = cls.as_object().get_attr("_swappedbytes_", vm).is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(&cls);
 
-        let buffer = value_to_bytes_endian(&_type_, &value, swapped, vm);
+        let buffer = if _type_ == "O" && init_arg.is_none() {
+            // An omitted py_object value is NULL, not the None singleton.
+            rustpython_host_env::ctypes::pointer_bytes(0)
+        } else {
+            value_to_bytes_endian(&_type_, &value, swapped, vm)
+        };
 
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // store the initial value in _objects
@@ -1117,20 +1151,12 @@ impl Py<PyCSimple> {
 
         // O_get: py_object - read PyObject pointer from buffer
         if type_code == "O" {
-            let buffer = zelf.0.buffer.read();
-            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
-            if ptr == 0 {
-                return Err(vm.new_value_error("PyObject is NULL"));
-            }
-            // Non-NULL: return stored object from _objects if available
-            if let Some(obj) = zelf.0.objects.read().as_ref() {
-                return Ok(obj.clone());
-            }
-            return Err(vm.new_value_error("PyObject is NULL"));
+            let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&zelf.0.buffer.read());
+            return zelf.0.object_at(ptr, vm);
         }
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = cls.as_object().get_attr("_swappedbytes_", vm).is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(cls);
 
         // Read value from buffer, swap bytes if needed
         let buffer = zelf.0.buffer.read();
@@ -1168,8 +1194,7 @@ impl Py<PyCSimple> {
                 let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                 zelf.0
                     .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
-                zelf.0.keep_alive(0, kept_alive);
-                zelf.0.keep_value(value, vm)?;
+                zelf.0.keep_value(value, Some(kept_alive), vm)?;
                 return Ok(());
             }
         } else if type_code == "Z"
@@ -1178,18 +1203,14 @@ impl Py<PyCSimple> {
             let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
             zelf.0
                 .write_bytes_at_offset(0, &rustpython_host_env::ctypes::pointer_bytes(ptr));
-            zelf.0.keep_value(holder, vm)?;
+            zelf.0.keep_value(holder, None, vm)?;
             return Ok(());
         }
 
         let content = set_primitive(&type_code, &value, vm)?;
 
-        // Check if this is a swapped endian type (presence of attribute indicates swapping)
-        let swapped = instance
-            .class()
-            .as_object()
-            .get_attr("_swappedbytes_", vm)
-            .is_ok();
+        // Storage metadata belongs to this exact type, unlike inherited attributes.
+        let swapped = is_swapped(instance.class());
 
         // Update buffer when value changes
         let buffer_bytes = value_to_bytes_endian(&type_code, &content, swapped, vm);
@@ -1203,7 +1224,7 @@ impl Py<PyCSimple> {
         // For c_char_p (type "z"), c_wchar_p (type "Z"), and py_object (type "O"),
         // keep the reference in _objects
         if type_code == "z" || type_code == "Z" || type_code == "O" {
-            zelf.0.keep_value(value, vm)?;
+            zelf.0.keep_value(value, None, vm)?;
         }
         Ok(())
     }

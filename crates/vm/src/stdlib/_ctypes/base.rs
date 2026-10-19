@@ -786,18 +786,36 @@ impl PyCData {
     /// lives as long as the owning ctypes object.
     /// Uses unique_key (hierarchical) so nested fields don't collide.
     pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
+        drop(self.replace_hidden(index, Some(obj)));
+    }
+
+    fn replace_hidden(&self, index: usize, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
         let key = self.unique_key(index);
         let base = self.base.read().clone();
-        if let Some(base_obj) = base {
-            let root = Self::find_root_object(&base_obj);
-            if let Some(cdata) = root.downcast_ref::<Self>() {
-                let old = cdata.kept_refs.write().insert(key, obj);
-                drop(old);
-                return;
-            }
+        let root = base.as_ref().map(|base| Self::find_root_object(base));
+        let cdata = root
+            .as_ref()
+            .and_then(|root| root.downcast_ref::<Self>())
+            .map_or(self, |cdata| cdata);
+        let mut refs = cdata.kept_refs.write();
+        match obj {
+            Some(obj) => refs.insert(key, obj),
+            None => refs.remove(&key),
         }
-        let old = self.kept_refs.write().insert(key, obj);
-        drop(old);
+    }
+
+    pub(super) fn keep_ref_with_hidden(
+        &self,
+        index: usize,
+        keep: PyObjectRef,
+        hidden: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Publish all owners before dropping the old visible reference: its
+        // finalizer may overwrite this same slot. Keep old storage alive until
+        // then, and do not overwrite the finalizer's owners afterwards.
+        let _old_hidden = self.replace_hidden(index, hidden);
+        self.keep_ref(index, keep, vm)
     }
 
     /// Find the root object (one without a base) by walking up the base chain
@@ -879,15 +897,18 @@ impl PyCData {
             .downcast_ref::<Self>()
             .map(|cdata| cdata.kept_refs.read().values().cloned().collect())
             .unwrap_or_default();
-        self.keep_ref(index, Self::get_kept_objects(&root, vm), vm)?;
-        if !hidden.is_empty() {
-            self.keep_alive(index, vm.ctx.new_tuple(hidden).into());
-        }
-        Ok(())
+        let hidden = (!hidden.is_empty()).then(|| vm.ctx.new_tuple(hidden).into());
+        self.keep_ref_with_hidden(index, Self::get_kept_objects(&root, vm), hidden, vm)
     }
 
     // A scalar owns one reference; a scalar view stores it in its root instead.
-    pub(super) fn keep_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn keep_value(
+        &self,
+        value: PyObjectRef,
+        hidden: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let _old_hidden = self.replace_hidden(0, hidden);
         if self.base.read().is_some() {
             self.keep_ref(0, value, vm)
         } else {
@@ -895,6 +916,42 @@ impl PyCData {
             drop(old);
             Ok(())
         }
+    }
+
+    // Resolve a py_object through owned references, never by turning an
+    // arbitrary integer from native memory into a Rust reference. Views can
+    // reach the object through nested _objects dictionaries or cast cycles.
+    pub(super) fn object_at(&self, address: usize, vm: &VirtualMachine) -> PyResult {
+        if address == 0 {
+            return Err(vm.new_value_error("PyObject is NULL"));
+        }
+        if address == vm.ctx.none.get_id() {
+            return Ok(vm.ctx.none());
+        }
+        let mut pending: Vec<_> = self.objects.read().iter().cloned().collect();
+        pending.extend(self.base.read().iter().cloned());
+        pending.extend(self.kept_refs.read().values().cloned());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(obj) = pending.pop() {
+            if obj.get_id() == address {
+                return Ok(obj);
+            }
+            if !visited.insert(obj.get_id()) {
+                continue;
+            }
+            if let Some(cdata) = obj.downcast_ref::<Self>() {
+                pending.extend(cdata.objects.read().iter().cloned());
+                pending.extend(cdata.base.read().iter().cloned());
+                pending.extend(cdata.kept_refs.read().values().cloned());
+            } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
+                pending.extend(dict.values_vec());
+            } else if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+                pending.extend(tuple.as_slice().iter().cloned());
+            } else if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
+                pending.push(view.viewed_object().to_owned());
+            }
+        }
+        Err(vm.new_value_error("PyObject is NULL"))
     }
 
     /// Check if a value should be stored in _objects
@@ -1018,9 +1075,7 @@ impl PyCData {
             let result =
                 rustpython_host_env::ctypes::pointer_to_sized_bytes_endian(ptr, size, needs_swap);
             self.write_bytes_at_offset(offset, &result);
-            self.keep_ref(index, value, vm)?;
-            self.keep_alive(index, kept_alive);
-            return Ok(());
+            return self.keep_ref_with_hidden(index, value, Some(kept_alive), vm);
         }
 
         let (mut bytes, converted_value) = if let Some(type_code) = &field_type_code {

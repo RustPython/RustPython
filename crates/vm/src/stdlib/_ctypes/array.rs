@@ -546,10 +546,7 @@ impl PyCArray {
         let element_size = stg.as_ref().map_or(0, |i| i.element_size);
         let offset = index * element_size;
         if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
-            && !element_type
-                .base
-                .deref()
-                .is_some_and(|base| base.is(super::PyCSimple::static_type()))
+            && !super::simple::returns_scalar(element_type)
         {
             let length = element_type.stg_info(vm)?.length;
             let buffer = zelf.0.buffer.read();
@@ -576,6 +573,20 @@ impl PyCArray {
         let type_code = Self::get_element_type_code(zelf, vm);
 
         let buffer = zelf.0.buffer.read();
+        if type_code.as_deref() == Some("O") {
+            let address = rustpython_host_env::ctypes::read_pointer_from_buffer(
+                &buffer[offset..offset + element_size],
+            );
+            drop(buffer);
+            return zelf.0.object_at(address, vm);
+        }
+        if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
+            && super::simple::is_swapped(element_type)
+        {
+            let mut bytes = buffer[offset..offset + element_size].to_vec();
+            bytes.reverse();
+            return Ok(super::base::bytes_to_pyobject(element_type, &bytes, vm));
+        }
         Ok(Self::read_element_from_buffer(
             &buffer,
             offset,
@@ -644,11 +655,12 @@ impl PyCArray {
                 }
             }
             Some("z") => {
+                let mut hidden = None;
                 let (ptr_val, converted) = if value.is(&vm.ctx.none) {
                     (0usize, None)
                 } else if let Some(bytes) = value.downcast_ref::<PyBytes>() {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
-                    zelf.0.keep_alive(index, kept_alive);
+                    hidden = Some(kept_alive);
                     (ptr, Some(value.to_owned()))
                 } else if let Some(simple) = value.downcast_ref::<super::PyCSimple>()
                     && value.class().type_code(vm).as_deref() == Some("z")
@@ -671,7 +683,7 @@ impl PyCArray {
                     size: element_size,
                 });
                 if let Some(c) = converted {
-                    return zelf.0.keep_ref(index, c, vm);
+                    return zelf.0.keep_ref_with_hidden(index, c, hidden, vm);
                 }
             }
             Some("Z") => {
@@ -700,6 +712,32 @@ impl PyCArray {
                 if let Some(c) = converted {
                     return zelf.0.keep_ref(index, c, vm);
                 }
+            }
+            Some("O") => {
+                // A py_object instance contributes its stored reference, while
+                // other Python objects are the value itself.
+                if value.downcast_ref::<PyCData>().is_none() {
+                    write(ArrayElementWriteValue::Pointer {
+                        value: value.get_id(),
+                        size: element_size,
+                    });
+                    return zelf.0.keep_ref(index, value.to_owned(), vm);
+                }
+                let stg = zelf.class().stg_info(vm)?;
+                let element_type = stg.element_type.as_ref().unwrap();
+                if !value.fast_isinstance(element_type) {
+                    return Err(vm.new_type_error(format!(
+                        "expected {} instance, not {}",
+                        element_type.name(),
+                        value.class().name()
+                    )));
+                }
+                let cdata = value.downcast_ref::<PyCData>().unwrap();
+                let bytes = cdata.buffer.read().to_vec();
+                write(ArrayElementWriteValue::Bytes {
+                    bytes: &bytes,
+                    size: element_size,
+                });
             }
             Some("f") => {
                 // c_float: convert int/float to f32 bytes
@@ -779,6 +817,18 @@ impl PyCArray {
         let element_size = stg.as_ref().map_or(0, |i| i.element_size);
         let offset = index * element_size;
         let type_code = Self::get_element_type_code(zelf, vm);
+
+        if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
+            && super::simple::is_swapped(element_type)
+            && value.downcast_ref::<PyCData>().is_none()
+        {
+            let type_code = type_code
+                .as_deref()
+                .ok_or_else(|| vm.new_type_error("no _type_ attribute"))?;
+            let bytes = super::simple::swapped_value_bytes(type_code, value, vm)?;
+            zelf.0.write_bytes_at_offset(offset, &bytes);
+            return Ok(());
+        }
 
         // A view's buffer already points to its element. Its base can be a
         // pointer object, whose own buffer stores an address rather than data.
