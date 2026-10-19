@@ -27,6 +27,8 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::thread_local;
 
+pub(crate) mod critical_section;
+
 /// Thread states for stop-the-world support (`_Py_THREAD_*`).
 ///
 /// DETACHED: not executing Python bytecode (in native code, or idle)
@@ -62,6 +64,7 @@ impl ThreadState {
 /// The exception field uses atomic operations for lock-free cross-thread reads.
 #[cfg(feature = "threading")]
 pub struct ThreadSlot {
+    pub(crate) interpreter_id: i64,
     /// Top of the owning thread's Python call stack, published for
     /// cross-thread readers (`sys._current_frames`, cross-thread `f_back`).
     /// The rest of the stack is reachable via each frame's `previous` pointer.
@@ -357,7 +360,7 @@ pub fn restore_current_thread(state: SavedThreadState) {
     // subinterpreter slot (DETACHED); attaching that would leave the parent
     // slot detached and later confuse outermost detach.
     init_thread_slot_if_needed(vm);
-    attach_thread(vm);
+    attach_thread(&vm.state);
     VM_STACK.with(|vms| *vms.borrow_mut() = vm_stack);
 }
 
@@ -381,7 +384,7 @@ pub fn attach_current_thread(
 
         init_thread_slot_if_needed(vm);
 
-        attach_thread(vm);
+        attach_thread(&vm.state);
 
         VM_STACK.with(|vms| {
             debug_assert!(vms.borrow().is_empty());
@@ -436,6 +439,7 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
         let thread_id = crate::stdlib::_thread::get_ident();
         let mut registry = vm.state.thread_frames.lock();
         let new_slot = Arc::new(ThreadSlot {
+            interpreter_id: interp_id,
             #[cfg(unix)]
             top_frame: AtomicPtr::new(core::ptr::null_mut()),
             top_iframe: AtomicUsize::new(0),
@@ -534,7 +538,7 @@ fn begin_interpreter_section(vm: &VirtualMachine) -> bool {
         detach_thread();
     }
     set_current_thread_slot(target);
-    attach_thread(vm);
+    attach_thread(&vm.state);
     true
 }
 
@@ -553,7 +557,7 @@ fn end_interpreter_section(switched: bool) {
         // SAFETY: entries on VM_STACK are valid for their enter/set_current_vm scope.
         let vm = unsafe { vm_ptr.as_ref() };
         set_current_thread_slot(ensure_thread_slot(vm));
-        attach_thread(vm);
+        attach_thread(&vm.state);
     }
 }
 
@@ -626,7 +630,7 @@ pub fn set_other_threads_shutting_down(state: &PyGlobalState) {
 }
 
 #[cfg(feature = "threading")]
-fn attach_thread(vm: &VirtualMachine) {
+fn attach_thread(state: &PyGlobalState) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             super::stw_trace(format_args!("attach begin"));
@@ -647,7 +651,7 @@ fn attach_thread(vm: &VirtualMachine) {
                             // Parked by stop-the-world — wait until released to DETACHED
                             super::stw_trace(format_args!("attach wait-suspended"));
                             let wait_yields = wait_while_suspended(s);
-                            vm.state.stop_the_world.add_attach_wait_yields(wait_yields);
+                            state.stop_the_world.add_attach_wait_yields(wait_yields);
                             // Retry CAS
                         }
                         Some(ThreadState::ShuttingDown) => {
@@ -671,7 +675,7 @@ fn attach_thread(vm: &VirtualMachine) {
     // it. Safe against a concurrent start_the_world: suspend_if_needed decides
     // whether to park under the registry lock, so it never parks after the
     // request has been withdrawn.
-    suspend_if_needed(&vm.state);
+    suspend_if_needed(state);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
@@ -708,6 +712,11 @@ fn detach_thread() {
 /// `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` equivalent.
 #[cfg(feature = "threading")]
 pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    allow_threads_for_state(&vm.state, f)
+}
+
+#[cfg(feature = "threading")]
+fn allow_threads_for_state<R>(state: &PyGlobalState, f: impl FnOnce() -> R) -> R {
     // Preserve save/restore semantics:
     // only detach if this call observed ATTACHED at entry, and always restore
     // on unwind.
@@ -721,7 +730,7 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     }
 
     detach_thread();
-    let reattach_guard = scopeguard::guard(vm, attach_thread);
+    let reattach_guard = scopeguard::guard(state, attach_thread);
     let result = f();
     drop(reattach_guard);
     result
@@ -757,7 +766,7 @@ pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
         return f();
     }
 
-    attach_thread(vm);
+    attach_thread(&vm.state);
     // Detach again even if `f` unwinds, so the `allow_threads` this is nested
     // inside still finds the state it left behind.
     let redetach_guard = scopeguard::guard((), |()| detach_thread());
@@ -1223,6 +1232,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     };
     let top_iframe_ptr = get_current_frame() as usize;
     let new_slot = Arc::new(ThreadSlot {
+        interpreter_id: vm.state.interpreter_id,
         // The surviving child thread keeps executing its current frame chain.
         // Only publish heavy frames for signal safety.
         #[cfg(unix)]
