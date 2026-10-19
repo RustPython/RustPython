@@ -565,3 +565,39 @@ test_deque_self_extension_uses_subclass_iterator()
 test_deque_extend_noops_preserve_iterators()
 test_deque_self_extension_retains_snapshot_until_complete()
 test_deque_eviction_can_mutate_source_list()
+
+
+# Copying and arithmetic construct the subclass, including its Python state.
+class TaggedDeque(deque):
+    def __init__(self, values=(), maxlen=None):
+        super().__init__(values, maxlen)
+        self.tag = "initialized"
+
+
+original = TaggedDeque([1, 2], 3)
+for result, expected in (
+    (original.copy(), [1, 2]),
+    (original * 2, [2, 1, 2]),
+    (original + deque([3, 4]), [2, 3, 4]),
+):
+    assert type(result) is TaggedDeque
+    assert result.tag == "initialized"
+    assert result.maxlen == 3
+    assert list(result) == expected
+assert list(original) == [1, 2]
+
+
+class IteratedDeque(deque):
+    def __iter__(self):
+        return iter([9])
+
+
+assert deque([1]) + IteratedDeque([2]) == deque([1, 9])
+
+
+class OffsetDeque(deque):
+    def __iter__(self):
+        return (item + 10 for item in deque.__iter__(self))
+
+
+assert list(deque.__iter__(OffsetDeque([1, 2]) * 2)) == [11, 12, 21, 22]
