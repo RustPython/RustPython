@@ -425,6 +425,15 @@ pub(crate) mod _ctypes {
         Err(vm.new_type_error("this type has no size"))
     }
 
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[pyfunction]
+    fn dllist(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        rustpython_host_env::ctypes::dllist()
+            .into_iter()
+            .map(|name| vm.fsdecode(name).into())
+            .collect()
+    }
+
     #[cfg(windows)]
     #[pyfunction(name = "LoadLibrary")]
     fn load_library_windows(
