@@ -653,7 +653,11 @@ impl SlotAccessor {
             // Number slots
             Self::NbAdd => copy_number!(add),
             Self::NbSubtract => copy_number!(subtract),
-            Self::NbMultiply => copy_number!(multiply),
+            Self::NbMultiply => {
+                // CPython inherits one nb_multiply slot for both directions.
+                copy_number!(multiply);
+                copy_number!(right_multiply);
+            }
             Self::NbRemainder => copy_number!(remainder),
             Self::NbDivmod => copy_number!(divmod),
             Self::NbPower => copy_number!(power),
