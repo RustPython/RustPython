@@ -573,7 +573,11 @@ pub(crate) fn import_module_level(
             crate::lazy_import::clear_submodule(&abs_name, true, vm)?;
             m
         }
-        _ => find_and_load(&abs_name, "_find_and_load", vm)?,
+        Ok(_) => find_and_load(&abs_name, "_find_and_load", vm)?,
+        Err(error) if error.fast_isinstance(vm.ctx.exceptions.key_error) => {
+            find_and_load(&abs_name, "_find_and_load", vm)?
+        }
+        Err(error) => return Err(error),
     };
 
     // Handle fromlist
