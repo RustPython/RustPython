@@ -9,8 +9,6 @@ Usage:
     # Directory
     python scripts/update_lib copy-lib cpython/Lib/json
 
-    # Explicit, pinned Cargo-build adaptation (copies only pydoc.py)
-    python scripts/update_lib copy-lib cpython/Lib/pydoc.py --pydoc-build-stdlib
 """
 
 import argparse
@@ -60,8 +58,6 @@ def _copy_single(
 def copy_lib(
     src_path: pathlib.Path,
     verbose: bool = True,
-    *,
-    pydoc_build_stdlib: bool = False,
 ) -> None:
     """
     Copy library file or directory from CPython.
@@ -71,7 +67,6 @@ def copy_lib(
     Args:
         src_path: Source path (e.g., cpython/Lib/dataclasses.py or cpython/Lib/json)
         verbose: Print progress messages
-        pydoc_build_stdlib: Adapt only pinned pydoc.py for Cargo's stdlib layout
     """
     from update_lib.deps import get_lib_paths
     from update_lib.file_utils import parse_lib_path
@@ -82,28 +77,6 @@ def copy_lib(
         raise ValueError(f"Path must contain '/Lib/' (got: {src_path})")
     if not src_path.exists():
         raise FileNotFoundError(f"Source path does not exist: {src_path}")
-
-    if pydoc_build_stdlib:
-        from update_lib.lib_transforms import pydoc_build_stdlib as transform
-
-        lib_path = parse_lib_path(src_path)
-        if lib_path != pathlib.Path("Lib/pydoc.py") or not src_path.is_file():
-            raise ValueError("--pydoc-build-stdlib requires exactly Lib/pydoc.py")
-        if src_path.resolve() == lib_path.resolve() or (
-            lib_path.exists() and src_path.samefile(lib_path)
-        ):
-            raise ValueError("pydoc source and destination must be different files")
-        if lib_path.is_symlink() or (lib_path.exists() and not lib_path.is_file()):
-            raise ValueError("pydoc destination must be a regular file")
-        # Validate the complete input before writing anything. This explicit
-        # transform must not refresh dependencies or change unrelated files.
-        contents = transform(src_path.read_bytes())
-        if verbose:
-            print(f"Adapting pydoc Cargo stdlib path: {src_path} -> {lib_path}")
-        lib_path.parent.mkdir(parents=True, exist_ok=True)
-        lib_path.write_bytes(contents)
-        shutil.copystat(src_path, lib_path)
-        return
 
     # Data files name an exact asset, not the containing top-level module.
     # Expanding Lib/test/data.txt as "test" would replace the entire test tree.
@@ -137,16 +110,10 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Source path containing /Lib/ (e.g., cpython/Lib/dataclasses.py)",
     )
-    parser.add_argument(
-        "--pydoc-build-stdlib",
-        action="store_true",
-        help="Adapt only pinned pydoc.py for RustPython's Cargo-build stdlib path",
-    )
-
     args = parser.parse_args(argv)
 
     try:
-        copy_lib(args.path, pydoc_build_stdlib=args.pydoc_build_stdlib)
+        copy_lib(args.path)
         return 0
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)

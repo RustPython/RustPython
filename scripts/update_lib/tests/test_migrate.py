@@ -13,32 +13,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from update_lib.cmd_migrate import (
-    BYTES_ALLOCATION_COMMENTS,
-    BYTES_CAPI_LOCAL,
-    BYTES_CAPI_UPSTREAM,
-    CANONICAL_CALL,
-    EXCEPTION_LOOP,
-    JIT_ERROR,
-    LOCAL_CALL,
-    LOCK_SKIP,
-    LOCK_SPECIALIZATION,
-    MULTIPHASE_LOCAL,
-    MULTIPHASE_UPSTREAM,
-    SYMLINK_LEGACY,
-    SYMLINK_LOCAL,
-    SYMLINK_UPSTREAM,
-    SYSCONFIG_LOCAL,
-    SYSCONFIG_UPSTREAM,
-    TYPES_DATETIME_GUARD,
-    TYPES_UNITTEST_IMPORT,
+    _preserve_block,
     copy_support_assignments,
-    copy_support_python_symlink,
     main,
     migrate_package,
     patch_directory,
     patch_file,
     patch_single_content,
-    preserve_migration_customizations,
     remove_canonical_files,
 )
 from update_lib.patch_spec import (
@@ -51,383 +32,6 @@ from update_lib.patch_spec import (
     patches_to_json,
     select_remaining_patches,
 )
-
-
-class TestPythonSymlinkMigration(unittest.TestCase):
-    prefix = """class PythonSymlink:
-    if sys.platform == "win32":
-        def _platform_specific(self):
-            self._env = {}
-"""
-    suffix = """    else:
-        def _platform_specific(self):
-            pass
-"""
-    canonical = prefix + SYMLINK_UPSTREAM + suffix
-    adapted = prefix + SYMLINK_LOCAL + suffix
-    legacy = prefix + SYMLINK_LEGACY + suffix
-
-    def test_canonical_and_legacy_import_are_idempotent(self):
-        for before in (self.canonical, self.legacy, self.adapted):
-            with self.subTest(before=before):
-                self.assertEqual(
-                    copy_support_python_symlink(self.canonical, before), self.adapted
-                )
-
-    def test_unrelated_support_content_is_preserved(self):
-        destination = "existing_guard = True\n" + self.legacy + "other_helper = 1\n"
-        self.assertEqual(
-            copy_support_python_symlink(
-                "new_upstream = 1\n" + self.canonical, destination
-            ),
-            "existing_guard = True\n" + self.adapted + "other_helper = 1\n",
-        )
-
-    def test_changed_missing_duplicate_or_nested_class_fails_closed(self):
-        for value in (self.canonical, self.legacy):
-            for changed in (
-                value.replace("PythonSymlink", "OtherHelper"),
-                value + value,
-                "if True:\n"
-                + "".join("    " + line for line in value.splitlines(True)),
-                value.replace("sys.platform", "other.platform"),
-                value.replace("self._env = {}", "self._env = None"),
-            ):
-                with self.subTest(changed=changed):
-                    with self.assertRaises(ValueError):
-                        copy_support_python_symlink(self.canonical, changed)
-
-    def test_source_anchor_drift_fails_closed(self):
-        for changed in (
-            self.canonical.replace("'VPATH'", "'OTHER'"),
-            self.canonical.replace("sys.platform", "other.platform"),
-            self.canonical.replace("sysconfig.is_python_build()", "True"),
-            self.canonical.replace(SYMLINK_UPSTREAM, SYMLINK_UPSTREAM * 2),
-            self.adapted,
-        ):
-            with self.subTest(changed=changed):
-                with self.assertRaises(ValueError):
-                    copy_support_python_symlink(changed, self.legacy)
-
-    def test_class_shadow_fails_closed(self):
-        for shadow in (
-            "PythonSymlink = None\n",
-            "del PythonSymlink\n",
-            "import other as PythonSymlink\n",
-        ):
-            with self.subTest(shadow=shadow):
-                for source, target in (
-                    (self.canonical + shadow, self.legacy),
-                    (self.canonical, self.legacy + shadow),
-                ):
-                    with self.assertRaises(ValueError):
-                        copy_support_python_symlink(source, target)
-
-    def test_cli_pins_inputs_rejects_conflicts_and_repeats(self):
-        with tempfile.TemporaryDirectory() as root, contextlib.chdir(root):
-            source = Path("canonical/Lib/test/support/__init__.py")
-            target = Path("Lib/test/support/__init__.py")
-            for path, contents in ((source, self.canonical), (target, self.legacy)):
-                path.parent.mkdir(parents=True)
-                path.write_text(contents)
-            base = [str(source), "--support-python-symlink"]
-            source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-            destination_hash = hashlib.sha256(target.read_bytes()).hexdigest()
-            pins = [
-                "--source-sha256",
-                source_hash,
-                "--destination-sha256",
-                destination_hash,
-            ]
-            for args in (
-                base,
-                base
-                + [
-                    "--source-sha256",
-                    "0" * 64,
-                    "--destination-sha256",
-                    destination_hash,
-                ],
-                base
-                + ["--source-sha256", source_hash, "--destination-sha256", "0" * 64],
-                base + pins + ["--support-assignments", "other"],
-                base + pins + ["--support-exports", "other"],
-                base + pins + ["--patches", "unused.json"],
-                base + pins + ["--dry-run"],
-            ):
-                with (
-                    self.subTest(args=args),
-                    contextlib.redirect_stdout(io.StringIO()),
-                    contextlib.redirect_stderr(io.StringIO()),
-                ):
-                    self.assertEqual(main(args), 1)
-                    self.assertEqual(target.read_text(), self.legacy)
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(main(base + pins), 0)
-                self.assertEqual(target.read_text(), self.adapted)
-                pins[-1] = hashlib.sha256(target.read_bytes()).hexdigest()
-                self.assertEqual(main(base + pins), 0)
-                self.assertEqual(target.read_text(), self.adapted)
-
-    def test_adapted_environment_preserves_cpython_and_sets_rustpython_library(self):
-        import textwrap
-        from types import SimpleNamespace
-
-        for implementation, build, expected_home, expected_path in (
-            ("cpython", False, "/build", None),
-            ("cpython", True, os.path.join("/build", "source"), None),
-            ("rustpython", False, "/build", "/actual/Lib"),
-        ):
-            helper = SimpleNamespace(_env={"KEEP": "value"}, real="/build/python")
-            namespace = {
-                "self": helper,
-                "os": os,
-                "sys": SimpleNamespace(
-                    implementation=SimpleNamespace(name=implementation)
-                ),
-                "sysconfig": SimpleNamespace(
-                    is_python_build=lambda: build, get_config_var=lambda name: "source"
-                ),
-                "STDLIB_DIR": "/actual/Lib",
-            }
-            exec(textwrap.dedent(SYMLINK_LOCAL), namespace)
-            self.assertEqual(helper._env["PYTHONHOME"], expected_home)
-            self.assertEqual(helper._env.get("PYTHONPATH"), expected_path)
-            self.assertEqual(helper._env["KEEP"], "value")
-
-
-class TestBytesPreservation(unittest.TestCase):
-    path = Path("Lib/test/test_bytes.py")
-    prefix = "class ByteArrayTest(BaseBytesTest, unittest.TestCase):\n"
-    allocations = """
-    def test_alloc(self):
-        b = bytearray()
-        alloc = b.__alloc__()
-        self.assertGreaterEqual(alloc, 0)
-        # existing allocation adaptation
-        self.assertGreaterEqual(alloc, len(b))
-
-    def test_init_alloc(self):
-        b = bytearray()
-        def g():
-            alloc = b.__alloc__()
-            self.assertGreaterEqual(alloc, len(b))
-            yield 1
-        b.__init__(g())
-        alloc = b.__alloc__()
-        self.assertGreaterEqual(alloc, len(b))
-"""
-    canonical_allocations = allocations.replace(
-        "assertGreaterEqual(alloc, len(b))", "assertGreater(alloc, len(b))"
-    ).replace("        # existing allocation adaptation\n", "")
-    for name, comment in BYTES_ALLOCATION_COMMENTS.items():
-        allocations = allocations.replace(
-            f"    def {name}(", comment + f"    def {name}("
-        )
-    old = prefix + BYTES_CAPI_LOCAL + allocations
-    canonical = prefix + BYTES_CAPI_UPSTREAM + canonical_allocations
-
-    def assert_rejected(self, changed, *, local):
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                self.path,
-                changed if local else self.old,
-                self.canonical if local else changed,
-            )
-
-    def test_preserves_existing_blocks_and_is_idempotent(self):
-        source = self.canonical + "\nnew_canonical_content = True\n"
-        expected = self.old + "\nnew_canonical_content = True\n"
-        result = preserve_migration_customizations(self.path, self.old, source)
-        self.assertEqual(result, expected)
-        self.assertEqual(
-            preserve_migration_customizations(self.path, result, source), result
-        )
-
-    def test_earlier_nested_import_and_decoy_text_are_untouched(self):
-        earlier = (
-            "class BaseBytesTest:\n    def test_sq_item(self):\n    "
-            + BYTES_CAPI_UPSTREAM
-        )
-        decoy = 'description = """\n' + BYTES_CAPI_UPSTREAM + '"""\n'
-        prefix = earlier + decoy
-        self.assertEqual(
-            preserve_migration_customizations(
-                self.path, prefix + self.old, prefix + self.canonical
-            ),
-            prefix + self.old,
-        )
-
-    def test_import_missing_duplicate_changed_and_moved_fail_closed(self):
-        for local, block, allocations in (
-            (True, BYTES_CAPI_LOCAL, self.allocations),
-            (False, BYTES_CAPI_UPSTREAM, self.canonical_allocations),
-        ):
-            source = self.prefix + block + allocations
-            for changed in (
-                self.prefix + "    pass\n" + allocations,
-                source + block,
-                source + source,
-                source.replace("ByteArrayTest", "OtherTest"),
-                source.replace("_testlimitedcapi", "_other"),
-                source.replace("ImportError", "Exception")
-                if local
-                else source.replace("import_module", "other"),
-                "if True:\n"
-                + "".join("    " + line for line in source.splitlines(True)),
-            ):
-                with self.subTest(local=local, changed=changed):
-                    self.assert_rejected(changed, local=local)
-
-    def test_import_and_owner_shadows_fail_closed(self):
-        shadows = (
-            "    _testlimitedcapi = None\n",
-            "    del _testlimitedcapi\n",
-            "    import other as _testlimitedcapi\n",
-            "    def _testlimitedcapi(self): pass\n",
-            "    async def _testlimitedcapi(self): pass\n",
-            "    class _testlimitedcapi: pass\n",
-            "    try:\n        pass\n"
-            "    except Exception as _testlimitedcapi:\n        pass\n",
-            "    match None:\n        case _testlimitedcapi: pass\n",
-            "    global _testlimitedcapi\n",
-            "ByteArrayTest = Other\n",
-            "del ByteArrayTest\n",
-            "from other import ByteArrayTest\n",
-            "def ByteArrayTest(): pass\n",
-            "async def ByteArrayTest(): pass\n",
-            "try:\n    pass\nexcept Exception as ByteArrayTest:\n    pass\n",
-            "match None:\n    case ByteArrayTest: pass\n",
-        )
-        for local, source in ((True, self.old), (False, self.canonical)):
-            for shadow in shadows:
-                with self.subTest(local=local, shadow=shadow):
-                    self.assert_rejected(source + shadow, local=local)
-
-    def test_decoy_cannot_validate_changed_real_import(self):
-        for local, block, allocations in (
-            (True, BYTES_CAPI_LOCAL, self.allocations),
-            (False, BYTES_CAPI_UPSTREAM, self.canonical_allocations),
-        ):
-            decoy = '    """\n' + block + '    """\n'
-            changed = (
-                self.prefix
-                + decoy
-                + block.replace("_testlimitedcapi =", "_testlimitedcapi  =")
-                + allocations
-            )
-            with self.subTest(local=local):
-                self.assert_rejected(changed, local=local)
-        self.assert_rejected(
-            self.canonical.replace(
-                BYTES_CAPI_UPSTREAM,
-                BYTES_CAPI_UPSTREAM.rstrip() + "; unrelated = 1\n",
-            ),
-            local=False,
-        )
-        self.assert_rejected(
-            self.old.replace("# TODO: RUSTPYTHON;", "# changed existing comment;"),
-            local=True,
-        )
-
-    def test_changed_allocation_methods_fail_closed(self):
-        for local, source in ((True, self.old), (False, self.canonical)):
-            for changed in (
-                source.replace("len(b)", "len(other)", 1),
-                source.replace(
-                    "def test_alloc(self):",
-                    "def test_alloc(self):\n        changed = True",
-                ),
-                source.replace("def test_alloc(self):", "def renamed(self):"),
-                source.replace("def test_alloc(self):", "async def test_alloc(self):"),
-                source + "\n    def test_alloc(self): pass\n",
-            ):
-                with self.subTest(local=local, changed=changed):
-                    self.assert_rejected(changed, local=local)
-        for changed in (
-            self.old.replace(
-                "assertGreaterEqual(alloc, len(b))", "assertEqual(alloc, len(b))", 1
-            ),
-            self.old.replace("self.assertGreaterEqual(alloc, len(b))", "pass", 1),
-            self.old.replace(
-                "self.assertGreaterEqual(alloc, len(b))",
-                "self.assertGreaterEqual(alloc, len(b)); "
-                "self.assertGreaterEqual(alloc, len(b))",
-                1,
-            ),
-        ):
-            self.assert_rejected(changed, local=True)
-
-    def test_allocation_method_shadows_fail_closed(self):
-        for name in ("test_alloc", "test_init_alloc"):
-            for local, source in ((True, self.old), (False, self.canonical)):
-                for shadow in (
-                    f"    {name} = None\n",
-                    f"    del {name}\n",
-                    f"    from other import {name}\n",
-                    f"    async def {name}(self): pass\n",
-                    f"    class {name}: pass\n",
-                    "    try:\n        pass\n"
-                    f"    except Exception as {name}:\n        pass\n",
-                    f"    match None:\n        case {name}: pass\n",
-                ):
-                    with self.subTest(name=name, local=local, shadow=shadow):
-                        self.assert_rejected(source + shadow, local=local)
-
-    def test_changed_allocation_explanation_fails_closed(self):
-        for comment in BYTES_ALLOCATION_COMMENTS.values():
-            for replacement in ("", comment.replace("RUSTPYTHON", "changed")):
-                with self.subTest(comment=comment, replacement=replacement):
-                    self.assert_rejected(
-                        self.old.replace(comment, replacement), local=True
-                    )
-
-    def test_other_paths_are_untouched(self):
-        for path in ("Lib/test/other.py", "Lib/other/test_bytes.py"):
-            self.assertEqual(
-                preserve_migration_customizations(Path(path), "old", "new"), "new"
-            )
-
-    def test_file_migration_preserves_guards_and_rejection_writes_nothing(self):
-        guard = (
-            "\n    @unittest.expectedFailure  # TODO: RUSTPYTHON\n"
-            "    def test_example(self):\n        pass\n"
-        )
-        canonical_test = "\n    def test_example(self):\n        pass\n"
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            output = root / self.path
-            output.parent.mkdir(parents=True)
-            output.write_text("import unittest\n" + self.old + guard, encoding="utf-8")
-            source = root / "canonical.py"
-            source.write_text(
-                "import unittest\n" + self.canonical + canonical_test, encoding="utf-8"
-            )
-            before_source = source.read_bytes()
-            before_guards = patches_to_json(extract_patches(output.read_text()))
-            module_file = root / "scripts/update_lib/cmd_migrate.py"
-            with patch("update_lib.cmd_migrate.__file__", str(module_file)):
-                patch_file(source, output, verbose=False)
-                self.assertEqual(
-                    output.read_text(), "import unittest\n" + self.old + guard
-                )
-                self.assertEqual(source.read_bytes(), before_source)
-                self.assertEqual(
-                    patches_to_json(extract_patches(output.read_text())), before_guards
-                )
-                self.assertEqual(
-                    patch_single_content(source, output), output.read_text()
-                )
-                before_output = output.read_bytes()
-                source.write_text(
-                    source.read_text().replace("ByteArrayTest", "OtherTest"),
-                    encoding="utf-8",
-                )
-                rejected_source = source.read_bytes()
-                with self.assertRaises(ValueError):
-                    patch_file(source, output, verbose=False)
-                self.assertEqual(output.read_bytes(), before_output)
-                self.assertEqual(source.read_bytes(), rejected_source)
 
 
 class TestSupportAssignments(unittest.TestCase):
@@ -661,6 +265,80 @@ class TestSupportAssignments(unittest.TestCase):
 
 class TestPatchSingleContent(unittest.TestCase):
     """Tests for patch_single_content function."""
+
+    def test_explicit_blocks_preserve_existing_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / "canonical.py", root / "Lib/test/test_example.py"
+            target.parent.mkdir(parents=True)
+            source.write_text("import unittest\nvalue = 2\n")
+            target.write_text("import sys\nimport unittest\nvalue = 1\n")
+            document = {
+                "target": "Lib/test/test_example.py",
+                "patches": {},
+                "blocks": [["import unittest\n", "import sys\nimport unittest\n"]],
+            }
+            with patch(
+                "update_lib.cmd_migrate.__file__",
+                str(root / "scripts/update_lib/cmd_migrate.py"),
+            ):
+                self.assertEqual(
+                    patch_single_content(source, target), source.read_text()
+                )
+                result = patch_single_content(source, target, document)
+                self.assertEqual(result, "import sys\nimport unittest\nvalue = 2\n")
+                for blocks in (
+                    None,
+                    [[]],
+                    [["import unittest\n", "import missing\n"]],
+                    [["value = 2\n", "import sys\n"], ["import sys\n", "value = 1\n"]],
+                ):
+                    with self.subTest(blocks=blocks), self.assertRaises(ValueError):
+                        patch_file(
+                            source,
+                            target,
+                            verbose=False,
+                            patches_document={**document, "blocks": blocks},
+                        )
+                    self.assertEqual(
+                        target.read_text(), "import sys\nimport unittest\nvalue = 1\n"
+                    )
+
+    def test_nested_fragments_and_ambiguous_inputs(self):
+        canonical, local = "    value = 1\n", "    value = 2\n"
+        self.assertEqual(
+            _preserve_block(
+                "class X:\n" + local, "class X:\n" + canonical, canonical, local
+            ),
+            "class X:\n" + local,
+        )
+        for old, new in (
+            (local * 2, canonical),
+            (local, canonical * 2),
+            ("", canonical),
+        ):
+            with self.subTest(old=old, new=new), self.assertRaises(ValueError):
+                _preserve_block(old, new, canonical, local)
+
+    def test_invalid_result_does_not_write_production_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, target = root / "canonical.py", root / "Lib/example.py"
+            target.parent.mkdir()
+            source.write_text("x = 1\n")
+            target.write_text("x = 'a'\n")
+            document = {
+                "target": "Lib/example.py",
+                "patches": {},
+                "blocks": [["1", "'a"]],
+            }
+            with patch(
+                "update_lib.cmd_migrate.__file__",
+                str(root / "scripts/update_lib/cmd_migrate.py"),
+            ):
+                with self.assertRaisesRegex(ValueError, "invalid Python"):
+                    patch_file(source, target, verbose=False, patches_document=document)
+                self.assertEqual(target.read_text(), "x = 'a'\n")
 
     def migrate_doctest(self, selection=None, explicit=False):
         old = '''"""
@@ -963,182 +641,6 @@ class TestA(unittest.TestCase):
 
             content = (lib_dir / "test_a.py").read_text()
             self.assertIn("@unittest.expectedFailure", content)
-
-
-class RuntimePatchTests(unittest.TestCase):
-    def test_sysconfig_identity_and_new_content(self):
-        path = Path("Lib/sysconfig/__init__.py")
-        source = SYSCONFIG_UPSTREAM + "new_final_behavior = True\n"
-        result = preserve_migration_customizations(path, SYSCONFIG_LOCAL, source)
-        self.assertEqual(result, SYSCONFIG_LOCAL + "new_final_behavior = True\n")
-        self.assertEqual(
-            preserve_migration_customizations(path, result, source), result
-        )
-
-    def test_pickle_jit_mapping_and_new_content(self):
-        path = Path("Lib/_compat_pickle.py")
-        source = "final_mapping = 'ImportCycleError'\n" + EXCEPTION_LOOP
-        result = preserve_migration_customizations(
-            path, JIT_ERROR + EXCEPTION_LOOP, source
-        )
-        self.assertEqual(
-            result, "final_mapping = 'ImportCycleError'\n" + JIT_ERROR + EXCEPTION_LOOP
-        )
-        self.assertEqual(
-            preserve_migration_customizations(path, result, source), result
-        )
-
-    def test_changed_or_ambiguous_anchors_fail(self):
-        cases = [
-            (Path("Lib/sysconfig/__init__.py"), SYSCONFIG_LOCAL, SYSCONFIG_UPSTREAM),
-            (Path("Lib/_compat_pickle.py"), JIT_ERROR + EXCEPTION_LOOP, EXCEPTION_LOOP),
-        ]
-        for path, old, source in cases:
-            for bad_old in (
-                "",
-                old + old,
-                old.replace("RustPython", "Other").replace("JitError", "Other"),
-            ):
-                with (
-                    self.subTest(path=path, bad_old=bad_old),
-                    self.assertRaises(ValueError),
-                ):
-                    preserve_migration_customizations(path, bad_old, source)
-            for bad_source in (
-                "",
-                source + source,
-                source.replace("Python", "Other").replace("excname", "other"),
-            ):
-                with (
-                    self.subTest(path=path, bad_source=bad_source),
-                    self.assertRaises(ValueError),
-                ):
-                    preserve_migration_customizations(path, old, bad_source)
-
-    def test_unrelated_file_unchanged(self):
-        self.assertEqual(
-            preserve_migration_customizations(Path("Lib/other.py"), JIT_ERROR, "new\n"),
-            "new\n",
-        )
-
-    def test_decoy_and_shadowed_sysconfig_anchors_fail(self):
-        path = Path("Lib/sysconfig/__init__.py")
-        for source in (
-            'doc = """' + SYSCONFIG_UPSTREAM + '"""\n',
-            SYSCONFIG_UPSTREAM + "def _get_implementation():\n    return 'Other'\n",
-            SYSCONFIG_UPSTREAM + "_get_implementation = lambda: 'Other'\n",
-            SYSCONFIG_UPSTREAM + "from other import _get_implementation\n",
-            SYSCONFIG_UPSTREAM + "import other as _get_implementation\n",
-            SYSCONFIG_UPSTREAM + "class _get_implementation: pass\n",
-            SYSCONFIG_UPSTREAM + "del _get_implementation\n",
-        ):
-            with self.subTest(source=source), self.assertRaises(ValueError):
-                preserve_migration_customizations(path, SYSCONFIG_LOCAL, source)
-
-    def test_decoy_and_reordered_pickle_anchors_fail(self):
-        path = Path("Lib/_compat_pickle.py")
-        old = JIT_ERROR + EXCEPTION_LOOP
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                path, old, 'doc = """' + EXCEPTION_LOOP + '"""\n'
-            )
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                path, EXCEPTION_LOOP + JIT_ERROR, EXCEPTION_LOOP
-            )
-
-    def test_similarly_named_nested_files_are_untouched(self):
-        for path in (
-            "Lib/other/sysconfig/__init__.py",
-            "Lib/other/_compat_pickle.py",
-            "other/sysconfig/__init__.py",
-        ):
-            self.assertEqual(
-                preserve_migration_customizations(Path(path), "old", "new"), "new"
-            )
-
-    def test_absolute_target_requires_explicit_repository_resolution(self):
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                Path("/parent/Lib/repository/Lib/sysconfig/__init__.py"),
-                SYSCONFIG_LOCAL,
-                SYSCONFIG_UPSTREAM,
-            )
-
-    def test_migrate_resolves_real_repository_under_lib_parent(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "Lib" / "repository"
-            output = root / "Lib" / "sysconfig" / "__init__.py"
-            output.parent.mkdir(parents=True)
-            output.write_text(SYSCONFIG_LOCAL, encoding="utf-8")
-            source = Path(temporary) / "canonical.py"
-            source.write_text(SYSCONFIG_UPSTREAM, encoding="utf-8")
-            module_file = root / "scripts" / "update_lib" / "cmd_migrate.py"
-            with patch("update_lib.cmd_migrate.__file__", str(module_file)):
-                self.assertEqual(patch_single_content(source, output), SYSCONFIG_LOCAL)
-                outside = (
-                    Path(temporary) / "outside" / "Lib" / "sysconfig" / "__init__.py"
-                )
-                outside.parent.mkdir(parents=True)
-                outside.write_text(SYSCONFIG_LOCAL, encoding="utf-8")
-                self.assertEqual(
-                    patch_single_content(source, outside), SYSCONFIG_UPSTREAM
-                )
-
-
-CALL_PATH = Path("Lib/test/test_cmd_line.py")
-CALL_TEMPLATE = """class CmdLineTest:
-    def test_empty_PYTHONPATH_issue16309(self):
-        result = CALL
-        self.assertEqual(result, 'new final assertion')
-"""
-CALL_OLD = CALL_TEMPLATE.replace("CALL", LOCAL_CALL).replace(
-    "new final assertion", "old assertion"
-)
-CALL_CANONICAL = CALL_TEMPLATE.replace("CALL", CANONICAL_CALL)
-
-
-class CallPatchTests(unittest.TestCase):
-    def test_final_body_and_roundtrip(self):
-        result = preserve_migration_customizations(CALL_PATH, CALL_OLD, CALL_CANONICAL)
-        self.assertEqual(result, CALL_TEMPLATE.replace("CALL", LOCAL_CALL))
-        self.assertIn("new final assertion", result)
-        self.assertEqual(
-            preserve_migration_customizations(CALL_PATH, result, CALL_CANONICAL), result
-        )
-
-    def test_missing_duplicate_owners_and_calls_fail(self):
-        for source in (
-            CALL_CANONICAL.replace("CmdLineTest", "Other"),
-            CALL_CANONICAL + CALL_CANONICAL,
-            CALL_CANONICAL.replace(
-                "        result = ", "        " + CANONICAL_CALL + "\n        result = "
-            ),
-            CALL_CANONICAL.replace("test_empty_PYTHONPATH_issue16309", "other"),
-        ):
-            with self.subTest(source=source), self.assertRaises(ValueError):
-                preserve_migration_customizations(CALL_PATH, CALL_OLD, source)
-
-    def test_changed_keywords_and_decoy_fail(self):
-        for old in (
-            CALL_OLD.replace('RUSTPYTHONPATH=""', 'RUSTPYTHONPATH="changed"'),
-            CALL_CANONICAL,
-            'doc = """' + CALL_OLD + '"""\n',
-        ):
-            with self.subTest(old=old), self.assertRaises(ValueError):
-                preserve_migration_customizations(CALL_PATH, old, CALL_CANONICAL)
-        with self.assertRaises(ValueError):
-            preserve_migration_customizations(
-                CALL_PATH,
-                CALL_OLD,
-                CALL_CANONICAL.replace('PYTHONPATH=""', 'PYTHONPATH="changed"'),
-            )
-
-    def test_unrelated_file_unchanged(self):
-        self.assertEqual(
-            preserve_migration_customizations(Path("Lib/test/other.py"), "old", "new"),
-            "new",
-        )
 
 
 OVERRIDE_CLEAN = """import unittest
@@ -1818,100 +1320,6 @@ class TestCanonicalRemovals(unittest.TestCase):
         self.manifest.write_text('{"source": {}, "source": {}}')
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             remove_canonical_files(self.source, self.manifest)
-
-
-class TestImportlibGuardMigration(unittest.TestCase):
-    def test_exact_guards_preserved_and_changed_ambiguous_anchors_refused(self):
-        setup = "def setUpModule():\n    thread_info = threading_helper.threading_setup()\n    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)\n"
-        cases = (
-            ("util.py", MULTIPHASE_LOCAL, MULTIPHASE_UPSTREAM),
-            (
-                "test_locks.py",
-                "class LifetimeTests:\n    def test_all_locks(self): pass\n\n"
-                + LOCK_SPECIALIZATION
-                + "\n"
-                + LOCK_SKIP
-                + "\n"
-                + setup,
-                "class LifetimeTests:\n    def test_all_locks(self): pass\n\n"
-                + LOCK_SPECIALIZATION
-                + "\n\n"
-                + setup,
-            ),
-        )
-        for filename, old, new in cases:
-            path = Path("Lib/test/test_importlib") / filename
-            result = preserve_migration_customizations(path, old, new + "VALUE = 2\n")
-            self.assertEqual(result, old + "VALUE = 2\n")
-            self.assertEqual(
-                preserve_migration_customizations(path, result, new + "VALUE = 2\n"),
-                result,
-            )
-            for changed_old, changed_new in (
-                (old + old, new),
-                (old, new + new),
-                (old.replace("TODO: RUSTPYTHON", "changed"), new),
-                (
-                    old,
-                    "if True:\n"
-                    + "".join("    " + line for line in new.splitlines(keepends=True)),
-                ),
-            ):
-                with self.subTest(filename=filename), self.assertRaises(ValueError):
-                    preserve_migration_customizations(path, changed_old, changed_new)
-
-
-class TestTypesGuardMigration(unittest.TestCase):
-    path = Path("Lib/test/test_types.py")
-    old = (
-        "import copy\n"
-        + TYPES_DATETIME_GUARD
-        + "import gc\nimport unittest.mock\nimport typing\n\n"
-        + TYPES_UNITTEST_IMPORT
-        + "\nVALUE = 1\n"
-    )
-    new = (
-        "import copy\nimport _datetime\nimport gc\nimport unittest.mock\n"
-        "import typing\nimport re\n\nVALUE = 2\n"
-    )
-
-    def test_exact_guards_and_unrelated_canonical_changes_survive_idempotently(self):
-        expected = self.new.replace("import _datetime\n", TYPES_DATETIME_GUARD).replace(
-            "import typing\n", "import typing\n\n" + TYPES_UNITTEST_IMPORT
-        )
-        result = preserve_migration_customizations(self.path, self.old, self.new)
-        self.assertEqual(result, expected)
-        self.assertEqual(
-            preserve_migration_customizations(self.path, result, self.new), expected
-        )
-
-    def test_changed_ambiguous_or_misplaced_local_guards_are_refused(self):
-        for old in (
-            self.old.replace("except ImportError:", "except Exception:"),
-            self.old.replace("_datetime = None", "_datetime = False"),
-            self.old.replace("# XXX: RUSTPYTHON\n", "# changed\n"),
-            self.old.replace("importing to be able to skip tests", "changed reason"),
-            self.old + TYPES_DATETIME_GUARD,
-            self.old + "import _datetime\n",
-            self.old + TYPES_UNITTEST_IMPORT,
-            self.old.replace("import typing\n\n", "import typing\nVALUE = 3\n\n"),
-        ):
-            with self.subTest(old=old), self.assertRaises(ValueError):
-                preserve_migration_customizations(self.path, old, self.new)
-
-    def test_changed_ambiguous_or_nested_canonical_anchors_are_refused(self):
-        for new in (
-            self.new.replace("import _datetime", "import _datetime as other"),
-            self.new.replace("import _datetime\n", "if True:\n    import _datetime\n"),
-            self.new.replace("import _datetime\n", 'TEXT = "import _datetime\\n"\n'),
-            self.new.replace("import typing", "import typing as other"),
-            self.new.replace("import typing\n", "if True:\n    import typing\n"),
-            self.new + "import _datetime\n",
-            self.new + "import typing\n",
-            self.new + "import unittest\n",
-        ):
-            with self.subTest(new=new), self.assertRaises(ValueError):
-                preserve_migration_customizations(self.path, self.old, new)
 
 
 if __name__ == "__main__":

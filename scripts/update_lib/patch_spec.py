@@ -609,15 +609,16 @@ def select_remaining_patches(
 ):
     if not isinstance(document, dict) or (
         not {"target", "patches"} <= set(document)
-        or not set(document) <= {"target", "patches", "doctests", "retire_conditional"}
+        or not set(document)
+        <= {"target", "patches", "doctests", "retire_conditional", "blocks"}
     ):
         raise ValueError("Expected target and patches metadata")
     if (
-        relative_path.parts[:2] != ("Lib", "test")
+        relative_path.parts[:1] != ("Lib",)
         or relative_path.suffix != ".py"
         or document["target"] != relative_path.as_posix()
     ):
-        raise ValueError("Marker override target does not match the test file")
+        raise ValueError("Patch target does not match the Lib file")
     if "doctests" in document and not isinstance(document["doctests"], dict):
         raise ValueError("Doctests metadata must be an object")
     try:

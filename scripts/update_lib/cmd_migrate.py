@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Migrate test file(s) from CPython, preserving RustPython markers.
+Migrate Python Lib files from CPython, preserving explicit local adaptations.
 
 Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
@@ -11,7 +11,13 @@ Remaining metadata names the exact repository-relative target and its existing
 decorator patches. An optional "doctests" object selects existing guarded inputs
 by exact source text, mapping each to a single-line reason. Guarded doctests need
 this explicit selection; an empty object retires all their guards. Canonical
-expected output is never copied from the old file.
+expected output is never copied from the old file. Optional "blocks" lists
+[canonical, local] source pairs to preserve exact existing changes.
+Both fragments must match uniquely; no module-specific defaults are inferred.
+Non-marker adaptations require reviewed blocks on each migration, for example
+{"target": "Lib/example.py", "patches": {}, "blocks": [["old = 1", "old = 2"]]}.
+Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
+as required by the existing marker extraction and application steps.
 
 Canonical removals are a separate, explicit operation. JSON source metadata
 pins path (Lib/test/test_*), commit and tree; removals maps explicit relative
@@ -30,7 +36,6 @@ import argparse
 import ast
 import builtins
 import collections
-import copy
 import hashlib
 import json
 import os
@@ -39,606 +44,17 @@ import re
 import shutil
 import subprocess
 import sys
-import textwrap
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.file_utils import parse_lib_path
 
-SYSCONFIG_UPSTREAM = "def _get_implementation():\n    return 'Python'\n"
-SYSCONFIG_LOCAL = (
-    "def _get_implementation():\n"
-    "    return 'RustPython'  # XXX: RUSTPYTHON; For site-packages\n"
-)
-JIT_ERROR = """# NOTE: RUSTPYTHON exceptions
-try:
-    JitError
-except NameError:
-    pass
-else:
-    PYTHON2_EXCEPTIONS += ("JitError",)
 
-"""
-EXCEPTION_LOOP = """for excname in PYTHON2_EXCEPTIONS:
-    NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
-"""
-MULTIPHASE_UPSTREAM = (
-    "# gh-116303: Skip test module dependent tests if test modules are unavailable\n"
-    'import_helper.import_module("_testmultiphase")\n'
-)
-MULTIPHASE_LOCAL = """try: # TODO: RUSTPYTHON
-    import_helper.import_module("_testmultiphase")
-except unittest.SkipTest:
-    _testmultiphase = None
-"""
-LOCK_SPECIALIZATION = """(Frozen_LifetimeTests,
- Source_LifetimeTests
- ) = test_util.test_both(LifetimeTests, init=init)
-"""
-LOCK_SKIP = """# TODO: RUSTPYTHON; dead weakref module locks not cleaned up in frozen bootstrap
-Frozen_LifetimeTests.test_all_locks = unittest.skip("TODO: RUSTPYTHON")(
-    Frozen_LifetimeTests.test_all_locks
-)
-"""
-TYPES_DATETIME_GUARD = """# XXX: RUSTPYTHON
-try:
-    import _datetime
-except ImportError:
-    _datetime = None
-"""
-TYPES_UNITTEST_IMPORT = (
-    "import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests\n"
-)
-BYTES_CAPI_UPSTREAM = (
-    "    _testlimitedcapi = import_helper.import_module('_testlimitedcapi')\n"
-)
-BYTES_CAPI_LOCAL = """    # TODO: RUSTPYTHON; import_helper.import_module here cause the entire test stopping
-    # _testlimitedcapi = import_helper.import_module('_testlimitedcapi')
-    try:
-        import _testlimitedcapi
-    except ImportError:
-        _testlimitedcapi = None
-"""
-BYTES_ALLOCATION_COMMENTS = {
-    "test_alloc": """    # NOTE: RUSTPYTHON:
-    #
-    # The second instance of self.assertGreater was replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
-""",
-    "test_init_alloc": """    # NOTE: RUSTPYTHON:
-    #
-    # The usages of self.assertGreater were replaced with
-    # self.assertGreaterEqual since, in RustPython, the underlying storage
-    # is a Vec which doesn't require trailing null byte.
-""",
-}
-
-
-def _bytes_bindings(root, name):
-    """Find bindings conservatively, including nested or indirect shadows."""
-    for node in ast.walk(root):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            bound = node.id
-        elif isinstance(node, ast.alias):
-            bound = node.asname or node.name.split(".")[0]
-        elif isinstance(
-            node,
-            (
-                ast.FunctionDef,
-                ast.AsyncFunctionDef,
-                ast.ClassDef,
-                ast.ExceptHandler,
-                ast.MatchAs,
-                ast.MatchStar,
-            ),
-        ):
-            bound = node.name
-        elif isinstance(node, ast.MatchMapping):
-            bound = node.rest
-        elif isinstance(node, ast.arg):
-            bound = node.arg
-        elif isinstance(node, (ast.Global, ast.Nonlocal)):
-            bound = name if name in node.names else None
-        else:
-            continue
-        if bound == name:
-            yield node
-
-
-def _bytes_owner(contents):
-    tree = ast.parse(contents)
-    owner = _unique_anchor(
-        contents,
-        tree,
-        lambda node: isinstance(node, ast.ClassDef) and node.name == "ByteArrayTest",
-        direct=True,
-    )
-    if list(_bytes_bindings(tree, "ByteArrayTest")) != [owner]:
-        raise ValueError("Shadowed bytes test class")
-    return owner
-
-
-def _verify_bytes_capi(contents: str, block: str) -> ast.stmt:
-    owner = _bytes_owner(contents)
-    expected = ast.parse(textwrap.dedent(block)).body[0]
-    anchor = _unique_anchor(
-        contents, owner, lambda node: ast.dump(node) == ast.dump(expected), direct=True
-    )
-    allowed = set(ast.walk(anchor))
-    if any(node not in allowed for node in _bytes_bindings(owner, "_testlimitedcapi")):
-        raise ValueError("Shadowed optional bytes C API import")
-    start = anchor.lineno - 1 - (2 if block == BYTES_CAPI_LOCAL else 0)
-    anchored_text = "".join(
-        contents.splitlines(keepends=True)[start : anchor.end_lineno]
-    )
-    if start < 0 or anchored_text != block:
-        raise ValueError("Missing, changed, or ambiguous optional bytes C API import")
-    return anchor
-
-
-def _preserve_bytes_allocations(old: str, new: str) -> str:
-    """Keep only the existing three Vec allocation assertion adaptations."""
-    owners = [_bytes_owner(contents) for contents in (old, new)]
-    replacements = []
-    for name, count in (("test_alloc", 1), ("test_init_alloc", 2)):
-        methods = [
-            _unique_anchor(
-                contents,
-                owner,
-                lambda node: (
-                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and node.name == name
-                ),
-                direct=True,
-            )
-            for contents, owner in zip((old, new), owners)
-        ]
-        if any(
-            list(_bytes_bindings(owner, name)) != [method]
-            for owner, method in zip(owners, methods)
-        ):
-            raise ValueError("Shadowed bytes allocation test")
-        if any(not isinstance(method, ast.FunctionDef) for method in methods):
-            raise ValueError("Changed bytes allocation test kind")
-        normalized = copy.deepcopy(methods[0])
-        expected = ast.parse("self.assertGreaterEqual(alloc, len(b))", mode="eval").body
-        matches = [
-            node
-            for node in ast.walk(normalized)
-            if isinstance(node, ast.Call) and ast.dump(node) == ast.dump(expected)
-        ]
-        if len(matches) != count:
-            raise ValueError("Changed local bytes allocation contract")
-        for node in matches:
-            node.func.attr = "assertGreater"
-        if ast.dump(normalized) != ast.dump(methods[1]):
-            raise ValueError("Changed canonical bytes allocation contract")
-        old_lines = old.splitlines(keepends=True)
-        comment = BYTES_ALLOCATION_COMMENTS[name]
-        start = methods[0].lineno - 1 - len(comment.splitlines())
-        if start < 0 or "".join(old_lines[start : methods[0].lineno - 1]) != comment:
-            raise ValueError("Changed local bytes allocation explanation")
-        local = "".join(old_lines[start : methods[0].end_lineno])
-        replacements.append((methods[1].lineno - 1, methods[1].end_lineno, local))
-    lines = new.splitlines(keepends=True)
-    for start, end, local in sorted(replacements, reverse=True):
-        lines[start:end] = [local]
-    result = "".join(lines)
-    ast.parse(result)
-    return result
-
-
-def _unique_anchor(contents, root, predicate, *, direct=False, exact=None):
-    """Select one real AST anchor, optionally in the immediate owner body."""
-    matches = [node for node in ast.walk(root) if predicate(node)]
-    if (
-        len(matches) != 1
-        or (direct and matches[0] not in root.body)
-        or (exact is not None and ast.get_source_segment(contents, matches[0]) != exact)
-    ):
-        raise ValueError("Missing, changed, or ambiguous migration anchor")
-    return matches[0]
-
-
-def _unique_function(contents: str, expected: str) -> bool:
-    tree = ast.parse(contents)
-    target = ast.parse(expected).body[0]
-    node = _unique_anchor(
-        contents,
-        tree,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == target.name
-        ),
-        direct=True,
-    )
-    return ast.dump(node) == ast.dump(target) and not any(
-        (
-            isinstance(node, ast.Name)
-            and node.id == target.name
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-        )
-        or (isinstance(node, ast.ClassDef) and node.name == target.name)
-        or (
-            isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) == target.name
-        )
-        for node in ast.walk(tree)
-    )
-
-
-def _exception_loop(contents: str) -> bool:
-    _unique_anchor(
-        contents,
-        ast.parse(contents),
-        lambda node: (
-            isinstance(node, ast.For)
-            and isinstance(node.iter, ast.Name)
-            and node.iter.id == "PYTHON2_EXCEPTIONS"
-        ),
-        direct=True,
-        exact=EXCEPTION_LOOP.rstrip(),
-    )
-    return True
-
-
-def _jit_block(contents: str) -> bool:
-    tree = ast.parse(contents)
-    expected = ast.dump(ast.parse(JIT_ERROR).body[0])
-    _unique_anchor(contents, tree, lambda node: ast.dump(node) == expected, direct=True)
-    return (
-        sum(
-            isinstance(node, ast.Name) and node.id == "JitError"
-            for node in ast.walk(tree)
-        )
-        == 1
-    )
-
-
-def _preserve_top_level_block(old, new, upstream, local):
-    """Require exact, consecutive top-level AST statements and comment bytes."""
-    for contents, fragment in ((old, local), (new, upstream)):
-        tree, expected = ast.parse(contents), ast.parse(fragment).body
-        nodes = [
-            _unique_anchor(
-                contents,
-                tree,
-                lambda node: ast.dump(node) == ast.dump(item),
-                direct=True,
-            )
-            for item in expected
-        ]
-        start = tree.body.index(nodes[0])
-        lines = contents.splitlines(keepends=True)
-        first = nodes[0].lineno - expected[0].lineno
-        if (
-            tree.body[start : start + len(nodes)] != nodes
-            or contents.count(fragment) != 1
-            or "".join(lines[first : nodes[-1].end_lineno]) != fragment
-        ):
-            raise ValueError("Changed or ambiguous migration customization anchor")
-    return new.replace(upstream, local, 1)
-
-
-def _preserve_multiphase_guard(old, new):
-    for contents, local in ((old, True), (new, False)):
-        tree = ast.parse(contents)
-        if sum(
-            isinstance(n, ast.Constant) and n.value == "_testmultiphase"
-            for n in ast.walk(tree)
-        ) != 1 or sum(
-            isinstance(n, ast.Name) and n.id == "_testmultiphase"
-            for n in ast.walk(tree)
-        ) != int(local):
-            raise ValueError("Ambiguous _testmultiphase anchor")
-    return _preserve_top_level_block(old, new, MULTIPHASE_UPSTREAM, MULTIPHASE_LOCAL)
-
-
-def _preserve_frozen_lock_skip(old, new):
-    methods = []
-    for contents, local in ((old, True), (new, False)):
-        tree = ast.parse(contents)
-        owner = _unique_anchor(
-            contents,
-            tree,
-            lambda n: isinstance(n, ast.ClassDef) and n.name == "LifetimeTests",
-            direct=True,
-        )
-        method = _unique_anchor(
-            contents,
-            owner,
-            lambda n: isinstance(n, ast.FunctionDef) and n.name == "test_all_locks",
-            direct=True,
-        )
-        methods.append(ast.dump(method))
-        if sum(
-            isinstance(n, ast.Name) and n.id == "Frozen_LifetimeTests"
-            for n in ast.walk(tree)
-        ) != (3 if local else 1):
-            raise ValueError("Ambiguous frozen lock specialization")
-    if methods[0] != methods[1]:
-        raise ValueError("Frozen lock test changed; review its customization")
-    setup = "def setUpModule():\n    thread_info = threading_helper.threading_setup()\n    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)\n"
-    return _preserve_top_level_block(
-        old,
-        new,
-        LOCK_SPECIALIZATION + "\n\n" + setup,
-        LOCK_SPECIALIZATION + "\n" + LOCK_SKIP + "\n" + setup,
-    )
-
-
-def _preserve_pyrepl_console_mocks(old: str, new: str) -> str:
-    """Retain only the three existing decorator-lambda parser workarounds.
-
-    The local preamble is pinned to RustPython e7e3dfd6; the canonical
-    decorators are pinned to CPython d220409a13. Preserve their comments too.
-    Neither class's test bodies participate in this substitution.
-    """
-    names = (
-        "__rustpython_patch_terminfo_tparm",
-        "__rustpython_patch_termios_tcgetattr",
-        "__rustpython_patch_termios_tcsetattr",
-    )
-    hashes = (
-        "cf1df685289a405fd3022f5790545b7c4218f30c71b0163dda055717c8c91cd8",
-        "63e1ec850e386fba876e14b6c665d4f043a3af77bc4778c53a5897c82375bcc3",
-    )
-    blocks = []
-    for local, contents, expected_hash in zip((True, False), (old, new), hashes):
-        tree = ast.parse(contents)
-        owner = _unique_anchor(
-            contents,
-            tree,
-            lambda node: isinstance(node, ast.ClassDef) and node.name == "TestConsole",
-            direct=True,
-        )
-        if list(_bytes_bindings(tree, "TestConsole")) != [owner]:
-            raise ValueError("Shadowed pyrepl console test class")
-        helpers = []
-        for name in names:
-            bindings = list(_bytes_bindings(tree, name))
-            if local:
-                if (
-                    len(bindings) != 1
-                    or not isinstance(bindings[0], ast.FunctionDef)
-                    or bindings[0] not in tree.body
-                ):
-                    raise ValueError("Missing or shadowed pyrepl console mock helper")
-                helpers.append(bindings[0])
-            elif bindings:
-                raise ValueError("Canonical pyrepl console mock helper already exists")
-        if not owner.decorator_list:
-            raise ValueError("Missing pyrepl console test decorators")
-        start = helpers[0].lineno if local else owner.decorator_list[0].lineno
-        block = "".join(
-            contents.splitlines(keepends=True)[start - 1 : owner.lineno - 1]
-        )
-        if hashlib.sha256(block.encode("utf-8")).hexdigest() != expected_hash:
-            raise ValueError("Changed pyrepl console mock preamble")
-        blocks.append((start, owner.lineno - 1, block))
-    start, end, _ = blocks[1]
-    lines = new.splitlines(keepends=True)
-    lines[start - 1 : end] = [blocks[0][2]]
-    return "".join(lines)
-
-
-def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) -> str:
-    """Fail closed if either known local patch or its canonical anchor changes."""
-    parts = path.parts
-    if path.is_absolute():
-        raise ValueError("Runtime patch target must be repository-relative")
-    if parts == ("Lib", "sysconfig", "__init__.py"):
-        if old.count(SYSCONFIG_LOCAL) != 1 or not _unique_function(
-            old, SYSCONFIG_LOCAL
-        ):
-            raise ValueError("Unrecognized sysconfig implementation identity")
-        if (
-            new.count(SYSCONFIG_UPSTREAM) != 1
-            or not _unique_function(new, SYSCONFIG_UPSTREAM)
-            or "RustPython" in new
-        ):
-            raise ValueError("Unrecognized canonical sysconfig implementation anchor")
-        return new.replace(SYSCONFIG_UPSTREAM, SYSCONFIG_LOCAL, 1)
-    if parts == ("Lib", "_compat_pickle.py"):
-        if (
-            old.count(JIT_ERROR + EXCEPTION_LOOP) != 1
-            or not _jit_block(old)
-            or not _exception_loop(old)
-        ):
-            raise ValueError("Unrecognized local JitError compatibility mapping")
-        if (
-            new.count(EXCEPTION_LOOP) != 1
-            or not _exception_loop(new)
-            or "JitError" in new
-        ):
-            raise ValueError("Unrecognized canonical exception mapping anchor")
-        return new.replace(EXCEPTION_LOOP, JIT_ERROR + EXCEPTION_LOOP, 1)
-    if parts == ("Lib", "test", "test_cmd_line.py"):
-        _verify_call(old, LOCAL_CALL)
-        _verify_call(new, CANONICAL_CALL)
-        return new.replace(CANONICAL_CALL, LOCAL_CALL, 1)
-    if parts == ("Lib", "test", "test_bytes.py"):
-        _verify_bytes_capi(old, BYTES_CAPI_LOCAL)
-        anchor = _verify_bytes_capi(new, BYTES_CAPI_UPSTREAM)
-        lines = new.splitlines(keepends=True)
-        lines[anchor.lineno - 1 : anchor.end_lineno] = [BYTES_CAPI_LOCAL]
-        return _preserve_bytes_allocations(old, "".join(lines))
-    if parts == ("Lib", "test", "test_importlib", "util.py"):
-        return _preserve_multiphase_guard(old, new)
-    if parts == ("Lib", "test", "test_importlib", "test_locks.py"):
-        return _preserve_frozen_lock_skip(old, new)
-    if parts == ("Lib", "test", "test_pyrepl", "test_unix_console.py"):
-        return _preserve_pyrepl_console_mocks(old, new)
-    if parts == ("Lib", "test", "test_types.py"):
-        for contents in (old, new):
-            if (
-                sum(
-                    isinstance(node, ast.alias) and node.name == "_datetime"
-                    for node in ast.walk(ast.parse(contents))
-                )
-                != 1
-            ):
-                raise ValueError("Ambiguous test_types _datetime import")
-        if any(
-            isinstance(node, ast.alias) and node.name == "unittest"
-            for node in ast.walk(ast.parse(new))
-        ):
-            raise ValueError("Canonical test_types already imports unittest directly")
-        new = _preserve_top_level_block(
-            old, new, "import _datetime\n", TYPES_DATETIME_GUARD
-        )
-        return _preserve_top_level_block(
-            old, new, "import typing\n", "import typing\n\n" + TYPES_UNITTEST_IMPORT
-        )
-    return new
-
-
-CANONICAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="")"""
-LOCAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="", RUSTPYTHONPATH="")"""
-
-
-def _verify_call(contents: str, expected: str) -> None:
-    tree = ast.parse(contents)
-    owner = _unique_anchor(
-        contents,
-        tree,
-        lambda node: isinstance(node, ast.ClassDef) and node.name == "CmdLineTest",
-        direct=True,
-    )
-    method = _unique_anchor(
-        contents,
-        owner,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "test_empty_PYTHONPATH_issue16309"
-        ),
-        direct=True,
-    )
-    target = ast.dump(ast.parse(expected, mode="eval").body)
-    _unique_anchor(
-        contents,
-        method,
-        lambda node: isinstance(node, ast.Call) and ast.dump(node) == target,
-        exact=expected,
-    )
-    if contents.count(expected) != 1:
-        raise ValueError("Ambiguous environment-reset call text")
-
-
-SYMLINK_UPSTREAM = """            home = os.path.dirname(self.real)
-            if sysconfig.is_python_build():
-                home = os.path.join(home, sysconfig.get_config_var('VPATH'))
-            self._env["PYTHONHOME"] = home
-"""
-SYMLINK_LEGACY = """            self._env["PYTHONHOME"] = os.path.dirname(self.real)
-            if sysconfig.is_python_build():
-                self._env["PYTHONPATH"] = STDLIB_DIR
-"""
-SYMLINK_LOCAL = (
-    SYMLINK_UPSTREAM
-    + """            # TODO: RUSTPYTHON; Cargo builds do not use CPython's Modules/Setup.
-            if sys.implementation.name == 'rustpython':
-                self._env["PYTHONPATH"] = STDLIB_DIR
-"""
-)
-
-
-def copy_support_python_symlink(source, destination):
-    """Adapt only the canonical Windows symlink helper's library environment."""
-    owners = []
-    for contents in (source, destination):
-        tree = ast.parse(contents)
-        owner = _unique_anchor(
-            contents,
-            tree,
-            lambda node: (
-                isinstance(node, ast.ClassDef) and node.name == "PythonSymlink"
-            ),
-            direct=True,
-        )
-        if list(_bytes_bindings(tree, "PythonSymlink")) != [owner]:
-            raise ValueError("Shadowed PythonSymlink class")
-        owners.append(owner)
-    canonical = ast.get_source_segment(source, owners[0]) + "\n"
-    current = ast.get_source_segment(destination, owners[1]) + "\n"
-    if canonical.count(SYMLINK_UPSTREAM) != 1 or SYMLINK_LOCAL in canonical:
-        raise ValueError("Changed canonical PythonSymlink environment anchor")
-    platform = _unique_anchor(
-        canonical,
-        ast.parse(canonical).body[0],
-        lambda node: (
-            isinstance(node, ast.If)
-            and ast.dump(node.test)
-            == ast.dump(ast.parse("sys.platform == 'win32'", mode="eval").body)
-        ),
-        direct=True,
-    )
-    method = _unique_anchor(
-        canonical,
-        ast.Module(body=platform.body, type_ignores=[]),
-        lambda node: (
-            isinstance(node, ast.FunctionDef) and node.name == "_platform_specific"
-        ),
-        direct=True,
-    )
-    condition = _unique_anchor(
-        canonical,
-        method,
-        lambda node: (
-            isinstance(node, ast.If)
-            and ast.dump(node.test)
-            == ast.dump(ast.parse("sysconfig.is_python_build()", mode="eval").body)
-        ),
-        direct=True,
-    )
-    lines = canonical.splitlines(keepends=True)
-    if (
-        "".join(lines[condition.lineno - 2 : condition.end_lineno + 1])
-        != SYMLINK_UPSTREAM
-    ):
-        raise ValueError("Changed canonical PythonSymlink environment body")
-    adapted = canonical.replace(SYMLINK_UPSTREAM, SYMLINK_LOCAL, 1)
-    legacy = canonical.replace(SYMLINK_UPSTREAM, SYMLINK_LEGACY, 1)
-    if current not in (canonical, legacy, adapted):
-        raise ValueError("Changed local PythonSymlink; review before migration")
-    lines = destination.splitlines(keepends=True)
-    lines[owners[1].lineno - 1 : owners[1].end_lineno] = [adapted]
-    result = "".join(lines)
-    ast.parse(result)
-    return result
-
-
-def migrate_support_python_symlink(path, source_hash, destination_hash):
-    target = parse_lib_path(path)
-    if target.parts != ("Lib", "test", "support", "__init__.py"):
-        raise ValueError(
-            "PythonSymlink migration requires Lib/test/support/__init__.py"
-        )
-    source, destination = path.read_bytes(), target.read_bytes()
-    for label, contents, expected in (
-        ("source", source, source_hash),
-        ("destination", destination, destination_hash),
-    ):
-        if hashlib.sha256(contents).hexdigest() != expected:
-            raise ValueError(f"{label} SHA256 does not match the pinned input")
-    result = copy_support_python_symlink(
-        source.decode("utf-8"), destination.decode("utf-8")
-    ).encode("utf-8")
-    if target.read_bytes() != destination:
-        raise ValueError("Destination changed during PythonSymlink preparation")
-    target.write_bytes(result)
-    print(
-        json.dumps(
-            {
-                "helper": "PythonSymlink",
-                "source_sha256": source_hash,
-                "destination_before_sha256": destination_hash,
-                "destination_after_sha256": hashlib.sha256(result).hexdigest(),
-            },
-            sort_keys=True,
-        )
-    )
+def _preserve_block(old, new, canonical, local):
+    """Preserve an explicit existing fragment; do not infer module adaptations."""
+    if old.count(local) != 1 or new.count(canonical) != 1:
+        raise ValueError("Changed or ambiguous preservation block")
+    return new.replace(canonical, local, 1)
 
 
 def copy_support_assignments(source, destination, names, exports):
@@ -920,12 +336,24 @@ def patch_single_content(
             old_content=old_content if lib_path.exists() else None,
         )
 
+    blocks = patches_document.get("blocks", []) if patches_document else []
+    if not isinstance(blocks, list) or any(
+        not isinstance(pair, list)
+        or len(pair) != 2
+        or any(not isinstance(text, str) or not text.strip() for text in pair)
+        for pair in blocks
+    ):
+        raise ValueError("Blocks must be canonical/local source pairs")
+    if blocks and not lib_path.exists():
+        raise ValueError("Blocks require an existing local file")
+
     # Apply patches to source content
     src_content = src_path.read_text(encoding="utf-8")
     if lib_path.exists():
-        src_content = preserve_migration_customizations(
-            relative_path, old_content, src_content
-        )
+        if any(src_content.count(canonical) != 1 for canonical, _ in blocks):
+            raise ValueError("Changed or ambiguous canonical preservation block")
+        for canonical, local in blocks:
+            src_content = _preserve_block(old_content, src_content, canonical, local)
         guards = extract_doctest_guards(old_content)
         selection = patches_document.get("doctests") if patches_document else None
         if guards and selection is None:
@@ -936,7 +364,13 @@ def patch_single_content(
             src_content = apply_doctest_metadata(old_content, src_content, selection)
     if not src_content and not patches:
         return src_content
-    return apply_patches(src_content, patches)
+    try:
+        result = apply_patches(src_content, patches)
+    except SyntaxError as error:
+        if blocks:
+            raise ValueError("Preserved blocks produced invalid Python") from error
+        raise
+    return result
 
 
 def patch_file(
@@ -1353,11 +787,6 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         help="Add selected canonical test.support assignments",
     )
-    parser.add_argument(
-        "--support-python-symlink",
-        action="store_true",
-        help="Adapt the canonical Windows PythonSymlink library environment",
-    )
     parser.add_argument("--support-exports", nargs="+", default=[])
     parser.add_argument("--source-sha256")
     parser.add_argument("--destination-sha256")
@@ -1369,7 +798,6 @@ def main(argv: list[str] | None = None) -> int:
                 args.legacy_map is not None
                 or args.patches is not None
                 or args.support_assignments
-                or args.support_python_symlink
                 or args.support_exports
                 or args.source_sha256
                 or args.destination_sha256
@@ -1386,20 +814,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.dry_run:
             raise ValueError("--dry-run requires --canonical-removals")
-        if args.support_python_symlink:
-            if (
-                args.legacy_map is not None
-                or args.patches is not None
-                or args.support_assignments
-                or args.support_exports
-            ):
-                raise ValueError(
-                    "PythonSymlink migration cannot combine with other migration modes"
-                )
-            migrate_support_python_symlink(
-                args.path, args.source_sha256, args.destination_sha256
-            )
-            return 0
         if args.support_assignments:
             if args.legacy_map is not None or args.patches is not None:
                 raise ValueError(
