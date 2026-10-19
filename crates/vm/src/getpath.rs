@@ -203,7 +203,6 @@ pub fn init_path_config(settings: &Settings) -> Paths {
 
 /// Identify an uninstalled RustPython source library independently of the
 /// executable location (Cargo permits targets outside the source tree).
-#[cfg(windows)]
 pub(crate) fn source_directory(paths: &Paths) -> Option<&Path> {
     let library = Path::new(paths.stdlib_dir.as_deref()?);
     let source = library.parent()?;
