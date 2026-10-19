@@ -1027,8 +1027,19 @@ impl Py<PyByteArray> {
         if size < 0 {
             return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0"));
         }
-        let mut inner = self.try_resizable(vm)?;
         let size = size as usize;
+        // An export's stable length avoids re-entering the payload lock.
+        let access = self.resize_access();
+        let len = match &access {
+            ResizeAccess::Exclusive(inner) => inner.elements.len(),
+            ResizeAccess::Exported { len } => *len,
+        };
+        if size == len {
+            return Ok(());
+        }
+        let ResizeAccess::Exclusive(mut inner) = access else {
+            return Err(vm.new_buffer_error("Existing exports of data: object cannot be re-sized"));
+        };
         let elements = &mut inner.elements;
         elements
             .try_reserve_exact(size.saturating_sub(elements.len()))

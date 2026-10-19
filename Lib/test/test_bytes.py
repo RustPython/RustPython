@@ -1862,7 +1862,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
         self.assertEqual(b, b"")
         self.assertEqual(c, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BufferError: Existing exports of data: object cannot be re-sized
     def test_resize_forbidden(self):
         # #4509: can't resize a bytearray when there are buffer exports, even
         # if it wouldn't reallocate the underlying buffer.
