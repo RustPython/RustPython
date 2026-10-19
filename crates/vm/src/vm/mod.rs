@@ -18,6 +18,8 @@ mod python_run;
 pub use python_run::InteractiveLine;
 pub mod runtime;
 mod setting;
+#[cfg(feature = "threading")]
+pub(crate) mod stop_the_world;
 pub mod thread;
 mod vm_new;
 mod vm_object;
