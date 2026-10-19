@@ -839,7 +839,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@c387862ad6765a9729f2b40ee4d8b5769f2145c7 # v1.26.1
+        uses: reviewdog/action-suggester@8219e3d2e54a63ddecf1318659aa541bd1fa7202 # v1.26.2
         with:
           level: warning
           fail_level: error
