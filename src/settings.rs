@@ -409,6 +409,18 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
     });
     settings.xoptions.extend(xopts);
 
+    // CPython validates the first frozen_modules option before initialization,
+    // then getpath's config dictionary round-trip keeps the last occurrence.
+    if let Some((_, value)) = settings
+        .xoptions
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "frozen_modules")
+    {
+        settings.use_frozen_modules =
+            parse_frozen_modules(value.as_deref(), "option -X frozen_modules");
+    }
+
     // Resolve utf8_mode if not explicitly set by PYTHONUTF8 or -X utf8.
     // Default to UTF-8 mode since RustPython's locale encoding detection
     // is incomplete. Users can set PYTHONUTF8=0 or -X utf8=0 to disable.
