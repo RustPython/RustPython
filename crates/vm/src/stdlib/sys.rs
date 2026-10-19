@@ -653,6 +653,16 @@ pub mod sys {
     }
 
     #[pyattr]
+    fn abi_info(vm: &VirtualMachine) -> PyRef<PyNamespace> {
+        py_namespace!(vm, {
+            "pointer_bits" => vm.ctx.new_int(usize::BITS),
+            "free_threaded" => vm.ctx.new_bool(true),
+            "debug" => vm.ctx.new_bool(false),
+            "byteorder" => byteorder(vm),
+        })
+    }
+
+    #[pyattr]
     fn _base_executable(vm: &VirtualMachine) -> String {
         vm.state.config.paths.base_executable.clone()
     }
@@ -1637,12 +1647,12 @@ pub mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
-        /// -X int_max_str_digits=number
-        int_max_str_digits: i64,
-        /// -P, `PYTHONSAFEPATH`
-        safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
+        /// -P, `PYTHONSAFEPATH`
+        safe_path: bool,
+        /// -X int_max_str_digits=number
+        int_max_str_digits: i64,
     }
 
     impl FlagsData {
@@ -1685,13 +1695,18 @@ pub mod sys {
         }
 
         #[pygetset]
-        fn context_aware_warnings(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.context_aware_warnings
+        const fn gil(&self) -> u8 {
+            0
         }
 
         #[pygetset]
-        fn thread_inherit_context(&self, vm: &VirtualMachine) -> bool {
-            vm.state.config.settings.thread_inherit_context
+        fn context_aware_warnings(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.context_aware_warnings as u8
+        }
+
+        #[pygetset]
+        fn thread_inherit_context(&self, vm: &VirtualMachine) -> u8 {
+            vm.state.config.settings.thread_inherit_context as u8
         }
 
         #[pygetset]
@@ -1712,9 +1727,9 @@ pub mod sys {
     impl ThreadInfoData {
         const INFO: Self = Self {
             name: crate::stdlib::_thread::_thread::PYTHREAD_NAME,
-            // As I know, there's only way to use lock as "Mutex" in Rust
-            // with satisfying python document spec.
-            lock: Some("mutex+cond"),
+            // RustPython uses parking_lot rather than CPython's PyMutex.
+            // None denotes a lock implementation without a Python ABI name.
+            lock: None,
             version: None,
         };
     }
