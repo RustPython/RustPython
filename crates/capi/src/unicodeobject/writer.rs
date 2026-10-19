@@ -70,3 +70,53 @@ pub unsafe extern "C" fn PyUnicodeWriter_WriteASCII(
 ) -> c_int {
     unsafe { PyUnicodeWriter_WriteUTF8(writer, str, size) }
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::py_format;
+    use pyo3::types::PyString;
+
+    #[test]
+    fn format_using_unicode_writer() {
+        Python::attach(|py| {
+            let name = String::from("world");
+            let _string = py_format!(py, "Hello, {}!", name).unwrap();
+        });
+    }
+
+    #[test]
+    fn unicode_writer_raw() {
+        Python::attach(|py| {
+            let writer_ptr = unsafe { super::PyUnicodeWriter_Create(0) };
+            assert!(!writer_ptr.is_null());
+
+            let hello = "Hello, ";
+            let world = "world!";
+            let _ = unsafe {
+                super::PyUnicodeWriter_WriteUTF8(
+                    writer_ptr,
+                    hello.as_ptr() as *const _,
+                    hello.len() as isize,
+                )
+            };
+            let _ = unsafe {
+                super::PyUnicodeWriter_WriteUTF8(
+                    writer_ptr,
+                    world.as_ptr() as *const _,
+                    world.len() as isize,
+                )
+            };
+
+            let string_ptr = unsafe { super::PyUnicodeWriter_Finish(writer_ptr) };
+            assert!(!string_ptr.is_null());
+
+            let string = unsafe {
+                Bound::from_owned_ptr(py, string_ptr.cast())
+                    .cast_into::<PyString>()
+                    .unwrap()
+            };
+            assert_eq!(string, "Hello, world!");
+        });
+    }
+}
