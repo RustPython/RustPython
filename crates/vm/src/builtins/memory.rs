@@ -1627,6 +1627,7 @@ pub(crate) fn release_buffer_from_python(
 // releasebuffer_call_python, for a buffer acquired from a native exporter
 pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
     crate::vm::thread::try_with_current_vm(|vm| {
+        let _raised = vm.preserve_raised_exception();
         let exporter = buffer.obj.clone();
         let window = PyBufferWindow {
             source: buffer.detached(),
@@ -1655,9 +1656,12 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
 
 fn call_python_release_buffer(exporter: &PyObject, mv: PyRef<PyMemoryView>) {
     crate::vm::thread::try_with_current_vm(|vm| {
+        let _raised = vm.preserve_raised_exception();
+        // Drop the captured view before restoring the pending error.
+        let owned_view = mv;
         let method = vm.get_special_method(exporter, identifier!(vm, __release_buffer__));
         if let Ok(Some(method)) = method
-            && let Err(exc) = method.invoke((mv,), vm)
+            && let Err(exc) = method.invoke((owned_view,), vm)
         {
             let msg = format!(
                 "Exception ignored in __release_buffer__ of {}",

@@ -924,6 +924,7 @@ impl WeakRefList {
         for (wr, callback) in callbacks {
             if let Some(cb) = callback {
                 crate::vm::thread::with_vm(&cb, |vm| {
+                    let _raised = vm.preserve_raised_exception();
                     let _ = cb.call((wr.clone(),), vm);
                 });
             }
@@ -2154,13 +2155,16 @@ impl PyObject {
                 // during __del__, preventing safe_inc from seeing 0.
                 zelf.0.ref_count.inc_by(2);
 
-                let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
-                if let Err(e) = slot_del(zelf, vm) {
-                    let msg = del_method
-                        .repr(vm)
-                        .ok()
-                        .map(|r| format!("Exception ignored while calling deallocator {r}"));
-                    vm.run_unraisable(e, msg, del_method);
+                {
+                    let _raised = vm.preserve_raised_exception();
+                    let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
+                    if let Err(e) = slot_del(zelf, vm) {
+                        let msg = del_method
+                            .repr(vm)
+                            .ok()
+                            .map(|r| format!("Exception ignored while calling deallocator {r}"));
+                        vm.run_unraisable(e, msg, del_method);
+                    }
                 }
 
                 // Undo the temporary resurrection. Always remove both
@@ -2315,6 +2319,7 @@ impl PyObject {
             // This ensures drop_slow_inner() won't call __del__ again
             self.set_gc_finalized();
             let result = crate::vm::thread::with_vm(self, |vm| {
+                let _raised = vm.preserve_raised_exception();
                 if let Err(e) = slot_del(self, vm)
                     && let Some(del_method) = self.get_class_attr(identifier!(vm, __del__))
                 {

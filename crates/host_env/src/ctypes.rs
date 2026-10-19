@@ -2011,7 +2011,7 @@ pub enum CallRet<'a> {
     Aggregate(&'a CTypeLayout),
 }
 
-/// Per-call error-swapping options.
+/// Per-call ABI and error-swapping options.
 #[cfg(all(
     any(
         target_os = "linux",
@@ -2023,6 +2023,10 @@ pub enum CallRet<'a> {
 ))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallOptions {
+    /// Declared argument count for a variadic call. Values must already have
+    /// their promoted C types; libffi rejects explicit narrow ctypes values.
+    /// `None` uses a fixed-arity CIF.
+    pub fixed_arg_count: Option<usize>,
     /// Swap the ctypes-local errno around the raw call (unix; ignored on windows).
     pub use_errno: bool,
     /// Swap the ctypes-local last error around the raw call (windows; ignored
@@ -2066,6 +2070,9 @@ pub enum CallValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallError {
     NullFunctionPointer,
+    InvalidCallInterface {
+        variadic: bool,
+    },
     UnknownTypeCode(String),
     /// An aggregate argument's buffer was shorter than its layout size.
     BufferTooSmall {
@@ -2156,7 +2163,13 @@ pub fn call(
         })
         .collect();
 
-    let cif = Cif::new(ffi_arg_types, ffi_return_type);
+    let cif = match options.fixed_arg_count {
+        Some(fixed) => Cif::try_new_variadic(ffi_arg_types, fixed, ffi_return_type),
+        None => Cif::try_new(ffi_arg_types, ffi_return_type),
+    }
+    .map_err(|_| CallError::InvalidCallInterface {
+        variadic: options.fixed_arg_count.is_some(),
+    })?;
 
     // Allocate the aggregate return buffer outside the error-swap window so no
     // allocation runs between the raw call and the errno/last-error capture.
@@ -3673,6 +3686,7 @@ mod tests {
                 CallOptions {
                     use_errno: true,
                     use_last_error: false,
+                    ..CallOptions::default()
                 },
             )
             .unwrap();
