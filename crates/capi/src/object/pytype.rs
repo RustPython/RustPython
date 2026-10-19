@@ -6,6 +6,7 @@ use crate::slots::{PySlot, PySlotKind, PySlotType};
 use crate::util::CStrExt;
 use crate::util::FfiPtrExt;
 use core::ffi::{c_char, c_int, c_ulong, c_void};
+use core::ptr;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::function::{ItemDoc, PyMethodFlags};
 use rustpython_vm::types::{AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots, SlotAccessor};
@@ -20,6 +21,15 @@ define_py_check!(exact fn PyType_CheckExact, types.type_type);
 pub struct PyType_Slot {
     pub slot: c_int,
     pub pfunc: *mut c_void,
+}
+
+#[repr(C)]
+pub struct PyType_Spec {
+    pub name: *const c_char,
+    pub basicsize: c_int,
+    pub itemsize: c_int,
+    pub flags: c_ulong,
+    pub slots: *mut PyType_Slot,
 }
 
 impl PyType_Slot {
@@ -104,11 +114,11 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) ->
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_GetSlot(_ty: *const PyTypeObject, _slot: c_int) -> *mut c_void {
-    core::ptr::null_mut()
+    ptr::null_mut()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
+pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
     with_vm(|vm| {
         let mut name = None;
         let mut base = None;
@@ -252,6 +262,78 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
 
         Ok(class)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromMetaclass(
+    metaclass: *mut PyTypeObject,
+    module: *mut PyObject,
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    let &PyType_Spec {
+        name,
+        basicsize,
+        itemsize,
+        flags,
+        slots: type_slots,
+    } = unsafe { &*spec };
+    let mut slots = [PySlot::SLOT_END; 9];
+    let mut write_slot = {
+        let mut iter = slots.iter_mut();
+        move |slot| {
+            debug_assert!(
+                iter.len() >= 2,
+                "PyType_FromMetaclass: last slot is reserved for SLOT_END"
+            );
+            let entry = iter
+                .next()
+                .expect("Too many slots for PyType_FromMetaclass");
+            *entry = slot;
+        }
+    };
+
+    if !bases.is_null() {
+        write_slot(PySlot::new(49, bases));
+    }
+
+    if !metaclass.is_null() {
+        write_slot(PySlot::new(107, metaclass));
+    }
+
+    if !module.is_null() {
+        write_slot(PySlot::new(108, module));
+    }
+
+    write_slot(PySlot::new(95, name.cast_mut()));
+    write_slot(PySlot::new(96, basicsize as isize));
+    write_slot(PySlot::new(98, itemsize as isize));
+    write_slot(PySlot::new(99, flags));
+    write_slot(PySlot::new(93, type_slots));
+
+    unsafe { PyType_FromSlots(slots.as_ptr()) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromModuleAndSpec(
+    module: *mut PyObject,
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), module, spec, bases) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSpecWithBases(
+    spec: *mut PyType_Spec,
+    bases: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), ptr::null_mut(), spec, bases) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_FromSpec(spec: *mut PyType_Spec) -> *mut PyObject {
+    unsafe { PyType_FromMetaclass(ptr::null_mut(), ptr::null_mut(), spec, ptr::null_mut()) }
 }
 
 #[unsafe(no_mangle)]
