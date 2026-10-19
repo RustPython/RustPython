@@ -21,6 +21,10 @@ assert b"+-".decode("utf-7") == "+"
 
 import _codecs
 
+# Encoder counts are characters consumed, not the size of the encoded bytes.
+assert _codecs.utf_8_encode("é😀") == (b"\xc3\xa9\xf0\x9f\x98\x80", 2)
+assert _codecs.utf_8_encode("a\ud800b", "surrogatepass") == (b"a\xed\xa0\x80b", 3)
+
 assert _codecs.escape_encode(b"a\tb") == (b"a\\tb", 3)
 assert _codecs.escape_decode(rb"a\tb") == (b"a\tb", 4)
 assert _codecs.utf_16_ex_decode(b"\xff\xfeh\x00i\x00", "strict", 0, True)[0] == "hi"
