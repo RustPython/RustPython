@@ -8237,7 +8237,7 @@ impl ExecutingFrame<'_> {
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
-            _ => self.execute_instrumented(instruction, arg, vm),
+            _ => self.execute_instrumented(instruction, arg, extend_arg, vm),
         }
     }
 
@@ -8248,9 +8248,10 @@ impl ExecutingFrame<'_> {
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
+        do_extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
-        self.execute_instrumented_from(instruction, arg, false, vm)
+        self.execute_instrumented_from(instruction, arg, false, do_extend_arg, vm)
     }
 
     #[cold]
@@ -8259,6 +8260,7 @@ impl ExecutingFrame<'_> {
         instruction: Instruction,
         arg: bytecode::OpArg,
         wrapper_dispatch: bool,
+        do_extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
         debug_assert!(
@@ -8654,10 +8656,15 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in side-table chain");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
+                    self.execute_instrumented_from(
+                        original_op,
+                        arg,
+                        wrapper_dispatch,
+                        do_extend_arg,
+                        vm,
+                    )
                 } else {
-                    let mut do_extend_arg = false;
-                    self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
                 };
                 let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
                 if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
@@ -8694,10 +8701,15 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in instruction side-table");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
+                    self.execute_instrumented_from(
+                        original_op,
+                        arg,
+                        wrapper_dispatch,
+                        do_extend_arg,
+                        vm,
+                    )
                 } else {
-                    let mut do_extend_arg = false;
-                    self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
                 };
                 let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
                 if orig_caches > 0 && self.lasti() == lasti_before_dispatch {

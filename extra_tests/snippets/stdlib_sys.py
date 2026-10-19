@@ -155,6 +155,31 @@ finally:
     monitoring.free_tool_id(2)
 assert records == ["RAISE", "PY_UNWIND"], records
 
+# A loop body large enough to require EXTENDED_ARG on its jump targets.
+namespace = {}
+exec(
+    "def large_loop():\n total = 0\n for x in (1, 2):\n"
+    + "  total += x\n" * 100
+    + " return total\n",
+    namespace,
+)
+large_loop = namespace["large_loop"]
+monitoring.use_tool_id(2, "extended-arg")
+try:
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, lambda *args: None)
+    for events in (
+        monitoring.events.LINE,
+        monitoring.events.LINE | monitoring.events.INSTRUCTION,
+    ):
+        monitoring.set_local_events(2, large_loop.__code__, events)
+        assert large_loop() == 300
+finally:
+    monitoring.set_local_events(2, large_loop.__code__, 0)
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, None)
+    monitoring.free_tool_id(2)
+
 assert sys.exc_info() == (None, None, None)
 
 try:
