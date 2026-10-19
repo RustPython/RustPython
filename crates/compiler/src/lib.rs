@@ -1636,11 +1636,9 @@ impl BarrySource<'_> {
         })
     }
 
-    /// The obsolete `<>` operator the parse error points at, if any. In Barry
-    /// mode the operator was rewritten to `!=`, so the error lands on its
-    /// start; outside Barry mode ruff lexes `<` and then an unexpected `>`, so
-    /// the error lands one character in. Either way the whole operator is one
-    /// token to the tokenizer, so report it as one.
+    /// The `<>` operator the parse error points at, if any. In Barry mode the
+    /// operator was rewritten to `!=`, so the error lands on its start, and the
+    /// whole operator is one token to the tokenizer, so report it as one.
     #[must_use]
     pub fn invalid_legacy_operator(
         &self,
@@ -1661,9 +1659,9 @@ impl BarrySource<'_> {
             .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
     }
 
-    /// The diagnostic for this source, if any: an obsolete `<>` the parse
-    /// error points at, or -- in Barry mode only -- the first `!=`. A `<>`
-    /// takes precedence over a `!=` reported later in the source.
+    /// The Barry mode diagnostic for this source, if any: a `<>` the parse
+    /// error points at, or the first `!=`. A `<>` takes precedence over a `!=`
+    /// reported later in the source.
     #[must_use]
     pub fn diagnostic(
         &self,
@@ -1713,21 +1711,6 @@ pub fn barry_as_flufl_invalid_legacy_operator_error(
     )
 }
 
-/// Every `<>` in `source`, located by plain text search. Only used where the
-/// operator is not rewritten, so an occurrence inside a string or a comment
-/// costs nothing: it can never coincide with the location of a parse error.
-fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
-    source
-        .match_indices("<>")
-        .map(|(offset, matched)| {
-            ruff_text_size::TextRange::at(
-                TextSize::new(offset as u32),
-                TextSize::new(matched.len() as u32),
-            )
-        })
-        .collect()
-}
-
 #[doc(hidden)]
 pub fn prepare_barry_as_flufl_source(
     source: &str,
@@ -1745,7 +1728,7 @@ pub fn prepare_barry_as_flufl_source(
         return BarrySource {
             source: Cow::Borrowed(source),
             not_equal: None,
-            legacy_not_equal: textual_legacy_not_equal(source),
+            legacy_not_equal: Vec::new(),
         };
     };
 
@@ -2656,7 +2639,10 @@ mod tests {
     fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
         let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<>' outside Barry mode is a syntax error");
-        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax.  Maybe you meant '!=' instead of '<>'?"
+        );
         assert_eq!(err.python_location(), (1, 3));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
@@ -2668,13 +2654,25 @@ mod tests {
         assert_eq!(err.python_location(), (1, 4));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
-        // A `<>` that starts a statement is reported at the `<` too, where the
-        // parser stops instead of one character in.
+        // A `<>` that starts a statement is not a comparison, so only the `<`
+        // is reported.
         let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("a bare '<>' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 1));
-        assert_eq!(err.python_end_location(), Some((1, 3)));
+        assert_eq!(err.python_end_location(), Some((1, 2)));
+
+        // `<<>` is a left shift followed by `>`.
+        let err = compile(
+            "2 <<> 3\n",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("'<<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 5));
+        assert_eq!(err.python_end_location(), Some((1, 6)));
 
         // A bracket left open earlier in the source outranks the operator.
         let err = compile(
