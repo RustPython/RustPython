@@ -9,6 +9,7 @@ import types
 import unittest
 from unittest import mock
 
+from _colorize import decolor
 from custom_text_test_runner import CustomTextTestRunner
 
 
@@ -254,8 +255,8 @@ class RunnerResultTests(unittest.TestCase):
                     for s in case["subtests"]
                 )
             )
-            self.assertIn("RuntimeError: original error", log.getvalue())
-            self.assertIn("AssertionError: original failure", log.getvalue())
+            self.assertIn("RuntimeError: original error", decolor(log.getvalue()))
+            self.assertIn("AssertionError: original failure", decolor(log.getvalue()))
 
     def test_discovery_preserves_qualified_names_and_import_errors(self):
         from jsontests import loadTestsOrSkip
