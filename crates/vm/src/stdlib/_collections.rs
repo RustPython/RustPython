@@ -93,25 +93,36 @@ mod _collections {
         fn append_item(&self, item: PyObjectRef, left: bool, maxlen: Option<usize>) {
             let removed = {
                 let mut deque = self.borrow_deque_mut();
-                if left {
-                    deque.push_front(item);
-                } else {
-                    deque.push_back(item);
-                }
-                self.state.fetch_add(1);
-                // Trim after pushing, so that a `maxlen` of zero drops what just
-                // arrived instead of popping from an empty deque and keeping it.
-                if maxlen.is_some_and(|maxlen| deque.len() > maxlen) {
-                    if left {
-                        deque.pop_back()
-                    } else {
-                        deque.pop_front()
-                    }
-                } else {
-                    None
-                }
+                self.push_item(&mut deque, item, left, maxlen)
             };
             drop(removed);
+        }
+
+        // Return evicted items to the caller so they can be dropped after unlocking.
+        fn push_item(
+            &self,
+            deque: &mut VecDeque<PyObjectRef>,
+            item: PyObjectRef,
+            left: bool,
+            maxlen: Option<usize>,
+        ) -> Option<PyObjectRef> {
+            if left {
+                deque.push_front(item);
+            } else {
+                deque.push_back(item);
+            }
+            self.state.fetch_add(1);
+            // Trim after pushing, so that a `maxlen` of zero drops what just
+            // arrived instead of popping from an empty deque and keeping it.
+            if maxlen.is_some_and(|maxlen| deque.len() > maxlen) {
+                if left {
+                    deque.pop_back()
+                } else {
+                    deque.pop_front()
+                }
+            } else {
+                None
+            }
         }
 
         fn extend_items(
@@ -281,8 +292,36 @@ mod _collections {
                 if let Some(maxlen) = zelf.maxlen {
                     repeats = repeats.min(maxlen.div_ceil(size));
                 }
+                if items.is_empty() || repeats <= 1 {
+                    return Ok(zelf);
+                }
+                if zelf.maxlen.is_none() {
+                    // Use the snapshot length: subclass callbacks may change both
+                    // the deque and the items being repeated. Reservation also
+                    // rejects capacities whose byte size cannot be represented.
+                    let additional = items
+                        .len()
+                        .checked_mul(repeats - 1)
+                        .ok_or_else(|| vm.no_memory_error())?;
+                    zelf.borrow_deque_mut()
+                        .try_reserve_exact(additional)
+                        .map_err(|_| vm.no_memory_error())?;
+                }
                 for _ in 1..repeats {
-                    zelf.extend_items(items.iter().cloned().map(Ok), false, zelf.maxlen)?;
+                    let maxlen = zelf.maxlen;
+                    if maxlen == Some(0) {
+                        continue;
+                    }
+                    for item in &items {
+                        let removed = {
+                            let mut deque = zelf.borrow_deque_mut();
+                            // Finalizers or another thread can discard a previous
+                            // reservation, so check capacity under the push lock.
+                            deque.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                            zelf.push_item(&mut deque, item.clone(), false, maxlen)
+                        };
+                        drop(removed);
+                    }
                 }
                 return Ok(zelf);
             }
