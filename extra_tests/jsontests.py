@@ -3,6 +3,7 @@ import unittest
 
 from custom_text_test_runner import CustomTextTestRunner as Runner
 from test.libregrtest.findtests import findtests
+from test.libregrtest.setup import setup_process
 
 
 def loadTestsOrSkip(loader, name):
@@ -20,6 +21,7 @@ def loadTestsOrSkip(loader, name):
 
 
 def main():
+    setup_process()
     testnames = findtests()
     # idk why this fixes the hanging, if it does
     testnames.remove("test_importlib")
