@@ -8627,6 +8627,13 @@ impl ExecutingFrame<'_> {
                     if line != self.prev_line.get() && line > 0 {
                         self.prev_line.set(line);
                         monitoring::fire_line(vm, self.code, offset, line)?;
+                        if self.lasti() != idx as u32 + 1 {
+                            self.apply_pending_lineno_jump(vm);
+                            // Restart at the callback's target without executing the
+                            // old opcode or carrying its EXTENDED_ARG prefix there.
+                            *do_extend_arg = false;
+                            return Ok(None);
+                        }
                     }
                 }
 
