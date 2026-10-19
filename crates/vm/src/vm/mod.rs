@@ -879,6 +879,8 @@ pub struct PyGlobalState {
     pub(crate) import_time_header: AtomicBool,
     pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
+    /// Placeholder identity shared by all threads and fresh imports in this interpreter.
+    pub(crate) functools_placeholder: crate::common::lock::OnceCell<PyObjectRef>,
     pub finalizing: AtomicBool,
     /// The thread performing finalization, which need not be the process main thread.
     #[cfg(feature = "threading")]

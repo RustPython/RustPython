@@ -169,6 +169,7 @@ where
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        functools_placeholder: Default::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
         finalizing_thread_ident: AtomicCell::new(0),

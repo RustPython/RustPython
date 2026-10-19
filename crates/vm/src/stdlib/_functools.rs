@@ -179,16 +179,19 @@ mod _functools {
         }
     }
 
-    // Placeholder singleton for partial arguments
-    // The singleton is stored as _instance on the type class
+    // Keep identity in interpreter state, not on the shared static type.
     #[pyattr]
     #[allow(non_snake_case)]
     fn Placeholder(vm: &VirtualMachine) -> PyObjectRef {
+        let cell = &vm.state.functools_placeholder;
+        if let Some(placeholder) = cell.get() {
+            return placeholder.clone();
+        }
+        // Allocate outside the cell initializer: allocation may trigger GC.
+        // Another thread can publish first; always return the published winner.
         let placeholder = PyPlaceholderType.into_pyobject(vm);
-        // Store the singleton on the type class for slot_new to find
-        let typ = placeholder.class();
-        typ.set_attr(vm.ctx.intern_str("_instance"), placeholder.clone());
-        placeholder
+        let _ = cell.set(placeholder);
+        cell.get().expect("Placeholder was initialized").clone()
     }
 
     #[pyattr]
@@ -199,16 +202,11 @@ mod _functools {
     impl Constructor for PyPlaceholderType {
         type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             if !args.args.is_empty() || !args.kwargs.is_empty() {
                 return Err(vm.new_type_error("_PlaceholderType takes no arguments"));
             }
-            // Return the singleton stored on the type class
-            if let Some(instance) = cls.get_attr(vm.ctx.intern_str("_instance")) {
-                return Ok(instance);
-            }
-            // Fallback: create a new instance (shouldn't happen for base type after module init)
-            Ok(Self.into_pyobject(vm))
+            Ok(Placeholder(vm))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
