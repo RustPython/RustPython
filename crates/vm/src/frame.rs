@@ -8237,21 +8237,30 @@ impl ExecutingFrame<'_> {
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
-            _ => self.execute_instrumented(instruction, arg, extend_arg, vm),
+            _ => {
+                let (result, do_extend_arg) = self.execute_instrumented(instruction, arg, vm);
+                *extend_arg = do_extend_arg;
+                result
+            }
         }
     }
 
     /// Handle all INSTRUMENTED_* opcodes. This function is cold — it only
     /// runs when sys.monitoring has rewritten the bytecode.
     #[cold]
+    #[inline(never)]
     fn execute_instrumented(
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
-        do_extend_arg: &mut bool,
         vm: &VirtualMachine,
-    ) -> FrameResult {
-        self.execute_instrumented_from(instruction, arg, false, do_extend_arg, vm)
+    ) -> (FrameResult, bool) {
+        // Keep the mutable flag inside this cold function so its address does
+        // not escape the dispatch loop and force a stack access for every opcode.
+        let mut do_extend_arg = false;
+        let result =
+            self.execute_instrumented_from(instruction, arg, false, &mut do_extend_arg, vm);
+        (result, do_extend_arg)
     }
 
     #[cold]
