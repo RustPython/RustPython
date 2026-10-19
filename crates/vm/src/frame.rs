@@ -8237,20 +8237,30 @@ impl ExecutingFrame<'_> {
             }
             // All INSTRUMENTED_* opcodes delegate to a cold function to keep
             // the hot instruction loop free of monitoring overhead.
-            _ => self.execute_instrumented(instruction, arg, vm),
+            _ => {
+                let (result, do_extend_arg) = self.execute_instrumented(instruction, arg, vm);
+                *extend_arg = do_extend_arg;
+                result
+            }
         }
     }
 
     /// Handle all INSTRUMENTED_* opcodes. This function is cold — it only
     /// runs when sys.monitoring has rewritten the bytecode.
     #[cold]
+    #[inline(never)]
     fn execute_instrumented(
         &mut self,
         instruction: Instruction,
         arg: bytecode::OpArg,
         vm: &VirtualMachine,
-    ) -> FrameResult {
-        self.execute_instrumented_from(instruction, arg, false, vm)
+    ) -> (FrameResult, bool) {
+        // Keep the mutable flag inside this cold function so its address does
+        // not escape the dispatch loop and force a stack access for every opcode.
+        let mut do_extend_arg = false;
+        let result =
+            self.execute_instrumented_from(instruction, arg, false, &mut do_extend_arg, vm);
+        (result, do_extend_arg)
     }
 
     #[cold]
@@ -8259,6 +8269,7 @@ impl ExecutingFrame<'_> {
         instruction: Instruction,
         arg: bytecode::OpArg,
         wrapper_dispatch: bool,
+        do_extend_arg: &mut bool,
         vm: &VirtualMachine,
     ) -> FrameResult {
         debug_assert!(
@@ -8625,6 +8636,13 @@ impl ExecutingFrame<'_> {
                     if line != self.prev_line.get() && line > 0 {
                         self.prev_line.set(line);
                         monitoring::fire_line(vm, self.code, offset, line)?;
+                        if self.lasti() != idx as u32 + 1 {
+                            self.apply_pending_lineno_jump(vm);
+                            // Restart at the callback's target without executing the
+                            // old opcode or carrying its EXTENDED_ARG prefix there.
+                            *do_extend_arg = false;
+                            return Ok(None);
+                        }
                     }
                 }
 
@@ -8654,10 +8672,15 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in side-table chain");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
+                    self.execute_instrumented_from(
+                        original_op,
+                        arg,
+                        wrapper_dispatch,
+                        do_extend_arg,
+                        vm,
+                    )
                 } else {
-                    let mut do_extend_arg = false;
-                    self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
                 };
                 let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
                 if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
@@ -8694,10 +8717,15 @@ impl ExecutingFrame<'_> {
                     .expect("invalid opcode in instruction side-table");
                 let lasti_before_dispatch = self.lasti();
                 let result = if original_op.to_base().is_some() {
-                    self.execute_instrumented_from(original_op, arg, wrapper_dispatch, vm)
+                    self.execute_instrumented_from(
+                        original_op,
+                        arg,
+                        wrapper_dispatch,
+                        do_extend_arg,
+                        vm,
+                    )
                 } else {
-                    let mut do_extend_arg = false;
-                    self.execute_instruction(original_op, arg, &mut do_extend_arg, vm)
+                    self.execute_instruction(original_op, arg, do_extend_arg, vm)
                 };
                 let orig_caches = original_op.to_base().unwrap_or(original_op).cache_entries();
                 if orig_caches > 0 && self.lasti() == lasti_before_dispatch {
