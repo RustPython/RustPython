@@ -173,6 +173,11 @@ def jump_out_of_large_loop(code, line):
             sys._getframe(1).f_lineno = 3
 
 
+def jump_after_large_loop(code, line):
+    if code is large_loop.__code__ and line == 5:
+        sys._getframe(1).f_lineno = 106
+
+
 monitoring.use_tool_id(2, "extended-arg")
 try:
     for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
@@ -188,6 +193,8 @@ try:
     monitoring.set_local_events(2, large_loop.__code__, monitoring.events.LINE)
     assert large_loop() == "done"
     assert loop_hits == 2
+    monitoring.register_callback(2, monitoring.events.LINE, jump_after_large_loop)
+    assert large_loop() == 0
 finally:
     monitoring.set_local_events(2, large_loop.__code__, 0)
     for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
