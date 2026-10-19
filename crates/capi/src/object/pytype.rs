@@ -5,7 +5,7 @@ use crate::pystate::with_vm;
 use crate::slots::{PySlot, PySlotKind, PySlotType};
 use crate::util::CStrExt;
 use crate::util::FfiPtrExt;
-use core::ffi::{c_char, c_int, c_ulong, c_void};
+use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::function::{ItemDoc, PyMethodFlags};
@@ -28,7 +28,7 @@ pub struct PyType_Spec {
     pub name: *const c_char,
     pub basicsize: c_int,
     pub itemsize: c_int,
-    pub flags: c_ulong,
+    pub flags: c_uint,
     pub slots: *mut PyType_Slot,
 }
 
@@ -308,7 +308,7 @@ pub unsafe extern "C" fn PyType_FromMetaclass(
     write_slot(PySlot::new(95, name.cast_mut()));
     write_slot(PySlot::new(96, basicsize as isize));
     write_slot(PySlot::new(98, itemsize as isize));
-    write_slot(PySlot::new(99, flags));
+    write_slot(PySlot::new(99, flags as u64));
     write_slot(PySlot::new(93, type_slots));
 
     unsafe { PyType_FromSlots(slots.as_ptr()) }
