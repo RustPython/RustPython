@@ -4,9 +4,10 @@ use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use core::{slice, str};
 use rustpython_vm::PyObject;
+use rustpython_vm::common::wtf8::{CodePoint, Wtf8Buf};
 
 pub struct PyUnicodeWriter {
-    buffer: String,
+    buffer: Wtf8Buf,
 }
 
 #[unsafe(no_mangle)]
@@ -17,7 +18,7 @@ pub unsafe extern "C" fn PyUnicodeWriter_Create(length: isize) -> *mut PyUnicode
             .map_err(|_| vm.new_value_error("invalid length"))?;
 
         let writer = Box::into_raw(Box::new(PyUnicodeWriter {
-            buffer: String::with_capacity(length),
+            buffer: Wtf8Buf::with_capacity(length),
         }));
 
         Ok(writer)
@@ -43,10 +44,9 @@ pub unsafe extern "C" fn PyUnicodeWriter_Discard(writer: *mut PyUnicodeWriter) {
 pub unsafe extern "C" fn PyUnicodeWriter_WriteChar(writer: *mut PyUnicodeWriter, ch: u32) -> c_int {
     with_vm(|vm| {
         let writer = unsafe { &mut *writer };
-        let char = ch
-            .try_into()
-            .map_err(|_| vm.new_value_error("invalid char"))?;
-        writer.buffer.push(char);
+        let codepoint =
+            CodePoint::from_u32(ch).ok_or_else(|| vm.new_value_error("invalid char"))?;
+        writer.buffer.push(codepoint);
         Ok(())
     })
 }
@@ -84,6 +84,7 @@ pub unsafe extern "C" fn PyUnicodeWriter_WriteASCII(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use pyo3::prelude::*;
     use pyo3::py_format;
     use pyo3::types::PyString;
@@ -99,27 +100,28 @@ mod tests {
     #[test]
     fn unicode_writer_raw() {
         Python::attach(|py| {
-            let writer_ptr = unsafe { super::PyUnicodeWriter_Create(0) };
+            let writer_ptr = unsafe { PyUnicodeWriter_Create(0) };
             assert!(!writer_ptr.is_null());
 
             let hello = "Hello, ";
             let world = "world!";
             let _ = unsafe {
-                super::PyUnicodeWriter_WriteUTF8(
+                PyUnicodeWriter_WriteUTF8(
                     writer_ptr,
                     hello.as_ptr() as *const _,
                     hello.len() as isize,
                 )
             };
             let _ = unsafe {
-                super::PyUnicodeWriter_WriteUTF8(
+                PyUnicodeWriter_WriteUTF8(
                     writer_ptr,
                     world.as_ptr() as *const _,
                     world.len() as isize,
                 )
             };
+            assert_eq!(unsafe { PyUnicodeWriter_WriteChar(writer_ptr, 0xD800) }, 0);
 
-            let string_ptr = unsafe { super::PyUnicodeWriter_Finish(writer_ptr) };
+            let string_ptr = unsafe { PyUnicodeWriter_Finish(writer_ptr) };
             assert!(!string_ptr.is_null());
 
             let string = unsafe {
@@ -127,7 +129,7 @@ mod tests {
                     .cast_into::<PyString>()
                     .unwrap()
             };
-            assert_eq!(string, "Hello, world!");
+            assert_eq!(string.repr().unwrap(), "'Hello, world!\\ud800'");
         });
     }
 }
