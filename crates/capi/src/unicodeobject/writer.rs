@@ -11,9 +11,17 @@ pub struct PyUnicodeWriter {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicodeWriter_Create(length: isize) -> *mut PyUnicodeWriter {
-    Box::into_raw(Box::new(PyUnicodeWriter {
-        buffer: String::with_capacity(length as usize),
-    }))
+    with_vm(|vm| {
+        let length = length
+            .try_into()
+            .map_err(|_| vm.new_value_error("invalid length"))?;
+
+        let writer = Box::into_raw(Box::new(PyUnicodeWriter {
+            buffer: String::with_capacity(length),
+        }));
+
+        Ok(writer)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -54,7 +62,10 @@ pub unsafe extern "C" fn PyUnicodeWriter_WriteUTF8(
         let str = if size == -1 {
             unsafe { str.try_as_str(vm)? }
         } else {
-            let slice = unsafe { slice::from_raw_parts(str as *const u8, size as usize) };
+            let length = size
+                .try_into()
+                .map_err(|_| vm.new_value_error("invalid size"))?;
+            let slice = unsafe { slice::from_raw_parts(str as *const u8, length) };
             str::from_utf8(slice).map_err(|_| vm.new_system_error("invalid UTF-8"))?
         };
         writer.buffer.push_str(str);
