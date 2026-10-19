@@ -795,3 +795,19 @@ class IndexedSwapped(_swapped):
 _words = (IndexedSwapped * 1).from_buffer_copy(b"\x01\x02\x03\x04")
 assert type(_words[0]) is IndexedSwapped
 assert _words[0].value == int.from_bytes(bytes(_words), _sys.byteorder)
+
+# Field assignment copies encoded instances; only numeric inputs are converted.
+for _base in (ctypes.Structure, ctypes.Union):
+    for _field_type in (_swapped, IndexedSwapped):
+
+        class EndianField(_base):
+            _fields_ = [("word", _field_type)]
+
+        _value = _field_type(0x01020304)
+        _aggregate = EndianField(_value)
+        assert bytes(_aggregate) == bytes(_value)
+        _field = EndianField.from_buffer_copy(bytes(_value)).word
+        assert getattr(_field, "value", _field) == _value.value
+        if _field_type is IndexedSwapped:
+            _aggregate.word = 0x55667788
+            assert bytes(_aggregate) == bytes(IndexedSwapped(0x55667788))

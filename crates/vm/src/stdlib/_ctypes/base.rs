@@ -1073,6 +1073,20 @@ impl PyCData {
             }
         }
 
+        // A compatible ctypes instance already contains the encoded field bytes.
+        // Snapshot them before writing: source and destination may share storage.
+        if let Some(proto_type) = proto.downcast_ref::<PyType>()
+            && value.class().fast_issubclass(proto_type)
+            && let Some(source) = value.downcast_ref::<Self>()
+        {
+            let bytes = {
+                let buffer = source.buffer.read();
+                rustpython_host_env::ctypes::copy_to_sized_bytes(&buffer, size)
+            };
+            self.write_bytes_at_offset(offset, &bytes);
+            return self.keep_cdata(index, &value, vm);
+        }
+
         // Special handling for Pointer fields with Array values
         if let Some(proto_type) = proto.downcast_ref::<PyType>()
             && proto_type
@@ -1260,10 +1274,7 @@ impl PyCData {
                 .as_object()
                 .get_attr("_swappedbytes_", vm)
                 .is_ok()
-                || proto_type
-                    .as_object()
-                    .get_attr("_swappedbytes_", vm)
-                    .is_ok();
+                || super::simple::is_swapped(&proto_type);
 
             let data = if needs_swap && size > 1 {
                 let mut swapped = buffer_data;
@@ -1916,11 +1927,7 @@ impl Py<PyCField> {
                     .as_object()
                     .get_attr("_swappedbytes_", vm)
                     .is_ok()
-                    || zelf
-                        .proto
-                        .as_object()
-                        .get_attr("_swappedbytes_", vm)
-                        .is_ok())
+                    || super::simple::is_swapped(&zelf.proto))
                     && size > 1;
 
                 // PyCData_set
