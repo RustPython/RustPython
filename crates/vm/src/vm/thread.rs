@@ -1480,6 +1480,7 @@ impl VirtualMachine {
             lazy_imports_resolving: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
+            import_bootstrap_complete: self.import_bootstrap_complete,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),

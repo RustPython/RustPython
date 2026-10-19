@@ -180,10 +180,14 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
         return Ok(frozen);
     }
 
-    // use_frozen(): override > 0 → true, override < 0 → false, 0 → default (true)
+    // use_frozen(): override > 0 → true, override < 0 → false, 0 → startup setting
     // When disabled, non-bootstrap modules are simply not found (same as look_up_frozen)
     let override_val = vm.state.override_frozen_modules.load();
-    if override_val < 0 {
+    if override_val < 0
+        || (override_val == 0
+            && vm.import_bootstrap_complete
+            && !vm.state.config.settings.use_frozen_modules)
+    {
         return Err(FrozenError::NotFound);
     }
 
