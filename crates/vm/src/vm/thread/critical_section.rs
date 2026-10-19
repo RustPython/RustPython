@@ -12,15 +12,19 @@ use crate::VirtualMachine;
 pub(crate) struct CriticalSectionLock {
     interpreter_id: i64,
     #[cfg(feature = "threading")]
-    lock: std::sync::Arc<core::sync::atomic::AtomicBool>,
+    lock: alloc::sync::Arc<core::sync::atomic::AtomicBool>,
 }
 
 impl CriticalSectionLock {
+    #[cfg_attr(
+        not(all(test, feature = "threading")),
+        expect(dead_code, reason = "Removed when the profiler consumer is wired")
+    )]
     pub(crate) fn new(vm: &VirtualMachine) -> Self {
         Self {
             interpreter_id: vm.state.interpreter_id,
             #[cfg(feature = "threading")]
-            lock: std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false)),
+            lock: alloc::sync::Arc::new(core::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -29,6 +33,10 @@ impl CriticalSectionLock {
     /// Calling Python can suspend this lock, so revalidate state afterward.
     /// This API deliberately exposes no guard or data reference. Traversal
     /// uses separate short payload locks; there is no stopped-world bypass.
+    #[cfg_attr(
+        not(all(test, feature = "threading")),
+        expect(dead_code, reason = "Removed when the profiler consumer is wired")
+    )]
     pub(crate) fn with<R>(&self, vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
         assert_eq!(self.interpreter_id, vm.state.interpreter_id);
         #[cfg(feature = "threading")]
@@ -54,12 +62,13 @@ pub(super) use threaded::{assert_empty, resume, suspend};
 mod threaded {
     use super::CriticalSectionLock;
     use crate::vm::{PyGlobalState, thread};
+    use alloc::{rc::Rc, sync::Arc};
     use core::{
         cell::RefCell,
         marker::PhantomData,
         sync::atomic::{AtomicBool, Ordering},
     };
-    use std::{collections::HashMap, rc::Rc, sync::Arc};
+    use std::collections::HashMap;
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Status {
@@ -255,5 +264,289 @@ mod threaded {
                 "thread cleanup cannot abandon an operation section"
             );
         });
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "threading")]
+mod tests {
+    use super::*;
+    #[cfg(all(unix, feature = "host_env"))]
+    use crate::AsObject;
+    use crate::Interpreter;
+    use alloc::sync::Arc;
+    use core::{
+        panic::AssertUnwindSafe,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn nested_sections_restore_ownership() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let first = CriticalSectionLock::new(vm);
+                let second = CriticalSectionLock::new(vm);
+                first.with(vm, || {
+                    first.with(vm, || assert!(first.lock.load(Ordering::Acquire)));
+                    second.with(vm, || {
+                        first.with(vm, || {
+                            assert!(first.lock.load(Ordering::Acquire));
+                            assert!(!second.lock.load(Ordering::Acquire));
+                        });
+                        assert!(second.lock.load(Ordering::Acquire));
+                        assert!(!first.lock.load(Ordering::Acquire));
+                    });
+                    assert!(first.lock.load(Ordering::Acquire));
+                });
+                assert!(!first.lock.load(Ordering::Acquire));
+                assert!(!second.lock.load(Ordering::Acquire));
+                assert_empty(vm.state.interpreter_id);
+            });
+    }
+
+    #[test]
+    fn detachment_and_unwind_restore_sections() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let lock = CriticalSectionLock::new(vm);
+                let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    lock.with(vm, || {
+                        vm.allow_threads(|| assert!(!lock.lock.load(Ordering::Acquire)));
+                        assert!(lock.lock.load(Ordering::Acquire));
+                        panic!("unwind the operation scope");
+                    });
+                }));
+                assert!(result.is_err());
+                assert!(!lock.lock.load(Ordering::Acquire));
+                assert_empty(vm.state.interpreter_id);
+                lock.with(vm, || assert!(lock.lock.load(Ordering::Acquire)));
+            });
+    }
+
+    #[test]
+    fn interpreter_switch_restores_only_its_own_scopes() {
+        let first = Interpreter::builder(Default::default()).build();
+        let second = Interpreter::builder(Default::default()).build();
+        first.enter(|first_vm| {
+            let first_lock = CriticalSectionLock::new(first_vm);
+            first_lock.with(first_vm, || {
+                second.enter(|second_vm| {
+                    assert!(!first_lock.lock.load(Ordering::Acquire));
+                    let second_lock = CriticalSectionLock::new(second_vm);
+                    second_lock.with(second_vm, || {
+                        first.enter(|restored_vm| {
+                            assert!(first_lock.lock.load(Ordering::Acquire));
+                            assert!(!second_lock.lock.load(Ordering::Acquire));
+                            first_lock.with(restored_vm, || {});
+                        });
+                        assert!(second_lock.lock.load(Ordering::Acquire));
+                        let mismatch = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                            first_lock.with(second_vm, || {});
+                        }));
+                        assert!(mismatch.is_err());
+                    });
+                });
+                assert!(first_lock.lock.load(Ordering::Acquire));
+            });
+        });
+    }
+
+    #[test]
+    fn opposite_order_contention_completes() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let first = Arc::new(CriticalSectionLock::new(vm));
+                let second = Arc::new(CriticalSectionLock::new(vm));
+                let completed = Arc::new(AtomicUsize::new(0));
+                let workers: Vec<_> = [false, true]
+                    .into_iter()
+                    .map(|reverse| {
+                        let (outer, inner) = if reverse {
+                            (second.clone(), first.clone())
+                        } else {
+                            (first.clone(), second.clone())
+                        };
+                        let completed = completed.clone();
+                        vm.start_thread(move |vm| {
+                            for _ in 0..1000 {
+                                outer.with(vm, || {
+                                    inner.with(vm, || {
+                                        completed.fetch_add(1, Ordering::Relaxed);
+                                    })
+                                });
+                            }
+                        })
+                    })
+                    .collect();
+                vm.allow_threads(|| {
+                    for worker in workers {
+                        worker.join().unwrap();
+                    }
+                });
+                assert_eq!(completed.load(Ordering::Relaxed), 2000);
+                assert!(!first.lock.load(Ordering::Acquire));
+                assert!(!second.lock.load(Ordering::Acquire));
+            });
+    }
+
+    #[test]
+    fn stop_the_world_releases_operation_ownership() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let lock = Arc::new(CriticalSectionLock::new(vm));
+                let finished = Arc::new(core::sync::atomic::AtomicBool::new(false));
+                let (ready, started) = std::sync::mpsc::channel();
+                let worker = {
+                    let lock = lock.clone();
+                    let finished = finished.clone();
+                    vm.start_thread(move |vm| {
+                        lock.with(vm, || {
+                            ready.send(()).unwrap();
+                            while !finished.load(Ordering::Acquire) {
+                                crate::vm::thread::suspend_if_needed(&vm.state);
+                                std::thread::yield_now();
+                            }
+                            assert!(lock.lock.load(Ordering::Acquire));
+                        });
+                    })
+                };
+                vm.allow_threads(|| started.recv().unwrap());
+                let mut stopped = crate::vm::stop_the_world::StopTheWorldGroup::new();
+                assert!(!lock.lock.load(Ordering::Acquire));
+                finished.store(true, Ordering::Release);
+                stopped.restart();
+                vm.allow_threads(|| worker.join().unwrap());
+                assert!(!lock.lock.load(Ordering::Acquire));
+            });
+    }
+
+    // Run this exact test alone in an owned process under an external timeout.
+    // It forks while an operation is active in another interpreter, and keeps
+    // lexical scopes in both interpreters alive across the child's slot repair.
+    #[cfg(all(unix, feature = "host_env"))]
+    #[test]
+    #[ignore = "requires an isolated process and external process-tree timeout"]
+    fn fork_preserves_nested_interpreter_scopes() {
+        let first = Interpreter::builder(Default::default()).build();
+        let second = Interpreter::builder(Default::default()).build();
+        first.enter(|first_vm| {
+            let outer = CriticalSectionLock::new(first_vm);
+            let worker_lock = Arc::new(CriticalSectionLock::new(first_vm));
+            let finished = Arc::new(core::sync::atomic::AtomicBool::new(false));
+            let (ready, started) = std::sync::mpsc::channel();
+            let worker = {
+                let lock = worker_lock.clone();
+                let finished = finished.clone();
+                first_vm.start_thread(move |vm| {
+                    lock.with(vm, || {
+                        ready.send(()).unwrap();
+                        while !finished.load(Ordering::Acquire) {
+                            crate::vm::thread::suspend_if_needed(&vm.state);
+                            std::thread::yield_now();
+                        }
+                    });
+                })
+            };
+            first_vm.allow_threads(|| started.recv().unwrap());
+            outer.with(first_vm, || {
+                second.enter(|vm| {
+                    let inner = CriticalSectionLock::new(vm);
+                    let posix = vm.import("posix", 0).unwrap();
+                    let lookups = Arc::new(AtomicUsize::new(0));
+                    let hook = {
+                        let lookups = lookups.clone();
+                        vm.new_function(
+                            "__getattr__",
+                            move |_name: crate::PyObjectRef,
+                                  vm: &VirtualMachine|
+                                  -> crate::PyResult {
+                                // Stream repair can reenter Python. Its native
+                                // callback must be able to acquire a fresh STW
+                                // transaction after core child repair.
+                                let mut stopped =
+                                    crate::vm::stop_the_world::StopTheWorldGroup::new();
+                                stopped.restart();
+                                lookups.fetch_add(1, Ordering::Relaxed);
+                                Err(vm.new_attribute_error("missing test stream"))
+                            },
+                        )
+                    };
+                    vm.sys_module.set_attr("__getattr__", hook, vm).unwrap();
+                    let _ = vm.sys_module.dict().del_item("stdin", vm);
+                    inner.with(vm, || {
+                        lookups.store(0, Ordering::Relaxed);
+                        let pid = vm
+                            .call_method(posix.as_object(), "fork", ())
+                            .unwrap()
+                            .try_into_value::<i32>(vm)
+                            .unwrap();
+                        if pid == 0 {
+                            assert!(lookups.load(Ordering::Relaxed) > 0);
+                            assert!(inner.lock.load(Ordering::Acquire));
+                            assert!(!worker_lock.lock.load(Ordering::Acquire));
+                            first.enter(|vm| {
+                                assert!(outer.lock.load(Ordering::Acquire));
+                                assert!(!inner.lock.load(Ordering::Acquire));
+                                worker_lock.with(vm, || {});
+                            });
+                            assert!(inner.lock.load(Ordering::Acquire));
+                            // The inherited shared transaction was released.
+                            let mut stopped = crate::vm::stop_the_world::StopTheWorldGroup::new();
+                            stopped.restart();
+                            // SAFETY: this owned child must not return into the
+                            // parent test runner or join the vanished worker.
+                            unsafe { libc::_exit(0) };
+                        }
+                        finished.store(true, Ordering::Release);
+                        let mut status = 0;
+                        vm.allow_threads(|| {
+                            rustpython_host_env::posix::waitpid(pid, &mut status, 0).unwrap();
+                        });
+                        assert!(libc::WIFEXITED(status));
+                        assert_eq!(libc::WEXITSTATUS(status), 0);
+                    });
+                });
+                assert!(outer.lock.load(Ordering::Acquire));
+            });
+            first_vm.allow_threads(|| worker.join().unwrap());
+        });
+    }
+
+    // The worker deliberately remains parked until the owned test process exits.
+    #[test]
+    #[ignore = "requires an isolated process and external process-tree timeout"]
+    fn shutting_down_releases_operation_ownership() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let lock = Arc::new(CriticalSectionLock::new(vm));
+                let (ready, started) = std::sync::mpsc::channel();
+                let worker = {
+                    let lock = lock.clone();
+                    vm.start_thread(move |vm| {
+                        lock.with(vm, || {
+                            ready
+                                .send(crate::vm::thread::current_thread_slot().unwrap())
+                                .unwrap();
+                            crate::vm::thread::hang_current_thread(&vm.state);
+                        });
+                    })
+                };
+                let slot = vm.allow_threads(|| started.recv().unwrap());
+                vm.allow_threads(|| {
+                    while slot.state.load(Ordering::Acquire)
+                        != crate::vm::thread::ThreadState::ShuttingDown as i32
+                    {
+                        std::thread::yield_now();
+                    }
+                });
+                assert!(!lock.lock.load(Ordering::Acquire));
+                lock.with(vm, || assert!(lock.lock.load(Ordering::Acquire)));
+                drop(worker);
+            });
     }
 }

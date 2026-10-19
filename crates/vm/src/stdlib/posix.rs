@@ -681,7 +681,12 @@ pub mod module {
         }
     }
 
-    fn py_os_before_fork(vm: &VirtualMachine) {
+    #[cfg(feature = "threading")]
+    use crate::vm::stop_the_world::ForkStopTheWorld;
+    #[cfg(not(feature = "threading"))]
+    struct ForkStopTheWorld;
+
+    fn py_os_before_fork(vm: &VirtualMachine) -> ForkStopTheWorld {
         let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
         // functions must be executed in reversed order as they are registered
         // only for before_forkers, refer: test_register_at_fork in test_posix
@@ -692,10 +697,21 @@ pub mod module {
         crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.stop_the_world(&vm.state);
+        {
+            ForkStopTheWorld::new()
+        }
+        #[cfg(not(feature = "threading"))]
+        {
+            ForkStopTheWorld
+        }
     }
 
-    fn py_os_after_fork_child(vm: &VirtualMachine) {
+    fn py_os_after_fork_child(vm: &VirtualMachine, _stopped: &mut ForkStopTheWorld) {
+        #[cfg(feature = "threading")]
+        unsafe {
+            _stopped.begin_child_repair();
+        }
+
         // The interpreter registry is reachable from every thread, so repair it
         // before anything enumerates interpreters.
         #[cfg(all(unix, feature = "threading"))]
@@ -711,20 +727,14 @@ pub mod module {
         // if we try to acquire them. This must happen before anything else.
         #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
+        #[cfg(feature = "threading")]
+        _stopped.retain_thread_slots(&vm.state);
 
         // The collector stops every interpreter, so interpreters other than the
         // forking one must be repaired too; otherwise the child's first
         // collection waits for threads that did not survive the fork.
         #[cfg(all(unix, feature = "threading"))]
-        reinit_other_interpreters_after_fork(vm);
-
-        // Reinit per-object IO buffer locks on std streams.
-        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
-        // held by dead parent threads, causing deadlocks on any IO in the child.
-        #[cfg(feature = "threading")]
-        unsafe {
-            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
-        };
+        reinit_other_interpreters_after_fork(vm, _stopped);
 
         // Phase 2: Reset low-level atomic state (no locks needed).
         crate::signal::clear_after_fork();
@@ -773,6 +783,20 @@ pub mod module {
         // When forked from a worker thread, the OnceCell is empty.
         vm.signal_handlers
             .get_or_init(crate::signal::SignalHandlers::default);
+
+        #[cfg(feature = "threading")]
+        _stopped.finish_child_repair();
+
+        // Reinit per-object IO buffer locks on std streams.
+        // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
+        // held by dead parent threads, causing deadlocks on any IO in the child.
+        // Lookup can call Python (for example sys.__getattr__), so core repair
+        // and transaction release must precede it. Such hooks must still avoid
+        // using inherited IO locks before this existing repair completes.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::stdlib::_io::reinit_std_streams_after_fork(vm)
+        };
 
         // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
@@ -831,7 +855,7 @@ pub mod module {
     /// # Safety
     /// Must only be called after `fork()` in the child, when no other threads exist.
     #[cfg(all(unix, feature = "threading"))]
-    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine) {
+    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine, stopped: &mut ForkStopTheWorld) {
         use rustpython_common::lock::reinit_mutex_after_fork;
 
         for state in crate::vm::runtime::live_interpreter_states() {
@@ -857,6 +881,7 @@ pub mod module {
             }
 
             state.stop_the_world.reset_after_fork();
+            stopped.retain_thread_slots(&state);
 
             // Every thread registered here belongs to the parent, including any
             // slot the forking thread itself registered before the fork.
@@ -868,9 +893,9 @@ pub mod module {
         crate::vm::thread::purge_other_interpreter_slots_after_fork(vm.state.interpreter_id);
     }
 
-    fn py_os_after_fork_parent(vm: &VirtualMachine) {
+    fn py_os_after_fork_parent(vm: &VirtualMachine, _stopped: &mut ForkStopTheWorld) {
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.start_the_world(&vm.state);
+        _stopped.restart();
 
         #[cfg(feature = "threading")]
         crate::stdlib::_imp::release_imp_lock_after_fork_parent();
@@ -955,25 +980,25 @@ pub mod module {
 
         vm.audit("os.fork", || ())?;
 
-        py_os_before_fork(vm);
+        let mut stopped = py_os_before_fork(vm);
         let pid = rustpython_host_env::posix::fork();
 
         match pid {
             Ok(0) => {
-                py_os_after_fork_child(vm);
+                py_os_after_fork_child(vm, &mut stopped);
                 Ok(0)
             }
             Ok(pid) => {
                 // Capture this before parent after-fork hooks in case those
                 // hooks start threads.
                 let num_os_threads = get_number_of_os_threads();
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 // Warn only after parent callback path resumes the world.
                 warn_if_multi_threaded("fork", num_os_threads, vm)?;
                 Ok(pid)
             }
             Err(err) => {
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 Err(err.into_pyexception(vm))
             }
         }
@@ -1000,22 +1025,22 @@ pub mod module {
 
         vm.audit("os.forkpty", || ())?;
 
-        py_os_before_fork(vm);
+        let mut stopped = py_os_before_fork(vm);
         let result = rustpython_host_env::posix::forkpty();
 
         match result {
             Ok((0, master)) => {
-                py_os_after_fork_child(vm);
+                py_os_after_fork_child(vm, &mut stopped);
                 Ok((0, master))
             }
             Ok((pid, master)) => {
                 let num_os_threads = get_number_of_os_threads();
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 warn_if_multi_threaded("forkpty", num_os_threads, vm)?;
                 Ok((pid, master))
             }
             Err(err) => {
-                py_os_after_fork_parent(vm);
+                py_os_after_fork_parent(vm, &mut stopped);
                 Err(err.into_pyexception(vm))
             }
         }

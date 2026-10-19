@@ -646,9 +646,9 @@ impl StopTheWorldState {
         // Only one thread survives fork; any stop-the-world bit inherited
         // from the parent is stale.
         crate::signal::clear_stop_bit();
-        // before_fork owns the sole transaction. Release it exactly once via
-        // that state's ownership flag; resetting other interpreters must not
-        // release a later transaction. No unconditional global reset is needed.
+        // A single-state stop owns the transaction through this flag. A fork
+        // group instead retains its shared transaction through child repair;
+        // its member states do not own exclusion and must not release it here.
         self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }

@@ -487,6 +487,13 @@ pub fn current_thread_slot() -> Option<CurrentFrameSlot> {
     CURRENT_THREAD_SLOT.with(|slot| slot.borrow().clone())
 }
 
+/// Keep cached/orphaned slots alive until child repair permits Python drops.
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
+pub(crate) fn retain_cached_slots_after_fork(retained: &mut Vec<CurrentFrameSlot>) {
+    INTERP_THREAD_SLOTS.with(|slots| retained.extend(slots.borrow().values().cloned()));
+    CURRENT_THREAD_SLOT.with(|slot| retained.extend(slot.borrow().iter().cloned()));
+}
+
 /// Make `slot` the current thread slot (and the cached top-frame pointer).
 #[cfg(feature = "threading")]
 fn set_current_thread_slot(slot: CurrentFrameSlot) {
@@ -588,6 +595,7 @@ fn hang_thread() -> ! {
 /// `Thread.is_alive()` remains true for a daemon forced off during finalize.
 #[cfg(feature = "threading")]
 pub fn hang_current_thread(state: &PyGlobalState) -> ! {
+    critical_section::suspend(state.interpreter_id);
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             let prev = s
@@ -646,7 +654,7 @@ fn attach_thread(state: &PyGlobalState) {
                         super::stw_trace(format_args!("attach DETACHED->ATTACHED"));
                         break;
                     }
-                    Err(state) => match ThreadState::from_i32(state) {
+                    Err(thread_state) => match ThreadState::from_i32(thread_state) {
                         Some(ThreadState::Suspended) => {
                             // Parked by stop-the-world — wait until released to DETACHED
                             super::stw_trace(format_args!("attach wait-suspended"));
@@ -659,7 +667,10 @@ fn attach_thread(state: &PyGlobalState) {
                             hang_thread();
                         }
                         _ => {
-                            debug_assert!(false, "unexpected thread state in attach: {state}");
+                            debug_assert!(
+                                false,
+                                "unexpected thread state in attach: {thread_state}"
+                            );
                             break;
                         }
                     },
@@ -676,11 +687,15 @@ fn attach_thread(state: &PyGlobalState) {
     // whether to park under the registry lock, so it never parks after the
     // request has been withdrawn.
     suspend_if_needed(state);
+    critical_section::resume(state);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
 #[cfg(feature = "threading")]
 fn detach_thread() {
+    if let Some(slot) = current_thread_slot() {
+        critical_section::suspend(slot.interpreter_id);
+    }
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
             match s.state.compare_exchange(
@@ -836,6 +851,20 @@ pub fn suspend_if_needed(state: &PyGlobalState) {
 #[cfg(feature = "threading")]
 #[cold]
 fn do_suspend(state: &PyGlobalState) {
+    if let Some(slot) = current_thread_slot() {
+        assert_eq!(slot.interpreter_id, state.interpreter_id);
+    }
+    critical_section::suspend(state.interpreter_id);
+    // Restore even when the request expired before the registry was locked.
+    // The guard runs after CURRENT_THREAD_SLOT's borrow has ended.
+    let _resume = scopeguard::guard(state, |state| {
+        if current_thread_slot().is_some_and(|slot| {
+            slot.interpreter_id == state.interpreter_id
+                && slot.state.load(Ordering::Acquire) == ThreadState::Attached as i32
+        }) {
+            critical_section::resume(state);
+        }
+    });
     let stw = &state.stop_the_world;
     CURRENT_THREAD_SLOT.with(|slot| {
         let borrowed = slot.borrow();
@@ -1128,6 +1157,7 @@ pub fn get_all_current_exceptions(vm: &VirtualMachine) -> Vec<(u64, Option<PyBas
 /// Called at thread exit (or when leaving an interpreter permanently).
 #[cfg(feature = "threading")]
 pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
+    critical_section::assert_empty(vm.state.interpreter_id);
     let thread_id = crate::stdlib::_thread::get_ident();
     let interp_id = vm.state.interpreter_id;
 
