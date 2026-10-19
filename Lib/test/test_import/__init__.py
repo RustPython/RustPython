@@ -2028,7 +2028,6 @@ class ImportTracebackTests(unittest.TestCase):
         finally:
             del importlib.SourceLoader.exec_module
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; subprocess fails on Windows
     @unittest.skipUnless(TESTFN_UNENCODABLE, 'need TESTFN_UNENCODABLE')
     def test_unencodable_filename(self):
         # Issue #11619: The Python parser and the import machinery must not
