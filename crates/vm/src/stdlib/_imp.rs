@@ -239,13 +239,15 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn is_builtin(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        vm.state.module_defs.contains_key(name.as_str())
+    fn is_builtin(name: PyStrRef, vm: &VirtualMachine) -> bool {
+        name.to_str()
+            .is_some_and(|name| vm.state.module_defs.contains_key(name))
     }
 
     #[pyfunction]
-    fn is_frozen(name: PyUtf8StrRef, vm: &VirtualMachine) -> bool {
-        super::find_frozen(name.as_str(), vm).is_ok()
+    fn is_frozen(name: PyStrRef, vm: &VirtualMachine) -> bool {
+        name.to_str()
+            .is_some_and(|name| super::find_frozen(name, vm).is_ok())
     }
 
     #[pyfunction]
@@ -477,7 +479,7 @@ mod _imp {
     #[derive(FromArgs)]
     struct FindFrozenArgs {
         #[pyarg(positional)]
-        name: PyUtf8StrRef,
+        name: PyStrRef,
         #[pyarg(named, default)]
         withdata: bool,
     }
@@ -489,8 +491,9 @@ mod _imp {
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
         let FindFrozenArgs { name, withdata } = args;
-
-        let name_str = name.as_str();
+        let Some(name_str) = name.to_str() else {
+            return Ok(None);
+        };
         let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
             Err(FrozenError::NotFound | FrozenError::Disabled | FrozenError::BadName) => {
