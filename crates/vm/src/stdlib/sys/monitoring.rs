@@ -446,6 +446,14 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
     // Mirrors CPython's initialize_lines: first determine which positions
     // are line starts, then mark branch/jump targets, then place opcodes.
     if events & MonitoringEvent::Line.mask() != 0 {
+        let base_opcode = |i| {
+            let mut op = code.code.instructions.read_op(i);
+            if matches!(op, Instruction::InstrumentedInstruction) {
+                op = Instruction::try_from(data.per_instruction_opcodes[i])
+                    .expect("INSTRUMENTED_INSTRUCTION without original opcode");
+            }
+            op.to_base().unwrap_or(op)
+        };
         // is_line_start[i] = true if position i should have INSTRUMENTED_LINE
         let mut is_line_start = vec![false; len];
         let line_locations = rustpython_compiler_core::marshal::linetable_to_locations(
@@ -459,16 +467,8 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
 
         // First pass: mark positions where the source line changes
         let mut prev_line: Option<u32> = None;
-        for (i, unit) in code
-            .code
-            .instructions
-            .iter()
-            .enumerate()
-            .take(len)
-            .skip(first_traceable)
-        {
-            let op = unit.op;
-            let base = op.to_base().unwrap_or(op);
+        for (i, is_start) in is_line_start.iter_mut().enumerate().skip(first_traceable) {
+            let base = base_opcode(i);
             if matches!(base, Instruction::ExtendedArg) {
                 continue;
             }
@@ -493,7 +493,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 let is_new = prev_line != Some(line);
                 prev_line = Some(line);
                 if is_new && line > 0 {
-                    is_line_start[i] = true;
+                    *is_start = true;
                 }
             }
         }
@@ -505,8 +505,8 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
         let mut arg_state = bytecode::OpArgState::default();
         let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
-            let (op, arg) = arg_state.get(unit);
-            let base = op.to_base().unwrap_or(op);
+            let (_, arg) = arg_state.get(unit);
+            let base = base_opcode(instr_idx);
 
             if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
                 instr_idx += 1;
@@ -540,8 +540,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().unwrap_or(target_op);
+                let target_base = base_opcode(target_idx);
                 // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
@@ -563,8 +562,7 @@ pub(crate) fn instrument_code(code: &Py<PyCode>, events: u32) {
                 && !is_line_start[target_idx]
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
-                let target_op = code.code.instructions.read_op(target_idx);
-                let target_base = target_op.to_base().unwrap_or(target_op);
+                let target_base = base_opcode(target_idx);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
