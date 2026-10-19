@@ -3,11 +3,19 @@ use crate::util::CStrExt;
 use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use core::{slice, str};
-use rustpython_vm::PyObject;
 use rustpython_vm::common::wtf8::{CodePoint, Wtf8Buf};
+use rustpython_vm::{PyObject, PyResult, VirtualMachine};
 
 pub struct PyUnicodeWriter {
     buffer: Wtf8Buf,
+}
+
+impl PyUnicodeWriter {
+    fn try_reserve(&mut self, vm: &VirtualMachine, additional: usize) -> PyResult<()> {
+        self.buffer
+            .try_reserve(additional)
+            .map_err(|_| vm.no_memory_error())
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -46,6 +54,7 @@ pub unsafe extern "C" fn PyUnicodeWriter_WriteChar(writer: *mut PyUnicodeWriter,
         let writer = unsafe { &mut *writer };
         let codepoint =
             CodePoint::from_u32(ch).ok_or_else(|| vm.new_value_error("invalid char"))?;
+        writer.try_reserve(vm, 4)?;
         writer.buffer.push(codepoint);
         Ok(())
     })
@@ -68,6 +77,7 @@ pub unsafe extern "C" fn PyUnicodeWriter_WriteUTF8(
             let slice = unsafe { slice::from_raw_parts(str as *const u8, length) };
             str::from_utf8(slice).map_err(|_| vm.new_system_error("invalid UTF-8"))?
         };
+        writer.try_reserve(vm, str.len())?;
         writer.buffer.push_str(str);
         Ok(())
     })
