@@ -1539,6 +1539,7 @@ mod tests {
         let sub = main.create_subinterpreter();
 
         let sub_scope = sub.enter(|vm| {
+            vm.state.gc.disable();
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, CYCLE);
             assert_eq!(live_nodes(vm), 2);
