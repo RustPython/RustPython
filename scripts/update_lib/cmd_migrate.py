@@ -368,6 +368,61 @@ def _preserve_frozen_lock_skip(old, new):
     )
 
 
+def _preserve_pyrepl_console_mocks(old: str, new: str) -> str:
+    """Retain only the three existing decorator-lambda parser workarounds.
+
+    The local preamble is pinned to RustPython e7e3dfd6; the canonical
+    decorators are pinned to CPython d220409a13. Preserve their comments too.
+    Neither class's test bodies participate in this substitution.
+    """
+    names = (
+        "__rustpython_patch_terminfo_tparm",
+        "__rustpython_patch_termios_tcgetattr",
+        "__rustpython_patch_termios_tcsetattr",
+    )
+    hashes = (
+        "cf1df685289a405fd3022f5790545b7c4218f30c71b0163dda055717c8c91cd8",
+        "63e1ec850e386fba876e14b6c665d4f043a3af77bc4778c53a5897c82375bcc3",
+    )
+    blocks = []
+    for local, contents, expected_hash in zip((True, False), (old, new), hashes):
+        tree = ast.parse(contents)
+        owner = _unique_anchor(
+            contents,
+            tree,
+            lambda node: isinstance(node, ast.ClassDef) and node.name == "TestConsole",
+            direct=True,
+        )
+        if list(_bytes_bindings(tree, "TestConsole")) != [owner]:
+            raise ValueError("Shadowed pyrepl console test class")
+        helpers = []
+        for name in names:
+            bindings = list(_bytes_bindings(tree, name))
+            if local:
+                if (
+                    len(bindings) != 1
+                    or not isinstance(bindings[0], ast.FunctionDef)
+                    or bindings[0] not in tree.body
+                ):
+                    raise ValueError("Missing or shadowed pyrepl console mock helper")
+                helpers.append(bindings[0])
+            elif bindings:
+                raise ValueError("Canonical pyrepl console mock helper already exists")
+        if not owner.decorator_list:
+            raise ValueError("Missing pyrepl console test decorators")
+        start = helpers[0].lineno if local else owner.decorator_list[0].lineno
+        block = "".join(
+            contents.splitlines(keepends=True)[start - 1 : owner.lineno - 1]
+        )
+        if hashlib.sha256(block.encode("utf-8")).hexdigest() != expected_hash:
+            raise ValueError("Changed pyrepl console mock preamble")
+        blocks.append((start, owner.lineno - 1, block))
+    start, end, _ = blocks[1]
+    lines = new.splitlines(keepends=True)
+    lines[start - 1 : end] = [blocks[0][2]]
+    return "".join(lines)
+
+
 def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) -> str:
     """Fail closed if either known local patch or its canonical anchor changes."""
     parts = path.parts
@@ -413,6 +468,8 @@ def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) ->
         return _preserve_multiphase_guard(old, new)
     if parts == ("Lib", "test", "test_importlib", "test_locks.py"):
         return _preserve_frozen_lock_skip(old, new)
+    if parts == ("Lib", "test", "test_pyrepl", "test_unix_console.py"):
+        return _preserve_pyrepl_console_mocks(old, new)
     if parts == ("Lib", "test", "test_types.py"):
         for contents in (old, new):
             if (
