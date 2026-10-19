@@ -316,9 +316,15 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> u32 {
 fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
     let scope = vm.new_scope_with_main()?;
 
-    // Initialize warnings module to process sys.warnoptions
-    // _PyWarnings_Init()
-    if vm.import("warnings", 0).is_err() {
+    // The native warnings state already holds the default filters. Import the
+    // Python module only when startup options require processing (-W, -b, dev).
+    let warnoptions = vm.sys_module.dict().get_item_opt("warnoptions", vm)?;
+    if warnoptions
+        .as_ref()
+        .and_then(|options| options.downcast_ref::<rustpython_vm::builtins::PyList>())
+        .is_some_and(|options| options.__len__() > 0)
+        && vm.import("warnings", 0).is_err()
+    {
         warn!("Failed to import warnings module");
     }
 

@@ -645,8 +645,7 @@ fn call_show_warning(
     module: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), source.is_some())?
-    else {
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(vm, _showwarnmsg), true)? else {
         show_warning(&filename, lineno, text, &category, source_line, vm);
         return Ok(());
     };
