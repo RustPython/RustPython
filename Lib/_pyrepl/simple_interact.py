@@ -31,7 +31,6 @@ import os
 import sys
 import code
 import warnings
-import errno
 
 from .readline import _get_reader, multiline_input, append_history_file
 
@@ -162,7 +161,7 @@ def run_multiline_interactive_console(
             if r.input_trans is r.isearch_trans:
                 r.do_cmd(("isearch-end", [""]))
             r.pos = len(r.get_unicode())
-            r.dirty = True
+            r.invalidate_full()
             r.refresh()
             console.write("\nKeyboardInterrupt\n")
             console.resetbuffer()
