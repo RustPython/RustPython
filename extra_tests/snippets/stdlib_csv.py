@@ -610,3 +610,32 @@ def test_dialect_lookup_and_conversion_order():
 
 
 test_dialect_lookup_and_conversion_order()
+
+
+def test_field_size_limit_types():
+    index_calls = []
+
+    class IntSubclass(int):
+        pass
+
+    class Index:
+        def __index__(self):
+            index_calls.append(True)
+            return 17
+
+    old_limit = csv.field_size_limit()
+    try:
+        assert csv.field_size_limit(23) == old_limit
+        for value in (True, IntSubclass(17), Index()):
+            with assert_raises(TypeError):
+                csv.field_size_limit(value)
+            assert csv.field_size_limit() == 23
+        assert index_calls == []
+        with assert_raises(OverflowError):
+            csv.field_size_limit(2**100)
+        assert csv.field_size_limit() == 23
+    finally:
+        csv.field_size_limit(old_limit)
+
+
+test_field_size_limit_types()

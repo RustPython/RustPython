@@ -8,8 +8,8 @@ use super::pointer::PyCPointer;
 use crate::builtins::{PyByteArray, PyBytes, PyInt, PyNone, PyStr, PyType, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::{Either, FuncArgs, OptionalArg};
-use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
-use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
+use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods, PySequenceMethods};
+use crate::types::{AsBuffer, AsNumber, AsSequence, Constructor, Initializer, Representable};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassDef, set_attrs,
@@ -226,7 +226,7 @@ fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResul
 #[repr(transparent)]
 pub(crate) struct PyCSimpleType(PyType);
 
-#[pyclass(flags(BASETYPE), with(AsNumber, Initializer))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Initializer))]
 impl PyCSimpleType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -494,31 +494,11 @@ impl PyCSimpleType {
             _ => Err(vm.new_type_error("wrong type")),
         }
     }
-
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        Py::<PyCSimple>::repeat(cls, n, vm)
-    }
 }
 
-impl AsNumber for PyCSimpleType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                // a is a PyCSimpleType instance (type object like c_char)
-                // b is int (array size)
-                let cls = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("expected type"))?;
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                Py::<PyCSimple>::repeat(cls.to_owned(), n, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCSimpleType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 
@@ -1229,13 +1209,7 @@ impl Py<PyCSimple> {
 
     #[pyclassmethod]
     fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::array_type_from_ctype;
-
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-        }
-        // Use cached array type creation
-        array_type_from_ctype(cls.into(), n as usize, vm)
+        super::array::repeat_type(cls.as_object(), n, vm)
     }
 
     // Simple_from_outparm - convert output parameter back to Python value

@@ -1467,6 +1467,7 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func: self.import_func.clone(),
             importlib: self.importlib.clone(),
+            import_timing: Cell::default(),
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
@@ -1476,8 +1477,10 @@ impl VirtualMachine {
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state: self.state.clone(),
             initialized: self.initialized,
+            import_bootstrap_complete: self.import_bootstrap_complete,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),

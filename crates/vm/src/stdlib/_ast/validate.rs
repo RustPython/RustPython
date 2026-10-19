@@ -118,6 +118,21 @@ fn validate_nonempty_seq(
     Ok(())
 }
 
+fn validate_import_names(
+    vm: &VirtualMachine,
+    names: &[ast::Alias],
+    owner: &'static str,
+) -> PyResult<()> {
+    validate_nonempty_seq(vm, names.len(), "names", owner)?;
+    for alias in names {
+        validate_name(vm, alias.name.id())?;
+        if let Some(asname) = &alias.asname {
+            validate_name(vm, asname.id())?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_assignlist(
     vm: &VirtualMachine,
     targets: &[ast::Expr],
@@ -739,6 +754,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 "FunctionDef"
             };
             validate_body(vm, &func.body, func.runtime_body.as_ref(), owner)?;
+            validate_name(vm, func.name.id())?;
             validate_type_params(vm, func.type_params.as_deref())?;
             validate_parameters(vm, &func.parameters)?;
             validate_runtime_expr_list_slots(
@@ -759,6 +775,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 class_def.runtime_body.as_ref(),
                 "ClassDef",
             )?;
+            validate_name(vm, class_def.name.id())?;
             validate_type_params(vm, class_def.type_params.as_deref())?;
             if let Some(arguments) = &class_def.arguments {
                 validate_runtime_expr_list_slots(
@@ -909,6 +926,11 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 if let Some(type_expr) = &handler.type_ {
                     validate_expr(vm, type_expr, ast::ExprContext::Load)?;
                 }
+                if !try_stmt.is_star
+                    && let Some(name) = &handler.name
+                {
+                    validate_name(vm, name.id())?;
+                }
                 validate_body(
                     vm,
                     &handler.body,
@@ -928,18 +950,14 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
             }
             Ok(())
         }
-        ast::Stmt::Import(import) => {
-            validate_nonempty_seq(vm, import.names.len(), "names", "Import")?;
-            Ok(())
-        }
+        ast::Stmt::Import(import) => validate_import_names(vm, &import.names, "Import"),
         ast::Stmt::ImportFrom(import) => {
             if let Some(level) = import.runtime_level
                 && level < 0
             {
                 return Err(vm.new_value_error("Negative ImportFrom level"));
             }
-            validate_nonempty_seq(vm, import.names.len(), "names", "ImportFrom")?;
-            Ok(())
+            validate_import_names(vm, &import.names, "ImportFrom")
         }
         ast::Stmt::Global(global) => {
             validate_nonempty_seq(vm, global.names.len(), "names", "Global")?;

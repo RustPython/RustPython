@@ -1,8 +1,10 @@
 use super::base::CDATA_BUFFER_METHODS;
 use super::{PyCArray, PyCData, PyCSimple, PyCStructure, StgInfo, StgInfoFlags};
 use crate::atomic_func;
-use crate::protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods};
-use crate::types::{AsBuffer, AsMapping, AsNumber, Constructor, Initializer};
+use crate::protocol::{
+    BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods, PySequenceMethods,
+};
+use crate::types::{AsBuffer, AsMapping, AsNumber, AsSequence, Constructor, Initializer};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
@@ -87,7 +89,7 @@ impl Initializer for PyCPointerType {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(AsNumber, Initializer))]
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(AsSequence, Initializer))]
 impl PyCPointerType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -175,16 +177,6 @@ impl PyCPointerType {
         )))
     }
 
-    fn __mul__(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
-        use super::array::array_type_from_ctype;
-
-        if n < 0 {
-            return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-        }
-        // Use cached array type creation
-        array_type_from_ctype(cls.into(), n as usize, vm)
-    }
-
     // PyCPointerType_set_type: Complete an incomplete pointer type
     #[pymethod]
     fn set_type(zelf: PyTypeRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -229,23 +221,9 @@ impl PyCPointerType {
     }
 }
 
-impl AsNumber for PyCPointerType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                let cls = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("expected type"))?;
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-                PyCPointerType::__mul__(cls.to_owned(), n, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCPointerType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 

@@ -59,7 +59,9 @@ mod shell;
 #[cfg(feature = "rustpython-pylib")]
 pub use rustpython_pylib as pylib;
 
-use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine, scope::Scope};
+use rustpython_vm::{
+    AsObject, PyObjectRef, PyResult, VirtualMachine, builtins::PyBaseExceptionRef, scope::Scope,
+};
 use std::env;
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -121,16 +123,8 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
 
     let interp = builder.interpreter();
     let exitcode = cfg_select! {
-        feature = "capi" => {{
-            let local_vm = interp.enter(|vm| vm.new_thread());
-            rustpython_capi::init_main_interpreter(interp);
-            let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
-            rustpython_capi::get_main_interpreter()
-                .take()
-                .unwrap()
-                .finalize(result.err())
-        }},
-        _ => interp.run(move |vm| run_rustpython(vm, run_mode)),
+        feature = "capi" => rustpython_capi::run_main_interpreter(interp, move |vm| run_rustpython(vm, run_mode)),
+        _ => interp.run_main(move |vm| run_rustpython(vm, run_mode)),
     };
 
     rustpython_vm::host_env::os::exit_code(exitcode)
@@ -221,7 +215,7 @@ fn script_sys_path0(argv0: &str) -> String {
 }
 
 // pymain_run_file_obj in Modules/main.c
-fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
+fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<u32> {
     // config_run_filename_abspath: __file__ and co_filename are absolute even
     // when the script was named relative to the working directory.
     let path = &abs_path(argv0);
@@ -232,7 +226,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
         let runpy = vm.import("runpy", 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", vm)?;
         run_module_as_main.call((vm::identifier!(vm, __main__).to_owned(), false), vm)?;
-        return Ok(());
+        return Ok(0);
     }
 
     // Add script directory to sys.path[0]
@@ -242,7 +236,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
 
     cfg_select! {
         feature = "host_env" => match rustpython_vm::host_env::fs::metadata(path) {
-            Ok(_) => vm.run_any_file(scope, path),
+            Ok(_) => vm.run_any_file(scope, path).map(|()| 0),
             Err(err) => cant_open_file(vm, path, &err),
         },
         _ => {
@@ -250,19 +244,23 @@ fn run_file(vm: &VirtualMachine, scope: Scope, argv0: &str) -> PyResult<()> {
             // The VM itself has no filesystem access.
             let path = if path.is_empty() { "???" } else { path };
             match std::fs::read_to_string(path) {
-                Ok(source) => vm.run_string(scope, &source, path).map(drop),
+                Ok(source) => vm.run_string(scope, &source, path).map(|_| 0),
                 Err(err) => cant_open_file(vm, path, &err),
             }
         }
     }
 }
 
-fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<()> {
-    let program = &vm.state.config.paths.executable;
+fn cant_open_file(vm: &VirtualMachine, path: &str, err: &std::io::Error) -> PyResult<u32> {
+    let program_name = &vm.state.config.paths.program_name;
     let filename_repr = vm.ctx.new_str(path).as_object().repr(vm)?;
     let errno = err.raw_os_error().unwrap_or(2);
-    eprintln!("{program}: can't open file {filename_repr}: [Errno {errno}] {err}");
-    Err(vm.new_system_exit(vec![vm.ctx.new_int(2).into()].into()))
+    let strerror = vm::host_env::errno::strerror_string(errno).unwrap_or_default();
+    writeln!(
+        vm::stdlib::sys::PyStderr(vm),
+        "{program_name}: can't open file {filename_repr}: [Errno {errno}] {strerror}"
+    );
+    Ok(2)
 }
 
 fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
@@ -296,16 +294,37 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     })
 }
 
-// pymain_run_python
-fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
+fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> u32 {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
+    let exitcode =
+        pymain_run_python(vm, run_mode).unwrap_or_else(|exc| vm.handle_exit_exception(exc));
+
+    #[cfg(feature = "flame-it")]
+    {
+        main_guard.end();
+        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
+            error!("Error writing profile information: {}", e);
+        }
+    }
+
+    exitcode
+}
+
+// pymain_run_python
+fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
     let scope = vm.new_scope_with_main()?;
 
-    // Initialize warnings module to process sys.warnoptions
-    // _PyWarnings_Init()
-    if vm.import("warnings", 0).is_err() {
+    // The native warnings state already holds the default filters. Import the
+    // Python module only when startup options require processing (-W, -b, dev).
+    let warnoptions = vm.sys_module.dict().get_item_opt("warnoptions", vm)?;
+    if warnoptions
+        .as_ref()
+        .and_then(|options| options.downcast_ref::<rustpython_vm::builtins::PyList>())
+        .is_some_and(|options| options.__len__() > 0)
+        && vm.import("warnings", 0).is_err()
+    {
         warn!("Failed to import warnings module");
     }
 
@@ -318,6 +337,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
              environment variable",
         );
     }
+
+    // CPython activates configured all-mode after site to avoid startup cycles.
+    vm.apply_startup_lazy_imports();
 
     // _PyPathConfig_ComputeSysPath0 - set sys.path[0] after site import
     if !vm.state.config.settings.safe_path {
@@ -342,8 +364,9 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     }
 
     let is_repl = matches!(run_mode, RunMode::Repl);
+    // pymain_header
     if !vm.state.config.settings.quiet
-        && (vm.state.config.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+        && (vm.state.config.settings.verbose > 0 || (is_repl && vm.stdin_is_interactive()))
     {
         eprintln!(
             "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
@@ -358,58 +381,220 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
 
         eprintln!("Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.");
     }
-    let res = match run_mode {
+
+    let set_running_main = vm.state.set_running_main();
+    let exitcode =
+        pymain_run_main(vm, scope, run_mode).unwrap_or_else(|exc| vm.handle_exit_exception(exc));
+    if set_running_main {
+        vm.state.set_not_running_main();
+    }
+    Ok(exitcode)
+}
+
+/// The part of pymain_run_python that runs while the main thread owns
+/// `__main__`.
+fn pymain_run_main(vm: &VirtualMachine, scope: Scope, run_mode: RunMode) -> PyResult<u32> {
+    let is_repl = matches!(run_mode, RunMode::Repl);
+    vm.check_signals()?;
+    let result = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_string(scope.clone(), &command, "<string>").map(drop)
+            vm.run_string(scope, &command, "<string>").map(|_| 0)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");
-            vm.run_module(&module)
+            vm.run_module(&module).map(|()| 0)
         }
-        RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
+        RunMode::InstallPip(installer) => install_pip(installer, scope, vm).map(|()| 0),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
             debug!("Running script {script_path}");
-            run_file(vm, scope.clone(), &script_path)
+            run_file(vm, scope, &script_path)
         }
-        RunMode::Repl => Ok(()),
+        RunMode::Repl => Ok(pymain_run_stdin(vm, scope)),
     };
-    let result = if is_repl || vm.state.config.settings.inspect {
-        if std::io::stdin().is_terminal() {
-            warn_if_pyrepl_unavailable(vm);
-        }
-        shell::run_shell(vm, scope)
-    } else {
-        res
-    };
+    let mut exitcode = result.unwrap_or_else(|exc| vm.handle_exit_exception(exc));
+    vm.check_signals()?;
 
-    #[cfg(feature = "flame-it")]
+    pymain_repl(vm, !is_repl, &mut exitcode);
+    Ok(exitcode)
+}
+
+/// pymain_err_print
+///
+/// Report `exc` and return the exit code if it ends the process.
+fn pymain_err_print(vm: &VirtualMachine, exc: PyBaseExceptionRef) -> Option<u32> {
+    if let Some(exitcode) = vm.handle_system_exit_and_keyboard_interrupt(&exc) {
+        return Some(exitcode);
+    }
+    vm.print_uncaught_exception(&exc);
+    None
+}
+
+// pymain_set_inspect
+fn pymain_set_inspect(vm: &VirtualMachine, inspect: bool) {
+    if let Err(exc) = vm.config_set_inspect(inspect) {
+        eprintln!("Could not set the inspect flag");
+        vm.print_uncaught_exception(&exc);
+    }
+}
+
+// pymain_run_startup
+fn pymain_run_startup(vm: &VirtualMachine, scope: Scope) -> Option<u32> {
+    let exc = run_startup(vm, scope).err()?;
+    pymain_err_print(vm, exc)
+}
+
+fn run_startup(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
+    if vm.state.config.settings.ignore_environment {
+        return Ok(());
+    }
+    let Some(startup) = env::var_os("PYTHONSTARTUP").filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let startup = vm.fsdecode(startup);
+    vm.audit("cpython.run_startup", || (startup.clone(),))?;
+    let could_not_open = |err: std::io::Error| {
+        use vm::convert::ToPyException;
+        writeln!(
+            vm::stdlib::sys::PyStderr(vm),
+            "Could not open PYTHONSTARTUP"
+        );
+        let exc = err.to_pyexception(vm);
+        exc.as_object().set_attr("filename", startup.clone(), vm)?;
+        Err(exc)
+    };
+    let path = startup.expect_str();
+    cfg_select! {
+        feature = "host_env" => match vm::host_env::fs::open(path) {
+            Ok(_) => vm.run_any_file(scope, path),
+            Err(err) => could_not_open(err),
+        },
+        _ => match std::fs::read_to_string(path) {
+            Ok(source) => vm.run_string(scope, &source, path).map(drop),
+            Err(err) => could_not_open(err),
+        },
+    }
+}
+
+// pymain_run_interactive_hook
+fn pymain_run_interactive_hook(vm: &VirtualMachine) -> Option<u32> {
+    let exc = run_interactive_hook(vm).err()?;
+    writeln!(
+        vm::stdlib::sys::PyStderr(vm),
+        "Failed calling sys.__interactivehook__"
+    );
+    pymain_err_print(vm, exc)
+}
+
+fn run_interactive_hook(vm: &VirtualMachine) -> PyResult<()> {
+    let Some(hook) = vm
+        .sys_module
+        .dict()
+        .get_item_opt("__interactivehook__", vm)?
+    else {
+        return Ok(());
+    };
+    vm.audit("cpython.run_interactivehook", || (hook.clone(),))?;
+    hook.call((), vm)?;
+    Ok(())
+}
+
+// pymain_run_stdin
+fn pymain_run_stdin(vm: &VirtualMachine, scope: Scope) -> u32 {
+    if vm.stdin_is_interactive() {
+        // do exit on SystemExit
+        pymain_set_inspect(vm, false);
+
+        if let Some(exitcode) = pymain_run_startup(vm, scope) {
+            return exitcode;
+        }
+        if let Some(exitcode) = pymain_run_interactive_hook(vm) {
+            return exitcode;
+        }
+    }
+    pymain_run_repl(vm, false)
+}
+
+// pymain_repl
+fn pymain_repl(vm: &VirtualMachine, run_code: bool, exitcode: &mut u32) {
+    // Check this environment variable at the end, to give programs the
+    // opportunity to set it from Python.
+    if !vm.config_inspect()
+        && !vm.state.config.settings.ignore_environment
+        && env::var_os("PYTHONINSPECT").is_some_and(|value| !value.is_empty())
     {
-        main_guard.end();
-        if let Err(e) = write_profile(&vm.state.as_ref().config.settings) {
-            error!("Error writing profile information: {}", e);
+        pymain_set_inspect(vm, true);
+    }
+
+    if !(vm.config_inspect() && vm.stdin_is_interactive() && run_code) {
+        return;
+    }
+
+    pymain_set_inspect(vm, false);
+    if let Some(code) = pymain_run_interactive_hook(vm) {
+        *exitcode = code;
+        return;
+    }
+
+    *exitcode = pymain_run_repl(vm, true);
+}
+
+// _pymain_run_repl
+fn pymain_run_repl(vm: &VirtualMachine, startup: bool) -> u32 {
+    run_repl(vm, startup).unwrap_or_else(|exc| vm.handle_exit_exception(exc))
+}
+
+fn run_repl(vm: &VirtualMachine, startup: bool) -> PyResult<u32> {
+    vm.check_signals()?;
+    vm.audit("cpython.run_stdin", || ())?;
+
+    let tty = std::io::stdin().is_terminal();
+    if tty
+        && (vm.state.config.settings.ignore_environment
+            || env::var_os("PYTHON_BASIC_REPL").is_none_or(|value| value.is_empty()))
+    {
+        match vm.import("_pyrepl", 0) {
+            Ok(_) => return Ok(pymain_run_pyrepl(vm, startup)),
+            Err(exc) if !exc.fast_isinstance(vm.ctx.exceptions.module_not_found_error) => {
+                eprintln!("Could not import _pyrepl.main");
+                return Err(exc);
+            }
+            Err(_) => {}
         }
     }
 
-    result
+    // _PyRun_AnyFile(stdin, "<stdin>")
+    vm.run_any_stdin()?;
+    Ok(0)
 }
 
-/// When the fancy REPL cannot start (for example `TERM=dumb`), print the same
-/// warning `_pyrepl.main` would have printed, then keep the rustyline shell.
-fn warn_if_pyrepl_unavailable(vm: &VirtualMachine) {
-    let _ = vm.run_simple_string(
-        r"
-import os, sys
-if not os.getenv('PYTHON_BASIC_REPL'):
-    try:
-        from _pyrepl.main import CAN_USE_PYREPL, FAIL_REASON
-        if not CAN_USE_PYREPL and FAIL_REASON:
-            print(FAIL_REASON, file=sys.stderr)
-    except Exception:
-        pass
-",
-    );
+// pymain_run_pyrepl
+fn pymain_run_pyrepl(vm: &VirtualMachine, pythonstartup: bool) -> u32 {
+    run_pyrepl(vm, pythonstartup).map_or_else(|exc| vm.handle_exit_exception(exc), |()| 0)
+}
+
+fn run_pyrepl(vm: &VirtualMachine, pythonstartup: bool) -> PyResult<()> {
+    let pyrepl = vm.import("_pyrepl.main", 0).inspect_err(|_| {
+        eprintln!("Could not import _pyrepl.main");
+    })?;
+    let console = pyrepl
+        .get_attr("main", vm)
+        .and_then(|main| main.get_attr("interactive_console", vm))
+        .inspect_err(|_| {
+            eprintln!("Could not access _pyrepl.main.interactive_console");
+        })?;
+    let kwargs: vm::function::KwArgs = [
+        ("mainmodule".to_owned(), vm.add_main_module()?.into()),
+        (
+            "pythonstartup".to_owned(),
+            vm.ctx.new_bool(pythonstartup).into(),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    console.call(vm::function::FuncArgs::new(vec![], kwargs), vm)?;
+    Ok(())
 }
 
 #[cfg(feature = "flame-it")]

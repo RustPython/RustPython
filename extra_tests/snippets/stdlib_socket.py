@@ -272,3 +272,27 @@ if sys.platform.startswith("linux"):
     tcp_truncation_preserves_buffer()
     if hasattr(socket, "IPPROTO_MPTCP"):
         tcp_truncation_preserves_buffer(socket.IPPROTO_MPTCP)
+
+
+if hasattr(socket, "NETLINK_USERSOCK"):
+    with (
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as sender,
+        socket.socket(
+            socket.AF_NETLINK, socket.SOCK_DGRAM, socket.NETLINK_USERSOCK
+        ) as receiver,
+    ):
+        sender.settimeout(2)
+        receiver.settimeout(2)
+        # AF_NETLINK parses unsigned 32-bit pid/group values, including masking.
+        sender.bind((2**32, 0))
+        receiver.bind((0, 0))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", (0,))
+        with assert_raises(TypeError):
+            sender.sendto(b"message", ("pid", 0))
+        sender.sendto(b"message", receiver.getsockname())
+        assert receiver.recvfrom(32) == (b"message", sender.getsockname())
+        sender.connect(receiver.getsockname())
+        assert sender.getpeername() == receiver.getsockname()

@@ -1220,6 +1220,18 @@ impl Py<PyDict> {
         }
     }
 
+    pub(crate) fn replace_if_identity(
+        &self,
+        name: &Py<PyStr>,
+        expected: &PyObject,
+        replacement: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let hash = PyDict::hash_or_unhashable(name, vm)?;
+        self.entries
+            .replace_if(vm, name, hash, replacement, |current| current.is(expected))
+    }
+
     /// Store using a cached entry index hint for the value-replace fast path.
     ///
     /// On a hint miss, returns a refreshed hint for the key (`None` when the

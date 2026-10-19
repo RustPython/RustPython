@@ -14,6 +14,8 @@ mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
 mod python_run;
+#[cfg(feature = "rustpython-compiler")]
+pub use python_run::InteractiveLine;
 pub mod runtime;
 mod setting;
 pub mod thread;
@@ -44,7 +46,7 @@ use crate::{
     scope::Scope,
     signal::{self, SignalHandlers},
     stdlib,
-    types::{GetattroFunc, fn_addr},
+    types::{GetAttr, GetattroFunc, fn_addr},
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
@@ -52,7 +54,7 @@ use alloc::{borrow::Cow, collections::BTreeMap};
 use core::ptr::NonNull;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
 use std::{
@@ -93,6 +95,7 @@ pub struct VirtualMachine {
     exceptions: RefCell<ExceptionStack>,
     pub import_func: PyObjectRef,
     pub(crate) importlib: PyObjectRef,
+    pub(crate) import_timing: Cell<import::ImportTimingState>,
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
@@ -104,8 +107,10 @@ pub struct VirtualMachine {
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
+    pub(crate) lazy_imports_resolving: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
+    pub(crate) import_bootstrap_complete: bool,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
     /// where the stack pointer cannot be read. Everywhere else the native
@@ -857,6 +862,10 @@ pub struct PyGlobalState {
     /// becomes *the* process main — see [`runtime::main_interpreter_id`].
     pub is_main: bool,
     pub config: PyConfig,
+    /// `config.inspect`, which `PyConfig_Set` can change at runtime.
+    pub(crate) inspect: AtomicBool,
+    /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
+    pub(crate) interactive_src_count: AtomicUsize,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
@@ -868,7 +877,11 @@ pub struct PyGlobalState {
     /// `sys.addaudithook` hooks, shared by all threads of this interpreter.
     pub(crate) audit_hooks: PyMutex<Vec<PyObjectRef>>,
     pub codec_registry: CodecsRegistry,
+    pub(crate) import_time_header: AtomicBool,
+    pub(crate) lazy_imports: crate::lazy_import::LazyImportsState,
     pub struct_format_cache: crate::buffer::FormatSpecCache,
+    /// Placeholder identity shared by all threads and fresh imports in this interpreter.
+    pub(crate) functools_placeholder: crate::common::lock::OnceCell<PyObjectRef>,
     pub finalizing: AtomicBool,
     /// The thread performing finalization, which need not be the process main thread.
     #[cfg(feature = "threading")]
@@ -886,6 +899,8 @@ pub struct PyGlobalState {
     pub global_profile_func: PyMutex<Option<PyObjectRef>>,
     /// Global type mutation/versioning mutex for CPython-style FT type operations.
     pub type_mutex: PyMutex<()>,
+    /// Object-owned descriptors shared by heap types in this interpreter.
+    pub(crate) common_type_descriptors: builtins::type_::CommonTypeDescriptors,
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
@@ -914,8 +929,8 @@ pub struct PyGlobalState {
     pub feature_flags: runtime::InterpFeatureFlags,
     /// Whether the interpreter was configured with `gil="own"`.
     pub own_gil: bool,
-    /// Whether `__main__` is currently executing via `_interpreters.exec` / `run_*`.
-    pub running_main: AtomicBool,
+    /// `threads.main`: the ident of the thread running `__main__`, if any.
+    pub running_main: AtomicCell<Option<u64>>,
     /// True after `initialize()` has finished (CPython "ready").
     pub ready: AtomicBool,
     /// Optional ID refcount used by `_interpreters.create(reqrefs=True)`.
@@ -953,6 +968,45 @@ impl PyGlobalState {
     #[must_use]
     pub fn allow_daemon_threads(&self) -> bool {
         self.feature_flags.allow_daemon_threads
+    }
+
+    /// _PyInterpreterState_SetRunningMain
+    ///
+    /// Record the calling thread as the one running `__main__`. Return `false`
+    /// when a thread already does.
+    pub fn set_running_main(&self) -> bool {
+        self.running_main
+            .compare_exchange(None, Some(crate::frame::current_thread_ident()))
+            .is_ok()
+    }
+
+    /// _PyInterpreterState_SetNotRunningMain
+    pub fn set_not_running_main(&self) {
+        debug_assert!(self.thread_is_running_main());
+        self.running_main.store(None);
+    }
+
+    /// _PyInterpreterState_IsRunningMain
+    #[must_use]
+    pub fn is_running_main(&self) -> bool {
+        self.running_main.load().is_some()
+    }
+
+    /// _PyThreadState_IsRunningMain
+    #[must_use]
+    pub fn thread_is_running_main(&self) -> bool {
+        self.running_main.load() == Some(crate::frame::current_thread_ident())
+    }
+
+    /// _PyInterpreterState_ReinitRunningMain
+    ///
+    /// After a fork only the forking thread survives, so `__main__` is no
+    /// longer running unless that thread was running it.
+    #[cfg(all(feature = "host_env", unix))]
+    pub(crate) fn reinit_running_main(&self) {
+        if !self.thread_is_running_main() {
+            self.running_main.store(None);
+        }
     }
 
     /// The config this interpreter was created with, rebuilt from the flags it
@@ -1304,6 +1358,7 @@ impl VirtualMachine {
             exceptions: RefCell::default(),
             import_func,
             importlib,
+            import_timing: Cell::default(),
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
@@ -1313,8 +1368,10 @@ impl VirtualMachine {
             signal_handlers,
             signal_rx: None,
             repr_guards: RefCell::default(),
+            lazy_imports_resolving: RefCell::default(),
             state,
             initialized: false,
+            import_bootstrap_complete: false,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1395,7 +1452,7 @@ impl VirtualMachine {
         // Use dotted names when freeze-stdlib is enabled (modules come from Lib/encodings/),
         // otherwise use underscored names (modules come from core_modules/).
         let (ascii_module_name, utf8_module_name, latin1_module_name) =
-            if cfg!(feature = "freeze-stdlib") {
+            if cfg!(feature = "freeze-stdlib") && self.state.config.settings.use_frozen_modules {
                 ("encodings.ascii", "encodings.utf_8", "encodings.latin_1")
             } else {
                 ("encodings_ascii", "encodings_utf_8", "encodings_latin_1")
@@ -1459,6 +1516,11 @@ impl VirtualMachine {
         drop(prewarmed_memory_errors);
 
         stdlib::builtins::init_module(self, &self.builtins);
+        // Explicit lazy imports can occur in frozen startup code.
+        let lazy_callback = self.builtins.get_attr("__lazy_import__", self);
+        let lazy_callback =
+            self.expect_pyresult(lazy_callback, "failed to initialize lazy imports");
+        let _ = self.state.lazy_imports.default_callback.set(lazy_callback);
         let callable_cache_init = self.init_callable_cache();
         self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
@@ -1584,6 +1646,7 @@ impl VirtualMachine {
 
         let res = essential_init();
         let importlib = self.expect_pyresult(res, "essential initialization failed");
+        self.import_bootstrap_complete = true;
 
         #[cfg(feature = "host_env")]
         if self.state.config.settings.allow_external_library
@@ -1621,6 +1684,14 @@ impl VirtualMachine {
         }
 
         self.initialized = true;
+    }
+
+    /// Apply configured global lazy imports after startup imports, including site.
+    /// Hosts that perform their own main-module setup can call this at that boundary.
+    pub fn apply_startup_lazy_imports(&self) {
+        if self.state.config.settings.lazy_imports == 1 {
+            self.state.lazy_imports.all.store(true, Ordering::Release);
+        }
     }
 
     /// Set the custom signal channel for the interpreter
@@ -1687,33 +1758,52 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        // During interpreter finalization, sys.unraisablehook may not be available,
-        // but we still need to report exceptions (especially from atexit callbacks).
-        // Write directly to stderr like PyErr_FormatUnraisable.
-        if self.state.finalizing.load(Ordering::Acquire) {
+        let msg = msg.map(|msg| self.ctx.new_str(msg));
+        let write_original = || {
+            let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);
+        };
+        // During finalization the hook may no longer exist.
+        if self.state.finalizing.load(Ordering::Acquire) {
+            write_original();
             return;
         }
-
-        let sys_module = self.import("sys", 0).unwrap();
-        let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
-
-        let exc_type = e.class().to_owned();
-        let exc_traceback = e.traceback().to_pyobject(self); // TODO: actual traceback
-        let exc_value = e.into();
-        let args = stdlib::sys::UnraisableHookArgsData {
-            exc_type,
-            exc_value,
-            exc_traceback,
-            err_msg: self.new_pyobj(msg),
-            object,
+        let Some(unraisablehook) = self.sys_module.get_attr("unraisablehook", self).ok() else {
+            write_original();
+            return;
         };
-        if let Err(e) = unraisablehook.call((args,), self) {
-            println!("{}", e.as_object().repr(self).unwrap());
+        let args = stdlib::sys::UnraisableHookArgsData {
+            exc_type: e.class().to_owned(),
+            exc_value: e.clone().into(),
+            exc_traceback: e.traceback().to_pyobject(self),
+            err_msg: msg.clone().to_pyobject(self),
+            object: object.clone(),
+        }
+        .to_pyobject(self);
+        if let Err(error) = self.audit("sys.unraisablehook", || {
+            (unraisablehook.clone(), args.clone())
+        }) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in audit hook"),
+                &self.ctx.none(),
+            );
+            return;
+        }
+        if self.is_none(&unraisablehook) {
+            write_original();
+            return;
+        }
+        if let Err(error) = unraisablehook.call((args,), self) {
+            self.write_unraisable_to_stderr(
+                &error,
+                Some("Exception ignored in sys.unraisablehook"),
+                &unraisablehook,
+            );
         }
     }
 
-    /// Write unraisable exception to stderr during finalization.
+    /// Write an unraisable exception when its hook cannot be used.
     /// Similar to _PyErr_WriteUnraisableDefaultHook in CPython.
     fn write_unraisable_to_stderr(
         &self,
@@ -1751,15 +1841,29 @@ impl VirtualMachine {
             write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
         }
 
-        // Write exception type and message
-        let exc_type_name = e.class().name();
-        let msg = match e.as_object().str(self) {
-            Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
-                format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
+        // Print the existing traceback without importing Python modules;
+        // this path must also work while the interpreter is finalizing.
+        if let Some(traceback) = e.traceback() {
+            if let Some(stderr) = &stderr {
+                let mut writer = crate::py_io::PyWriter(stderr.clone(), self);
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
+            } else {
+                let mut writer = crate::py_io::IoWriter(std::io::stderr());
+                let _ = crate::exceptions::write_traceback(&mut writer, &traceback);
             }
-            _ => format!("{exc_type_name}\n"),
+        }
+        let exc_type_name = e
+            .class()
+            .fully_qualified_name(self)
+            .unwrap_or_else(|_| e.class().name().to_string());
+        let message = match e.as_object().str(self) {
+            Ok(value) if !value.as_wtf8().is_empty() => {
+                format!("{exc_type_name}: {}\n", value.as_wtf8())
+            }
+            Ok(_) => format!("{exc_type_name}\n"),
+            Err(_) => format!("{exc_type_name}: <exception str() failed>\n"),
         };
-        write_to_stderr(&msg, &stderr, self);
+        write_to_stderr(&message, &stderr, self);
 
         // Flush stderr to ensure output is visible
         if let Some(ref stderr) = stderr {
@@ -2290,9 +2394,7 @@ impl VirtualMachine {
         path: &str,
         run: impl FnOnce(&Py<PyDict>) -> PyResult<()>,
     ) -> PyResult<()> {
-        let sys_modules = self.sys_module.get_attr(identifier!(self, modules), self)?;
-        let main_module = sys_modules.get_item(identifier!(self, __main__), self)?;
-        let module_dict = main_module.dict().expect("main module must have __dict__");
+        let module_dict = self.add_main_module()?.dict();
 
         // Track whether we set __file__ (for cleanup)
         let set_file_name = !module_dict.contains_key(identifier!(self, __file__), self);
@@ -3279,6 +3381,7 @@ impl VirtualMachine {
             && builtins.is(self.builtins.dict().as_object())
             && let Some(cached) = self.try_import_cached(module)?
         {
+            import::report_cached_import(module, self);
             return Ok(cached);
         }
 
@@ -3349,6 +3452,7 @@ impl VirtualMachine {
         if self.is_none(&found) || import::is_module_initializing(&found, self)? {
             return Ok(None);
         }
+        crate::lazy_import::clear_submodule(module, true, self)?;
 
         let Some(dot) = name_str.find('.') else {
             return Ok(Some(found));
@@ -3588,6 +3692,10 @@ impl VirtualMachine {
         let getattro = obj.class().slots().getattro.load().unwrap();
         let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
             obj.generic_getattr_opt(attr_name, None, self)
+        } else if fn_addr(getattro) == fn_addr(PyModule::slot_getattro as GetattroFunc)
+            && let Some(module) = obj.downcast_ref::<PyModule>()
+        {
+            module.getattr_inner(attr_name, true, self).map(Some)
         } else {
             obj.get_attr_inner(attr_name, self).map(Some)
         };
@@ -3851,58 +3959,77 @@ impl VirtualMachine {
         excs.stack.iter().rev().find_map(|e| e.clone())
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
-        if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
-            let code = exc
-                .as_object()
-                .get_attr("code", self)
-                .unwrap_or_else(|_| exc.as_object().to_owned());
-            let msg = match_class!(match code {
-                ref i @ PyInt => {
-                    use num_traits::cast::ToPrimitive;
-                    // Try u32 first, then i32 (for negative values), else -1 for overflow
-                    let code = i
-                        .as_bigint()
-                        .to_u32()
-                        .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
-                        .unwrap_or(-1i32 as u32);
-                    return code;
-                }
-                code => {
-                    if self.is_none(&code) {
-                        return 0;
-                    }
-                    code.str(self).ok()
-                }
-            });
-            if let Some(msg) = msg {
-                // Write using Python's write() to use stderr's error handler (backslashreplace)
-                if let Ok(stderr) = stdlib::sys::get_stderr(self) {
-                    let _ = self.call_method(&stderr, "write", (msg,));
-                    let _ = self.call_method(&stderr, "write", ("\n",));
-                }
-            }
-            1
-        } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            self.print_exception(&exc);
-            cfg_select! {
-                unix => {
-                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
-                        self.flush_std();
-                        crate::host_env::signal::send_sigint_to_self()
-                            .expect("Expect to be killed.");
-                    }
+    /// The current `config.inspect`.
+    pub fn config_inspect(&self) -> bool {
+        self.state.inspect.load(Ordering::Relaxed)
+    }
 
-                    (libc::SIGINT as u32) + 128
-                }
-                // STATUS_CONTROL_C_EXIT - same as CPython
-                windows => 0xC000013A,
-                _ => 1,
-            }
-        } else {
-            self.print_exception(&exc);
-            1
+    /// `PyConfig_Set("inspect", value)`: update the config and `sys.flags.inspect`.
+    pub fn config_set_inspect(&self, inspect: bool) -> PyResult<()> {
+        let value: PyObjectRef = self.ctx.new_int(u8::from(inspect)).into();
+        self.audit("cpython.PyConfig_Set", || ("inspect", value.clone()))?;
+        self.state.inspect.store(inspect, Ordering::Relaxed);
+        stdlib::sys::sys::set_flag_obj(self, "inspect", value)
+    }
+
+    /// pymain_exit_err_print
+    ///
+    /// Report an exception that reached the top level and return the exit code.
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(&exc) {
+            return exit_code;
         }
+        self.print_uncaught_exception(&exc);
+        1
+    }
+
+    /// _Py_HandleSystemExitAndKeyboardInterrupt
+    ///
+    /// Return the exit code of a `SystemExit` that should end the process.
+    /// A `KeyboardInterrupt` is remembered so that the process exits through SIGINT.
+    pub fn handle_system_exit_and_keyboard_interrupt(
+        &self,
+        exc: &Py<PyBaseException>,
+    ) -> Option<u32> {
+        if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
+            crate::signal::set_unhandled_keyboard_interrupt();
+            return None;
+        }
+        // Don't exit if -i flag was given. This flag is set to 0
+        // when entering interactive mode for inspecting.
+        if self.config_inspect() || !exc.fast_isinstance(self.ctx.exceptions.system_exit) {
+            return None;
+        }
+        let code = exc
+            .as_object()
+            .get_attr("code", self)
+            .unwrap_or_else(|_| exc.as_object().to_owned());
+        let msg = match_class!(match code {
+            ref i @ PyInt => {
+                use num_traits::cast::ToPrimitive;
+                // Try u32 first, then i32 (for negative values), else -1 for overflow
+                let code = i
+                    .as_bigint()
+                    .to_u32()
+                    .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
+                    .unwrap_or(-1i32 as u32);
+                return Some(code);
+            }
+            code => {
+                if self.is_none(&code) {
+                    return Some(0);
+                }
+                code.str(self).ok()
+            }
+        });
+        if let Some(msg) = msg {
+            // Write using Python's write() to use stderr's error handler (backslashreplace)
+            if let Ok(stderr) = stdlib::sys::get_stderr(self) {
+                let _ = self.call_method(&stderr, "write", (msg,));
+                let _ = self.call_method(&stderr, "write", ("\n",));
+            }
+        }
+        Some(1)
     }
 
     #[doc(hidden)]

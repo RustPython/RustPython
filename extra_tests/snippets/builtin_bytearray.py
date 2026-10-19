@@ -733,6 +733,17 @@ a = bytearray(b"abcd")
 a.clear()
 assert len(a) == 0
 
+# Clearing an empty exported buffer is a no-op and keeps its export alive.
+empty = bytearray()
+with memoryview(empty) as view:
+    assert empty.clear() is None
+    assert bytes(view) == b""
+    assert empty.clear() is None
+    with assert_raises(BufferError):
+        empty.append(1)
+empty.append(1)
+assert empty == b"\x01"
+
 b = bytearray(b"test")
 assert len(b) == 4
 b.pop()

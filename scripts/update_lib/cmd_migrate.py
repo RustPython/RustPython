@@ -1,16 +1,30 @@
 #!/usr/bin/env python
 """
-Migrate test file(s) from CPython, preserving RustPython markers.
+Migrate Python Lib files from CPython, preserving explicit local adaptations.
 
 Usage:
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py
     python scripts/update_lib migrate cpython/Lib/test/test_foo.py --patches remaining.json
+    python scripts/update_lib migrate cpython/Lib/test/test_foo --canonical-removals removals.json --dry-run
 
 Remaining metadata names the exact repository-relative target and its existing
 decorator patches. An optional "doctests" object selects existing guarded inputs
 by exact source text, mapping each to a single-line reason. Guarded doctests need
 this explicit selection; an empty object retires all their guards. Canonical
-expected output is never copied from the old file.
+expected output is never copied from the old file. Optional "blocks" lists
+[canonical, local] source pairs to preserve exact existing changes.
+Both fragments must match uniquely; no module-specific defaults are inferred.
+Non-marker adaptations require reviewed blocks on each migration, for example
+{"target": "Lib/example.py", "patches": {}, "blocks": [["old = 1", "old = 2"]]}.
+Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
+as required by the existing marker extraction and application steps.
+
+Canonical removals are a separate, explicit operation. JSON source metadata
+pins path (Lib/test/test_*), commit and tree; removals maps explicit relative
+filenames to sha256 and upstream_commit. The caller must first verify and
+review historical provenance, including release-branch evidence. This command
+checks pinned canonical absence and exact local bytes; it does not authenticate
+historical evidence. --dry-run performs all validation without deleting files.
 
 This will:
     1. Extract patches from Lib/test/test_foo.py (if exists)
@@ -24,171 +38,26 @@ import builtins
 import collections
 import hashlib
 import json
+import os
 import pathlib
+import re
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 from update_lib.file_utils import parse_lib_path
 
-SYSCONFIG_UPSTREAM = "def _get_implementation():\n    return 'Python'\n"
-SYSCONFIG_LOCAL = (
-    "def _get_implementation():\n"
-    "    return 'RustPython'  # XXX: RUSTPYTHON; For site-packages\n"
-)
-JIT_ERROR = """# NOTE: RUSTPYTHON exceptions
-try:
-    JitError
-except NameError:
-    pass
-else:
-    PYTHON2_EXCEPTIONS += ("JitError",)
 
-"""
-EXCEPTION_LOOP = """for excname in PYTHON2_EXCEPTIONS:
-    NAME_MAPPING[("exceptions", excname)] = ("builtins", excname)
-"""
+def _preserve_block(old, new, canonical, local):
+    """Preserve an explicit existing fragment; do not infer module adaptations."""
+    if old.count(local) != 1 or new.count(canonical) != 1:
+        raise ValueError("Changed or ambiguous preservation block")
+    return new.replace(canonical, local, 1)
 
 
-def _unique_anchor(contents, root, predicate, *, direct=False, exact=None):
-    """Select one real AST anchor, optionally in the immediate owner body."""
-    matches = [node for node in ast.walk(root) if predicate(node)]
-    if (
-        len(matches) != 1
-        or (direct and matches[0] not in root.body)
-        or (exact is not None and ast.get_source_segment(contents, matches[0]) != exact)
-    ):
-        raise ValueError("Missing, changed, or ambiguous migration anchor")
-    return matches[0]
-
-
-def _unique_function(contents: str, expected: str) -> bool:
-    tree = ast.parse(contents)
-    target = ast.parse(expected).body[0]
-    node = _unique_anchor(
-        contents,
-        tree,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == target.name
-        ),
-        direct=True,
-    )
-    return ast.dump(node) == ast.dump(target) and not any(
-        (
-            isinstance(node, ast.Name)
-            and node.id == target.name
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-        )
-        or (isinstance(node, ast.ClassDef) and node.name == target.name)
-        or (
-            isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) == target.name
-        )
-        for node in ast.walk(tree)
-    )
-
-
-def _exception_loop(contents: str) -> bool:
-    _unique_anchor(
-        contents,
-        ast.parse(contents),
-        lambda node: (
-            isinstance(node, ast.For)
-            and isinstance(node.iter, ast.Name)
-            and node.iter.id == "PYTHON2_EXCEPTIONS"
-        ),
-        direct=True,
-        exact=EXCEPTION_LOOP.rstrip(),
-    )
-    return True
-
-
-def _jit_block(contents: str) -> bool:
-    tree = ast.parse(contents)
-    expected = ast.dump(ast.parse(JIT_ERROR).body[0])
-    _unique_anchor(contents, tree, lambda node: ast.dump(node) == expected, direct=True)
-    return (
-        sum(
-            isinstance(node, ast.Name) and node.id == "JitError"
-            for node in ast.walk(tree)
-        )
-        == 1
-    )
-
-
-def preserve_migration_customizations(path: pathlib.Path, old: str, new: str) -> str:
-    """Fail closed if either known local patch or its canonical anchor changes."""
-    parts = path.parts
-    if path.is_absolute():
-        raise ValueError("Runtime patch target must be repository-relative")
-    if parts == ("Lib", "sysconfig", "__init__.py"):
-        if old.count(SYSCONFIG_LOCAL) != 1 or not _unique_function(
-            old, SYSCONFIG_LOCAL
-        ):
-            raise ValueError("Unrecognized sysconfig implementation identity")
-        if (
-            new.count(SYSCONFIG_UPSTREAM) != 1
-            or not _unique_function(new, SYSCONFIG_UPSTREAM)
-            or "RustPython" in new
-        ):
-            raise ValueError("Unrecognized canonical sysconfig implementation anchor")
-        return new.replace(SYSCONFIG_UPSTREAM, SYSCONFIG_LOCAL, 1)
-    if parts == ("Lib", "_compat_pickle.py"):
-        if (
-            old.count(JIT_ERROR + EXCEPTION_LOOP) != 1
-            or not _jit_block(old)
-            or not _exception_loop(old)
-        ):
-            raise ValueError("Unrecognized local JitError compatibility mapping")
-        if (
-            new.count(EXCEPTION_LOOP) != 1
-            or not _exception_loop(new)
-            or "JitError" in new
-        ):
-            raise ValueError("Unrecognized canonical exception mapping anchor")
-        return new.replace(EXCEPTION_LOOP, JIT_ERROR + EXCEPTION_LOOP, 1)
-    if parts == ("Lib", "test", "test_cmd_line.py"):
-        _verify_call(old, LOCAL_CALL)
-        _verify_call(new, CANONICAL_CALL)
-        return new.replace(CANONICAL_CALL, LOCAL_CALL, 1)
-    return new
-
-
-CANONICAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="")"""
-LOCAL_CALL = """assert_python_ok('-c', code, PYTHONPATH="", RUSTPYTHONPATH="")"""
-
-
-def _verify_call(contents: str, expected: str) -> None:
-    tree = ast.parse(contents)
-    owner = _unique_anchor(
-        contents,
-        tree,
-        lambda node: isinstance(node, ast.ClassDef) and node.name == "CmdLineTest",
-        direct=True,
-    )
-    method = _unique_anchor(
-        contents,
-        owner,
-        lambda node: (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "test_empty_PYTHONPATH_issue16309"
-        ),
-        direct=True,
-    )
-    target = ast.dump(ast.parse(expected, mode="eval").body)
-    _unique_anchor(
-        contents,
-        method,
-        lambda node: isinstance(node, ast.Call) and ast.dump(node) == target,
-        exact=expected,
-    )
-    if contents.count(expected) != 1:
-        raise ValueError("Ambiguous environment-reset call text")
-
-
-def copy_support_assignments(source, destination, names, exports):
+def copy_selected_assignments(source, destination, names, exports):
     """Copy contiguous canonical assignments and export lines, failing closed.
 
     Only additions are supported. Dependencies must already be imported with the
@@ -389,16 +258,10 @@ def copy_support_assignments(source, destination, names, exports):
     return result
 
 
-def migrate_support_assignments(path, names, exports, source_hash, destination_hash):
+def migrate_selected_assignments(path, names, exports, source_hash, destination_hash):
     target = parse_lib_path(path)
-    if (
-        target.parts[:3] != ("Lib", "test", "support")
-        or ".." in target.parts
-        or target.suffix != ".py"
-    ):
-        raise ValueError(
-            "Selective assignments are restricted to Lib/test/support Python files"
-        )
+    if target.parts[:1] != ("Lib",) or ".." in target.parts or target.suffix != ".py":
+        raise ValueError("Selective assignments require an explicit Lib Python file")
     source, destination = path.read_bytes(), target.read_bytes()
     for label, contents, expected in (
         ("source", source, source_hash),
@@ -406,7 +269,7 @@ def migrate_support_assignments(path, names, exports, source_hash, destination_h
     ):
         if hashlib.sha256(contents).hexdigest() != expected:
             raise ValueError(f"{label} SHA256 does not match the pinned input")
-    result = copy_support_assignments(
+    result = copy_selected_assignments(
         source.decode("utf-8"), destination.decode("utf-8"), names, exports
     ).encode("utf-8")
     if target.read_bytes() != destination:
@@ -460,14 +323,31 @@ def patch_single_content(
     if patches_document is not None:
         from update_lib.patch_spec import select_remaining_patches
 
-        patches = select_remaining_patches(patches, patches_document, relative_path)
+        patches = select_remaining_patches(
+            patches,
+            patches_document,
+            relative_path,
+            old_content=old_content if lib_path.exists() else None,
+        )
+
+    blocks = patches_document.get("blocks", []) if patches_document else []
+    if not isinstance(blocks, list) or any(
+        not isinstance(pair, list)
+        or len(pair) != 2
+        or any(not isinstance(text, str) or not text.strip() for text in pair)
+        for pair in blocks
+    ):
+        raise ValueError("Blocks must be canonical/local source pairs")
+    if blocks and not lib_path.exists():
+        raise ValueError("Blocks require an existing local file")
 
     # Apply patches to source content
     src_content = src_path.read_text(encoding="utf-8")
     if lib_path.exists():
-        src_content = preserve_migration_customizations(
-            relative_path, old_content, src_content
-        )
+        if any(src_content.count(canonical) != 1 for canonical, _ in blocks):
+            raise ValueError("Changed or ambiguous canonical preservation block")
+        for canonical, local in blocks:
+            src_content = _preserve_block(old_content, src_content, canonical, local)
         guards = extract_doctest_guards(old_content)
         selection = patches_document.get("doctests") if patches_document else None
         if guards and selection is None:
@@ -476,7 +356,15 @@ def patch_single_content(
             )
         if selection is not None:
             src_content = apply_doctest_metadata(old_content, src_content, selection)
-    return apply_patches(src_content, patches)
+    if not src_content and not patches:
+        return src_content
+    try:
+        result = apply_patches(src_content, patches)
+    except SyntaxError as error:
+        if blocks:
+            raise ValueError("Preserved blocks produced invalid Python") from error
+        raise
+    return result
 
 
 def patch_file(
@@ -703,6 +591,159 @@ def migrate_package(
         legacy.unlink()
 
 
+def remove_canonical_files(src_dir, manifest_path, *, dry_run=False):
+    """Remove only explicitly reviewed files, validating the whole batch first."""
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate removal metadata key: {key}")
+            result[key] = value
+        return result
+
+    def relative(name):
+        path = pathlib.PurePosixPath(name) if isinstance(name, str) else None
+        if (
+            not path
+            or not path.parts
+            or path.is_absolute()
+            or ".." in path.parts
+            or "\\" in name
+            or path.as_posix() != name
+            or "\0" in name
+        ):
+            raise ValueError("Expected an exact relative POSIX filename")
+        return pathlib.Path(path)
+
+    def no_symlinks(path):
+        if any(p.is_symlink() or p.is_junction() for p in (path, *path.parents)):
+            raise ValueError(f"Symlink or junction in removal path: {path}")
+
+    def git(*args):
+        result = subprocess.run(
+            ["git", "-C", str(src_dir), *args],
+            env={
+                **os.environ,
+                "GIT_NO_LAZY_FETCH": "1",
+                "GIT_NO_REPLACE_OBJECTS": "1",
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError("Cannot verify pinned canonical source")
+        return result.stdout.decode().strip()
+
+    document = json.loads(
+        manifest_path.read_text(encoding="utf-8"), object_pairs_hook=unique_object
+    )
+    if not isinstance(document, dict) or set(document) != {"source", "removals"}:
+        raise ValueError("Expected source and removals metadata")
+    source, removals = document["source"], document["removals"]
+    if not isinstance(source, dict) or set(source) != {"path", "commit", "tree"}:
+        raise ValueError("Expected source path, commit and tree")
+    package = relative(source["path"])
+    if (
+        len(package.parts) != 3
+        or package.parts[:2] != ("Lib", "test")
+        or not package.name.startswith("test_")
+        or not package.name.isidentifier()
+    ):
+        raise ValueError("Removals require an exact Lib/test/test_* package")
+    if any(
+        not isinstance(source[k], str) or not re.fullmatch(r"[0-9a-f]{40}", source[k])
+        for k in ("commit", "tree")
+    ):
+        raise ValueError("Source commit and tree must be full Git hashes")
+    if not isinstance(removals, dict) or not removals:
+        raise ValueError("Removals must be a nonempty filename map")
+    src_dir = src_dir.absolute()
+    destination = pathlib.Path.cwd() / package
+    for path in (src_dir, destination):
+        no_symlinks(path)
+        if not path.is_dir():
+            raise ValueError("Source and destination packages must exist")
+    if (
+        src_dir == destination
+        or src_dir in destination.parents
+        or destination in src_dir.parents
+    ):
+        raise ValueError("Source and destination overlap")
+    if (
+        src_dir != pathlib.Path(git("rev-parse", "--show-toplevel")) / package
+        or git("rev-parse", "HEAD") != source["commit"]
+        or git("rev-parse", f"HEAD:{package.as_posix()}") != source["tree"]
+    ):
+        raise ValueError("Canonical source identity differs from the pinned input")
+    canonical = set(
+        git(
+            "ls-tree",
+            "--full-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            "HEAD",
+            "--",
+            package.as_posix(),
+        ).split("\0")
+    )
+    snapshots, receipt = {}, {"source": source, "dry_run": dry_run, "removals": {}}
+    for name, entry in sorted(removals.items()):
+        path = relative(name)
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"sha256", "upstream_commit"}
+            or any(
+                not isinstance(entry[k], str)
+                or not re.fullmatch(f"[0-9a-f]{{{length}}}", entry[k])
+                for k, length in (("sha256", 64), ("upstream_commit", 40))
+            )
+        ):
+            raise ValueError(f"Missing or invalid hash/provenance pins: {name}")
+        target = destination / path
+        no_symlinks(target)
+        no_symlinks(src_dir / path)
+        if (package / path).as_posix() in canonical or (src_dir / path).exists():
+            raise ValueError(f"Selected file is still canonical: {name}")
+        if target.exists() and not target.is_file():
+            raise ValueError(f"Removal target is not a regular file: {name}")
+        data = target.read_bytes() if target.exists() else None
+        if data is not None and (
+            hashlib.sha256(data).hexdigest() != entry["sha256"]
+            or b"rustpython" in data.lower()
+        ):
+            raise ValueError(f"Changed bytes or RustPython customization: {name}")
+        snapshots[target] = data
+        receipt["removals"][name] = {
+            **entry,
+            "status": "already_absent"
+            if data is None
+            else "would_remove"
+            if dry_run
+            else "removed",
+        }
+    if git("rev-parse", "HEAD") != source["commit"]:
+        raise ValueError("Canonical source changed during validation")
+    for target, data in snapshots.items():
+        no_symlinks(target)
+        canonical_path = src_dir / target.relative_to(destination)
+        no_symlinks(canonical_path)
+        if canonical_path.exists():
+            raise ValueError("Canonical source changed during validation")
+        if (target.exists() and not target.is_file()) or (
+            target.read_bytes() if target.exists() else None
+        ) != data:
+            raise ValueError(f"Removal target changed during validation: {target}")
+    if not dry_run:
+        for target, data in snapshots.items():
+            if data is not None:
+                target.unlink()
+    print(json.dumps(receipt, sort_keys=True))
+    return receipt
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -719,6 +760,16 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help="Explicit legacy-file/class to package-file JSON mapping",
     )
+    parser.add_argument(
+        "--canonical-removals",
+        type=pathlib.Path,
+        help="Remove only selected unchanged historical files absent from a pinned canonical tree",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate canonical removals without deleting",
+    )
 
     parser.add_argument(
         "--patches",
@@ -726,34 +777,55 @@ def main(argv: list[str] | None = None) -> int:
         help="Single-file target, remaining decorator patches, and optional doctests JSON",
     )
     parser.add_argument(
-        "--support-assignments",
+        "--assignments",
         nargs="+",
-        help="Add selected canonical test.support assignments",
+        help="Copy selected canonical assignments",
     )
-    parser.add_argument("--support-exports", nargs="+", default=[])
+    parser.add_argument("--exports", nargs="+", default=[])
     parser.add_argument("--source-sha256")
     parser.add_argument("--destination-sha256")
     args = parser.parse_args(argv)
 
     try:
-        if args.support_assignments:
-            if args.legacy_map is not None or args.patches is not None:
+        if args.canonical_removals is not None:
+            if (
+                args.legacy_map is not None
+                or args.patches is not None
+                or args.assignments
+                or args.exports
+                or args.source_sha256
+                or args.destination_sha256
+            ):
                 raise ValueError(
-                    "Selective support imports cannot combine with --legacy-map or --patches"
+                    "Canonical removals cannot combine with other migration modes"
                 )
             try:
-                migrate_support_assignments(
+                remove_canonical_files(
+                    args.path, args.canonical_removals, dry_run=args.dry_run
+                )
+            except (OSError, UnicodeError) as exc:
+                raise ValueError(str(exc)) from exc
+            return 0
+        if args.dry_run:
+            raise ValueError("--dry-run requires --canonical-removals")
+        if args.assignments:
+            if args.legacy_map is not None or args.patches is not None:
+                raise ValueError(
+                    "Selective imports cannot combine with --legacy-map or --patches"
+                )
+            try:
+                migrate_selected_assignments(
                     args.path,
-                    args.support_assignments,
-                    args.support_exports,
+                    args.assignments,
+                    args.exports,
                     args.source_sha256,
                     args.destination_sha256,
                 )
             except (SyntaxError, UnicodeError) as exc:
                 raise ValueError(str(exc)) from exc
             return 0
-        if args.support_exports or args.source_sha256 or args.destination_sha256:
-            raise ValueError("Selective options require --support-assignments")
+        if args.exports or args.source_sha256 or args.destination_sha256:
+            raise ValueError("Selective options require --assignments")
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):

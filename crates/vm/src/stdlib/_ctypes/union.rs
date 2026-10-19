@@ -3,9 +3,9 @@ use super::{PyCData, PyCField, StgInfo};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, ArgStrictInt, FuncArgs, OptionalArg, PySetterValue};
-use crate::protocol::{BufferDescriptor, PyBuffer};
+use crate::protocol::{BufferDescriptor, PyBuffer, PySequenceMethods};
 use crate::stdlib::_warnings;
-use crate::types::{AsBuffer, Constructor, Initializer, SetAttr};
+use crate::types::{AsBuffer, AsSequence, Constructor, Initializer, SetAttr};
 use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine};
 use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
@@ -356,7 +356,7 @@ impl PyCUnionType {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Constructor, Initializer, SetAttr))]
+#[pyclass(flags(BASETYPE), with(AsSequence, Constructor, Initializer, SetAttr))]
 impl PyCUnionType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -695,5 +695,11 @@ impl AsBuffer for PyCUnion {
             &CDATA_BUFFER_METHODS,
         );
         Ok(buf)
+    }
+}
+
+impl AsSequence for PyCUnionType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }

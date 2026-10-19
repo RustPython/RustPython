@@ -328,7 +328,12 @@ jobs:
 
       - name: Test openssl build
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
-        run: cargo build --locked --no-default-features --features ssl-openssl
+        run: |
+          cargo build --locked --no-default-features --features ssl-openssl
+          cargo build --locked --release --features threading,jit,ssl-openssl ${{ env.CARGO_ARGS_NO_SSL }}
+          target/release/rustpython -B extra_tests/snippets/stdlib_ssl.py
+          target/release/rustpython -B -m test -v --single-process --timeout=300 test_ssl
+        timeout-minutes: 30
 
       - name: Test vendored OpenSSL build
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'

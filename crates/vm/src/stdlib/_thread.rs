@@ -1569,37 +1569,15 @@ pub(crate) mod _thread {
                     return false;
                 };
 
-                // Reinit this per-handle lock in case a dead thread held it
-                reinit_parking_lot_mutex(&inner);
-                let mut inner_guard = inner.lock();
-
-                if inner_guard.ident == current_ident {
-                    return true;
-                }
-                if inner_guard.state == ThreadHandleState::NotStarted {
-                    return true;
-                }
-
-                inner_guard.state = ThreadHandleState::Done;
-                // The OS thread did not survive the fork. Dropping JoinHandle
-                // would pthread_detach a copied thread descriptor.
-                if let Some(handle) = inner_guard.join_handle.take() {
-                    core::mem::forget(handle);
-                }
-                drop(inner_guard);
-
-                // Reinit and set the done event. Do not notify: no other
-                // thread exists in the child, and notify_all would unpark
-                // waiters that did not survive the fork.
-                let (lock, cvar) = &*done_event;
-                reinit_parking_lot_mutex(lock);
-                reinit_parking_lot_condvar(cvar);
-                *lock.lock() = true;
+                // SAFETY: only the forking thread survives in the child.
+                unsafe { reinit_handle_after_fork(&inner, &done_event, current_ident) };
 
                 true
             });
         }
 
+        // Every shutdown entry comes from ThreadHandle::new and is also in
+        // thread_handles, so its completion event was already reset above.
         // Clean up shutdown_handles.
         {
             let mut handles = vm.state.shutdown_handles.lock();
@@ -1632,6 +1610,42 @@ pub(crate) mod _thread {
                 false
             });
         }
+    }
+
+    /// Repair a copied handle before any child thread cleanup or join.
+    ///
+    /// Unlike CPython's atomic completion event, ours includes a mutex that a
+    /// parent joiner can hold while detached. Even the surviving thread's
+    /// completion mutex and condvar must lose that dead owner's/waiter's state.
+    /// Its completion value remains unchanged until the thread really exits.
+    ///
+    /// # Safety
+    /// Only call in the single-threaded post-fork child, with no live guards or
+    /// waiters on these locks.
+    #[cfg(all(unix, feature = "host_env"))]
+    unsafe fn reinit_handle_after_fork(
+        inner: &parking_lot::Mutex<ThreadHandleInner>,
+        done_event: &(parking_lot::Mutex<bool>, parking_lot::Condvar),
+        current_ident: u64,
+    ) {
+        reinit_parking_lot_mutex(inner);
+        let (lock, cvar) = done_event;
+        reinit_parking_lot_mutex(lock);
+        reinit_parking_lot_condvar(cvar);
+        let mut inner_guard = inner.lock();
+        if inner_guard.ident == current_ident || inner_guard.state == ThreadHandleState::NotStarted
+        {
+            return;
+        }
+
+        inner_guard.state = ThreadHandleState::Done;
+        // The OS thread did not survive. Do not pthread_detach a copied handle.
+        if let Some(handle) = inner_guard.join_handle.take() {
+            core::mem::forget(handle);
+        }
+        drop(inner_guard);
+        // Do not notify waiters: none survived the fork.
+        *lock.lock() = true;
     }
 
     /// Take a thread handle's completion mutex, detaching first.
@@ -2321,10 +2335,78 @@ pub(crate) mod _thread {
 
     #[cfg(test)]
     mod tests {
-        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        #[cfg(any(
+            all(unix, feature = "host_env"),
+            all(debug_assertions, any(target_os = "linux", target_os = "macos"))
+        ))]
         use super::*;
         #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
         use crate::Interpreter;
+
+        /// Exercise only the native completion-state invariant, without Python
+        /// execution or actual fork in the multithreaded Rust test harness.
+        #[test]
+        #[cfg(all(unix, feature = "host_env"))]
+        fn fork_reinitializes_surviving_handle_completion_lock() {
+            for (ident, state, completed, expected_state, expected_completed) in [
+                (
+                    7,
+                    ThreadHandleState::Running,
+                    false,
+                    ThreadHandleState::Running,
+                    false,
+                ),
+                (
+                    0,
+                    ThreadHandleState::NotStarted,
+                    false,
+                    ThreadHandleState::NotStarted,
+                    false,
+                ),
+                (
+                    8,
+                    ThreadHandleState::Running,
+                    false,
+                    ThreadHandleState::Done,
+                    true,
+                ),
+                (
+                    8,
+                    ThreadHandleState::Done,
+                    true,
+                    ThreadHandleState::Done,
+                    true,
+                ),
+            ] {
+                let inner = parking_lot::Mutex::new(ThreadHandleInner {
+                    state,
+                    ident,
+                    join_handle: None,
+                    joining: false,
+                    joined: false,
+                });
+                let done_event = (
+                    parking_lot::Mutex::new(completed),
+                    parking_lot::Condvar::new(),
+                );
+                // Model the bytes inherited from a parent joiner that held the
+                // mutex at fork. No guard remains live and no other thread can
+                // access these exclusively owned fixtures.
+                core::mem::forget(done_event.0.lock());
+                assert!(done_event.0.try_lock().is_none());
+                // SAFETY: these private fixtures have no live guards/waiters,
+                // exactly as in a child after its parent lock owner vanished.
+                unsafe { reinit_handle_after_fork(&inner, &done_event, 7) };
+                let completed = done_event
+                    .0
+                    .try_lock()
+                    .expect("copied completion lock must be unlocked");
+                assert_eq!(*completed, expected_completed);
+                let inner = inner.lock();
+                assert_eq!(inner.state, expected_state);
+                assert_eq!(inner.ident, ident);
+            }
+        }
 
         /// Regression test for #7941: a Python thread started without an
         /// explicit `threading.stack_size()` must not run on Rust's 2 MiB

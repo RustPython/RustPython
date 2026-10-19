@@ -20,6 +20,16 @@ impl PySlot {
     const SLOT_OPTIONAL: u16 = 0x0001;
     const SLOT_STATIC: u16 = 0x0002;
     const SLOT_INTPTR: u16 = 0x0004;
+    pub(crate) const SLOT_END: Self = unsafe { core::mem::zeroed() };
+
+    pub(crate) fn new(id: u16, value: impl Into<PySlotValue>) -> Self {
+        Self {
+            sl_id: id,
+            sl_flags: 0,
+            _reserved: 0,
+            value: value.into(),
+        }
+    }
 
     pub(crate) fn iter<'a>(mut slots: *const Self) -> impl Iterator<Item = &'a Self> {
         core::iter::from_fn(move || {
@@ -128,6 +138,24 @@ pub union PySlotValue {
     pub sl_size: isize,
     pub sl_int64: i64,
     pub sl_uint64: u64,
+}
+
+impl<T> From<*mut T> for PySlotValue {
+    fn from(ptr: *mut T) -> Self {
+        Self { sl_ptr: ptr.cast() }
+    }
+}
+
+impl From<isize> for PySlotValue {
+    fn from(size: isize) -> Self {
+        Self { sl_size: size }
+    }
+}
+
+impl From<u64> for PySlotValue {
+    fn from(value: u64) -> Self {
+        Self { sl_uint64: value }
+    }
 }
 
 #[allow(dead_code)]

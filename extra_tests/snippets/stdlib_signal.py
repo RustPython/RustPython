@@ -218,3 +218,131 @@ def check_windows_wakeup_reporting():
 
 
 check_windows_wakeup_reporting()
+
+
+def check_native_stdin_eintr():
+    if sys.platform in ("win32", "wasi", "emscripten"):
+        return
+    if not sys.executable or not hasattr(sys, "_baserepl"):
+        return
+
+    import os
+    import select
+    import subprocess
+
+    if os.name != "posix":
+        return
+
+    prompt = b"__NATIVE_STDIN_PROMPT__"
+    handled = b"__NATIVE_STDIN_HANDLED__"
+    executed = b"__NATIVE_STDIN_EXECUTED__"
+
+    # This explicitly exercises the native adapter rather than an editor REPL.
+    # Lib/test/test_repl.py covers ordinary input, not a blocked native read
+    # interrupted while its pipe remains open and no complete line is supplied.
+    setup = (
+        "import signal, sys\n"
+        f"sys.ps1 = {prompt.decode()!r}\n"
+        "sys.ps2 = '__NATIVE_STDIN_CONTINUATION__'\n"
+    )
+    setup += (
+        "def handler(signum, frame):\n"
+        "    print('__NATIVE_' + 'STDIN_HANDLED__', flush=True)\n"
+        "signal.signal(signal.SIGINT, handler)\n"
+    )
+    setup += "sys._baserepl()\n"
+    process = subprocess.Popen(
+        [sys.executable, "-i", "-S", "-u", "-c", setup],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
+    )
+    output = bytearray()
+    output_eof = False
+    deadline = time.monotonic() + 10.0
+
+    def remaining():
+        timeout = deadline - time.monotonic()
+        assert timeout > 0, ("native stdin child timed out", output)
+        return timeout
+
+    def read_output(timeout):
+        nonlocal output_eof
+        ready, _, _ = select.select([process.stdout], [], [], min(timeout, remaining()))
+        if ready:
+            try:
+                chunk = os.read(process.stdout.fileno(), 4096)
+            except BlockingIOError:
+                return
+            if chunk:
+                output.extend(chunk)
+                assert len(output) <= 65536, ("child output limit", output)
+            else:
+                output_eof = True
+
+    def expect(marker, start=0, interrupt=False):
+        observed = len(output)
+        retry_at = time.monotonic()
+        attempts = 0
+        while marker not in output[start:]:
+            assert not output_eof, ("child exited before marker", marker, output)
+            timeout = remaining()
+            if interrupt and len(output) == observed and attempts < 10:
+                # Drain bytes already available before deciding to retry.
+                read_output(0)
+                if len(output) != observed or output_eof:
+                    continue
+                now = time.monotonic()
+                if now >= retry_at:
+                    # Prompt emission precedes read(). Retry only this child
+                    # to cover that race; never send input to wake the read.
+                    assert process.poll() is None, ("child exited", output)
+                    process.send_signal(signal.SIGINT)
+                    attempts += 1
+                    retry_at = now + 0.5
+                timeout = min(timeout, max(0, retry_at - time.monotonic()))
+            # Any response stops retries, including a partial traceback or
+            # marker, so another SIGINT does not interrupt its reporting.
+            read_output(timeout)
+
+    def write_input(data):
+        offset = 0
+        while offset < len(data):
+            _, ready, _ = select.select([], [process.stdin], [], remaining())
+            if ready:
+                try:
+                    written = os.write(process.stdin.fileno(), data[offset:])
+                except BlockingIOError:
+                    continue
+                assert written > 0
+                offset += written
+
+    try:
+        os.set_blocking(process.stdin.fileno(), False)
+        os.set_blocking(process.stdout.fileno(), False)
+        expect(prompt)
+        after_prompt = len(output)
+        source = b"print('__NATIVE_' + 'STDIN_EXECUTED__', flush=True)"
+        # Keep the pipe empty until the native reader dispatches the signal.
+        # Only then provide a complete line and EOF; this does not assert
+        # CPython's behavior for a partial libc fgets interrupted by a signal.
+        expect(handled, after_prompt, interrupt=True)
+        write_input(source + b"\n")
+        process.stdin.close()
+        expect(executed, after_prompt)
+        while not output_eof:
+            read_output(remaining())
+        returncode = process.wait(timeout=remaining())
+        assert returncode == 0, (returncode, output)
+        assert output.count(executed) == 1, output
+        assert b"KeyboardInterrupt" not in output, output
+    finally:
+        process.stdin.close()
+        process.stdout.close()
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5.0)
+
+
+check_native_stdin_eintr()

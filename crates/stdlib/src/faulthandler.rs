@@ -408,7 +408,7 @@ mod decl {
         host_faulthandler::signal_default_and_raise(signum);
 
         // Fallback
-        rustpython_host_env::os::exit(1);
+        rustpython_host_env::os::exit_immediately(1);
     }
 
     // Windows vectored exception handler (faulthandler.c:417-480)
@@ -687,7 +687,7 @@ mod decl {
                     }
 
                     if exit {
-                        rustpython_host_env::os::exit(1);
+                        rustpython_host_env::os::exit_immediately(1);
                     }
                 }
             }

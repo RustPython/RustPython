@@ -21,6 +21,176 @@ import unicodedata
 
 MAX = 0x110000
 
+
+def generate_graphemes(args) -> int:
+    """Write a new Unicode 17 oracle, without touching the older fixtures."""
+    import hashlib
+    import json
+    import subprocess
+
+    commit = "d220409a13b77de7a6c30abe16ea90db01528edc"
+    gcb_names = (
+        "Other",
+        "Prepend",
+        "CR",
+        "LF",
+        "Control",
+        "Extend",
+        "Regional_Indicator",
+        "SpacingMark",
+        "L",
+        "V",
+        "T",
+        "LV",
+        "LVT",
+        "ZWJ",
+    )
+    incb_names = ("None", "Linker", "Consonant", "Extend")
+
+    def digest(path):
+        h = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    if sys.implementation.name != "cpython" or unicodedata.unidata_version != "17.0.0":
+        raise RuntimeError("requires the reviewed CPython Unicode 17 oracle")
+    executable = pathlib.Path(sys.executable).resolve(strict=True)
+    extension = pathlib.Path(unicodedata.__file__).resolve(strict=True)
+    if (
+        digest(executable) != args.python_sha256
+        or digest(extension) != args.unicodedata_sha256
+    ):
+        raise RuntimeError("oracle executable or extension hash mismatch")
+    source = args.cpython_source.resolve(strict=True)
+    head = subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        timeout=5,
+        text=True,
+    ).strip()
+    if head != commit:
+        raise RuntimeError("CPython source is not the pinned final commit")
+    header = source / "Modules/unicodedata_db.h"
+    blob = subprocess.check_output(
+        ["git", "-C", str(source), "show", f"{commit}:Modules/unicodedata_db.h"],
+        timeout=5,
+    )
+    if digest(header) != hashlib.sha256(blob).hexdigest():
+        raise RuntimeError("CPython Unicode database header differs from pinned source")
+
+    outputs = [
+        args.graphemes_output,
+        args.graphemes_raw_output,
+        args.graphemes_manifest,
+    ]
+    outputs = [p.resolve() for p in outputs]
+    if len(set(outputs)) != 3:
+        raise RuntimeError("oracle output paths must be distinct")
+    old_data = pathlib.Path(__file__).resolve().parent / "data"
+    for path in outputs:
+        if path.exists() or path.is_relative_to(old_data):
+            raise RuntimeError(
+                "outputs must be new files outside existing fixture directory"
+            )
+        if not path.parent.is_dir():
+            raise RuntimeError("output parents must already exist")
+
+    range_path, raw_path, manifest_path = outputs
+    ranges = []
+    start = 0
+    previous = None
+    raw_hash = hashlib.sha256()
+    # Exclusive creation prevents replacing any existing reference artifact.
+    with raw_path.open("xb") as raw:
+        buffer = bytearray()
+        for cp in range(MAX):
+            c = chr(cp)
+            triple = (
+                gcb_names.index(unicodedata.grapheme_cluster_break(c)),
+                incb_names.index(unicodedata.indic_conjunct_break(c)),
+                int(unicodedata.extended_pictographic(c)),
+            )
+            if triple != previous:
+                if previous is not None:
+                    ranges.append((start, cp - 1, previous))
+                    if len(ranges) > 100000:
+                        raise RuntimeError("range oracle exceeds reviewed count bound")
+                start, previous = cp, triple
+            buffer.extend(triple)
+            if len(buffer) >= 65535:
+                raw.write(buffer)
+                raw_hash.update(buffer)
+                buffer.clear()
+        raw.write(buffer)
+        raw_hash.update(buffer)
+    ranges.append((start, MAX - 1, previous))
+    if raw_path.stat().st_size != MAX * 3:
+        raise RuntimeError("raw oracle length mismatch")
+    lines = [
+        f"# CPython {commit}; Unicode 17.0.0",
+        "# Inclusive contiguous ranges: start:end GCB InCB Extended_Pictographic",
+        f"# Reconstructed raw SHA256 {raw_hash.hexdigest()}",
+    ]
+    for start, end, (gcb, incb, pictographic) in ranges:
+        lines.append(
+            f"{start:06X}:{end:06X} {gcb_names[gcb]} {incb_names[incb]} {pictographic}"
+        )
+    text = ("\n".join(lines) + "\n").encode("ascii")
+    if len(text) > 1024 * 1024 or len(ranges) > 100000:
+        raise RuntimeError("range oracle exceeds reviewed size bound")
+    reconstructed = hashlib.sha256()
+    next_cp = 0
+    for line in text.decode("ascii").splitlines():
+        if line.startswith("#"):
+            continue
+        bounds, gcb, incb, pictographic = line.split()
+        first, last = (int(value, 16) for value in bounds.split(":"))
+        if first != next_cp or not first <= last < MAX:
+            raise RuntimeError("range encoding has a gap, overlap, or invalid bound")
+        triple = bytes(
+            (gcb_names.index(gcb), incb_names.index(incb), int(pictographic))
+        )
+        reconstructed.update(triple * (last - first + 1))
+        next_cp = last + 1
+    if next_cp != MAX or reconstructed.hexdigest() != raw_hash.hexdigest():
+        raise RuntimeError("range reconstruction differs from the raw property oracle")
+    with range_path.open("xb") as output:
+        output.write(text)
+    manifest = {
+        "cpython_commit": commit,
+        "unicode_version": unicodedata.unidata_version,
+        "runtime_version": sys.version,
+        "runtime_git": getattr(sys, "_git", None),
+        "python": str(executable),
+        "python_sha256": digest(executable),
+        "unicodedata": str(extension),
+        "unicodedata_sha256": digest(extension),
+        "database_header_sha256": digest(header),
+        "generator_sha256": digest(pathlib.Path(__file__)),
+        "codepoints": MAX,
+        "properties": 3,
+        "ranges": len(ranges),
+        "gcb_encoding": gcb_names,
+        "incb_encoding": incb_names,
+        "raw_bytes": MAX * 3,
+        "raw_sha256": raw_hash.hexdigest(),
+        "ranges_bytes": len(text),
+        "ranges_sha256": hashlib.sha256(text).hexdigest(),
+    }
+    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+    # Total artifact bound, independent of the launcher's per-file rlimit.
+    if (
+        len(manifest_bytes) > 16384
+        or MAX * 3 + len(text) + len(manifest_bytes) > 4_407_296
+    ):
+        raise RuntimeError("total oracle artifact budget exceeded")
+    with manifest_path.open("xb") as output:
+        output.write(manifest_bytes)
+    print(json.dumps(manifest, sort_keys=True))
+    return 0
+
+
 # str predicates: name -> single-char method.
 STR_PREDICATES = {
     "isalpha": str.isalpha,
@@ -111,4 +281,18 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if len(sys.argv) == 1:
+        raise SystemExit(main())
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate only a new grapheme property oracle"
+    )
+    parser.add_argument("--graphemes-only", action="store_true", required=True)
+    parser.add_argument("--graphemes-output", type=pathlib.Path, required=True)
+    parser.add_argument("--graphemes-raw-output", type=pathlib.Path, required=True)
+    parser.add_argument("--graphemes-manifest", type=pathlib.Path, required=True)
+    parser.add_argument("--cpython-source", type=pathlib.Path, required=True)
+    parser.add_argument("--python-sha256", required=True)
+    parser.add_argument("--unicodedata-sha256", required=True)
+    raise SystemExit(generate_graphemes(parser.parse_args()))

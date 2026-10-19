@@ -101,26 +101,115 @@ impl VirtualMachine {
     /// Print exception chain by calling sys.excepthook
     pub fn print_exception(&self, exc: &Py<PyBaseException>) {
         let vm = self;
-        let write_fallback = |exc, errstr| {
-            if let Ok(stderr) = sys::get_stderr(vm) {
-                let mut stderr = py_io::PyWriter(stderr, vm);
-                // if this fails stderr might be closed -- ignore it
-                let _ = writeln!(stderr, "{errstr}");
-                let _ = self.write_exception(&mut stderr, exc);
-            } else {
-                eprintln!("{errstr}\nlost sys.stderr");
-                let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
-            }
-        };
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.to_owned());
             if let Err(eh_exc) = excepthook.call((exc_type, exc_val, exc_tb), vm) {
-                write_fallback(&eh_exc, "Error in sys.excepthook:");
-                write_fallback(exc, "Original exception was:");
+                writeln!(sys::PyStderr(vm), "Error in sys.excepthook:");
+                vm.display_exception(&eh_exc);
+                writeln!(sys::PyStderr(vm), "Original exception was:");
+                vm.display_exception(exc);
             }
         } else {
-            write_fallback(exc, "missing sys.excepthook");
+            writeln!(sys::PyStderr(vm), "missing sys.excepthook");
+            vm.display_exception(exc);
         }
+    }
+
+    /// PyErr_Print
+    ///
+    /// Record the exception as `sys.last_exc` and display it through
+    /// `sys.excepthook`. A `SystemExit` exits the process unless inspect mode
+    /// is enabled.
+    pub fn print_uncaught_exception(&self, exc: &Py<PyBaseException>) {
+        self.handle_system_exit(exc);
+        let (exc_type, exc_val, exc_tb) = self.split_exception(exc.to_owned());
+        for (name, value) in [
+            ("last_exc", &exc_val),
+            ("last_type", &exc_type),
+            ("last_value", &exc_val),
+            ("last_traceback", &exc_tb),
+        ] {
+            let _ = self.sys_module.set_attr(name, value.clone(), self);
+        }
+        let hook = self.sys_module.get_attr("excepthook", self).ok();
+        if let Err(audit_exc) = self.audit("sys.excepthook", || {
+            (
+                hook.clone().unwrap_or_else(|| self.ctx.none()),
+                exc_type.clone(),
+                exc_val.clone(),
+                exc_tb.clone(),
+            )
+        }) {
+            if audit_exc.fast_isinstance(self.ctx.exceptions.runtime_error) {
+                return;
+            }
+            self.run_unraisable(
+                audit_exc,
+                Some("Exception ignored in audit hook".to_owned()),
+                self.ctx.none(),
+            );
+        }
+        if let Some(hook) = hook {
+            if let Err(hook_exc) = hook.call((exc_type, exc_val, exc_tb), self) {
+                self.handle_system_exit(&hook_exc);
+                let _ = io::Write::flush(&mut io::stdout());
+                writeln!(sys::PyStderr(self), "Error in sys.excepthook:");
+                self.display_exception(&hook_exc);
+                writeln!(sys::PyStderr(self), "\nOriginal exception was:");
+                self.display_exception(exc);
+            }
+        } else {
+            writeln!(sys::PyStderr(self), "sys.excepthook is missing");
+            self.display_exception(exc);
+        }
+    }
+
+    /// handle_system_exit
+    fn handle_system_exit(&self, exc: &Py<PyBaseException>) {
+        if let Some(exit_code) = self.handle_system_exit_and_keyboard_interrupt(exc) {
+            self.exit_process(exit_code);
+        }
+    }
+
+    /// PyErr_Display
+    ///
+    /// Display `exc` on `sys.stderr`; nothing is written when it is `None`.
+    pub fn display_exception(&self, exc: &Py<PyBaseException>) {
+        let file = self.sys_module.dict().get_item_opt("stderr", self);
+        if let Ok(Some(file)) = &file {
+            if !self.is_none(file) {
+                self.display_exception_to(file, exc);
+            }
+            return;
+        }
+        self.dump_object(exc.as_object());
+        eprintln!("lost sys.stderr");
+        if let Err(err) = file {
+            self.dump_object(err.as_object());
+        }
+    }
+
+    /// _PyErr_Display
+    ///
+    /// Display `exc` through `traceback._print_exception_bltin`, falling back
+    /// to the native printer writing to `file`.
+    pub(crate) fn display_exception_to(&self, file: &PyObject, exc: &Py<PyBaseException>) {
+        if let Ok(print_exception) = self
+            .import("traceback", 0)
+            .and_then(|traceback| traceback.get_attr("_print_exception_bltin", self))
+            && print_exception.is_callable()
+            && print_exception.call((exc.to_owned(),), self).is_ok()
+        {
+            return;
+        }
+        if self
+            .write_exception(&mut py_io::PyWriter(file.to_owned(), self), exc)
+            .is_err()
+        {
+            self.dump_object(exc.as_object());
+            eprintln!("lost sys.stderr");
+        }
+        let _ = self.call_method(file, "flush", ());
     }
 
     pub fn write_exception<W: Write>(
@@ -185,10 +274,7 @@ impl VirtualMachine {
 
         let traceback = exc.traceback.read().clone();
         if let Some(tb) = traceback {
-            writeln!(output, "Traceback (most recent call last):")?;
-            for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
-            }
+            write_traceback(output, &tb)?;
         }
 
         let varargs = exc.args();
@@ -448,6 +534,17 @@ fn print_source_line<W: Write>(
     Ok(())
 }
 
+pub(crate) fn write_traceback<W: Write>(
+    output: &mut W,
+    traceback: &PyTracebackRef,
+) -> Result<(), W::Error> {
+    writeln!(output, "Traceback (most recent call last):")?;
+    for entry in traceback.iter() {
+        write_traceback_entry(output, &entry)?;
+    }
+    Ok(())
+}
+
 /// Print exception occurrence location from traceback element
 fn write_traceback_entry<W: Write>(
     output: &mut W,
@@ -549,6 +646,7 @@ pub struct ExceptionZoo {
     pub attribute_error: &'static Py<PyType>,
     pub buffer_error: &'static Py<PyType>,
     pub eof_error: &'static Py<PyType>,
+    pub import_cycle_error: &'static Py<PyType>,
     pub import_error: &'static Py<PyType>,
     pub module_not_found_error: &'static Py<PyType>,
     pub lookup_error: &'static Py<PyType>,
@@ -926,6 +1024,7 @@ impl ExceptionZoo {
         let eof_error = PyEOFError::init_builtin_type();
 
         let import_error = PyImportError::init_builtin_type();
+        let import_cycle_error = PyImportCycleError::init_builtin_type();
         let module_not_found_error = PyModuleNotFoundError::init_builtin_type();
 
         let lookup_error = PyLookupError::init_builtin_type();
@@ -1010,6 +1109,7 @@ impl ExceptionZoo {
             attribute_error,
             buffer_error,
             eof_error,
+            import_cycle_error,
             import_error,
             module_not_found_error,
             lookup_error,
@@ -1104,6 +1204,7 @@ impl ExceptionZoo {
         extend_exception!(PyEOFError, ctx, excs.eof_error);
 
         extend_exception!(PyImportError, ctx, excs.import_error);
+        extend_exception!(PyImportCycleError, ctx, excs.import_cycle_error);
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
@@ -2202,6 +2303,11 @@ pub(super) mod types {
             unreachable!("slot_init is defined")
         }
     }
+
+    #[pyexception(name, base = PyImportError, ctx = "import_cycle_error", impl)]
+    #[derive(Debug)]
+    #[repr(transparent)]
+    pub struct PyImportCycleError(PyImportError);
 
     #[pyexception(name, base = PyImportError, ctx = "module_not_found_error", impl)]
     #[derive(Debug)]

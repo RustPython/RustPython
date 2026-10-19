@@ -241,7 +241,7 @@ mod _codecs {
                 .as_ref()
                 .is_some_and(|s| s.is(identifier!(vm, surrogatepass)))
         {
-            return Ok((args.str.as_bytes().to_vec(), args.str.byte_len()));
+            return Ok((args.str.as_bytes().to_vec(), args.str.char_len()));
         }
         do_codec!(utf8::encode, args, vm)
     }

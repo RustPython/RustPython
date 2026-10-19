@@ -83,6 +83,24 @@ mod winsound;
 
 use crate::{Context, builtins::PyModuleDef};
 
+// Keep ctypes-specific alias detection available to memoryview on all targets.
+pub(crate) fn is_borrowed_ctypes_buffer(_obj: &crate::PyObject) -> bool {
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    if _ctypes::is_borrowed_buffer(_obj) {
+        return true;
+    }
+    false
+}
+
 /// Returns module definitions for multi-phase init modules.
 ///
 /// These modules use multi-phase initialization pattern:
@@ -140,6 +158,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _symtable::module_def(ctx),
         _sysconfigdata::module_def(ctx),
         _sysconfig::module_def(ctx),
+        _sysconfig::_missing_stdlib_info::module_def(ctx),
         #[cfg(feature = "threading")]
         _thread::module_def(ctx),
         _interpchannels::module_def(ctx),

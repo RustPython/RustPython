@@ -1652,8 +1652,12 @@ class PythonSymlink:
                 ))
 
             self._env = {k.upper(): os.getenv(k) for k in os.environ}
-            self._env["PYTHONHOME"] = os.path.dirname(self.real)
+            home = os.path.dirname(self.real)
             if sysconfig.is_python_build():
+                home = os.path.join(home, sysconfig.get_config_var('VPATH'))
+            self._env["PYTHONHOME"] = home
+            # TODO: RUSTPYTHON; Cargo builds do not use CPython's Modules/Setup.
+            if sys.implementation.name == 'rustpython':
                 self._env["PYTHONPATH"] = STDLIB_DIR
     else:
         def _platform_specific(self):

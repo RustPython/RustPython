@@ -11,8 +11,8 @@ mod _collections {
         VirtualMachine, atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyType,
-            PyTypeRef, locked_step,
+            PositionIterInternal, PyAnyDict, PyDict, PyGenericAlias, PyInt, PyList, PyStr, PyTuple,
+            PyType, PyTypeRef, locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -93,25 +93,36 @@ mod _collections {
         fn append_item(&self, item: PyObjectRef, left: bool, maxlen: Option<usize>) {
             let removed = {
                 let mut deque = self.borrow_deque_mut();
-                if left {
-                    deque.push_front(item);
-                } else {
-                    deque.push_back(item);
-                }
-                self.state.fetch_add(1);
-                // Trim after pushing, so that a `maxlen` of zero drops what just
-                // arrived instead of popping from an empty deque and keeping it.
-                if maxlen.is_some_and(|maxlen| deque.len() > maxlen) {
-                    if left {
-                        deque.pop_back()
-                    } else {
-                        deque.pop_front()
-                    }
-                } else {
-                    None
-                }
+                self.push_item(&mut deque, item, left, maxlen)
             };
             drop(removed);
+        }
+
+        // Return evicted items to the caller so they can be dropped after unlocking.
+        fn push_item(
+            &self,
+            deque: &mut VecDeque<PyObjectRef>,
+            item: PyObjectRef,
+            left: bool,
+            maxlen: Option<usize>,
+        ) -> Option<PyObjectRef> {
+            if left {
+                deque.push_front(item);
+            } else {
+                deque.push_back(item);
+            }
+            self.state.fetch_add(1);
+            // Trim after pushing, so that a `maxlen` of zero drops what just
+            // arrived instead of popping from an empty deque and keeping it.
+            if maxlen.is_some_and(|maxlen| deque.len() > maxlen) {
+                if left {
+                    deque.pop_back()
+                } else {
+                    deque.pop_front()
+                }
+            } else {
+                None
+            }
         }
 
         fn extend_items(
@@ -252,17 +263,66 @@ mod _collections {
             Ok(result)
         }
 
-        fn __mul__(&self, n: isize, vm: &VirtualMachine) -> PyResult<Self> {
-            let deque = self._mul(n, vm)?;
+        fn __mul__(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            if !zelf.class().is(Self::class(&vm.ctx)) {
+                return Self::__imul__(Py::<Self>::copy(zelf.to_owned(), vm)?, n, vm);
+            }
+            let deque = zelf._mul(n, vm)?;
             Ok(Self {
                 deque: PyRwLock::new(deque),
-                maxlen: self.maxlen,
+                maxlen: zelf.maxlen,
                 state: AtomicCell::new(0),
-            })
+            }
+            .into_ref(&vm.ctx))
         }
 
         fn __imul__(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if n == 1 || zelf.borrow_deque().is_empty() {
+                return Ok(zelf);
+            }
+            let size = zelf.__len__();
+            if n > 1 && size > 1 && !zelf.class().is(Self::class(&vm.ctx)) {
+                let mut repeats = n as usize;
+                if size > isize::MAX as usize / repeats {
+                    return Err(vm.no_memory_error());
+                }
+                // Snapshot through the iterator protocol without a deque lock. Retain
+                // the snapshot until all extensions finish, including item finalizers.
+                let items = vm.extract_elements_sized(zelf.as_object(), &|| 0, Ok)?;
+                if let Some(maxlen) = zelf.maxlen {
+                    repeats = repeats.min(maxlen.div_ceil(size));
+                }
+                if items.is_empty() || repeats <= 1 {
+                    return Ok(zelf);
+                }
+                if zelf.maxlen.is_none() {
+                    // Use the snapshot length: subclass callbacks may change both
+                    // the deque and the items being repeated. Reservation also
+                    // rejects capacities whose byte size cannot be represented.
+                    let additional = items
+                        .len()
+                        .checked_mul(repeats - 1)
+                        .ok_or_else(|| vm.no_memory_error())?;
+                    zelf.borrow_deque_mut()
+                        .try_reserve_exact(additional)
+                        .map_err(|_| vm.no_memory_error())?;
+                }
+                for _ in 1..repeats {
+                    let maxlen = zelf.maxlen;
+                    if maxlen == Some(0) {
+                        continue;
+                    }
+                    for item in &items {
+                        let removed = {
+                            let mut deque = zelf.borrow_deque_mut();
+                            // Finalizers or another thread can discard a previous
+                            // reservation, so check capacity under the push lock.
+                            deque.try_reserve(1).map_err(|_| vm.no_memory_error())?;
+                            zelf.push_item(&mut deque, item.clone(), false, maxlen)
+                        };
+                        drop(removed);
+                    }
+                }
                 return Ok(zelf);
             }
             let mut mul_deque = zelf._mul(n, vm)?;
@@ -279,13 +339,19 @@ mod _collections {
             self.borrow_deque().len()
         }
 
-        fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        fn concat(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             if let Some(o) = other.downcast_ref::<Self>() {
-                let mut deque = self.borrow_deque().clone();
+                if !zelf.class().is(Self::class(&vm.ctx)) || !other.class().is(Self::class(&vm.ctx))
+                {
+                    let result = Py::<Self>::copy(zelf.to_owned(), vm)?;
+                    result._extend(other, false, vm)?;
+                    return Ok(result);
+                }
+                let mut deque = zelf.borrow_deque().clone();
                 let elements = o.borrow_deque().clone();
                 deque.extend(elements);
 
-                let skipped = self
+                let skipped = zelf
                     .maxlen
                     .and_then(|maxlen| deque.len().checked_sub(maxlen))
                     .unwrap_or(0);
@@ -293,9 +359,10 @@ mod _collections {
 
                 Ok(Self {
                     deque: PyRwLock::new(deque),
-                    maxlen: self.maxlen,
+                    maxlen: zelf.maxlen,
                     state: AtomicCell::new(0),
-                })
+                }
+                .into_ref(&vm.ctx))
             } else {
                 Err(vm.new_type_error(format!(
                     r#"can only concatenate deque (not "{}") to deque"#,
@@ -354,6 +421,22 @@ mod _collections {
         #[pymethod(name = "__copy__")]
         #[pymethod]
         fn copy(zelf: PyRef<PyDeque>, vm: &VirtualMachine) -> PyResult<PyRef<PyDeque>> {
+            let cls = zelf.class();
+            if !cls.is(PyDeque::class(&vm.ctx)) {
+                // A subclass constructor may change the contents or maxlen. Do not hold
+                // the deque lock across Python callbacks, and validate its result.
+                let result = match zelf.maxlen {
+                    Some(maxlen) => cls.as_object().call((zelf.clone(), maxlen), vm)?,
+                    None => cls.as_object().call((zelf.clone(),), vm)?,
+                };
+                return result.downcast().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "{}() must return a deque, not {}",
+                        cls.name(),
+                        obj.class().name()
+                    ))
+                });
+            }
             PyDeque {
                 deque: PyRwLock::new(zelf.borrow_deque().clone()),
                 maxlen: zelf.maxlen,
@@ -629,15 +712,11 @@ mod _collections {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyDeque::sequence_downcast(seq).__len__())),
                 concat: atomic_func!(|seq, other, vm| {
-                    PyDeque::sequence_downcast(seq)
-                        .concat(other, vm)
-                        .map(|x| x.into_ref(&vm.ctx).into())
+                    PyDeque::concat(PyDeque::sequence_downcast(seq), other, vm).map(Into::into)
                 }),
 
                 repeat: atomic_func!(|seq, n, vm| {
-                    PyDeque::sequence_downcast(seq)
-                        .__mul__(n, vm)
-                        .map(|x| x.into_ref(&vm.ctx).into())
+                    PyDeque::__mul__(PyDeque::sequence_downcast(seq), n, vm).map(Into::into)
                 }),
 
                 item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).__getitem__(i, vm)),
@@ -1072,7 +1151,7 @@ mod _collections {
                     rhs.class().name()
                 )));
             };
-            if !other.fast_isinstance(vm.ctx.types.dict_type) {
+            if PyAnyDict::from_object(other).is_none() {
                 return not_implemented();
             }
 

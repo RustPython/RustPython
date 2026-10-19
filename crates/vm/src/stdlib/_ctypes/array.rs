@@ -10,8 +10,8 @@ use crate::{
     },
     class::StaticType,
     function::{ArgBytesLike, FuncArgs, PySetterValue},
-    protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::{AsBuffer, AsMapping, AsNumber, AsSequence, Constructor, Initializer},
+    protocol::{BufferDescriptor, PyBuffer, PyMappingMethods, PySequenceMethods},
+    types::{AsBuffer, AsMapping, AsSequence, Constructor, Initializer},
 };
 use alloc::borrow::Cow;
 use num_traits::{Signed, ToPrimitive};
@@ -42,6 +42,27 @@ fn get_size_from_format(fmt: &str) -> usize {
         .next()
         .map(|c| c.to_string());
     code.map_or(1, |c| simple_type_size(&c).unwrap_or(1))
+}
+
+pub(super) static CTYPE_SEQUENCE_METHODS: PySequenceMethods = PySequenceMethods {
+    repeat: Some(|seq, length, vm| repeat_type(seq.obj, length, vm)),
+    ..PySequenceMethods::NOT_IMPLEMENTED
+};
+
+pub(super) fn repeat_type(ctype: &PyObject, length: isize, vm: &VirtualMachine) -> PyResult {
+    if length < 0 {
+        return Err(vm.new_value_error(format!("Array length must be >= 0, not {length}")));
+    }
+    let cls = ctype
+        .downcast_ref::<PyType>()
+        .ok_or_else(|| vm.new_type_error("expected type"))?;
+    if let Some(info) = cls.stg_info_opt()
+        && info.size != 0
+        && length as usize > isize::MAX as usize / info.size
+    {
+        return Err(vm.new_overflow_error("array too large"));
+    }
+    array_type_from_ctype(ctype.to_owned(), length as usize, vm)
 }
 
 /// Creates array type for (element_type, length)
@@ -305,7 +326,7 @@ impl Initializer for PyCArrayType {
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE), with(Initializer, AsNumber))]
+#[pyclass(flags(IMMUTABLETYPE), with(Initializer, AsSequence))]
 impl PyCArrayType {
     #[pygetset(name = "__pointer_type__")]
     fn pointer_type(zelf: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -350,41 +371,9 @@ impl PyCArrayType {
     }
 }
 
-impl AsNumber for PyCArrayType {
-    fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            multiply: Some(|a, b, vm| {
-                // a is a type object whose metaclass is PyCArrayType (e.g., Array_5)
-                let n = b
-                    .try_index(vm)?
-                    .as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| vm.new_overflow_error("array size too large"))?;
-
-                if n < 0 {
-                    return Err(vm.new_value_error(format!("Array length must be >= 0, not {n}")));
-                }
-
-                // Check for overflow before creating the new array type
-                let zelf_type = a
-                    .downcast_ref::<PyType>()
-                    .ok_or_else(|| vm.new_type_error("Expected type"))?;
-
-                if let Some(stg_info) = zelf_type.stg_info_opt() {
-                    let current_size = stg_info.size;
-                    // Check if current_size * n would overflow
-                    if current_size != 0 && (n as usize) > isize::MAX as usize / current_size {
-                        return Err(vm.new_overflow_error("array too large"));
-                    }
-                }
-
-                // Use cached array type creation
-                // The element type of the new array is the current array type itself
-                array_type_from_ctype(a.to_owned(), n as usize, vm)
-            }),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        };
-        &AS_NUMBER
+impl AsSequence for PyCArrayType {
+    fn as_sequence() -> &'static PySequenceMethods {
+        &super::array::CTYPE_SEQUENCE_METHODS
     }
 }
 

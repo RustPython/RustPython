@@ -13,6 +13,7 @@ pub(crate) mod _ast {
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
+        warn,
     };
     #[pyattr]
     #[pyclass(module = "ast", name = "AST")]
@@ -153,22 +154,6 @@ pub(crate) mod _ast {
         Ok(contained)
     }
 
-    fn ast_replace_set_difference_update(
-        expecting: &Py<PySet>,
-        iterable: Option<&PyObject>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let Some(iterable) = iterable else {
-            return Ok(());
-        };
-        let iterable = iterable.to_owned().try_into_value::<ArgIterable>(vm)?;
-        for item in iterable.iter(vm)? {
-            let item = item?;
-            ast_replace_set_discard(expecting, &item, vm)?;
-        }
-        Ok(())
-    }
-
     fn ast_set_attr(
         obj: &PyObject,
         name: &PyObject,
@@ -191,57 +176,6 @@ pub(crate) mod _ast {
         let fields = cls.get_attr(vm.ctx.intern_str("_fields"));
         let attributes = cls.get_attr(vm.ctx.intern_str("_attributes"));
         let dict = zelf.as_object().dict();
-
-        let expecting = PySet::default().into_ref(&vm.ctx);
-        ast_replace_set_update(&expecting, fields.as_deref(), vm)?;
-        ast_replace_set_update(&expecting, attributes.as_deref(), vm)?;
-
-        for (key, _value) in &args.kwargs {
-            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
-            if !ast_replace_set_discard(&expecting, &key_obj, vm)? {
-                return Err(vm.new_type_error(format!(
-                    "{}.__replace__ got an unexpected keyword argument '{}'.",
-                    cls.name(),
-                    key
-                )));
-            }
-        }
-
-        if let Some(dict) = dict.as_deref() {
-            for (key, _value) in dict.items_vec() {
-                ast_replace_set_discard(&expecting, &key, vm)?;
-            }
-            ast_replace_set_difference_update(&expecting, attributes.as_deref(), vm)?;
-        }
-
-        // Discard optional fields (T | None).
-        if let Some(field_types) = cls.get_attr(vm.ctx.intern_str("_field_types"))
-            && let Ok(field_types) = field_types.downcast::<crate::builtins::PyDict>()
-        {
-            for (key, value) in field_types.items_vec() {
-                if value.fast_isinstance(vm.ctx.types.union_type) {
-                    ast_replace_set_discard(&expecting, &key, vm)?;
-                }
-            }
-        }
-
-        let remaining = expecting.elements();
-        if !remaining.is_empty() {
-            let mut names = Vec::with_capacity(remaining.len());
-            for name in &remaining {
-                names.push(name.repr(vm)?.to_string());
-            }
-            names.sort();
-            let missing = names.join(", ");
-            let count = names.len();
-            return Err(vm.new_type_error(format!(
-                "{}.__replace__ missing {} keyword argument{}: {}.",
-                cls.name(),
-                count,
-                if count == 1 { "" } else { "s" },
-                missing
-            )));
-        }
 
         let payload = vm.ctx.new_dict();
         if let Some(dict) = dict {
@@ -308,10 +242,58 @@ pub(crate) mod _ast {
         Ok(vm.ctx.new_str(repr))
     }
 
+    fn abstract_types() -> [&'static Py<PyType>; 13] {
+        [
+            NodeAst::static_type(),
+            super::super::pyast::NodeMod::static_type(),
+            super::super::pyast::NodeStmt::static_type(),
+            super::super::pyast::NodeExpr::static_type(),
+            super::super::pyast::NodeExprContext::static_type(),
+            super::super::pyast::NodeBoolOp::static_type(),
+            super::super::pyast::NodeOperator::static_type(),
+            super::super::pyast::NodeUnaryOp::static_type(),
+            super::super::pyast::NodeCmpOp::static_type(),
+            super::super::pyast::NodeExceptHandler::static_type(),
+            super::super::pyast::NodePattern::static_type(),
+            super::super::pyast::NodeTypeIgnore::static_type(),
+            super::super::pyast::NodeTypeParam::static_type(),
+        ]
+    }
+
+    #[pyfunction]
+    fn _is_abstract(cls: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        is_abstract(&cls, vm)
+    }
+
+    fn is_abstract(cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        // PySet_Contains rejects mutable sets and preserves comparison errors;
+        // Python-level set containment has different behavior for both cases.
+        let hash = match cls.hash(vm) {
+            Ok(hash) => hash,
+            Err(err) if err.class().is(vm.ctx.exceptions.type_error) => {
+                return Err(vm.new_type_error(format!(
+                    "cannot use '{}' as a set element ({})",
+                    cls.class().fully_qualified_name(vm)?,
+                    err.as_object().str(vm)?
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        for typ in abstract_types() {
+            let typ = typ.as_object();
+            if typ.hash(vm)? == hash
+                && typ.rich_compare_bool(cls, crate::types::PyComparisonOp::Eq, vm)?
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     impl Constructor for NodeAst {
         type Args = FuncArgs;
 
-        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
             // Keep _instance for parser-internal shared operator/context nodes,
             // but match CPython's public constructor behavior by allocating a
             // fresh object for Python-level ast.Load()/ast.Add()/... calls.
@@ -329,10 +311,6 @@ pub(crate) mod _ast {
             };
             let zelf = vm.ctx.new_base_object(cls, dict);
 
-            // type.__call__ does not invoke slot_init after slot_new
-            // for types with a custom slot_new, so we must call it here.
-            Self::slot_init(&zelf, args, vm)?;
-
             Ok(zelf)
         }
 
@@ -345,6 +323,21 @@ pub(crate) mod _ast {
         type Args = FuncArgs;
 
         fn slot_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            if is_abstract(zelf.class().as_object(), vm)? {
+                let message = vm.ctx.new_str(format!(
+                    "Instantiating abstract AST node class {} is deprecated. \
+This will become an error in Python 3.20",
+                    zelf.class().fully_qualified_name(vm)?
+                ));
+                warn::warn(
+                    message.into(),
+                    Some(vm.ctx.exceptions.deprecation_warning.to_owned()),
+                    1,
+                    None,
+                    vm,
+                )?;
+            }
+
             let fields = zelf
                 .class()
                 .get_attr(vm.ctx.intern_str("_fields"))

@@ -39,7 +39,6 @@ winresource = "0.1"
 
 [dependencies]
 rustpython-capi = { workspace = true, optional = true }
-rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, default-features = false, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler", "gc"] }
@@ -48,7 +47,7 @@ log = { workspace = true }
 flame = { workspace = true, optional = true }
 
 lexopt = "0.3"
-dirs = "6"
+dirs = "7"
 env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
 
@@ -62,11 +61,19 @@ rustyline = { workspace = true }
 mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [dev-dependencies]
+rustpython-compiler = { workspace = true }
 criterion = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 rustls-graviola = { workspace = true }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
+
+# Only the criterion benchmarks below are measured. Without `bench = false`,
+# `cargo bench` (and `cargo codspeed build`) also builds the library and binary
+# unit-test harnesses with the LTO bench profile, adding a full extra link of
+# the interpreter that is never run.
+[lib]
+bench = false
 
 [[bench]]
 name = "execution"
@@ -79,6 +86,7 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+bench = false
 
 [[example]]
 name = "custom_tls_providers"
@@ -309,7 +317,7 @@ icu_locale = "2"
 icu_properties = "2"
 icu_normalizer = "2"
 uuid = "1.23.2"
-unicode_names2 = { version = "3", default-features = false, features = ["no_std"] }
+unicode_names2 = { version = "4", default-features = false, features = ["no_std"] }
 widestring = "1.2.0"
 windows-sys = "0.61.2"
 wasm-bindgen = "0.2.106"

@@ -465,12 +465,26 @@ fn copy_ast_passthrough_fields(
             &["kind"]
         } else if is_node_instance(vm, target, pyast::NodeExprInterpolation::static_type())? {
             &["str"]
+        } else if is_node_instance(vm, target, pyast::NodeStmtImport::static_type())?
+            || is_node_instance(vm, target, pyast::NodeStmtImportFrom::static_type())?
+        {
+            &["is_lazy"]
         } else {
             &[]
         };
 
     for field in fields {
         if let Some(value) = vm.get_attribute_opt(source, *field)? {
+            let value = if *field == "is_lazy" {
+                let value = if vm.is_none(&value) {
+                    0
+                } else {
+                    node_object_to_i32(vm, &value)?
+                };
+                vm.ctx.new_int(value).into()
+            } else {
+                value
+            };
             target.set_attr(*field, value, vm)?;
         }
     }
@@ -982,6 +996,7 @@ fn type_comment_parse_error(
         source_path: source_file.name().to_owned(),
         is_unclosed_bracket: false,
         is_unclosed_string: false,
+        eof_token: None,
     }
     .into()
 }
@@ -1712,6 +1727,7 @@ fn ipython_escape_command_syntax_error(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into(),
     )
@@ -1796,6 +1812,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1826,6 +1843,7 @@ pub(crate) fn parse<E: From<CompileError>>(
             source_path: source_file.name().to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     }
@@ -1960,6 +1978,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         }
         .into()
     };
@@ -1989,6 +2008,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
             source_path: filename.to_owned(),
             is_unclosed_bracket: false,
             is_unclosed_string: false,
+            eof_token: None,
         })
         .into());
     };
@@ -2010,6 +2030,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {
@@ -2045,6 +2066,7 @@ pub(crate) fn parse_func_type<E: From<CompileError>>(
                 source_path: source_file.name().to_owned(),
                 is_unclosed_bracket: false,
                 is_unclosed_string: false,
+                eof_token: None,
             })
         })?;
         let ast::Mod::Expression(expression) = parsed.into_syntax() else {

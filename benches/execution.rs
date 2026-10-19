@@ -7,7 +7,7 @@ use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
     measurement::WallTime,
 };
-use pyo3::types::{PyCode, PyCodeInput, PyCodeMethods, PyDict, PyDictMethods};
+use pyo3::types::{PyCode, PyCodeMethods, PyDict, PyDictMethods, code::PyCodeInput};
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
 use std::{collections::HashMap, path::Path};

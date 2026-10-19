@@ -22,6 +22,12 @@ pub(super) use simple::{PyCSimple, PyCSimpleType};
 pub(super) use structure::PyCStructure;
 pub(super) use union::PyCUnion;
 
+pub(super) fn is_borrowed_buffer(obj: &crate::PyObject) -> bool {
+    obj.downcast_ref::<PyCData>()
+        .is_some_and(|cdata| cdata.is_borrowed())
+        || obj.downcast_ref::<function::RawMemoryBuffer>().is_some()
+}
+
 /// Extension for PyType to get StgInfo
 /// PyStgInfo_FromType
 impl Py<PyType> {
@@ -769,6 +775,9 @@ pub(crate) mod _ctypes {
         // 5. Resize the buffer
         let new_size = size as usize;
         let mut buffer = cdata.buffer.write();
+        if new_size == buffer.len() {
+            return Ok(());
+        }
         let old_data = buffer.to_vec();
         *buffer = Cow::Owned(rustpython_host_env::ctypes::resize_owned_bytes(
             &old_data, new_size,
