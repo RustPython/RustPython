@@ -578,7 +578,7 @@ impl PyCArray {
                 &buffer[offset..offset + element_size],
             );
             drop(buffer);
-            return zelf.0.object_at(address, vm);
+            return zelf.0.object_at(address, Some(index), vm);
         }
         if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
             && super::simple::is_swapped(element_type)

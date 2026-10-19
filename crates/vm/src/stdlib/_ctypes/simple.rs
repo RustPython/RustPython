@@ -1152,7 +1152,7 @@ impl Py<PyCSimple> {
         // O_get: py_object - read PyObject pointer from buffer
         if type_code == "O" {
             let ptr = rustpython_host_env::ctypes::read_pointer_from_buffer(&zelf.0.buffer.read());
-            return zelf.0.object_at(ptr, vm);
+            return zelf.0.object_at(ptr, None, vm);
         }
 
         // Storage metadata belongs to this exact type, unlike inherited attributes.

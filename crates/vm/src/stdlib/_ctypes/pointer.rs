@@ -288,13 +288,7 @@ impl PyCPointer {
 
     /// Set the pointer value in buffer
     pub(crate) fn set_ptr_value(&self, value: usize) {
-        let mut buffer = self.0.buffer.write();
-        rustpython_host_env::ctypes::write_pointer_to_buffer_at(
-            buffer.to_mut(),
-            0,
-            rustpython_host_env::ctypes::pointer_size(),
-            value,
-        );
+        self.0.write_bytes_at_offset(0, &value.to_ne_bytes());
     }
 
     // contents getter - reads address from b_ptr and creates an instance of the pointed-to type
@@ -417,6 +411,7 @@ impl PyCPointer {
                 if type_code == "O" {
                     return zelf.0.object_at(
                         rustpython_host_env::ctypes::read_pointer_from_buffer(bytes),
+                        Some(index as usize),
                         vm,
                     );
                 }

@@ -659,6 +659,16 @@ del _nested, _item
 gc.collect()
 assert [ref().value for ref in _refs] == [0, 1]
 
+# Replacing a pointer view's contents updates its slot and retains the pointee.
+_replacement = ctypes.c_int(42)
+_replacement_ref = weakref.ref(_replacement)
+_view = _copy[1][0][0]
+_view.contents = _replacement
+del _replacement, _view
+gc.collect()
+assert _replacement_ref() is not None
+assert _copy[1][0][0].contents.value == 42
+
 # Replacing a callback may reenter the same array from its finalizer.
 _finalized = []
 
@@ -745,6 +755,19 @@ gc.collect()
 assert _copy[0].value is _object
 _copy[0].value = None
 assert _copy[0].value is None
+
+
+class RetentionKey(str):
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        raise AssertionError("py_object lookup called key equality")
+
+
+_copy[0].value = _object
+_copy._objects.clear()
+_copy._objects[RetentionKey("0:0")] = _object
+assert _copy[0].value is _object
 
 # Generated endian types return scalars, but their user subclasses return views.
 _swapped = (

@@ -5,6 +5,7 @@ use crate::builtins::{
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
+use crate::dict_inner::DictKey;
 use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
@@ -437,6 +438,36 @@ pub struct PyCData {
     /// RustPython's PyBytes lacks CPython's internal trailing null.
     /// Keyed by unique_key (hierarchical) so nested fields don't collide.
     pub(super) kept_refs: PyRwLock<std::collections::HashMap<String, PyObjectRef>>,
+}
+
+// Retention metadata is user-mutable. Its fast lookup must not call Python
+// equality on a colliding key; non-exact string keys use the graph fallback.
+struct ObjectKey<'a>(&'a str);
+
+impl DictKey for ObjectKey<'_> {
+    type Owned = String;
+
+    fn _to_owned(&self, _vm: &VirtualMachine) -> String {
+        self.0.to_owned()
+    }
+
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
+        self.0.key_hash(vm)
+    }
+
+    fn key_is(&self, _other: &PyObject) -> bool {
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
+        Ok(other
+            .downcast_ref_if_exact::<PyStr>(vm)
+            .is_some_and(|key| key.as_wtf8() == self.0))
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.0.key_as_isize(vm)
+    }
 }
 
 impl PyCData {
@@ -921,15 +952,52 @@ impl PyCData {
     // Resolve a py_object through owned references, never by turning an
     // arbitrary integer from native memory into a Rust reference. Views can
     // reach the object through nested _objects dictionaries or cast cycles.
-    pub(super) fn object_at(&self, address: usize, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn object_at(
+        &self,
+        address: usize,
+        index: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         if address == 0 {
             return Err(vm.new_value_error("PyObject is NULL"));
         }
         if address == vm.ctx.none.get_id() {
             return Ok(vm.ctx.none());
         }
-        let mut pending: Vec<_> = self.objects.read().iter().cloned().collect();
-        pending.extend(self.base.read().iter().cloned());
+        let objects = self.objects.read().clone();
+        if let Some(obj) = &objects
+            && obj.get_id() == address
+        {
+            return Ok(obj.clone());
+        }
+        let base = self.base.read().clone();
+        let root = base.as_ref().map(|base| Self::find_root_object(base));
+        let owners = root
+            .as_ref()
+            .and_then(|root| root.downcast_ref::<Self>())
+            .and_then(|root| root.objects.read().clone())
+            .or_else(|| objects.clone());
+        if let Some(dict) = owners.as_ref().and_then(|obj| obj.downcast_ref::<PyDict>()) {
+            let key = self.unique_key(index.unwrap_or(0));
+            // A scalar view's setter stores under "0:<view path>", whereas
+            // assignment through its parent stores under "<view path>".
+            let parent_key = if index.is_none() {
+                key.strip_prefix("0:")
+            } else {
+                None
+            };
+            for key in core::iter::once(key.as_str()).chain(parent_key) {
+                if let Some(obj) = dict.inner_getitem_opt(&ObjectKey(key), vm)?
+                    && obj.get_id() == address
+                {
+                    return Ok(obj);
+                }
+            }
+        }
+        // Casts, copied aggregates and buffer views can retain the referent
+        // through other keys or containers. Search those only on a direct miss.
+        let mut pending: Vec<_> = objects.into_iter().collect();
+        pending.extend(base);
         pending.extend(self.kept_refs.read().values().cloned());
         let mut visited = std::collections::HashSet::new();
         while let Some(obj) = pending.pop() {
