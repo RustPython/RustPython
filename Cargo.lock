@@ -1640,15 +1640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "getopts"
-version = "0.2.24"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
-dependencies = [
- "unicode-width",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3529,6 +3520,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_unicode_names2"
+version = "0.0.18"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
+dependencies = [
+ "phf 0.11.3",
+ "ruff_unicode_names2_generator",
+]
+
+[[package]]
+name = "ruff_unicode_names2_generator"
+version = "0.0.18"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
+dependencies = [
+ "phf_codegen",
+ "rand 0.10.3",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3916,9 +3925,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_ast"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b7ffeb85f9a68c461d538839c79548584768df08f2d68cb1ee693be697e0355"
+version = "0.17.1"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -3938,9 +3946,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_python_parser"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c9729e35cac02839c7a67aaccfea3eba32032f7aeacca2e82ad79e8d7b7fd95"
+version = "0.17.1"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -3949,6 +3956,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "icu_properties",
  "memchr",
+ "ruff_unicode_names2",
  "rustc-hash",
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_trivia",
@@ -3958,14 +3966,12 @@ dependencies = [
  "thin-vec",
  "unicode-ident",
  "unicode-normalization",
- "unicode_names2 1.3.0",
 ]
 
 [[package]]
 name = "rustpython-ruff_python_trivia"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "764f43ea060f888164fbd360b0e1a36f2a35f5c03def85407bab7039fc62a645"
+version = "0.17.1"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -3978,9 +3984,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_source_file"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe26430c3f2eadb40524b6df7ac9a3970dd2b58f921b01ed75df0121e332fad"
+version = "0.17.1"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
 dependencies = [
  "memchr",
  "rustpython-ruff_text_size",
@@ -3988,9 +3993,8 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ruff_text_size"
-version = "0.16.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e5377a04f2855030600b93a05754242950ea9b070507ef9aef67965a52eeb09"
+version = "0.17.1"
+source = "git+https://github.com/RustPython/ruff.git?rev=93967836c8ddda2d980012852434d587af67a2ab#93967836c8ddda2d980012852434d587af67a2ab"
 dependencies = [
  "get-size2",
 ]
@@ -4070,7 +4074,7 @@ dependencies = [
  "icu_normalizer",
  "icu_properties",
  "rustpython-wtf8",
- "unicode_names2 4.0.0",
+ "unicode_names2",
  "writeable",
  "zlib-rs",
 ]
@@ -4877,34 +4881,12 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "unicode_names2"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1673eca9782c84de5f81b82e4109dcfb3611c8ba0d52930ec4a9478f547b2dd"
-dependencies = [
- "phf 0.11.3",
- "unicode_names2_generator 1.3.0",
-]
-
-[[package]]
-name = "unicode_names2"
 version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ba646312acace3c9ec35d7404b58214b6fbf17cbb0d040f35a88407c424447f"
 dependencies = [
  "phf 0.11.3",
- "unicode_names2_generator 4.0.0",
-]
-
-[[package]]
-name = "unicode_names2_generator"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b91e5b84611016120197efd7dc93ef76774f4e084cd73c9fb3ea4a86c570c56e"
-dependencies = [
- "getopts",
- "log",
- "phf_codegen",
- "rand 0.8.6",
+ "unicode_names2_generator",
 ]
 
 [[package]]
