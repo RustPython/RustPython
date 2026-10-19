@@ -1,3 +1,5 @@
+import operator
+
 from testutils import assert_raises
 
 assert set([1, 2]) == set([1, 2])
@@ -706,3 +708,17 @@ for use_operator in (False, True):
         intersection_target.intersection_update({1})
     assert not intersection_target
 assert intersection_events == [True, True]
+
+
+# Unsupported right operands must reach their reflected set operation.
+keys = {2: None, 3: None}.keys()
+for method, operation, expected in (
+    (set.__ior__, operator.ior, {1, 2, 3}),
+    (set.__iand__, operator.iand, {2}),
+    (set.__isub__, operator.isub, {1}),
+    (set.__ixor__, operator.ixor, {1, 3}),
+):
+    source = {1, 2}
+    assert method(source, keys) is NotImplemented
+    assert operation(source, keys) == expected
+    assert source == {1, 2}

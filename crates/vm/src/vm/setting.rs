@@ -139,7 +139,8 @@ pub struct Settings {
     /// --check-hash-based-pycs
     pub check_hash_pycs_mode: CheckHashPycsMode,
 
-    // int use_frozen_modules;
+    /// -X frozen_modules=on|off (bootstrap modules remain available).
+    pub use_frozen_modules: bool,
     /// -P
     pub safe_path: bool,
 
@@ -204,6 +205,7 @@ impl Default for Settings {
             install_signal_handlers: true,
             user_site_directory: true,
             import_site: true,
+            use_frozen_modules: true,
             ignore_environment: false,
             verbose: 0,
             quiet: false,

@@ -55,6 +55,11 @@ fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
 fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
+    if !vm.state.config.settings.use_frozen_modules {
+        setup_dynamic_stdlib(vm);
+        return;
+    }
+
     if use_build_stdlib(vm) {
         let state = PyRc::get_mut(&mut vm.state).unwrap();
         state.config.paths.stdlib_dir =
@@ -63,7 +68,7 @@ fn set_frozen_stdlib_dir(vm: &mut crate::VirtualMachine) {
 }
 
 /// Setup dynamic standard library loading from filesystem
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
@@ -117,7 +122,7 @@ fn canonical_stdlib_path(path: String) -> String {
 }
 
 /// Collect standard library paths from build-time configuration
-#[cfg(all(feature = "stdlib", not(feature = "freeze-stdlib")))]
+#[cfg(feature = "stdlib")]
 fn collect_stdlib_paths() -> Vec<String> {
     // BUILDTIME_RUSTPYTHONPATH should be set when distributing
     if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {

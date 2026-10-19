@@ -1716,6 +1716,36 @@ mod _socket {
                         )
                     })
                 }
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                c::AF_NETLINK => {
+                    let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
+                        vm.new_type_error(format!(
+                            "{caller}(): AF_NETLINK address must be tuple, not {}",
+                            obj.class().name()
+                        ))
+                    })?;
+                    let [pid, groups] = tuple.as_slice() else {
+                        return Err(vm
+                            .new_type_error("AF_NETLINK address must be a pair (pid, groups)")
+                            .into());
+                    };
+                    let pid = pid.clone().try_index(vm)?.as_u32_mask();
+                    let groups = groups.clone().try_index(vm)?.as_u32_mask();
+                    let mut storage = host_socket::raw::SockAddrStorage::zeroed();
+                    // SAFETY: SockAddrStorage has sufficient size and alignment for
+                    // sockaddr_nl; all its fields and padding start initialized to zero.
+                    let netlink_addr = unsafe { storage.view_as::<c::sockaddr_nl>() };
+                    netlink_addr.nl_family = c::AF_NETLINK as c::sa_family_t;
+                    netlink_addr.nl_pid = pid;
+                    netlink_addr.nl_groups = groups;
+                    // SAFETY: The family, address fields, and length describe sockaddr_nl.
+                    Ok(unsafe {
+                        host_socket::raw::SockAddr::new(
+                            storage,
+                            core::mem::size_of::<c::sockaddr_nl>() as c::socklen_t,
+                        )
+                    })
+                }
                 #[cfg(target_os = "linux")]
                 c::AF_ALG => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -2915,6 +2945,13 @@ mod _socket {
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.fsdecode(path).into();
+        }
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if addr.family() == c::AF_NETLINK as c::sa_family_t {
+            // SAFETY: Socket addresses supplied by the OS use sockaddr_nl for AF_NETLINK;
+            // SockAddr owns storage with the required size and alignment.
+            let netlink_addr = unsafe { &*addr.as_ptr().cast::<c::sockaddr_nl>() };
+            return (netlink_addr.nl_pid, netlink_addr.nl_groups).to_pyobject(vm);
         }
         #[cfg(target_os = "linux")]
         {

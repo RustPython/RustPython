@@ -169,6 +169,7 @@ where
         import_time_header: AtomicBool::new(false),
         lazy_imports,
         struct_format_cache: crate::buffer::FormatSpecCache::default(),
+        functools_placeholder: Default::default(),
         finalizing: AtomicBool::new(false),
         #[cfg(feature = "threading")]
         finalizing_thread_ident: AtomicCell::new(0),
@@ -1539,6 +1540,7 @@ mod tests {
         let sub = main.create_subinterpreter();
 
         let sub_scope = sub.enter(|vm| {
+            vm.state.gc.disable();
             let scope = vm.new_scope_with_builtins();
             run(vm, &scope, CYCLE);
             assert_eq!(live_nodes(vm), 2);
