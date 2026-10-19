@@ -53,7 +53,14 @@ impl PyObject {
         } else if let Some(i) = self.downcast_ref::<PyInt>() {
             Some(Ok(vm.ctx.new_bigint(i.as_bigint())))
         } else {
-            self.number().index(vm)
+            self.number().index(vm).map(|result| {
+                let result = result?;
+                if result.class().is(vm.ctx.types.int_type) {
+                    Ok(result)
+                } else {
+                    Ok(vm.ctx.new_bigint(result.as_bigint()))
+                }
+            })
         }
     }
 
