@@ -1,0 +1,90 @@
+{
+  "repository": "https://github.com/RustPython/ruff",
+  "revision": "9290a8849542134d83f77e9360e7f0b93897fd93",
+  "package_path": "crates/ruff_python_parser",
+  "package_version": "0.17.1",
+  "workspace_manifest_sha256": "8e4b4ab36e2de09157b4207772b89acac11dc11f80ba4edb5b4c75f5f40a2fe9",
+  "license_sha256": "2597d854122b77ddc71971564ca2350a37608575ce324adc5650a2b2051c8f18",
+  "baseline_file_count": 1439,
+  "changed_baseline_files": [
+    "Cargo.toml",
+    "src/token_source.rs",
+    "src/error.rs",
+    "src/lib.rs",
+    "src/lexer.rs",
+    "src/lexer/indentation.rs",
+    "src/lexer/interpolated_string.rs",
+    "src/parser/expression.rs",
+    "src/parser/options.rs",
+    "src/parser/mod.rs",
+    "src/parser/pattern.rs",
+    "src/parser/statement.rs"
+  ],
+  "added_source_files": [
+    "src/diagnostic_continuation.rs",
+    "src/diagnostic_events.rs",
+    "src/parser/case_diagnostics.rs",
+    "src/relative_imports.rs"
+  ],
+  "upstream_test_resource_snapshot_files_unchanged": 1415,
+  "series": [
+    "0001-unpack-diagnostics.patch",
+    "0002-starred-generator-operands.patch",
+    "0003-parameter-diagnostics.patch",
+    "0004-statement-diagnostics.patch",
+    "0005-fstring-diagnostics.patch",
+    "0006-concat-comma-diagnostics.patch",
+    "0007-standalone-pinned-manifest.patch",
+    "0008-isolate-statement-probe-recovery.patch",
+    "0009-preserve-case-unpack-priority.patch",
+    "0010-relative-lazy-diagnostic-provenance.patch"
+  ],
+  "source_reproduction": "Exact zero-fuzz ten-patch replay from all 1439 pinned upstream files matches every final source/manifest byte. Source reproduction is separate from full-mega validation.",
+  "new_source_corrections": [
+    {
+      "patch": "0008-isolate-statement-probe-recovery.patch",
+      "scope": "Restore three recovery fields around the two added statement diagnostic probes, matching standalone_case_diagnostic. No shared checkpoint API change.",
+      "validation": "Source-only review; no parser/runtime execution."
+    },
+    {
+      "patch": "0009-preserve-case-unpack-priority.patch",
+      "scope": "Retain first eligible speculative deferred-unpacking error and direct unpack variants before standalone-case rewind, preserving encounter order.",
+      "basis": "CPython d220 grammar and approved bounded eight-case compile-only observation against binary201f82ea; raw records retained separately.",
+      "validation": "Ruff implementation source-only; independent review and authorized parity tests remain pending."
+    },
+    {
+      "patch": "0010-relative-lazy-diagnostic-provenance.patch",
+      "scope": "Parser-owned relative-lazy grammar actions, original lexer warning/error provenance, owned same-source/mode continuation, TYPE_COMMENT ownership and actual parameter-comma boundary, preserving Single and tokenizer-only recovery contracts.",
+      "basis": "CPython d220409a13b77de7a6c30abe16ea90db01528edc grammar and bounded compile-only observations.",
+      "validation": "Independent source review, parser/VM checks, strict VM Clippy, default CLI and 1056 fixed compile-only observations on an isolated warning composition; not the full rebased mega, true prompt, parser fuzz or feature-off runtime."
+    }
+  ],
+  "unresolved_semantics": [
+    "Complete mega on latest main has not been compiled or run. All private constructor/provenance checks remain, with explicit internal-invariant SystemError only. Any supported-input hit blocks acceptance; finite success does not establish universal parity."
+  ],
+  "patch_sha256": {
+    "0001-unpack-diagnostics.patch": "5676793e1bac11e5b5a0adb26f038f571ebe42482c6c87767fcbd5dd9713b4dd",
+    "0002-starred-generator-operands.patch": "a0deb1c1e60cf96d347c35f5c2b80009e0ee30e30356b3d9e41a9d71b0d0fd94",
+    "0003-parameter-diagnostics.patch": "c1a06094ed0258d1a8c3da8371276b8ad2dbc9396d12ae3b3ef6d208bf020509",
+    "0004-statement-diagnostics.patch": "f8f9e8b87836a852c3ff6666b319e770f7d3a8d1a94bd0715662a1f187428a1c",
+    "0005-fstring-diagnostics.patch": "95989f38b27607b6251979066dd13a9601bfec4047bde4385b4478c0c273c940",
+    "0006-concat-comma-diagnostics.patch": "5d88c7058ffa77ba1b2f5b2f89143933814fdaee8c6d92daeab7618db5636dba",
+    "0007-standalone-pinned-manifest.patch": "611e6605164982ecde75e25d84bbeeef054ff89e843193a5c82df0521f1e4ec7",
+    "0008-isolate-statement-probe-recovery.patch": "e15fd208b3c69f56bd29dd0a515c177b9b68e9036ae082f0f214202825787999",
+    "0009-preserve-case-unpack-priority.patch": "b3c2b5d7bcd2d52967711df85603ec9951ad46930958b529207c304fb3921244",
+    "0010-relative-lazy-diagnostic-provenance.patch": "480cd505daa36179b8e0cdc67a0eef8f33975aeed45d2c403c0187700fd4a497"
+  },
+  "validated_warning_composition": {
+    "base_main": "5dcef1aa6d53c72315a44296146c768120841953",
+    "warning_basis": "f1ef9088f4f4165cac3528f935f46e6d4cb06135",
+    "composition_binding_sha256": "958a64b1a88f100652de130c393ed6eb0f17a9fc3437d6ec6f906f0b11705971",
+    "raw_comparison_sha256": "43b41e54a6a9516250ad75309968dacf391933785d34b03922eb633e5d853f25",
+    "rows": 1056,
+    "warning_and_exception_selection_matches": 1056,
+    "unchanged_v9_control_records": 832,
+    "raw_equal": 430,
+    "representation_only_differences": 533,
+    "existing_location_text_differences": 93,
+    "payload_execution": false
+  }
+}

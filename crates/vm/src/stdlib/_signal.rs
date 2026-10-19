@@ -643,6 +643,9 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     pub(crate) fn clear_wakeup_fd_after_fork() {
         WAKEUP.store(INVALID_WAKEUP, Ordering::Relaxed);
+        for pending in &WAKEUP_WRITE_ERRORS {
+            pending.store(0, Ordering::Relaxed);
+        }
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

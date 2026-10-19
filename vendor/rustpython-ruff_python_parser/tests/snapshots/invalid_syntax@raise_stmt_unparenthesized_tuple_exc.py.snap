@@ -1,0 +1,149 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/raise_stmt_unparenthesized_tuple_exc.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..38,
+        body: [
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 0..8,
+                    exc: Some(
+                        Tuple(
+                            ExprTuple {
+                                node_index: NodeIndex(None),
+                                range: 6..8,
+                                elts: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 6..7,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ],
+                                ctx: Load,
+                                parenthesized: false,
+                                runtime_elts: None,
+                            },
+                        ),
+                    ),
+                    cause: None,
+                },
+            ),
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 9..19,
+                    exc: Some(
+                        Tuple(
+                            ExprTuple {
+                                node_index: NodeIndex(None),
+                                range: 15..19,
+                                elts: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 15..16,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 18..19,
+                                            id: Name("y"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ],
+                                ctx: Load,
+                                parenthesized: false,
+                                runtime_elts: None,
+                            },
+                        ),
+                    ),
+                    cause: None,
+                },
+            ),
+            Raise(
+                StmtRaise {
+                    node_index: NodeIndex(None),
+                    range: 20..37,
+                    exc: Some(
+                        Tuple(
+                            ExprTuple {
+                                node_index: NodeIndex(None),
+                                range: 26..30,
+                                elts: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 26..27,
+                                            id: Name("x"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 29..30,
+                                            id: Name("y"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ],
+                                ctx: Load,
+                                parenthesized: false,
+                                runtime_elts: None,
+                            },
+                        ),
+                    ),
+                    cause: Some(
+                        Name(
+                            ExprName {
+                                node_index: NodeIndex(None),
+                                range: 36..37,
+                                id: Name("z"),
+                                ctx: Load,
+                            },
+                        ),
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | raise x,
+  |       ^^ Syntax Error: unparenthesized tuple expression cannot be used here
+2 | raise x, y
+3 | raise x, y from z
+  |
+
+
+  |
+1 | raise x,
+2 | raise x, y
+  |       ^^^^ Syntax Error: unparenthesized tuple expression cannot be used here
+3 | raise x, y from z
+  |
+
+
+  |
+1 | raise x,
+2 | raise x, y
+3 | raise x, y from z
+  |       ^^^^ Syntax Error: unparenthesized tuple expression cannot be used here

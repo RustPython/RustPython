@@ -7,6 +7,9 @@ use core::sync::atomic::Ordering;
 use crossbeam_utils::atomic::AtomicCell;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "capi")]
+pub mod capi;
+
 pub(crate) const TOOL_LIMIT: usize = 6;
 const EVENTS_COUNT: usize = 19;
 const UNGROUPED_EVENTS_COUNT: usize = 16;
@@ -94,6 +97,8 @@ const EVENT_NAMES: [&str; EVENTS_COUNT] = [
 
 /// Interpreter-level monitoring state, shared by all threads.
 pub struct MonitoringState {
+    #[cfg(feature = "capi")]
+    native_version: u64,
     pub tool_names: [Option<String>; TOOL_LIMIT],
     pub global_events: [u32; TOOL_LIMIT],
     pub local_events: HashMap<(usize, usize), u32>,
@@ -112,6 +117,8 @@ pub struct MonitoringState {
 impl Default for MonitoringState {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "capi")]
+            native_version: 1,
             tool_names: Default::default(),
             global_events: [0; TOOL_LIMIT],
             local_events: HashMap::new(),
@@ -649,6 +656,10 @@ fn release_tool_callbacks(tool_id: i32, free: bool, vm: &VirtualMachine) -> PyRe
     let callbacks = {
         let mut state = vm.state.monitoring.lock();
         let callbacks = if state.tool_names[tool].is_some() {
+            #[cfg(feature = "capi")]
+            {
+                state.native_version += 1;
+            }
             state.global_events[tool] = 0;
             state
                 .local_events
@@ -738,6 +749,10 @@ fn set_events(tool_id: i32, event_set: i32, vm: &VirtualMachine) -> PyResult<()>
     check_tool_in_use(tool, vm)?;
     let normalized = normalize_event_set(event_set, false, vm)?;
     let mut state = vm.state.monitoring.lock();
+    #[cfg(feature = "capi")]
+    if state.global_events[tool] != normalized {
+        state.native_version += 1;
+    }
     state.global_events[tool] = normalized;
     update_events_mask(vm, &state);
     Ok(())
@@ -783,6 +798,10 @@ fn set_local_events(
 fn restart_events(vm: &VirtualMachine) {
     let mut state = vm.state.monitoring.lock();
     state.disabled.clear();
+    #[cfg(feature = "capi")]
+    {
+        state.native_version += 1;
+    }
 }
 
 fn all_events(vm: &VirtualMachine) -> PyResult<PyDictRef> {

@@ -1,0 +1,301 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/assignment_instead_of_comparison.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..62,
+        body: [
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 0..4,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 3..4,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 7..13,
+                    target: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 7..8,
+                            value: Int(
+                                3,
+                            ),
+                        },
+                    ),
+                    annotation: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 10..13,
+                        },
+                    ),
+                    value: None,
+                    simple: false,
+                    runtime_simple: None,
+                },
+            ),
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 14..23,
+                    test: Attribute(
+                        ExprAttribute {
+                            node_index: NodeIndex(None),
+                            range: 20..23,
+                            value: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 20..21,
+                                    id: Name("x"),
+                                    ctx: Load,
+                                },
+                            ),
+                            attr: Identifier {
+                                id: Name("a"),
+                                range: 22..23,
+                                node_index: NodeIndex(None),
+                            },
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            AnnAssign(
+                StmtAnnAssign {
+                    node_index: NodeIndex(None),
+                    range: 26..32,
+                    target: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 26..27,
+                            value: Int(
+                                3,
+                            ),
+                        },
+                    ),
+                    annotation: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 29..32,
+                        },
+                    ),
+                    value: None,
+                    simple: false,
+                    runtime_simple: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 33..43,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 33..43,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 34..35,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 37..38,
+                                        id: Name("y"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                NumberLiteral(
+                                    ExprNumberLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 41..42,
+                                        value: Int(
+                                            1,
+                                        ),
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+            If(
+                StmtIf {
+                    node_index: NodeIndex(None),
+                    range: 44..48,
+                    test: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 47..48,
+                            id: Name("x"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    elif_else_clauses: [],
+                    runtime_body: None,
+                },
+            ),
+            Assign(
+                StmtAssign {
+                    node_index: NodeIndex(None),
+                    range: 51..56,
+                    targets: [
+                        NumberLiteral(
+                            ExprNumberLiteral {
+                                node_index: NodeIndex(None),
+                                range: 51..52,
+                                value: Int(
+                                    3,
+                                ),
+                            },
+                        ),
+                    ],
+                    value: NumberLiteral(
+                        ExprNumberLiteral {
+                            node_index: NodeIndex(None),
+                            range: 55..56,
+                            value: Int(
+                                4,
+                            ),
+                        },
+                    ),
+                    runtime_targets: None,
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 58..61,
+                    value: EllipsisLiteral(
+                        ExprEllipsisLiteral {
+                            node_index: NodeIndex(None),
+                            range: 58..61,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | if x = 3: ...
+  |    ^^^^^ Syntax Error: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+  |
+
+
+  |
+1 | if x = 3: ...
+  |      ^ Syntax Error: invalid syntax
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+  |
+
+
+  |
+1 | if x = 3: ...
+  |        ^ Syntax Error: illegal target for annotation
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+  |
+
+
+  |
+1 | if x = 3: ...
+2 | while x.a = 3: ...
+  |       ^^^ Syntax Error: cannot assign to attribute here. Maybe you meant '==' instead of '='?
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |
+
+
+  |
+1 | if x = 3: ...
+2 | while x.a = 3: ...
+  |           ^ Syntax Error: invalid syntax
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |
+
+
+  |
+1 | if x = 3: ...
+2 | while x.a = 3: ...
+  |             ^ Syntax Error: illegal target for annotation
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |
+
+
+  |
+1 | if x = 3: ...
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+  |     ^^^^^ Syntax Error: invalid syntax. Maybe you meant '==' or ':=' instead of '='?
+4 | if x = 3 = 4: ...
+  |
+
+
+  |
+1 | if x = 3: ...
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+  |       ^ Syntax Error: invalid syntax
+4 | if x = 3 = 4: ...
+  |
+
+
+  |
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |      ^ Syntax Error: invalid syntax
+
+
+  |
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |        ^ Syntax Error: cannot assign to literal here. Maybe you meant '==' instead of '='?
+
+
+  |
+2 | while x.a = 3: ...
+3 | [x, y = 1]
+4 | if x = 3 = 4: ...
+  |             ^ Syntax Error: invalid syntax

@@ -1,0 +1,72 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/while_stmt_missing_colon.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..40,
+        body: [
+            While(
+                StmtWhile {
+                    node_index: NodeIndex(None),
+                    range: 0..39,
+                    test: Compare(
+                        ExprCompare {
+                            node_index: NodeIndex(None),
+                            range: 12..18,
+                            ops: [
+                                Lt,
+                            ],
+                            operands: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 12..13,
+                                        id: Name("a"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                NumberLiteral(
+                                    ExprNumberLiteral {
+                                        node_index: NodeIndex(None),
+                                        range: 16..18,
+                                        value: Int(
+                                            30,
+                                        ),
+                                    },
+                                ),
+                            ],
+                            runtime_comparators: None,
+                        },
+                    ),
+                    body: [
+                        Pass(
+                            StmtPass {
+                                node_index: NodeIndex(None),
+                                range: 35..39,
+                            },
+                        ),
+                    ],
+                    orelse: [],
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | while (
+2 |     a < 30 # comment
+3 | )
+  |  ^ Syntax Error: expected ':'
+4 |     pass
+  |

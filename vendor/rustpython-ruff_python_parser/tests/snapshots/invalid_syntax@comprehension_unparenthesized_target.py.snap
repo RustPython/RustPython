@@ -1,0 +1,201 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/comprehension_unparenthesized_target.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..37,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: List(
+                        ExprList {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 1..2,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 4..5,
+                                        id: Name("y"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            ctx: Load,
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+            For(
+                StmtFor {
+                    node_index: NodeIndex(None),
+                    range: 6..19,
+                    is_async: false,
+                    target: Tuple(
+                        ExprTuple {
+                            node_index: NodeIndex(None),
+                            range: 10..14,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 10..11,
+                                        id: Name("x"),
+                                        ctx: Store,
+                                    },
+                                ),
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 13..14,
+                                        id: Name("y"),
+                                        ctx: Store,
+                                    },
+                                ),
+                            ],
+                            ctx: Store,
+                            parenthesized: false,
+                            runtime_elts: None,
+                        },
+                    ),
+                    iter: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 18..19,
+                            id: Name("z"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 21..24,
+                    value: Set(
+                        ExprSet {
+                            node_index: NodeIndex(None),
+                            range: 21..24,
+                            elts: [
+                                Name(
+                                    ExprName {
+                                        node_index: NodeIndex(None),
+                                        range: 22..23,
+                                        id: Name("x"),
+                                        ctx: Load,
+                                    },
+                                ),
+                            ],
+                            runtime_elts: None,
+                        },
+                    ),
+                },
+            ),
+            For(
+                StmtFor {
+                    node_index: NodeIndex(None),
+                    range: 25..35,
+                    is_async: false,
+                    target: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 29..30,
+                            id: Name("x"),
+                            ctx: Store,
+                        },
+                    ),
+                    iter: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 34..35,
+                            id: Name("z"),
+                            ctx: Load,
+                        },
+                    ),
+                    body: [],
+                    orelse: [],
+                    runtime_type_comment: None,
+                    runtime_type_comment_bytes: None,
+                    runtime_body: None,
+                    runtime_orelse: None,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | [x, y for x, y in z]
+  |  ^^^^ Syntax Error: did you forget parentheses around the comprehension target?
+2 | {x, for x in z}
+  |
+
+
+  |
+1 | [x, y for x, y in z]
+  |       ^^^ Syntax Error: invalid syntax
+2 | {x, for x in z}
+  |
+
+
+  |
+1 | [x, y for x, y in z]
+  |                    ^ Syntax Error: unmatched ']'
+2 | {x, for x in z}
+  |
+
+
+  |
+1 | [x, y for x, y in z]
+  |                     ^ Syntax Error: invalid syntax
+2 | {x, for x in z}
+  |
+
+
+  |
+1 | [x, y for x, y in z]
+2 | {x, for x in z}
+  |  ^^ Syntax Error: did you forget parentheses around the comprehension target?
+
+
+  |
+1 | [x, y for x, y in z]
+2 | {x, for x in z}
+  |     ^^^ Syntax Error: invalid syntax
+
+
+  |
+1 | [x, y for x, y in z]
+2 | {x, for x in z}
+  |               ^ Syntax Error: unmatched '}'
+
+
+  |
+1 | [x, y for x, y in z]
+2 | {x, for x in z}
+  |                ^ Syntax Error: invalid syntax

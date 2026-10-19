@@ -103,7 +103,7 @@ impl WarningsState {
 fn check_matched(
     obj: &PyObject,
     arg: Option<&PyObject>,
-    arg2: Option<&Py<PyStr>>,
+    filename: Option<&Py<PyStr>>,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
     // A 'None' filter always matches
@@ -117,15 +117,19 @@ fn check_matched(
             None => Ok(false),
         };
     }
-    // Otherwise assume a regex filter and call its match() method
-    let result = match arg {
-        Some(arg) => vm.call_method(obj, "match", (arg.to_owned(),))?,
-        None => {
-            let match_filename = vm
-                .import("_py_warnings", 0)?
-                .get_attr("_match_filename", vm)?;
-            match_filename.call((obj.to_owned(), arg2.map(|f| f.to_owned())), vm)?
-        }
+    let result = if let Some(arg) = arg {
+        vm.call_method(obj, "match", (arg.to_owned(),))?
+    } else {
+        let helper = vm
+            .import("_py_warnings", 0)?
+            .get_attr("_match_filename", vm)?;
+        helper.call(
+            (
+                obj.to_owned(),
+                filename.expect("filename for omitted module").to_owned(),
+            ),
+            vm,
+        )?
     };
     result.is_true(vm)
 }
@@ -519,10 +523,8 @@ pub fn warn_explicit(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    // module can be None if a warning is emitted late during Python shutdown.
-    // In this case, the Python warnings module was probably unloaded, filters
-    // are no more available to choose as action. It is safer to ignore the
-    // warning and do nothing.
+    // Explicit None remains the late-shutdown sentinel. An omitted module
+    // selects the filename-pattern matching added in Python 3.15.
     if module.as_ref().is_some_and(|module| vm.is_none(module)) {
         return Ok(());
     }

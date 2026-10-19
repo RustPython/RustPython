@@ -14,13 +14,15 @@ concurrency:
     cancel-in-progress: false
 
 env:
+  PYO3_CONFIG_FILE: ${{ github.workspace }}/crates/capi/pyo3-rustpython.config
+  PYO3_NO_PYTHON: "1"
   CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   # Keep feature list in sync with CI's release build in .github/workflows/ci.yaml.
-  CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit,doc --exclude rustpython_wasm --exclude rustpython-venvlauncher
+  CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit,capi,doc --exclude rustpython_wasm --exclude rustpython-venvlauncher
 
 jobs:
   build-caches:

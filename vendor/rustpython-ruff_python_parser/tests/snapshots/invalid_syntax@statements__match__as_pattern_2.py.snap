@@ -1,0 +1,141 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/statements/match/as_pattern_2.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..190,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..176,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 6..13,
+                            id: Name("subject"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 159..176,
+                            node_index: NodeIndex(None),
+                            pattern: MatchAs(
+                                PatternMatchAs {
+                                    node_index: NodeIndex(None),
+                                    range: 164..170,
+                                    pattern: Some(
+                                        MatchAs(
+                                            PatternMatchAs {
+                                                node_index: NodeIndex(None),
+                                                range: 164..165,
+                                                pattern: None,
+                                                name: Some(
+                                                    Identifier {
+                                                        id: Name("x"),
+                                                        range: 164..165,
+                                                        node_index: NodeIndex(None),
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                    ),
+                                    name: Some(
+                                        Identifier {
+                                            id: Name("y"),
+                                            range: 169..170,
+                                            node_index: NodeIndex(None),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                AnnAssign(
+                                    StmtAnnAssign {
+                                        node_index: NodeIndex(None),
+                                        range: 171..176,
+                                        target: UnaryOp(
+                                            ExprUnaryOp {
+                                                node_index: NodeIndex(None),
+                                                range: 171..175,
+                                                op: UAdd,
+                                                operand: NumberLiteral(
+                                                    ExprNumberLiteral {
+                                                        node_index: NodeIndex(None),
+                                                        range: 173..175,
+                                                        value: Complex {
+                                                            real: 0.0,
+                                                            imag: 1.0,
+                                                        },
+                                                    },
+                                                ),
+                                            },
+                                        ),
+                                        annotation: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 176..176,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                        value: None,
+                                        simple: false,
+                                        runtime_simple: None,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+            Pass(
+                StmtPass {
+                    node_index: NodeIndex(None),
+                    range: 185..189,
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+2 |     # This `as` pattern is unparenthesied so the parser never takes the path
+3 |     # where it might be confused as a complex literal pattern.
+4 |     case x as y + 1j:
+  |                 ^ Syntax Error: invalid syntax
+5 |         pass
+  |
+
+
+  |
+2 |     # This `as` pattern is unparenthesied so the parser never takes the path
+3 |     # where it might be confused as a complex literal pattern.
+4 |     case x as y + 1j:
+  |                      ^ Syntax Error: invalid syntax
+5 |         pass
+  |
+
+
+  |
+3 |     # where it might be confused as a complex literal pattern.
+4 |     case x as y + 1j:
+5 |         pass
+  | ^^^^^^^^ Syntax Error: invalid syntax
+
+
+  |
+4 |     case x as y + 1j:
+5 |         pass
+  |             ^ Syntax Error: invalid syntax

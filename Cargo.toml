@@ -1,7 +1,7 @@
 [package]
 name = "rustpython"
 description = "A python interpreter written in rust."
-include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
+include = ["LICENSE", "Cargo.toml", "capi-exports.def", "src/**/*.rs"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -168,11 +168,9 @@ template = "installer-config/installer.wxs"
 
 [workspace]
 resolver = "2"
-members = [
-    ".",
-    "crates/*",
-]
-exclude = ["pymath"]
+# The root package is implicit; listing "." would defeat vendor exclusions.
+members = ["crates/*"]
+exclude = ["pymath", "vendor/rustpython-ruff_python_parser", "vendor/xml"]
 
 [workspace.package]
 version = "0.6.1"
@@ -202,7 +200,7 @@ rustpython-wtf8 = { path = "crates/wtf8", version = "0.6.1" }
 rustpython-doc = { path = "crates/doc", version = "0.6.1" }
 
 # Use the RustPython Ruff fork for RustPython public `_ast` metadata.
-ruff_python_parser = { package = "rustpython-ruff_python_parser", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
+ruff_python_parser = { package = "rustpython-ruff_python_parser", path = "vendor/rustpython-ruff_python_parser", version = "0.17.1", features = ["python315-diagnostics"] }
 ruff_python_ast = { package = "rustpython-ruff_python_ast", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
 ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
 ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", rev = "9290a8849542134d83f77e9360e7f0b93897fd93" }
@@ -294,7 +292,7 @@ rustls-graviola = "0.4"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
-rustyline = "18"
+rustyline = { version = "18", features = ["buffer-redux"] }
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
 scopeguard = "1"
@@ -331,7 +329,7 @@ web-sys = "0.3"
 webpki-roots = "1.0"
 which = "8"
 x509-parser = "0.18"
-xml = "1.3"
+xml = { path = "vendor/xml", version = "1.4" }
 writeable = "0.6"
 
 # Lints

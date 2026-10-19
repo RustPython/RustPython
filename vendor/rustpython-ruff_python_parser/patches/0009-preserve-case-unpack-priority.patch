@@ -1,0 +1,72 @@
+--- a/src/parser/case_diagnostics.rs
++++ b/src/parser/case_diagnostics.rs
+@@ -39,11 +39,12 @@
+     }
+ 
+     fn parse_invalid_standalone_case(&mut self) -> Option<ParseError> {
++        let deferred_start = self.deferred_starred_generator_errors.len();
+         let start = self.node_start();
+         self.bump(TokenKind::Case);
+         let pattern = self.parse_match_patterns();
+         if !self.errors.is_empty() {
+-            return self.standalone_case_inner_error();
++            return self.standalone_case_inner_error(deferred_start);
+         }
+         if !pattern_has_valid_value_names(&pattern) {
+             return None;
+@@ -55,7 +56,7 @@
+             }
+             self.parse_named_expression_or_higher(ExpressionContext::default());
+             if !self.errors.is_empty() {
+-                return self.standalone_case_inner_error();
++                return self.standalone_case_inner_error(deferred_start);
+             }
+         }
+         if !self.at(TokenKind::Colon) {
+@@ -71,20 +72,30 @@
+         {
+             return None;
+         }
+-        if self.errors.is_empty() {
++        if let Some(error) = self.standalone_case_inner_error(deferred_start) {
++            Some(error)
++        } else if self.errors.is_empty() {
+             Some(ParseError {
+                 error: ParseErrorType::CaseOutsideMatch,
+                 location: header_range,
+             })
+         } else {
+-            self.standalone_case_inner_error()
++            None
+         }
+     }
+ 
+     /// A malformed production does not establish a standalone case. An invalid
+     /// rule reached while parsing its pattern, guard, or body can still raise
+     /// its own diagnostic before the enclosing standalone-case rule fires.
+-    fn standalone_case_inner_error(&self) -> Option<ParseError> {
++    fn standalone_case_inner_error(&self, deferred_start: usize) -> Option<ParseError> {
++        // This enclosing invalid production guarantees a parse failure. Preserve the
++        // first invalid-unpacking action reached before any ordinary parse error,
++        // just as finish() promotes deferred generator errors on the invalid pass.
++        // Only inspect entries added by this speculation; rewind preserves earlier
++        // entries for the caller. Encounter order matters, not source-range sorting.
++        if let Some((0, error)) = self.deferred_starred_generator_errors.get(deferred_start) {
++            return Some(error.clone());
++        }
+         self.errors
+             .first()
+             .filter(|error| {
+@@ -105,6 +116,12 @@
+                         | ParseErrorType::InvalidAnnotatedAssignmentTarget
+                         | ParseErrorType::InvalidAugmentedAssignmentTarget(_)
+                         | ParseErrorType::InvalidDeleteTarget(_)
++                        | ParseErrorType::InvalidConditionalUnpacking { .. }
++                        | ParseErrorType::InvalidConditionalBranchUnpacking { .. }
++                        | ParseErrorType::InvalidComprehensionDictUnpacking { .. }
++                        | ParseErrorType::InvalidDictKeyUnpacking { .. }
++                        | ParseErrorType::InvalidDictValueUnpacking { .. }
++                        | ParseErrorType::InvalidDictUnpacking
+                 )
+             })
+             .cloned()

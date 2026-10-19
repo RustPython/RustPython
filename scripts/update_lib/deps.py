@@ -701,6 +701,8 @@ DEPENDENCIES = {
             "test__interpreters.py",
             "test__interpchannels.py",
             "test_crossinterp.py",
+            "_crossinterp_definitions.py",
+            "_code_definitions.py",
         ],
     },
     "atexit": {
