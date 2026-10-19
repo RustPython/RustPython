@@ -224,7 +224,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor, Representable))]
+    #[pyclass(with(IterNext, Iterable, Constructor, Representable), flags(BASETYPE))]
     impl PyItertoolsCount {}
 
     impl SelfIter for PyItertoolsCount {}
@@ -638,7 +638,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsGroupBy {
         pub(super) fn advance(
             &self,
@@ -989,7 +989,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsAccumulate {}
 
     impl SelfIter for PyItertoolsAccumulate {}
@@ -1251,7 +1251,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsProduct {
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
             if idxs.is_empty() {
@@ -1367,7 +1367,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCombinations {}
 
     impl SelfIter for PyItertoolsCombinations {}
@@ -1479,7 +1479,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsCombinationsWithReplacement {}
 
     impl SelfIter for PyItertoolsCombinationsWithReplacement {}
@@ -1595,7 +1595,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsPermutations {}
 
     impl SelfIter for PyItertoolsPermutations {}
@@ -1702,7 +1702,7 @@ mod decl {
         fillvalue: PyRwLock<PyObjectRef>,
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsZipLongest {}
 
     impl SelfIter for PyItertoolsZipLongest {}
@@ -1743,6 +1743,8 @@ mod decl {
     impl Constructor for PyItertoolsPairwise {
         type Args = IterablePosArg;
 
+        const DROP_KWARGS_WHEN_INIT_OVERRIDDEN: bool = true;
+
         fn py_new(_cls: &Py<PyType>, args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             let iterator = args.iterable;
             Ok(Self {
@@ -1752,7 +1754,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsPairwise {}
 
     impl SelfIter for PyItertoolsPairwise {}

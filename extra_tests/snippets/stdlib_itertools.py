@@ -648,3 +648,34 @@ def check_compress_consumption():
 
 
 check_compress_consumption()
+
+
+# These public iterator types also support Python subclasses.
+for base, args in (
+    (itertools.count, ()),
+    (itertools.groupby, ([1],)),
+    (itertools.accumulate, ([1],)),
+    (itertools.product, ([1],)),
+    (itertools.combinations, ([1], 1)),
+    (itertools.combinations_with_replacement, ([1], 1)),
+    (itertools.permutations, ([1],)),
+    (itertools.zip_longest, ([1],)),
+    (itertools.pairwise, ([1, 2],)),
+):
+
+    class Subclass(base):
+        pass
+
+    instance = Subclass(*args)
+    assert type(instance) is Subclass
+    next(instance)
+
+
+class PairwiseWithLabel(itertools.pairwise):
+    def __init__(self, iterable, *, label):
+        self.label = label
+
+
+pairs = PairwiseWithLabel([1, 2], label="pairs")
+assert pairs.label == "pairs"
+assert next(pairs) == (1, 2)
