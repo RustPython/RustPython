@@ -93,7 +93,7 @@ class PosixTests(unittest.TestCase):
         self.assertRaises(TypeError, signal.signal,
                           signal.SIGUSR1, None)
 
-    @unittest.expectedFailureIf(sys.platform == 'android', "TODO: RUSTPYTHON; AssertionError: None is not an instance of <enum 'Handlers'>")
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; AssertionError: None is not an instance of <enum 'Handlers'>")
     def test_getsignal(self):
         hup = signal.signal(signal.SIGHUP, self.trivial_signal_handler)
         self.assertIsInstance(hup, signal.Handlers)

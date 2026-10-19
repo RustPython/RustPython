@@ -134,12 +134,8 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    if vm.is_main_thread() && vm.state.is_main_interpreter() {
-        // Report before invoking a Python handler, which may raise and leave
-        // the current stderr redirection scope before the next signal check.
-        #[cfg(all(feature = "host_env", any(unix, windows)))]
-        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
-
+    let can_handle_signals = vm.is_main_thread() && vm.state.is_main_interpreter();
+    if can_handle_signals {
         let signal_handlers = vm
             .signal_handlers
             .get()
@@ -161,8 +157,12 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 
             if let Some(handler) = handler
                 && let Some(callable) = handler.to_callable()
+                && let Err(exc) = callable.invoke((signum.as_i32(), vm.ctx.none()), vm)
             {
-                callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
+                // On error, re-schedule a call to trigger_signals() for the
+                // remaining signals and the pending wakeup errors.
+                set_triggered();
+                return Err(exc);
             }
         }
     } else {
@@ -182,8 +182,18 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     if let Some(signal_rx) = &vm.signal_rx {
         for f in signal_rx.rx.try_iter() {
-            f(vm)?;
+            if let Err(exc) = f(vm) {
+                set_triggered();
+                return Err(exc);
+            }
         }
+    }
+
+    // Wakeup fd errors are pending calls that only the main interpreter's
+    // main thread runs.
+    #[cfg(all(feature = "host_env", any(unix, windows)))]
+    if can_handle_signals {
+        crate::stdlib::_signal::_signal::report_wakeup_errors(vm);
     }
 
     Ok(())

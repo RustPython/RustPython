@@ -12,9 +12,9 @@ macro_rules! suppress_iph {
 #[cfg(all(windows, target_env = "msvc"))]
 macro_rules! __suppress_iph_impl {
     ($e:expr) => {{
-        let old = $crate::__macro_private::_set_thread_local_invalid_parameter_handler(Some(
+        let old = $crate::__macro_private::_set_thread_local_invalid_parameter_handler(
             $crate::__macro_private::silent_iph_handler,
-        ));
+        );
         let ret = $e;
         $crate::__macro_private::_set_thread_local_invalid_parameter_handler(old);
         ret
@@ -43,8 +43,8 @@ pub mod __macro_private {
     #[cfg(target_env = "msvc")]
     unsafe extern "C" {
         pub fn _set_thread_local_invalid_parameter_handler(
-            pNew: Option<InvalidParamHandler>,
-        ) -> Option<InvalidParamHandler>;
+            pNew: InvalidParamHandler,
+        ) -> InvalidParamHandler;
     }
 
     #[cfg(target_env = "msvc")]

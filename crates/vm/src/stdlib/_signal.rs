@@ -541,6 +541,15 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     pub extern "C" fn run_signal(signum: i32) {
+        // Asynchronously executing signal handlers should not mutate errno
+        // under the feet of the interrupted code.
+        let save_errno = rustpython_host_env::os::get_errno();
+        trip_signal(signum);
+        rustpython_host_env::os::set_errno(save_errno);
+    }
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    fn trip_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
@@ -634,9 +643,6 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     pub(crate) fn clear_wakeup_fd_after_fork() {
         WAKEUP.store(INVALID_WAKEUP, Ordering::Relaxed);
-        for pending in &WAKEUP_WRITE_ERRORS {
-            pending.store(0, Ordering::Relaxed);
-        }
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
