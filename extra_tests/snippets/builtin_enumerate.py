@@ -1,3 +1,5 @@
+from testutils import TestFailingIter, assert_raises
+
 assert list(enumerate(["a", "b", "c"])) == [(0, "a"), (1, "b"), (2, "c")]
 
 assert type(enumerate([])) == enumerate
@@ -25,3 +27,11 @@ class Counter(object):
 it = enumerate(Counter())
 assert next(it) == (0, 1)
 assert next(it) == (1, 2)
+
+
+# start and the argument count are checked before iter() is called
+assert_raises(TypeError, enumerate, TestFailingIter(), {})
+assert_raises(TypeError, enumerate, TestFailingIter(), 0, 0)
+assert_raises(TypeError, enumerate, TestFailingIter(), foo=1)
+assert_raises(TypeError, enumerate, iterable=TestFailingIter(), start={})
+assert_raises(RuntimeError, enumerate, TestFailingIter(), 0)
