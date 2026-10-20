@@ -1093,12 +1093,15 @@ impl PyCData {
                 .class()
                 .fast_issubclass(super::pointer::PyCPointerType::static_type())
             && let Some(array) = value.downcast_ref::<super::array::PyCArray>()
-            && proto_type.stg_info(vm)?.proto().is(array
-                .class()
-                .stg_info(vm)?
-                .element_type
-                .as_deref()
-                .expect("array has element type"))
+            && {
+                let target_info = proto_type.stg_info(vm)?;
+                let array_info = array.class().stg_info(vm)?;
+                target_info
+                    .proto
+                    .as_deref()
+                    .zip(array_info.element_type.as_deref())
+                    .is_some_and(|(target, element)| target.is(element))
+            }
         {
             let buffer_addr = {
                 let array_buffer = array.0.buffer.read();

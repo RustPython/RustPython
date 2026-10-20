@@ -835,3 +835,23 @@ for _base in (
         raise AssertionError("incompatible native field value accepted")
     _value = _swapped(0x01020304)
     assert bytes(ConvertedEndianField(_value)) == bytes(_value)
+
+
+# Array assignment cannot complete a pointer field's missing target type.
+class IncompletePointer(ctypes._Pointer):
+    pass
+
+
+class IncompletePointerField(ctypes.Structure):
+    _fields_ = [("value", IncompletePointer)]
+
+
+_field = IncompletePointerField()
+_before = bytes(_field)
+try:
+    _field.value = (ctypes.c_int * 1)(42)
+except TypeError:
+    pass
+else:
+    raise AssertionError("array accepted for an incomplete pointer field")
+assert bytes(_field) == _before
