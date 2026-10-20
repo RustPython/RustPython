@@ -4,7 +4,7 @@ use criterion::{
 };
 use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
-use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
+use rustpython_vm::{AsObject, Interpreter, PyResult, Settings, scope::Scope};
 use std::{fs, io, path::Path};
 
 // List of microbenchmarks to skip.
@@ -122,8 +122,9 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
             .compile(&bench.code, Mode::Exec, &bench.name)
             .expect("Error compiling bench code");
 
-        let bench_func = |scope| {
-            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope);
+        let bench_func = |scope: &mut Scope| {
+            // Keep setup objects alive until after timing, as in the CPython benchmark.
+            let res: PyResult = vm.run_code_obj(bench_code.clone(), scope.clone());
             vm.unwrap_pyresult(res);
         };
 
@@ -156,7 +157,7 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
                     format!("{}[{idx}]", bench.name)
                 };
                 group.bench_with_input(BenchmarkId::new("rustpython", name), &idx, |b, idx| {
-                    b.iter_batched(
+                    b.iter_batched_ref(
                         || bench_setup(Some(*idx)),
                         bench_func,
                         BatchSize::LargeInput,
@@ -165,7 +166,7 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<'_, WallTime>, bench: &Micro
             }
         } else {
             group.bench_function(BenchmarkId::new("rustpython", &bench.name), move |b| {
-                b.iter_batched(|| bench_setup(None), bench_func, BatchSize::LargeInput);
+                b.iter_batched_ref(|| bench_setup(None), bench_func, BatchSize::LargeInput);
             });
         }
     })
