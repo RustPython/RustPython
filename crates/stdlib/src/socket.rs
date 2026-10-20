@@ -2468,7 +2468,7 @@ mod _socket {
             msg.data.shrink_to_fit();
 
             // Build ancdata list
-            let ancdata = Self::parse_ancillary_data(&msg.ancdata, vm);
+            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
 
             // Build address tuple
             let address = if let Some(address) = msg.address {
@@ -2488,10 +2488,85 @@ mod _socket {
             ]))
         }
 
+        #[cfg(all(unix, not(target_os = "redox")))]
+        #[pymethod]
+        fn recvmsg_into(
+            zelf: &Py<Self>,
+            buffers: PyObjectRef,
+            ancbufsize: OptionalArg<isize>,
+            flags: OptionalArg<i32>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
+            let buffer_items = vm
+                .extract_elements_with(&buffers, Ok)
+                .map_err(|_| vm.new_type_error("recvmsg_into() argument 1 must be an iterable"))?;
+            let buffers = buffer_items
+                .iter()
+                .map(|obj| ArgMemoryBuffer::try_from_object(vm, obj.clone()))
+                .collect::<PyResult<Vec<_>>>()?;
+            let ancbufsize = ancbufsize.unwrap_or(0);
+            if !(0..=i32::MAX as isize).contains(&ancbufsize) {
+                return Err(vm.new_value_error("invalid ancillary data buffer length"));
+            }
+            let flags = flags.unwrap_or(0);
+            let total = buffers
+                .iter()
+                .try_fold(0usize, |sum, buf| sum.checked_add(buf.len()))
+                .filter(|&total| isize::try_from(total).is_ok())
+                .ok_or_else(|| vm.new_overflow_error("recvmsg_into buffers are too large"))?;
+            let mut scratch = alloc_recv_scratch(total, flags, vm)?;
+            let msg = zelf
+                .sock_op(vm, SockWaitKind::Read, || {
+                    let mut remaining = &mut scratch.spare_capacity_mut()[..total];
+                    let mut slices: Vec<_> = buffers
+                        .iter()
+                        .map(|buf| {
+                            let (part, rest) =
+                                core::mem::take(&mut remaining).split_at_mut(buf.len());
+                            remaining = rest;
+                            part
+                        })
+                        .collect();
+                    let sock = zelf.sock_snapshot()?;
+                    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(sock_fileno(&sock)) };
+                    host_socket::recvmsg_into(fd, &mut slices, ancbufsize as usize, flags)
+                })
+                .map_err(|e| e.into_pyexception(vm))?;
+            // MSG_TRUNC can report a larger datagram or consume TCP data without
+            // writing. alloc_recv_scratch initializes that case before the syscall.
+            unsafe { scratch.set_len(msg.bytes_read.min(total)) };
+            if !zelf.recv_discards_data(flags) {
+                let mut remaining = scratch.as_slice();
+                for buffer in &buffers {
+                    let written = remaining.len().min(buffer.len());
+                    if written == 0 {
+                        continue;
+                    }
+                    buffer.borrow_buf_mut()[..written].copy_from_slice(&remaining[..written]);
+                    remaining = &remaining[written..];
+                }
+            }
+            let ancdata = Self::parse_ancillary_data(msg.ancdata, vm);
+            let address = if let Some(address) = msg.address {
+                let storage: host_socket::raw::SockAddrStorage =
+                    unsafe { core::mem::transmute(address.storage) };
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
+                get_addr_tuple(&addr, zelf.proto.load(Ordering::Relaxed), vm)
+            } else {
+                vm.ctx.none()
+            };
+            Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_int(msg.bytes_read).into(),
+                ancdata,
+                vm.ctx.new_int(msg.msg_flags).into(),
+                address,
+            ]))
+        }
+
         /// Parse ancillary data from a received message header
         #[cfg(all(unix, not(target_os = "redox")))]
         fn parse_ancillary_data(
-            control: &[host_socket::AncillaryMessage],
+            control: Vec<host_socket::AncillaryMessage>,
             vm: &VirtualMachine,
         ) -> PyObjectRef {
             let mut result = Vec::new();
@@ -2499,7 +2574,7 @@ mod _socket {
                 let tuple = vm.ctx.new_tuple(vec![
                     vm.ctx.new_int(cmsg.level).into(),
                     vm.ctx.new_int(cmsg.kind).into(),
-                    vm.ctx.new_bytes(cmsg.data.clone()).into(),
+                    vm.ctx.new_bytes(cmsg.data).into(),
                 ]);
                 result.push(tuple.into());
             }
