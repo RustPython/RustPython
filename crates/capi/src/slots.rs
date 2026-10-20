@@ -52,6 +52,10 @@ impl PySlot {
         let mut stack: Vec<Either<*const Self, *const PyType_Slot>> = vec![Either::Left(slots)];
         core::iter::from_fn(move || {
             loop {
+                assert!(
+                    stack.len() <= 10,
+                    "Too many nested slots, possible infinite loop in slot iteration"
+                );
                 return match stack.last_mut()? {
                     Either::Left(slot_ptr) => {
                         let slot = unsafe { &**slot_ptr };
@@ -187,20 +191,13 @@ impl PySlot {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub union PySlotValue {
     pub sl_ptr: *mut c_void,
     pub sl_func: unsafe extern "C" fn(),
     pub sl_size: isize,
     pub sl_int64: i64,
     pub sl_uint64: u64,
-}
-
-impl Clone for PySlotValue {
-    fn clone(&self) -> Self {
-        Self {
-            sl_ptr: unsafe { self.sl_ptr },
-        }
-    }
 }
 
 impl<T> From<*mut T> for PySlotValue {
