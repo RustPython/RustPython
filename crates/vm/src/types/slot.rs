@@ -456,6 +456,18 @@ macro_rules! number_binary_op_wrapper {
 fn number_add_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(a, identifier!(vm, __add__), (b.to_owned(),))
 }
+fn number_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __mul__), (b.to_owned(),))
+}
+fn number_right_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(b, identifier!(vm, __rmul__), (a.to_owned(),))
+}
+fn number_inplace_add_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __iadd__), (b.to_owned(),))
+}
+fn number_inplace_multiply_wrapper(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    vm.call_special_method(a, identifier!(vm, __imul__), (b.to_owned(),))
+}
 
 macro_rules! number_binary_right_op_wrapper {
     ($name:ident) => {
@@ -1000,6 +1012,19 @@ impl PyType {
             }};
         }
 
+        macro_rules! native_sequence_wrapper {
+            ($name:ident, $slot:pat) => {
+                self.get_attr(identifier!(ctx, $name)).is_some_and(|attr| {
+                    attr.class().is(ctx.types.wrapper_descriptor_type)
+                        && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
+                            descr.name.as_str() == stringify!($name)
+                                && self.mro.read().iter().any(|cls| cls.is(descr.typ))
+                                && matches!(descr.wrapped, $slot)
+                        })
+                })
+            };
+        }
+
         match accessor {
             // === Main slots ===
             SlotAccessor::TpRepr => update_main_slot!(repr, repr_wrapper, Repr),
@@ -1291,12 +1316,22 @@ impl PyType {
                 }
             }
             SlotAccessor::NbInplaceAdd => {
-                update_sub_slot!(
-                    as_number,
-                    inplace_add,
-                    number_binary_op_wrapper!(__iadd__),
-                    NumBinary
-                )
+                if native_sequence_wrapper!(__iadd__, SlotFunc::SeqConcat(_)) {
+                    // Unlike repeat wrappers, both inplace-add slots accept an
+                    // object argument. Keep the numeric dispatcher ahead of
+                    // reflected addition, including after deleting an override.
+                    self.slots
+                        .as_number
+                        .inplace_add
+                        .store(Some(number_inplace_add_wrapper));
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        inplace_add,
+                        number_inplace_add_wrapper,
+                        NumBinary
+                    )
+                }
             }
             SlotAccessor::NbSubtract => {
                 if name.as_str() == "__rsub__" {
@@ -1324,29 +1359,54 @@ impl PyType {
                 )
             }
             SlotAccessor::NbMultiply => {
-                if name.as_str() == "__rmul__" {
+                let native_left = native_sequence_wrapper!(__mul__, SlotFunc::SeqRepeat(_));
+                let native_right = native_sequence_wrapper!(__rmul__, SlotFunc::SeqRepeat(_));
+                // CPython has a single numeric multiply slot for both names.
+                // Keep native repeat in sq_repeat unless either name needs the
+                // numeric dispatcher, or that dispatcher was already installed.
+                let needs_numeric = self.slots.as_number.multiply.load().is_some()
+                    || self.slots.as_number.right_multiply.load().is_some()
+                    || self.slots.as_sequence.repeat.load().is_none()
+                    || (!native_left && self.get_attr(identifier!(ctx, __mul__)).is_some())
+                    || (!native_right && self.get_attr(identifier!(ctx, __rmul__)).is_some());
+                if native_right {
+                    self.slots
+                        .as_number
+                        .right_multiply
+                        .store(needs_numeric.then_some(number_right_multiply_wrapper));
+                } else if name.as_str() == "__rmul__" {
                     update_sub_slot!(
                         as_number,
                         right_multiply,
-                        number_binary_right_op_wrapper!(__rmul__),
-                        NumBinary
-                    )
-                } else {
-                    update_sub_slot!(
-                        as_number,
-                        multiply,
-                        number_binary_op_wrapper!(__mul__),
+                        number_right_multiply_wrapper,
                         NumBinary
                     )
                 }
+                if native_left {
+                    self.slots
+                        .as_number
+                        .multiply
+                        .store(needs_numeric.then_some(number_multiply_wrapper));
+                } else if name.as_str() == "__mul__" {
+                    update_sub_slot!(as_number, multiply, number_multiply_wrapper, NumBinary)
+                }
             }
             SlotAccessor::NbInplaceMultiply => {
-                update_sub_slot!(
-                    as_number,
-                    inplace_multiply,
-                    number_binary_op_wrapper!(__imul__),
-                    NumBinary
-                )
+                if native_sequence_wrapper!(__imul__, SlotFunc::SeqRepeat(_)) {
+                    let needs_numeric = self.slots.as_number.inplace_multiply.load().is_some()
+                        || self.slots.as_sequence.inplace_repeat.load().is_none();
+                    self.slots
+                        .as_number
+                        .inplace_multiply
+                        .store(needs_numeric.then_some(number_inplace_multiply_wrapper));
+                } else {
+                    update_sub_slot!(
+                        as_number,
+                        inplace_multiply,
+                        number_inplace_multiply_wrapper,
+                        NumBinary
+                    )
+                }
             }
             SlotAccessor::NbRemainder => {
                 if name.as_str() == "__rmod__" {
