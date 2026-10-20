@@ -97,6 +97,10 @@ impl<'fd, KW: DirFdKeyword> DirFd<'fd, 1, KW> {
 impl<const AVAILABLE: usize, KW: DirFdKeyword> FromArgs for DirFd<'_, AVAILABLE, KW> {
     const PARAMS: Option<&'static [Param]> = Some(KW::PARAMS);
 
+    fn arity() -> core::ops::RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let fd = match args.take_keyword(KW::NAME) {
             Some(o) if vm.is_none(&o) => Ok(DEFAULT_DIR_FD),
@@ -289,6 +293,10 @@ pub(super) mod _os {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     impl FromArgs for OpenDirFd {
         const PARAMS: Option<&'static [Param]> = Some(DefaultDirFd::PARAMS);
+
+        fn arity() -> core::ops::RangeInclusive<usize> {
+            0..=0
+        }
 
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let fd = match args.take_keyword("dir_fd") {

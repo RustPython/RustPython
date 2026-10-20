@@ -307,6 +307,12 @@ impl FuncArgs {
         let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
         let num_given = self.args.len().saturating_sub(instance);
 
+        // Like CPython, too many positional arguments is reported before any
+        // argument is converted, so a conversion cannot run user code first.
+        if num_given > *arity.end() {
+            return Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, callee, vm));
+        }
+
         // A keyword that fills a parameter already given by position is
         // reported before leftover-keyword and conversion errors.
         if let Some(params) = T::PARAMS
@@ -581,10 +587,11 @@ impl ArgumentError {
 pub trait FromArgs: Sized {
     /// The range of positional arguments permitted by the function signature.
     ///
-    /// Returns an empty range if not applicable.
+    /// The default has no upper bound, so a type that takes positional
+    /// arguments itself is never rejected before `from_args` runs.
     #[must_use]
     fn arity() -> RangeInclusive<usize> {
-        0..=0
+        0..=usize::MAX
     }
 
     /// Parameters this type contributes to a text signature.
@@ -799,6 +806,10 @@ where
 {
     const PARAMS: Option<&'static [Param]> = Some(&[Param::var_keyword(Name::NAME)]);
 
+    fn arity() -> RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
@@ -989,6 +1000,10 @@ where
 impl FromArgs for () {
     const PARAMS: Option<&'static [Param]> = Some(&[]);
 
+    fn arity() -> RangeInclusive<usize> {
+        0..=0
+    }
+
     fn from_args(_vm: &VirtualMachine, _args: &mut FuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
@@ -1020,7 +1035,7 @@ macro_rules! tuple_from_py_func_args {
                 $(
                     let (start, end) = $T::arity().into_inner();
                     min += start;
-                    max += end;
+                    max = usize::saturating_add(max, end);
                 )+
                 min..=max
             }
