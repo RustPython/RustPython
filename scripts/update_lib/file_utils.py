@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import filecmp
 import pathlib
+import warnings
 from collections.abc import Callable, Iterator
 
 # === I/O utilities ===
@@ -31,7 +32,10 @@ def safe_read_text(path: pathlib.Path) -> str | None:
 def safe_parse_ast(content: str) -> ast.Module | None:
     """Parse Python content into AST, returning None on syntax error."""
     try:
-        return ast.parse(content)
+        # Test fixtures may deliberately contain syntax that emits warnings.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            return ast.parse(content)
     except SyntaxError:
         return None
 

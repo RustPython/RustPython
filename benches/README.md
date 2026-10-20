@@ -57,6 +57,9 @@ in two ways:
 Execution includes compilation and runs each iteration with a fresh namespace whose `__name__`
 is `"__main__"`, so script entry points run in both RustPython and CPython.
 
+Both Rust harnesses load only `.py` files and run workloads in filename order.
+Other entries, such as `__pycache__` directories, are ignored.
+
 ### Adding a micro benchmark
 
 Micro benchmarks are small snippets of code added under the `microbenchmarks/` directory. A microbenchmark file has
@@ -84,6 +87,21 @@ obj = [i for i in range(ITERATIONS)]
 ```
 
 `ITERATIONS` can appear in both the setup code and the benchmark code.
+
+## Subprocess benchmarks with pytest
+
+The optional pytest driver measures whole interpreter processes, including startup.
+Install `pytest` and `pytest-benchmark`, build RustPython with `cargo build --release`,
+and run from the repository root:
+
+```shell
+python -m pytest benches/test_benchmarks.py
+```
+
+It uses the release executable in `target/release` by default. Set `RUSTPYTHON` to
+the executable path when using a different build directory. Script paths are
+resolved relative to this checkout, so pytest can also be launched from another
+directory. A failed subprocess fails the benchmark instead of producing a timing.
 
 ## MacOS setup
 
