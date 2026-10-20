@@ -111,12 +111,15 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
         let attrs = Default::default();
         let mut getsets = Vec::new();
         let mut members = Vec::new();
+        let mut metaclass = vm.ctx.types.type_type.to_owned();
 
         for slot in PySlot::iter(slots) {
             match slot.as_kind(vm)? {
-                kind @ PySlotKind::Type(type_slot) => {
+                PySlotKind::Type(type_slot) => {
                     match type_slot {
                         PySlotType::Name(value) => name = Some(value),
+                        PySlotType::Metaclass(meta) => metaclass = meta.to_owned(),
+                        PySlotType::Module(_) => {}
                         PySlotType::Flags(value) => {
                             let flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
                                 vm.new_value_error(format!(
@@ -161,13 +164,8 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                                 methods.push((name, method));
                             }
                         }
-                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse, _) => {
+                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse | _, _) => {
                             // TODO
-                        }
-                        _ => {
-                            return Err(vm.new_not_implemented_error(format!(
-                                "PyType_FromSlots with slot {kind:?} not implemented yet"
-                            )));
                         }
                     }
                 }
@@ -190,7 +188,6 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
             return Err(vm.new_system_error("PyType_FromSlots requires a name slot"));
         };
 
-        let metaclass = vm.ctx.types.type_type.to_owned();
         let class = PyType::new_heap(name, bases, attrs, type_slots, metaclass, &vm.ctx).map_err(
             |msg| vm.new_system_error(format!("Failed to create type from slots: {msg}")),
         )?;
