@@ -32,10 +32,17 @@ import os
 import re
 import sys
 import time
-import traceback
 import unittest
 from functools import reduce
 from unittest.runner import registerResult, result
+
+
+def _subtest_id(parent, subtest):
+    try:
+        return subtest.id()
+    except Exception as exc:
+        # Parameter formatting must not change the test's outcome.
+        return f"{parent.id()} (<subtest id unavailable: {type(exc).__name__}>)"
 
 
 def _get_method_dict(test):
@@ -43,9 +50,9 @@ def _get_method_dict(test):
 
     Works for both bound methods (__func__.__dict__) and plain functions.
     """
-    method = getattr(test, test._testMethodName)
+    method = getattr(test, getattr(test, "_testMethodName", ""), None)
     func = getattr(method, "__func__", method)
-    return func.__dict__
+    return getattr(func, "__dict__", {})
 
 
 class TablePrinter(object):
@@ -228,9 +235,10 @@ class CustomTextTestResult(result.TestResult):
         self.show_test_info = verbosity > 1
         self.show_individual_suite_results = verbosity > 2
         self.show_errors = verbosity > 3
-        self.show_errors_detail = verbosity > 4
+        self.show_errors_detail = verbosity > 1
         self.show_all = verbosity > 4
         self.suite = None
+        self.current_test = None
         self.total_execution_time = 0
         self.separator1 = "=" * CustomTextTestResult._num_formatting_chars
         self.separator2 = "-" * CustomTextTestResult._num_formatting_chars
@@ -306,6 +314,10 @@ class CustomTextTestResult(result.TestResult):
             json.dump(self.results, f)
 
     def startTest(self, test):
+        super().startTest(test)
+        self._start_case(test)
+
+    def _start_case(self, test):
         suite_base_category = (
             test.__class__.base_test_category
             if hasattr(test.__class__, "base_test_category")
@@ -317,8 +329,8 @@ class CustomTextTestResult(result.TestResult):
             if hasattr(test.__class__, "name")
             else test.__class__.__name__,
         )
-        self.case = test._testMethodName
-        super(CustomTextTestResult, self).startTest(test)
+        self.current_test = test
+        self.case = getattr(test, "_testMethodName", test.id())
         if not self.suite or self.suite != self.next_suite:
             if self.suite:
                 self.results["suites"][self.suite_map[self.suite]]["execution_time"] = (
@@ -341,7 +353,7 @@ class CustomTextTestResult(result.TestResult):
         self.case = name_override if name_override else self.case
         if self.show_test_info:
             # self.stream.writeln(self.separator2)
-            self.stream.write("CASE: %s" % self.case)
+            self.stream.write("CASE: %s" % test.id())
             if desc := test.shortDescription():
                 self.stream.write(" (Description: %s)" % desc)
             self.stream.write("... ")
@@ -368,16 +380,13 @@ class CustomTextTestResult(result.TestResult):
                 "execution_time": None,
             }
             self.suite_number += 1
-            self.num_cases = 0
-            self.num_passed = 0
-            self.num_failed = 0
-            self.num_skipped = 0
-            self.num_expected_failures = 0
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.case_number
         ] = {
             "name": self.case,
-            "method": test._testMethodName,
+            "method": getattr(test, "_testMethodName", test.id()),
+            "id": test.id(),
+            "subtests": [],
             "result": None,
             "description": test.shortDescription(),
             "note": None,
@@ -409,42 +418,49 @@ class CustomTextTestResult(result.TestResult):
                     break
 
     def stopTest(self, test):
+        super().stopTest(test)
+        self._finish_case()
+
+    def _finish_case(self):
+        case = self.results["suites"][self.suite_map[self.suite]]["cases"][
+            self.current_case_number
+        ]
+        if case["result"] is None and any(
+            subtest["result"] == "skipped" for subtest in case["subtests"]
+        ):
+            # A skipped subtest prevents unittest from calling addSuccess.
+            case["result"] = "skipped"
+            if self.show_test_info:
+                self.stream.writeln("SKIPPED (subtest)")
         self.end_time = time.time()
         self.execution_time = self.end_time - self.start_time
         self.suite_execution_time += self.execution_time
         self.total_execution_time += self.execution_time
-        super(CustomTextTestResult, self).stopTest(test)
-        self.num_cases += 1
-        self.results["suites"][self.suite_map[self.suite]]["num_passed"] = (
-            self.num_passed
-        )
-        self.results["suites"][self.suite_map[self.suite]]["num_failed"] = (
-            self.num_failed
-        )
-        self.results["suites"][self.suite_map[self.suite]]["num_skipped"] = (
-            self.num_skipped
-        )
-        self.results["suites"][self.suite_map[self.suite]]["num_expected_failures"] = (
-            self.num_expected_failures
-        )
+        # JSON/table totals count parent cases once. The standard unittest
+        # summary still counts individual failure/error/skip events, including
+        # subtests; keep those two metrics distinct.
+        suite = self.results["suites"][self.suite_map[self.suite]]
+        status = case["result"]
+        outcome = {
+            "passed": "passed",
+            "failed": "failed",
+            "error": "failed",
+            "unexpected_success": "failed",
+            "skipped": "skipped",
+            "expected_failure": "expected_failures",
+        }.get(status)
+        if outcome is not None:
+            key = "num_" + outcome
+            suite[key] += 1
+            self.results[key] += 1
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]["execution_time"] = format(
             self.execution_time,
             ".%sf" % CustomTextTestResult._execution_time_significant_digits,
         )
-        self.results["num_passed"] += self.num_passed
-        self.results["num_failed"] += self.num_failed
-        self.results["num_skipped"] += self.num_skipped
-        self.results["num_expected_failures"] += self.num_expected_failures
         self.case_number += 1
-
-    def print_error_string(self, err):
-        error_string = "".join(traceback.format_exception(err[0], err[1], err[2]))
-        if self.show_errors:
-            self.stream.writeln(self.separator_failure)
-            self.stream.write(error_string)
-        return error_string
+        self.current_test = None
 
     def addScreenshots(self, test):
         for root, dirs, files in os.walk(self.result_screenshots_dir):
@@ -462,11 +478,38 @@ class CustomTextTestResult(result.TestResult):
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]["result"] = "passed"
-        self.num_passed += 1
         self.addScreenshots(test)
 
+    def addSubTest(self, test, subtest, err):
+        super().addSubTest(test, subtest, err)
+        case = self.results["suites"][self.suite_map[self.suite]]["cases"][
+            self.current_case_number
+        ]
+        subtest_id = _subtest_id(test, subtest)
+        status = "passed"
+        traceback_text = None
+        if err is not None:
+            status = "failed" if issubclass(err[0], test.failureException) else "error"
+            traceback_text = self._exc_info_to_string(err, subtest)
+            if case["result"] != "error":
+                case["result"] = status
+            key = "failures" if status == "failed" else "errors"
+            case[key] = (case[key] or "") + subtest_id + "\n" + traceback_text
+            if self.show_test_info:
+                self.stream.writeln("%s: %s" % (status.upper(), subtest_id))
+        case["subtests"].append(
+            {
+                "id": subtest_id,
+                "result": status,
+                "traceback": traceback_text,
+            }
+        )
+
     def addError(self, test, err):
-        error_string = self.print_error_string(err)
+        fixture = self.current_test is None
+        if fixture:
+            self._start_case(test)
+        error_string = self._exc_info_to_string(err, test)
         super(CustomTextTestResult, self).addError(test, err)
         if self.show_test_info:
             # self.stream.writeln(self.separator_pre_result)
@@ -477,12 +520,18 @@ class CustomTextTestResult(result.TestResult):
         ]["result"] = "error"
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
-        ]["errors"] = error_string
-        self.num_failed += 1
+        ]["errors"] = (
+            self.results["suites"][self.suite_map[self.suite]]["cases"][
+                self.current_case_number
+            ]["errors"]
+            or ""
+        ) + error_string
         self.addScreenshots(test)
+        if fixture:
+            self._finish_case()
 
     def addFailure(self, test, err):
-        error_string = self.print_error_string(err)
+        error_string = self._exc_info_to_string(err, test)
         super(CustomTextTestResult, self).addFailure(test, err)
         if self.show_test_info:
             # self.stream.writeln(self.separator_pre_result)
@@ -490,15 +539,45 @@ class CustomTextTestResult(result.TestResult):
         self.stream.flush()
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
-        ]["result"] = "failed"
+        ]["result"] = (
+            "error"
+            if self.results["suites"][self.suite_map[self.suite]]["cases"][
+                self.current_case_number
+            ]["errors"]
+            else "failed"
+        )
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
-        ]["failures"] = error_string
-        self.num_failed += 1
+        ]["failures"] = (
+            self.results["suites"][self.suite_map[self.suite]]["cases"][
+                self.current_case_number
+            ]["failures"]
+            or ""
+        ) + error_string
         self.addScreenshots(test)
 
     def addSkip(self, test, reason):
+        fixture = self.current_test is None
+        if fixture:
+            self._start_case(test)
         super(CustomTextTestResult, self).addSkip(test, reason)
+        if test is not self.current_test:
+            self.results["suites"][self.suite_map[self.suite]]["cases"][
+                self.current_case_number
+            ]["subtests"].append(
+                {
+                    "id": _subtest_id(self.current_test, test),
+                    "result": "skipped",
+                    "reason": reason,
+                }
+            )
+            return
+        case = self.results["suites"][self.suite_map[self.suite]]["cases"][
+            self.current_case_number
+        ]
+        if case["result"] in ("failed", "error"):
+            case["note"] = reason
+            return
         if self.show_test_info:
             # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("SKIPPED {0!r}".format(reason))
@@ -509,7 +588,8 @@ class CustomTextTestResult(result.TestResult):
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]["note"] = reason
-        self.num_skipped += 1
+        if fixture:
+            self._finish_case()
 
     def addExpectedFailure(self, test, err):
         super(CustomTextTestResult, self).addExpectedFailure(test, err)
@@ -520,7 +600,6 @@ class CustomTextTestResult(result.TestResult):
         self.results["suites"][self.suite_map[self.suite]]["cases"][
             self.current_case_number
         ]["result"] = "expected_failure"
-        self.num_expected_failures += 1
         self.addScreenshots(test)
 
     def addUnexpectedSuccess(self, test):
@@ -529,7 +608,9 @@ class CustomTextTestResult(result.TestResult):
             # self.stream.writeln(self.separator_pre_result)
             self.stream.writeln("UNEXPECTED SUCCESS")
         self.stream.flush()
-        self.num_failed += 1
+        self.results["suites"][self.suite_map[self.suite]]["cases"][
+            self.current_case_number
+        ]["result"] = "unexpected_success"
         self.addScreenshots(test)
 
     def printOverallSuiteResults(self, r):
@@ -703,12 +784,7 @@ class CustomTextTestResult(result.TestResult):
             )
             for case in failures_and_errors:
                 case_ref = r[suite]["cases"][case]
-                case_str = "%s%s" % (
-                    case_ref["name"],
-                    " (%s)" % case_ref["method"]
-                    if case_ref["name"] != case_ref["method"]
-                    else "",
-                )
+                case_str = case_ref.get("id", case_ref["method"])
                 errors = case_ref["errors"]
                 failures = case_ref["failures"]
                 self.stream.writeln(self.separator1)
