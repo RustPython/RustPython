@@ -111,6 +111,7 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     pub(crate) import_bootstrap_complete: bool,
+    startup_error: Option<PyBaseExceptionRef>,
     recursion_depth: Cell<usize>,
     /// Depth of native recursion that pushes no Python frame, counted only
     /// where the stack pointer cannot be read. Everywhere else the native
@@ -1372,6 +1373,7 @@ impl VirtualMachine {
             state,
             initialized: false,
             import_bootstrap_complete: false,
+            startup_error: None,
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),
@@ -1409,6 +1411,9 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
+            if self.state.config.settings.home.is_some() {
+                return import_err;
+            }
             let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
             let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
@@ -1668,10 +1673,14 @@ impl VirtualMachine {
         #[cfg(feature = "encodings")]
         if _expect_stdlib {
             if let Err(e) = self.import_encodings() {
-                eprintln!(
-                    "encodings initialization failed. Only utf-8 encoding will be supported."
-                );
-                self.print_exception(&e);
+                if self.state.config.settings.home.is_some() {
+                    self.startup_error = Some(e);
+                } else {
+                    eprintln!(
+                        "encodings initialization failed. Only utf-8 encoding will be supported."
+                    );
+                    self.print_exception(&e);
+                }
             }
         } else {
             // Here may not be the best place to give general `path_list` advice,
@@ -1684,6 +1693,46 @@ impl VirtualMachine {
         }
 
         self.initialized = true;
+    }
+
+    /// Report an invalid explicit standard-library configuration to a command-line
+    /// host. Embedding applications may continue using the bootstrap codecs without calling this.
+    pub fn check_stdlib_initialization(&self) -> PyResult<()> {
+        let Some(error) = &self.startup_error else {
+            return Ok(());
+        };
+        let settings = &self.state.config.settings;
+        let paths = &self.state.config.paths;
+        let repr = |value: &str| {
+            self.ctx
+                .new_str(value)
+                .repr(self)
+                .unwrap_or_else(|_| "?".to_owned())
+        };
+        eprintln!("Python path configuration:");
+        eprintln!(
+            "  PYTHONHOME = {}",
+            settings
+                .home
+                .as_deref()
+                .map_or_else(|| "(not set)".to_owned(), repr)
+        );
+        eprintln!("  isolated = {}", u8::from(settings.isolated));
+        eprintln!("  environment = {}", u8::from(!settings.ignore_environment));
+        eprintln!("  sys.executable = {}", repr(&paths.executable));
+        eprintln!("  sys.prefix = {}", repr(&paths.prefix));
+        eprintln!("  sys.exec_prefix = {}", repr(&paths.exec_prefix));
+        eprintln!("  sys.path = [");
+        for path in &paths.module_search_paths {
+            eprintln!("    {},", repr(path));
+        }
+        eprintln!("  ]");
+        // A startup import failure is fatal even if the imported module raised
+        // SystemExit(0) or SystemExit(None). Keep its exception as the cause,
+        // without passing its exit code to ordinary user-code finalization.
+        let startup_error = self.new_runtime_error("Failed to import encodings module");
+        startup_error.set_cause(Some(error.clone()));
+        Err(startup_error)
     }
 
     /// Apply configured global lazy imports after startup imports, including site.
