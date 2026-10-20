@@ -9,7 +9,10 @@ use core::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr;
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::function::{ItemDoc, PyMethodFlags};
-use rustpython_vm::types::{AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots, SlotAccessor};
+use rustpython_vm::types::{
+    AtomicPyTypeFlags, PyTypeFlags, PyTypeSlots,
+    SlotAccessor::{TpBase, TpDealloc, TpDoc, TpGetset, TpMembers, TpMethods, TpNew, TpTraverse},
+};
 use rustpython_vm::{AsObject, Py, PyObject};
 
 pub type PyTypeObject = Py<PyType>;
@@ -30,25 +33,6 @@ pub struct PyType_Spec {
     pub itemsize: c_int,
     pub flags: c_uint,
     pub slots: *mut PyType_Slot,
-}
-
-impl PyType_Slot {
-    pub(crate) fn iter<'a>(mut slots: *const Self) -> impl Iterator<Item = &'a Self> {
-        core::iter::from_fn(move || {
-            let slot = unsafe { &*slots };
-            if slot.slot == 0 {
-                None
-            } else {
-                slots = unsafe { slots.add(1) };
-                Some(slot)
-            }
-        })
-    }
-
-    fn as_slot_accessor(&self) -> Option<SlotAccessor> {
-        let slot_id: u8 = self.slot.try_into().ok()?;
-        slot_id.try_into().ok()
-    }
 }
 
 #[unsafe(no_mangle)]
@@ -148,63 +132,37 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                                 ));
                             }
                         }
-                        PySlotType::Slots { value, .. } => {
-                            for slot in PyType_Slot::iter(value) {
-                                let accessor = slot.as_slot_accessor().ok_or_else(|| {
-                                    vm.new_value_error(format!(
-                                        "Invalid slot id: {} for PyType_FromSlots",
-                                        slot.slot
-                                    ))
-                                })?;
-                                match accessor {
-                                    SlotAccessor::TpDoc => {
-                                        let doc = unsafe {
-                                            slot.pfunc.cast::<c_char>().try_as_str_opt(vm)?
-                                        }
-                                        .map_or(
-                                            ItemDoc::NONE,
-                                            |doc| {
-                                                let text: &'static str =
-                                                    Box::leak(doc.to_owned().into_boxed_str());
-                                                ItemDoc::static_text(text)
-                                            },
-                                        );
-                                        type_slots.doc = doc;
-                                    }
-                                    SlotAccessor::TpNew => {
-                                        type_slots.new.store(Some(|ty, _args, vm| {
-                                            Err(vm.new_not_implemented_error(format!("tp_new is not yet implemented in PyType_FromSlots for {ty:?}")))
-                                        }));
-                                    }
-                                    SlotAccessor::TpBase => {
-                                        base = unsafe { Some(&*slot.pfunc.cast::<PyTypeObject>()) }
-                                    }
-                                    SlotAccessor::TpDealloc => {
-                                        //TODO
-                                    }
-                                    SlotAccessor::TpMethods => {
-                                        for def in PyMethodDef::iter(slot.pfunc.cast()) {
-                                            let name = unsafe { def.ml_name.try_as_str(vm)? };
-                                            let is_static =
-                                                PyMethodFlags::from_bits_retain(def.ml_flags as _)
-                                                    .contains(PyMethodFlags::STATIC);
-                                            let method = build_method_def(vm, def, !is_static)?;
-                                            methods.push((name, method));
-                                        }
-                                    }
-                                    SlotAccessor::TpGetset => {
-                                        getsets.extend(PyGetSetDef::iter(slot.pfunc.cast()));
-                                    }
-                                    SlotAccessor::TpMembers => {
-                                        members.extend(PyMemberDef::iter(slot.pfunc.cast()));
-                                    }
-                                    slot => {
-                                        return Err(vm.new_not_implemented_error(format!(
-                                            "PyType_FromSlots with PyType_Slot {slot:?} not implemented yet"
-                                        )));
-                                    }
-                                }
+                        PySlotType::TypeSlot(TpDoc, pfunc) => {
+                            let doc = unsafe { pfunc.cast::<c_char>().try_as_str_opt(vm)? }.map_or(
+                                ItemDoc::NONE,
+                                |doc| {
+                                    let text: &'static str =
+                                        Box::leak(doc.to_owned().into_boxed_str());
+                                    ItemDoc::static_text(text)
+                                },
+                            );
+                            type_slots.doc = doc;
+                        }
+                        PySlotType::TypeSlot(TpBase, pfunc) => {
+                            base = unsafe { Some(&*pfunc.cast::<PyTypeObject>()) }
+                        }
+                        PySlotType::TypeSlot(TpMembers, pfunc) => {
+                            members.extend(PyMemberDef::iter(pfunc.cast()));
+                        }
+                        PySlotType::TypeSlot(TpGetset, pfunc) => {
+                            getsets.extend(PyGetSetDef::iter(pfunc.cast()));
+                        }
+                        PySlotType::TypeSlot(TpMethods, pfunc) => {
+                            for def in PyMethodDef::iter(pfunc.cast()) {
+                                let name = unsafe { def.ml_name.try_as_str(vm)? };
+                                let is_static = PyMethodFlags::from_bits_retain(def.ml_flags as _)
+                                    .contains(PyMethodFlags::STATIC);
+                                let method = build_method_def(vm, def, !is_static)?;
+                                methods.push((name, method));
                             }
+                        }
+                        PySlotType::TypeSlot(TpNew | TpDealloc | TpTraverse, _) => {
+                            // TODO
                         }
                         _ => {
                             return Err(vm.new_not_implemented_error(format!(
@@ -293,6 +251,12 @@ pub unsafe extern "C" fn PyType_FromMetaclass(
         }
     };
 
+    write_slot(PySlot::new(95, name.cast_mut()));
+    write_slot(PySlot::new(96, basicsize as isize));
+    write_slot(PySlot::new(98, itemsize as isize));
+    write_slot(PySlot::new(99, flags as u64));
+    write_slot(PySlot::new(93, type_slots));
+
     if !bases.is_null() {
         write_slot(PySlot::new(49, bases));
     }
@@ -304,12 +268,6 @@ pub unsafe extern "C" fn PyType_FromMetaclass(
     if !module.is_null() {
         write_slot(PySlot::new(108, module));
     }
-
-    write_slot(PySlot::new(95, name.cast_mut()));
-    write_slot(PySlot::new(96, basicsize as isize));
-    write_slot(PySlot::new(98, itemsize as isize));
-    write_slot(PySlot::new(99, flags as u64));
-    write_slot(PySlot::new(93, type_slots));
 
     unsafe { PyType_FromSlots(slots.as_ptr()) }
 }
