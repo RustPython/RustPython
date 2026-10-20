@@ -484,10 +484,46 @@ pub fn poll_fds(fds: &mut [PollFd], timeout: i32) -> std::io::Result<i32> {
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
 pub mod epoll {
-    use std::os::fd::{AsFd, IntoRawFd, OwnedFd};
+    use std::os::fd::{IntoRawFd, RawFd};
 
-    pub use rustix::event::Timespec;
-    pub use rustix::event::epoll::{Event, EventData, EventFlags};
+    // Keep the native event layout inside host_env while allowing the syscall
+    // to initialize a Vec of these transparent wrappers directly.
+    #[repr(transparent)]
+    pub struct Event(libc::epoll_event);
+
+    impl Event {
+        pub fn data(&self) -> u64 {
+            self.0.u64
+        }
+
+        pub fn flags(&self) -> u32 {
+            self.0.events
+        }
+    }
+    pub use rustix::event::epoll::EventFlags;
+
+    // Python exposes descriptor integers and permits aliases via fromfd(). The
+    // descriptor may therefore already be closed when this wrapper is dropped.
+    #[derive(Debug)]
+    pub struct EpollFd(RawFd);
+
+    impl EpollFd {
+        pub fn from_raw(fd: RawFd) -> Self {
+            Self(fd)
+        }
+
+        pub fn as_raw(&self) -> RawFd {
+            self.0
+        }
+    }
+
+    impl Drop for EpollFd {
+        fn drop(&mut self) {
+            if self.0 != -1 {
+                let _ = nix::unistd::close(self.0);
+            }
+        }
+    }
 
     #[derive(Debug)]
     pub enum WaitError {
@@ -495,52 +531,74 @@ pub mod epoll {
         Io(std::io::Error),
     }
 
-    pub fn create() -> std::io::Result<OwnedFd> {
-        rustix::event::epoll::create(rustix::event::epoll::CreateFlags::CLOEXEC).map_err(Into::into)
+    pub fn create() -> std::io::Result<EpollFd> {
+        rustix::event::epoll::create(rustix::event::epoll::CreateFlags::CLOEXEC)
+            .map(|fd| EpollFd(fd.into_raw_fd()))
+            .map_err(Into::into)
     }
 
-    pub fn close(fd: OwnedFd) -> nix::Result<()> {
-        nix::unistd::close(fd.into_raw_fd())
+    pub fn close(mut fd: EpollFd) -> nix::Result<()> {
+        let raw = core::mem::replace(&mut fd.0, -1);
+        nix::unistd::close(raw)
     }
 
-    pub fn add<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
-        rustix::event::epoll::add(
-            epoll,
-            fd,
-            EventData::new_u64(data),
-            EventFlags::from_bits_retain(events),
-        )
-        .map_err(Into::into)
+    fn control(epoll: &EpollFd, op: i32, fd: RawFd, data: u64, events: u32) -> std::io::Result<()> {
+        let mut event = libc::epoll_event {
+            events,
+            u64: data,
+            #[cfg(target_os = "redox")]
+            _pad: 0,
+        };
+        // Both descriptors come from Python and may be invalid. The syscall
+        // reports that as an error without asserting Rust descriptor ownership.
+        let result = unsafe { libc::epoll_ctl(epoll.0, op, fd, &mut event) };
+        if result < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
     }
 
-    pub fn modify<F: AsFd>(epoll: &OwnedFd, fd: F, data: u64, events: u32) -> std::io::Result<()> {
-        rustix::event::epoll::modify(
-            epoll,
-            fd,
-            EventData::new_u64(data),
-            EventFlags::from_bits_retain(events),
-        )
-        .map_err(Into::into)
+    pub fn add(epoll: &EpollFd, fd: RawFd, data: u64, events: u32) -> std::io::Result<()> {
+        control(epoll, libc::EPOLL_CTL_ADD, fd, data, events)
     }
 
-    pub fn delete<F: AsFd>(epoll: &OwnedFd, fd: F) -> std::io::Result<()> {
-        rustix::event::epoll::delete(epoll, fd).map_err(Into::into)
+    pub fn modify(epoll: &EpollFd, fd: RawFd, data: u64, events: u32) -> std::io::Result<()> {
+        control(epoll, libc::EPOLL_CTL_MOD, fd, data, events)
+    }
+
+    pub fn delete(epoll: &EpollFd, fd: RawFd) -> std::io::Result<()> {
+        control(epoll, libc::EPOLL_CTL_DEL, fd, 0, 0)
     }
 
     pub fn wait(
-        epoll: &OwnedFd,
+        epoll: &EpollFd,
         events: &mut Vec<Event>,
-        timeout: Option<&Timespec>,
+        timeout: i32,
     ) -> Result<usize, WaitError> {
         events.clear();
-        match rustix::event::epoll::wait(epoll, rustix::buffer::spare_capacity(events), timeout) {
-            Ok(n) => {
-                unsafe { events.set_len(n) };
-                Ok(n)
-            }
-            Err(rustix::io::Errno::INTR) => Err(WaitError::Interrupted),
-            Err(err) => Err(WaitError::Io(err.into())),
+        // Event is transparent over libc's native event layout, and capacity
+        // is bounded by Python's i32 maxevents. epoll_wait initializes each
+        // returned element, so the cast and subsequent set_len are valid.
+        let result = unsafe {
+            libc::epoll_wait(
+                epoll.0,
+                events.as_mut_ptr().cast::<libc::epoll_event>(),
+                events.capacity().min(i32::MAX as usize) as i32,
+                timeout,
+            )
+        };
+        if result < 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.kind() == std::io::ErrorKind::Interrupted {
+                Err(WaitError::Interrupted)
+            } else {
+                Err(WaitError::Io(error))
+            };
         }
+        let count = result as usize;
+        unsafe { events.set_len(count) };
+        Ok(count)
     }
 }
 
