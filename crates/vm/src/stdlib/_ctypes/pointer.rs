@@ -1,5 +1,5 @@
 use super::base::CDATA_BUFFER_METHODS;
-use super::{PyCArray, PyCData, PyCSimple, PyCStructure, StgInfo, StgInfoFlags};
+use super::{PyCData, StgInfo, StgInfoFlags};
 use crate::atomic_func;
 use crate::protocol::{
     BufferDescriptor, PyBuffer, PyMappingMethods, PyNumberMethods, PySequenceMethods,
@@ -7,14 +7,13 @@ use crate::protocol::{
 use crate::types::{AsBuffer, AsMapping, AsNumber, AsSequence, Constructor, Initializer};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
-    class::StaticType,
+    builtins::{PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
     function::{FuncArgs, OptionalArg},
 };
 use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
 use rustpython_host_env::ctypes::{
-    AddressValue, AddressWriteValue, IntegerValue, pointer_item_address, read_pointer_char_slice,
+    AddressValue, IntegerValue, pointer_item_address, read_pointer_char_slice,
     read_pointer_wchar_slice,
 };
 
@@ -577,104 +576,22 @@ impl PyCPointer {
             return Err(vm.new_value_error("NULL pointer access"));
         }
 
-        // Get element type, size and type_code from StgInfo.proto
-        let stg_info = zelf.class().stg_info(vm)?;
-        let proto_type = stg_info.proto();
-
-        // Get type code from proto's _type_ attribute
-        let type_code: Option<String> = proto_type
-            .as_object()
-            .get_attr("_type_", vm)
-            .ok()
-            .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
-
-        let element_size = proto_type
-            .stg_info_opt()
-            .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
-
-        // Calculate address
+        let proto_type = zelf.class().stg_info(vm)?.proto().to_owned();
+        let element_size = proto_type.stg_info(vm)?.size;
+        let prepared = super::base::CDataValue::new(
+            &proto_type,
+            &value,
+            element_size,
+            super::simple::is_swapped(&proto_type),
+            vm,
+        )?;
         let addr = pointer_item_address(ptr_value, index, element_size);
-
-        // Write value at address
-        // Handle Structure/Array types by copying their buffer
-        if type_code.as_deref() == Some("O")
-            && value.downcast_ref::<PyCData>().is_some()
-            && !value.fast_isinstance(proto_type)
-        {
-            return Err(vm.new_type_error(format!(
-                "expected {} instance, not {}",
-                proto_type.name(),
-                value.class().name()
-            )));
+        // SAFETY: pointer indexing has the same caller-provided valid-storage
+        // requirement as reading the element. The source snapshot cannot overlap it.
+        unsafe {
+            rustpython_host_env::ctypes::copy_bytes_to_address(addr, &prepared.bytes, element_size);
         }
-        if let Some(cdata) = value.downcast_ref::<super::PyCData>()
-            && (cdata.fast_isinstance(PyCStructure::static_type())
-                || cdata.fast_isinstance(PyCArray::static_type())
-                || cdata.fast_isinstance(PyCSimple::static_type()))
-        {
-            // The value may be a view of this element or overlapping storage.
-            let bytes = {
-                let buffer = cdata.buffer.read();
-                rustpython_host_env::ctypes::copy_to_sized_bytes(&buffer, element_size)
-            };
-            unsafe {
-                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &bytes, element_size);
-            }
-            zelf.0.keep_cdata(index as usize, &value, vm)
-        } else {
-            // Handle z/Z specially to store converted value
-            if type_code.as_deref() == Some("z")
-                && let Some(bytes) = value.downcast_ref::<PyBytes>()
-            {
-                let (kept_alive, ptr_val) = super::base::ensure_z_null_terminated(bytes, vm);
-                unsafe {
-                    rustpython_host_env::ctypes::write_value_to_address(
-                        addr,
-                        element_size,
-                        AddressWriteValue::Pointer(ptr_val),
-                    );
-                }
-                return zelf.0.keep_ref_with_hidden(
-                    index as usize,
-                    value.clone(),
-                    Some(kept_alive),
-                    vm,
-                );
-            } else if type_code.as_deref() == Some("Z")
-                && let Some(s) = value.downcast_ref::<PyStr>()
-            {
-                let (holder, ptr_val) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
-                unsafe {
-                    rustpython_host_env::ctypes::write_value_to_address(
-                        addr,
-                        element_size,
-                        AddressWriteValue::Pointer(ptr_val),
-                    );
-                }
-                return zelf.0.keep_ref(index as usize, holder, vm);
-            }
-            if type_code.as_deref() == Some("O") {
-                unsafe {
-                    rustpython_host_env::ctypes::write_value_to_address(
-                        addr,
-                        element_size,
-                        AddressWriteValue::Pointer(value.get_id()),
-                    );
-                }
-            } else if super::simple::is_swapped(proto_type) {
-                let type_code = type_code
-                    .as_deref()
-                    .ok_or_else(|| vm.new_type_error("no _type_ attribute"))?;
-                let bytes = super::simple::swapped_value_bytes(type_code, &value, vm)?;
-                unsafe {
-                    rustpython_host_env::ctypes::copy_bytes_to_address(addr, &bytes, element_size);
-                }
-            } else {
-                Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
-            }
-            // KeepRef: store reference to keep value alive using actual index
-            zelf.0.keep_ref(index as usize, value, vm)
-        }
+        prepared.keep(&zelf.0, index as usize, vm)
     }
 
     /// Read a value from memory address
@@ -691,82 +608,6 @@ impl PyCPointer {
             AddressValue::Float(value) => vm.ctx.new_float(value).into(),
             AddressValue::Pointer(value) => vm.ctx.new_int(value).into(),
             AddressValue::Bytes(bytes) => vm.ctx.new_bytes(bytes).into(),
-        }
-    }
-
-    /// Write a value to memory address
-    fn write_value_at_address(
-        addr: usize,
-        size: usize,
-        value: &PyObject,
-        type_code: Option<&str>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        unsafe {
-            // Handle c_char_p (z) and c_wchar_p (Z) - store pointer address
-            // Note: PyBytes/PyStr cases are handled by caller (setitem_by_index)
-            if let Some("z" | "Z") = type_code {
-                let ptr_val = if vm.is_none(value) {
-                    0usize
-                } else if let Ok(int_val) = value.try_index(vm) {
-                    super::simple::bigint_to_i128_wrapping(int_val.as_bigint()) as usize
-                } else {
-                    return Err(vm.new_type_error("bytes/string or integer address expected"));
-                };
-                rustpython_host_env::ctypes::write_value_to_address(
-                    addr,
-                    size,
-                    AddressWriteValue::Pointer(ptr_val),
-                );
-                return Ok(());
-            }
-
-            // Try to get value as integer
-            // Use write_unaligned for safety on strict-alignment architectures
-            if let Ok(int_val) = value.try_int(vm) {
-                let i = int_val.as_bigint();
-                let wrapped = super::simple::bigint_to_i128_wrapping(i);
-                let bytes;
-                let write_value = match size {
-                    1 => AddressWriteValue::U8(wrapped as u8),
-                    2 => AddressWriteValue::I16(wrapped as i16),
-                    4 => AddressWriteValue::I32(wrapped as i32),
-                    8 => AddressWriteValue::I64(wrapped as i64),
-                    _ => {
-                        bytes = i.to_signed_bytes_le();
-                        AddressWriteValue::Bytes(&bytes)
-                    }
-                };
-                rustpython_host_env::ctypes::write_value_to_address(addr, size, write_value);
-                return Ok(());
-            }
-
-            // Try to get value as float
-            if let Ok(float_val) = value.try_float(vm) {
-                let f = float_val.to_f64();
-                rustpython_host_env::ctypes::write_value_to_address(
-                    addr,
-                    size,
-                    AddressWriteValue::Float(f),
-                );
-                return Ok(());
-            }
-
-            // Try bytes
-            if value.check_buffer() {
-                let bytes = value.try_bytes_like(vm, |b| b.to_vec())?;
-                rustpython_host_env::ctypes::write_value_to_address(
-                    addr,
-                    size,
-                    AddressWriteValue::Bytes(&bytes),
-                );
-                return Ok(());
-            }
-
-            Err(vm.new_type_error(format!(
-                "cannot convert {} to ctypes data",
-                value.class().name()
-            )))
         }
     }
 }
