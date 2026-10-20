@@ -37,3 +37,52 @@ if sys.platform == "win32":
         arguments = [0, 0, 0, 0, "message\0"]
         arguments[index] = "invalid integer"
         assert_raises(TypeError, _winapi.ReportEvent, *arguments)
+
+
+if sys.platform == "win32":
+    import subprocess
+
+    class PartialStartupInfo:
+        dwFlags = 0
+
+        def __getattr__(self, name):
+            raise ValueError(name)
+
+    for startup in (None, PartialStartupInfo()):
+        process, thread, _, _ = _winapi.CreateProcess(
+            sys.executable,
+            subprocess.list2cmdline([sys.executable, "-c", "pass"]),
+            None,
+            None,
+            False,
+            _winapi.CREATE_NO_WINDOW,
+            None,
+            None,
+            startup,
+        )
+        try:
+            status = _winapi.WaitForSingleObject(process, 10000)
+            if status != _winapi.WAIT_OBJECT_0:
+                _winapi.TerminateProcess(process, 1)
+                _winapi.WaitForSingleObject(process, 10000)
+            assert status == _winapi.WAIT_OBJECT_0
+            assert _winapi.GetExitCodeProcess(process) == 0
+        finally:
+            _winapi.CloseHandle(thread)
+            _winapi.CloseHandle(process)
+
+    startup = subprocess.STARTUPINFO()
+    startup.dwFlags = "invalid"
+    assert_raises(
+        TypeError,
+        _winapi.CreateProcess,
+        None,
+        "invalid\0",
+        None,
+        None,
+        False,
+        0,
+        None,
+        None,
+        startup,
+    )
