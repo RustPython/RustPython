@@ -99,9 +99,11 @@ python -m pytest benches/test_benchmarks.py
 ```
 
 It uses the release executable in `target/release` by default. Set `RUSTPYTHON` to
-the executable path when using a different build directory. Script paths are
-resolved relative to this checkout, so pytest can also be launched from another
-directory. A failed subprocess fails the benchmark instead of producing a timing.
+the executable path when using a different build directory. Relative `RUSTPYTHON`
+paths are resolved from the directory where pytest is launched; absolute paths
+can be used from any directory. Script paths are resolved relative to this
+checkout, so pytest can also be launched from another directory. A failed
+subprocess fails the benchmark instead of producing a timing.
 
 ## MacOS setup
 
