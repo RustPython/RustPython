@@ -3,7 +3,8 @@
 pub(crate) use decl::module_def;
 
 use crate::vm::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyInt, PyListRef},
 };
 use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
@@ -17,14 +18,17 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = obj.try_to_value(vm).or_else(|_| {
-            let meth = vm.get_method_or_type_error(
-                obj.clone(),
-                vm.ctx.interned_str("fileno").unwrap(),
-                || "select arg must be an int or object with a fileno() method".to_owned(),
-            )?;
-            meth.call((), vm)?.try_into_value(vm)
-        })?;
+        let fno = if let Some(fd) = obj.downcast_ref::<PyInt>() {
+            fd.try_to_primitive(vm)?
+        } else {
+            let meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
+                vm.new_type_error("select arg must be an int or object with a fileno() method")
+            })?;
+            meth.call((), vm)?
+                .downcast::<PyInt>()
+                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?
+                .try_to_primitive(vm)?
+        };
         Ok(Self { obj, fno })
     }
 }
