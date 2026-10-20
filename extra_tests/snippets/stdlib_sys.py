@@ -194,6 +194,37 @@ finally:
         monitoring.register_callback(2, event, None)
     monitoring.free_tool_id(2)
 
+
+# Combined instruction events must preserve loop-header line events.
+def monitored_loop():
+    total = 0
+    for value in (1, 2):
+        total += value
+    return total
+
+
+lines = []
+monitoring.use_tool_id(2, "combined-lines")
+try:
+    monitoring.register_callback(
+        2,
+        monitoring.events.LINE,
+        lambda code, line: lines.append(line - code.co_firstlineno),
+    )
+    monitoring.register_callback(2, monitoring.events.INSTRUCTION, lambda *args: None)
+    monitoring.set_local_events(
+        2,
+        monitored_loop.__code__,
+        monitoring.events.LINE | monitoring.events.INSTRUCTION,
+    )
+    assert monitored_loop() == 3
+    assert lines == [1, 2, 3, 2, 3, 2, 4]
+finally:
+    monitoring.set_local_events(2, monitored_loop.__code__, 0)
+    for event in (monitoring.events.LINE, monitoring.events.INSTRUCTION):
+        monitoring.register_callback(2, event, None)
+    monitoring.free_tool_id(2)
+
 assert sys.exc_info() == (None, None, None)
 
 try:
