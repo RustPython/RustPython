@@ -85,7 +85,10 @@ impl Initializer for PyCStructType {
 
         // Process _fields_ if defined directly on this class (not inherited)
         if let Some(fields_attr) = new_type.get_direct_attr(vm.ctx.intern_str("_fields_")) {
-            Self::process_fields(&new_type, &fields_attr, vm)?;
+            // Let the metaclass transform field types, as for later assignment.
+            new_type
+                .as_object()
+                .set_attr(vm.ctx.intern_str("_fields_"), fields_attr, vm)?;
         } else {
             // No _fields_ defined - try to copy from base class (PyCStgInfo_clone)
             let (has_base_info, base_clone) = {

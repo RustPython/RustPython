@@ -4,6 +4,7 @@ import itertools
 import os as _os
 import sys as _sys
 import types as _types
+import weakref
 from _ctypes import RTLD_GLOBAL, RTLD_LOCAL, Array, _SimpleCData, sizeof
 from _ctypes import CFuncPtr as _CFuncPtr
 from struct import calcsize as _calcsize
@@ -604,3 +605,253 @@ for read in (
         raise AssertionError("non-pointer argument wrapper accepted")
 
 print("done")
+
+
+# Indexed compound objects are views of the element, not decoded scalars.
+class IndexedPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int)]
+
+
+class IndexedInt(ctypes.c_int):
+    pass
+
+
+for _element in (IndexedPoint, IndexedInt, ctypes.c_int * 2):
+    _owner = (_element * 2)()
+    _view = _owner[1]
+    assert type(_view) is _element
+    assert _view._b_base_ is _owner
+    assert ctypes.addressof(_view) == ctypes.addressof(_owner) + ctypes.sizeof(_element)
+    _pointer = ctypes.cast(_owner, ctypes.POINTER(_element))
+    _pointer[1] = _pointer[1]
+    assert bytes(_pointer[1]) == bytes(_view)
+
+_array = (ctypes.c_int * 2)(1, 2)
+_pointer = ctypes.pointer(_array)
+for _value, _view in enumerate((_pointer[0], _pointer.contents), 42):
+    assert _view._b_base_ is _pointer
+    assert len(_view) == 2
+    _view[1] = _value
+    assert _array[1] == _value
+
+_callback_type = ctypes.CFUNCTYPE(ctypes.c_int)
+_callbacks = (_callback_type * 1)(_callback_type(lambda: 42))
+_callback = _callbacks[0]
+assert _callback._b_base_ is _callbacks
+_copied_callbacks = (_callback_type * 1)(_callback)
+del _callback, _callbacks
+gc.collect()
+assert _copied_callbacks[0]() == 42
+
+
+class CallbackField(ctypes.Structure):
+    _fields_ = [("callback", _callback_type)]
+
+
+assert CallbackField(_copied_callbacks[0]).callback() == 42
+
+# Nested element keys and copies must retain both pointees after the source dies.
+_nested = (((ctypes.POINTER(ctypes.c_int) * 1) * 1) * 2)()
+_refs = []
+for _index in range(2):
+    _item = ctypes.c_int(_index)
+    _refs.append(weakref.ref(_item))
+    _nested[_index][0][0] = ctypes.pointer(_item)
+_copy = type(_nested)(*_nested)
+del _nested, _item
+gc.collect()
+assert [ref().value for ref in _refs] == [0, 1]
+
+# Replacing a pointer view's contents updates its slot and retains the pointee.
+_replacement = ctypes.c_int(42)
+_replacement_ref = weakref.ref(_replacement)
+_view = _copy[1][0][0]
+_view.contents = _replacement
+del _replacement, _view
+gc.collect()
+assert _replacement_ref() is not None
+assert _copy[1][0][0].contents.value == 42
+
+# Replacing a callback may reenter the same array from its finalizer.
+_finalized = []
+
+
+class ReenteringCallback:
+    def __call__(self):
+        return 1
+
+    def __del__(self):
+        _finalized.append(_copied_callbacks[0]())
+        _copied_callbacks[0] = _callback_type(lambda: 3)
+
+
+_copied_callbacks[0] = _callback_type(ReenteringCallback())
+_copied_callbacks[0] = _callback_type(lambda: 2)
+assert _finalized == [2]
+assert _copied_callbacks[0]() == 3
+
+# Pointer-valued scalar views retain their owner and write through to it.
+for _type, _old, _new in (
+    (ctypes.c_char_p, b"old", b"new"),
+    (ctypes.c_wchar_p, "old", "new"),
+):
+
+    class IndexedStringPointer(_type):
+        pass
+
+    _owner = (IndexedStringPointer * 1)(_old)
+    _view = _owner[0]
+    _view.value = _new
+    assert _view._b_base_ is _owner
+    assert _owner[0].value == _new
+    _copy = type(_owner)(_view)
+    del _owner, _view
+    gc.collect()
+    assert _copy[0].value == _new
+
+
+# Reentry must see matching pointer bytes and owners, including private copies.
+class StringField(ctypes.Structure):
+    _fields_ = [("text", ctypes.c_char_p)]
+
+
+class ReenteringBytes(bytes):
+    def __del__(self):
+        if _replace_record:
+            _strings[0] = StringField(_inner)
+            _events.append(_strings[0].text)
+        else:
+            _strings.text = _inner
+            _events.append(_strings.text)
+
+
+_inner = b"inner replacement" * 20
+for _replace_record in (False, True):
+    _events = []
+    if _replace_record:
+        _strings = (StringField * 1)(StringField(ReenteringBytes(b"old")))
+        _strings[0] = StringField(b"outer replacement")
+        assert _strings[0].text == _inner
+    else:
+        _strings = StringField(ReenteringBytes(b"old"))
+        _strings.text = b"outer replacement"
+        assert _strings.text == _inner
+    assert _events == [_inner]
+
+
+# py_object views locate the referent in their owner, including after a copy.
+class IndexedObject(ctypes.py_object):
+    pass
+
+
+_object = {}
+_object_scalar = IndexedObject(_object)
+_objects = (IndexedObject * 1)(_object_scalar)
+assert type(_objects).from_buffer(memoryview(_objects))[0].value is _object
+_object_pointer = ctypes.cast(_objects, ctypes.POINTER(IndexedObject))
+_object_pointer[0] = _object_scalar
+_object_scalar.value = object()
+assert _object_pointer[0].value is _object
+_copy = type(_objects)(_objects[0])
+del _objects, _object_pointer
+gc.collect()
+assert _copy[0].value is _object
+_copy[0].value = None
+assert _copy[0].value is None
+
+
+class RetentionKey(str):
+    __hash__ = str.__hash__
+
+    def __eq__(self, other):
+        raise AssertionError("py_object lookup called key equality")
+
+
+_copy[0].value = _object
+_copy._objects.clear()
+_copy._objects[RetentionKey("0:0")] = _object
+assert _copy[0].value is _object
+
+# Generated endian types return scalars, but their user subclasses return views.
+_swapped = (
+    ctypes.c_uint32.__ctype_be__
+    if _sys.byteorder == "little"
+    else ctypes.c_uint32.__ctype_le__
+)
+_words = (_swapped * 1).from_buffer_copy(b"\x01\x02\x03\x04")
+_word_pointer = ctypes.cast(_words, ctypes.POINTER(_swapped))
+_expected = int.from_bytes(
+    bytes(_words), "big" if _sys.byteorder == "little" else "little"
+)
+assert type(_words[0]) is type(_word_pointer[0]) is int
+assert _words[0] == _word_pointer[0] == _expected
+_words[0] = 0x11223344
+assert bytes(_words) == bytes(_swapped(0x11223344))
+_word_pointer[0] = 0x55667788
+assert bytes(_words) == bytes(_swapped(0x55667788))
+
+
+class IndexedSwapped(_swapped):
+    pass
+
+
+_words = (IndexedSwapped * 1).from_buffer_copy(b"\x01\x02\x03\x04")
+assert type(_words[0]) is IndexedSwapped
+assert _words[0].value == int.from_bytes(bytes(_words), _sys.byteorder)
+
+# Field assignment copies encoded instances; only numeric inputs are converted.
+for _base in (ctypes.Structure, ctypes.Union):
+    for _field_type in (_swapped, IndexedSwapped):
+
+        class EndianField(_base):
+            _fields_ = [("word", _field_type)]
+
+        _value = _field_type(0x01020304)
+        _aggregate = EndianField(_value)
+        assert bytes(_aggregate) == bytes(_value)
+        _field = EndianField.from_buffer_copy(bytes(_value)).word
+        assert getattr(_field, "value", _field) == _value.value
+        if _field_type is IndexedSwapped:
+            _aggregate.word = 0x55667788
+            assert bytes(_aggregate) == bytes(IndexedSwapped(0x55667788))
+
+# Endian fields reject the native sibling rather than converting its bytes.
+assert not issubclass(_swapped, ctypes.c_uint32)
+for _base in (
+    (ctypes.BigEndianStructure, ctypes.BigEndianUnion)
+    if _sys.byteorder == "little"
+    else (ctypes.LittleEndianStructure, ctypes.LittleEndianUnion)
+):
+
+    class ConvertedEndianField(_base):
+        _fields_ = [("word", ctypes.c_uint32)]
+
+    assert ConvertedEndianField._fields_[0][1] is _swapped
+    try:
+        ConvertedEndianField(ctypes.c_uint32(0x01020304))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("incompatible native field value accepted")
+    _value = _swapped(0x01020304)
+    assert bytes(ConvertedEndianField(_value)) == bytes(_value)
+
+
+# Array assignment cannot complete a pointer field's missing target type.
+class IncompletePointer(ctypes._Pointer):
+    pass
+
+
+class IncompletePointerField(ctypes.Structure):
+    _fields_ = [("value", IncompletePointer)]
+
+
+_field = IncompletePointerField()
+_before = bytes(_field)
+try:
+    _field.value = (ctypes.c_int * 1)(42)
+except TypeError:
+    pass
+else:
+    raise AssertionError("array accepted for an incomplete pointer field")
+assert bytes(_field) == _before

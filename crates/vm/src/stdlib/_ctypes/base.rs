@@ -5,6 +5,7 @@ use crate::builtins::{
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
+use crate::dict_inner::DictKey;
 use crate::function::{ArgBytesLike, ArgStrictInt, OptionalArg, PySetterValue};
 use crate::protocol::{BufferMethods, PyBuffer};
 use crate::types::{Constructor, GetDescriptor, Representable};
@@ -439,6 +440,36 @@ pub struct PyCData {
     pub(super) kept_refs: PyRwLock<std::collections::HashMap<String, PyObjectRef>>,
 }
 
+// Retention metadata is user-mutable. Its fast lookup must not call Python
+// equality on a colliding key; non-exact string keys use the graph fallback.
+struct ObjectKey<'a>(&'a str);
+
+impl DictKey for ObjectKey<'_> {
+    type Owned = String;
+
+    fn _to_owned(&self, _vm: &VirtualMachine) -> String {
+        self.0.to_owned()
+    }
+
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
+        self.0.key_hash(vm)
+    }
+
+    fn key_is(&self, _other: &PyObject) -> bool {
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
+        Ok(other
+            .downcast_ref_if_exact::<PyStr>(vm)
+            .is_some_and(|key| key.as_wtf8() == self.0))
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.0.key_as_isize(vm)
+    }
+}
+
 impl PyCData {
     /// Create from StgInfo (PyCData_MallocBuffer pattern)
     pub(crate) fn from_stg_info(stg_info: &StgInfo) -> Self {
@@ -696,9 +727,18 @@ impl PyCData {
     pub fn unique_key(&self, index: usize) -> String {
         let mut key = format!("{index:x}");
         // Walk up the base chain to build hierarchical key
-        if self.base.read().is_some() {
-            let parent_index = self.index.load();
-            key.push_str(&format!(":{parent_index:x}"));
+        let mut base = self.base.read().clone();
+        if base.is_some() {
+            key.push_str(&format!(":{:x}", self.index.load()));
+        }
+        while let Some(parent) = base.take() {
+            let Some(cdata) = parent.downcast_ref::<Self>() else {
+                break;
+            };
+            base.clone_from(&cdata.base.read());
+            if base.is_some() {
+                key.push_str(&format!(":{:x}", cdata.index.load()));
+            }
         }
         key
     }
@@ -758,8 +798,11 @@ impl PyCData {
             *objects = Some(dict.into());
         }
 
+        // Replacing a reference can run a finalizer that accesses this object.
+        let dict_obj = objects.clone();
+        drop(objects);
         // Store in dict with unique key
-        if let Some(dict_obj) = objects.as_ref()
+        if let Some(dict_obj) = dict_obj
             && let Some(dict) = dict_obj.downcast_ref::<PyDict>()
         {
             let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
@@ -774,33 +817,49 @@ impl PyCData {
     /// lives as long as the owning ctypes object.
     /// Uses unique_key (hierarchical) so nested fields don't collide.
     pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
+        drop(self.replace_hidden(index, Some(obj)));
+    }
+
+    fn replace_hidden(&self, index: usize, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
         let key = self.unique_key(index);
         let base = self.base.read().clone();
-        if let Some(base_obj) = base {
-            let root = Self::find_root_object(&base_obj);
-            if let Some(cdata) = root.downcast_ref::<Self>() {
-                cdata.kept_refs.write().insert(key, obj);
-                return;
-            }
+        let root = base.as_ref().map(|base| Self::find_root_object(base));
+        let cdata = root
+            .as_ref()
+            .and_then(|root| root.downcast_ref::<Self>())
+            .map_or(self, |cdata| cdata);
+        let mut refs = cdata.kept_refs.write();
+        match obj {
+            Some(obj) => refs.insert(key, obj),
+            None => refs.remove(&key),
         }
-        self.kept_refs.write().insert(key, obj);
+    }
+
+    pub(super) fn keep_ref_with_hidden(
+        &self,
+        index: usize,
+        keep: PyObjectRef,
+        hidden: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Publish all owners before dropping the old visible reference: its
+        // finalizer may overwrite this same slot. Keep old storage alive until
+        // then, and do not overwrite the finalizer's owners afterwards.
+        let _old_hidden = self.replace_hidden(index, hidden);
+        self.keep_ref(index, keep, vm)
     }
 
     /// Find the root object (one without a base) by walking up the base chain
     fn find_root_object(obj: &PyObject) -> PyObjectRef {
-        // Try to get base from different ctypes types
-        let base = if let Some(cdata) = obj.downcast_ref::<Self>() {
-            cdata.base.read().clone()
-        } else {
-            None
-        };
-
-        // Recurse if there's a base, otherwise this is the root
-        if let Some(base_obj) = base {
-            Self::find_root_object(&base_obj)
-        } else {
-            obj.to_owned()
+        let mut root = obj.to_owned();
+        while let Some(cdata) = root.downcast_ref::<Self>() {
+            let base = cdata.base.read().clone();
+            match base {
+                Some(base) if base.downcast_ref::<Self>().is_some() => root = base,
+                _ => break,
+            }
         }
+        root
     }
 
     /// Store a value in an object's _objects dict with the given key
@@ -834,8 +893,10 @@ impl PyCData {
             *objects = Some(dict.into());
         }
 
+        let dict_obj = objects.clone();
+        drop(objects);
         // Store in dict
-        if let Some(dict_obj) = objects.as_ref()
+        if let Some(dict_obj) = dict_obj
             && let Some(dict) = dict_obj.downcast_ref::<PyDict>()
         {
             let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
@@ -846,12 +907,119 @@ impl PyCData {
     }
 
     /// Get kept objects from a CData instance
-    /// Returns the _objects of the CData, or an empty dict if None.
+    /// Returns the _objects of the root CData, or an empty dict if None.
     pub fn get_kept_objects(value: &PyObject, vm: &VirtualMachine) -> PyObjectRef {
-        value
+        Self::find_root_object(value)
             .downcast_ref::<Self>()
             .and_then(|cdata| cdata.objects.read().clone())
             .unwrap_or_else(|| vm.ctx.new_dict().into())
+    }
+
+    // Copying a view must retain its root's references, including private
+    // backing allocations used for null-terminated strings.
+    pub(super) fn keep_cdata(
+        &self,
+        index: usize,
+        value: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let root = Self::find_root_object(value);
+        let hidden: Vec<_> = root
+            .downcast_ref::<Self>()
+            .map(|cdata| cdata.kept_refs.read().values().cloned().collect())
+            .unwrap_or_default();
+        let hidden = (!hidden.is_empty()).then(|| vm.ctx.new_tuple(hidden).into());
+        self.keep_ref_with_hidden(index, Self::get_kept_objects(&root, vm), hidden, vm)
+    }
+
+    // A scalar owns one reference; a scalar view stores it in its root instead.
+    pub(super) fn keep_value(
+        &self,
+        value: PyObjectRef,
+        hidden: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let _old_hidden = self.replace_hidden(0, hidden);
+        if self.base.read().is_some() {
+            self.keep_ref(0, value, vm)
+        } else {
+            let old = self.objects.write().replace(value);
+            drop(old);
+            Ok(())
+        }
+    }
+
+    // Resolve a py_object through owned references, never by turning an
+    // arbitrary integer from native memory into a Rust reference. Views can
+    // reach the object through nested _objects dictionaries or cast cycles.
+    pub(super) fn object_at(
+        &self,
+        address: usize,
+        index: Option<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        if address == 0 {
+            return Err(vm.new_value_error("PyObject is NULL"));
+        }
+        if address == vm.ctx.none.get_id() {
+            return Ok(vm.ctx.none());
+        }
+        let objects = self.objects.read().clone();
+        if let Some(obj) = &objects
+            && obj.get_id() == address
+        {
+            return Ok(obj.clone());
+        }
+        let base = self.base.read().clone();
+        let root = base.as_ref().map(|base| Self::find_root_object(base));
+        let owners = root
+            .as_ref()
+            .and_then(|root| root.downcast_ref::<Self>())
+            .and_then(|root| root.objects.read().clone())
+            .or_else(|| objects.clone());
+        if let Some(dict) = owners.as_ref().and_then(|obj| obj.downcast_ref::<PyDict>()) {
+            let key = self.unique_key(index.unwrap_or(0));
+            // A scalar view's setter stores under "0:<view path>", whereas
+            // assignment through its parent stores under "<view path>".
+            let parent_key = if index.is_none() {
+                key.strip_prefix("0:")
+            } else {
+                None
+            };
+            for key in core::iter::once(key.as_str()).chain(parent_key) {
+                if let Some(obj) = dict.inner_getitem_opt(&ObjectKey(key), vm)?
+                    && obj.get_id() == address
+                {
+                    return Ok(obj);
+                }
+            }
+        }
+        // Casts, copied aggregates and buffer views can retain the referent
+        // through other keys or containers. Search those only on a direct miss.
+        let mut pending: Vec<_> = objects.into_iter().collect();
+        pending.extend(base);
+        pending.extend(self.kept_refs.read().values().cloned());
+        let mut visited = std::collections::HashSet::new();
+        while let Some(obj) = pending.pop() {
+            if obj.get_id() == address {
+                return Ok(obj);
+            }
+            if !visited.insert(obj.get_id()) {
+                continue;
+            }
+            if let Some(cdata) = obj.downcast_ref::<Self>() {
+                pending.extend(cdata.objects.read().iter().cloned());
+                pending.extend(cdata.base.read().iter().cloned());
+                pending.extend(cdata.kept_refs.read().values().cloned());
+            } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
+                pending.extend(dict.values_vec());
+            } else if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+                pending.extend(tuple.as_slice().iter().cloned());
+            } else if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
+                pending.push(view.viewed_object().to_owned());
+            }
+        }
+        Err(vm.new_value_error("PyObject is NULL"))
     }
 
     /// Check if a value should be stored in _objects
@@ -905,12 +1073,35 @@ impl PyCData {
             }
         }
 
+        // A compatible ctypes instance already contains the encoded field bytes.
+        // Snapshot them before writing: source and destination may share storage.
+        if let Some(proto_type) = proto.downcast_ref::<PyType>()
+            && value.class().fast_issubclass(proto_type)
+            && let Some(source) = value.downcast_ref::<Self>()
+        {
+            let bytes = {
+                let buffer = source.buffer.read();
+                rustpython_host_env::ctypes::copy_to_sized_bytes(&buffer, size)
+            };
+            self.write_bytes_at_offset(offset, &bytes);
+            return self.keep_cdata(index, &value, vm);
+        }
+
         // Special handling for Pointer fields with Array values
         if let Some(proto_type) = proto.downcast_ref::<PyType>()
             && proto_type
                 .class()
                 .fast_issubclass(super::pointer::PyCPointerType::static_type())
             && let Some(array) = value.downcast_ref::<super::array::PyCArray>()
+            && {
+                let target_info = proto_type.stg_info(vm)?;
+                let array_info = array.class().stg_info(vm)?;
+                target_info
+                    .proto
+                    .as_deref()
+                    .zip(array_info.element_type.as_deref())
+                    .is_some_and(|(target, element)| target.is(element))
+            }
         {
             let buffer_addr = {
                 let array_buffer = array.0.buffer.read();
@@ -920,6 +1111,17 @@ impl PyCData {
             self.write_bytes_at_offset(offset, &addr_bytes);
             self.keep_ref(index, value, vm)?;
             return Ok(());
+        }
+
+        if value.downcast_ref::<Self>().is_some() {
+            return Err(vm.new_type_error(format!(
+                "incompatible types, {} instance instead of {} instance",
+                value.class().name(),
+                proto
+                    .downcast_ref::<PyType>()
+                    .ok_or_else(|| vm.new_type_error("field proto is not a type"))?
+                    .name()
+            )));
         }
 
         // For array fields with tuple/list input, instantiate the array type
@@ -975,9 +1177,7 @@ impl PyCData {
             let result =
                 rustpython_host_env::ctypes::pointer_to_sized_bytes_endian(ptr, size, needs_swap);
             self.write_bytes_at_offset(offset, &result);
-            self.keep_ref(index, value, vm)?;
-            self.keep_alive(index, kept_alive);
-            return Ok(());
+            return self.keep_ref_with_hidden(index, value, Some(kept_alive), vm);
         }
 
         let (mut bytes, converted_value) = if let Some(type_code) = &field_type_code {
@@ -997,11 +1197,20 @@ impl PyCData {
         if let Some(converted) = converted_value {
             self.keep_ref(index, converted, vm)?;
         } else if Self::should_keep_ref(&value) {
-            let to_keep = Self::get_kept_objects(&value, vm);
-            self.keep_ref(index, to_keep, vm)?;
+            self.keep_cdata(index, &value, vm)?;
         }
 
         Ok(())
+    }
+
+    pub(super) fn into_view(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        if cls.fast_issubclass(super::function::PyCFuncPtr::static_type()) {
+            super::function::PyCFuncPtr::from_cdata(self)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        } else {
+            self.into_ref_with_type(vm, cls).map(Into::into)
+        }
     }
 
     /// PyCData_get
@@ -1080,15 +1289,7 @@ impl PyCData {
         // Simple types: return primitive value
         if proto_metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type()) {
             // Check for byte swapping
-            let needs_swap = base_obj
-                .class()
-                .as_object()
-                .get_attr("_swappedbytes_", vm)
-                .is_ok()
-                || proto_type
-                    .as_object()
-                    .get_attr("_swappedbytes_", vm)
-                    .is_ok();
+            let needs_swap = super::simple::is_swapped(&proto_type);
 
             let data = if needs_swap && size > 1 {
                 let mut swapped = buffer_data;
@@ -1108,8 +1309,9 @@ impl PyCData {
         if proto_metaclass.fast_issubclass(super::structure::PyCStructType::static_type())
             || proto_metaclass.fast_issubclass(super::union::PyCUnionType::static_type())
             || proto_metaclass.fast_issubclass(super::pointer::PyCPointerType::static_type())
+            || proto_type.fast_issubclass(super::function::PyCFuncPtr::static_type())
         {
-            cdata_obj.into_ref_with_type(vm, proto_type).map(Into::into)
+            cdata_obj.into_view(proto_type, vm)
         } else {
             // Fallback
             Ok(vm.ctx.new_int(0).into())
@@ -1735,17 +1937,7 @@ impl Py<PyCField> {
         match value {
             PySetterValue::Assign(value) => {
                 // Check if needs byte swapping
-                let needs_swap = (obj
-                    .class()
-                    .as_object()
-                    .get_attr("_swappedbytes_", vm)
-                    .is_ok()
-                    || zelf
-                        .proto
-                        .as_object()
-                        .get_attr("_swappedbytes_", vm)
-                        .is_ok())
-                    && size > 1;
+                let needs_swap = super::simple::is_swapped(&zelf.proto) && size > 1;
 
                 // PyCData_set
                 cdata.set_field(
