@@ -288,3 +288,37 @@ for _bad in (
     else:
         assert _textio.read(50) is not None
         _textio.tell()
+
+
+# Reinitialization releases arguments after unlocking the stream.
+for _type, _content in ((BytesIO, b"hello"), (StringIO, "hello")):
+    _stream = _type(_content)
+    _stream.close()
+    _stream.__init__(_content)
+    assert not _stream.closed
+    assert _stream.getvalue() == _content
+
+    class ClosingValue(type(_content)):
+        def __del__(self):
+            _stream.close()
+
+    _stream.__init__(ClosingValue(_content))
+    assert _stream.closed
+
+
+_stream = BytesIO(b"old")
+_released_values = []
+
+
+class ClosingBuffer:
+    def __buffer__(self, flags):
+        return memoryview(b"new")
+
+    def __release_buffer__(self, view):
+        _released_values.append(_stream.getvalue())
+        _stream.close()
+
+
+_stream.__init__(ClosingBuffer())
+assert _released_values == [b"new"]
+assert _stream.closed

@@ -81,6 +81,7 @@ mod _random {
                 .map_err(|_| vm.new_overflow_error("getrandbits: number of bits too large"))?;
             match k {
                 0 => Ok(BigInt::zero()),
+                1..=32 => Ok(BigInt::from(zelf.rng.lock().next_u32() >> (32 - k))),
                 mut k => {
                     let mut rng = zelf.rng.lock();
                     let mut gen_u32 = |k| {

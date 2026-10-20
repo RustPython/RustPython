@@ -314,6 +314,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> u32 {
 
 // pymain_run_python
 fn pymain_run_python(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<u32> {
+    vm.check_stdlib_initialization()?;
     let scope = vm.new_scope_with_main()?;
 
     // The native warnings state already holds the default filters. Import the

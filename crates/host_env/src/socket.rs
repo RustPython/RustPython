@@ -18,6 +18,9 @@ pub use ::dns_lookup as dns;
 #[cfg(not(target_arch = "wasm32"))]
 pub use ::socket2 as raw;
 
+#[cfg(target_os = "linux")]
+pub mod bluetooth;
+
 #[cfg(not(any(
     target_os = "ios",
     target_os = "android",

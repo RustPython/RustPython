@@ -15,3 +15,12 @@ Simply run `pytest -v` in this directory, and the tests should run (and hopefull
 pass). If it hangs for a long time, that's because it's building RustPython in
 release mode, which should take less time than it would to run every test
 snippet with RustPython compiled in debug mode.
+
+## Regression result collector
+
+`jsontests.py` uses the canonical regrtest process setup before discovery. Its
+JSON and tables count each parent test once; failed subtests make their parent
+fail. The standard unittest summary counts individual failure/error/skip events
+and can therefore differ. Each case retains its full `id` and all subtest
+callbacks reported by unittest, including their IDs, outcomes and tracebacks.
+Historical result files are not rewritten.

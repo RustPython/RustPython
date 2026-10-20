@@ -288,13 +288,7 @@ impl PyCPointer {
 
     /// Set the pointer value in buffer
     pub(crate) fn set_ptr_value(&self, value: usize) {
-        let mut buffer = self.0.buffer.write();
-        rustpython_host_env::ctypes::write_pointer_to_buffer_at(
-            buffer.to_mut(),
-            0,
-            rustpython_host_env::ctypes::pointer_size(),
-            value,
-        );
+        self.0.write_bytes_at_offset(0, &value.to_ne_bytes());
     }
 
     // contents getter - reads address from b_ptr and creates an instance of the pointed-to type
@@ -313,12 +307,13 @@ impl PyCPointer {
             .stg_info_opt()
             .map_or_else(rustpython_host_env::ctypes::pointer_size, |info| info.size);
 
-        // Create instance that references the memory directly
-        // PyCData.into_ref_with_type works for all ctypes (simple, structure, union, array, pointer)
-        let cdata = unsafe { super::base::PyCData::at_address(ptr_val as *const u8, element_size) };
-        cdata
-            .into_ref_with_type(vm, proto_type.to_owned())
-            .map(Into::into)
+        // SAFETY: the pointer must designate valid native memory. Retaining it
+        // keeps Python-owned referents alive, but cannot validate arbitrary addresses.
+        let cdata = unsafe {
+            PyCData::from_base_obj(ptr_val as *mut u8, element_size, zelf.to_owned().into(), 0)
+        };
+        cdata.length.store(proto_type.stg_info(vm)?.length);
+        cdata.into_view(proto_type.to_owned(), vm)
     }
 
     // contents setter - stores address in b_ptr and keeps reference
@@ -400,11 +395,30 @@ impl PyCPointer {
         // offset = index * iteminfo->size
         let addr = pointer_item_address(ptr_value, index, element_size);
 
-        // Check if it's a simple type (has _type_ attribute)
-        if let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
-            && let Ok(type_str) = type_attr.str(vm)
+        // Direct simple types and their generated endian variants return a
+        // scalar; user subclasses and aggregates return a view.
+        if super::simple::returns_scalar(proto_type)
+            && let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
+            && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
         {
             let type_code = type_str.to_string();
+            if type_code == "O" || super::simple::is_swapped(proto_type) {
+                // SAFETY: as for ordinary pointer indexing below, the caller
+                // must supply a valid address covering the element's storage.
+                let bytes = unsafe {
+                    rustpython_host_env::ctypes::borrow_memory(addr as *const u8, element_size)
+                };
+                if type_code == "O" {
+                    return zelf.0.object_at(
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(bytes),
+                        Some(index as usize),
+                        vm,
+                    );
+                }
+                let mut bytes = bytes.to_vec();
+                bytes.reverse();
+                return Ok(super::base::bytes_to_pyobject(proto_type, &bytes, vm));
+            }
             return Ok(Self::read_value_at_address(
                 addr,
                 element_size,
@@ -415,11 +429,19 @@ impl PyCPointer {
 
         // Complex type: create instance that references the memory directly (not a copy)
         // This allows p[i].val = x to modify the original memory
-        // PyCData.into_ref_with_type works for all ctypes (array, structure, union, pointer)
-        let cdata = unsafe { super::base::PyCData::at_address(addr as *const u8, element_size) };
-        cdata
-            .into_ref_with_type(vm, proto_type.to_owned())
-            .map(Into::into)
+        // SAFETY: pointer indexing relies on the caller providing valid native
+        // memory. Retaining the pointer keeps its Python-owned referents alive,
+        // but does not make arbitrary addresses or concurrent native access safe.
+        let cdata = unsafe {
+            PyCData::from_base_obj(
+                addr as *mut u8,
+                element_size,
+                zelf.to_owned().into(),
+                index as usize,
+            )
+        };
+        cdata.length.store(proto_type.stg_info(vm)?.length);
+        cdata.into_view(proto_type.to_owned(), vm)
     }
 
     // Pointer_subscript slice handling (manual parsing, not PySlice_Unpack)
@@ -575,15 +597,30 @@ impl PyCPointer {
 
         // Write value at address
         // Handle Structure/Array types by copying their buffer
+        if type_code.as_deref() == Some("O")
+            && value.downcast_ref::<PyCData>().is_some()
+            && !value.fast_isinstance(proto_type)
+        {
+            return Err(vm.new_type_error(format!(
+                "expected {} instance, not {}",
+                proto_type.name(),
+                value.class().name()
+            )));
+        }
         if let Some(cdata) = value.downcast_ref::<super::PyCData>()
             && (cdata.fast_isinstance(PyCStructure::static_type())
                 || cdata.fast_isinstance(PyCArray::static_type())
                 || cdata.fast_isinstance(PyCSimple::static_type()))
         {
-            let src_buffer = cdata.buffer.read();
+            // The value may be a view of this element or overlapping storage.
+            let bytes = {
+                let buffer = cdata.buffer.read();
+                rustpython_host_env::ctypes::copy_to_sized_bytes(&buffer, element_size)
+            };
             unsafe {
-                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &src_buffer, element_size);
+                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &bytes, element_size);
             }
+            zelf.0.keep_cdata(index as usize, &value, vm)
         } else {
             // Handle z/Z specially to store converted value
             if type_code.as_deref() == Some("z")
@@ -597,8 +634,12 @@ impl PyCPointer {
                         AddressWriteValue::Pointer(ptr_val),
                     );
                 }
-                zelf.0.keep_alive(index as usize, kept_alive);
-                return zelf.0.keep_ref(index as usize, value.clone(), vm);
+                return zelf.0.keep_ref_with_hidden(
+                    index as usize,
+                    value.clone(),
+                    Some(kept_alive),
+                    vm,
+                );
             } else if type_code.as_deref() == Some("Z")
                 && let Some(s) = value.downcast_ref::<PyStr>()
             {
@@ -612,11 +653,28 @@ impl PyCPointer {
                 }
                 return zelf.0.keep_ref(index as usize, holder, vm);
             }
-            Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
+            if type_code.as_deref() == Some("O") {
+                unsafe {
+                    rustpython_host_env::ctypes::write_value_to_address(
+                        addr,
+                        element_size,
+                        AddressWriteValue::Pointer(value.get_id()),
+                    );
+                }
+            } else if super::simple::is_swapped(proto_type) {
+                let type_code = type_code
+                    .as_deref()
+                    .ok_or_else(|| vm.new_type_error("no _type_ attribute"))?;
+                let bytes = super::simple::swapped_value_bytes(type_code, &value, vm)?;
+                unsafe {
+                    rustpython_host_env::ctypes::copy_bytes_to_address(addr, &bytes, element_size);
+                }
+            } else {
+                Self::write_value_at_address(addr, element_size, &value, type_code.as_deref(), vm)?;
+            }
+            // KeepRef: store reference to keep value alive using actual index
+            zelf.0.keep_ref(index as usize, value, vm)
         }
-
-        // KeepRef: store reference to keep value alive using actual index
-        zelf.0.keep_ref(index as usize, value, vm)
     }
 
     /// Read a value from memory address

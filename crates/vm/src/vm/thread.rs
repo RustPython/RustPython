@@ -1481,6 +1481,7 @@ impl VirtualMachine {
             state: self.state.clone(),
             initialized: self.initialized,
             import_bootstrap_complete: self.import_bootstrap_complete,
+            startup_error: self.startup_error.clone(),
             recursion_depth: Cell::new(0),
             #[cfg(any(miri, target_env = "musl"))]
             native_recursion_depth: Cell::new(0),

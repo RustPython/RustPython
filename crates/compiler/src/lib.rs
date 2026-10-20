@@ -50,13 +50,26 @@ pub struct EofToken {
     pub lineno: usize,
     /// The last line read, which the tokenizer stopped at the end of.
     pub line: String,
-    /// The error is raised at the token itself, as the generic syntax error
-    /// and a missing forced token are, so its columns are 0.
-    pub known_location: bool,
+    /// Where the error on the token is raised from.
+    pub raised_at: EofErrorLocation,
+}
+
+/// Where an error on a token made up at the end of the input is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EofErrorLocation {
+    /// Where the tokenizer stopped, as `_PyPegen_raise_error` places an error
+    /// on a token without a column.
+    Tokenizer,
+    /// At the token itself, as the generic syntax error and a missing forced
+    /// token are, so its columns are 0.
+    Token,
+    /// From the token to where the tokenizer stopped, as
+    /// `RAISE_SYNTAX_ERROR_STARTING_FROM` places it.
+    StartingFromToken,
 }
 
 impl EofToken {
-    fn new(source: &str, mode: Mode, known_location: bool) -> Self {
+    fn new(source: &str, mode: Mode, raised_at: EofErrorLocation) -> Self {
         let lineno = source.split_inclusive('\n').count();
         let mut line = source
             .split_inclusive('\n')
@@ -72,24 +85,27 @@ impl EofToken {
         Self {
             lineno,
             line,
-            known_location,
+            raised_at,
         }
     }
 
     /// `SyntaxError.offset`
     #[must_use]
     pub fn offset(&self) -> usize {
-        if self.known_location {
-            0
-        } else {
-            self.line.chars().count()
+        match self.raised_at {
+            EofErrorLocation::Tokenizer => self.line.chars().count(),
+            EofErrorLocation::Token | EofErrorLocation::StartingFromToken => 0,
         }
     }
 
     /// `SyntaxError.end_offset`
     #[must_use]
-    pub const fn end_offset(&self) -> isize {
-        if self.known_location { 0 } else { -1 }
+    pub fn end_offset(&self) -> isize {
+        match self.raised_at {
+            EofErrorLocation::Tokenizer => -1,
+            EofErrorLocation::Token => 0,
+            EofErrorLocation::StartingFromToken => self.line.chars().count() as isize,
+        }
     }
 }
 
@@ -137,8 +153,11 @@ impl CompileError {
 
         let eof_token = at_eof_token.then(|| {
             let source = source_file.source_text();
-            let known_location = is_raised_at_token(&diagnostic.error, source, raw_location);
-            Box::new(EofToken::new(source, mode, known_location))
+            Box::new(EofToken::new(
+                source,
+                mode,
+                eof_error_location(&diagnostic.error),
+            ))
         });
         Self::Parse(ParseError {
             error: diagnostic.error,
@@ -419,57 +438,34 @@ fn fails_at_eof_token(error: &parser::ParseError, source: &str, mode: Mode) -> b
     }
 }
 
-/// Whether the error is raised at the token the parser failed on, as the
-/// generic syntax error and a missing forced token are, rather than where the
-/// tokenizer stopped.
-fn is_raised_at_token(
-    error: &parser::ParseErrorType,
-    source: &str,
-    range: ruff_text_size::TextRange,
-) -> bool {
+/// Where the error is placed when the parser fails on a token made up at the
+/// end of the input.
+fn eof_error_location(error: &parser::ParseErrorType) -> EofErrorLocation {
     match error {
-        // Only `else`, `try`, `finally` and `def` force their `:`; the other
-        // clause headers report a missing one from an `invalid_*` rule.
+        // A `:` that is not forced is reported missing before the newline by an
+        // `invalid_*` rule.
         parser::ParseErrorType::ExpectedToken {
             expected: TokenKind::Colon,
             found: TokenKind::Newline,
-        } => matches!(
-            clause_keyword(source, range.start()),
-            Some(TokenKind::Else | TokenKind::Try | TokenKind::Finally | TokenKind::Def)
-        ),
+        } => EofErrorLocation::Tokenizer,
         parser::ParseErrorType::ExpectedToken { .. }
+        | parser::ParseErrorType::ExpectedForcedToken { .. }
         | parser::ParseErrorType::ExpectedExpression
         | parser::ParseErrorType::ExpectedIdentifier
         | parser::ParseErrorType::UnexpectedExpressionToken
+        | parser::ParseErrorType::UnexpectedTokenAfterAsync(_)
+        | parser::ParseErrorType::EmptyDeleteTargets
+        | parser::ParseErrorType::EmptyGlobalNames
+        | parser::ParseErrorType::EmptyNonlocalNames
         | parser::ParseErrorType::SimpleStatementsOnSameLine
         | parser::ParseErrorType::SimpleAndCompoundStatementOnSameLine
-        | parser::ParseErrorType::InvalidStarredExpressionUsage => true,
-        parser::ParseErrorType::OtherError(message) => message == "invalid syntax",
-        _ => false,
-    }
-}
-
-/// The keyword that starts the logical line `offset` is in, after `async`.
-fn clause_keyword(source: &str, offset: TextSize) -> Option<TokenKind> {
-    let parsed = parser::parse_unchecked(source, parser::ParseOptions::from(parser::Mode::Module));
-    let mut keyword = None;
-    let mut at_line_start = true;
-    for token in parsed
-        .tokens()
-        .iter()
-        .take_while(|token| token.start() < offset)
-    {
-        match token.kind() {
-            TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent => at_line_start = true,
-            TokenKind::NonLogicalNewline | TokenKind::Comment | TokenKind::Async => {}
-            kind if at_line_start => {
-                keyword = Some(kind);
-                at_line_start = false;
-            }
-            _ => {}
+        | parser::ParseErrorType::InvalidStarredExpressionUsage => EofErrorLocation::Token,
+        parser::ParseErrorType::EmptyImportNames => EofErrorLocation::StartingFromToken,
+        parser::ParseErrorType::OtherError(message) if message == "invalid syntax" => {
+            EofErrorLocation::Token
         }
+        _ => EofErrorLocation::Tokenizer,
     }
-    keyword
 }
 
 fn eof_parse_diagnostic(
@@ -544,7 +540,12 @@ fn default_parse_diagnostic(
     error: parser::ParseError,
     source_file: &SourceFile,
 ) -> NormalizedParseDiagnostic {
-    let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+    let (loc, end_loc) = if matches!(error.error, parser::ParseErrorType::EmptyImportNames) {
+        // RAISE_SYNTAX_ERROR_STARTING_FROM the newline ends where it starts.
+        source_locations(source_file, error.location.start(), error.location.end())
+    } else {
+        adjusted_error_locations(source_file, error.location)
+    };
     NormalizedParseDiagnostic::new(error.error, loc, end_loc)
 }
 
@@ -1635,11 +1636,9 @@ impl BarrySource<'_> {
         })
     }
 
-    /// The obsolete `<>` operator the parse error points at, if any. In Barry
-    /// mode the operator was rewritten to `!=`, so the error lands on its
-    /// start; outside Barry mode ruff lexes `<` and then an unexpected `>`, so
-    /// the error lands one character in. Either way the whole operator is one
-    /// token to the tokenizer, so report it as one.
+    /// The `<>` operator the parse error points at, if any. In Barry mode the
+    /// operator was rewritten to `!=`, so the error lands on its start, and the
+    /// whole operator is one token to the tokenizer, so report it as one.
     #[must_use]
     pub fn invalid_legacy_operator(
         &self,
@@ -1660,9 +1659,9 @@ impl BarrySource<'_> {
             .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
     }
 
-    /// The diagnostic for this source, if any: an obsolete `<>` the parse
-    /// error points at, or -- in Barry mode only -- the first `!=`. A `<>`
-    /// takes precedence over a `!=` reported later in the source.
+    /// The Barry mode diagnostic for this source, if any: a `<>` the parse
+    /// error points at, or the first `!=`. A `<>` takes precedence over a `!=`
+    /// reported later in the source.
     #[must_use]
     pub fn diagnostic(
         &self,
@@ -1712,21 +1711,6 @@ pub fn barry_as_flufl_invalid_legacy_operator_error(
     )
 }
 
-/// Every `<>` in `source`, located by plain text search. Only used where the
-/// operator is not rewritten, so an occurrence inside a string or a comment
-/// costs nothing: it can never coincide with the location of a parse error.
-fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
-    source
-        .match_indices("<>")
-        .map(|(offset, matched)| {
-            ruff_text_size::TextRange::at(
-                TextSize::new(offset as u32),
-                TextSize::new(matched.len() as u32),
-            )
-        })
-        .collect()
-}
-
 #[doc(hidden)]
 pub fn prepare_barry_as_flufl_source(
     source: &str,
@@ -1744,7 +1728,7 @@ pub fn prepare_barry_as_flufl_source(
         return BarrySource {
             source: Cow::Borrowed(source),
             not_equal: None,
-            legacy_not_equal: textual_legacy_not_equal(source),
+            legacy_not_equal: Vec::new(),
         };
     };
 
@@ -2655,7 +2639,10 @@ mod tests {
     fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
         let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<>' outside Barry mode is a syntax error");
-        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(
+            err.to_string(),
+            "invalid syntax.  Maybe you meant '!=' instead of '<>'?"
+        );
         assert_eq!(err.python_location(), (1, 3));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
@@ -2667,13 +2654,25 @@ mod tests {
         assert_eq!(err.python_location(), (1, 4));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
-        // A `<>` that starts a statement is reported at the `<` too, where the
-        // parser stops instead of one character in.
+        // A `<>` that starts a statement is not a comparison, so only the `<`
+        // is reported.
         let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("a bare '<>' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 1));
-        assert_eq!(err.python_end_location(), Some((1, 3)));
+        assert_eq!(err.python_end_location(), Some((1, 2)));
+
+        // `<<>` is a left shift followed by `>`.
+        let err = compile(
+            "2 <<> 3\n",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("'<<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 5));
+        assert_eq!(err.python_end_location(), Some((1, 6)));
 
         // A bracket left open earlier in the source outranks the operator.
         let err = compile(

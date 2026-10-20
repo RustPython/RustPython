@@ -78,8 +78,6 @@ jobs:
 
       - name: collect tests data
         run: target/release/rustpython extra_tests/jsontests.py
-        env:
-          RUSTPYTHONPATH: ${{ github.workspace }}/Lib
 
       - name: upload tests data to the website
         if: ${{ github.event_name != 'pull_request' }}
