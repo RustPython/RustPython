@@ -1669,7 +1669,27 @@ impl BarrySource<'_> {
         parse_error: Option<&parser::ParseError>,
         source_file: &SourceFile,
     ) -> Option<CompileError> {
-        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+        if let Some(error) = parse_error
+            && let Some(range) = self.invalid_legacy_operator(error)
+        {
+            if error.location.start() > range.start() {
+                return Some(CompileError::from_source_error(
+                    source_file,
+                    CpythonDiagnostic::new(
+                        "invalid syntax.  Maybe you meant '!=' instead of '<>'?".to_owned(),
+                        range.start().to_usize(),
+                        range.end().to_usize(),
+                    ),
+                ));
+            }
+            // At expression start, '<' is already invalid: the comparison
+            // production (and its obsolete-operator hint) was never entered.
+            // Barry mode instead lexed the rewritten '!=' as one token.
+            let range = if self.source.as_bytes()[range.start().to_usize()] == b'<' {
+                ruff_text_size::TextRange::at(range.start(), TextSize::new(1))
+            } else {
+                range
+            };
             return Some(barry_as_flufl_invalid_legacy_operator_error(
                 source_file,
                 range,
@@ -1712,47 +1732,25 @@ pub fn barry_as_flufl_invalid_legacy_operator_error(
     )
 }
 
-/// Every `<>` in `source`, located by plain text search. Only used where the
-/// operator is not rewritten, so an occurrence inside a string or a comment
-/// costs nothing: it can never coincide with the location of a parse error.
-fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
-    source
-        .match_indices("<>")
-        .map(|(offset, matched)| {
-            ruff_text_size::TextRange::at(
-                TextSize::new(offset as u32),
-                TextSize::new(matched.len() as u32),
-            )
-        })
-        .collect()
-}
-
 #[doc(hidden)]
 pub fn prepare_barry_as_flufl_source(
     source: &str,
     parser_options: parser::ParseOptions,
     inherited: bool,
 ) -> BarrySource<'_> {
-    let scanned = (inherited || source.contains("barry_as_FLUFL"))
+    let scanned = (inherited || source.contains("barry_as_FLUFL") || source.contains("<>"))
         .then(|| parser::parse_unchecked(source, parser_options));
-    let enabled = scanned.as_ref().is_some_and(|scanned| {
-        inherited
-            || codegen::preprocess::future_features(scanned.syntax())
-                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
-    });
-    let Some(scanned) = scanned.filter(|_| enabled) else {
+    let Some(scanned) = scanned else {
         return BarrySource {
             source: Cow::Borrowed(source),
             not_equal: None,
-            legacy_not_equal: textual_legacy_not_equal(source),
+            legacy_not_equal: Vec::new(),
         };
     };
-
-    let not_equal = scanned
-        .tokens()
-        .iter()
-        .find(|token| token.kind() == TokenKind::NotEqual)
-        .map(Ranged::range);
+    let enabled = inherited
+        || codegen::preprocess::future_features(scanned.syntax())
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
+    // Match complete adjacent tokens, not the suffix of a left-shift token.
     let replacements = scanned
         .tokens()
         .windows(2)
@@ -1766,6 +1764,19 @@ pub fn prepare_barry_as_flufl_source(
             .then(|| ruff_text_size::TextRange::new(less.start(), greater.end()))
         })
         .collect::<Vec<_>>();
+
+    if !enabled {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: replacements,
+        };
+    }
+    let not_equal = scanned
+        .tokens()
+        .iter()
+        .find(|token| token.kind() == TokenKind::NotEqual)
+        .map(Ranged::range);
 
     let source = if replacements.is_empty() {
         Cow::Borrowed(source)
@@ -2655,7 +2666,7 @@ mod tests {
     fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
         let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<>' outside Barry mode is a syntax error");
-        assert_eq!(err.to_string(), "invalid syntax");
+        assert!(matches!(err, CompileError::Parse(_)));
         assert_eq!(err.python_location(), (1, 3));
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
@@ -2668,12 +2679,12 @@ mod tests {
         assert_eq!(err.python_end_location(), Some((1, 5)));
 
         // A `<>` that starts a statement is reported at the `<` too, where the
-        // parser stops instead of one character in.
+        // parser stops. Exact Python-visible diagnostics are covered by builtin_compile.py.
         let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("a bare '<>' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 1));
-        assert_eq!(err.python_end_location(), Some((1, 3)));
+        assert!(matches!(err, CompileError::Parse(_)));
 
         // A bracket left open earlier in the source outranks the operator.
         let err = compile(
