@@ -5,7 +5,7 @@ pub(crate) use _pickle::module_def;
 mod _pickle {
     use crate::common::{
         lock::{PyMutex, PyRwLock},
-        wtf8::Wtf8Buf,
+        wtf8::{Wtf8Buf, wtf8_concat},
     };
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -665,18 +665,6 @@ mod _pickle {
         }
     }
 
-    fn getattribute_path(
-        obj: PyObjectRef,
-        path: &str,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let mut obj = obj;
-        for part in path.split('.') {
-            obj = obj.get_attr(&vm.ctx.new_str(part), vm)?;
-        }
-        Ok(obj)
-    }
-
     fn find_class_impl(
         zelf: &Py<PyUnpickler>,
         module: PyObjectRef,
@@ -734,11 +722,8 @@ mod _pickle {
         let sys_modules = vm.sys_module.get_attr("modules", vm)?;
         let module_obj = sys_modules.get_item(&*module, vm)?;
 
-        if proto >= 4
-            && name.as_bytes().contains(&b'.')
-            && let Some(name_str) = name.to_str()
-        {
-            getattribute_path(module_obj, name_str, vm).map_err(|e| {
+        if proto >= 4 && name.as_bytes().contains(&b'.') {
+            getattr_path(&module_obj, &split_dotted(&name, vm), vm).map_err(|e| {
                 let name_repr = name
                     .as_object()
                     .repr(vm)
@@ -3432,6 +3417,7 @@ mod _pickle {
                         .map_err(|_| new_pickling_error(vm, "the global name must be a string"))?
                 }
             };
+            let name = mangle_global_name(name, vm);
             let module_name = whichmodule(obj, &name, vm)?;
 
             if self.proto >= 2 {
@@ -3604,6 +3590,38 @@ mod _pickle {
                 vm.ctx.new_str(text)
             })
             .collect()
+    }
+
+    fn mangle_global_name(name: PyRef<PyStr>, vm: &VirtualMachine) -> PyRef<PyStr> {
+        if !name.as_bytes().windows(3).any(|part| part == b".__") {
+            return name;
+        }
+        let mut parts = split_dotted(&name, vm);
+        let mut changed = false;
+        // Work backwards so each parent still has its original class name.
+        for i in (1..parts.len()).rev() {
+            let part = &parts[i];
+            if part.as_bytes().starts_with(b"__") && !part.as_bytes().ends_with(b"__") {
+                let parent = parts[i - 1]
+                    .as_wtf8()
+                    .trim_start_matches(|ch| ch.to_u32() == u32::from(b'_'));
+                if !parent.is_empty() {
+                    parts[i] = vm.ctx.new_str(wtf8_concat!("_", parent, part.as_wtf8()));
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return name;
+        }
+        let mut mangled = Wtf8Buf::new();
+        for (i, part) in parts.iter().enumerate() {
+            if i != 0 {
+                mangled.push_char('.');
+            }
+            mangled.push_wtf8(part.as_wtf8());
+        }
+        vm.ctx.new_str(mangled)
     }
 
     fn whichmodule(
