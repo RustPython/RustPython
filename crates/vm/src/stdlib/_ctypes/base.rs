@@ -1093,6 +1093,12 @@ impl PyCData {
                 .class()
                 .fast_issubclass(super::pointer::PyCPointerType::static_type())
             && let Some(array) = value.downcast_ref::<super::array::PyCArray>()
+            && proto_type.stg_info(vm)?.proto().is(array
+                .class()
+                .stg_info(vm)?
+                .element_type
+                .as_deref()
+                .expect("array has element type"))
         {
             let buffer_addr = {
                 let array_buffer = array.0.buffer.read();
@@ -1102,6 +1108,17 @@ impl PyCData {
             self.write_bytes_at_offset(offset, &addr_bytes);
             self.keep_ref(index, value, vm)?;
             return Ok(());
+        }
+
+        if value.downcast_ref::<Self>().is_some() {
+            return Err(vm.new_type_error(format!(
+                "incompatible types, {} instance instead of {} instance",
+                value.class().name(),
+                proto
+                    .downcast_ref::<PyType>()
+                    .ok_or_else(|| vm.new_type_error("field proto is not a type"))?
+                    .name()
+            )));
         }
 
         // For array fields with tuple/list input, instantiate the array type
@@ -1269,12 +1286,7 @@ impl PyCData {
         // Simple types: return primitive value
         if proto_metaclass.fast_issubclass(super::simple::PyCSimpleType::static_type()) {
             // Check for byte swapping
-            let needs_swap = base_obj
-                .class()
-                .as_object()
-                .get_attr("_swappedbytes_", vm)
-                .is_ok()
-                || super::simple::is_swapped(&proto_type);
+            let needs_swap = super::simple::is_swapped(&proto_type);
 
             let data = if needs_swap && size > 1 {
                 let mut swapped = buffer_data;
@@ -1922,13 +1934,7 @@ impl Py<PyCField> {
         match value {
             PySetterValue::Assign(value) => {
                 // Check if needs byte swapping
-                let needs_swap = (obj
-                    .class()
-                    .as_object()
-                    .get_attr("_swappedbytes_", vm)
-                    .is_ok()
-                    || super::simple::is_swapped(&zelf.proto))
-                    && size > 1;
+                let needs_swap = super::simple::is_swapped(&zelf.proto) && size > 1;
 
                 // PyCData_set
                 cdata.set_field(

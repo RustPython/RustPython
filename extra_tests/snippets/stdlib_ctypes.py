@@ -622,6 +622,9 @@ for _element in (IndexedPoint, IndexedInt, ctypes.c_int * 2):
     assert type(_view) is _element
     assert _view._b_base_ is _owner
     assert ctypes.addressof(_view) == ctypes.addressof(_owner) + ctypes.sizeof(_element)
+    _pointer = ctypes.cast(_owner, ctypes.POINTER(_element))
+    _pointer[1] = _pointer[1]
+    assert bytes(_pointer[1]) == bytes(_view)
 
 _array = (ctypes.c_int * 2)(1, 2)
 _pointer = ctypes.pointer(_array)
@@ -811,3 +814,24 @@ for _base in (ctypes.Structure, ctypes.Union):
         if _field_type is IndexedSwapped:
             _aggregate.word = 0x55667788
             assert bytes(_aggregate) == bytes(IndexedSwapped(0x55667788))
+
+# Endian fields reject the native sibling rather than converting its bytes.
+assert not issubclass(_swapped, ctypes.c_uint32)
+for _base in (
+    (ctypes.BigEndianStructure, ctypes.BigEndianUnion)
+    if _sys.byteorder == "little"
+    else (ctypes.LittleEndianStructure, ctypes.LittleEndianUnion)
+):
+
+    class ConvertedEndianField(_base):
+        _fields_ = [("word", ctypes.c_uint32)]
+
+    assert ConvertedEndianField._fields_[0][1] is _swapped
+    try:
+        ConvertedEndianField(ctypes.c_uint32(0x01020304))
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("incompatible native field value accepted")
+    _value = _swapped(0x01020304)
+    assert bytes(ConvertedEndianField(_value)) == bytes(_value)

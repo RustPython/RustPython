@@ -612,11 +612,14 @@ impl PyCPointer {
                 || cdata.fast_isinstance(PyCArray::static_type())
                 || cdata.fast_isinstance(PyCSimple::static_type()))
         {
-            let src_buffer = cdata.buffer.read();
+            // The value may be a view of this element or overlapping storage.
+            let bytes = {
+                let buffer = cdata.buffer.read();
+                rustpython_host_env::ctypes::copy_to_sized_bytes(&buffer, element_size)
+            };
             unsafe {
-                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &src_buffer, element_size);
+                rustpython_host_env::ctypes::copy_bytes_to_address(addr, &bytes, element_size);
             }
-            drop(src_buffer);
             zelf.0.keep_cdata(index as usize, &value, vm)
         } else {
             // Handle z/Z specially to store converted value

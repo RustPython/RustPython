@@ -570,7 +570,9 @@ impl Initializer for PyCSimpleType {
         super::base::set_or_init_stginfo(&type_ref, stg_info);
 
         // Create __ctype_le__ and __ctype_be__ swapped types
-        create_swapped_types(&type_ref, &type_str, vm)?;
+        if type_ref.class().is(Self::static_type()) {
+            create_swapped_types(&type_ref, &type_str, args, vm)?;
+        }
 
         Ok(())
     }
@@ -586,15 +588,9 @@ impl Initializer for PyCSimpleType {
 fn create_swapped_types(
     type_ref: &Py<PyType>,
     type_str: &str,
+    mut args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    use crate::builtins::PyDict;
-
-    // Avoid infinite recursion - if __ctype_le__ already exists, skip
-    if type_ref.as_object().get_attr("__ctype_le__", vm).is_ok() {
-        return Ok(());
-    }
-
     // Types that don't support byte order swapping - no __ctype_le__/__ctype_be__
     // c_void_p (P), c_char_p (z), c_wchar_p (Z), c_wchar (u), py_object (O)
     let unsupported_types = ["P", "z", "Z", "u", "O"];
@@ -618,31 +614,15 @@ fn create_swapped_types(
     // Check system byte order at compile time
     let is_little_endian = cfg!(target_endian = "little");
 
-    // Create dict for the swapped (non-native) type
-    let swapped_dict: crate::PyRef<crate::builtins::PyDict> = PyDict::default().into_ref(&vm.ctx);
-    swapped_dict.set_item("_type_", vm.ctx.new_str(type_str).into(), vm)?;
-
-    // Create the swapped type using the same metaclass
-    let metaclass = type_ref.class();
-    let bases = vm.ctx.new_tuple(vec![type_ref.as_object().to_owned()]);
-
-    // Set placeholder first to prevent recursion
-    set_attrs!(
-        type_ref.as_object(), vm,
-        "__ctype_le__" => vm.ctx.none(),
-        "__ctype_be__" => vm.ctx.none(),
-    );
-
     // Create only the non-native endian type
     let suffix = if is_little_endian { "_be" } else { "_le" };
-    let swapped_type = metaclass.as_object().call(
-        (
-            vm.ctx.new_str(format!("{}{}", type_ref.name(), suffix)),
-            bases,
-            swapped_dict.as_object().to_owned(),
-        ),
-        vm,
-    )?;
+    args.args[0] = vm
+        .ctx
+        .new_str(format!("{}{}", type_ref.name(), suffix))
+        .into();
+    // Endian variants share bases and class attributes; neither subclasses
+    // the other. Bypass the initializer to avoid generating another pair.
+    let swapped_type = PyType::slot_new(type_ref.class().to_owned(), args, vm)?;
 
     // Set _swappedbytes_ on the swapped type to indicate byte swapping is needed
     set_attrs!(
@@ -651,15 +631,15 @@ fn create_swapped_types(
     );
 
     // Update swapped type's StgInfo format to use opposite endian prefix
-    if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>()
-        && let Some(mut sw_stg) = swapped_type_ref.get_type_data_mut::<StgInfo>()
-    {
+    if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>() {
+        let mut sw_stg = type_ref.stg_info(vm)?.clone();
         // Swapped: little-endian system uses big-endian prefix and vice versa
         sw_stg.big_endian = is_little_endian;
         sw_stg.format = Some(alloc_format_string_for_type(
             type_str.chars().next().unwrap_or('?'),
             is_little_endian,
         ));
+        super::base::set_or_init_stginfo(&swapped_type_ref, sw_stg);
     }
 
     // Set attributes based on system byte order
@@ -716,7 +696,6 @@ pub(super) fn returns_scalar(cls: &Py<PyType>) -> bool {
     cls.base
         .deref()
         .is_some_and(|base| base.is(PyCSimple::static_type()))
-        || is_swapped(cls)
 }
 
 pub(super) fn swapped_value_bytes(
