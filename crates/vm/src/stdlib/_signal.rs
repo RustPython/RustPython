@@ -79,10 +79,11 @@ pub(crate) mod _signal {
         }
     }
 
-    #[cfg(windows)]
     static WARN_ON_FULL_BUFFER: atomic::AtomicBool = atomic::AtomicBool::new(true);
 
     // Bounded pending-call storage: signal handlers cannot allocate or lock.
+    #[cfg(any(unix, windows))]
+    static WAKEUP_WRITE_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
     #[cfg(windows)]
     static WAKEUP_SEND_ERRORS: [atomic::AtomicI32; 32] = [const { atomic::AtomicI32::new(0) }; 32];
 
@@ -357,8 +358,6 @@ pub(crate) mod _signal {
 
     #[pyfunction]
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
-        // TODO: implement warn_on_full_buffer for the remaining wakeup write paths.
-        let _ = args.warn_on_full_buffer;
         let fd = cfg_select! {
             windows => args.fd.0,
             _ => args.fd,
@@ -394,12 +393,10 @@ pub(crate) mod _signal {
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
+        WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
 
         #[cfg(windows)]
-        {
-            WARN_ON_FULL_BUFFER.store(args.warn_on_full_buffer, Ordering::Relaxed);
-            WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
-        }
+        WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
 
         #[cfg(windows)]
         if old_fd == INVALID_WAKEUP {
@@ -544,60 +541,101 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     pub extern "C" fn run_signal(signum: i32) {
+        // Asynchronously executing signal handlers should not mutate errno
+        // under the feet of the interrupted code.
+        let save_errno = rustpython_host_env::os::get_errno();
+        trip_signal(signum);
+        rustpython_host_env::os::set_errno(save_errno);
+    }
+
+    #[cfg(any(unix, windows, target_os = "wasi"))]
+    fn trip_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
 
-        #[cfg(not(windows))]
+        #[cfg(target_os = "wasi")]
         host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
 
-        #[cfg(windows)]
-        let error = host_signal::notify_signal(
-            signum,
-            WAKEUP.load(Ordering::Relaxed),
-            WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
-            signal::get_sigint_event(),
-        );
-        #[cfg(windows)]
-        if let Some(error) = error
-            && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+        #[cfg(any(unix, windows))]
         {
-            for pending in &WAKEUP_SEND_ERRORS {
-                if pending
-                    .compare_exchange(0, error.0, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    // The VM may have handled the signal on another thread
-                    // before the failed wakeup send completed.
-                    signal::set_triggered();
-                    break;
+            let error = host_signal::notify_signal(
+                signum,
+                WAKEUP.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
+                #[cfg(windows)]
+                signal::get_sigint_event(),
+            );
+            if let Some(error) = error
+                && (WARN_ON_FULL_BUFFER.load(Ordering::Relaxed) || !error.is_would_block())
+            {
+                let (errors, errno) = match error {
+                    host_signal::WakeupError::Write(errno) => (&WAKEUP_WRITE_ERRORS, errno),
+                    #[cfg(windows)]
+                    host_signal::WakeupError::Send(errno) => (&WAKEUP_SEND_ERRORS, errno),
+                };
+                for pending in errors {
+                    if pending
+                        .compare_exchange(0, errno, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        // The VM may have handled the signal on another thread
+                        // before the failed wakeup write completed.
+                        signal::set_triggered();
+                        break;
+                    }
                 }
             }
         }
     }
 
-    #[cfg(windows)]
-    pub(crate) fn wakeup_send_errors_pending() -> bool {
-        WAKEUP_SEND_ERRORS
+    #[cfg(any(unix, windows))]
+    pub(crate) fn wakeup_errors_pending() -> bool {
+        let pending = WAKEUP_WRITE_ERRORS
             .iter()
-            .any(|error| error.load(Ordering::Relaxed) != 0)
+            .any(|error| error.load(Ordering::Relaxed) != 0);
+        #[cfg(windows)]
+        let pending = pending
+            || WAKEUP_SEND_ERRORS
+                .iter()
+                .any(|error| error.load(Ordering::Relaxed) != 0);
+        pending
     }
 
-    #[cfg(windows)]
-    pub(crate) fn report_wakeup_send_errors(vm: &VirtualMachine) {
-        for pending in &WAKEUP_SEND_ERRORS {
-            let error = pending.swap(0, Ordering::Relaxed);
-            if error != 0 {
-                vm.run_unraisable(
-                    host_signal::WakeupSendError(error)
-                        .into_io_error()
-                        .into_pyexception(vm),
-                    Some(
-                        "Exception ignored while trying to send to the signal wakeup fd".to_owned(),
-                    ),
-                    vm.ctx.none(),
-                );
+    #[cfg(any(unix, windows))]
+    pub(crate) fn report_wakeup_errors(vm: &VirtualMachine) {
+        fn report(
+            errors: &[atomic::AtomicI32],
+            make_error: fn(i32) -> host_signal::WakeupError,
+            operation: &str,
+            vm: &VirtualMachine,
+        ) {
+            for pending in errors {
+                let errno = pending.swap(0, Ordering::Relaxed);
+                if errno != 0 {
+                    vm.run_unraisable(
+                        make_error(errno).into_io_error().into_pyexception(vm),
+                        Some(format!(
+                            "Exception ignored while trying to {operation} to the signal wakeup fd"
+                        )),
+                        vm.ctx.none(),
+                    );
+                }
             }
         }
+        report(
+            &WAKEUP_WRITE_ERRORS,
+            host_signal::WakeupError::Write,
+            "write",
+            vm,
+        );
+        #[cfg(windows)]
+        report(
+            &WAKEUP_SEND_ERRORS,
+            host_signal::WakeupError::Send,
+            "send",
+            vm,
+        );
     }
 
     /// Reset wakeup fd after fork in child process.
