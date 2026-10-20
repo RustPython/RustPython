@@ -18,17 +18,20 @@ struct Selectable {
 
 impl TryFromObject for Selectable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fno = if let Some(fd) = obj.downcast_ref::<PyInt>() {
-            fd.try_to_primitive(vm)?
+        let fileno;
+        let fd = if let Some(fd) = obj.downcast_ref::<PyInt>() {
+            fd
         } else {
             let meth = vm.get_attribute_opt(&obj, "fileno")?.ok_or_else(|| {
                 vm.new_type_error("select arg must be an int or object with a fileno() method")
             })?;
-            meth.call((), vm)?
+            fileno = meth
+                .call((), vm)?
                 .downcast::<PyInt>()
-                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?
-                .try_to_primitive(vm)?
+                .map_err(|_| vm.new_type_error("fileno() returned a non-integer"))?;
+            &fileno
         };
+        let fno = fd.try_to_primitive(vm)?;
         Ok(Self { obj, fno })
     }
 }
