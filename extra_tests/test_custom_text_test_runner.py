@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -14,6 +15,71 @@ from custom_text_test_runner import CustomTextTestRunner
 
 
 class RunnerResultTests(unittest.TestCase):
+    def test_json_tracebacks_are_plain_under_forced_colors(self):
+        class Cases(unittest.TestCase):
+            def test_failure(self):
+                self.fail("ordinary failure")
+
+            def test_error(self):
+                raise ValueError("ordinary error")
+
+            def test_subtests(self):
+                with self.subTest(kind="failure"):
+                    self.fail("subtest failure")
+                with self.subTest(kind="error"):
+                    raise ValueError("subtest error")
+
+        for color_env in ({}, {"FORCE_COLOR": "1"}, {"PYTHON_COLORS": "1"}):
+            with self.subTest(color_env=color_env), mock.patch.dict(os.environ):
+                for name in ("FORCE_COLOR", "PYTHON_COLORS", "NO_COLOR"):
+                    os.environ.pop(name, None)
+                os.environ.update(color_env)
+                with tempfile.TemporaryDirectory() as temp:
+                    path = pathlib.Path(temp) / "results.json"
+                    log = io.StringIO()
+                    result = CustomTextTestRunner(
+                        stream=log, verbosity=2, results_file_path=str(path)
+                    ).run(unittest.defaultTestLoader.loadTestsFromTestCase(Cases))
+                    data = json.loads(path.read_text())
+                cases = {
+                    case["method"]: case
+                    for suite in data["suites"].values()
+                    for case in suite["cases"].values()
+                }
+                subtests = cases["test_subtests"]["subtests"]
+                tracebacks = [
+                    (
+                        cases["test_failure"]["failures"],
+                        "AssertionError: ordinary failure",
+                    ),
+                    (cases["test_error"]["errors"], "ValueError: ordinary error"),
+                    (
+                        cases["test_subtests"]["failures"],
+                        "AssertionError: subtest failure",
+                    ),
+                    (cases["test_subtests"]["errors"], "ValueError: subtest error"),
+                    (subtests[0]["traceback"], "AssertionError: subtest failure"),
+                    (subtests[1]["traceback"], "ValueError: subtest error"),
+                ]
+                for text, message in tracebacks:
+                    self.assertNotIn("\x1b[", text)
+                    self.assertIn(message, text)
+                    self.assertIn(message, log.getvalue())
+                self.assertEqual(result.testsRun, 3)
+                self.assertEqual(len(result.failures), 2)
+                self.assertEqual(len(result.errors), 2)
+                self.assertFalse(result.wasSuccessful())
+                self.assertEqual(data["num_failed"], 3)
+                self.assertEqual(data["num_passed"], 0)
+                self.assertEqual(data["num_skipped"], 0)
+                self.assertEqual(data["num_expected_failures"], 0)
+                self.assertEqual(cases["test_failure"]["result"], "failed")
+                self.assertEqual(cases["test_error"]["result"], "error")
+                self.assertEqual(cases["test_subtests"]["result"], "error")
+                self.assertEqual(
+                    [sub["result"] for sub in subtests], ["failed", "error"]
+                )
+
     def test_records_parent_and_subtest_outcomes(self):
         class Cases(unittest.TestCase):
             def test_pass(self):

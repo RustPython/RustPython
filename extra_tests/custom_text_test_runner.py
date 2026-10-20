@@ -36,6 +36,8 @@ import unittest
 from functools import reduce
 from unittest.runner import registerResult, result
 
+from _colorize import decolor
+
 
 def _subtest_id(parent, subtest):
     try:
@@ -246,6 +248,10 @@ class CustomTextTestResult(result.TestResult):
         self.separator4 = "*" * CustomTextTestResult._num_formatting_chars
         self.separator_failure = "!" * CustomTextTestResult._num_formatting_chars
         self.separator_pre_result = "." * CustomTextTestResult._num_formatting_chars
+
+    def _exc_info_to_string(self, err, test):
+        # JSON and terminal details share these strings; keep both plain text.
+        return decolor(super()._exc_info_to_string(err, test))
 
     def getDescription(self, test):
         doc_first_line = test.shortDescription()
