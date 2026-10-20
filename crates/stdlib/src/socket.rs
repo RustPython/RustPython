@@ -1606,6 +1606,14 @@ mod _socket {
                     })
                 }
                 #[cfg(target_os = "linux")]
+                c::AF_BLUETOOTH => Ok(extract_bluetooth_address(
+                    addr,
+                    self.proto.load(Ordering::Relaxed),
+                    caller,
+                    vm,
+                )?
+                .to_sockaddr()),
+                #[cfg(target_os = "linux")]
                 c::AF_CAN => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
                         vm.new_type_error(format!(
@@ -2925,6 +2933,96 @@ mod _socket {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    fn extract_bluetooth_address(
+        addr: PyObjectRef,
+        protocol: i32,
+        caller: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<host_socket::bluetooth::Address> {
+        use crate::vm::builtins::PyBytes;
+        use host_socket::bluetooth::{self, Address};
+
+        let wrong_format = || vm.new_os_error(format!("{caller}(): wrong format"));
+        let parse_name = |name: &[u8]| {
+            bluetooth::parse_bdaddr(name).ok_or_else(|| vm.new_os_error("bad bluetooth address"))
+        };
+        if protocol == bluetooth::SCO {
+            let (name, nul_error) = if let Some(bytes) = addr.downcast_ref::<PyBytes>() {
+                (bytes.as_bytes().to_vec(), "embedded null byte")
+            } else {
+                let name: PyStrRef = addr.downcast().map_err(|_| wrong_format())?;
+                (
+                    name.try_into_utf8(vm)?.as_str().as_bytes().to_vec(),
+                    "embedded null character",
+                )
+            };
+            if name.contains(&0) {
+                return Err(vm.new_value_error(nul_error));
+            }
+            return Ok(Address::Sco {
+                bdaddr: parse_name(&name)?,
+            });
+        }
+        if protocol == bluetooth::HCI
+            && let Some(index) = addr.try_index_opt(vm)
+        {
+            return Ok(Address::Hci {
+                dev: index?.as_u32_mask() as u16,
+                channel: 0,
+            });
+        }
+        let (min, max) = match protocol {
+            bluetooth::L2CAP => (2, 4),
+            bluetooth::RFCOMM => (2, 2),
+            bluetooth::HCI => (1, 2),
+            _ => return Err(vm.new_os_error(format!("{caller}(): unknown Bluetooth protocol"))),
+        };
+        let tuple: PyTupleRef = addr.downcast().map_err(|_| wrong_format())?;
+        let fields = tuple.as_slice();
+        if !(min..=max).contains(&fields.len()) {
+            return Err(wrong_format());
+        }
+        // PyArg_ParseTuple's H/B formats mask unsigned values rather than
+        // rejecting overflow, including values returned by __index__.
+        let number = |i: usize| -> PyResult<u32> {
+            fields.get(i).map_or(Ok(0), |value| {
+                value
+                    .try_index(vm)
+                    .map(|n| n.as_u32_mask())
+                    .map_err(|_| wrong_format())
+            })
+        };
+        if protocol == bluetooth::HCI {
+            return Ok(Address::Hci {
+                dev: number(0)? as u16,
+                channel: number(1)? as u16,
+            });
+        }
+        let name: PyStrRef = fields[0].clone().downcast().map_err(|_| wrong_format())?;
+        let name = name.try_into_utf8(vm).map_err(|_| wrong_format())?;
+        if name.as_str().contains('\0') {
+            return Err(wrong_format());
+        }
+        let port = number(1)?;
+        let cid = number(2)? as u16;
+        let addr_type = number(3)? as u8;
+        let bdaddr = parse_name(name.as_str().as_bytes())?;
+        Ok(if protocol == bluetooth::L2CAP {
+            Address::L2cap {
+                bdaddr,
+                psm: port as u16,
+                cid,
+                addr_type,
+            }
+        } else {
+            Address::Rfcomm {
+                bdaddr,
+                channel: port as u8,
+            }
+        })
+    }
+
     fn get_addr_tuple(
         addr: &host_socket::raw::SockAddr,
         #[cfg_attr(not(target_os = "linux"), allow(unused_variables))] proto: i32,
@@ -2956,6 +3054,37 @@ mod _socket {
         #[cfg(target_os = "linux")]
         {
             let family = addr.family();
+            if let Some(addr) = host_socket::bluetooth::Address::from_sockaddr(addr, proto) {
+                use host_socket::bluetooth::{Address, format_bdaddr};
+                return match addr {
+                    Address::L2cap {
+                        bdaddr,
+                        psm,
+                        cid,
+                        addr_type,
+                    } => {
+                        let name = format_bdaddr(bdaddr);
+                        if addr_type != 0 {
+                            (name, psm, cid, addr_type).to_pyobject(vm)
+                        } else if cid != 0 {
+                            (name, psm, cid).to_pyobject(vm)
+                        } else {
+                            (name, psm).to_pyobject(vm)
+                        }
+                    }
+                    Address::Rfcomm { bdaddr, channel } => {
+                        (format_bdaddr(bdaddr), channel).to_pyobject(vm)
+                    }
+                    Address::Hci { dev, channel } => {
+                        if channel == 0 {
+                            dev.to_pyobject(vm)
+                        } else {
+                            (dev, channel).to_pyobject(vm)
+                        }
+                    }
+                    Address::Sco { bdaddr } => format_bdaddr(bdaddr).to_pyobject(vm),
+                };
+            }
             if family == c::AF_CAN as c::sa_family_t {
                 let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
