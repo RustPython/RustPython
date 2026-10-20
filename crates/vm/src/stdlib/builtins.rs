@@ -11,12 +11,13 @@ mod builtins {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{
-            PyAnyDict, PyByteArray, PyBytes, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-            PyUtf8StrRef,
+            PyAnyDict, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyType, PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
+            try_bigint_to_f64,
         },
         bytecode,
         common::hash::PyHash,
@@ -32,6 +33,7 @@ mod builtins {
         vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
     };
     use itertools::Itertools;
+    use num_complex::Complex64;
     use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
 
@@ -1281,10 +1283,119 @@ mod builtins {
             _ => (),
         });
 
-        for item in iterable.iter(vm)? {
+        let mut items = iterable.iter(vm)?;
+
+        // Fast paths after CPython's builtin_sum_impl: an exact int accumulator
+        // hands over to the float one, which hands over to the complex one.
+        if let Some(mut total) = sum
+            .downcast_ref_if_exact::<PyInt>(vm)
+            .and_then(|int| int.as_bigint().to_isize())
+        {
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                let class = item.class();
+                if (class.is(vm.ctx.types.int_type) || class.is(vm.ctx.types.bool_type))
+                    && let Some(next) = item
+                        .downcast_ref::<PyInt>()
+                        .and_then(|int| int.as_bigint().to_isize())
+                        .and_then(|x| total.checked_add(x))
+                {
+                    total = next;
+                    continue;
+                }
+                break Some(item);
+            };
+            let total = vm.ctx.new_int(total);
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(float) = sum.downcast_ref_if_exact::<PyFloat>(vm) {
+            let mut re = CompensatedSum::new(float.to_f64());
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyFloat>(vm) {
+                    re.add(x.to_f64());
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_float(re.total());
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        if let Some(complex) = sum.downcast_ref_if_exact::<PyComplex>(vm) {
+            let z = complex.to_complex();
+            let (mut re, mut im) = (CompensatedSum::new(z.re), CompensatedSum::new(z.im));
+            let rest = loop {
+                let Some(item) = items.next().transpose()? else {
+                    break None;
+                };
+                if let Some(x) = item.downcast_ref_if_exact::<PyComplex>(vm) {
+                    let z = x.to_complex();
+                    re.add(z.re);
+                    im.add(z.im);
+                } else if let Some(x) = item.downcast_ref::<PyInt>() {
+                    re.add(try_bigint_to_f64(x.as_bigint(), vm)?);
+                } else if let Some(x) = item.downcast_ref::<PyFloat>() {
+                    re.add(x.to_f64());
+                } else {
+                    break Some(item);
+                }
+            };
+            let total = vm.ctx.new_complex(Complex64::new(re.total(), im.total()));
+            let Some(item) = rest else {
+                return Ok(total.into());
+            };
+            sum = vm._add(total.as_object(), &item)?;
+        }
+
+        for item in items {
             sum = vm._add(&sum, &*item?)?;
         }
         Ok(sum)
+    }
+
+    /// Compensated summation, as in CPython's `CompensatedSum`.
+    struct CompensatedSum {
+        hi: f64,
+        lo: f64,
+    }
+
+    impl CompensatedSum {
+        fn new(x: f64) -> Self {
+            Self { hi: x, lo: 0.0 }
+        }
+
+        fn add(&mut self, x: f64) {
+            let t = self.hi + x;
+            self.lo += if self.hi.abs() >= x.abs() {
+                (self.hi - t) + x
+            } else {
+                (x - t) + self.hi
+            };
+            self.hi = t;
+        }
+
+        fn total(&self) -> f64 {
+            // Keep a negative zero's sign, and do not turn an infinite sum into nan.
+            if self.lo != 0.0 && self.lo.is_finite() {
+                self.hi + self.lo
+            } else {
+                self.hi
+            }
+        }
     }
 
     #[derive(FromArgs)]
