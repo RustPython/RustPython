@@ -44,6 +44,9 @@ fn bench_rustpython_code(b: &mut Bencher<'_>, name: &str, source: &str) {
     settings.path_list.push("Lib/".to_string());
     settings.write_bytecode = false;
     settings.user_site_directory = false;
+    // Pin the str/bytes hash secret so dict/set probe sequences (and thus
+    // timings) are reproducible across benchmark runs.
+    settings.hash_seed = Some(0);
     let builder = Interpreter::builder(settings);
     let defs = rustpython_stdlib::stdlib_module_defs(&builder.ctx);
     builder.add_native_modules(&defs).build().enter(|vm| {
