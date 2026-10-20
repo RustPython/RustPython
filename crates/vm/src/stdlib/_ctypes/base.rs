@@ -85,6 +85,8 @@ pub struct StgInfo {
     pub length: usize,            // number of fields (for arrays/structures)
     pub proto: Option<PyTypeRef>, // Only for Pointer/ArrayObject
     pub flags: StgInfoFlags,      // type flags (TYPEFLAG_*, DICTFLAG_*)
+    // Scalar assignment uses the converter selected at type initialization.
+    pub(super) scalar_code: Option<char>,
 
     // Array-specific fields
     pub element_type: Option<PyTypeRef>, // _type_ for arrays
@@ -123,6 +125,7 @@ impl core::fmt::Debug for StgInfo {
             .field("length", &self.length)
             .field("proto", &self.proto)
             .field("flags", &self.flags)
+            .field("scalar_code", &self.scalar_code)
             .field("element_type", &self.element_type)
             .field("element_size", &self.element_size)
             .field("format", &self.format)
@@ -143,6 +146,7 @@ impl Default for StgInfo {
             length: 0,
             proto: None,
             flags: StgInfoFlags::empty(),
+            scalar_code: None,
             element_type: None,
             element_size: 0,
             format: None,
@@ -164,6 +168,7 @@ impl StgInfo {
             length: 0,
             proto: None,
             flags: StgInfoFlags::empty(),
+            scalar_code: None,
             element_type: None,
             element_size: 0,
             format: None,
@@ -216,6 +221,7 @@ impl StgInfo {
             length,
             proto: None,
             flags,
+            scalar_code: None,
             element_type: Some(element_type),
             element_size,
             format,
@@ -595,25 +601,16 @@ impl CDataValue {
         let metaclass = proto.class();
         let simple_metaclass = super::simple::PyCSimpleType::static_type();
         if metaclass.is(simple_metaclass) || metaclass.fast_issubclass(simple_metaclass) {
-            let type_code = proto
-                .as_object()
-                .get_attr("_type_", vm)
-                .ok()
-                .and_then(|code| code.downcast::<PyStr>().ok())
-                .ok_or_else(|| vm.new_type_error("no _type_ attribute"))?;
-            let borrowed;
-            let owned;
-            let type_code = if type_code.class().is(PyStr::static_type()) {
-                borrowed = type_code;
-                borrowed.to_string_lossy()
-            } else {
-                // Preserve subclass finalization before conversion hooks run.
-                owned = type_code.to_string();
-                drop(type_code);
-                Cow::Borrowed(owned.as_str())
-            };
+            // Reading the mutable _type_ here could select a wider converter
+            // than the allocated slot, or change conversion during callbacks.
+            let code = proto
+                .stg_info(vm)?
+                .scalar_code
+                .ok_or_else(|| vm.new_type_error("abstract class"))?;
+            let mut encoded = [0; 4];
+            let type_code = code.encode_utf8(&mut encoded);
             let (bytes, keep, hidden) =
-                super::simple::assignment_value(&type_code, value, swapped, vm)?;
+                super::simple::assignment_value(type_code, value, swapped, vm)?;
             return Ok(Self {
                 bytes,
                 keep,

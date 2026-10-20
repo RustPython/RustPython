@@ -557,6 +557,7 @@ impl Initializer for PyCSimpleType {
         let size = simple_type_size(&type_str).expect("invalid ctypes simple type");
         let align = simple_type_align(&type_str).expect("invalid ctypes simple type");
         let mut stg_info = StgInfo::new(size, align);
+        stg_info.scalar_code = type_str.chars().next();
 
         // Set format for PEP 3118 buffer protocol
         stg_info.format = Some(alloc_format_string_for_type(
@@ -753,7 +754,9 @@ pub(super) fn assignment_value(
             keep = (!vm.is_none(value)).then(|| value.to_owned());
             SimpleStorageValue::ObjectId(value.get_id())
         }
-        "z" | "Z" | "P" => {
+        "z" | "Z" | "P" | "X" => {
+            // X preserves opaque-address/null writes. BSTR string assignment
+            // needs COM allocation and ownership, not a Z-style wide buffer.
             let address = if vm.is_none(value) {
                 0
             } else if type_code == "z"

@@ -958,3 +958,23 @@ assert (
     <= 1
 )
 assert _strings[0].text == _marker
+
+# Mutating _type_ must not change the initialized setter or its write width.
+for _code in ("h", "q", "f"):
+
+    class MutableInt(ctypes.c_int):
+        pass
+
+    _array = (MutableInt * 2)(0, 0x1234)
+    MutableInt._type_ = _code
+    _array[0] = -2
+    assert bytes(_array) == bytes(ctypes.c_int(-2)) + bytes(ctypes.c_int(0x1234))
+
+if _sys.platform == "win32":
+
+    class BSTR(ctypes._SimpleCData):
+        _type_ = "X"
+
+    _bstr = (BSTR * 1)()
+    _bstr[0] = None
+    assert bytes(_bstr) == bytes(ctypes.sizeof(ctypes.c_void_p))
