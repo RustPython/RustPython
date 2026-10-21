@@ -296,3 +296,22 @@ if hasattr(socket, "NETLINK_USERSOCK"):
         assert receiver.recvfrom(32) == (b"message", sender.getsockname())
         sender.connect(receiver.getsockname())
         assert sender.getpeername() == receiver.getsockname()
+
+
+# Exhaust the iterable before exporting its writable buffers.
+if hasattr(socket.socket, "recvmsg_into"):
+    first, second = bytearray(2), bytearray(2)
+
+    def receive_buffers():
+        yield first
+        first.extend(b"xx")
+        yield second
+
+    reader, writer = socket.socketpair()
+    try:
+        writer.sendall(b"abcdef")
+        assert reader.recvmsg_into(receive_buffers())[0] == 6
+        assert (first, second) == (b"abcd", b"ef")
+    finally:
+        reader.close()
+        writer.close()
