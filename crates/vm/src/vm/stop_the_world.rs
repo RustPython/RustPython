@@ -166,7 +166,7 @@ impl Drop for ForkStopTheWorld {
     fn drop(&mut self) {
         if self.child_repair_incomplete {
             // Partial child repair cannot support Rust unwind recovery or
-            // Python destruction. Like CPython's fatal child-setup path, fail
+            // Python destruction. Like a fatal child-setup failure, abort
             // before destroying the retained interpreter/thread roots.
             rustpython_host_env::os::abort();
         }
