@@ -3921,6 +3921,7 @@ dependencies = [
  "glob",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "sha2 0.11.1",
 ]
 
 [[package]]

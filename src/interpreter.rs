@@ -20,7 +20,11 @@ impl InterpreterBuilderExt for InterpreterBuilder {
 
         cfg_select! {
             feature = "freeze-stdlib" => builder
-                .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                .add_frozen_modules_with_resources(
+                    rustpython_pylib::FROZEN_STDLIB,
+                    rustpython_pylib::FROZEN_STDLIB_RESOURCES,
+                )
+                .expect("validated embedded standard-library resources")
                 .init_hook(set_frozen_stdlib_dir),
             _ => builder.init_hook(setup_dynamic_stdlib),
         }

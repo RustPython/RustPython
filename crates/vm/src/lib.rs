@@ -68,6 +68,7 @@ mod exception_group;
 pub mod exceptions;
 pub mod format;
 pub mod frame;
+pub mod frozen_resources;
 pub mod function;
 pub mod getpath;
 pub mod import;
