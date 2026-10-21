@@ -7,6 +7,10 @@ use alloc::vec::Vec;
 pub struct FrozenModule<B = &'static [u8]> {
     pub code: FrozenCodeObject<B>,
     pub package: bool,
+    /// Empty package generated for a source namespace directory. Genuine
+    /// modules take precedence over these containers across frozen libraries.
+    /// When true, `package` must also be true.
+    pub namespace_container: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -97,8 +101,15 @@ fn read_entry<'a>(
     let len = rdr.read_u32()?;
     let code_slice = rdr.read_slice_borrow(len)?;
     let code = FrozenCodeObject { bytes: code_slice };
-    let package = rdr.read_u8()? != 0;
-    Ok((name, FrozenModule { code, package }))
+    let flags = rdr.read_u8()?;
+    Ok((
+        name,
+        FrozenModule {
+            code,
+            package: flags & 1 != 0,
+            namespace_container: flags & 2 != 0,
+        },
+    ))
 }
 
 impl FrozenLib<Vec<u8>> {
@@ -125,7 +136,75 @@ fn write_lib<'a, B: AsRef<[u8]>>(
 }
 
 fn write_entry(buf: &mut Vec<u8>, name: &str, module: FrozenModule<impl AsRef<[u8]>>) {
+    assert!(!module.namespace_container || module.package);
     marshal::write_vec(buf, name.as_bytes());
     marshal::write_vec(buf, module.code.bytes.as_ref());
-    buf.write_u8(module.package as u8);
+    // Ordinary modules retain the legacy 0/1 encoding. Older readers treat
+    // container flag 3 as a package, but cannot preserve container priority.
+    buf.write_u8(module.package as u8 | ((module.namespace_container as u8) << 1));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn library_flags_preserve_legacy_and_container_metadata() {
+        // Opaque bytes exercise only the library envelope, not Python bytecode.
+        for (package, namespace_container, flags) in
+            [(false, false, 0), (true, false, 1), (true, true, 3)]
+        {
+            let module = FrozenModule {
+                code: FrozenCodeObject { bytes: &[7_u8][..] },
+                package,
+                namespace_container,
+            };
+            let encoded = FrozenLib::encode([("entry", module)]);
+            assert_eq!(encoded.bytes.last(), Some(&flags));
+            if !namespace_container {
+                let mut legacy = Vec::new();
+                marshal::write_len(&mut legacy, 1);
+                marshal::write_vec(&mut legacy, b"entry");
+                marshal::write_vec(&mut legacy, &[7]);
+                legacy.write_u8(package as u8);
+                assert_eq!(encoded.bytes, legacy);
+            }
+            let mut decoded = encoded.decode();
+            let (name, decoded_module) = decoded.next().unwrap();
+            assert_eq!(name, "entry");
+            assert_eq!(decoded_module.code.bytes, &[7]);
+            assert_eq!(decoded_module.package, package);
+            assert_eq!(decoded_module.namespace_container, namespace_container);
+            assert!(decoded.next().is_none());
+        }
+        let entries = [
+            (
+                "real",
+                FrozenModule {
+                    code: FrozenCodeObject {
+                        bytes: &[1_u8, 2][..],
+                    },
+                    package: false,
+                    namespace_container: false,
+                },
+            ),
+            (
+                "container",
+                FrozenModule {
+                    code: FrozenCodeObject { bytes: &[3_u8][..] },
+                    package: true,
+                    namespace_container: true,
+                },
+            ),
+        ];
+        let encoded = FrozenLib::encode(entries);
+        let decoded: Vec<_> = encoded.decode().collect();
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].0, "real");
+        assert_eq!(decoded[0].1.code.bytes, &[1, 2]);
+        assert!(!decoded[0].1.namespace_container);
+        assert_eq!(decoded[1].0, "container");
+        assert_eq!(decoded[1].1.code.bytes, &[3]);
+        assert!(decoded[1].1.namespace_container);
+    }
 }

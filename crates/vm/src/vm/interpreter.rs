@@ -15,6 +15,25 @@ use core::sync::atomic::Ordering;
 
 type InitFunc = Box<dyn FnOnce(&mut VirtualMachine)>;
 
+type FrozenModuleMap =
+    std::collections::HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>;
+
+fn merge_frozen_modules(
+    modules: &mut FrozenModuleMap,
+    incoming: impl IntoIterator<Item = (&'static str, FrozenModule)>,
+) {
+    for (name, module) in incoming {
+        modules
+            .entry(name)
+            .and_modify(|current| {
+                if !module.namespace_container || current.namespace_container {
+                    *current = module;
+                }
+            })
+            .or_insert(module);
+    }
+}
+
 /// Exit code used when stdout/stderr flush fails during interpreter shutdown.
 /// Matches CPython's behavior (see cpython/Python/pylifecycle.c).
 const EXITCODE_FLUSH_FAILURE: u32 = 120;
@@ -122,12 +141,8 @@ where
             other => other,
         } as usize);
 
-        let mut frozen: std::collections::HashMap<
-            &'static str,
-            FrozenModule,
-            rapidhash::quality::RandomState,
-        > = core_frozen_inits().collect();
-        frozen.extend(frozen_modules);
+        let mut frozen = FrozenModuleMap::default();
+        merge_frozen_modules(&mut frozen, core_frozen_inits().chain(frozen_modules));
 
         (config, all_module_defs, frozen, int_max_str_digits)
     };
@@ -887,6 +902,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code: hello_code,
                 package: false,
+                namespace_container: false,
             },
         ));
         entries.push((
@@ -894,6 +910,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code: hello_code,
                 package: true,
+                namespace_container: false,
             },
         ));
         entries.push((
@@ -901,6 +918,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code: hello_code,
                 package: false,
+                namespace_container: false,
             },
         ));
         entries.push((
@@ -908,6 +926,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code: hello_code,
                 package: false,
+                namespace_container: false,
             },
         ));
     }
@@ -921,6 +940,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code,
                 package: false,
+                namespace_container: false,
             },
         ));
     }
@@ -934,6 +954,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
             FrozenModule {
                 code,
                 package: false,
+                namespace_container: false,
             },
         ));
     }
@@ -949,6 +970,42 @@ mod tests {
         vm::{MAIN_INTERPRETER_ID, runtime},
     };
     use malachite_bigint::ToBigInt;
+
+    #[test]
+    fn frozen_container_merge_preserves_genuine_entries() {
+        fn module(bytes: &'static [u8], package: bool, namespace_container: bool) -> FrozenModule {
+            FrozenModule {
+                code: crate::frozen::FrozenCodeObject { bytes },
+                package,
+                namespace_container,
+            }
+        }
+        // No bytecode is decoded or executed: this checks registration priority.
+        let real_a = module(&[1], false, false);
+        let real_b = module(&[2], true, false);
+        let container_a = module(&[3], true, true);
+        let container_b = module(&[4], true, true);
+        for (first, second, expected) in [
+            (real_a, container_a, real_a),
+            (container_a, real_a, real_a),
+            (real_b, container_a, real_b),
+            (container_a, real_b, real_b),
+            (real_a, real_b, real_b),
+            (real_b, real_a, real_a),
+            (container_a, container_b, container_b),
+        ] {
+            let mut modules = FrozenModuleMap::default();
+            merge_frozen_modules(&mut modules, [("owned", first), ("unrelated", real_a)]);
+            merge_frozen_modules(&mut modules, [("owned", second)]);
+            assert_eq!(modules["owned"].code.bytes, expected.code.bytes);
+            assert_eq!(modules["owned"].package, expected.package);
+            assert_eq!(modules["unrelated"].code.bytes, real_a.code.bytes);
+            assert_eq!(
+                modules["owned"].namespace_container,
+                expected.namespace_container
+            );
+        }
+    }
 
     #[test]
     fn add_py_integers() {
