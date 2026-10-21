@@ -876,8 +876,12 @@ fn do_suspend(state: &PyGlobalState) {
         let park = {
             let _registry = state.thread_frames.lock();
             if stw.requested.load(Ordering::Acquire) {
-                // Release critical sections before publishing SUSPENDED.
-                critical_section::suspend_all(s);
+                // Release critical sections before publishing SUSPENDED. Only
+                // this thread moves its slot out of ATTACHED, except to
+                // SHUTTING_DOWN, which hangs it below.
+                if s.state.load(Ordering::Acquire) == ThreadState::Attached as i32 {
+                    critical_section::suspend_all(s);
+                }
                 Some(s.state.compare_exchange(
                     ThreadState::Attached as i32,
                     ThreadState::Suspended as i32,

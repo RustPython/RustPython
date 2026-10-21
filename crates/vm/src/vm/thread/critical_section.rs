@@ -126,6 +126,19 @@ mod threaded {
         thread::current_thread_slot().expect("critical section requires a thread state")
     }
 
+    /// The thread state of a thread entering a critical section, which must
+    /// be attached: a detached thread would push a section that attaching
+    /// again tries to resume while it is still held.
+    fn attached_tstate() -> thread::CurrentFrameSlot {
+        let tstate = tstate();
+        debug_assert_eq!(
+            tstate.state.load(Ordering::Acquire),
+            thread::ThreadState::Attached as i32,
+            "critical section requires an attached thread state"
+        );
+        tstate
+    }
+
     fn world_stopped(vm: &VirtualMachine) -> bool {
         vm.state
             .stop_the_world
@@ -135,7 +148,7 @@ mod threaded {
 
     pub(super) fn with<R>(vm: &VirtualMachine, m: &PyMutex, f: impl FnOnce() -> R) -> R {
         let c = PyCriticalSection::new();
-        begin_mutex(vm, &tstate(), &c, m);
+        begin_mutex(vm, &attached_tstate(), &c, m);
         // The thread state is looked up again at the end, because fork
         // replaces the slot of the surviving thread.
         let _end = scopeguard::guard(&c, |c| end(&tstate(), c));
@@ -152,7 +165,7 @@ mod threaded {
             base: PyCriticalSection::new(),
             mutex2: AtomicPtr::new(ptr::null_mut()),
         };
-        begin2_mutex(vm, &tstate(), &c, m1, m2);
+        begin2_mutex(vm, &attached_tstate(), &c, m1, m2);
         let _end = scopeguard::guard(&c, |c| end2(&tstate(), c));
         f()
     }
