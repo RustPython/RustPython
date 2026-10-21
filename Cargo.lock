@@ -4113,6 +4113,7 @@ dependencies = [
  "num_enum",
  "optional",
  "parking_lot",
+ "parking_lot_core",
  "paste",
  "psm",
  "rapidhash",
