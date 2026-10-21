@@ -16,6 +16,12 @@ fn main() {
             println!("cargo:rustc-link-arg-bin=rustpython=-Wl,-export_dynamic");
         }
         "windows" => {
+            if capi_enabled {
+                export_capi_symbols_for_windows_exe().unwrap_or_else(|e| {
+                    panic!("Failed to generate Windows C-API exports definition: {e}")
+                });
+            }
+
             println!("cargo:rerun-if-changed=logo.ico");
             let mut res = winresource::WindowsResource::new();
             if Path::new("logo.ico").exists() {
@@ -29,10 +35,6 @@ fn main() {
                     println!("cargo:warning=Failed to compile Windows resources: {e}");
                 })
                 .ok();
-
-            if capi_enabled && let Err(e) = export_capi_symbols_for_windows_exe() {
-                println!("cargo:warning=Failed to generate Windows C-API exports definition: {e}");
-            }
         }
         _ => {}
     }
@@ -42,6 +44,7 @@ fn export_capi_symbols_for_windows_exe() -> Result<(), String> {
     let mut files = Vec::new();
     let mut symbols = BTreeSet::new();
     let capi_src = Path::new("crates").join("capi").join("src");
+    println!("cargo:rerun-if-changed={}", capi_src.display());
     collect_rs_files(&capi_src, &mut files)
         .map_err(|e| format!("failed to enumerate C-API sources: {e}"))?;
 
