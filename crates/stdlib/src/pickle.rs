@@ -15,6 +15,7 @@ mod _pickle {
             PyInt, PyList, PySet, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         function::{FuncArgs, OptionalArg, PySetterValue},
+        object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIter, PyIterReturn},
         types::{AsBuffer, Constructor, Initializer, Representable},
     };
@@ -250,6 +251,15 @@ mod _pickle {
         frame_end: Option<usize>,
     }
 
+    // SAFETY: these are all the Python references owned by the input state.
+    unsafe impl Traverse for ReadState {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.read.traverse(traverse_fn);
+            self.readline.traverse(traverse_fn);
+            self.peek.traverse(traverse_fn);
+        }
+    }
+
     fn to_byte_vec(obj: &PyObject, what: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let bytes = obj
             .downcast_ref::<PyBytes>()
@@ -418,7 +428,7 @@ mod _pickle {
     // memo proxies
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "UnpicklerMemoProxy")]
+    #[pyclass(module = "_pickle", name = "UnpicklerMemoProxy", traverse)]
     #[derive(Debug, PyPayload)]
     struct UnpicklerMemoProxy {
         unpickler: PyRef<PyUnpickler>,
@@ -484,6 +494,13 @@ mod _pickle {
         buffers: Option<PyObjectRef>,
     }
 
+    // SAFETY: buffers is the only Python reference owned by the configuration.
+    unsafe impl Traverse for UnpicklerConfig {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.buffers.traverse(traverse_fn);
+        }
+    }
+
     impl Default for UnpicklerConfig {
         fn default() -> Self {
             Self {
@@ -498,12 +515,40 @@ mod _pickle {
     }
 
     #[pyattr]
-    #[pyclass(module = "_pickle", name = "Unpickler")]
+    #[pyclass(module = "_pickle", name = "Unpickler", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyUnpickler {
         read_state: PyMutex<ReadState>,
         memo: PyRwLock<UnpicklerMemo>,
         config: PyRwLock<UnpicklerConfig>,
+    }
+
+    // SAFETY: visit each owned reference once, including sparse memo entries.
+    unsafe impl Traverse for PyUnpickler {
+        fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
+            self.read_state.traverse(traverse_fn);
+            self.config.traverse(traverse_fn);
+            if let Some(memo) = self.memo.try_read_recursive() {
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "GC tracing visits every memo reference regardless of index order"
+                )]
+                for value in memo.values() {
+                    value.traverse(traverse_fn);
+                }
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            let state = self.read_state.get_mut();
+            out.extend(state.read.take());
+            out.extend(state.readline.take());
+            out.extend(state.peek.take());
+            out.extend(self.memo.get_mut().drain().map(|(_, value)| value));
+            let config = self.config.get_mut();
+            out.extend(config.buffers.take());
+            config.initialized = false;
+        }
     }
 
     #[derive(FromArgs)]
@@ -576,23 +621,29 @@ mod _pickle {
                 return Err(vm.new_type_error("file must have 'read' and 'readline' attributes"));
             }
 
-            *state = ReadState {
-                read,
-                readline,
-                peek,
-                ..ReadState::default()
-            };
+            let old_state = core::mem::replace(
+                &mut *state,
+                ReadState {
+                    read,
+                    readline,
+                    peek,
+                    ..ReadState::default()
+                },
+            );
             let old_memo = core::mem::take(&mut *zelf.memo.write());
-            *zelf.config.write() = UnpicklerConfig {
-                initialized: true,
-                proto: 0,
-                fix_imports: args.fix_imports,
-                encoding,
-                errors,
-                buffers,
-            };
+            let old_config = core::mem::replace(
+                &mut *zelf.config.write(),
+                UnpicklerConfig {
+                    initialized: true,
+                    proto: 0,
+                    fix_imports: args.fix_imports,
+                    encoding,
+                    errors,
+                    buffers,
+                },
+            );
             drop(state);
-            drop(old_memo);
+            drop((old_state, old_memo, old_config));
             Ok(())
         }
     }

@@ -1,6 +1,8 @@
 import _pickle
+import gc
 import io
 import sys
+import weakref
 from types import MappingProxyType, MethodType
 
 from testutils import assert_raises
@@ -116,3 +118,42 @@ namespace = {
 with assert_raises(RuntimeError) as caught:
     exec("method.__reduce__()", namespace)
 assert caught.exception is name_error
+
+
+# Unpickler payloads can retain a cycle through their memo proxy.
+class UnpicklerCycleStream:
+    def __init__(self):
+        self.source = io.BytesIO(_pickle.dumps([1, 2, 3], protocol=4))
+        self.read = self.source.read
+        self.readline = self.source.readline
+        self.peek = self.peek_bytes
+
+    def peek_bytes(self, size=0):
+        position = self.source.tell()
+        data = self.source.read(size)
+        self.source.seek(position)
+        return data
+
+
+class UnpicklerCycleBuffers:
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        raise StopIteration
+
+
+def unpickler_payload_cycle(kind):
+    stream = UnpicklerCycleStream()
+    buffers = UnpicklerCycleBuffers()
+    unpickler = _pickle.Unpickler(stream, buffers=buffers)
+    holder = stream if kind == "stream" else buffers
+    holder.proxy = unpickler.memo
+    return weakref.ref(holder)
+
+
+for kind in ("stream", "buffers"):
+    reference = unpickler_payload_cycle(kind)
+    for _ in range(3):
+        gc.collect()
+    assert reference() is None, kind
