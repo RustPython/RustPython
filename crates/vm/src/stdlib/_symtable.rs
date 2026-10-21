@@ -8,6 +8,7 @@ mod _symtable {
         compiler,
         function::{ArgStrOrBytesLike, FsPath},
         types::Representable,
+        vm::VmCompileError,
     };
     use alloc::fmt;
     use rustpython_codegen::symboltable::{CompilerScope, SymbolFlags, SymbolScope, SymbolTable};
@@ -153,10 +154,21 @@ mod _symtable {
             })
             .transpose()?;
         let symtable = vm
-            .compile_symtable_with_module(&source, mode, &filename, module.as_deref())
-            .map_err(|err| {
-                let err = err.into_pyexception(vm, Some(&source));
-                set_syntax_error_filename(err, &filename_obj, vm)
+            .compile_symtable_with_module(
+                &source,
+                mode,
+                &filename,
+                &filename_obj,
+                module.as_deref(),
+            )
+            .map_err(|err| match err {
+                VmCompileError::Compile(err) => {
+                    let err = vm.new_syntax_error(&err, Some(&source));
+                    set_syntax_error_filename(err, &filename_obj, vm)
+                }
+                // Warning hooks may raise their own exception, including a
+                // SyntaxError subclass. Propagate it without changing attributes.
+                warning @ VmCompileError::Warning(_) => warning.into_pyexception(vm, Some(&source)),
             })?;
 
         Ok(to_py_symbol_table(symtable, vm))
