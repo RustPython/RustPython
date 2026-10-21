@@ -2559,7 +2559,6 @@ class BugsTest(unittest.TestCase):
         text = b'x' + b'\xc3\xa0' * 1024
         self.check_expat224_utf8_bug(text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expat224_utf8_bug_file(self):
         with open(UTF8_BUG_XMLFILE, 'rb') as fp:
             raw = fp.read()
