@@ -155,7 +155,7 @@ homepage = "https://rustpython.github.io/"
 license_file = "LICENSE"
 authors = ["RustPython Team"]
 publisher = "RustPython Team"
-resources = ["LICENSE", "LICENSE-profiling", "README.md", "Lib"]
+resources = ["LICENSE", "crates/pylib/LICENSE-profiling", "README.md", "Lib"]
 icons = ["32x32.png"]
 
 [package.metadata.packager.nsis]
