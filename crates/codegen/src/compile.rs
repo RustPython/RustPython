@@ -12288,12 +12288,12 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        // CPython 3.14 ast_preprocess.c::fold_const_match_patterns()
+        // CPython ast_preprocess.c::fold_const_match_patterns()
         // folds only the constant forms needed by match patterns before
         // codegen_pattern_value()/codegen_pattern_mapping_key() visit them.
         Ok(match expr {
             ast::Expr::UnaryOp(ast::ExprUnaryOp {
-                op: ast::UnaryOp::USub,
+                op: op @ (ast::UnaryOp::UAdd | ast::UnaryOp::USub),
                 operand,
                 ..
             }) => {
@@ -12301,7 +12301,11 @@ impl<'warnings> Compiler<'warnings> {
                 else {
                     return Ok(None);
                 };
-                Self::try_negate_match_pattern_constant(constant)
+                if *op == ast::UnaryOp::USub {
+                    Self::try_negate_match_pattern_constant(constant)
+                } else {
+                    Some(constant)
+                }
             }
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
@@ -12326,7 +12330,7 @@ impl<'warnings> Compiler<'warnings> {
             return Ok(Some(constant));
         }
         let ast::Expr::UnaryOp(ast::ExprUnaryOp {
-            op: ast::UnaryOp::USub,
+            op: op @ (ast::UnaryOp::UAdd | ast::UnaryOp::USub),
             operand,
             ..
         }) = expr
@@ -12336,7 +12340,11 @@ impl<'warnings> Compiler<'warnings> {
         let Some(constant) = self.try_compile_match_pattern_real_constant(operand)? else {
             return Ok(None);
         };
-        Ok(Self::try_negate_match_pattern_constant(constant))
+        Ok(if *op == ast::UnaryOp::USub {
+            Self::try_negate_match_pattern_constant(constant)
+        } else {
+            Some(constant)
+        })
     }
 
     fn try_compile_match_pattern_real_constant(
