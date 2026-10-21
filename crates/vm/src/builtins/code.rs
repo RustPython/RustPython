@@ -15,6 +15,7 @@ use crate::{
     convert::ToPyObject,
     frozen,
     function::OptionalArg,
+    object::{Traverse, TraverseFn},
     types::{Comparable, Constructor, Hashable, Representable},
 };
 use alloc::fmt;
@@ -440,7 +441,7 @@ struct CoCached {
     freevars: OnceCell<PyTupleRef>,
 }
 
-#[pyclass(module = false, name = "code")]
+#[pyclass(module = false, name = "code", traverse = "manual", clear = false)]
 pub struct PyCode {
     #[pymember(name = "co_argcount", path = "arg_count")]
     #[pymember(name = "co_posonlyargcount", path = "posonlyarg_count")]
@@ -480,6 +481,34 @@ pub struct PyCode {
     /// this code cannot leave the slot unbalanced, so `with_frame` skips the
     /// exc_info save/restore. Computed once by scanning the instruction stream.
     pub has_exc_handling: bool,
+}
+
+// SAFETY: Visit each owned reference once, including initialized cache cells.
+// Constant elements belong to the constants tuple and are not direct edges.
+// Interned names and source paths are borrowed static references.
+unsafe impl Traverse for PyCode {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.co_consts().traverse(tracer);
+        self.co_name.traverse(tracer);
+        self.qualified_name.traverse(tracer);
+        self.co_names.traverse(tracer);
+        self.co_localsplusnames.traverse(tracer);
+        self.co_localspluskinds.traverse(tracer);
+        self.co_linetable.traverse(tracer);
+        self.co_exceptiontable.traverse(tracer);
+        if let Some(value) = self.co_cached.code.get() {
+            value.traverse(tracer);
+        }
+        if let Some(value) = self.co_cached.varnames.get() {
+            value.traverse(tracer);
+        }
+        if let Some(value) = self.co_cached.cellvars.get() {
+            value.traverse(tracer);
+        }
+        if let Some(value) = self.co_cached.freevars.get() {
+            value.traverse(tracer);
+        }
+    }
 }
 
 impl Deref for PyCode {

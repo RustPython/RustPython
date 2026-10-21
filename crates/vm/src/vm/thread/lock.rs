@@ -23,10 +23,6 @@ pub(crate) struct PyMutex {
 }
 
 impl PyMutex {
-    #[cfg_attr(
-        not(all(test, feature = "threading")),
-        expect(dead_code, reason = "Removed when the profiler consumer is wired")
-    )]
     pub(crate) const fn new() -> Self {
         Self {
             bits: AtomicU8::new(0),

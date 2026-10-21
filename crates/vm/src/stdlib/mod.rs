@@ -7,6 +7,7 @@ pub(crate) use _collections::ordered_dict::ordered_dict::PyOrderedDict;
 mod _functools;
 mod _imp;
 pub mod _io;
+mod _lsprof;
 mod _operator;
 mod _sre;
 mod _stat;
@@ -137,6 +138,7 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         msvcrt::module_def(ctx),
         #[cfg(all(feature = "host_env", windows))]
         nt::module_def(ctx),
+        _lsprof::module_def(ctx),
         _operator::module_def(ctx),
         #[cfg(all(feature = "host_env", any(unix, target_os = "wasi")))]
         posix::module_def(ctx),
