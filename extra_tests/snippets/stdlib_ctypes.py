@@ -855,3 +855,126 @@ except TypeError:
 else:
     raise AssertionError("array accepted for an incomplete pointer field")
 assert bytes(_field) == _before
+
+# Indexed writes use the element's conversion, not the input object's layout.
+for _container, _input, _expected in (
+    (ctypes.pointer(ctypes.c_float()), 1.5, 1.5),
+    ((ctypes.c_char * 1)(), ctypes.c_char(b"x"), b"x"),
+    ((ctypes.c_byte * 1)(), 257, 1),
+):
+    _container[0] = _input
+    assert _container[0] == _expected
+
+for _container in ((ctypes.c_int * 1)(), ctypes.pointer(ctypes.c_int())):
+    try:
+        _container[0] = ctypes.c_float(1.5)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("incompatible indexed value accepted")
+    assert _container[0] == 0
+
+
+class FailingFloat:
+    def __float__(self):
+        raise LookupError("conversion failed")
+
+
+for _base in (ctypes.Structure, ctypes.Union):
+
+    class ObjectAndFloat(_base):
+        _fields_ = [("object", ctypes.py_object), ("number", ctypes.c_float)]
+
+    _record = ObjectAndFloat()
+    _value = object()
+    _record.object = _value
+    assert _record.object is _value
+    _before = bytes(_record)
+    try:
+        _record.number = FailingFloat()
+    except LookupError:
+        pass
+    else:
+        raise AssertionError("conversion error suppressed")
+    assert bytes(_record) == _before
+
+
+# Tuple temporaries are finalized after their bytes have reached the target.
+_events = []
+
+
+class TemporaryRecord(ctypes.Structure):
+    _fields_ = [("number", ctypes.c_int)]
+
+    def __del__(self):
+        if self._b_base_ is None:
+            _events.append(_records[0].number)
+            _records[0].number = 99
+
+
+_records = (TemporaryRecord * 1)()
+_records[0] = (42,)
+assert _events == [42]
+assert _records[0].number == 99
+
+
+# Raw addresses can point inside the buffer already owned by a scalar view.
+_events = []
+
+
+class OwnedBytes(bytes):
+    def __del__(self):
+        _events.append("released")
+
+
+class StringPointer(ctypes.c_char_p):
+    pass
+
+
+class OwnedStringField(ctypes.Structure):
+    _fields_ = [("text", StringPointer)]
+
+
+_record = OwnedStringField()
+_record.text.value = OwnedBytes(b"owner")
+_address = ctypes.cast(_record.text, ctypes.c_void_p).value
+_record.text.value = _address + 1
+gc.collect()
+assert _events == []
+assert _record.text.value == b"wner"
+
+# Self-copy must not build a new private holder around every previous copy.
+_marker = b"ctypes-self-copy-backing-store"
+_strings = (StringField * 1)(StringField(_marker))
+for _ in range(32):
+    _strings[0] = _strings[0]
+gc.collect()
+assert (
+    sum(
+        type(obj) is tuple
+        and any(type(item) is bytes and item == _marker + b"\0" for item in obj)
+        for obj in gc.get_objects()
+    )
+    <= 1
+)
+assert _strings[0].text == _marker
+
+# Mutating _type_ must not change the initialized setter or its write width.
+for _code in ("h", "q", "f"):
+
+    class MutableInt(ctypes.c_int):
+        pass
+
+    _array = (MutableInt * 2)(0, 0x1234)
+    MutableInt._type_ = _code
+    _array[0] = -2
+    assert bytes(_array) == bytes(ctypes.c_int(-2)) + bytes(ctypes.c_int(0x1234))
+
+if _sys.platform == "win32":
+
+    class BSTR(ctypes._SimpleCData):
+        _type_ = "X"
+
+    _bstr = (BSTR * 1)()
+    _bstr[0] = None
+    assert bytes(_bstr) == bytes(ctypes.sizeof(ctypes.c_void_p))

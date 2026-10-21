@@ -1083,7 +1083,7 @@ pub fn simple_storage_value_to_bytes_endian(
             }
             _ => vec![0; 2],
         },
-        "P" | "z" | "Z" => match value {
+        "P" | "z" | "Z" | "X" => match value {
             SimpleStorageValue::Pointer(value) => {
                 uint_to_sized_bytes_endian(value as u64, pointer_size(), swapped)
             }
@@ -2993,6 +2993,20 @@ pub fn dlsym_checked(_handle: usize, symbol_name: &CStr) -> Result<*mut c_void, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bstr_storage_preserves_pointer_width() {
+        for address in [0, usize::MAX] {
+            assert_eq!(
+                simple_storage_value_to_bytes_endian(
+                    "X",
+                    SimpleStorageValue::Pointer(address),
+                    false,
+                ),
+                address.to_ne_bytes(),
+            );
+        }
+    }
 
     #[test]
     fn simple_type_is_pointer_classifies_codes() {
