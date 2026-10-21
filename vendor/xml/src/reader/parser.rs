@@ -91,7 +91,6 @@ pub(crate) struct PullParser {
     encountered: Encountered,
     inside_whitespace: bool,
     literal_text_pending: bool,
-    entity_value_after_cr: bool,
     seen_prefix_separator: bool,
     pop_namespace: bool,
 }
@@ -160,7 +159,6 @@ impl PullParser {
             encountered: Encountered::None,
             inside_whitespace: true,
             literal_text_pending: false,
-            entity_value_after_cr: false,
             seen_prefix_separator: false,
             pop_namespace: false,
         }
@@ -269,7 +267,7 @@ pub(crate) enum DoctypeSubstate {
     /// name definition
     PEReferenceDefinitionStart,
     PEReferenceDefinition,
-    IgnorePI,
+    PI(ProcessingInstructionSubstate),
     SkipDeclaration,
     Comment,
 }
@@ -295,8 +293,8 @@ pub(crate) enum ClosingTagSubstate {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub(crate) enum ProcessingInstructionSubstate {
-    PIInsideName,
-    PIInsideData,
+    PIReadingName,
+    PIReadingData,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -672,7 +670,10 @@ impl PullParser {
                 if self.buf.len() > self.config.max_attribute_length {
                     return Some(self.error(SyntaxError::ExceededConfiguredLimit));
                 }
-                t.push_to_string(&mut self.buf);
+                match t {
+                    Token::Character(c) if is_whitespace_char(c) => self.buf.push(' '),
+                    _ => t.push_to_string(&mut self.buf),
+                }
                 None
             },
 

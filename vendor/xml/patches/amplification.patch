@@ -8,6 +8,27 @@ diff --git a/Cargo.toml b/Cargo.toml
 +
 +# Keep the vendored dependency independently checkable.
 +[workspace]
+diff --git a/src/reader.rs b/src/reader.rs
+--- a/src/reader.rs
++++ b/src/reader.rs
+@@ -9,6 +9,7 @@
+ 
+ use crate::common::{Position, TextPosition};
+ 
++pub use amplification::AmplificationLimits;
+ pub use config::ParserConfig;
+ pub use error::{Error, ErrorKind, ImmutableEntitiesError};
+ pub use events::{DoctypeRef, XmlEvent};
+@@ -20,6 +21,9 @@
+ 
+ use self::parser::PullParser;
+ 
++mod amplification;
++#[cfg(test)]
++mod amplification_tests;
+ mod config;
+ mod error;
+ mod events;
 diff --git a/src/reader/amplification.rs b/src/reader/amplification.rs
 new file mode 100644
 --- /dev/null
@@ -256,16 +277,16 @@ new file mode 100644
 diff --git a/src/reader/config.rs b/src/reader/config.rs
 --- a/src/reader/config.rs
 +++ b/src/reader/config.rs
-@@ -110,6 +110,9 @@
- 
+@@ -111,6 +111,9 @@
      /// Entities can expand into other entities this many times (be careful about exponential cost!)
      pub max_entity_expansion_depth: u8,
-+
+ 
 +    /// Optional cumulative entity byte limits, independent of the fixed caps.
 +    pub amplification_limits: Option<super::AmplificationLimits>,
- 
++
      /// Maximum length of tag name or attribute name
      pub max_name_length: usize,
+ 
 @@ -156,6 +159,7 @@
              allow_multiple_root_elements: true,
              max_entity_expansion_length: DEFAULT_MAX_ENTITY_EXPANSION_LENGTH,
@@ -342,10 +363,10 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
      eof_handled: bool,
 -    reparse_depth: u8,
 +    reparse_depth: u16,
+     last_was_cr: bool,
      #[cfg(test)]
      skip_errors: bool,
- 
-@@ -250,6 +254,10 @@
+@@ -252,6 +256,10 @@
              reader: CharReader::new(Encoding::Unknown),
              pos: TextPosition::new(),
              head_pos: TextPosition::new(),
@@ -356,12 +377,10 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
              char_queue: VecDeque::with_capacity(4), // TODO: check size
              st: State::Normal,
              normal_state: State::Normal,
-@@ -262,6 +270,22 @@
-             max_entity_expansion_depth: config.max_entity_expansion_depth,
-             max_entity_expansion_length: config.max_entity_expansion_length,
+@@ -268,6 +276,22 @@
          }
-+    }
-+
+     }
+ 
 +    pub(crate) fn account_indirect(&mut self, bytes: usize, enforce: bool) -> Result<()> {
 +        self.accounting.add_indirect(bytes);
 +        if enforce { self.check_amplification()?; }
@@ -376,10 +395,12 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
 +    pub(crate) fn check_amplification(&self) -> Result<()> {
 +        if self.accounting.tolerated() { return Ok(()); }
 +        Err(Error { pos: self.position(), kind: super::error::ErrorKind::AmplificationLimit })
-     }
- 
++    }
++
      pub(crate) fn encoding(&self) -> Encoding {
-@@ -298,12 +322,20 @@
+         self.reader.encoding
+     }
+@@ -302,12 +326,20 @@
          }
  
          if !self.inside_token {
@@ -401,21 +422,21 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
              if let Some(t) = self.dispatch_char(c)? {
                  self.inside_token = false;
                  return Ok(t);
-@@ -311,7 +343,12 @@
+@@ -315,7 +347,12 @@
          }
          // if char_queue is empty, all circular reparsing is done
          self.reparse_depth = 0;
--        while let Some(c) = self.reader.next_char_from(b)? {
+-        while let Some(mut c) = self.reader.next_char_from(b)? {
 +        loop {
 +            let mut counted = CountingRead { source: b, bytes: 0 };
 +            let next = self.reader.next_char_from(&mut counted);
 +            self.accounting.add_direct(counted.bytes);
-+            let Some(c) = next? else { break; };
++            let Some(mut c) = next? else { break; };
 +            self.current_is_direct = true;
-             if c == '\n' {
-                 self.head_pos.new_line();
-             } else {
-@@ -396,7 +433,15 @@
+             if self.last_was_cr && c == '\n' {
+                 self.last_was_cr = false;
+                 continue;
+@@ -412,7 +449,15 @@
  
      fn move_to_with_unread(&mut self, st: State, cs: &[char], token: Token) -> Token {
          for c in cs.iter().rev().copied() {
@@ -432,7 +453,7 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
          }
          self.move_to_with(st, token)
      }
-@@ -407,14 +452,23 @@
+@@ -423,14 +468,23 @@
          }
  
          self.reparse_depth += 1;
@@ -459,7 +480,7 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
          }
  
          Ok(())
-@@ -428,8 +482,8 @@
+@@ -444,8 +498,8 @@
          if self.skip_errors {
              let mut chars = chunk.chars();
              let first = chars.next().unwrap_or('\0');
@@ -470,7 +491,7 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
              return Ok(Some(self.move_to_with(State::Normal, Token::Character(first))));
          }
          Err(self.error(SyntaxError::UnexpectedTokenBefore(chunk, c)))
-@@ -633,6 +687,16 @@
+@@ -649,6 +703,16 @@
      }
  }
  
@@ -487,16 +508,104 @@ diff --git a/src/reader/lexer.rs b/src/reader/lexer.rs
  #[cfg(test)]
  mod tests {
      use crate::common::Position;
-@@ -1145,3 +1209,4 @@
+@@ -1161,3 +1225,4 @@
          assert_none!(for lex and buf);
      }
  }
 +
+diff --git a/src/reader/parser.rs b/src/reader/parser.rs
+--- a/src/reader/parser.rs
++++ b/src/reader/parser.rs
+@@ -53,6 +53,7 @@
+ mod inside_opening_tag;
+ mod inside_processing_instruction;
+ mod inside_reference;
++mod attribute_expansion;
+ mod outside_tag;
+ 
+ static DEFAULT_VERSION: XmlVersion = XmlVersion::Version10;
+@@ -77,6 +78,7 @@
+ 
+     /// From DTD internal subset
+     entities: HashMap<String, String>,
++    pending_attributes: Vec<(OwnedName, String, Option<TextPosition>)>,
+ 
+     nst: NamespaceStack,
+ 
+@@ -88,6 +90,7 @@
+ 
+     encountered: Encountered,
+     inside_whitespace: bool,
++    literal_text_pending: bool,
+     seen_prefix_separator: bool,
+     pop_namespace: bool,
+ }
+@@ -128,6 +131,7 @@
+             buf: String::with_capacity(STRING_RESERVE_CAPACITY),
+             qualified_name_buf: String::with_capacity(STRING_RESERVE_CAPACITY),
+             entities: HashMap::new(),
++            pending_attributes: Vec::new(),
+             nst: NamespaceStack::default(),
+ 
+             data: MarkupData {
+@@ -154,6 +158,7 @@
+ 
+             encountered: Encountered::None,
+             inside_whitespace: true,
++            literal_text_pending: false,
+             seen_prefix_separator: false,
+             pop_namespace: false,
+         }
+@@ -383,7 +388,7 @@
+         }
+ 
+         if let Some(ev) = self.next_event.take() {
+-            return ev;
++            return if ev.is_err() { self.set_final_result(ev) } else { ev };
+         }
+ 
+         if self.pop_namespace {
+@@ -429,6 +434,9 @@
+     /// Handle end of stream
+     #[cold]
+     fn handle_eof(&mut self) -> std::result::Result<XmlEvent, Error> {
++        if self.literal_text_pending {
++            if let Err(e) = self.lexer.check_amplification() { return self.set_final_result(Err(e)); }
++        }
+         let ev = if self.depth() == 0 {
+             if self.encountered == Encountered::Element && self.st == State::OutsideTag {  // all is ok
+                 Ok(XmlEvent::EndDocument)
+@@ -674,6 +682,17 @@
+     }
+ 
+     fn emit_start_element(&mut self, emit_end_element: bool) -> Option<Result> {
++        // Expat accounts for a complete start tag before expanding attributes.
++        // Keep references as source spellings until here, so neither expanded
++        // strings nor namespace values can be allocated before their check.
++        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
++        for (name, raw, pos) in std::mem::take(&mut self.pending_attributes) {
++            let value = match self.expand_attribute(&raw) {
++                Ok(value) => value,
++                Err(e) => return Some(Err(e)),
++            };
++            if let Err(e) = self.finish_attribute(name, value, pos) { return Some(Err(e)); }
++        }
+         let mut name = self.data.take_element_name()?;
+         let mut attributes = self.data.take_attributes();
+         let attribute_positions = self.data.take_attribute_positions();
+@@ -720,6 +739,7 @@
+     }
+ 
+     fn emit_end_element(&mut self) -> Option<Result> {
++        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
+         let mut name = self.data.take_element_name()?;
+ 
+         // check whether the name prefix is bound and fix its namespace
 diff --git a/src/reader/parser/attribute_expansion.rs b/src/reader/parser/attribute_expansion.rs
 new file mode 100644
 --- /dev/null
 +++ b/src/reader/parser/attribute_expansion.rs
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,154 @@
 +use super::PullParser;
 +use crate::common::Position;
 +use crate::reader::error::SyntaxError;
@@ -549,16 +658,12 @@ new file mode 100644
 +            // XML attribute whitespace normalization also applies to the
 +            // replacement text of general entities, but not to numeric
 +            // references written directly in the attribute.
-+            let mut chars = literal.chars().peekable();
-+            while let Some(c) = chars.next() {
++            for c in literal.chars() {
 +                value.push(if matches!(c, '\t' | '\n' | '\r') {
 +                    ' '
 +                } else {
 +                    c
 +                });
-+                if depth == 0 && c == '\r' && chars.peek() == Some(&'\n') {
-+                    chars.next();
-+                }
 +            }
 +            if split.is_none() {
 +                break;
@@ -671,31 +776,7 @@ diff --git a/src/reader/parser/inside_comment.rs b/src/reader/parser/inside_comm
 diff --git a/src/reader/parser/inside_doctype.rs b/src/reader/parser/inside_doctype.rs
 --- a/src/reader/parser/inside_doctype.rs
 +++ b/src/reader/parser/inside_doctype.rs
-@@ -16,6 +16,14 @@
-             }
-         }
- 
-+        if self.config.amplification_limits.is_some() {
-+            // Normalize physical newlines before storing entity text. Numeric
-+            // character references retain their CR/LF identity for later
-+            // attribute normalization.
-+            let skip_lf = self.entity_value_after_cr && substate == DoctypeSubstate::EntityValue && t == Token::Character('\n');
-+            self.entity_value_after_cr = substate == DoctypeSubstate::EntityValue && t == Token::Character('\r');
-+            if skip_lf { return None; }
-+        }
-         match substate {
-             DoctypeSubstate::BeforeDoctypeName => match t {
-                 Token::Character(c) if is_whitespace_char(c) => None,
-@@ -312,7 +320,7 @@
-                     Some(self.error(SyntaxError::InvalidCharacterEntity(c as u32)))
-                 }
-                 Token::Character(c) => {
--                    self.buf.push(c);
-+                    self.buf.push(if self.config.amplification_limits.is_some() && c == '\r' { '\n' } else { c });
-                     None
-                 }
-                 _ => Some(self.error(SyntaxError::UnexpectedTokenInEntity(t))),
-@@ -370,6 +378,7 @@
+@@ -366,6 +366,7 @@
                      let name = self.data.take_ref_data();
                      match self.entities.get(&name) {
                          Some(ent) => {
@@ -820,7 +901,7 @@ diff --git a/src/reader/parser/inside_processing_instruction.rs b/src/reader/par
 +            if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
 +        }
          match s {
-             ProcessingInstructionSubstate::PIInsideName => match t {
+             ProcessingInstructionSubstate::PIReadingName => match t {
                  Token::Character(c) if self.buf.is_empty() && is_name_start_char(c) ||
 diff --git a/src/reader/parser/inside_reference.rs b/src/reader/parser/inside_reference.rs
 --- a/src/reader/parser/inside_reference.rs
@@ -865,19 +946,19 @@ diff --git a/src/reader/parser/inside_reference.rs b/src/reader/parser/inside_re
                          self.buf.push_str(v);
                      }
                  } else {
-@@ -52,6 +69,12 @@
-                 let prev_st = self.state_after_reference;
+@@ -53,6 +70,12 @@
                  if prev_st == State::OutsideTag && !is_whitespace_char(self.buf.chars().last().unwrap_or('\0')) {
                      self.inside_whitespace = false;
-+                }
+                 }
 +                if prev_st == State::OutsideTag && c.is_some()
 +                    && self.config.amplification_limits.is_some() && !self.config.coalesce_characters {
 +                    let value = self.take_buf();
 +                    self.push_pos();
 +                    return self.into_state_emit(prev_st, Ok(crate::reader::XmlEvent::Characters(value)));
-                 }
++                }
                  self.into_state_continue(prev_st)
              },
+ 
 diff --git a/src/reader/parser/outside_tag.rs b/src/reader/parser/outside_tag.rs
 --- a/src/reader/parser/outside_tag.rs
 +++ b/src/reader/parser/outside_tag.rs
@@ -958,114 +1039,3 @@ diff --git a/src/reader/parser/outside_tag.rs b/src/reader/parser/outside_tag.rs
                          self.into_state(State::InsideCData, next_event)
                      },
  
-diff --git a/src/reader/parser.rs b/src/reader/parser.rs
---- a/src/reader/parser.rs
-+++ b/src/reader/parser.rs
-@@ -53,6 +53,7 @@
- mod inside_opening_tag;
- mod inside_processing_instruction;
- mod inside_reference;
-+mod attribute_expansion;
- mod outside_tag;
- 
- static DEFAULT_VERSION: XmlVersion = XmlVersion::Version10;
-@@ -77,6 +78,7 @@
- 
-     /// From DTD internal subset
-     entities: HashMap<String, String>,
-+    pending_attributes: Vec<(OwnedName, String, Option<TextPosition>)>,
- 
-     nst: NamespaceStack,
- 
-@@ -88,6 +90,8 @@
- 
-     encountered: Encountered,
-     inside_whitespace: bool,
-+    literal_text_pending: bool,
-+    entity_value_after_cr: bool,
-     seen_prefix_separator: bool,
-     pop_namespace: bool,
- }
-@@ -128,6 +132,7 @@
-             buf: String::with_capacity(STRING_RESERVE_CAPACITY),
-             qualified_name_buf: String::with_capacity(STRING_RESERVE_CAPACITY),
-             entities: HashMap::new(),
-+            pending_attributes: Vec::new(),
-             nst: NamespaceStack::default(),
- 
-             data: MarkupData {
-@@ -154,6 +159,8 @@
- 
-             encountered: Encountered::None,
-             inside_whitespace: true,
-+            literal_text_pending: false,
-+            entity_value_after_cr: false,
-             seen_prefix_separator: false,
-             pop_namespace: false,
-         }
-@@ -383,7 +390,7 @@
-         }
- 
-         if let Some(ev) = self.next_event.take() {
--            return ev;
-+            return if ev.is_err() { self.set_final_result(ev) } else { ev };
-         }
- 
-         if self.pop_namespace {
-@@ -429,6 +436,9 @@
-     /// Handle end of stream
-     #[cold]
-     fn handle_eof(&mut self) -> std::result::Result<XmlEvent, Error> {
-+        if self.literal_text_pending {
-+            if let Err(e) = self.lexer.check_amplification() { return self.set_final_result(Err(e)); }
-+        }
-         let ev = if self.depth() == 0 {
-             if self.encountered == Encountered::Element && self.st == State::OutsideTag {  // all is ok
-                 Ok(XmlEvent::EndDocument)
-@@ -671,6 +681,17 @@
-     }
- 
-     fn emit_start_element(&mut self, emit_end_element: bool) -> Option<Result> {
-+        // Expat accounts for a complete start tag before expanding attributes.
-+        // Keep references as source spellings until here, so neither expanded
-+        // strings nor namespace values can be allocated before their check.
-+        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
-+        for (name, raw, pos) in std::mem::take(&mut self.pending_attributes) {
-+            let value = match self.expand_attribute(&raw) {
-+                Ok(value) => value,
-+                Err(e) => return Some(Err(e)),
-+            };
-+            if let Err(e) = self.finish_attribute(name, value, pos) { return Some(Err(e)); }
-+        }
-         let mut name = self.data.take_element_name()?;
-         let mut attributes = self.data.take_attributes();
-         let attribute_positions = self.data.take_attribute_positions();
-@@ -717,6 +738,7 @@
-     }
- 
-     fn emit_end_element(&mut self) -> Option<Result> {
-+        if let Err(e) = self.lexer.check_amplification() { return Some(Err(e)); }
-         let mut name = self.data.take_element_name()?;
- 
-         // check whether the name prefix is bound and fix its namespace
-diff --git a/src/reader.rs b/src/reader.rs
---- a/src/reader.rs
-+++ b/src/reader.rs
-@@ -9,6 +9,7 @@
- 
- use crate::common::{Position, TextPosition};
- 
-+pub use amplification::AmplificationLimits;
- pub use config::ParserConfig;
- pub use error::{Error, ErrorKind, ImmutableEntitiesError};
- pub use events::{DoctypeRef, XmlEvent};
-@@ -20,6 +21,9 @@
- 
- use self::parser::PullParser;
- 
-+mod amplification;
-+#[cfg(test)]
-+mod amplification_tests;
- mod config;
- mod error;
- mod events;

@@ -1,12 +1,12 @@
-# xml 1.3.0 local accounting changes
+# xml 1.4.0 local accounting changes
 
-This directory contains the official `xml` 1.3.0 crate from crates.io, with its
+This directory contains the official `xml` 1.4.0 crate from crates.io, with its
 MIT license preserved in `LICENSE`. Upstream repository:
 https://github.com/kornelski/xml-rs
 
-- Upstream commit recorded by the package: `73c24eac0639a1e085269cf6c7b81b41cf1b9ad3`
-- Published archive: https://static.crates.io/crates/xml/xml-1.3.0.crate
-- Archive SHA-256: `636f85e5ca6488e96401b61eb7de54f4e44755c988af0f52cf90230c312a1a89`
+- Upstream commit recorded by the package: `41949a759dada9493b29e0661b318f1960d1f849`
+- Published archive: https://static.crates.io/crates/xml/xml-1.4.0.crate
+- Archive SHA-256: `2f45bb2c13fec6a6cb4c0f76a7e94839e110a14ec803ec2940777a94c347bc52`
 - Included upstream files: `src/**`, `Cargo.toml`, `Cargo.toml.orig`, `README.md`,
   `LICENSE`, and `.cargo_vcs_info.json`
 - Original-file hashes: `UPSTREAM-SHA256SUMS`
@@ -15,13 +15,13 @@ https://github.com/kornelski/xml-rs
 
 The root workspace dependency uses this directory with a version requirement,
 so the accounting changes also apply when RustPython is a path or Git dependency
-of a separate workspace. Its lockfile keeps version 1.3.0 without a registry
+of a separate workspace. Its lockfile keeps version 1.4.0 without a registry
 source/checksum. The local Cargo manifest has an empty workspace table so this
 dependency can be checked separately, without building RustPython.
 
 Cargo replaces path dependencies with their version requirements when publishing
 a package to a registry. Before publishing RustPython crates, use a published
-dependency that includes these accounting APIs and semantics; the declared `1.3`
+dependency that includes these accounting APIs and semantics; the declared `1.4`
 registry requirement alone does not provide these local changes.
 
 ## Supported accounting
@@ -35,11 +35,12 @@ predefined entities do, with the deferred checks used by Expat. Arithmetic
 overflow is fatal even when the factor is infinity.
 
 Attribute expansion and namespace installation wait for the complete opening
-tag, then charge replacements before appending them. Attribute whitespace is
-normalized with the distinction between physical newlines and character
-references preserved. Existing depth and queue limits remain independent. Queue
-boundaries now count actual nesting, rather than queued siblings, and the queue
-cap is checked before reserving replacement storage.
+tag, then charge replacements before appending them. Whitespace in entity
+replacement text is normalized during that expansion; the upstream lexer and
+attribute reader already normalize physical newlines and literal whitespace.
+Existing depth and queue limits remain independent. Queue boundaries now count
+actual nesting, rather than queued siblings, and the queue cap is checked before
+reserving replacement storage.
 
 RustPython enables a factor of 100 and activation threshold of 8,388,608 bytes
 by default. Its two configuration methods take effect before the first Parse or

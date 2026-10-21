@@ -234,11 +234,13 @@ pub(crate) struct Lexer {
     inside_token: bool,
     eof_handled: bool,
     reparse_depth: u16,
+    last_was_cr: bool,
     #[cfg(test)]
     skip_errors: bool,
 
     max_entity_expansion_depth: u8,
     max_entity_expansion_length: usize,
+    pub(crate) ignore_end_of_stream: bool,
 }
 
 impl Position for Lexer {
@@ -264,11 +266,13 @@ impl Lexer {
             inside_token: false,
             eof_handled: false,
             reparse_depth: 0,
+            last_was_cr: false,
             #[cfg(test)]
             skip_errors: false,
 
             max_entity_expansion_depth: config.max_entity_expansion_depth,
             max_entity_expansion_length: config.max_entity_expansion_length,
+            ignore_end_of_stream: config.ignore_end_of_stream,
         }
     }
 
@@ -347,8 +351,18 @@ impl Lexer {
             let mut counted = CountingRead { source: b, bytes: 0 };
             let next = self.reader.next_char_from(&mut counted);
             self.accounting.add_direct(counted.bytes);
-            let Some(c) = next? else { break; };
+            let Some(mut c) = next? else { break; };
             self.current_is_direct = true;
+            if self.last_was_cr && c == '\n' {
+                self.last_was_cr = false;
+                continue;
+            }
+            self.last_was_cr = false;
+            if c == '\r' {
+                self.last_was_cr = true;
+                c = '\n';
+            }
+
             if c == '\n' {
                 self.head_pos.new_line();
             } else {
@@ -370,7 +384,9 @@ impl Lexer {
         self.eof_handled = true;
         self.pos = self.head_pos;
         match self.st {
-            State::InsideCdata | State::CDataClosing(_) => Err(self.error(SyntaxError::UnclosedCdata)),
+            State::InsideCdata | State::CDataClosing(_) if !self.ignore_end_of_stream =>
+                Err(self.error(SyntaxError::UnclosedCdata)),
+            State::InsideCdata | State::CDataClosing(_) |
             State::TagStarted | State::CommentOrCDataOrDoctypeStarted |
             State::CommentStarted | State::CDataStarted(_)| State::DoctypeStarted(_) |
             State::CommentClosing(_) |

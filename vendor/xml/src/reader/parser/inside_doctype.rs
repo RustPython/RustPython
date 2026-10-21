@@ -5,7 +5,7 @@ use crate::reader::error::SyntaxError;
 use crate::reader::lexer::Token;
 use crate::reader::XmlEvent;
 
-use super::{DoctypeSubstate, PullParser, QuoteToken, Result, State};
+use super::{DoctypeSubstate, ProcessingInstructionSubstate, PullParser, QuoteToken, Result, State};
 
 impl PullParser {
     pub fn inside_doctype(&mut self, t: Token, substate: DoctypeSubstate) -> Option<Result> {
@@ -16,14 +16,6 @@ impl PullParser {
             }
         }
 
-        if self.config.amplification_limits.is_some() {
-            // Normalize physical newlines before storing entity text. Numeric
-            // character references retain their CR/LF identity for later
-            // attribute normalization.
-            let skip_lf = self.entity_value_after_cr && substate == DoctypeSubstate::EntityValue && t == Token::Character('\n');
-            self.entity_value_after_cr = substate == DoctypeSubstate::EntityValue && t == Token::Character('\r');
-            if skip_lf { return None; }
-        }
         match substate {
             DoctypeSubstate::BeforeDoctypeName => match t {
                 Token::Character(c) if is_whitespace_char(c) => None,
@@ -188,16 +180,12 @@ impl PullParser {
                 }
                 Token::Character(c) if is_whitespace_char(c) => None,
                 Token::ProcessingInstructionStart => {
-                    self.into_state_continue(State::InsideDoctype(DoctypeSubstate::IgnorePI))
+                    self.buf.clear();
+                    self.into_state_continue(State::InsideDoctype(DoctypeSubstate::PI(ProcessingInstructionSubstate::PIReadingName)))
                 }
                 _ => Some(self.error(SyntaxError::UnexpectedToken(t))),
             },
-            DoctypeSubstate::IgnorePI => match t {
-                Token::ProcessingInstructionEnd => {
-                    self.into_state_continue(State::InsideDoctype(DoctypeSubstate::InternalSubset))
-                }
-                _ => None,
-            },
+            DoctypeSubstate::PI(s) => self.inside_processing_instruction(t, s),
             DoctypeSubstate::String => match t {
                 Token::SingleQuote if self.data.quote != Some(QuoteToken::SingleQuoteToken) => None,
                 Token::DoubleQuote if self.data.quote != Some(QuoteToken::DoubleQuoteToken) => None,
@@ -320,7 +308,7 @@ impl PullParser {
                     Some(self.error(SyntaxError::InvalidCharacterEntity(c as u32)))
                 }
                 Token::Character(c) => {
-                    self.buf.push(if self.config.amplification_limits.is_some() && c == '\r' { '\n' } else { c });
+                    self.buf.push(c);
                     None
                 }
                 _ => Some(self.error(SyntaxError::UnexpectedTokenInEntity(t))),

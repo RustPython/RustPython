@@ -50,16 +50,12 @@ impl PullParser {
             // XML attribute whitespace normalization also applies to the
             // replacement text of general entities, but not to numeric
             // references written directly in the attribute.
-            let mut chars = literal.chars().peekable();
-            while let Some(c) = chars.next() {
+            for c in literal.chars() {
                 value.push(if matches!(c, '\t' | '\n' | '\r') {
                     ' '
                 } else {
                     c
                 });
-                if depth == 0 && c == '\r' && chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
             }
             if split.is_none() {
                 break;
