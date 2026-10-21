@@ -207,16 +207,20 @@ pub fn run_micro_benchmark(c: &mut Criterion, benchmark: MicroBenchmark) {
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let benchmark_dir = Path::new("./benches/microbenchmarks/");
-    let dirs: Vec<fs::DirEntry> = benchmark_dir
+    let mut paths: Vec<_> = benchmark_dir
         .read_dir()
         .unwrap()
-        .collect::<io::Result<_>>()
-        .unwrap();
+        .collect::<io::Result<Vec<_>>>()
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "py"))
+        .collect();
+    paths.sort();
 
-    let benchmarks: Vec<MicroBenchmark> = dirs
+    let benchmarks: Vec<MicroBenchmark> = paths
         .iter()
-        .map(|d| {
-            let p = d.path();
+        .map(|p| {
             let name = p.file_name().unwrap().to_os_string();
             let contents = fs::read_to_string(p).unwrap();
             let iterate = contents.contains("ITERATIONS");
