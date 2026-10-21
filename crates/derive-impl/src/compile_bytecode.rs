@@ -14,7 +14,6 @@
 //! ```
 
 use crate::Diagnostic;
-use alloc::collections::BTreeMap;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
@@ -41,7 +40,6 @@ enum CompilationSourceKind {
 struct CompiledModule {
     code: CodeObject,
     package: bool,
-    namespace_container: bool,
 }
 
 struct CompilationSource {
@@ -93,38 +91,13 @@ impl CompilationSource {
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
             CompilationSourceKind::Dir { base, rel_path } => {
-                let mut containers = BTreeMap::new();
-                let mut modules = self.compile_dir(
-                    base,
-                    &base.join(rel_path),
-                    "",
-                    mode,
-                    compiler,
-                    &mut containers,
-                )?;
-                // Wait until all genuine modules are known: foo.py must beat a
-                // generated foo/ container regardless of directory iteration order.
-                for (name, path) in containers {
-                    if let std::collections::hash_map::Entry::Vacant(entry) =
-                        modules.entry(name.clone())
-                    {
-                        let code = self
-                            .compile_string("", Mode::Exec, &name, compiler, || path.display())?;
-                        entry.insert(CompiledModule {
-                            code,
-                            package: true,
-                            namespace_container: true,
-                        });
-                    }
-                }
-                Ok(modules)
+                self.compile_dir(base, &base.join(rel_path), "", mode, compiler)
             }
             _ => Ok(core::iter::once((
                 module_name.to_string(),
                 CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
-                    namespace_container: false,
                 },
             ))
             .collect()),
@@ -168,9 +141,7 @@ impl CompilationSource {
         parent: &str,
         mode: Mode,
         compiler: &dyn Compiler,
-        containers: &mut BTreeMap<String, PathBuf>,
     ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
-        let mut has_initializer = false;
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
@@ -204,10 +175,8 @@ impl CompilationSource {
                 } else {
                     format!("{parent}.{file_name}")
                 };
-                code_map
-                    .extend(self.compile_dir(base, &path, &nparent, mode, compiler, containers)?);
+                code_map.extend(self.compile_dir(base, &path, &nparent, mode, compiler)?);
             } else if file_name.ends_with(".py") {
-                has_initializer |= file_name == "__init__.py";
                 // These fixtures must be parsed at import time to exercise syntax errors.
                 if parent == "test.test_lazy_import.data.badsyntax" {
                     continue;
@@ -263,13 +232,9 @@ impl CompilationSource {
                     CompiledModule {
                         code,
                         package: is_init,
-                        namespace_container: false,
                     },
                 );
             }
-        }
-        if !parent.is_empty() && !has_initializer && !code_map.is_empty() {
-            containers.insert(parent.to_owned(), path.to_owned());
         }
         Ok(code_map)
     }
@@ -422,7 +387,6 @@ pub(crate) fn impl_py_freeze(
         let v = frozen::FrozenModule {
             code: frozen::FrozenCodeObject::encode(&v.code),
             package: v.package,
-            namespace_container: v.namespace_container,
         };
         (&**k, v)
     }));
@@ -433,136 +397,4 @@ pub(crate) fn impl_py_freeze(
     };
 
     Ok(output)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use rustpython_compiler_core::bytecode::{CodeFlags, ConstantData, Constants};
-
-    struct FixtureCompiler;
-
-    impl Compiler for FixtureCompiler {
-        fn compile(
-            &self,
-            source: &str,
-            _mode: Mode,
-            module_name: &str,
-        ) -> Result<CodeObject, Box<dyn core::error::Error>> {
-            if source == "invalid fixture" {
-                return Err(std::io::Error::other("fixture excluded by existing policy").into());
-            }
-            // Structural generator fixture only. No Python source is compiled
-            // or executed; source_path records which real entry survived.
-            Ok(CodeObject {
-                instructions: Vec::new().into(),
-                locations: Box::new([]),
-                flags: CodeFlags::empty(),
-                posonlyarg_count: 0,
-                arg_count: 0,
-                kwonlyarg_count: 0,
-                source_path: source.to_owned(),
-                first_line_number: None,
-                max_stackdepth: 0,
-                obj_name: module_name.to_owned(),
-                qualname: module_name.to_owned(),
-                constants: Constants::<ConstantData>::new(Box::new([])),
-                names: Box::new([]),
-                varnames: Box::new([]),
-                cellvars: Box::new([]),
-                freevars: Box::new([]),
-                localspluskinds: Box::new([]),
-                linetable: Box::new([]),
-                exceptiontable: Box::new([]),
-            })
-        }
-    }
-
-    struct FixtureDir(PathBuf);
-
-    impl FixtureDir {
-        fn new() -> Self {
-            static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "rustpython-freeze-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-
-        fn write(&self, path: &str, source: &str) {
-            let path = self.0.join(path);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(path, source).unwrap();
-        }
-
-        fn compile(&self) -> HashMap<String, CompiledModule> {
-            let source = CompilationSource {
-                kind: CompilationSourceKind::Dir {
-                    base: self.0.clone(),
-                    rel_path: PathBuf::new(),
-                },
-                span: (Span::call_site(), Span::call_site()),
-            };
-            source
-                .compile(Mode::Exec, "", &FixtureCompiler)
-                .unwrap_or_else(|_| panic!("fixture compilation failed"))
-        }
-    }
-
-    impl Drop for FixtureDir {
-        fn drop(&mut self) {
-            fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
-
-    #[test]
-    fn frozen_containers_follow_physical_directories_and_preserve_real_entries() {
-        for module_first in [true, false] {
-            let dir = FixtureDir::new();
-            if module_first {
-                dir.write("collision.py", "real module");
-            }
-            dir.write("collision/child.py", "child");
-            if !module_first {
-                dir.write("collision.py", "real module");
-            }
-            dir.write("namespace/nested/child.py", "child");
-            dir.write("namespace/regular/__init__.py", "real initializer");
-            dir.write("dotted.name/child.py", "child");
-            dir.write("data/readme.txt", "data only");
-            fs::create_dir(dir.0.join("empty")).unwrap();
-            dir.write("excluded/badsyntax_fixture.py", "invalid fixture");
-            dir.write("test/encoded_modules/__init__.py", "invalid fixture");
-            dir.write("test/encoded_modules/child.py", "child");
-            let modules = dir.compile();
-            for name in ["namespace", "namespace.nested", "dotted.name"] {
-                assert!(modules[name].package);
-                assert!(modules[name].namespace_container);
-                assert_eq!(modules[name].code.source_path, "");
-            }
-            assert!(!modules["collision"].package);
-            assert!(!modules["collision"].namespace_container);
-            assert_eq!(modules["collision"].code.source_path, "real module");
-            assert!(modules["namespace.regular"].package);
-            assert!(!modules["namespace.regular"].namespace_container);
-            assert_eq!(
-                modules["namespace.regular"].code.source_path,
-                "real initializer"
-            );
-            for absent in [
-                "",
-                "dotted",
-                "empty",
-                "data",
-                "excluded",
-                "test.encoded_modules",
-            ] {
-                assert!(!modules.contains_key(absent), "unexpected entry {absent}");
-            }
-        }
-    }
 }
