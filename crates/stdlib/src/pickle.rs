@@ -228,6 +228,9 @@ mod _pickle {
 
     /// Amount of data `peek()` grabs at a time from a file-like input.
     const PREFETCH: usize = 8192;
+    // Grow reads geometrically from this bound, rather than trusting a length
+    // advertised by a potentially truncated pickle.
+    const MIN_READ_BUF_SIZE: usize = 1 << 20;
 
     // input handling
 
@@ -248,13 +251,19 @@ mod _pickle {
     }
 
     fn to_byte_vec(obj: &PyObject, what: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        obj.downcast_ref::<crate::vm::builtins::PyBytes>()
-            .map(|b| b.as_bytes().to_vec())
+        let bytes = obj
+            .downcast_ref::<PyBytes>()
             .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "{what}() from the underlying stream did not return bytes"
                 ))
-            })
+            })?
+            .as_bytes();
+        let mut data = Vec::new();
+        data.try_reserve_exact(bytes.len())
+            .map_err(|_| vm.no_memory_error())?;
+        data.extend_from_slice(bytes);
+        Ok(data)
     }
 
     fn truncated(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -304,8 +313,19 @@ mod _pickle {
                 }
             }
             let read = self.read.clone().expect("file input");
-            let data = read.call((n,), vm)?;
-            let data = to_byte_vec(&data, "read", vm)?;
+            let mut chunk_size = n.min(MIN_READ_BUF_SIZE);
+            let data = read.call((chunk_size,), vm)?;
+            let mut data = to_byte_vec(&data, "read", vm)?;
+            let mut received = data.len();
+            while received == chunk_size && data.len() < n {
+                chunk_size = data.len().min(n - data.len());
+                let chunk = read.call((chunk_size,), vm)?;
+                let chunk = to_byte_vec(&chunk, "read", vm)?;
+                received = chunk.len();
+                data.try_reserve(received)
+                    .map_err(|_| vm.no_memory_error())?;
+                data.extend_from_slice(&chunk);
+            }
             let len = data.len();
             self.set_input(data, true);
             Ok(len)
@@ -316,7 +336,7 @@ mod _pickle {
             if let Some(end) = self.frame_end {
                 if self.pos >= end {
                     self.frame_end = None;
-                } else if self.pos + n > end {
+                } else if n > end - self.pos {
                     return Err(new_unpickling_error(
                         vm,
                         "pickle exhausted before end of frame",
