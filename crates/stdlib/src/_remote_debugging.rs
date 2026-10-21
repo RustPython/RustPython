@@ -205,7 +205,10 @@ mod _remote_debugging {
         if !vm.is_none(&fields[1]) {
             let values = record_fields(&fields[1], 4, "location", vm)?;
             for (target, value) in location.iter_mut().zip(values) {
-                *target = value.try_to_value::<core::ffi::c_long>(vm).unwrap_or(-1) as i32;
+                // Match CPython: C long is 32-bit on Windows, 64-bit on LP64.
+                #[allow(clippy::unnecessary_cast)]
+                let normalized = value.try_to_value::<core::ffi::c_long>(vm).unwrap_or(-1) as i32;
+                *target = normalized;
             }
         }
         let opcode = fields[3]
