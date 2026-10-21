@@ -586,6 +586,30 @@ impl VirtualMachine {
         self.compile_with_opts_and_module(source, mode, source_path, opts, None, &[])
     }
 
+    pub(crate) fn compile_symtable_with_module(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        filename: &str,
+        module: Option<&Py<PyStr>>,
+    ) -> Result<compiler::codegen::symboltable::SymbolTable, VmCompileError> {
+        #[cfg(feature = "parser")]
+        {
+            let start = match mode {
+                compiler::Mode::Exec | compiler::Mode::BlockExpr => CompileStart::File,
+                compiler::Mode::Eval => CompileStart::Eval,
+                compiler::Mode::Single => CompileStart::Single,
+            };
+            // A symbol table observes parser warnings, but does not compile
+            // bytecode or emit code-generation and AST-preprocessing warnings.
+            self.emit_ast_parser_warnings(source, filename, module, start, false)
+                .map_err(VmCompileError::Warning)?;
+        }
+        #[cfg(not(feature = "parser"))]
+        let _ = module;
+        compiler::compile_symtable(source, mode, filename).map_err(VmCompileError::Compile)
+    }
+
     pub(crate) fn compile_with_opts_and_module(
         &self,
         source: &str,
