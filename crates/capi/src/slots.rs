@@ -158,6 +158,7 @@ impl PySlot {
             })),
             96 => PySlotKind::Type(PySlotType::BasicSize(unsafe { self.value.sl_size })),
             97 => PySlotKind::Type(PySlotType::ExtraBasicSize(unsafe { self.value.sl_size })),
+            98 => PySlotKind::Type(PySlotType::ItemSize(unsafe { self.value.sl_size })),
             99 => PySlotKind::Type(PySlotType::Flags(unsafe { self.value.sl_uint64 })),
             100 => PySlotKind::Module(PySlotModule::Name(unsafe {
                 value_ptr.cast::<c_char>().try_as_str(vm)?
@@ -239,6 +240,7 @@ pub(crate) enum PySlotType<'a> {
     Flags(u64),
     BasicSize(isize),
     ExtraBasicSize(isize),
+    ItemSize(isize),
     Metaclass(&'a Py<PyType>),
     Module(&'a Py<PyModule>),
 }
