@@ -456,8 +456,14 @@ mod _lsprof {
                 Self::Function(function) => function,
             };
             let name = function.value.name;
+            // CPython normalizes the raw m_self, including STATIC's hidden
+            // type receiver, rather than its call-argument accessor.
+            let receiver = function
+                .zelf
+                .as_deref()
+                .or(function.module_object.as_deref());
             let module = function.module.load_owned();
-            let label = if let Some(receiver) = function.get_self() {
+            let label = if let Some(receiver) = receiver {
                 if let Some(descriptor) = receiver.class().get_attr(vm.ctx.intern_str(name))
                     && let Ok(label) = descriptor.repr(vm)
                 {
