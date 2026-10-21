@@ -5491,10 +5491,16 @@ fn fold_constant_sequence_into_load_const(
                     };
                     elements.push(value);
                 }
-                block.instructions[idx].nop_out_no_location();
             }
             debug_assert_eq!(elements.len(), consts_found);
             elements.reverse();
+            // A valid common constant may have no ConstantData representation.
+            // Leave the sequence intact when collecting its values rejects it.
+            for instr in &mut block.instructions[pos..end] {
+                if !matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                    instr.nop_out_no_location();
+                }
+            }
             instr_make_load_const(
                 metadata,
                 &mut block.instructions[i],
@@ -7366,6 +7372,66 @@ mod tests {
             nparams: 0,
             in_conditional_block: 0,
             next_conditional_annotation_index: 0,
+        }
+    }
+
+    #[test]
+    fn rejected_constant_append_fold_preserves_instructions() {
+        for (build, append, intrinsic) in [
+            (Opcode::BuildList, Opcode::ListAppend, false),
+            (Opcode::BuildSet, Opcode::SetAdd, false),
+            (Opcode::BuildList, Opcode::ListAppend, true),
+        ] {
+            let mut block = Block::default();
+            for (index, (opcode, arg)) in [
+                (build, 0),
+                (
+                    Opcode::LoadCommonConstant,
+                    oparg::CommonConstant::BuiltinAny as u32,
+                ),
+                (append, 1),
+                (Opcode::LoadSmallInt, 7),
+                (append, 1),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut instr = test_instr(Instruction::Nop, index as u32 + 1);
+                instr.instr = opcode.into();
+                instr.arg = OpArg::new(arg);
+                test_block_push(&mut block, instr);
+            }
+            let target = if intrinsic {
+                let mut instr = test_instr(Instruction::Nop, 6);
+                instr.instr = Opcode::CallIntrinsic1.into();
+                instr.arg = OpArg::new(IntrinsicFunction1::ListToTuple as u32);
+                test_block_push(&mut block, instr);
+                5
+            } else {
+                4
+            };
+            let before = block.instructions.clone();
+            let mut metadata = test_code_info(Block::default()).metadata;
+            metadata.consts.insert_full(int_const(42));
+            let consts_before = metadata.consts.clone().into_vec();
+
+            // BuiltinAny is a valid common constant but has no ConstantData
+            // representation. Reject the fold before changing any of its tail.
+            assert!(
+                !fold_constant_sequence_into_load_const(&mut metadata, &mut block, target).unwrap()
+            );
+            assert_eq!(metadata.consts.clone().into_vec(), consts_before);
+            assert_eq!(block.instructions.len(), before.len());
+            for (actual, expected) in block.instructions.iter().zip(&before) {
+                assert_eq!(actual.instr.real_opcode(), expected.instr.real_opcode());
+                assert_eq!(u32::from(actual.arg), u32::from(expected.arg));
+                assert_eq!(actual.target, expected.target);
+                assert_eq!(actual.location, expected.location);
+                assert_eq!(actual.end_location, expected.end_location);
+                assert_eq!(actual.except_handler, expected.except_handler);
+                assert_eq!(actual.semantic_location, expected.semantic_location);
+                assert_eq!(actual.lineno_override, expected.lineno_override);
+            }
         }
     }
 
