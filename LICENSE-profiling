@@ -1,7 +1,9 @@
 Vendored profiling output assets
 ===============================
 
-Copied unchanged from CPython commit d220409a13b77de7a6c30abe16ea90db01528edc.
+License notices and terms copied from CPython commit
+d220409a13b77de7a6c30abe16ea90db01528edc, with the section reference adapted
+for this standalone notice.
 Source notices: Doc/license.rst, "Profiling module" and the Apache License
 text referenced there (reproduced below from the "OpenSSL" section).
 https://github.com/python/cpython/blob/d220409a13b77de7a6c30abe16ea90db01528edc/Doc/license.rst
@@ -21,7 +23,7 @@ The :mod:`!profiling` module includes vendored third-party libraries in
 **d3-flamegraph**
 
 The d3-flamegraph library is distributed under the Apache License, Version 2.0.
-See the OpenSSL section above for the full text of the Apache License Version 2.0.
+See "Referenced Apache License text" below for the full text of the Apache License Version 2.0.
 
 **d3.js**
 
