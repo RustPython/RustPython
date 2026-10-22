@@ -1,6 +1,6 @@
 // spell-checker: ignore AGEN
 
-use super::{PyCode, PyGenerator, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
@@ -731,66 +731,21 @@ impl PyAnextAwaitable {
     /// Get the awaitable iterator from wrapped object.
     // = anextawaitable_getiter.
     fn get_awaitable_iter(&self, vm: &VirtualMachine) -> PyResult {
-        use crate::builtins::PyCoroutine;
         use crate::protocol::PyIter;
 
-        let wrapped = &self.wrapped;
-
-        // If wrapped is already an async_generator_asend, it's an iterator
-        if wrapped.class().is(vm.ctx.types.async_generator_asend)
-            || wrapped.class().is(vm.ctx.types.async_generator_athrow)
-        {
-            return Ok(wrapped.clone());
-        }
-
-        // _PyCoro_GetAwaitableIter equivalent
-        let awaitable = if wrapped.class().is(vm.ctx.types.coroutine_type) {
-            // Coroutine - get __await__ later
-            wrapped.clone()
-        } else {
-            // Check for generator with CO_ITERABLE_COROUTINE flag
-            if let Some(generator) = wrapped.downcast_ref::<PyGenerator>()
-                && generator
-                    .as_coro()
-                    .code()
-                    .flags
-                    .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
-            {
-                // Return the generator itself as the iterator
-                return Ok(wrapped.clone());
-            }
-            // Try to get __await__ method
-            if let Some(await_method) = vm.get_method(wrapped.clone(), identifier!(vm, __await__)) {
-                await_method?.call((), vm)?
-            } else {
-                return Err(vm.new_type_error(format!(
-                    "'{}' object can't be awaited",
-                    wrapped.class().name()
-                )));
-            }
-        };
+        let awaitable = crate::coroutine::get_awaitable_iter(self.wrapped.clone(), vm)?;
 
         // If awaitable is a coroutine, get its __await__
         if awaitable.class().is(vm.ctx.types.coroutine_type) {
             let coro_await = vm.call_method(&awaitable, "__await__", ())?;
             // Check that __await__ returned an iterator
             if !PyIter::check(&coro_await) {
-                return Err(vm.new_type_error("__await__ returned a non-iterable"));
+                return Err(vm.new_type_error(format!(
+                    "anext_awaitable.__await__() must return an iterable, not {}",
+                    coro_await.class().fully_qualified_name(vm)?
+                )));
             }
             return Ok(coro_await);
-        }
-
-        // Check the result is an iterator, not a coroutine
-        if awaitable.downcast_ref::<PyCoroutine>().is_some() {
-            return Err(vm.new_type_error("__await__() returned a coroutine"));
-        }
-
-        // Check that the result is an iterator
-        if !PyIter::check(&awaitable) {
-            return Err(vm.new_type_error(format!(
-                "__await__() returned non-iterator of type '{}'",
-                awaitable.class().name()
-            )));
         }
 
         Ok(awaitable)
