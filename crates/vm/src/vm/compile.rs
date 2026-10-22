@@ -645,10 +645,16 @@ impl VirtualMachine {
         let _ = (module, emitted_escapes);
         #[cfg(feature = "parser")]
         {
-            self.emit_tokenizer_syntax_warnings(source, &source_path, module)
-                .map_err(VmCompileError::Warning)?;
-            self.emit_string_escape_warnings(source, &source_path, module, emitted_escapes)
-                .map_err(VmCompileError::Warning)?;
+            self.emit_standard_parser_warnings(
+                source,
+                &source_path,
+                module,
+                mode,
+                opts.future_features
+                    .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+                emitted_escapes,
+            )
+            .map_err(VmCompileError::Warning)?;
         }
         self.compile_after_parser_warnings_object(source, mode, source_path, opts, module)
     }
@@ -1728,13 +1734,20 @@ mod escape_warnings {
         }
     }
 
+    struct CollectedParserWarnings {
+        warnings: Vec<ParserWarning>,
+        tokenizer_recovery: bool,
+        has_valid_syntax: bool,
+    }
+
     fn collect_parser_warnings(
         source: &str,
         filename: &str,
         mode: Option<ruff_python_parser::Mode>,
         inherited_barry_as_flufl: bool,
-    ) -> (Vec<ParserWarning>, bool) {
+    ) -> CollectedParserWarnings {
         let mut ast_tokenizer_recovery = true;
+        let mut has_valid_syntax = false;
         let mut warnings = Vec::new();
         collect_numeric_literal_warnings(source, &mut warnings);
         // The compile that follows rejects this source; parsing it here
@@ -1751,6 +1764,7 @@ mod escape_warnings {
             );
             let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), options);
             if parsed.has_valid_syntax() {
+                has_valid_syntax = true;
                 let mut visitor = EscapeWarningVisitor {
                     source,
                     warnings: &mut warnings,
@@ -1819,18 +1833,62 @@ mod escape_warnings {
         }) {
             ast_tokenizer_recovery = false;
         }
-        (warnings, ast_tokenizer_recovery)
+        CollectedParserWarnings {
+            warnings,
+            tokenizer_recovery: ast_tokenizer_recovery,
+            has_valid_syntax,
+        }
     }
 
     enum WarningEmission<'a> {
-        Standard { emitted_escapes: &'a [usize] },
-        Ast { tokenizer_recovery: bool },
+        Standard {
+            emitted_escapes: &'a [usize],
+            tokenizer_recovery: bool,
+        },
+        Ast {
+            tokenizer_recovery: bool,
+        },
         Interactive(&'a mut super::InteractiveWarnings),
     }
 
     impl VirtualMachine {
-        // Keep ordinary source compilation's existing warning order and
-        // recovery surface; interactive records use the bounded parser below.
+        pub(super) fn emit_standard_parser_warnings(
+            &self,
+            source: &str,
+            filename: &str,
+            module: Option<&PyObject>,
+            mode: compiler::Mode,
+            inherited_barry_as_flufl: bool,
+            emitted_escapes: &[usize],
+        ) -> Result<(), CompileWarningError> {
+            let mode = match mode {
+                compiler::Mode::Eval => ruff_python_parser::Mode::Expression,
+                compiler::Mode::Exec | compiler::Mode::Single | compiler::Mode::BlockExpr => {
+                    ruff_python_parser::Mode::Module
+                }
+            };
+            let collected =
+                collect_parser_warnings(source, filename, Some(mode), inherited_barry_as_flufl);
+            if !collected.has_valid_syntax || !collected.tokenizer_recovery {
+                // Invalid source and interpolated tokenizer warnings need a
+                // separate recovery contract. Preserve their existing behavior.
+                self.emit_tokenizer_syntax_warnings(source, filename, module)?;
+                return self.emit_string_escape_warnings(source, filename, module, emitted_escapes);
+            }
+            self.emit_parser_warning_batch(
+                source,
+                filename,
+                module,
+                collected.warnings,
+                WarningEmission::Standard {
+                    emitted_escapes,
+                    tokenizer_recovery: collected.tokenizer_recovery,
+                },
+            )
+            .map(|_| ())
+        }
+
+        // Preserve the existing invalid-source warning order and recovery surface.
         pub(super) fn emit_tokenizer_syntax_warnings(
             &self,
             source: &str,
@@ -1846,6 +1904,7 @@ mod escape_warnings {
                 warnings,
                 WarningEmission::Standard {
                     emitted_escapes: &[],
+                    tokenizer_recovery: false,
                 },
             )
             .map(|_| ())
@@ -1895,7 +1954,10 @@ mod escape_warnings {
                 filename,
                 module,
                 warnings,
-                WarningEmission::Standard { emitted_escapes },
+                WarningEmission::Standard {
+                    emitted_escapes,
+                    tokenizer_recovery: false,
+                },
             )
             .map(|_| ())
         }
@@ -1913,15 +1975,15 @@ mod escape_warnings {
                 CompileStart::Eval => Some(ruff_python_parser::Mode::Expression),
                 CompileStart::FuncType => None,
             };
-            let (warnings, recovery) =
+            let collected =
                 collect_parser_warnings(source, filename, mode, inherited_barry_as_flufl);
             self.emit_parser_warning_batch(
                 source,
                 filename,
                 module.map(AsObject::as_object),
-                warnings,
+                collected.warnings,
                 WarningEmission::Ast {
-                    tokenizer_recovery: recovery
+                    tokenizer_recovery: collected.tokenizer_recovery
                         && matches!(start, CompileStart::File | CompileStart::Eval),
                 },
             )
@@ -1936,7 +1998,7 @@ mod escape_warnings {
             inherited_barry_as_flufl: bool,
             emitted: &mut super::InteractiveWarnings,
         ) -> Result<(), CompileWarningError> {
-            let (warnings, _) = collect_parser_warnings(
+            let collected = collect_parser_warnings(
                 source,
                 filename,
                 Some(ruff_python_parser::Mode::Module),
@@ -1946,7 +2008,7 @@ mod escape_warnings {
                 source,
                 filename,
                 module.map(AsObject::as_object),
-                warnings,
+                collected.warnings,
                 WarningEmission::Interactive(emitted),
             )
             .map(|_| ())
@@ -1961,7 +2023,10 @@ mod escape_warnings {
             emission: WarningEmission<'_>,
         ) -> Result<Vec<usize>, CompileWarningError> {
             let (emitted_escapes, ast_tokenizer_recovery, mut interactive) = match emission {
-                WarningEmission::Standard { emitted_escapes } => (emitted_escapes, false, None),
+                WarningEmission::Standard {
+                    emitted_escapes,
+                    tokenizer_recovery,
+                } => (emitted_escapes, tokenizer_recovery, None),
                 WarningEmission::Ast { tokenizer_recovery } => (&[][..], tokenizer_recovery, None),
                 WarningEmission::Interactive(emitted) => (&[][..], false, Some(emitted)),
             };
