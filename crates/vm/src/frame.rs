@@ -7410,7 +7410,8 @@ impl ExecutingFrame<'_> {
                 let nargs: u32 = arg.into();
                 let callable = self.nth_value(nargs + 1);
                 if let Some(cls) = callable.downcast_ref::<PyType>()
-                    && cls.slots().vectorcall.load().is_some()
+                    && cls.slots().constructor_vectorcall.load().is_some()
+                    && callable.vectorcall_func().is_some()
                 {
                     let (callable, args_vec) = self.take_call_args(nargs as usize);
                     let effective_nargs = args_vec.len();
@@ -11396,7 +11397,9 @@ impl ExecutingFrame<'_> {
                         return;
                     }
                 }
-                if cls.slots().vectorcall.load().is_some() {
+                if cls.slots().constructor_vectorcall.load().is_some()
+                    && callable.vectorcall_func().is_some()
+                {
                     self.specialize_at(instr_idx, cache_base, Instruction::CallBuiltinClass);
                     return;
                 }

@@ -852,7 +852,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .tuple_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_tuple));
 }
 

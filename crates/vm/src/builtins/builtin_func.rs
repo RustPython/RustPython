@@ -331,6 +331,12 @@ pub(crate) fn init(context: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_native_function));
+    context
+        .types
+        .builtin_function_or_method_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyNativeMethod::extend_class(context, context.types.builtin_method_type);
 }
 

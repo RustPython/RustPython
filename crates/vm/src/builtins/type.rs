@@ -27,8 +27,8 @@ use crate::{
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, Callable, Constructor, GetAttr, Initializer, NewFunc, PyTypeFlags, PyTypeSlots,
-        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot, fn_addr,
-        new_wrapper,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        VectorCallFunc, fn_addr, new_wrapper,
     },
 };
 use core::{
@@ -3433,26 +3433,15 @@ fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
  * The magical type type
  */
 
-/// Vectorcall for PyType (PEP 590).
-/// Fast path: type(x) returns x.__class__ without constructing FuncArgs.
-///
-/// # Implementation note: `slots.vectorcall` dual use
-///
-/// CPython has three distinct fields on PyTypeObject:
-///   - `tp_vectorcall`: constructor fast path (e.g. `list_vectorcall`)
-///   - `tp_vectorcall_offset`: per-instance vectorcall for callables (e.g. functions)
-///   - `tp_call`: standard call slot
-///
-/// RustPython collapses the first two into a single `slots.vectorcall`. The
-/// `call.is_none()` guard below distinguishes the two uses: callable types have
-/// `slots.call` set, so their `slots.vectorcall` is for calling instances,
-/// not for construction.
-///
-/// This heuristic is correct for all current builtins but is not a general
-/// solution — `type` itself is both callable and has a constructor vectorcall,
-/// handled by the explicit `zelf.is(type_type)` check above the guard.
-/// If more such types arise, consider splitting into a dedicated
-/// `constructor_vectorcall` slot.
+// Types can be visible to custom mro/__classcell__ code during initialization.
+// A missing new slot or constructor implementation leaves ordinary call as fallback.
+fn resolve_type_vectorcall(obj: &PyObject) -> Option<VectorCallFunc> {
+    let typ = obj.downcast_ref::<PyType>()?;
+    typ.slots.new.load()?;
+    typ.slots.constructor_vectorcall.load()
+}
+
+/// Vectorcall for type's own constructor (PEP 590).
 fn vectorcall_type(
     zelf_obj: &PyObject,
     args: Vec<PyObjectRef>,
@@ -3468,12 +3457,6 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
-    } else if zelf.slots().call.load().is_none() && zelf.slots().new.load().is_some() {
-        // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
-        // Also guard on slots.new to avoid dispatching for DISALLOW_INSTANTIATION types.
-        if let Some(type_vc) = zelf.slots().vectorcall.load() {
-            return type_vc(zelf_obj, args, nargs, kwnames, vm);
-        }
     }
 
     // Fallback: construct FuncArgs and use standard call
@@ -3486,8 +3469,18 @@ pub(crate) fn init(ctx: &'static Context) {
     ctx.types
         .type_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_type));
+    ctx.types
+        .type_type
+        .slots
+        .vectorcall_resolver
+        .store(Some(resolve_type_vectorcall));
+    ctx.types
+        .type_type
+        .slots
+        .flags
+        .insert(PyTypeFlags::HAVE_VECTORCALL);
 }
 
 pub(crate) fn call_slot_new(

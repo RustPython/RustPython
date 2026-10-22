@@ -1959,7 +1959,7 @@ pub(crate) fn init(ctx: &'static Context) {
     ctx.types
         .str_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_str));
 
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
