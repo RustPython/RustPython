@@ -37,7 +37,7 @@ mod _testinternalcapi {
         common::{hash::PyHash, lock::LazyLock},
         dict_inner,
         frame::FrameObject,
-        function::{OptionalArg, PyComparisonValue},
+        function::{FuncArgs, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
         types::{
@@ -45,7 +45,12 @@ mod _testinternalcapi {
             SelfIter,
         },
     };
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::time::TimeT;
     use std::collections::HashMap;
+
+    #[cfg(not(any(unix, windows)))]
+    type TimeT = i64;
 
     // ADAPTIVE_WARMUP_VALUE + 1
     #[pyattr]
@@ -69,7 +74,7 @@ mod _testinternalcapi {
     const SIZEOF_PYOBJECT: usize = core::mem::size_of::<crate::PyObject>();
 
     #[pyattr]
-    const SIZEOF_TIME_T: usize = 8;
+    const SIZEOF_TIME_T: usize = core::mem::size_of::<TimeT>();
 
     // JUMP_BACKWARD_INITIAL_VALUE + 1
     #[pyattr]
@@ -486,24 +491,119 @@ mod _testinternalcapi {
         }
     }
 
+    fn pytime_args<'a, const N: usize>(
+        args: &'a FuncArgs,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a [PyObjectRef; N]> {
+        // These CPython test helpers use METH_VARARGS, not keyword parsing.
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+        }
+        args.args.as_slice().try_into().map_err(|_| {
+            vm.new_type_error(format!(
+                "function takes exactly {} argument{} ({} given)",
+                N,
+                if N == 1 { "" } else { "s" },
+                args.args.len()
+            ))
+        })
+    }
+
+    fn pytime_c_int(object: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+        // PyArg_ParseTuple's "i" converts to C long before checking C int bounds.
+        let value: core::ffi::c_long = object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
+        num_traits::ToPrimitive::to_i32(&value).ok_or_else(|| {
+            vm.new_overflow_error(if value < 0 {
+                "signed integer is less than minimum"
+            } else {
+                "signed integer is greater than maximum"
+            })
+        })
+    }
+
+    fn pytime_i64(object: &PyObject, vm: &VirtualMachine) -> PyResult<i64> {
+        object
+            .try_index(vm)?
+            .as_bigint()
+            .try_into()
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C int64_t"))
+    }
+
+    fn pytime_pair(
+        value: i64,
+        denominator: i64,
+        minimum: i64,
+        maximum: i64,
+        clamp: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let seconds = value.div_euclid(denominator);
+        if !(minimum..=maximum).contains(&seconds) {
+            if !clamp {
+                return Err(vm.new_overflow_error("timestamp out of range for platform time_t"));
+            }
+            return Ok((seconds.clamp(minimum, maximum), 0));
+        }
+        Ok((seconds, value.rem_euclid(denominator)))
+    }
+
     #[pyfunction(name = "_PyTime_AsTimespec")]
-    fn pytime_as_timespec(ns: i64) -> (i64, i64) {
-        let sec = ns.div_euclid(1_000_000_000);
-        let nsec = ns.rem_euclid(1_000_000_000);
-        (sec, nsec)
+    fn pytime_as_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec", vm)?;
+        pytime_pair(
+            pytime_i64(ns, vm)?,
+            1_000_000_000,
+            TimeT::MIN as _,
+            TimeT::MAX as _,
+            false,
+            vm,
+        )
     }
 
     #[pyfunction(name = "_PyTime_AsTimespec_clamp")]
-    fn pytime_as_timespec_clamp(ns: i64) -> (i64, i64) {
-        pytime_as_timespec(ns)
+    fn pytime_as_timespec_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns] = pytime_args::<1>(&args, "_PyTime_AsTimespec_clamp", vm)?;
+        pytime_pair(
+            pytime_i64(ns, vm)?,
+            1_000_000_000,
+            TimeT::MIN as _,
+            TimeT::MAX as _,
+            true,
+            vm,
+        )
     }
 
     #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
-    fn pytime_as_timeval_clamp(ns: i64, _rnd: OptionalArg<i32>) -> (i64, i64) {
-        let us = ns.div_euclid(1000);
-        let sec = us.div_euclid(1_000_000);
-        let usec = us.rem_euclid(1_000_000);
-        (sec, usec)
+    fn pytime_as_timeval_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval_clamp", vm)?;
+        let round = pytime_c_int(round, vm)?;
+        if !(0..=3).contains(&round) {
+            return Err(vm.new_value_error("invalid rounding"));
+        }
+        // Validate rounding before converting the timestamp, as the C wrapper does.
+        let ns = pytime_i64(ns, vm)?;
+        let quotient = ns / 1_000;
+        let remainder = ns % 1_000;
+        let round_away = match round {
+            0 => remainder < 0,
+            1 => remainder > 0,
+            2 => remainder.abs() > 500 || (remainder.abs() == 500 && quotient % 2 != 0),
+            _ => remainder != 0,
+        };
+        // Adjust the quotient, never ns: both signed 64-bit endpoints are valid.
+        let us = quotient + if round_away { ns.signum() } else { 0 };
+        // Windows timeval uses C long even though the host time_t is 64-bit.
+        #[cfg(windows)]
+        let (minimum, maximum): (i64, i64) =
+            (core::ffi::c_long::MIN as _, core::ffi::c_long::MAX as _);
+        #[cfg(not(windows))]
+        let (minimum, maximum): (i64, i64) = (TimeT::MIN as _, TimeT::MAX as _);
+        pytime_pair(us, 1_000_000, minimum, maximum, true, vm)
     }
 
     #[pyfunction]
