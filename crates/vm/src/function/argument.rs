@@ -307,8 +307,8 @@ impl FuncArgs {
         let arity = arity.start().saturating_sub(instance)..=arity.end().saturating_sub(instance);
         let num_given = self.args.len().saturating_sub(instance);
 
-        // Like CPython, too many positional arguments is reported before any
-        // argument is converted, so a conversion cannot run user code first.
+        // Too many positional arguments are reported before any argument is
+        // converted, so a conversion cannot run user code first.
         if num_given > *arity.end() {
             return Err(ArgumentError::TooManyArgs.into_exception(&arity, num_given, callee, vm));
         }
@@ -1035,6 +1035,7 @@ macro_rules! tuple_from_py_func_args {
                 $(
                     let (start, end) = $T::arity().into_inner();
                     min += start;
+                    // An unbounded `end` is `usize::MAX`, so the sum saturates.
                     max = usize::saturating_add(max, end);
                 )+
                 min..=max

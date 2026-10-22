@@ -602,7 +602,8 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         .map(ArgAttribute::try_from)
         .collect::<Result<Vec<_>>>()?;
     let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
-    // A flattened field adds its own type's upper bound.
+    // A flattened field adds its own type's upper bound. An unbounded one
+    // such as `PosArgs` is `usize::MAX`, so the sum saturates.
     let flattened = struct_fields
         .iter()
         .zip(&field_attrs)
