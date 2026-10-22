@@ -933,7 +933,7 @@ mod escape_warnings {
     #[derive(Clone, Copy)]
     struct InterpolatedBodyContext<'a> {
         anchor: InterpolatedBodyAnchor,
-        index: &'a std::cell::OnceCell<SourceDiagnosticIndex>,
+        index: &'a core::cell::OnceCell<SourceDiagnosticIndex>,
         implicit_final_newline: bool,
     }
 
@@ -946,7 +946,7 @@ mod escape_warnings {
         end: usize,
         escape_offset: usize,
         context: InterpolatedBodyContext<'_>,
-    ) -> Option<EscapeDiagnosticLocation> {
+    ) -> EscapeDiagnosticLocation {
         debug_assert!(start <= escape_offset && escape_offset < end);
         let anchor = context.anchor;
         let index = context
@@ -965,7 +965,7 @@ mod escape_warnings {
         // computing the first invalid escape pointer. Backslash + non-ASCII
         // uses \u005c followed by that rewrite. Include the invalid backslash,
         // not the following character to which first_invalid_escape points.
-        let mut chars = source[start..escape_offset + 1].chars().peekable();
+        let mut chars = source[start..=escape_offset].chars().peekable();
         while let Some(mut ch) = chars.next() {
             if ch == '\\' {
                 column += if chars.peek().is_some_and(|ch| !ch.is_ascii()) {
@@ -1003,14 +1003,14 @@ mod escape_warnings {
                 + usize::from(append_newline && offset > content_len)
                 + usize::from(offset > content_len + usize::from(append_newline))
         };
-        Some(EscapeDiagnosticLocation {
+        EscapeDiagnosticLocation {
             lineno,
             offset: character_offset(column),
             end_offset: character_offset(column + 2),
             text_start: line.start,
             text_end: line.end,
             append_newline,
-        })
+        }
     }
 
     enum ParserWarning {
@@ -1567,7 +1567,7 @@ mod escape_warnings {
                 EscapeOrigin::Parser
             };
             let diagnostic = if origin == EscapeOrigin::Parser {
-                anchor.and_then(|anchor| {
+                anchor.map(|anchor| {
                     interpolated_body_location(source, start, end, escape.offset(), anchor)
                 })
             } else {
@@ -1867,20 +1867,20 @@ mod escape_warnings {
                     fragment_start = cursor;
                 }
                 b'\\' => {
-                    if bytes.get(cursor + 1) == Some(&b'N') && bytes.get(cursor + 2) == Some(&b'{')
+                    if bytes.get(cursor + 1) == Some(&b'N')
+                        && bytes.get(cursor + 2) == Some(&b'{')
+                        && let Some(close) = source[cursor + 3..end].find('}')
                     {
-                        if let Some(close) = source[cursor + 3..end].find('}') {
-                            cursor += 3 + close + 1;
-                            collect_fstring_literal_warning(
-                                source,
-                                fragment_start,
-                                cursor,
-                                warnings,
-                                Some(anchor),
-                            );
-                            fragment_start = cursor;
-                            continue;
-                        }
+                        cursor += 3 + close + 1;
+                        collect_fstring_literal_warning(
+                            source,
+                            fragment_start,
+                            cursor,
+                            warnings,
+                            Some(anchor),
+                        );
+                        fragment_start = cursor;
+                        continue;
                     }
                     cursor += 1;
                     if cursor < end && !matches!(bytes[cursor], b'{' | b'}') {
@@ -1905,7 +1905,7 @@ mod escape_warnings {
         warnings: &'w mut Vec<ParserWarning>,
         ast_only: bool,
         interpolated_body_diagnostics: InterpolatedBodyDiagnostics,
-        diagnostic_index: std::cell::OnceCell<SourceDiagnosticIndex>,
+        diagnostic_index: core::cell::OnceCell<SourceDiagnosticIndex>,
         /// This pass runs before the compile that rejects an over-nested
         /// tree, so it has to stop itself.
         depth: usize,
@@ -2111,7 +2111,7 @@ mod escape_warnings {
                     warnings: &mut warnings,
                     ast_only: true,
                     interpolated_body_diagnostics,
-                    diagnostic_index: std::cell::OnceCell::new(),
+                    diagnostic_index: core::cell::OnceCell::new(),
                     depth: 0,
                     depth_limit: compiler::CompileOpts::default().recursion_limit,
                 };
@@ -2299,7 +2299,7 @@ mod escape_warnings {
                     warnings: &mut warnings,
                     ast_only: false,
                     interpolated_body_diagnostics: InterpolatedBodyDiagnostics::Legacy,
-                    diagnostic_index: std::cell::OnceCell::new(),
+                    diagnostic_index: core::cell::OnceCell::new(),
                     depth: 0,
                     depth_limit: compiler::CompileOpts::default().recursion_limit,
                 };
