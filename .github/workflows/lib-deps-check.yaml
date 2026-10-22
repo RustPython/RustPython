@@ -116,6 +116,17 @@ jobs:
           # Run deps for all modules at once
           echo "deps_output<<EOF" >> "$GITHUB_OUTPUT"
           output=$(python scripts/update_lib deps "${MODULES}"  --depth 2 2>&1 || true)
+          output=$(python -c '
+          import sys
+
+          output = sys.stdin.read()
+          limit = 60000
+          encoded = output.encode()
+          if len(encoded) > limit:
+              output = encoded[:limit].decode("utf-8", errors="ignore")
+              output += "\n\n[Dependency report truncated to fit in a GitHub comment.]"
+          print(output, end="")
+          ' <<< "$output")
           echo "$output" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
         env:
