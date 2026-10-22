@@ -188,14 +188,16 @@ pub(crate) mod _ctypes {
                         FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
+                    let v = crate::literal::float::to_string(v);
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
-                b'd' | b'g' => {
+                b'd' => {
                     let v = match ffi_val {
                         FfiValue::F64(v) => v,
                         FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
+                    let v = crate::literal::float::to_string(v);
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'c' => {
