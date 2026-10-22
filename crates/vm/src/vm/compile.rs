@@ -2084,19 +2084,15 @@ mod escape_warnings {
                         }
                     }
                     ParserWarning::Numeric {
-                        offset,
                         last_offset,
                         message,
+                        ..
                     } => {
                         warn_syntax_at_offset(
                             source,
                             filename,
                             module,
-                            if interactive.is_some() {
-                                last_offset
-                            } else {
-                                offset
-                            },
+                            last_offset,
                             message.clone(),
                             self,
                         )
