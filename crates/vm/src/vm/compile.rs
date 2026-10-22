@@ -1983,8 +1983,15 @@ mod escape_warnings {
                 module.map(AsObject::as_object),
                 collected.warnings,
                 WarningEmission::Ast {
+                    // Unlike an interactive prompt, Single compile input recovers
+                    // after a parser warning becomes an error. Later numeric
+                    // tokenizer warnings raised as errors still take precedence,
+                    // including on a following logical line.
                     tokenizer_recovery: collected.tokenizer_recovery
-                        && matches!(start, CompileStart::File | CompileStart::Eval),
+                        && matches!(
+                            start,
+                            CompileStart::File | CompileStart::Eval | CompileStart::Single
+                        ),
                 },
             )
         }
