@@ -5,7 +5,7 @@
 use core::fmt;
 
 use crate::{
-    AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyCode, PyStr},
     compiler::{self, CompileError, CompileOpts},
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
@@ -465,7 +465,7 @@ impl VirtualMachine {
                 source,
                 escape_warnings::InvalidEscape::Char { ch, offset },
                 filename,
-                module,
+                module.map(AsObject::as_object),
                 self,
             )
             .map_err(VmCompileError::Warning)
@@ -619,6 +619,27 @@ impl VirtualMachine {
         module: Option<&Py<PyStr>>,
         emitted_escapes: &[usize],
     ) -> Result<PyRef<PyCode>, VmCompileError> {
+        self.compile_with_opts_and_module_object(
+            source,
+            mode,
+            source_path,
+            opts,
+            module.map(AsObject::as_object),
+            emitted_escapes,
+        )
+    }
+
+    // eval()/exec() forward globals["__name__"] unchanged. In particular,
+    // an absent name and an explicit None have different warning semantics.
+    pub(crate) fn compile_with_opts_and_module_object(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        source_path: impl Into<String>,
+        opts: CompileOpts,
+        module: Option<&PyObject>,
+        emitted_escapes: &[usize],
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
         let source_path = source_path.into();
         #[cfg(not(feature = "parser"))]
         let _ = (module, emitted_escapes);
@@ -629,7 +650,7 @@ impl VirtualMachine {
             self.emit_string_escape_warnings(source, &source_path, module, emitted_escapes)
                 .map_err(VmCompileError::Warning)?;
         }
-        self.compile_after_parser_warnings(source, mode, source_path, opts, module)
+        self.compile_after_parser_warnings_object(source, mode, source_path, opts, module)
     }
 
     pub(super) fn compile_after_parser_warnings(
@@ -639,6 +660,23 @@ impl VirtualMachine {
         source_path: impl Into<String>,
         opts: CompileOpts,
         module: Option<&Py<PyStr>>,
+    ) -> Result<PyRef<PyCode>, VmCompileError> {
+        self.compile_after_parser_warnings_object(
+            source,
+            mode,
+            source_path,
+            opts,
+            module.map(AsObject::as_object),
+        )
+    }
+
+    fn compile_after_parser_warnings_object(
+        &self,
+        source: &str,
+        mode: compiler::Mode,
+        source_path: impl Into<String>,
+        opts: CompileOpts,
+        module: Option<&PyObject>,
     ) -> Result<PyRef<PyCode>, VmCompileError> {
         let source_path = source_path.into();
         #[cfg(not(feature = "parser"))]
@@ -946,7 +984,7 @@ mod escape_warnings {
         source: &str,
         escape: InvalidEscape,
         filename: &str,
-        module: Option<&Py<PyStr>>,
+        module: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let (lineno, column) = line_offset_at(source, escape.offset());
@@ -958,7 +996,7 @@ mod escape_warnings {
             vm.ctx.new_str(warning).into(),
             fname,
             lineno,
-            module.map(|module| module.to_owned().into()),
+            module.map(ToOwned::to_owned),
             vm.ctx.none(),
             None,
             None,
@@ -979,7 +1017,7 @@ mod escape_warnings {
     fn warn_syntax_at_offset(
         source: &str,
         filename: &str,
-        module: Option<&Py<PyStr>>,
+        module: Option<&PyObject>,
         offset: usize,
         message: String,
         vm: &VirtualMachine,
@@ -992,7 +1030,7 @@ mod escape_warnings {
             message.into(),
             fname,
             lineno,
-            module.map(|module| module.to_owned().into()),
+            module.map(ToOwned::to_owned),
             vm.ctx.none(),
             None,
             None,
@@ -1003,7 +1041,7 @@ mod escape_warnings {
 
     pub(super) fn warn_syntax_at_location(
         filename: &str,
-        module: Option<&Py<PyStr>>,
+        module: Option<&PyObject>,
         location: compiler::core::SourceLocation,
         message: String,
         vm: &VirtualMachine,
@@ -1015,7 +1053,7 @@ mod escape_warnings {
             message.into(),
             fname,
             location.line.get(),
-            module.map(|module| module.to_owned().into()),
+            module.map(ToOwned::to_owned),
             vm.ctx.none(),
             None,
             None,
@@ -1797,7 +1835,7 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
-            module: Option<&Py<PyStr>>,
+            module: Option<&PyObject>,
         ) -> Result<(), CompileWarningError> {
             let mut warnings = Vec::new();
             collect_numeric_literal_warnings(source, &mut warnings);
@@ -1817,7 +1855,7 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
-            module: Option<&Py<PyStr>>,
+            module: Option<&PyObject>,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
             let source_file = compiler::core::SourceFileBuilder::new(filename, source).finish();
@@ -1880,7 +1918,7 @@ mod escape_warnings {
             self.emit_parser_warning_batch(
                 source,
                 filename,
-                module,
+                module.map(AsObject::as_object),
                 warnings,
                 WarningEmission::Ast {
                     tokenizer_recovery: recovery
@@ -1907,7 +1945,7 @@ mod escape_warnings {
             self.emit_parser_warning_batch(
                 source,
                 filename,
-                module,
+                module.map(AsObject::as_object),
                 warnings,
                 WarningEmission::Interactive(emitted),
             )
@@ -1918,7 +1956,7 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
-            module: Option<&Py<PyStr>>,
+            module: Option<&PyObject>,
             warnings: Vec<ParserWarning>,
             emission: WarningEmission<'_>,
         ) -> Result<Vec<usize>, CompileWarningError> {
