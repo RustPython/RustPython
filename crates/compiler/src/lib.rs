@@ -1339,15 +1339,18 @@ pub fn single_mode_multiple_statements_error(
     let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
         Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
         _ => newline.start(),
-    }
-    .to_usize();
-    Some(CompileError::from_source_error(
+    };
+    // Include the comment and one logical newline character. Using the token's
+    // full end would count both bytes of CRLF; position + 1 truncates comments.
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: parser::ParseErrorType::OtherError(
+                "multiple statements found while compiling a single statement".to_owned(),
+            ),
+            location: ruff_text_size::TextRange::new(position, newline.start() + TextSize::new(1)),
+        },
         source_file,
-        CpythonDiagnostic::new(
-            "multiple statements found while compiling a single statement".to_owned(),
-            position,
-            position,
-        ),
+        Mode::Single,
     ))
 }
 
