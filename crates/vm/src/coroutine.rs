@@ -676,12 +676,16 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })
         {
-            return Err(vm.new_type_error("__await__() returned a coroutine"));
+            return Err(vm.new_type_error(format!(
+                "{}.__await__() must return an iterator, not coroutine",
+                obj.class().fully_qualified_name(vm)?
+            )));
         }
         if !PyIter::check(&result) {
             return Err(vm.new_type_error(format!(
-                "__await__() returned non-iterator of type '{}'",
-                result.class().name()
+                "{}.__await__() must return an iterator, not {}",
+                obj.class().fully_qualified_name(vm)?,
+                result.class().fully_qualified_name(vm)?
             )));
         }
         return Ok(result);
