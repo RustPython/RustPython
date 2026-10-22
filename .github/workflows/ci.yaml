@@ -937,7 +937,7 @@ jobs:
         run: cargo --locked clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        run: curl https://wasm-bindgen.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
         run: |
           wget https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz
