@@ -827,11 +827,12 @@ impl GcState {
             all_callbacks.extend(callbacks);
         }
         for (wr, cb) in all_callbacks {
-            if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
-                crate::vm::thread::with_vm(&cb, |vm| {
-                    vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
-                });
-            }
+            crate::vm::thread::with_vm(&cb, |vm| {
+                let _raised = vm.preserve_raised_exception();
+                if let Err(e) = cb.call((wr.clone(),), vm) {
+                    vm.run_unraisable(e, Some("weakref callback".to_owned()), cb.clone());
+                }
+            });
         }
 
         // 6d: Call __del__ on unreachable objects (skip already-finalized).
