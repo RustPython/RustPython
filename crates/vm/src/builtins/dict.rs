@@ -424,7 +424,12 @@ impl PyDict {
             }
             Err(e) => return Err(e),
         };
-        let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+        let keys = other.mapping_unchecked().collect_method_output(
+            vm.ctx.intern_str("keys"),
+            keys_method.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             if !override_existing {
                 let hash = key_hash(&*key, mapping_name, vm)?;
