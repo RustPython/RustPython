@@ -3819,7 +3819,7 @@ version = "0.6.1"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3831,7 +3831,7 @@ dependencies = [
  "quote",
  "rustpython-compiler-core",
  "rustpython-doc",
- "syn 2.0.119",
+ "syn 3.0.3",
  "syn-ext",
  "textwrap",
 ]
