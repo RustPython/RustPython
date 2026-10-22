@@ -1,5 +1,7 @@
 pub(crate) use _testinternalcapi::module_def;
 
+mod pytime;
+
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 static RARE_SET_CLASS: AtomicUsize = AtomicUsize::new(0);
@@ -26,6 +28,7 @@ pub(crate) fn note_func_modification() {
 
 #[pymodule]
 mod _testinternalcapi {
+    use super::pytime::Round;
     use super::*;
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -581,29 +584,96 @@ mod _testinternalcapi {
     #[pyfunction(name = "_PyTime_AsTimeval_clamp")]
     fn pytime_as_timeval_clamp(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
         let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval_clamp", vm)?;
-        let round = pytime_c_int(round, vm)?;
-        if !(0..=3).contains(&round) {
-            return Err(vm.new_value_error("invalid rounding"));
-        }
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
         // Validate rounding before converting the timestamp, as the C wrapper does.
-        let ns = pytime_i64(ns, vm)?;
-        let quotient = ns / 1_000;
-        let remainder = ns % 1_000;
-        let round_away = match round {
-            0 => remainder < 0,
-            1 => remainder > 0,
-            2 => remainder.abs() > 500 || (remainder.abs() == 500 && quotient % 2 != 0),
-            _ => remainder != 0,
-        };
-        // Adjust the quotient, never ns: both signed 64-bit endpoints are valid.
-        let us = quotient + if round_away { ns.signum() } else { 0 };
+        pytime_timeval(pytime_i64(ns, vm)?, round, true, vm)
+    }
+
+    fn pytime_timeval(
+        ns: i64,
+        round: Round,
+        clamp: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let us = round.divide(ns, 1_000);
         // Windows timeval uses C long even though the host time_t is 64-bit.
         #[cfg(windows)]
         let (minimum, maximum): (i64, i64) =
             (core::ffi::c_long::MIN as _, core::ffi::c_long::MAX as _);
         #[cfg(not(windows))]
         let (minimum, maximum): (i64, i64) = (TimeT::MIN as _, TimeT::MAX as _);
-        pytime_pair(us, 1_000_000, minimum, maximum, true, vm)
+        pytime_pair(us, 1_000_000, minimum, maximum, clamp, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_FromSeconds")]
+    fn pytime_from_seconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [seconds] = pytime_args::<1>(&args, "_PyTime_FromSeconds", vm)?;
+        Ok(pytime::from_seconds(pytime_c_int(seconds, vm)?))
+    }
+
+    #[pyfunction(name = "_PyTime_FromSecondsObject")]
+    fn pytime_from_seconds_object(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_FromSecondsObject", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::from_seconds_object(object, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsTimeval")]
+    fn pytime_as_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        let [ns, round] = pytime_args::<2>(&args, "_PyTime_AsTimeval", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime_timeval(pytime_i64(ns, vm)?, round, false, vm)
+    }
+
+    fn pytime_as_subseconds(
+        args: FuncArgs,
+        name: &str,
+        divisor: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<i64> {
+        let [ns, round] = pytime_args::<2>(&args, name, vm)?;
+        let round = pytime_c_int(round, vm)?;
+        // These two C wrappers convert the timestamp before validating the mode.
+        let ns = pytime_i64(ns, vm)?;
+        Ok(Round::from_int(round, vm)?.divide(ns, divisor))
+    }
+
+    #[pyfunction(name = "_PyTime_AsMilliseconds")]
+    fn pytime_as_milliseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        pytime_as_subseconds(args, "_PyTime_AsMilliseconds", 1_000_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_AsMicroseconds")]
+    fn pytime_as_microseconds(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        pytime_as_subseconds(args, "_PyTime_AsMicroseconds", 1_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTime_t")]
+    fn pytime_object_to_time_t(args: FuncArgs, vm: &VirtualMachine) -> PyResult<i64> {
+        let [object, round] = pytime_args::<2>(&args, "_PyTime_ObjectToTime_t", vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_time_t(object, round, vm)
+    }
+
+    fn pytime_object_to_denominator(
+        args: FuncArgs,
+        name: &str,
+        denominator: i64,
+        vm: &VirtualMachine,
+    ) -> PyResult<(i64, i64)> {
+        let [object, round] = pytime_args::<2>(&args, name, vm)?;
+        let round = Round::from_int(pytime_c_int(round, vm)?, vm)?;
+        pytime::object_to_denominator(object, denominator, round, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimeval")]
+    fn pytime_object_to_timeval(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimeval", 1_000_000, vm)
+    }
+
+    #[pyfunction(name = "_PyTime_ObjectToTimespec")]
+    fn pytime_object_to_timespec(args: FuncArgs, vm: &VirtualMachine) -> PyResult<(i64, i64)> {
+        pytime_object_to_denominator(args, "_PyTime_ObjectToTimespec", 1_000_000_000, vm)
     }
 
     #[pyfunction]
