@@ -34,6 +34,7 @@ pub struct CompileWarningError {
     lineno: usize,
     offset: usize,
     replacement: Option<SyntaxErrorReplacement>,
+    diagnostic_text: Option<String>,
 }
 
 #[derive(Debug)]
@@ -117,16 +118,21 @@ impl CompileWarningError {
             .as_object()
             .set_attr("filename", vm.ctx.new_str(self.filename), vm)
             .unwrap();
-        let text = source
-            .and_then(|source| source.split('\n').nth(self.lineno.saturating_sub(1)))
-            .map_or_else(
-                || vm.ctx.none(),
-                |line| {
-                    vm.ctx
-                        .new_str(format!("{}\n", line.trim_end_matches('\r')))
-                        .into()
-                },
-            );
+        let text = self.diagnostic_text.map_or_else(
+            || {
+                source
+                    .and_then(|source| source.split('\n').nth(self.lineno.saturating_sub(1)))
+                    .map_or_else(
+                        || vm.ctx.none(),
+                        |line| {
+                            vm.ctx
+                                .new_str(format!("{}\n", line.trim_end_matches('\r')))
+                                .into()
+                        },
+                    )
+            },
+            |text| vm.ctx.new_str(text).into(),
+        );
         syntax_error.as_object().set_attr("text", text, vm).unwrap();
         syntax_error
     }
@@ -779,6 +785,7 @@ mod escape_warnings {
             lineno,
             offset,
             replacement: None,
+            diagnostic_text: None,
         }
     }
 
@@ -815,11 +822,207 @@ mod escape_warnings {
         Tokenizer,
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum InterpolatedBodyDiagnostics {
+        Legacy,
+        TokenAnchored { implicit_final_newline: bool },
+    }
+
+    struct EscapeDiagnosticLocation {
+        lineno: usize,
+        offset: usize,
+        end_offset: usize,
+        text_start: usize,
+        text_end: usize,
+        append_newline: bool,
+    }
+
+    #[derive(Clone, Copy)]
+    struct InterpolatedBodyAnchor {
+        closing_start: usize,
+        quote_len: usize,
+    }
+
+    fn interpolated_body_anchor(source: &str, range: TextRange) -> Option<InterpolatedBodyAnchor> {
+        let (_, closing_start) = content_bounds(source, range)?;
+        Some(InterpolatedBodyAnchor {
+            closing_start,
+            quote_len: range.end().to_usize() - closing_start,
+        })
+    }
+
+    struct SourceDiagnosticLine {
+        start: usize,
+        end: usize,
+        terminated: bool,
+    }
+
+    struct NonAsciiScalar {
+        start: usize,
+        len: usize,
+        excess_before: usize,
+    }
+
+    // Built lazily once per collector, only if an anchored warning is found.
+    // ASCII contributes no scalar-index entries. Per-warning metadata stays
+    // constant-sized even when many MIDDLE fragments share one long line.
+    struct SourceDiagnosticIndex {
+        lines: Vec<SourceDiagnosticLine>,
+        non_ascii: Vec<NonAsciiScalar>,
+    }
+
+    impl SourceDiagnosticIndex {
+        fn new(source: &str) -> Self {
+            let bytes = source.as_bytes();
+            let mut lines = Vec::new();
+            let mut start = 0;
+            let mut cursor = 0;
+            while cursor < bytes.len() {
+                if matches!(bytes[cursor], b'\r' | b'\n') {
+                    lines.push(SourceDiagnosticLine {
+                        start,
+                        end: cursor,
+                        terminated: true,
+                    });
+                    if bytes[cursor] == b'\r' && bytes.get(cursor + 1) == Some(&b'\n') {
+                        cursor += 1;
+                    }
+                    start = cursor + 1;
+                }
+                cursor += 1;
+            }
+            lines.push(SourceDiagnosticLine {
+                start,
+                end: source.len(),
+                terminated: false,
+            });
+            let mut excess = 0;
+            let non_ascii = source
+                .char_indices()
+                .filter_map(|(start, ch)| {
+                    if ch.is_ascii() {
+                        return None;
+                    }
+                    let len = ch.len_utf8();
+                    let entry = NonAsciiScalar {
+                        start,
+                        len,
+                        excess_before: excess,
+                    };
+                    excess += len - 1;
+                    Some(entry)
+                })
+                .collect();
+            Self { lines, non_ascii }
+        }
+
+        // A partial final UTF8 scalar counts as one replacement character,
+        // matching the parser's decode-with-replacement prefix conversion.
+        fn character_count(&self, byte_offset: usize) -> usize {
+            let count = self
+                .non_ascii
+                .partition_point(|entry| entry.start < byte_offset);
+            let excess = count.checked_sub(1).map_or(0, |index| {
+                let entry = &self.non_ascii[index];
+                entry.excess_before + (byte_offset - entry.start).min(entry.len) - 1
+            });
+            byte_offset - excess
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct InterpolatedBodyContext<'a> {
+        anchor: InterpolatedBodyAnchor,
+        index: &'a std::cell::OnceCell<SourceDiagnosticIndex>,
+        implicit_final_newline: bool,
+    }
+
+    // CPython decodes ordinary interpolated body constants with the END token,
+    // not the MIDDLE token used for format-spec constants. Keep the actual escape
+    // offset separate: it still owns warning order, deduplication and boundaries.
+    fn interpolated_body_location(
+        source: &str,
+        start: usize,
+        end: usize,
+        escape_offset: usize,
+        context: InterpolatedBodyContext<'_>,
+    ) -> Option<EscapeDiagnosticLocation> {
+        debug_assert!(start <= escape_offset && escape_offset < end);
+        let anchor = context.anchor;
+        let index = context
+            .index
+            .get_or_init(|| SourceDiagnosticIndex::new(source));
+        let line_index = index
+            .lines
+            .partition_point(|line| line.start <= anchor.closing_start)
+            - 1;
+        let line = &index.lines[line_index];
+        let closing_lineno = line_index + 1;
+        let append_newline = line.terminated || context.implicit_final_newline;
+        let mut lineno = closing_lineno;
+        let mut column = anchor.closing_start - line.start;
+        // string_parser.c rewrites non-ASCII codepoints to \UXXXXXXXX before
+        // computing the first invalid escape pointer. Backslash + non-ASCII
+        // uses \u005c followed by that rewrite. Include the invalid backslash,
+        // not the following character to which first_invalid_escape points.
+        let mut chars = source[start..escape_offset + 1].chars().peekable();
+        while let Some(mut ch) = chars.next() {
+            if ch == '\\' {
+                column += if chars.peek().is_some_and(|ch| !ch.is_ascii()) {
+                    6
+                } else {
+                    1
+                };
+                let Some(next) = chars.next() else {
+                    break;
+                };
+                ch = next;
+            }
+            if ch == '\r' {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                ch = '\n';
+            }
+            if ch == '\n' {
+                lineno += 1;
+                column = 0;
+            } else {
+                column += if ch.is_ascii() { 1 } else { 10 };
+            }
+        }
+        if lineno == closing_lineno {
+            column += anchor.quote_len;
+        }
+        // A physical CR/CRLF becomes LF. Only file input synthesizes a final
+        // LF when absent. pegen.c then clamps to that line plus its NUL.
+        let content_len = line.end - line.start;
+        let base_characters = index.character_count(line.start);
+        let character_offset = |offset: usize| {
+            index.character_count(line.start + offset.min(content_len)) - base_characters
+                + usize::from(append_newline && offset > content_len)
+                + usize::from(offset > content_len + usize::from(append_newline))
+        };
+        Some(EscapeDiagnosticLocation {
+            lineno,
+            offset: character_offset(column),
+            end_offset: character_offset(column + 2),
+            text_start: line.start,
+            text_end: line.end,
+            append_newline,
+        })
+    }
+
     enum ParserWarning {
         /// The escape, where it is reported from, and for a bytes literal
         /// escape on the literal's first line, the error column that
         /// string_parser.c reports.
-        Escape(InvalidEscape, EscapeOrigin, Option<usize>),
+        Escape(
+            InvalidEscape,
+            EscapeOrigin,
+            Option<usize>,
+            Option<EscapeDiagnosticLocation>,
+        ),
         Numeric {
             offset: usize,
             last_offset: usize,
@@ -993,7 +1196,24 @@ mod escape_warnings {
         module: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        let (lineno, column) = line_offset_at(source, escape.offset());
+        warn_invalid_escape_sequence_at(source, escape, filename, module, None, vm)
+    }
+
+    fn warn_invalid_escape_sequence_at(
+        source: &str,
+        escape: InvalidEscape,
+        filename: &str,
+        module: Option<&PyObject>,
+        diagnostic: Option<EscapeDiagnosticLocation>,
+        vm: &VirtualMachine,
+    ) -> Result<(), CompileWarningError> {
+        let (lineno, column) = diagnostic.as_ref().map_or_else(
+            || line_offset_at(source, escape.offset()),
+            |location| (location.lineno, location.offset),
+        );
+        let end_offset = diagnostic
+            .as_ref()
+            .map_or(column + 2, |location| location.end_offset);
         let warning = escape.warning_message();
         let syntax_error = escape.syntax_error_message();
         let fname = vm.ctx.new_str(filename);
@@ -1015,7 +1235,14 @@ mod escape_warnings {
             offset: column,
             replacement: Some(SyntaxErrorReplacement {
                 message: syntax_error,
-                end_offset: column + 2,
+                end_offset,
+            }),
+            diagnostic_text: diagnostic.map(|location| {
+                let mut text = source[location.text_start..location.text_end].to_owned();
+                if location.append_newline {
+                    text.push('\n');
+                }
+                text
             }),
         })
     }
@@ -1071,6 +1298,7 @@ mod escape_warnings {
             lineno: location.line.get(),
             offset: location.character_offset.get(),
             replacement: None,
+            diagnostic_text: None,
         })
     }
 
@@ -1317,6 +1545,7 @@ mod escape_warnings {
                 escape,
                 EscapeOrigin::Parser,
                 error_column,
+                None,
             ));
         }
     }
@@ -1326,6 +1555,7 @@ mod escape_warnings {
         start: usize,
         end: usize,
         warnings: &mut Vec<ParserWarning>,
+        anchor: Option<InterpolatedBodyContext<'_>>,
     ) {
         if start >= end || end > source.len() {
             return;
@@ -1336,7 +1566,14 @@ mod escape_warnings {
             } else {
                 EscapeOrigin::Parser
             };
-            warnings.push(ParserWarning::Escape(escape, origin, None));
+            let diagnostic = if origin == EscapeOrigin::Parser {
+                anchor.and_then(|anchor| {
+                    interpolated_body_location(source, start, end, escape.offset(), anchor)
+                })
+            } else {
+                None
+            };
+            warnings.push(ParserWarning::Escape(escape, origin, None, diagnostic));
             return;
         }
         // In CPython, _PyTokenizer_warn_invalid_escape_sequence handles
@@ -1360,6 +1597,7 @@ mod escape_warnings {
                     offset: end - 1,
                 },
                 EscapeOrigin::Tokenizer,
+                None,
                 None,
             ));
         }
@@ -1431,7 +1669,13 @@ mod escape_warnings {
                 }
                 b'{' => {
                     if !is_raw {
-                        collect_fstring_literal_warning(source, literal_start, index, warnings);
+                        collect_fstring_literal_warning(
+                            source,
+                            literal_start,
+                            index,
+                            warnings,
+                            None,
+                        );
                     }
                     let close = find_interpolation_end(bytes, index, end);
                     let body_end = if close > index + 1 { close - 1 } else { close };
@@ -1453,7 +1697,7 @@ mod escape_warnings {
             }
         }
         if !is_raw {
-            collect_fstring_literal_warning(source, literal_start, end, warnings);
+            collect_fstring_literal_warning(source, literal_start, end, warnings, None);
         }
     }
 
@@ -1597,10 +1841,71 @@ mod escape_warnings {
         }
     }
 
+    fn collect_interpolated_body_warnings(
+        source: &str,
+        start: usize,
+        end: usize,
+        anchor: InterpolatedBodyContext<'_>,
+        warnings: &mut Vec<ParserWarning>,
+    ) {
+        // CPython emits a separate MIDDLE token after doubled braces and named
+        // Unicode escapes. Ruff can keep these inside one literal element.
+        let bytes = source.as_bytes();
+        let mut fragment_start = start;
+        let mut cursor = start;
+        while cursor < end {
+            match bytes[cursor] {
+                b'{' | b'}' if bytes.get(cursor + 1) == Some(&bytes[cursor]) => {
+                    collect_fstring_literal_warning(
+                        source,
+                        fragment_start,
+                        cursor + 1,
+                        warnings,
+                        Some(anchor),
+                    );
+                    cursor += 2;
+                    fragment_start = cursor;
+                }
+                b'\\' => {
+                    if bytes.get(cursor + 1) == Some(&b'N') && bytes.get(cursor + 2) == Some(&b'{')
+                    {
+                        if let Some(close) = source[cursor + 3..end].find('}') {
+                            cursor += 3 + close + 1;
+                            collect_fstring_literal_warning(
+                                source,
+                                fragment_start,
+                                cursor,
+                                warnings,
+                                Some(anchor),
+                            );
+                            fragment_start = cursor;
+                            continue;
+                        }
+                    }
+                    cursor += 1;
+                    if cursor < end && !matches!(bytes[cursor], b'{' | b'}') {
+                        // Paired backslashes must not turn the second slash
+                        // into a new named-Unicode escape introducer.
+                        cursor += source[cursor..end].chars().next().unwrap().len_utf8();
+                        if bytes.get(cursor - 1) == Some(&b'\r')
+                            && bytes.get(cursor) == Some(&b'\n')
+                        {
+                            cursor += 1;
+                        }
+                    }
+                }
+                _ => cursor += source[cursor..end].chars().next().unwrap().len_utf8(),
+            }
+        }
+        collect_fstring_literal_warning(source, fragment_start, end, warnings, Some(anchor));
+    }
+
     struct EscapeWarningVisitor<'a, 'w> {
         source: &'a str,
         warnings: &'w mut Vec<ParserWarning>,
         ast_only: bool,
+        interpolated_body_diagnostics: InterpolatedBodyDiagnostics,
+        diagnostic_index: std::cell::OnceCell<SourceDiagnosticIndex>,
         /// This pass runs before the compile that rejects an over-nested
         /// tree, so it has to stop itself.
         depth: usize,
@@ -1626,13 +1931,36 @@ mod escape_warnings {
         /// Also handles `\{` / `\}` at the literal–interpolation boundary,
         /// equivalent to `_PyTokenizer_warn_invalid_escape_sequence` handling
         /// `FSTRING_MIDDLE` / `FSTRING_END` tokens.
-        fn check_fstring_literal(&mut self, range: TextRange) {
-            collect_fstring_literal_warning(
-                self.source,
-                range.start().to_usize(),
-                range.end().to_usize(),
-                self.warnings,
-            );
+        fn check_fstring_literal(
+            &mut self,
+            range: TextRange,
+            anchor: Option<InterpolatedBodyAnchor>,
+        ) {
+            if let InterpolatedBodyDiagnostics::TokenAnchored {
+                implicit_final_newline,
+            } = self.interpolated_body_diagnostics
+                && let Some(anchor) = anchor
+            {
+                collect_interpolated_body_warnings(
+                    self.source,
+                    range.start().to_usize(),
+                    range.end().to_usize(),
+                    InterpolatedBodyContext {
+                        anchor,
+                        index: &self.diagnostic_index,
+                        implicit_final_newline,
+                    },
+                    self.warnings,
+                );
+            } else {
+                collect_fstring_literal_warning(
+                    self.source,
+                    range.start().to_usize(),
+                    range.end().to_usize(),
+                    self.warnings,
+                    None,
+                );
+            }
         }
 
         /// Visit f-string elements, checking literals and recursing into
@@ -1641,18 +1969,19 @@ mod escape_warnings {
             &mut self,
             elements: &'a ast::InterpolatedStringElements,
             raw: bool,
+            anchor: Option<InterpolatedBodyAnchor>,
         ) {
             for element in elements {
                 match element {
                     ast::InterpolatedStringElement::Literal(lit) => {
                         if !raw {
-                            self.check_fstring_literal(lit.range);
+                            self.check_fstring_literal(lit.range, anchor);
                         }
                     }
                     ast::InterpolatedStringElement::Interpolation(interp) => {
                         self.visit_expr(&interp.expression);
                         if let Some(spec) = &interp.format_spec {
-                            self.visit_fstring_elements(&spec.elements, raw);
+                            self.visit_fstring_elements(&spec.elements, raw, None);
                         }
                     }
                 }
@@ -1713,6 +2042,7 @@ mod escape_warnings {
                                         fstring.flags.prefix(),
                                         ast::str_prefix::FStringPrefix::Raw { .. }
                                     ),
+                                    interpolated_body_anchor(self.source, fstring.range),
                                 );
                             }
                         }
@@ -1720,7 +2050,11 @@ mod escape_warnings {
                 }
                 ast::Expr::TString(tstring) if self.ast_only => {
                     for part in tstring.value.as_slice() {
-                        self.visit_fstring_elements(&part.elements, part.flags.prefix().is_raw());
+                        self.visit_fstring_elements(
+                            &part.elements,
+                            part.flags.prefix().is_raw(),
+                            interpolated_body_anchor(self.source, part.range),
+                        );
                     }
                 }
                 _ => {
@@ -1746,6 +2080,7 @@ mod escape_warnings {
         filename: &str,
         mode: Option<ruff_python_parser::Mode>,
         inherited_barry_as_flufl: bool,
+        interpolated_body_diagnostics: InterpolatedBodyDiagnostics,
         single_mode: bool,
     ) -> CollectedParserWarnings {
         let mut ast_tokenizer_recovery = true;
@@ -1775,6 +2110,8 @@ mod escape_warnings {
                     source,
                     warnings: &mut warnings,
                     ast_only: true,
+                    interpolated_body_diagnostics,
+                    diagnostic_index: std::cell::OnceCell::new(),
                     depth: 0,
                     depth_limit: compiler::CompileOpts::default().recursion_limit,
                 };
@@ -1834,7 +2171,7 @@ mod escape_warnings {
         if warnings.iter().any(|warning| {
             matches!(
                 warning,
-                ParserWarning::Escape(_, EscapeOrigin::Tokenizer, _)
+                ParserWarning::Escape(_, EscapeOrigin::Tokenizer, ..)
             )
         }) {
             ast_tokenizer_recovery = false;
@@ -1870,6 +2207,7 @@ mod escape_warnings {
         ) -> Result<(), CompileWarningError> {
             let tokenizer_only_mode = matches!(mode, compiler::Mode::Exec | compiler::Mode::Eval);
             let is_single = matches!(mode, compiler::Mode::Single);
+            let implicit_final_newline = matches!(mode, compiler::Mode::Exec);
             let mode = match mode {
                 compiler::Mode::Eval => ruff_python_parser::Mode::Expression,
                 compiler::Mode::Exec | compiler::Mode::Single | compiler::Mode::BlockExpr => {
@@ -1881,6 +2219,9 @@ mod escape_warnings {
                 filename,
                 Some(mode),
                 inherited_barry_as_flufl,
+                InterpolatedBodyDiagnostics::TokenAnchored {
+                    implicit_final_newline,
+                },
                 is_single,
             );
             // Tokenizer-only batches can preserve lexical warning order without
@@ -1957,6 +2298,8 @@ mod escape_warnings {
                     source,
                     warnings: &mut warnings,
                     ast_only: false,
+                    interpolated_body_diagnostics: InterpolatedBodyDiagnostics::Legacy,
+                    diagnostic_index: std::cell::OnceCell::new(),
                     depth: 0,
                     depth_limit: compiler::CompileOpts::default().recursion_limit,
                 };
@@ -2009,6 +2352,9 @@ mod escape_warnings {
                 filename,
                 mode,
                 inherited_barry_as_flufl,
+                InterpolatedBodyDiagnostics::TokenAnchored {
+                    implicit_final_newline: matches!(start, CompileStart::File),
+                },
                 matches!(start, CompileStart::Single),
             );
             self.emit_parser_warning_batch(
@@ -2052,6 +2398,7 @@ mod escape_warnings {
                 filename,
                 Some(ruff_python_parser::Mode::Module),
                 inherited_barry_as_flufl,
+                InterpolatedBodyDiagnostics::Legacy,
                 false,
             );
             self.emit_parser_warning_batch(
@@ -2095,7 +2442,7 @@ mod escape_warnings {
                         (compiler::SingleModeStatementBoundary::Simple { end, .. }, _) => Some(end),
                         (
                             compiler::SingleModeStatementBoundary::Compound { end },
-                            ParserWarning::Escape(_, EscapeOrigin::Parser, _),
+                            ParserWarning::Escape(_, EscapeOrigin::Parser, ..),
                         ) => Some(end),
                         // Compound input requests another token and can emit
                         // tokenizer warnings while rejecting the next statement.
@@ -2120,15 +2467,15 @@ mod escape_warnings {
                     }
                 }
                 match warning {
-                    ParserWarning::Escape(escape, origin, error_column) => {
+                    ParserWarning::Escape(escape, origin, error_column, diagnostic) => {
                         let offset = escape.offset();
                         if considered_escapes.last() == Some(&offset) {
                             continue;
                         }
                         considered_escapes.push(offset);
                         if emitted_escapes.binary_search(&offset).is_err() {
-                            let result = warn_invalid_escape_sequence(
-                                source, escape, filename, module, self,
+                            let result = warn_invalid_escape_sequence_at(
+                                source, escape, filename, module, diagnostic, self,
                             )
                             .map_err(|mut error| {
                                 if interactive.is_some()
