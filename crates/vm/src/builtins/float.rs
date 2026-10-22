@@ -305,8 +305,12 @@ impl Py<PyFloat> {
         })
     }
 
-    #[pystaticmethod]
-    fn __getformat__(typestr: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+    #[pyclassmethod]
+    fn __getformat__(
+        _cls: PyTypeRef,
+        typestr: PyUtf8StrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<String> {
         if !matches!(typestr.as_str(), "double" | "float") {
             return Err(
                 vm.new_value_error("__getformat__() argument 1 must be 'double' or 'float'")

@@ -133,7 +133,12 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
         let bootstrap = import_frozen(vm, "_frozen_importlib")?;
         let install = bootstrap.get_attr("_install", vm)?;
         let imp = import_builtin(vm, "_imp")?;
-        install.call((vm.sys_module.clone(), imp), vm)?;
+        install.call((vm.sys_module.clone(), imp.clone()), vm)?;
+        let reader = imp.get_attr("_get_frozen_resource_reader", vm)?;
+        let reader = crate::builtins::PyStaticMethod::new(reader).into_ref(&vm.ctx);
+        bootstrap
+            .get_attr("FrozenImporter", vm)?
+            .set_attr("get_resource_reader", reader, vm)?;
         Ok(bootstrap)
     })?;
     vm.import_func = vm.builtins.get_attr(identifier!(vm, __import__), vm)?;

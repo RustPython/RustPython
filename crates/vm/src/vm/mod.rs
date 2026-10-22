@@ -41,7 +41,7 @@ use crate::{
     convert::ToPyObject,
     exceptions::types::{PyBaseException, PyMemoryError},
     frame::{ExecutionResult, FrameObject, FrameObjectRef},
-    frozen::FrozenModule,
+    frozen_resources::FrozenModuleRegistry,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::{PyIterIter, PyIterReturn},
@@ -59,8 +59,10 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(feature = "threading")]
+use std::collections::HashMap;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::{OsStr, OsString},
 };
 
@@ -870,7 +872,7 @@ pub struct PyGlobalState {
     /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
     pub(crate) interactive_src_count: AtomicUsize,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
-    pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
+    pub frozen: FrozenModuleRegistry,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
@@ -1424,7 +1426,7 @@ impl VirtualMachine {
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
-                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::builder()`."
+                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules_with_resources(rustpython_pylib::FROZEN_STDLIB, rustpython_pylib::FROZEN_STDLIB_RESOURCES)` in `rustpython_vm::Interpreter::builder()`."
             } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {

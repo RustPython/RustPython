@@ -7,6 +7,7 @@ use crate::{
     },
     class::PyClassDef,
     function::{FuncArgs, IntoPyNativeFn, PyNativeFn, SigArg},
+    types::PyTypeFlags,
 };
 
 bitflags::bitflags! {
@@ -294,8 +295,21 @@ impl PyMethodDef {
         class: &'static Py<PyType>,
     ) -> PyRef<PyNativeFunction> {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
+        // Match PyCFunction_NewEx(meth, type, type_module(type)): snapshot
+        // module metadata here so later mutation/deletion remains observable.
+        let module = if class.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            class.attributes.get(ctx.intern_str("__module__"))
+        } else {
+            let name = class.slot_name();
+            let module = name
+                .rsplit_once('.')
+                .map_or("builtins", |(module, _)| module);
+            Some(ctx.intern_str(module).to_owned().into())
+        };
         // m_self is the type; STATIC skips prepending it on call.
-        self.build_bound_function(ctx, class.to_owned().into())
+        let function = self.build_bound_function(ctx, class.to_owned().into());
+        drop(function.module.store(module));
+        function
     }
 
     /// Concatenate method groups. A pending body is copied from `docs`, then cleared.

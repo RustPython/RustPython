@@ -7,6 +7,8 @@ pub(crate) use _imp::module_def;
 
 pub(super) use crate::vm::resolve_frozen_alias;
 
+mod resources;
+
 #[cfg(feature = "threading")]
 #[pymodule(sub, name = "_imp")]
 mod lock {
@@ -194,7 +196,7 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
     Ok(frozen)
 }
 
-#[pymodule(with(lock))]
+#[pymodule(with(lock, resources::resources))]
 mod _imp {
     use crate::{
         AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,

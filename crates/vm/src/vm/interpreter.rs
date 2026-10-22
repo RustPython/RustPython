@@ -7,7 +7,14 @@ use super::{
     thread,
 };
 use crate::{
-    PyResult, builtins, common::rc::PyRc, frozen::FrozenModule, getpath, py_freeze, stdlib::atexit,
+    PyResult, builtins,
+    common::rc::PyRc,
+    frozen::FrozenModule,
+    frozen_resources::{
+        FrozenModuleRegistry, FrozenRegistration, FrozenResourceBundle, ResourceError,
+    },
+    getpath, py_freeze,
+    stdlib::atexit,
     vm::PyBaseExceptionRef,
 };
 use alloc::collections::BTreeMap;
@@ -37,7 +44,7 @@ pub struct InterpreterBuilder {
     settings: Settings,
     pub ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
 }
 
@@ -46,7 +53,7 @@ struct InitializeVmOpts<'a> {
     settings: Settings,
     ctx: PyRc<Context>,
     module_defs: Vec<&'static builtins::PyModuleDef>,
-    frozen_modules: Vec<(&'static str, FrozenModule)>,
+    frozen_modules: Vec<FrozenRegistration>,
     init_hooks: Vec<InitFunc>,
     is_main: bool,
     whence: InterpreterWhence,
@@ -122,12 +129,10 @@ where
             other => other,
         } as usize);
 
-        let mut frozen: std::collections::HashMap<
-            &'static str,
-            FrozenModule,
-            rapidhash::quality::RandomState,
-        > = core_frozen_inits().collect();
-        frozen.extend(frozen_modules);
+        let mut frozen: FrozenModuleRegistry = core_frozen_inits().collect();
+        for registration in frozen_modules {
+            frozen.apply_registration(registration);
+        }
 
         (config, all_module_defs, frozen, int_max_str_digits)
     };
@@ -368,6 +373,8 @@ impl InterpreterBuilder {
     ///
     /// Frozen modules are Python modules compiled into the binary.
     /// This method accepts any iterator of (name, FrozenModule) pairs.
+    /// It registers code only. To include embedded package data, use
+    /// [`Self::add_frozen_modules_with_resources`] with the matching resource bundle.
     ///
     /// # Example
     /// ```
@@ -382,8 +389,27 @@ impl InterpreterBuilder {
     where
         I: IntoIterator<Item = (&'static str, FrozenModule)>,
     {
-        self.frozen_modules.extend(frozen);
+        self.frozen_modules
+            .push(FrozenRegistration::code_only(frozen));
         self
+    }
+
+    /// Add frozen code and resources as one ownership-preserving registration.
+    ///
+    /// Every resource owner must be a package in this registration. Replacing a
+    /// package or module in a later registration never inherits its old resources,
+    /// even if the replacement contains identical bytecode.
+    pub fn add_frozen_modules_with_resources<I>(
+        mut self,
+        frozen: I,
+        resources: &'static [FrozenResourceBundle],
+    ) -> Result<Self, ResourceError>
+    where
+        I: IntoIterator<Item = (&'static str, FrozenModule)>,
+    {
+        self.frozen_modules
+            .push(FrozenRegistration::with_resources(frozen, resources)?);
+        Ok(self)
     }
 
     /// Build the interpreter.
