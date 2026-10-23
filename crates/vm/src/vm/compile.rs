@@ -2102,12 +2102,9 @@ mod escape_warnings {
             );
             if !is_bytes
                 && self.warnings.len() != previous_len
-                && matches!(
-                    self.interpolated_body_diagnostics,
-                    InterpolatedBodyDiagnostics::TokenAnchored {
-                        implicit_final_newline: false
-                    }
-                )
+                && let InterpolatedBodyDiagnostics::TokenAnchored {
+                    implicit_final_newline,
+                } = self.interpolated_body_diagnostics
                 && let Some(ParserWarning::Escape(escape, _, _, diagnostic)) =
                     self.warnings.last_mut()
             {
@@ -2116,11 +2113,10 @@ mod escape_warnings {
                     .get_or_init(|| SourceDiagnosticIndex::new(self.source));
                 let line = index.lines.last().unwrap();
                 if escape.offset() >= line.start && !line.terminated {
-                    // Eval/single string tokenizers do not synthesize a final
-                    // LF. On this final physical line, both pegen error-line
-                    // lookup paths preserve its unterminated text. Keep the
-                    // existing ordinary-string columns for LF/CRLF and the
-                    // emission order; bare CR also advances the physical line.
+                    // Use one physical index for warning/error coordinates
+                    // and final-line text, including bare CR. File input adds
+                    // a final LF; eval/single leave this line unterminated.
+                    // Keep existing LF/CRLF columns and source emission order.
                     let lineno = index.lines.len();
                     let column = index.character_count(escape.offset())
                         - index.character_count(line.start)
@@ -2132,7 +2128,7 @@ mod escape_warnings {
                         end_offset: column + 2,
                         text_start: line.start,
                         text_end: line.end,
-                        append_newline: false,
+                        append_newline: implicit_final_newline,
                     });
                 }
             }
