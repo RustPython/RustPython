@@ -602,6 +602,13 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
         .map(ArgAttribute::try_from)
         .collect::<Result<Vec<_>>>()?;
     let (min_arity, max_arity) = compute_arity_bounds(&field_attrs);
+    // A flattened field adds its own type's upper bound. An unbounded one
+    // such as `PosArgs` is `usize::MAX`, so the sum saturates.
+    let flattened = struct_fields
+        .iter()
+        .zip(&field_attrs)
+        .filter(|(_, attr)| attr.kind == ParameterKind::Flatten)
+        .map(|(field, _)| &field.ty);
 
     let mut params = Vec::new();
     for field in &struct_fields {
@@ -619,7 +626,9 @@ pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
                 Some(&[#(#params),*]);
 
             fn arity() -> ::std::ops::RangeInclusive<usize> {
-                #min_arity..=#max_arity
+                #min_arity..=#max_arity #(
+                    .saturating_add(*<#flattened as ::rustpython_vm::function::FromArgs>::arity().end())
+                )*
             }
 
             fn from_args(
