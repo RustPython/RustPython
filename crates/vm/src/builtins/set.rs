@@ -434,7 +434,9 @@ impl PySetInner {
             return self.compare(other_set, PyComparisonOp::Ge, vm);
         }
         for item in other.iter(vm)? {
-            if !self.contains(&*item?, vm)? {
+            let item = item?;
+            let hash = Self::wrap_unhashable_error(item.hash(vm), &item, vm)?;
+            if !self.contains_known_hash(&item, hash, vm)? {
                 return Ok(false);
             }
         }
@@ -469,7 +471,9 @@ impl PySetInner {
             }
         }
         for item in other.iter(vm)? {
-            if self.contains(&*item?, vm)? {
+            let item = item?;
+            let hash = Self::wrap_unhashable_error(item.hash(vm), &item, vm)?;
+            if self.contains_known_hash(&item, hash, vm)? {
                 return Ok(false);
             }
         }
