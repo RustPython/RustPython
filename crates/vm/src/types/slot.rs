@@ -568,12 +568,14 @@ fn sequence_contains_wrapper(
 
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
     let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
-    ret.downcast::<PyStr>().map_err(|obj| {
-        vm.new_type_error(format!(
-            "__repr__ returned non-string (type {})",
-            obj.class()
-        ))
-    })
+    match ret.downcast::<PyStr>() {
+        Ok(value) => Ok(value),
+        Err(obj) => Err(vm.new_type_error(format!(
+            "{}.__repr__() must return a str, not {}",
+            zelf.class().fully_qualified_name(vm)?,
+            obj.class().fully_qualified_name(vm)?
+        ))),
+    }
 }
 
 fn str_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
