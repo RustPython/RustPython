@@ -931,3 +931,13 @@ out_of_range(lambda: bytes([-1]), "bytes must be in range(0, 256)")
 out_of_range(lambda: bytearray([256]), "byte must be in range(0, 256)")
 out_of_range(lambda: bytearray(iter([256])), "byte must be in range(0, 256)")
 out_of_range(lambda: bytearray().extend([256]), "byte must be in range(0, 256)")
+
+
+class NewArgsBytes(bytes):
+    pass
+
+
+for bytes_type in (bytes, NewArgsBytes):
+    newargs = bytes_type(b"a\x00b").__getnewargs__()
+    assert newargs == (b"a\x00b",)
+    assert type(newargs[0]) is bytes
