@@ -417,7 +417,7 @@ impl PyList {
         AsSequence,
         Representable
     ),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF)
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, LIST_SUBCLASS)
 )]
 impl Py<PyList> {
     #[pymethod]

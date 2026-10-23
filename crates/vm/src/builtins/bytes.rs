@@ -235,7 +235,7 @@ impl PyBytes {
 
 #[pyclass(
     itemsize = 1,
-    flags(BASETYPE, _MATCH_SELF),
+    flags(BASETYPE, _MATCH_SELF, BYTES_SUBCLASS),
     with(
         Py,
         PyRef,

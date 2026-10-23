@@ -325,6 +325,7 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 #[cfg(test)]
 mod tests {
     use pyo3::IntoPyObjectExt;
+    use pyo3::exceptions::PyValueError;
     use pyo3::ffi;
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyInt, PyList, PyString, PyType, PyTypeMethods};
@@ -541,5 +542,23 @@ mod tests {
 
             assert_eq!(type_obj.qualname().unwrap(), "somemodule.MySpecClass");
         });
+    }
+
+    #[test]
+    fn fast_subclass_check_using_flags() {
+        Python::attach(|py| {
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyDict>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_DICT_SUBCLASS,
+                ) != 0
+            });
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyValueError>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_BASE_EXC_SUBCLASS,
+                ) != 0
+            });
+        })
     }
 }

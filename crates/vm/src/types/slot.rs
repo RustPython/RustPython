@@ -260,6 +260,14 @@ bitflagset::bitflagset! {
         // (bool, int, float, str, bytes, bytearray, list, tuple, dict, set, frozenset).
         // This is not a stable API.
         const _MATCH_SELF = 22;
+        const LONG_SUBCLASS = 24;
+        const LIST_SUBCLASS = 25;
+        const TUPLE_SUBCLASS = 26;
+        const BYTES_SUBCLASS = 27;
+        const UNICODE_SUBCLASS = 28;
+        const DICT_SUBCLASS = 29;
+        const BASE_EXC_SUBCLASS = 30;
+        const TYPE_SUBCLASS = 31;
         const HAS_DICT = 40;
         const HAS_WEAKREF = 41;
         #[cfg(debug_assertions)]
@@ -282,6 +290,17 @@ impl PyTypeFlags {
     );
 
     pub const COLLECTION: Self = Self::from_slice(&[Self::SEQUENCE, Self::MAPPING]);
+
+    pub const SUBCLASS_FLAGS: Self = Self::from_slice(&[
+        Self::LONG_SUBCLASS,
+        Self::LIST_SUBCLASS,
+        Self::TUPLE_SUBCLASS,
+        Self::BYTES_SUBCLASS,
+        Self::UNICODE_SUBCLASS,
+        Self::DICT_SUBCLASS,
+        Self::BASE_EXC_SUBCLASS,
+        Self::TYPE_SUBCLASS,
+    ]);
 }
 
 impl AtomicPyTypeFlags {
