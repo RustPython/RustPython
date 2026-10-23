@@ -149,7 +149,12 @@ pub struct PyTypeSlots {
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
+    /// Retained instance-call implementation, independent of automatic eligibility.
     pub vectorcall: AtomicCell<Option<VectorCallFunc>>,
+    /// Nullable per-object lookup used by type's constructor dispatch.
+    pub(crate) vectorcall_resolver: AtomicCell<Option<VectorcallResolver>>,
+    /// Constructor implementation for this type object; never inherited.
+    pub constructor_vectorcall: AtomicCell<Option<VectorCallFunc>>,
     pub str: AtomicCell<Option<StringifyFunc>>,
     pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
@@ -253,6 +258,7 @@ bitflagset::bitflagset! {
         const IMMUTABLETYPE = 8;
         const HEAPTYPE = 9;
         const BASETYPE = 10;
+        const HAVE_VECTORCALL = 11;
         const HAVE_GC = 14;
         const METHOD_DESCRIPTOR = 17;
         const IS_ABSTRACT = 20;
@@ -369,6 +375,7 @@ pub(crate) type VectorCallFunc = fn(
     Option<&[PyObjectRef]>, // kwnames (keyword argument names)
     &VirtualMachine,
 ) -> PyResult;
+type VectorcallResolver = fn(&PyObject) -> Option<VectorCallFunc>;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef<PyStr>>;
@@ -1066,20 +1073,17 @@ impl PyType {
             }
             SlotAccessor::TpCall => {
                 update_main_slot!(call, call_wrapper, Call);
-                // When __call__ is overridden in Python, clear vectorcall
-                // so the slow path through call_wrapper is used.
-                if ADD {
-                    self.slots.vectorcall.store(None);
+                // Generic __call__ disables automatic dispatch, not retained raw support.
+                // A missing call slot alone does not revoke the CPython eligibility flag.
+                if self.slots.call.load().map(fn_addr)
+                    == Some(fn_addr(call_wrapper as GenericMethod))
+                {
+                    self.slots.flags.remove(PyTypeFlags::HAVE_VECTORCALL);
                 }
             }
             SlotAccessor::TpIter => update_main_slot!(iter, iter_wrapper, Iter),
             SlotAccessor::TpIternext => update_main_slot!(iternext, iternext_wrapper, IterNext),
-            SlotAccessor::TpInit => {
-                update_main_slot!(init, init_wrapper, Init);
-                if ADD {
-                    self.slots.vectorcall.store(None);
-                }
-            }
+            SlotAccessor::TpInit => update_main_slot!(init, init_wrapper, Init),
             SlotAccessor::TpNew => {
                 // __new__ is a staticmethod, not a PyWrapper descriptor, so
                 // lookup_slot_in_mro cannot classify it. Resolve __new__
@@ -1102,7 +1106,6 @@ impl PyType {
                 };
                 if needs_wrapper {
                     self.slots.new.store(Some(new_wrapper));
-                    self.slots.vectorcall.store(None);
                 } else {
                     let inherited = self.base.deref().and_then(|base| base.slots.new.load());
                     self.slots.new.store(inherited);

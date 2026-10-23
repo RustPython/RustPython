@@ -1885,7 +1885,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .set_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_set));
 
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
@@ -1893,7 +1893,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozenset_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozenset));
 
     PySetIterator::extend_class(context, context.types.set_iterator_type);

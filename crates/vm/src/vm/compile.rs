@@ -1738,6 +1738,7 @@ mod escape_warnings {
         warnings: Vec<ParserWarning>,
         tokenizer_recovery: bool,
         has_valid_syntax: bool,
+        single_boundary: Option<compiler::SingleModeStatementBoundary>,
     }
 
     fn collect_parser_warnings(
@@ -1745,9 +1746,11 @@ mod escape_warnings {
         filename: &str,
         mode: Option<ruff_python_parser::Mode>,
         inherited_barry_as_flufl: bool,
+        single_mode: bool,
     ) -> CollectedParserWarnings {
         let mut ast_tokenizer_recovery = true;
         let mut has_valid_syntax = false;
+        let mut single_boundary = None;
         let mut warnings = Vec::new();
         collect_numeric_literal_warnings(source, &mut warnings);
         // The compile that follows rejects this source; parsing it here
@@ -1765,6 +1768,9 @@ mod escape_warnings {
             let parsed = ruff_python_parser::parse_unchecked(barry_source.source(), options);
             if parsed.has_valid_syntax() {
                 has_valid_syntax = true;
+                if single_mode {
+                    single_boundary = compiler::single_mode_statement_boundary(&parsed);
+                }
                 let mut visitor = EscapeWarningVisitor {
                     source,
                     warnings: &mut warnings,
@@ -1837,6 +1843,7 @@ mod escape_warnings {
             warnings,
             tokenizer_recovery: ast_tokenizer_recovery,
             has_valid_syntax,
+            single_boundary,
         }
     }
 
@@ -1862,14 +1869,20 @@ mod escape_warnings {
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
             let tokenizer_only_mode = matches!(mode, compiler::Mode::Exec | compiler::Mode::Eval);
+            let is_single = matches!(mode, compiler::Mode::Single);
             let mode = match mode {
                 compiler::Mode::Eval => ruff_python_parser::Mode::Expression,
                 compiler::Mode::Exec | compiler::Mode::Single | compiler::Mode::BlockExpr => {
                     ruff_python_parser::Mode::Module
                 }
             };
-            let collected =
-                collect_parser_warnings(source, filename, Some(mode), inherited_barry_as_flufl);
+            let collected = collect_parser_warnings(
+                source,
+                filename,
+                Some(mode),
+                inherited_barry_as_flufl,
+                is_single,
+            );
             // Tokenizer-only batches can preserve lexical warning order without
             // parser-error recovery. Mixed parser/tokenizer events still need
             // their separate fallback contract, as does Single's input boundary.
@@ -1893,6 +1906,7 @@ mod escape_warnings {
                 filename,
                 module,
                 collected.warnings,
+                collected.single_boundary,
                 WarningEmission::Standard {
                     emitted_escapes,
                     tokenizer_recovery: !tokenizer_only,
@@ -1915,6 +1929,7 @@ mod escape_warnings {
                 filename,
                 module,
                 warnings,
+                None,
                 WarningEmission::Standard {
                     emitted_escapes: &[],
                     tokenizer_recovery: false,
@@ -1967,6 +1982,7 @@ mod escape_warnings {
                 filename,
                 module,
                 warnings,
+                None,
                 WarningEmission::Standard {
                     emitted_escapes,
                     tokenizer_recovery: false,
@@ -1988,16 +2004,36 @@ mod escape_warnings {
                 CompileStart::Eval => Some(ruff_python_parser::Mode::Expression),
                 CompileStart::FuncType => None,
             };
-            let collected =
-                collect_parser_warnings(source, filename, mode, inherited_barry_as_flufl);
+            let collected = collect_parser_warnings(
+                source,
+                filename,
+                mode,
+                inherited_barry_as_flufl,
+                matches!(start, CompileStart::Single),
+            );
             self.emit_parser_warning_batch(
                 source,
                 filename,
                 module.map(AsObject::as_object),
                 collected.warnings,
+                if matches!(start, CompileStart::Single)
+                    && collected.has_valid_syntax
+                    && collected.tokenizer_recovery
+                {
+                    collected.single_boundary
+                } else {
+                    None
+                },
                 WarningEmission::Ast {
+                    // Unlike an interactive prompt, Single compile input recovers
+                    // after a parser warning becomes an error. Later numeric
+                    // tokenizer warnings raised as errors still take precedence,
+                    // including on a following logical line.
                     tokenizer_recovery: collected.tokenizer_recovery
-                        && matches!(start, CompileStart::File | CompileStart::Eval),
+                        && matches!(
+                            start,
+                            CompileStart::File | CompileStart::Eval | CompileStart::Single
+                        ),
                 },
             )
         }
@@ -2016,12 +2052,14 @@ mod escape_warnings {
                 filename,
                 Some(ruff_python_parser::Mode::Module),
                 inherited_barry_as_flufl,
+                false,
             );
             self.emit_parser_warning_batch(
                 source,
                 filename,
                 module.map(AsObject::as_object),
                 collected.warnings,
+                None,
                 WarningEmission::Interactive(emitted),
             )
             .map(|_| ())
@@ -2033,6 +2071,7 @@ mod escape_warnings {
             filename: &str,
             module: Option<&PyObject>,
             warnings: Vec<ParserWarning>,
+            single_boundary: Option<compiler::SingleModeStatementBoundary>,
             emission: WarningEmission<'_>,
         ) -> Result<Vec<usize>, CompileWarningError> {
             let (emitted_escapes, ast_tokenizer_recovery, mut interactive) = match emission {
@@ -2046,6 +2085,26 @@ mod escape_warnings {
             let mut considered_escapes = Vec::new();
             let mut parser_error = None;
             for warning in warnings {
+                // A successful single input does not parse later statements.
+                // Keep those numeric events for recovery after an earlier
+                // parser warning escalates, rather than truncating the source.
+                if parser_error.is_none()
+                    && let Some(boundary) = single_boundary
+                {
+                    let end = match (boundary, &warning) {
+                        (compiler::SingleModeStatementBoundary::Simple { end, .. }, _) => Some(end),
+                        (
+                            compiler::SingleModeStatementBoundary::Compound { end },
+                            ParserWarning::Escape(_, EscapeOrigin::Parser, _),
+                        ) => Some(end),
+                        // Compound input requests another token and can emit
+                        // tokenizer warnings while rejecting the next statement.
+                        _ => None,
+                    };
+                    if end.is_some_and(|end| warning.offset() >= end.to_usize()) {
+                        continue;
+                    }
+                }
                 // CPython resumes tokenization after a parser-origin SyntaxError.
                 // Preserve ordinary warning order and never replay prior warnings.
                 if parser_error.is_some() && !matches!(warning, ParserWarning::Numeric { .. }) {
@@ -2097,19 +2156,15 @@ mod escape_warnings {
                         }
                     }
                     ParserWarning::Numeric {
-                        offset,
                         last_offset,
                         message,
+                        ..
                     } => {
                         warn_syntax_at_offset(
                             source,
                             filename,
                             module,
-                            if interactive.is_some() {
-                                last_offset
-                            } else {
-                                offset
-                            },
+                            last_offset,
                             message.clone(),
                             self,
                         )

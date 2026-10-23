@@ -1658,6 +1658,11 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_method_descriptor));
+    ctx.types
+        .method_descriptor_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyClassMethodDescriptor::extend_class(ctx, ctx.types.classmethod_descriptor_type);
     PyWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
     ctx.types
@@ -1665,6 +1670,11 @@ pub(crate) fn init(ctx: &'static Context) {
         .slots
         .vectorcall
         .store(Some(vectorcall_wrapper));
+    ctx.types
+        .wrapper_descriptor_type
+        .slots
+        .flags
+        .insert(crate::types::PyTypeFlags::HAVE_VECTORCALL);
     PyMethodWrapper::extend_class(ctx, ctx.types.method_wrapper_type);
 }
 

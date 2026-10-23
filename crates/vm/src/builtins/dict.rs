@@ -424,7 +424,12 @@ impl PyDict {
             }
             Err(e) => return Err(e),
         };
-        let keys = PyIter::try_from_object(vm, keys_method.call((), vm)?)?;
+        let keys = other.mapping_unchecked().collect_method_output(
+            vm.ctx.intern_str("keys"),
+            keys_method.call((), vm)?,
+            vm,
+        )?;
+        let keys = PyIter::try_from_object(vm, keys)?;
         while let PyIterReturn::Return(key) = keys.next(vm)? {
             if !override_existing {
                 let hash = key_hash(&*key, mapping_name, vm)?;
@@ -2594,7 +2599,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .dict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
@@ -2610,7 +2615,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozendict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozendict));
 }
 
