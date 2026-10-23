@@ -543,7 +543,7 @@ impl PyTuple {
 
 #[pyclass(
     itemsize = core::mem::size_of::<crate::PyObjectRef>(),
-    flags(BASETYPE, SEQUENCE, _MATCH_SELF),
+    flags(BASETYPE, SEQUENCE, _MATCH_SELF, TUPLE_SUBCLASS),
     with(AsMapping, AsNumber, AsSequence, Hashable, Comparable, Iterable, Constructor, Representable)
 )]
 impl Py<PyTuple> {

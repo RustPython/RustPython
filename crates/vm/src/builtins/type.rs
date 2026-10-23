@@ -908,6 +908,58 @@ impl PyType {
         }
     }
 
+    fn inherit_subclass_flags(slots: &mut PyTypeSlots, bases: &[PyRef<Self>]) {
+        let mut inherited = PyTypeFlags::empty();
+        for base in bases {
+            inherited |= base.slots.flags.load() & PyTypeFlags::SUBCLASS_FLAGS;
+        }
+        slots.flags |= inherited;
+    }
+
+    fn compute_subclass_flags(&self, ctx: &Context) -> PyTypeFlags {
+        let is_subclass = |base: &Py<Self>| self.mro.read().iter().any(|cls| cls.is(base));
+        let mut flags = PyTypeFlags::empty();
+        if is_subclass(ctx.types.int_type) {
+            flags.insert(PyTypeFlags::LONG_SUBCLASS);
+        }
+        if is_subclass(ctx.types.list_type) {
+            flags.insert(PyTypeFlags::LIST_SUBCLASS);
+        }
+        if is_subclass(ctx.types.tuple_type) {
+            flags.insert(PyTypeFlags::TUPLE_SUBCLASS);
+        }
+        if is_subclass(ctx.types.bytes_type) {
+            flags.insert(PyTypeFlags::BYTES_SUBCLASS);
+        }
+        if is_subclass(ctx.types.str_type) {
+            flags.insert(PyTypeFlags::UNICODE_SUBCLASS);
+        }
+        if is_subclass(ctx.types.dict_type) {
+            flags.insert(PyTypeFlags::DICT_SUBCLASS);
+        }
+        if is_subclass(ctx.exceptions.base_exception_type) {
+            flags.insert(PyTypeFlags::BASE_EXC_SUBCLASS);
+        }
+        if is_subclass(ctx.types.type_type) {
+            flags.insert(PyTypeFlags::TYPE_SUBCLASS);
+        }
+        flags
+    }
+
+    fn update_subclass_flags_recursive(&self, ctx: &Context) {
+        self.slots.flags.replace_masked(
+            PyTypeFlags::SUBCLASS_FLAGS,
+            self.compute_subclass_flags(ctx),
+        );
+        for weak_ref in self.subclasses.read().iter() {
+            if let Some(subclass) = weak_ref.upgrade()
+                && let Some(subclass) = subclass.downcast_ref::<Self>()
+            {
+                subclass.update_subclass_flags_recursive(ctx);
+            }
+        }
+    }
+
     pub fn has_patma_collection_flag(&self, flag: u8) -> bool {
         debug_assert!(flag == PyTypeFlags::SEQUENCE || flag == PyTypeFlags::MAPPING);
         self.slots.flags.has_feature(flag)
@@ -1041,6 +1093,8 @@ impl PyType {
             slots.flags |= WEAKREF_FLAGS;
         }
 
+        Self::inherit_subclass_flags(&mut slots, bases.as_slice());
+
         // Inherit SEQUENCE and MAPPING flags from base classes
         Self::inherit_patma_flags(&mut slots, bases.as_slice());
 
@@ -1113,6 +1167,7 @@ impl PyType {
         // Inherit SEQUENCE and MAPPING flags from base class
         // For static types, we only have a single base
         Self::inherit_patma_flags(&mut slots, core::slice::from_ref(&base));
+        Self::inherit_subclass_flags(&mut slots, core::slice::from_ref(&base));
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -1792,7 +1847,7 @@ impl PyType {
         AsNumber,
         Representable
     ),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF, TYPE_SUBCLASS)
 )]
 impl PyType {}
 
@@ -2201,6 +2256,7 @@ impl Constructor for PyType {
         if custom_mro {
             mro_internal(&typ, vm)?;
             typ.init_slots(&vm.ctx);
+            typ.update_subclass_flags_recursive(&vm.ctx);
         }
 
         if let Some(ref slots) = heaptype_slots {
@@ -2741,6 +2797,7 @@ impl Py<PyType> {
             if core::ptr::eq(&**zelf.bases.read(), &*bases) {
                 remove_as_subclass(old_bases.as_slice(), &mut retired);
                 add_as_subclass(bases.as_slice());
+                zelf.update_subclass_flags_recursive(&vm.ctx);
                 zelf.update_all_slots(&vm.ctx);
             }
 

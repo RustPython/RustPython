@@ -782,7 +782,7 @@ impl PyBaseException {
 
 #[pyclass(
     with(Py, PyRef, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
+    flags(BASETYPE, HAS_DICT, BASE_EXC_SUBCLASS)
 )]
 impl PyBaseException {}
 

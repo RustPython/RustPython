@@ -804,7 +804,7 @@ impl PyDict {
         AsMapping,
         Representable
     ),
-    flags(BASETYPE, MAPPING, _MATCH_SELF)
+    flags(BASETYPE, MAPPING, _MATCH_SELF, DICT_SUBCLASS)
 )]
 impl PyDict {}
 
