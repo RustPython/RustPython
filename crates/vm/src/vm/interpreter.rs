@@ -1389,7 +1389,6 @@ mod tests {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
                 thread_vm.run(|vm| {
-                    main_started_worker.store(true, Ordering::Release);
                     let deadline = Instant::now() + Duration::from_secs(30);
                     let mut operations = 0;
                     while !sub_finished_worker.load(Ordering::Acquire) && Instant::now() < deadline
@@ -1399,6 +1398,11 @@ mod tests {
                         let result = vm._add(&a, &b).unwrap();
                         assert_eq!(*int::get_value(&result), 42_i32.to_bigint().unwrap());
                         operations += 1;
+                        if operations == 1 {
+                            // Publish readiness only after actual progress. Otherwise
+                            // the sub can finish before this loop's first iteration.
+                            main_started_worker.store(true, Ordering::Release);
+                        }
                         // The protocol calls above never reach a safepoint on
                         // their own; a bytecode loop would. Without this, a
                         // concurrent stop-the-world could not finish while this
@@ -1416,7 +1420,12 @@ mod tests {
         let sub_worker = sub.enter(|vm| {
             let thread_vm = vm.new_thread();
             std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(30);
                 while !main_started_worker.load(Ordering::Acquire) {
+                    assert!(
+                        Instant::now() < deadline,
+                        "main interpreter made no progress before the readiness deadline"
+                    );
                     std::thread::yield_now();
                 }
                 thread_vm.run(|vm| {
