@@ -1025,47 +1025,30 @@ mod decl {
     struct PyItertoolsTeeData {
         iterable: PyIter,
         values: PyMutex<Vec<PyObjectRef>>,
+        next: PyMutex<Option<PyRef<Self>>>,
         #[pytraverse(skip)]
         running: AtomicBool,
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyItertoolsTeeData {
+        const BLOCK_SIZE: usize = 64;
+
         fn new(iterable: PyIter, vm: &VirtualMachine) -> PyRef<Self> {
             Self {
                 iterable,
-                values: PyMutex::new(vec![]),
+                values: PyMutex::new(Vec::with_capacity(Self::BLOCK_SIZE)),
+                next: PyMutex::new(None),
                 running: AtomicBool::new(false),
             }
             .into_ref(&vm.ctx)
         }
 
-        fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
-            // Return cached value if available
-            {
-                let Some(values) = self.values.try_lock() else {
-                    return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-                };
-                if index < values.len() {
-                    return Ok(PyIterReturn::Return(values[index].clone()));
-                }
-            }
-            // Prevent concurrent/reentrant calls to iterable.next(). The claim
-            // covers caching the value as well: released any earlier, a second
-            // tee at the same index fetches a value of its own and one of the
-            // two is dropped without ever reaching a caller.
-            if self.running.swap(true, Ordering::Acquire) {
-                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-            }
-            scopeguard::defer! { self.running.store(false, Ordering::Release) }
-            let obj = raise_if_stop!(self.iterable.next(vm)?);
-            let Some(mut values) = self.values.try_lock() else {
-                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
-            };
-            if values.len() == index {
-                values.push(obj);
-            }
-            Ok(PyIterReturn::Return(values[index].clone()))
+        fn next_block(&self, vm: &VirtualMachine) -> PyRef<Self> {
+            self.next
+                .lock()
+                .get_or_insert_with(|| Self::new(self.iterable.clone(), vm))
+                .clone()
         }
     }
 
@@ -1073,7 +1056,7 @@ mod decl {
     #[pyclass(name = "_tee", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsTee {
-        tee_data: PyRef<PyItertoolsTeeData>,
+        tee_data: PyMutex<PyRef<PyItertoolsTeeData>>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
         #[pytraverse(skip)]
@@ -1091,7 +1074,7 @@ mod decl {
                 return Ok(tee.__copy__());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm),
+                tee_data: PyMutex::new(PyItertoolsTeeData::new(iterator, vm)),
                 index: AtomicCell::new(0),
                 advancing: AtomicBool::new(false),
             })
@@ -1105,7 +1088,7 @@ mod decl {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm),
+                tee_data: PyMutex::new(PyItertoolsTeeData::new(iterator, vm)),
                 index: AtomicCell::new(0),
                 advancing: AtomicBool::new(false),
             }
@@ -1118,8 +1101,11 @@ mod decl {
     impl Py<PyItertoolsTee> {
         #[pymethod]
         fn __copy__(&self) -> PyItertoolsTee {
+            // A block transition resets the index under this lock, so the pair
+            // is a consistent snapshot even while another thread advances us.
+            let data = self.tee_data.lock();
             PyItertoolsTee {
-                tee_data: self.tee_data.clone(),
+                tee_data: PyMutex::new(data.clone()),
                 index: AtomicCell::new(self.index.load()),
                 advancing: AtomicBool::new(false),
             }
@@ -1162,15 +1148,65 @@ mod decl {
     impl SelfIter for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let mut current = zelf.tee_data.lock();
             // Reading the index and moving it on is one step: two callers that
             // read the same index hand out the same value twice and leave the
             // buffer to be filled out of order.
-            if zelf.advancing.swap(true, Ordering::Acquire) {
+            // The block lock serializes claims; an atomic exchange is not needed.
+            if zelf.advancing.load(Ordering::Acquire) {
+                drop(current);
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             }
+            zelf.advancing.store(true, Ordering::Relaxed);
             scopeguard::defer! { zelf.advancing.store(false, Ordering::Release) }
+            if zelf.index.load() == PyItertoolsTeeData::BLOCK_SIZE {
+                let data = current.clone();
+                drop(current);
+                let next = data.next_block(vm);
+                current = zelf.tee_data.lock();
+                let previous = core::mem::replace(&mut *current, next);
+                zelf.index.store(0);
+                drop(current);
+                // Releasing a consumed block may run item finalizers. No cursor
+                // or buffer lock may be held when the last owner lets it go.
+                drop(data);
+                drop(previous);
+                current = zelf.tee_data.lock();
+            }
+
+            // Cached reads neither call Python nor release the block, so they
+            // can update the cursor without cloning its data reference.
             let index = zelf.index.load();
-            let value = raise_if_stop!(zelf.tee_data.get_item(vm, index)?);
+            let cached = {
+                let values = current.values.lock();
+                if let Some(value) = values.get(index) {
+                    Some(value.clone())
+                } else {
+                    // Claim the source while the cache is locked: another tee
+                    // cannot fill this slot between the check and the claim.
+                    if current.running.load(Ordering::Acquire) {
+                        drop(values);
+                        drop(current);
+                        return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+                    }
+                    current.running.store(true, Ordering::Relaxed);
+                    None
+                }
+            };
+            if let Some(value) = cached {
+                zelf.index.store(index + 1);
+                return Ok(PyIterReturn::Return(value));
+            }
+
+            let data = current.clone();
+            drop(current);
+            // Prevent concurrent/reentrant calls to iterable.next(). The claim
+            // covers caching the value as well: released any earlier, a second
+            // tee at the same index fetches a value of its own and one of the
+            // two is dropped without ever reaching a caller.
+            scopeguard::defer! { data.running.store(false, Ordering::Release) }
+            let value = raise_if_stop!(data.iterable.next(vm)?);
+            data.values.lock().push(value.clone());
             zelf.index.store(index + 1);
             Ok(PyIterReturn::Return(value))
         }
