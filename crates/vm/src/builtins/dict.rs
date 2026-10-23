@@ -2599,7 +2599,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .dict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_dict));
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);
@@ -2615,7 +2615,7 @@ pub(crate) fn init(context: &'static Context) {
         .types
         .frozendict_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_frozendict));
 }
 

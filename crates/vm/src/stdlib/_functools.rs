@@ -321,7 +321,7 @@ mod _functools {
             let combined_nargs = combined_args.len();
 
             let kwnames = kwnames.unwrap_or_default();
-            if func.class().slots.vectorcall.load().is_none() {
+            if func.vectorcall_func().is_none() {
                 // FuncArgs callables retain their existing keyword binding path.
                 // In particular, do not introduce vectorcall's hash callbacks
                 // when the wrapped callable does not support vectorcall.

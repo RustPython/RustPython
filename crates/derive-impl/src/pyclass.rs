@@ -1414,6 +1414,11 @@ where
                     slots.#slot_ident.store(Some(Self::#ident as _));
                     slots.has_release_buffer.store(Self::RELEASE_BUFFER);
                 }
+            } else if slot_name == "vectorcall" {
+                quote_spanned! { span =>
+                    slots.#slot_ident.store(Some(Self::#ident as _));
+                    slots.flags.insert(::rustpython_vm::types::PyTypeFlags::HAVE_VECTORCALL);
+                }
             } else if POINTER_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
                     slots.#slot_ident.store(Some(PointerSlot::from(Self::#ident())));

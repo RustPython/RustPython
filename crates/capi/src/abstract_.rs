@@ -203,7 +203,7 @@ pub unsafe extern "C" fn PyVectorcall_Call(
             Some(kwnames.as_slice())
         };
 
-        callable.vectorcall(args, num_positional_args, kwnames, vm)
+        callable.vectorcall_call(args, num_positional_args, kwnames, vm)
     })
 }
 
