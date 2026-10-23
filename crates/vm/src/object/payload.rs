@@ -96,13 +96,18 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// race conditions when the object is reused.
     const HAS_FREELIST: bool = false;
 
+    /// Whether cached allocations retain an initialized payload.
+    /// `FreeList<Self>` destroys payloads before caching and requires false.
+    const FREELIST_HAS_PAYLOAD: bool = true;
+
     /// Maximum number of objects to keep in the freelist.
     const MAX_FREELIST: usize = 0;
 
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
     /// Called after tp_clear, so the payload is a cleared husk; implementations
-    /// must not rely on its pre-clear contents.
+    /// must not rely on its pre-clear contents. If `FREELIST_HAS_PAYLOAD` is
+    /// false, destroy the payload before publishing the allocation for reuse.
     ///
     /// # Safety
     /// `obj` must be a valid pointer to a `Py<Self>` with refcount 0
@@ -114,13 +119,13 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     }
 
     /// Try to pop a pre-allocated object from this type's freelist.
-    /// The returned pointer still has the old payload; the caller must
+    /// The caller must
     /// reinitialize `ref_count`, `gc_bits`, and `payload`.
     ///
     /// # Safety
     /// The returned pointer (if Some) must point to a valid `Py<Self>`
-    /// whose payload is still initialized from a previous allocation. The caller
-    /// will drop and overwrite `payload` before reuse.
+    /// whose payload is initialized if and only if `FREELIST_HAS_PAYLOAD` is
+    /// true. The caller will destroy it if initialized, then write a new payload.
     #[inline]
     unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         None
