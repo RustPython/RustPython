@@ -5295,8 +5295,6 @@ dependencies = [
 [[package]]
 name = "xml"
 version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f45bb2c13fec6a6cb4c0f76a7e94839e110a14ec803ec2940777a94c347bc52"
 
 [[package]]
 name = "xz"

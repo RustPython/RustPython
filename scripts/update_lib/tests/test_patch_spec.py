@@ -734,5 +734,45 @@ class ExactDoctestTests(unittest.TestCase):
             )
 
 
+class TestMarkerContinuationComments(unittest.TestCase):
+    def test_inline_marker_retains_contiguous_explanation(self):
+        old = """import unittest
+class PositionTest(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; backend reports a
+    # current cursor rather than the token start.
+    # Keep byte and column details.
+    def test(self):
+        self.assertEqual(1, 2)
+"""
+        canonical = """import unittest
+class PositionTest(unittest.TestCase):
+    def test(self):
+        self.assertEqual(3, 4)
+"""
+        patches = extract_patches(old)
+        result = apply_patches(canonical, patches)
+        self.assertIn(
+            "    @unittest.expectedFailure  # TODO: RUSTPYTHON; backend reports a\n"
+            "    # current cursor rather than the token start.\n"
+            "    # Keep byte and column details.\n",
+            result,
+        )
+        self.assertIn("self.assertEqual(3, 4)", result)
+        self.assertNotIn("self.assertEqual(1, 2)", result)
+        self.assertEqual(extract_patches(result), extract_patches(old))
+
+    def test_blank_line_ends_marker_explanation(self):
+        old = """import unittest
+class PositionTest(unittest.TestCase):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; backend difference
+
+    # Separate comment, not a marker continuation.
+    def test(self):
+        pass
+"""
+        spec = extract_patches(old)["PositionTest"]["test"][0]
+        self.assertEqual(spec.reason, "backend difference")
+
+
 if __name__ == "__main__":
     unittest.main()
