@@ -2313,6 +2313,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "libzstd-rs-sys"
+version = "0.0.1-prerelease.2"
+source = "git+https://github.com/youknowone/libzstd-rs-sys?rev=a3e65793c11012ad6ae09c5d9b5dd892d2952c01#a3e65793c11012ad6ae09c5d9b5dd892d2952c01"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4028,6 +4037,7 @@ dependencies = [
  "itertools 0.15.0",
  "libc",
  "libsqlite3-sys",
+ "libzstd-rs-sys",
  "malachite-bigint",
  "memchr",
  "mt19937",
