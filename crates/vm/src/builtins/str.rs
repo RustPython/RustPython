@@ -39,8 +39,6 @@ use core::{char, mem, ops::Range};
 use itertools::Itertools;
 use memchr::memchr;
 use num_traits::ToPrimitive;
-#[cfg(test)]
-use rustpython_common::ascii;
 use rustpython_common::{
     atomic::{self, PyAtomic, Radium},
     format::{FormatString, FromTemplate},
@@ -2832,7 +2830,11 @@ mod tests {
                 .unwrap();
             table.set_item("b", vm.ctx.none(), vm).unwrap();
             table
-                .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), vm)
+                .set_item(
+                    "c",
+                    vm.ctx.new_str(rustpython_common::ascii!("xda")).into(),
+                    vm,
+                )
                 .unwrap();
             let translated = Py::<PyStr>::maketrans(
                 table.into(),
