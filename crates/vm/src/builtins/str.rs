@@ -39,8 +39,9 @@ use core::{char, mem, ops::Range};
 use itertools::Itertools;
 use memchr::memchr;
 use num_traits::ToPrimitive;
+#[cfg(test)]
+use rustpython_common::ascii;
 use rustpython_common::{
-    ascii,
     atomic::{self, PyAtomic, Radium},
     format::{FormatString, FromTemplate},
     hash,
@@ -910,6 +911,16 @@ impl PyStr {
     )
 )]
 impl Py<PyStr> {
+    // `part` is a slice of this string. A full-length slice needs no copy,
+    // except when the operation must return a base str for a subclass.
+    fn result_from_slice(&self, part: &Wtf8, vm: &VirtualMachine) -> PyStrRef {
+        if part.len() == self.byte_len() {
+            PyStr::result_unchanged(self.to_owned(), vm)
+        } else {
+            vm.ctx.new_str(part)
+        }
+    }
+
     #[pymethod]
     #[inline(always)]
     pub fn isascii(&self) -> bool {
@@ -1141,17 +1152,19 @@ impl Py<PyStr> {
     }
 
     #[pymethod]
-    fn removeprefix(&self, prefix: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
-            .py_removeprefix(prefix.as_wtf8(), prefix.byte_len(), |s, p| s.starts_with(p))
-            .to_owned()
+    fn removeprefix(&self, prefix: PyStrRef, vm: &VirtualMachine) -> PyStrRef {
+        let part = self
+            .as_wtf8()
+            .py_removeprefix(prefix.as_wtf8(), prefix.byte_len(), |s, p| s.starts_with(p));
+        self.result_from_slice(part, vm)
     }
 
     #[pymethod]
-    fn removesuffix(&self, suffix: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
-            .py_removesuffix(suffix.as_wtf8(), suffix.byte_len(), |s, p| s.ends_with(p))
-            .to_owned()
+    fn removesuffix(&self, suffix: PyStrRef, vm: &VirtualMachine) -> PyStrRef {
+        let part = self
+            .as_wtf8()
+            .py_removesuffix(suffix.as_wtf8(), suffix.byte_len(), |s, p| s.ends_with(p));
+        self.result_from_slice(part, vm)
     }
 
     #[pymethod]
@@ -1381,40 +1394,41 @@ impl Py<PyStr> {
 
     #[pymethod]
     pub fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (front, has_mid, back) = self.as_wtf8().py_partition(
-            sep.as_wtf8(),
-            || self.as_wtf8().splitn(2, sep.as_wtf8()),
-            vm,
-        )?;
-        let partition = (
-            self.new_substr(front),
-            if has_mid {
-                sep
-            } else {
-                vm.ctx.new_str(ascii!(""))
-            },
-            self.new_substr(back),
-        );
-        Ok(partition.to_pyobject(vm))
+        self.partition_inner(sep, false, vm)
     }
 
     #[pymethod]
     pub fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let (back, has_mid, front) = self.as_wtf8().py_partition(
-            sep.as_wtf8(),
-            || self.as_wtf8().rsplitn(2, sep.as_wtf8()),
-            vm,
-        )?;
-        Ok((
-            self.new_substr(front),
-            if has_mid {
-                sep
+        self.partition_inner(sep, true, vm)
+    }
+
+    fn partition_inner(&self, sep: PyStrRef, reverse: bool, vm: &VirtualMachine) -> PyResult {
+        if sep.is_empty() {
+            return Err(vm.new_value_error("empty separator"));
+        }
+        let text = self.as_wtf8();
+        let index = if reverse {
+            text.rfind(sep.as_wtf8())
+        } else {
+            text.find(sep.as_wtf8())
+        };
+        let parts = if let Some(index) = index {
+            (
+                vm.ctx.new_str(&text[..index]),
+                sep.clone(),
+                vm.ctx.new_str(&text[index + sep.byte_len()..]),
+            )
+        } else {
+            let empty = vm.ctx.empty_str.to_owned();
+            // partition preserves the original object, including a subclass,
+            // when there is no separator.
+            if reverse {
+                (empty.clone(), empty, self.to_owned())
             } else {
-                vm.ctx.empty_str.to_owned()
-            },
-            self.new_substr(back),
-        )
-            .to_pyobject(vm))
+                (self.to_owned(), empty.clone(), empty)
+            }
+        };
+        Ok(parts.to_pyobject(vm))
     }
 
     #[pymethod]

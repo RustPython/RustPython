@@ -1284,3 +1284,12 @@ def test_percent_callback_order_bounded():
 
 
 test_percent_callback_order_bounded()
+
+
+class PartitionString(str):
+    pass
+
+
+partition_string = PartitionString("abc")
+assert partition_string.partition(":")[0] is partition_string
+assert partition_string.rpartition(":")[2] is partition_string
