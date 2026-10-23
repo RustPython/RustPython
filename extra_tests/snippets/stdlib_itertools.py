@@ -368,6 +368,11 @@ assert list(t[0]) == [1, 2, 3]
 assert list(t[0]) == []
 
 # itertools.product
+
+product_source = iter([1])
+assert list(itertools.product(product_source, repeat=0)) == [()]
+assert next(product_source) == 1
+
 it = itertools.product([1, 2], [3, 4])
 assert (1, 3) == next(it)
 assert (1, 4) == next(it)

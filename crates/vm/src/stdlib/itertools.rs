@@ -7,7 +7,7 @@ mod decl {
         VirtualMachine,
         builtins::{PyGenericAlias, PyInt, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int},
         class::PyClassDef,
-        common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
+        common::lock::{PyMutex, PyRwLock},
         convert::ToPyObject,
         function::{ArgIndex, FuncArgs, NameIterables, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
@@ -1180,11 +1180,9 @@ mod decl {
     #[pyclass(name = "product", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsProduct {
-        pools: Vec<Vec<PyObjectRef>>,
+        pools: Vec<PyTupleRef>,
         #[pytraverse(skip)]
         idxs: PyRwLock<Vec<usize>>,
-        #[pytraverse(skip)]
-        cur: AtomicCell<usize>,
         #[pytraverse(skip)]
         stop: AtomicCell<bool>,
     }
@@ -1220,12 +1218,19 @@ mod decl {
                 .filter(|n| *n <= isize::MAX as usize / size_of::<usize>())
                 .ok_or_else(|| vm.new_overflow_error("repeat argument too large"))?;
 
-            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
-            for arg in iterables.iter() {
-                single.push(arg.try_to_value(vm)?);
+            let mut single = Vec::new();
+            if repeat != 0 {
+                for arg in iterables.iter() {
+                    let pool = if let Some(tuple) = arg.downcast_ref_if_exact::<PyTuple>(vm) {
+                        tuple.to_owned()
+                    } else {
+                        PyTuple::new_ref(arg.try_to_value(vm)?, &vm.ctx)
+                    };
+                    single.push(pool);
+                }
             }
 
-            let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
+            let mut pools: Vec<PyTupleRef> = Vec::new();
             pools
                 .try_reserve_exact(npools)
                 .map_err(|_| vm.no_memory_error())?;
@@ -1240,46 +1245,34 @@ mod decl {
                 .map_err(|_| vm.no_memory_error())?;
             idxs.resize(npools, 0);
 
-            let l = pools.len();
+            let empty = pools.iter().any(|pool| pool.is_empty());
 
             Ok(Self {
                 pools,
                 idxs: PyRwLock::new(idxs),
-                cur: AtomicCell::new(l.wrapping_sub(1)),
-                stop: AtomicCell::new(false),
+                stop: AtomicCell::new(empty),
             })
         }
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
     impl PyItertoolsProduct {
-        fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
-            if idxs.is_empty() {
-                self.stop.store(true);
-                return;
-            }
-
-            let cur = self.cur.load();
-            let lst_idx = &self.pools[cur].len() - 1;
-
-            if idxs[cur] == lst_idx {
-                if cur == 0 {
-                    self.stop.store(true);
+        fn update_idxs(&self, idxs: &mut [usize]) {
+            for (index, pool) in idxs.iter_mut().zip(&self.pools).rev() {
+                *index += 1;
+                if *index < pool.len() {
                     return;
                 }
-                idxs[cur] = 0;
-                self.cur.fetch_sub(1);
-                self.update_idxs(idxs);
-            } else {
-                idxs[cur] += 1;
-                self.cur.store(idxs.len() - 1);
+                *index = 0;
             }
+            self.stop.store(true);
         }
     }
 
     impl SelfIter for PyItertoolsProduct {}
     impl IterNext for PyItertoolsProduct {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            let mut idxs = zelf.idxs.write();
             // stop signal
             if zelf.stop.load() {
                 return Ok(PyIterReturn::StopIteration(None));
@@ -1287,13 +1280,6 @@ mod decl {
 
             let pools = &zelf.pools;
 
-            for p in pools {
-                if p.is_empty() {
-                    return Ok(PyIterReturn::StopIteration(None));
-                }
-            }
-
-            let idxs = zelf.idxs.write();
             let res = vm.ctx.new_tuple(
                 pools
                     .iter()
@@ -1302,7 +1288,7 @@ mod decl {
                     .collect(),
             );
 
-            zelf.update_idxs(idxs);
+            zelf.update_idxs(&mut idxs);
 
             Ok(PyIterReturn::Return(res.into()))
         }
