@@ -309,8 +309,7 @@ socket2 = "0.6.4"
 static_assertions = "1.1"
 strum = "0.28"
 strum_macros = "0.28"
-syn = "2"
-syn-ext = "0.5.0"
+syn = "3"
 system-configuration = "0.8.0"
 tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 textwrap = { version = "0.16.2", default-features = false }
