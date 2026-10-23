@@ -1868,6 +1868,7 @@ mod escape_warnings {
             inherited_barry_as_flufl: bool,
             emitted_escapes: &[usize],
         ) -> Result<(), CompileWarningError> {
+            let tokenizer_only_mode = matches!(mode, compiler::Mode::Exec | compiler::Mode::Eval);
             let is_single = matches!(mode, compiler::Mode::Single);
             let mode = match mode {
                 compiler::Mode::Eval => ruff_python_parser::Mode::Expression,
@@ -1882,9 +1883,21 @@ mod escape_warnings {
                 inherited_barry_as_flufl,
                 is_single,
             );
-            if !collected.has_valid_syntax || !collected.tokenizer_recovery {
-                // Invalid source and interpolated tokenizer warnings need a
-                // separate recovery contract. Preserve their existing behavior.
+            // Tokenizer-only batches can preserve lexical warning order without
+            // parser-error recovery. Mixed parser/tokenizer events still need
+            // their separate fallback contract, as does Single's input boundary.
+            let tokenizer_only = tokenizer_only_mode
+                && collected.warnings.iter().any(|warning| {
+                    matches!(
+                        warning,
+                        ParserWarning::Escape(_, EscapeOrigin::Tokenizer, _)
+                    )
+                })
+                && collected.warnings.iter().all(|warning| {
+                    !matches!(warning, ParserWarning::Escape(_, EscapeOrigin::Parser, _))
+                });
+            if !collected.has_valid_syntax || (!collected.tokenizer_recovery && !tokenizer_only) {
+                // Preserve invalid-source and mixed-origin fallback behavior.
                 self.emit_tokenizer_syntax_warnings(source, filename, module)?;
                 return self.emit_string_escape_warnings(source, filename, module, emitted_escapes);
             }
@@ -1896,7 +1909,7 @@ mod escape_warnings {
                 collected.single_boundary,
                 WarningEmission::Standard {
                     emitted_escapes,
-                    tokenizer_recovery: true,
+                    tokenizer_recovery: !tokenizer_only,
                 },
             )
             .map(|_| ())
