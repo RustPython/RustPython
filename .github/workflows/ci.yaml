@@ -352,12 +352,14 @@ jobs:
         run: |
           cargo build --manifest-path example_projects/barebone/Cargo.toml
           cargo build --manifest-path example_projects/frozen_stdlib/Cargo.toml
+        env:
+          CARGO_TARGET_DIR: example_projects/target
 
       - name: Run example projects
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
         run: |
-          example_projects/barebone/target/debug/example-barebone
-          example_projects/frozen_stdlib/target/debug/example_frozen_stdlib
+          example_projects/target/debug/example-barebone
+          example_projects/target/debug/example_frozen_stdlib
 
       - name: Build rustpython for update_lib tests
         if: env.RUN_RUST_TESTS == 'true' && runner.os == 'Linux'
