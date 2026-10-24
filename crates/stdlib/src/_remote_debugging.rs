@@ -118,6 +118,9 @@ mod _remote_debugging {
     impl InterpreterInfo {}
 
     #[pyattr]
+    const PROCESS_VM_READV_SUPPORTED: u8 = 0;
+
+    #[pyattr]
     const THREAD_STATUS_HAS_GIL: u8 = 1;
     #[pyattr]
     const THREAD_STATUS_ON_CPU: u8 = 2;
