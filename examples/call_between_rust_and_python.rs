@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use rustpython::InterpreterBuilderExt;
 use rustpython::vm::{
     Py, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
@@ -26,7 +28,11 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython::vm::convert::PyListOf;
+    use alloc::collections::BTreeMap;
+    use rustpython::vm::{
+        PyObjectRef,
+        convert::{PyListOf, ToPyObject},
+    };
 
     #[pyfunction]
     fn rust_function(
@@ -44,6 +50,26 @@ python_person.name: {}",
         );
         RustStruct {
             numbers: vec![1, 2, 3, 4],
+            measurements: Measurements(BTreeMap::from([
+                ("temperature", 21.5),
+                ("pressure", 1013.0),
+            ])),
+        }
+    }
+
+    // A domain type can choose its own Python representation. Here an ordered
+    // map becomes a list of pairs rather than a dictionary.
+    #[derive(Debug, Clone)]
+    struct Measurements(BTreeMap<&'static str, f64>);
+
+    impl ToPyObject for Measurements {
+        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+            let pairs = self
+                .0
+                .into_iter()
+                .map(|pair| pair.to_pyobject(vm))
+                .collect();
+            vm.ctx.new_list(pairs).into()
         }
     }
 
@@ -52,6 +78,7 @@ python_person.name: {}",
     #[derive(Debug, PyPayload)]
     struct RustStruct {
         numbers: Vec<i32>,
+        measurements: Measurements,
     }
 
     #[pyclass]
@@ -59,6 +86,11 @@ python_person.name: {}",
         #[pygetset]
         fn numbers(zelf: &Py<Self>, vm: &VirtualMachine) -> PyListOf<i32> {
             PyListOf::new(zelf.numbers.iter().copied(), vm)
+        }
+
+        #[pygetset]
+        fn measurements(zelf: &Py<Self>) -> Measurements {
+            zelf.measurements.clone()
         }
 
         #[pymethod]

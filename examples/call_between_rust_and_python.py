@@ -10,6 +10,7 @@ def python_callback():
     python_person = PythonPerson("Peter Python")
     rust_object = rust_function(42, "This is a python string", python_person)
     print("Printing member 'numbers' from rust struct: ", rust_object.numbers)
+    print("Manually converted measurements: ", rust_object.measurements, flush=True)
     rust_object.print_in_rust_from_python()
 
 
