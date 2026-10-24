@@ -1216,4 +1216,4 @@ jobs:
             ${{ runner.os }}-stable--
 
       - name: cargo doc
-        run: cargo doc --locked
+        run: cargo doc --locked --no-deps
