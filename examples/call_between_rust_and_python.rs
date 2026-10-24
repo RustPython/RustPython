@@ -26,7 +26,7 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython::vm::{PyObjectRef, convert::ToPyObject};
+    use rustpython::vm::convert::PyListOf;
 
     #[pyfunction]
     fn rust_function(
@@ -43,17 +43,7 @@ python_person.name: {}",
             num, s, python_person.name
         );
         RustStruct {
-            numbers: NumVec(vec![1, 2, 3, 4]),
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct NumVec(Vec<i32>);
-
-    impl ToPyObject for NumVec {
-        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-            let list = self.0.into_iter().map(|e| vm.new_pyobj(e)).collect();
-            vm.ctx.new_list(list).to_pyobject(vm)
+            numbers: vec![1, 2, 3, 4],
         }
     }
 
@@ -61,14 +51,14 @@ python_person.name: {}",
     #[pyclass(module = "rust_py_module", name = "RustStruct")]
     #[derive(Debug, PyPayload)]
     struct RustStruct {
-        numbers: NumVec,
+        numbers: Vec<i32>,
     }
 
     #[pyclass]
     impl RustStruct {
         #[pygetset]
-        fn numbers(zelf: &Py<Self>) -> NumVec {
-            zelf.numbers.clone()
+        fn numbers(zelf: &Py<Self>, vm: &VirtualMachine) -> PyListOf<i32> {
+            PyListOf::new(zelf.numbers.iter().copied(), vm)
         }
 
         #[pymethod]
