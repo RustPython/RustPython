@@ -738,6 +738,10 @@ impl Reader {
             reserve(&mut data, count)?;
             data.extend_from_slice(&chunk[..count]);
         }
+        Self::parse(data)
+    }
+
+    fn parse(data: Vec<u8>) -> Result<Self> {
         if data.len() < HEADER_SIZE {
             return Err(invalid("File too small for header"));
         }
@@ -792,7 +796,7 @@ impl Reader {
         let mut footer = Cursor::new(&data[footer_start..]);
         let string_count = endian.u32(footer.fixed()?);
         let frame_count = endian.u32(footer.fixed()?);
-        let (profile_stats, tables_end) = parse_profile_stats(&data, endian, footer_start)?;
+        let (profile_stats, _) = parse_profile_stats(&data, endian, footer_start)?;
         for (name, offset) in [("string", string_offset), ("frame", frame_offset)] {
             if offset > data.len() as u64 {
                 return Err(invalid(format!(
@@ -815,15 +819,14 @@ impl Reader {
             .map_err(|_| Error::Overflow("File is too large to read"))?;
         let frame_offset = usize::try_from(frame_offset)
             .map_err(|_| Error::Overflow("File is too large to read"))?;
-        if frame_offset > tables_end {
-            return Err(invalid("Frame table overlaps file trailer"));
-        }
         if compression_type == 1 {
             return Err(Error::Runtime(
                 "File uses zstd compression but zstd support not compiled in",
             ));
         }
-        let mut string_data = Cursor::new(&data[string_offset..frame_offset]);
+        // CPython bounds table entries by the remaining file bytes, including
+        // subsequent sections. Keep the count and cursor checks anchored to EOF.
+        let mut string_data = Cursor::new(&data[string_offset..]);
         validate_count("string", string_count, string_data.remaining(), 1)?;
         let mut strings = Vec::new();
         reserve(&mut strings, string_count as usize)?;
@@ -836,7 +839,7 @@ impl Reader {
                 .map_err(|_| invalid("String table overflow"))?;
             strings.push(decode_utf8_replacing(bytes)?);
         }
-        let mut frame_data = Cursor::new(&data[frame_offset..tables_end]);
+        let mut frame_data = Cursor::new(&data[frame_offset..]);
         validate_count("frame", frame_count, frame_data.remaining(), 7)?;
         let mut frames = Vec::new();
         reserve(&mut frames, frame_count as usize)?;
@@ -1309,5 +1312,75 @@ fn validate_depth(depth: u64) -> Result<()> {
         )))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(samples: &[u8], count: u64) -> Vec<u8> {
+        let mut bytes = vec![0; HEADER_SIZE];
+        bytes[..4].copy_from_slice(&0x54414348u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        bytes[28..36].copy_from_slice(&count.to_le_bytes());
+        bytes[36..40].copy_from_slice(&1u32.to_le_bytes());
+        let table = (HEADER_SIZE + samples.len()) as u64;
+        bytes[40..48].copy_from_slice(&table.to_le_bytes());
+        bytes[48..56].copy_from_slice(&table.to_le_bytes());
+        bytes.extend_from_slice(samples);
+        bytes.extend_from_slice(&[0; FOOTER_SIZE]);
+        bytes
+    }
+
+    fn sample_header(encoding: u8) -> Vec<u8> {
+        let mut bytes = vec![0; 13];
+        bytes[12] = encoding;
+        bytes
+    }
+
+    #[test]
+    fn varint_rejects_overflow_and_truncation() {
+        let mut encoded = Vec::new();
+        push_varint(&mut encoded, u64::MAX).unwrap();
+        let mut cursor = Cursor::new(&encoded);
+        assert_eq!(cursor.varint().unwrap(), u64::MAX);
+        encoded[9] = 2;
+        let mut cursor = Cursor::new(&encoded);
+        assert!(cursor.varint().is_err());
+        let mut cursor = Cursor::new(&[128]);
+        assert!(cursor.varint().is_err());
+    }
+
+    #[test]
+    fn full_stack_depth_is_bounded_before_allocation() {
+        let mut bytes = sample_header(1);
+        bytes.extend_from_slice(&[0, 0]);
+        push_varint(&mut bytes, 257).unwrap();
+        let reader = Arc::new(Reader::parse(file(&bytes, 1)).unwrap());
+        assert!(
+            matches!(reader.replay().next_batch(), Err(Error::Value(message)) if message == "Stack depth 257 exceeds capacity 256")
+        );
+    }
+
+    #[test]
+    fn repeat_count_is_bounded_by_remaining_bytes() {
+        let mut bytes = sample_header(0);
+        push_varint(&mut bytes, u32::MAX as u64).unwrap();
+        let reader = Arc::new(Reader::parse(file(&bytes, 1)).unwrap());
+        assert!(
+            matches!(reader.replay().next_batch(), Err(Error::Value(message)) if message == "Invalid RLE count 4294967295 exceeds maximum possible 0")
+        );
+    }
+
+    #[test]
+    fn empty_repeat_records_do_not_recurse() {
+        let mut bytes = sample_header(0);
+        bytes.push(0);
+        let reader = Arc::new(Reader::parse(file(&bytes.repeat(10_000), 0)).unwrap());
+        let mut replay = reader.replay();
+        assert!(replay.next_batch().unwrap().is_none());
+        assert_eq!(replay.stats.repeat_records, 10_000);
+        assert_eq!(replay.stats.total_samples, 0);
     }
 }

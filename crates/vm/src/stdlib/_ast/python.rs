@@ -322,9 +322,7 @@ pub(crate) mod _ast {
             } else {
                 None
             };
-            let zelf = vm.ctx.new_base_object(cls, dict);
-
-            Ok(zelf)
+            Ok(vm.ctx.new_base_object(cls, dict))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
@@ -549,24 +547,10 @@ This will become an error in Python 3.20",
         let set_empty_annotations = |typ: &Py<PyType>| {
             typ.set_str_attr("__annotations__", ctx.new_dict(), ctx);
         };
-        set_empty_annotations(&ast_type);
         ast_type.set_str_attr("_fields", empty_tuple.clone(), ctx);
         ast_type.set_str_attr("_attributes", empty_tuple.clone(), ctx);
         ast_type.set_str_attr("__match_args__", empty_tuple, ctx);
-        for typ in [
-            super::super::pyast::NodeMod::static_type(),
-            super::super::pyast::NodeStmt::static_type(),
-            super::super::pyast::NodeExpr::static_type(),
-            super::super::pyast::NodeExprContext::static_type(),
-            super::super::pyast::NodeBoolOp::static_type(),
-            super::super::pyast::NodeOperator::static_type(),
-            super::super::pyast::NodeUnaryOp::static_type(),
-            super::super::pyast::NodeCmpOp::static_type(),
-            super::super::pyast::NodeExceptHandler::static_type(),
-            super::super::pyast::NodePattern::static_type(),
-            super::super::pyast::NodeTypeIgnore::static_type(),
-            super::super::pyast::NodeTypeParam::static_type(),
-        ] {
+        for typ in abstract_types() {
             set_empty_annotations(typ);
         }
 
@@ -601,7 +585,7 @@ This will become an error in Python 3.20",
      | Set(expr* elts)\n\
      | ListComp(expr elt, comprehension* generators)\n\
      | SetComp(expr elt, comprehension* generators)\n\
-     | DictComp(expr key, expr value, comprehension* generators)\n\
+     | DictComp(expr key, expr? value, comprehension* generators)\n\
      | GeneratorExp(expr elt, comprehension* generators)\n\
      | Await(expr value)\n\
      | Yield(expr? value)\n\

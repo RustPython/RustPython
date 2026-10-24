@@ -232,10 +232,12 @@ where
     // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
     // and `encodings`) before any `enter_vm` scope exists, so attach this
     // thread for the duration so type cache reads see it as ATTACHED.
-    let vm_guard = thread::VmBootstrapGuard::new(&vm);
-    vm.initialize();
-    vm.state.ready.store(true, Ordering::Release);
-    drop(vm_guard);
+    if whence != InterpreterWhence::Unknown {
+        let vm_guard = thread::VmBootstrapGuard::new(&vm);
+        vm.initialize();
+        vm.state.ready.store(true, Ordering::Release);
+        drop(vm_guard);
+    }
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -246,6 +248,7 @@ where
 fn create_subinterpreter_from_parent(
     parent: &VirtualMachine,
     config: runtime::InterpreterConfig,
+    whence: InterpreterWhence,
 ) -> Result<Interpreter, &'static str> {
     config.check()?;
     // Suspend the caller's current VM attachment (if any) for the duration
@@ -272,7 +275,7 @@ fn create_subinterpreter_from_parent(
             frozen_modules: Vec::new(),
             init_hooks: Vec::new(),
             is_main: false,
-            whence: InterpreterWhence::Stdlib,
+            whence,
             parent_state: Some(&parent.state),
             interp_config: config,
         },
@@ -280,10 +283,12 @@ fn create_subinterpreter_from_parent(
     );
     let interp = Interpreter { global_state, vm };
     // Every interpreter has a `__main__` module once it is initialized.
-    interp.enter(|vm| {
-        let _ = vm.ensure_main_module();
-        vm.apply_startup_lazy_imports();
-    });
+    if whence != InterpreterWhence::Unknown {
+        interp.enter(|vm| {
+            let _ = vm.ensure_main_module();
+            vm.apply_startup_lazy_imports();
+        });
+    }
     Ok(interp)
 }
 
@@ -602,7 +607,16 @@ impl Interpreter {
         parent: &VirtualMachine,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(parent, config)
+        create_subinterpreter_from_parent(parent, config, InterpreterWhence::Stdlib)
+    }
+
+    #[cfg(feature = "threading")]
+    pub(crate) fn create_subinterpreter_from_vm_with_whence(
+        parent: &VirtualMachine,
+        config: runtime::InterpreterConfig,
+        whence: InterpreterWhence,
+    ) -> Result<Self, &'static str> {
+        create_subinterpreter_from_parent(parent, config, whence)
     }
 
     /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
@@ -610,7 +624,7 @@ impl Interpreter {
         &self,
         config: runtime::InterpreterConfig,
     ) -> Result<Self, &'static str> {
-        create_subinterpreter_from_parent(&self.vm, config)
+        create_subinterpreter_from_parent(&self.vm, config, InterpreterWhence::Stdlib)
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
@@ -730,6 +744,11 @@ impl Interpreter {
     }
 
     fn finalize_inner(self, exit_code: impl FnOnce(&VirtualMachine) -> u32) -> u32 {
+        // A PyInterpreterState_New-style state has never run Python and has
+        // no modules, streams or shutdown callbacks to finalize.
+        if !self.vm.initialized {
+            return 0;
+        }
         self.enter(|vm| {
             let flush_status = vm.flush_std();
 

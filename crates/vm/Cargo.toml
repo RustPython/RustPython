@@ -10,6 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
+capi = []
 default = ["compiler", "wasmbind", "gc", "host_env", "stdio", "doc"]
 doc = ["dep:rustpython-doc", "dep:xz"]
 host_env = ["rustpython-host_env/ctypes"]

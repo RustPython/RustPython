@@ -1,0 +1,162 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/args_missing_keyword_value.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..18,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..5,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 0..5,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 0..1,
+                                    id: Name("f"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 1..5,
+                                node_index: NodeIndex(None),
+                                args: [],
+                                keywords: [
+                                    Keyword {
+                                        range: 2..4,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name("a"),
+                                                range: 2..3,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 4..4,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 6..17,
+                    value: Call(
+                        ExprCall {
+                            node_index: NodeIndex(None),
+                            range: 6..17,
+                            func: Name(
+                                ExprName {
+                                    node_index: NodeIndex(None),
+                                    range: 6..7,
+                                    id: Name("f"),
+                                    ctx: Load,
+                                },
+                            ),
+                            arguments: Arguments {
+                                range: 7..17,
+                                node_index: NodeIndex(None),
+                                args: [
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 8..9,
+                                            id: Name("a"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                    Name(
+                                        ExprName {
+                                            node_index: NodeIndex(None),
+                                            range: 15..16,
+                                            id: Name("c"),
+                                            ctx: Load,
+                                        },
+                                    ),
+                                ],
+                                keywords: [
+                                    Keyword {
+                                        range: 11..13,
+                                        node_index: NodeIndex(None),
+                                        arg: Some(
+                                            Identifier {
+                                                id: Name("b"),
+                                                range: 11..12,
+                                                node_index: NodeIndex(None),
+                                            },
+                                        ),
+                                        value: Name(
+                                            ExprName {
+                                                node_index: NodeIndex(None),
+                                                range: 13..13,
+                                                id: Name(""),
+                                                ctx: Invalid,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                runtime_args: None,
+                                runtime_bases: None,
+                            },
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | f(a=)
+  |   ^^ Syntax Error: expected argument value expression
+2 | f(a, b=, c)
+  |
+
+
+  |
+1 | f(a=)
+  |     ^ Syntax Error: invalid syntax
+2 | f(a, b=, c)
+  |
+
+
+  |
+1 | f(a=)
+2 | f(a, b=, c)
+  |      ^^ Syntax Error: expected argument value expression
+
+
+  |
+1 | f(a=)
+2 | f(a, b=, c)
+  |        ^ Syntax Error: invalid syntax
+
+
+  |
+1 | f(a=)
+2 | f(a, b=, c)
+  |           ^ Syntax Error: positional argument follows keyword argument

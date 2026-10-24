@@ -1,0 +1,88 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/invalid/statements/match/as_pattern_1.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..210,
+        body: [
+            Match(
+                StmtMatch {
+                    node_index: NodeIndex(None),
+                    range: 0..209,
+                    subject: Name(
+                        ExprName {
+                            node_index: NodeIndex(None),
+                            range: 6..13,
+                            id: Name("subject"),
+                            ctx: Load,
+                        },
+                    ),
+                    cases: [
+                        MatchCase {
+                            range: 140..209,
+                            node_index: NodeIndex(None),
+                            pattern: MatchValue(
+                                PatternMatchValue {
+                                    node_index: NodeIndex(None),
+                                    range: 145..158,
+                                    value: BinOp(
+                                        ExprBinOp {
+                                            node_index: NodeIndex(None),
+                                            range: 145..158,
+                                            left: Name(
+                                                ExprName {
+                                                    node_index: NodeIndex(None),
+                                                    range: 146..152,
+                                                    id: Name(""),
+                                                    ctx: Invalid,
+                                                },
+                                            ),
+                                            op: Add,
+                                            right: NumberLiteral(
+                                                ExprNumberLiteral {
+                                                    node_index: NodeIndex(None),
+                                                    range: 156..158,
+                                                    value: Complex {
+                                                        real: 0.0,
+                                                        imag: 1.0,
+                                                    },
+                                                },
+                                            ),
+                                        },
+                                    ),
+                                },
+                            ),
+                            guard: None,
+                            body: [
+                                Pass(
+                                    StmtPass {
+                                        node_index: NodeIndex(None),
+                                        range: 205..209,
+                                    },
+                                ),
+                            ],
+                            runtime_body: None,
+                        },
+                    ],
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+3 |     #             complex literal pattern
+4 |     #             v
+5 |     case (x as y) + 1j:
+  |           ^^^^^^ Syntax Error: expected a real number in complex literal pattern
+6 |     #     ^^^^^^
+7 |     #    as-pattern
+  |

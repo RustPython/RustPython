@@ -1,0 +1,342 @@
+---
+source: crates/ruff_python_parser/tests/fixtures.rs
+input_file: crates/ruff_python_parser/resources/inline/err/lambda_in_replacement_field.py
+---
+## AST
+
+```
+Module(
+    ModModule {
+        node_index: NodeIndex(None),
+        range: 0..48,
+        body: [
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 0..15,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 0..15,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 0..15,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 2..12,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Lambda(
+                                                        ExprLambda {
+                                                            node_index: NodeIndex(None),
+                                                            range: 3..12,
+                                                            parameters: Some(
+                                                                Parameters {
+                                                                    range: 10..11,
+                                                                    node_index: NodeIndex(None),
+                                                                    posonlyargs: [],
+                                                                    args: [
+                                                                        ParameterWithDefault {
+                                                                            range: 10..11,
+                                                                            node_index: NodeIndex(None),
+                                                                            parameter: Parameter {
+                                                                                range: 10..11,
+                                                                                node_index: NodeIndex(None),
+                                                                                name: Identifier {
+                                                                                    id: Name("x"),
+                                                                                    range: 10..11,
+                                                                                    node_index: NodeIndex(None),
+                                                                                },
+                                                                                annotation: None,
+                                                                                runtime_type_comment: None,
+                                                                                runtime_type_comment_bytes: None,
+                                                                            },
+                                                                            default: None,
+                                                                        },
+                                                                    ],
+                                                                    vararg: None,
+                                                                    kwonlyargs: [],
+                                                                    kwarg: None,
+                                                                    runtime_defaults: None,
+                                                                },
+                                                            ),
+                                                            body: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 12..12,
+                                                                    id: Name(""),
+                                                                    ctx: Invalid,
+                                                                },
+                                                            ),
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                            Literal(
+                                                InterpolatedStringLiteralElement {
+                                                    range: 12..13,
+                                                    node_index: NodeIndex(None),
+                                                    value: "x",
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 16..32,
+                    value: FString(
+                        ExprFString {
+                            node_index: NodeIndex(None),
+                            range: 16..32,
+                            value: FStringValue {
+                                inner: Single(
+                                    FString {
+                                        range: 16..32,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 18..29,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Tuple(
+                                                        ExprTuple {
+                                                            node_index: NodeIndex(None),
+                                                            range: 19..29,
+                                                            elts: [
+                                                                NumberLiteral(
+                                                                    ExprNumberLiteral {
+                                                                        node_index: NodeIndex(None),
+                                                                        range: 19..20,
+                                                                        value: Int(
+                                                                            1,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                Lambda(
+                                                                    ExprLambda {
+                                                                        node_index: NodeIndex(None),
+                                                                        range: 22..29,
+                                                                        parameters: None,
+                                                                        body: Name(
+                                                                            ExprName {
+                                                                                node_index: NodeIndex(None),
+                                                                                range: 29..29,
+                                                                                id: Name(""),
+                                                                                ctx: Invalid,
+                                                                            },
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                            ],
+                                                            ctx: Load,
+                                                            parenthesized: false,
+                                                            runtime_elts: None,
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                            Literal(
+                                                InterpolatedStringLiteralElement {
+                                                    range: 29..30,
+                                                    node_index: NodeIndex(None),
+                                                    value: "x",
+                                                },
+                                            ),
+                                        ],
+                                        flags: FStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_joined_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+            Expr(
+                StmtExpr {
+                    node_index: NodeIndex(None),
+                    range: 33..47,
+                    value: TString(
+                        ExprTString {
+                            node_index: NodeIndex(None),
+                            range: 33..47,
+                            value: TStringValue {
+                                inner: Single(
+                                    TString {
+                                        range: 33..47,
+                                        node_index: NodeIndex(None),
+                                        elements: [
+                                            Interpolation(
+                                                InterpolatedElement {
+                                                    range: 35..46,
+                                                    node_index: NodeIndex(None),
+                                                    expression: Lambda(
+                                                        ExprLambda {
+                                                            node_index: NodeIndex(None),
+                                                            range: 36..45,
+                                                            parameters: Some(
+                                                                Parameters {
+                                                                    range: 43..44,
+                                                                    node_index: NodeIndex(None),
+                                                                    posonlyargs: [],
+                                                                    args: [
+                                                                        ParameterWithDefault {
+                                                                            range: 43..44,
+                                                                            node_index: NodeIndex(None),
+                                                                            parameter: Parameter {
+                                                                                range: 43..44,
+                                                                                node_index: NodeIndex(None),
+                                                                                name: Identifier {
+                                                                                    id: Name("x"),
+                                                                                    range: 43..44,
+                                                                                    node_index: NodeIndex(None),
+                                                                                },
+                                                                                annotation: None,
+                                                                                runtime_type_comment: None,
+                                                                                runtime_type_comment_bytes: None,
+                                                                            },
+                                                                            default: None,
+                                                                        },
+                                                                    ],
+                                                                    vararg: None,
+                                                                    kwonlyargs: [],
+                                                                    kwarg: None,
+                                                                    runtime_defaults: None,
+                                                                },
+                                                            ),
+                                                            body: Name(
+                                                                ExprName {
+                                                                    node_index: NodeIndex(None),
+                                                                    range: 45..45,
+                                                                    id: Name(""),
+                                                                    ctx: Invalid,
+                                                                },
+                                                            ),
+                                                        },
+                                                    ),
+                                                    debug_text: None,
+                                                    conversion: None,
+                                                    format_spec: None,
+                                                    runtime_str: None,
+                                                    runtime_interpolation_format_spec: None,
+                                                    runtime_formatted_value_format_spec: None,
+                                                },
+                                            ),
+                                        ],
+                                        flags: TStringFlags {
+                                            quote_style: Double,
+                                            prefix: Regular,
+                                            triple_quoted: false,
+                                            unclosed: false,
+                                        },
+                                    },
+                                ),
+                            },
+                            runtime_template_str: None,
+                            runtime_values: None,
+                        },
+                    ),
+                },
+            ),
+        ],
+        runtime_body: None,
+    },
+)
+```
+## Errors
+
+  |
+1 | f"{lambda x:x}"
+  |    ^^^^^^^^^ Syntax Error: f-string: lambda expressions are not allowed without parentheses
+2 | f"{1, lambda:x}"
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+  |             ^ Syntax Error: invalid syntax
+2 | f"{1, lambda:x}"
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+  |              ^ Syntax Error: expected an element of or the end of the f-string
+2 | f"{1, lambda:x}"
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+2 | f"{1, lambda:x}"
+  |       ^^^^^^^ Syntax Error: f-string: lambda expressions are not allowed without parentheses
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+2 | f"{1, lambda:x}"
+  |              ^ Syntax Error: invalid syntax
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+2 | f"{1, lambda:x}"
+  |               ^ Syntax Error: f-string: single '}' is not allowed
+3 | t"{lambda x:}"
+  |
+
+
+  |
+1 | f"{lambda x:x}"
+2 | f"{1, lambda:x}"
+3 | t"{lambda x:}"
+  |    ^^^^^^^^^ Syntax Error: t-string: lambda expressions are not allowed without parentheses
+
+
+  |
+1 | f"{lambda x:x}"
+2 | f"{1, lambda:x}"
+3 | t"{lambda x:}"
+  |             ^ Syntax Error: invalid syntax

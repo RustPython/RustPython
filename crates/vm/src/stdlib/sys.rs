@@ -1,4 +1,6 @@
 pub(crate) mod monitoring;
+#[cfg(feature = "capi")]
+pub use monitoring::capi as monitoring_capi;
 
 use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 

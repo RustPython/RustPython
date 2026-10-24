@@ -1638,7 +1638,7 @@ fn vectorcall_wrapper(
         )));
     }
     let obj = args.remove(0);
-    if !obj.fast_isinstance(zelf.typ) {
+    if !obj.fast_isinstance(&zelf.typ) {
         return Err(vm.new_type_error(format!(
             "descriptor '{}' requires a '{}' object but received a '{}'",
             zelf.name.as_str(),
@@ -2003,18 +2003,23 @@ fn parse_buffer_flags(
 
 // wrapper_descriptor: wraps a slot function as a Python method
 // = PyWrapperDescrObject
-#[pyclass(name = "wrapper_descriptor", module = false)]
+#[pyclass(name = "wrapper_descriptor", module = false, traverse)]
 #[derive(Debug)]
 pub(crate) struct PyWrapper {
     #[pymember(name = "__objclass__")]
-    pub typ: &'static Py<PyType>,
+    pub typ: PyTypeRef,
     #[pymember(name = "__name__")]
+    #[pytraverse(skip)]
     pub name: &'static PyStrInterned,
+    #[pytraverse(skip)]
     pub wrapped: SlotFunc,
     /// Slot text, including the text signature.
+    #[pytraverse(skip)]
     pub doc: Option<&'static str>,
     /// Plain docstring for this slot when the table has one.
+    #[pytraverse(skip)]
     pub plain_off: u32,
+    #[pytraverse(skip)]
     pub plain_len: u32,
 }
 
@@ -2052,7 +2057,7 @@ impl Callable for PyWrapper {
         // list.__init__(l, [1,2,3]) form - first arg is self
         let (obj, rest): (PyObjectRef, FuncArgs) = args.bind(vm)?;
 
-        if !obj.fast_isinstance(zelf.typ) {
+        if !obj.fast_isinstance(&zelf.typ) {
             return Err(vm.new_type_error(format!(
                 "descriptor '{}' requires a '{}' object but received a '{}'",
                 zelf.name.as_str(),
@@ -2138,7 +2143,7 @@ impl Callable for PyMethodWrapper {
 
     fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // bpo-37619: Check type compatibility before calling wrapped slot
-        if !zelf.obj.fast_isinstance(zelf.wrapper.typ) {
+        if !zelf.obj.fast_isinstance(&zelf.wrapper.typ) {
             return Err(vm.new_type_error(format!(
                 "descriptor '{}' requires a '{}' object but received a '{}'",
                 zelf.wrapper.name.as_str(),

@@ -141,6 +141,8 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
             .set_attr("get_resource_reader", reader, vm)?;
         Ok(bootstrap)
     })?;
+    // Importlib callbacks must use the native import function, whose cache-hit
+    // path accepts partially initialized modules in concurrent circular imports.
     vm.import_func = vm.builtins.get_attr(identifier!(vm, __import__), vm)?;
     vm.importlib = importlib.clone();
     Ok(importlib)

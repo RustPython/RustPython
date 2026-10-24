@@ -1,0 +1,2476 @@
+--- /dev/null
++++ b/src/diagnostic_continuation.rs
+@@ -0,0 +1,145 @@
++//! A conservative consumer view of original tokenizer observations.
++//!
++//! This does not emit warnings, choose a Python exception, infer parser
++//! reachability, or reconstruct a suffix lost to parser-requested lexer recovery.
++
++use crate::diagnostic_events::{
++    DiagnosticContinuity, DiagnosticTokenRead, LexicalDiscovery, LexicalDisposition, LexicalDivergence,
++};
++
++#[derive(Debug)]
++pub enum ContinuationTermination<'a> {
++    IndependentStreams,
++    EndOfInput { read: &'a DiagnosticTokenRead },
++    HardStop {
++        read: &'a DiagnosticTokenRead,
++        discovery: &'a LexicalDiscovery,
++    },
++    UnclassifiedDiscovery {
++        read: &'a DiagnosticTokenRead,
++        discovery: &'a LexicalDiscovery,
++    },
++    Diverged(LexicalDivergence),
++    MissingRead { ordinal: usize },
++    UnboundFrontier { ordinal: usize },
++    FailureAlreadyRead {
++        read: &'a DiagnosticTokenRead,
++        discovery: &'a LexicalDiscovery,
++    },
++}
++
++#[derive(Debug)]
++pub struct OriginalContinuation<'a> {
++    /// Original-lineage observations strictly after the caller's filled frontier.
++    /// A terminal failed read is included. Events inside it must still respect
++    /// the discovery cursor; its complete recovered token span is not permission
++    /// to emit everything within that span.
++    pub reads: &'a [DiagnosticTokenRead],
++    pub termination: ContinuationTermination<'a>,
++}
++
++/// Inspect original lexical lineage after a proven completed action's read frontier.
++/// ParserRecovery alone is not a lexer rewrite and does not truncate this view.
++/// A divergence is incomplete evidence, never successful exhaustion.
++///
++/// The caller must separately establish TYPE_COMMENTS and Single reachability,
++/// pending exception identity, and CPython's furthest-filled-token START line.
++/// This view does not promote unknown lexical mappings into canonical hard stops.
++pub fn original_continuation_after(
++    reads: &[DiagnosticTokenRead],
++    continuity: DiagnosticContinuity,
++    frontier: usize,
++) -> OriginalContinuation<'_> {
++    let empty = &reads[..0];
++    let DiagnosticContinuity::SingleStream { divergence } = continuity else {
++        return OriginalContinuation {
++            reads: empty,
++            termination: ContinuationTermination::IndependentStreams,
++        };
++    };
++    let Some(filled) = reads.get(frontier).filter(|read| read.ordinal == frontier) else {
++        return OriginalContinuation {
++            reads: empty,
++            termination: ContinuationTermination::UnboundFrontier { ordinal: frontier },
++        };
++    };
++    if let Some(divergence) = divergence.filter(|value| value.next_read <= frontier) {
++        return OriginalContinuation {
++            reads: empty,
++            termination: ContinuationTermination::Diverged(divergence),
++        };
++    }
++    // A claimed filled frontier cannot silently cross an already discovered
++    // stop, a missing original token, or a non-contiguous read ordinal.
++    for (index, read) in reads[..=frontier].iter().enumerate() {
++        if let Some(discovery) = read.discoveries.iter().find(|discovery| {
++            !discovery.eof_cleanup && discovery.disposition != LexicalDisposition::ParserToken
++        }) {
++            return OriginalContinuation {
++                reads: empty,
++                termination: ContinuationTermination::FailureAlreadyRead { read, discovery },
++            };
++        }
++        if read.ordinal != index || read.read_range.is_none() {
++            return OriginalContinuation {
++                reads: empty,
++                termination: ContinuationTermination::UnboundFrontier { ordinal: frontier },
++            };
++        }
++    }
++    if filled.end_of_input {
++        return OriginalContinuation {
++            reads: empty,
++            termination: ContinuationTermination::EndOfInput { read: filled },
++        };
++    }
++    let start = frontier + 1;
++    for (index, read) in reads.iter().enumerate().skip(start) {
++        if let Some(divergence) = divergence.filter(|value| value.next_read <= index) {
++            return OriginalContinuation {
++                reads: &reads[start..index],
++                termination: ContinuationTermination::Diverged(divergence),
++            };
++        }
++        if read.ordinal != index {
++            return OriginalContinuation {
++                reads: &reads[start..index],
++                termination: ContinuationTermination::MissingRead { ordinal: index },
++            };
++        }
++        if let Some(discovery) = read.discoveries.iter().find(|discovery| {
++            !discovery.eof_cleanup && discovery.disposition != LexicalDisposition::ParserToken
++        }) {
++            let termination = match discovery.disposition {
++                LexicalDisposition::BareErrorToken | LexicalDisposition::RaisedErrorToken => {
++                    ContinuationTermination::HardStop { read, discovery }
++                }
++                LexicalDisposition::DecoderOrUnclassified => {
++                    ContinuationTermination::UnclassifiedDiscovery { read, discovery }
++                }
++                LexicalDisposition::ParserToken => unreachable!(),
++            };
++            return OriginalContinuation {
++                reads: &reads[start..=index],
++                termination,
++            };
++        }
++        if read.read_range.is_none() {
++            return OriginalContinuation {
++                reads: &reads[start..index],
++                termination: ContinuationTermination::MissingRead { ordinal: index },
++            };
++        }
++        if read.end_of_input {
++            return OriginalContinuation {
++                reads: &reads[start..=index],
++                termination: ContinuationTermination::EndOfInput { read },
++            };
++        }
++    }
++    let termination = match divergence.filter(|value| value.next_read <= reads.len()) {
++        Some(divergence) => ContinuationTermination::Diverged(divergence),
++        None => ContinuationTermination::MissingRead { ordinal: reads.len() },
++    };
++    OriginalContinuation { reads: &reads[start..], termination }
++}
+--- /dev/null
++++ b/src/diagnostic_events.rs
+@@ -0,0 +1,277 @@
++//! Original lexer-read provenance for Python 3.15 diagnostic composition.
++//!
++//! This is observation metadata, not a second lexer or a warning dispatcher.
++//! Parser-recovery reads remain labelled and cannot silently become first-pass
++//! evidence. The VM must not infer a CPython recovery trace from recovered ASTs.
++
++use ruff_python_ast::token::{Token, TokenKind};
++use ruff_text_size::{Ranged, TextRange, TextSize};
++
++use crate::error::{LexicalErrorType, InterpolatedStringErrorType};
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum DiagnosticReadOrigin {
++    FirstPass,
++    ParserRecovery,
++    /// Independent original-lexer continuation; never a source of parser actions.
++    TokenizerContinuation,
++}
++
++/// Explicit effect of parser-requested lexer recovery, not a range heuristic.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum LexerRecoveryEffect {
++    Unchanged,
++    /// State changed without producing a replacement read (for example nesting).
++    StateChanged,
++    /// The lexer moved and formed a new token from a rewritten state.
++    Retokenized,
++    /// An existing token/cursor was replaced directly.
++    TokenRewritten,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub struct LexicalDivergence {
++    /// Reads strictly before this ordinal retain original lexical lineage.
++    /// State-only recovery can set this boundary without appending a read.
++    pub next_read: usize,
++    pub effect: LexerRecoveryEffect,
++}
++
++/// The continuation API deliberately supports one original lexer stream only.
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum DiagnosticContinuity {
++    SingleStream { divergence: Option<LexicalDivergence> },
++    /// Cell concatenation combines independent lexers, not one tokenizer suffix.
++    IndependentStreams,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum LexicalDisposition {
++    /// CPython returns an ordinary token such as OP, which the parser rejects.
++    ParserToken,
++    /// A tokenizer ERRORTOKEN without PyErr; retain the original reason.
++    BareErrorToken,
++    /// The original tokenizer path sets an exception before ERRORTOKEN.
++    RaisedErrorToken,
++    /// No original tokenizer-stop interpretation has been established.
++    DecoderOrUnclassified,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub struct OpenBracketDiagnostic {
++    pub kind: char,
++    pub offset: TextSize,
++    // Derive a line from the original source only if a consumer needs it.
++    // Keeping this snapshot offset-only avoids prefix scans on successful closes.
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub struct LexicalContext {
++    /// Any active f/t mode, including literal and format-spec scanning.
++    pub in_interpolated_string: bool,
++    pub nesting: u32,
++    pub implicit_nesting: u32,
++    pub open_bracket: Option<OpenBracketDiagnostic>,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum LexicalWarningKind {
++    Numeric(crate::error::NumberLiteralKind),
++    InterpolatedBrace(char),
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct LexicalWarningDiscovery {
++    pub kind: LexicalWarningKind,
++    /// Numeric literal start or original backslash, independent of emission.
++    pub offset: TextSize,
++    /// Numeric last character or observed brace for existing emitter helpers.
++    pub last_offset: TextSize,
++    /// Canonical observation cursor, including an observed brace lookahead.
++    pub cursor: TextSize,
++    pub context: LexicalContext,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct LexicalDiscovery {
++    pub error: LexicalErrorType,
++    pub diagnostic: TextRange,
++    pub cursor: TextSize,
++    /// None when failure occurred while skipping whitespace before a token.
++    pub token_range: Option<TextRange>,
++    pub context: LexicalContext,
++    pub disposition: LexicalDisposition,
++    /// EOF cleanup can synthesize several diagnostics after its first failure.
++    pub eof_cleanup: bool,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum TypeCommentKind {
++    Regular,
++    Ignore,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub struct TypeCommentToken {
++    pub kind: TypeCommentKind,
++    pub token: TextRange,
++    /// The canonical token payload starts after '#', optional spaces/tabs,
++    /// 'type:', and optional spaces/tabs (or after 'ignore' for TYPE_IGNORE).
++    pub payload: TextRange,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticTokenRead {
++    /// Monotonic within the committed branch, independent of final token slots.
++    pub ordinal: usize,
++    /// Historical token-buffer slot. Recovery may later reuse it.
++    pub token_slot: usize,
++    pub token: Token,
++    /// None for a failure before a new token was formed.
++    pub read_range: Option<TextRange>,
++    pub origin: DiagnosticReadOrigin,
++    pub discoveries: Vec<LexicalDiscovery>,
++    pub warnings: Vec<LexicalWarningDiscovery>,
++    pub type_comment: Option<TypeCommentToken>,
++    /// Explicit even though Parsed.tokens() omits the final EOF token.
++    pub end_of_input: bool,
++}
++
++/// Actual Ruff parser observation point, not a canonical PEG failure frontier.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticParserPoint {
++    pub token: Token,
++    /// None when no eligible header had activated the lazy read journal yet.
++    pub read: Option<usize>,
++    /// No original lexical discovery or parser-requested lexer rewrite preceded
++    /// this point. A ParserToken discovery also prevents a clean prefix.
++    pub original_lexical_prefix: bool,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub enum DiagnosticParserFailureKind {
++    Error(crate::ParseErrorType),
++    /// Unclosed-bracket recovery can rewrite the lexer before adding an error.
++    LexicalRecovery,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticParserFailure {
++    pub point: DiagnosticParserPoint,
++    pub kind: DiagnosticParserFailureKind,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticNewlineConsumption {
++    pub point: DiagnosticParserPoint,
++    pub parser_errors_absent: bool,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum DiagnosticStatementKind { Simple, Compound }
++
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticStatementReturn {
++    pub kind: DiagnosticStatementKind,
++    pub statement: TextRange,
++    pub point: DiagnosticParserPoint,
++    pub parser_errors_absent: bool,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, get_size2::GetSize)]
++pub enum TypeCommentOwner { Assignment, ForHeader, WithHeader, FunctionHeader, FunctionBody, Parameter }
++
++/// A positive grammar-owned acceptance, not absence of validator rejection.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct TypeCommentAcceptance {
++    pub comment: TypeCommentToken,
++    pub owner: TypeCommentOwner,
++    pub preceding: Token,
++    pub following: Token,
++    pub point: DiagnosticParserPoint,
++}
++
++/// Actual FunctionDef named-parameter production before consuming a comma.
++/// Canonical param TYPE_COMMENT? &')' fails at this following comma.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct ParameterTypeCommentBarrier {
++    pub comment: TypeCommentToken,
++    pub preceding: Token,
++    pub point: DiagnosticParserPoint,
++}
++
++#[derive(Debug, Clone, Default, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticParserProgress {
++    pub parameter_type_comment_barrier: Option<ParameterTypeCommentBarrier>,
++    pub first_failure: Option<DiagnosticParserFailure>,
++    /// Actual first logical NEWLINE consumption, before requesting another token.
++    /// Only the existing compiler's Simple classification can turn this into a
++    /// single_input completion; a compound header newline is not completion.
++    pub first_logical_newline: Option<DiagnosticNewlineConsumption>,
++    /// Actual return from the first module-level statement, before list recovery.
++    /// Only Compound is a Single-input boundary; semicolon Simple returns are not.
++    pub first_statement_return: Option<DiagnosticStatementReturn>,
++}
++
++/// The actual invalid-import-alias expression production. CPython only
++/// decodes this expression in invalid_import_from_as_name on pass two, where
++/// string_parser.c suppresses decoder warnings. Tokenizer warnings are distinct.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct InvalidImportAliasDecoder {
++    pub imported_name: TextRange,
++    pub as_keyword: TextRange,
++    pub first: DiagnosticParserPoint,
++    pub expression: TextRange,
++}
++
++/// Canonical token-backed classification from CPython lexer.c's type prefix.
++/// The caller must supply a Comment token; string contents are never scanned.
++pub fn classify_type_comment(source: &str, token: &Token) -> Option<TypeCommentToken> {
++    if token.kind() != TokenKind::Comment {
++        return None;
++    }
++    let text = &source[token.range()];
++    let rest = text.strip_prefix('#')?.trim_start_matches([' ', '\t']);
++    let rest = rest.strip_prefix("type:")?.trim_start_matches([' ', '\t']);
++    let payload_start = token.end() - TextSize::try_from(rest.len()).unwrap();
++    let ignore = rest.strip_prefix("ignore").filter(|suffix| {
++        suffix.as_bytes().first().is_none_or(|byte| byte.is_ascii() && !byte.is_ascii_alphanumeric())
++    });
++    Some(TypeCommentToken {
++        kind: if ignore.is_some() { TypeCommentKind::Ignore } else { TypeCommentKind::Regular },
++        token: token.range(),
++        payload: TextRange::new(
++            payload_start + if ignore.is_some() { TextSize::new(6) } else { TextSize::new(0) },
++            token.end(),
++        ),
++    })
++}
++
++/// Only call for an error recorded by an original lexer production site.
++/// Parser-created Lexical variants and synthesized/reordered errors are excluded.
++pub(crate) fn original_lexer_disposition(error: &LexicalErrorType) -> LexicalDisposition {
++    use LexicalDisposition::{BareErrorToken, DecoderOrUnclassified, ParserToken, RaisedErrorToken};
++    use LexicalErrorType as E;
++    match error {
++        E::IndentationError | E::TabError | E::TooDeepIndentation
++        | E::LineContinuationError | E::Eof | E::UnclosedBracket { .. } => BareErrorToken,
++        E::UnclosedStringError { .. } | E::UnmatchedBracket { .. }
++        | E::MismatchedBracket { .. } | E::TooDeeplyNestedBrackets
++        | E::InvalidNumberLiteral { .. } | E::InvalidDigit { .. }
++        | E::LeadingZerosInDecimalInteger | E::IncompatibleStringPrefixes { .. } => RaisedErrorToken,
++        E::UnrecognizedToken { tok } if tok.is_ascii() && !tok.is_ascii_control() => ParserToken,
++        E::UnrecognizedToken { .. } => RaisedErrorToken,
++        E::FStringError(error) | E::TStringError(error) => match error {
++            InterpolatedStringErrorType::SingleRbrace
++            | InterpolatedStringErrorType::UnterminatedString { .. }
++            | InterpolatedStringErrorType::UnterminatedTripleQuotedString { .. }
++            | InterpolatedStringErrorType::NewlineInFormatSpec
++            | InterpolatedStringErrorType::UnclosedLbrace
++            | InterpolatedStringErrorType::UnclosedLbraceOnLine { .. }
++            | InterpolatedStringErrorType::UnmatchedBracket(_) => RaisedErrorToken,
++            _ => DecoderOrUnclassified,
++        },
++        E::StringError | E::UnicodeEscapeError { .. } | E::BytesEscapeError { .. }
++        | E::InvalidByteLiteral | E::OtherError(_) => DecoderOrUnclassified,
++    }
++}
+--- a/src/lexer/indentation.rs
++++ b/src/lexer/indentation.rs
+@@ -7,7 +7,7 @@
+ /// The column index of an indentation.
+ ///
+ /// A space increments the column by one. A tab advances the column to the next multiple of 8.
+-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
++#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, get_size2::GetSize)]
+ pub(super) struct Column(u32);
+ 
+ impl Column {
+@@ -17,7 +17,7 @@
+ }
+ 
+ /// The number of characters in an indentation. Each character accounts for 1.
+-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default)]
++#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Default, get_size2::GetSize)]
+ pub(super) struct Character(u32);
+ 
+ impl Character {
+@@ -27,7 +27,7 @@
+ }
+ 
+ /// The [Indentation](https://docs.python.org/3/reference/lexical_analysis.html#indentation) of a logical line.
+-#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
++#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, get_size2::GetSize)]
+ pub(super) struct Indentation {
+     column: Column,
+     character: Character,
+@@ -162,7 +162,7 @@
+     }
+ }
+ 
+-#[derive(Debug, Clone)]
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
+ pub(crate) struct IndentationsCheckpoint(Vec<Indentation>);
+ 
+ assert_eq_size!(Indentation, u64);
+--- a/src/lexer/interpolated_string.rs
++++ b/src/lexer/interpolated_string.rs
+@@ -6,7 +6,7 @@
+ use super::TokenFlags;
+ 
+ /// The context representing the current f-string or t-string that the lexer is in.
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, PartialEq, Eq, get_size2::GetSize)]
+ pub(crate) struct InterpolatedStringContext {
+     flags: TokenFlags,
+ 
+@@ -175,5 +175,5 @@
+     }
+ }
+ 
+-#[derive(Debug, Clone)]
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
+ pub(crate) struct InterpolatedStringsCheckpoint(Vec<InterpolatedStringContext>);
+--- a/src/lexer.rs
++++ b/src/lexer.rs
+@@ -77,6 +77,10 @@
+ 
+     /// Errors encountered while lexing.
+     errors: Vec<LexicalError>,
++    diagnostic_discoveries: Vec<crate::diagnostic_events::LexicalDiscovery>,
++    diagnostic_warnings: Vec<crate::diagnostic_events::LexicalWarningDiscovery>,
++    /// The original read extent survives Cursor rebuilding during peek/rewind.
++    diagnostic_read_range: TextRange,
+ }
+ 
+ impl<'src> Lexer<'src> {
+@@ -111,6 +115,9 @@
+             mode,
+             interpolated_strings: InterpolatedStrings::default(),
+             errors: Vec::new(),
++            diagnostic_discoveries: Vec::new(),
++            diagnostic_warnings: Vec::new(),
++            diagnostic_read_range: TextRange::empty(start_offset),
+         };
+ 
+         if start_offset == TextSize::new(0) {
+@@ -144,8 +151,84 @@
+     /// and return the [`TokenKind::Unknown`] token.
+     fn push_error(&mut self, error: LexicalError) -> TokenKind {
+         self.current_range = error.location();
++        self.record_error(error);
++        TokenKind::Unknown
++    }
++
++    pub(crate) fn diagnostic_context(&self) -> crate::diagnostic_events::LexicalContext {
++        use crate::diagnostic_events::{LexicalContext, OpenBracketDiagnostic};
++        LexicalContext {
++            in_interpolated_string: self.interpolated_strings.current().is_some(),
++            nesting: self.nesting,
++            implicit_nesting: self.nesting.saturating_sub(u32::try_from(self.brackets.len()).unwrap()),
++            open_bracket: self.brackets.last().map(|bracket| OpenBracketDiagnostic {
++                kind: bracket.kind,
++                offset: bracket.start,
++            }),
++        }
++    }
++
++    fn record_error(&mut self, error: LexicalError) {
++        let context = self.diagnostic_context();
++        self.record_error_with_context(error, context, Some(self.token_range()), false);
++    }
++
++    fn record_error_with_context(
++        &mut self,
++        error: LexicalError,
++        context: crate::diagnostic_events::LexicalContext,
++        token_range: Option<TextRange>,
++        eof_cleanup: bool,
++    ) {
++        if cfg!(feature = "python315-diagnostics") {
++            self.diagnostic_discoveries.push(crate::diagnostic_events::LexicalDiscovery {
++                error: error.error().clone(),
++                diagnostic: error.location(),
++                cursor: self.offset(),
++                token_range,
++                context,
++                disposition: crate::diagnostic_events::original_lexer_disposition(error.error()),
++                eof_cleanup,
++            });
++        }
+         self.errors.push(error);
++    }
++
++    fn push_error_with_context(
++        &mut self,
++        error: LexicalError,
++        context: crate::diagnostic_events::LexicalContext,
++        eof_cleanup: bool,
++    ) -> TokenKind {
++        self.current_range = error.location();
++        self.record_error_with_context(error, context, Some(self.token_range()), eof_cleanup);
+         TokenKind::Unknown
++    }
++
++    pub(crate) fn diagnostic_discoveries(&self) -> &[crate::diagnostic_events::LexicalDiscovery] {
++        &self.diagnostic_discoveries
++    }
++
++    pub(crate) fn diagnostic_warnings(&self) -> &[crate::diagnostic_events::LexicalWarningDiscovery] {
++        &self.diagnostic_warnings
++    }
++
++    fn record_warning(
++        &mut self,
++        kind: crate::diagnostic_events::LexicalWarningKind,
++        offset: TextSize,
++        last_offset: TextSize,
++        cursor: TextSize,
++    ) {
++        if cfg!(feature = "python315-diagnostics") {
++            self.diagnostic_warnings.push(crate::diagnostic_events::LexicalWarningDiscovery {
++                kind, offset, last_offset, cursor, context: self.diagnostic_context(),
++            });
++        }
++    }
++
++    pub(crate) fn diagnostic_read_range(&self) -> TextRange {
++        self.diagnostic_read_range
+     }
+ 
+     /// Pushes an indentation error for the current line.
+@@ -173,9 +256,13 @@
+ 
+     /// Lex the next token.
+     pub fn next_token(&mut self) -> TokenKind {
++        self.diagnostic_warnings.clear();
+         // `lex_token` marks the start on the path that lexes each token.
+         self.current_flags = TokenFlags::empty();
+         self.current_kind = self.lex_token();
++        // Capture while the token-start marker still belongs to this read.
++        // A pre-token whitespace failure is separately recorded with no range.
++        self.diagnostic_read_range = self.token_range();
+         // For `Unknown` token, the `push_error` method updates the current range.
+         if !matches!(self.current_kind, TokenKind::Unknown) {
+             self.current_range = self.token_range();
+@@ -225,7 +312,10 @@
+             }
+         } else {
+             if let Err(error) = self.skip_whitespace() {
+-                return self.push_error(error);
++                self.current_range = error.location();
++                let context = self.diagnostic_context();
++                self.record_error_with_context(error, context, None, false);
++                return TokenKind::Unknown;
+             }
+         }
+ 
+@@ -659,7 +749,7 @@
+         if let Some(error) = self.incompatible_string_prefixes(first) {
+             self.cursor
+                 .skip_bytes(error.location().len().to_usize() - first.len_utf8());
+-            self.errors.push(error);
++            self.record_error(error);
+             self.current_range = self.token_range();
+             return TokenKind::Unknown;
+         }
+@@ -862,7 +952,7 @@
+     /// Lex an f-string or t-string middle or end token.
+     fn lex_interpolated_string_middle_or_end(&mut self) -> Option<TokenKind> {
+         // SAFETY: Safe because the function is only called when `self.fstrings` is not empty.
+-        let interpolated_string = self.interpolated_strings.current().unwrap();
++        let interpolated_string = self.interpolated_strings.current().unwrap().clone();
+         let string_kind = interpolated_string.kind();
+         let interpolated_flags = interpolated_string.flags();
+ 
+@@ -899,13 +989,14 @@
+                         InterpolatedStringErrorType::UnterminatedString { detected_line }
+                     };
+ 
++                    let diagnostic_context = self.diagnostic_context();
+                     self.reset_nesting(interpolated_string.nesting());
+                     self.interpolated_strings.pop();
+                     self.current_flags |= TokenFlags::UNCLOSED_STRING;
+-                    self.push_error(LexicalError::new(
++                    self.push_error_with_context(LexicalError::new(
+                         LexicalErrorType::from_interpolated_string_error(error, string_kind),
+                         range,
+-                    ));
++                    ), diagnostic_context, false);
+ 
+                     break;
+                 }
+@@ -926,20 +1017,29 @@
+                         )
+                     };
+ 
++                    let diagnostic_context = self.diagnostic_context();
+                     self.reset_nesting(interpolated_string.nesting());
+                     self.interpolated_strings.pop();
+                     self.current_flags |= TokenFlags::UNCLOSED_STRING;
+ 
+-                    self.push_error(LexicalError::new(
++                    self.push_error_with_context(LexicalError::new(
+                         LexicalErrorType::from_interpolated_string_error(error_type, string_kind),
+                         range,
+-                    ));
++                    ), diagnostic_context, false);
+ 
+                     break;
+                 }
+                 '\\' => {
+                     self.cursor.bump(); // '\'
+                     if matches!(self.cursor.first(), '{' | '}') {
++                        if !interpolated_string.is_raw_string() {
++                            let brace_offset = self.offset();
++                            self.record_warning(
++                                crate::diagnostic_events::LexicalWarningKind::InterpolatedBrace(self.cursor.first()),
++                                brace_offset - TextSize::new(1), brace_offset,
++                                brace_offset + TextSize::new(1),
++                            );
++                        }
+                         // Don't consume `{` or `}` as we want them to be emitted as tokens.
+                         // They will be handled in the next iteration.
+                         continue;
+@@ -1207,7 +1307,7 @@
+     fn open_bracket(&mut self, kind: char) {
+         let start = self.token_range().start();
+         if self.nesting >= MAX_NESTING {
+-            self.errors.push(LexicalError::new(
++            self.record_error(LexicalError::new(
+                 LexicalErrorType::TooDeeplyNestedBrackets,
+                 TextRange::empty(start),
+             ));
+@@ -1226,6 +1326,7 @@
+                 .filter(|interpolated_string| {
+                     interpolated_string.is_at_interpolation_brace(self.nesting)
+                 });
++        let diagnostic_context = self.diagnostic_context();
+         let error = match self.brackets.pop() {
+             Some(open) if open.kind == opening_bracket(closing) => None,
+             Some(open) if open.kind == '{' && at_interpolation_brace.is_some() => {
+@@ -1246,8 +1347,10 @@
+             None => None,
+         };
+         if let Some(error) = error {
+-            self.errors
+-                .push(LexicalError::new(error, TextRange::empty(start)));
++            self.record_error_with_context(
++                LexicalError::new(error, TextRange::empty(start)),
++                diagnostic_context, Some(self.token_range()), false,
++            );
+         }
+         self.nesting = self.nesting.saturating_sub(1);
+     }
+@@ -1346,7 +1449,7 @@
+                 }
+                 'e' | 'E' | 'j' | 'J' => {}
+                 _ if nonzero => {
+-                    self.errors.push(LexicalError::new(
++                    self.record_error(LexicalError::new(
+                         LexicalErrorType::LeadingZerosInDecimalInteger,
+                         TextRange::new(self.token_range().start(), nonzero_start),
+                     ));
+@@ -1429,7 +1532,7 @@
+ 
+     /// Pushes an error for the number literal at its last consumed character, ending the token.
+     fn push_number_error(&mut self, error: LexicalErrorType) -> TokenKind {
+-        self.errors.push(LexicalError::new(
++        self.record_error(LexicalError::new(
+             error,
+             TextRange::empty(self.offset() - TextSize::new(1)),
+         ));
+@@ -1444,13 +1547,19 @@
+         let before_keyword = ["and", "else", "for", "if", "in", "is", "not", "or"]
+             .iter()
+             .any(|keyword| rest.starts_with(keyword));
++        if before_keyword {
++            self.record_warning(
++                crate::diagnostic_events::LexicalWarningKind::Numeric(kind),
++                self.token_range().start(), self.offset() - TextSize::new(1), self.offset(),
++            );
++        }
+         if !before_keyword
+             && rest
+                 .chars()
+                 .next()
+                 .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+         {
+-            self.errors.push(LexicalError::new(
++            self.record_error(LexicalError::new(
+                 LexicalErrorType::InvalidNumberLiteral { kind },
+                 TextRange::empty(self.offset() - TextSize::new(1)),
+             ));
+@@ -1492,7 +1601,10 @@
+         // We reached end of file.
+ 
+         // First, finish any unterminated interpolated-strings.
+-        while let Some(interpolated_string) = self.interpolated_strings.pop() {
++        let mut eof_failure_seen = false;
++        while self.interpolated_strings.current().is_some() {
++            let diagnostic_context = self.diagnostic_context();
++            let interpolated_string = self.interpolated_strings.pop().unwrap();
+             // An unterminated replacement field reports its innermost open bracket.
+             let error = match self.brackets.last() {
+                 Some(bracket) if self.nesting > interpolated_string.nesting() => LexicalError::new(
+@@ -1513,7 +1625,8 @@
+                 ),
+             };
+             self.reset_nesting(interpolated_string.nesting());
+-            self.push_error(error);
++            self.push_error_with_context(error, diagnostic_context, eof_failure_seen);
++            eof_failure_seen = true;
+         }
+ 
+         // Second, finish all nestings.
+@@ -1523,10 +1636,11 @@
+ 
+         if self.nesting > init_nesting {
+             let error = self.eof_error(self.token_range());
++            let diagnostic_context = self.diagnostic_context();
+             // Reset the nesting to avoid going into infinite loop.
+             self.nesting = 0;
+             self.brackets.clear();
+-            self.push_error(error);
++            self.push_error_with_context(error, diagnostic_context, eof_failure_seen);
+             self.current_range = self.token_range();
+             return TokenKind::Unknown;
+         }
+@@ -1602,9 +1716,10 @@
+     pub(crate) fn re_lex_logical_token(
+         &mut self,
+         non_logical_newline_start: Option<TextSize>,
+-    ) -> bool {
++    ) -> crate::diagnostic_events::LexerRecoveryEffect {
++        use crate::diagnostic_events::LexerRecoveryEffect;
+         if self.nesting == 0 {
+-            return false;
++            return LexerRecoveryEffect::Unchanged;
+         }
+ 
+         // Reduce the nesting level because the parser recovered from an error inside list parsing
+@@ -1615,11 +1730,11 @@
+         // The lexer can't be moved back for a triple-quoted f/t-string because the newlines are
+         // part of the f/t-string itself, so there is no newline token to be emitted.
+         if self.current_flags.is_triple_quoted_interpolated_string() {
+-            return false;
++            return LexerRecoveryEffect::StateChanged;
+         }
+ 
+         let Some(new_position) = non_logical_newline_start else {
+-            return false;
++            return LexerRecoveryEffect::StateChanged;
+         };
+ 
+         // Earlier we reduced the nesting level unconditionally. Now that we know the lexer's
+@@ -1647,7 +1762,7 @@
+         self.cursor.skip_bytes(new_position.to_usize());
+         self.state = State::Other;
+         self.next_token();
+-        true
++        LexerRecoveryEffect::Retokenized
+     }
+ 
+     /// Re-lexes an unclosed string token in the context of an interpolated string element.
+@@ -1661,9 +1776,10 @@
+     pub(crate) fn re_lex_string_token_in_interpolation_element(
+         &mut self,
+         kind: InterpolatedStringKind,
+-    ) {
++    ) -> crate::diagnostic_events::LexerRecoveryEffect {
++        use crate::diagnostic_events::LexerRecoveryEffect;
+         let Some(interpolated_string) = self.interpolated_strings.current() else {
+-            return;
++            return LexerRecoveryEffect::Unchanged;
+         };
+ 
+         let current_string_flags = self.current_flags().as_any_string_flags();
+@@ -1675,7 +1791,7 @@
+             || current_string_flags.quote_style().as_char() != interpolated_string.quote_char()
+             || current_string_flags.is_triple_quoted() != interpolated_string.is_triple_quoted()
+         {
+-            return;
++            return LexerRecoveryEffect::Unchanged;
+         }
+ 
+         // Only if the string's first line only contains whitespace,
+@@ -1690,7 +1806,7 @@
+ 
+             // `f'{'ab`, we want to parse `ab` as a normal string and not the closing element of the f-string
+             if !is_python_whitespace(c) {
+-                return;
++                return LexerRecoveryEffect::Unchanged;
+             }
+         }
+ 
+@@ -1711,6 +1827,10 @@
+ 
+         self.cursor = Cursor::new(self.source);
+         self.cursor.skip_bytes(self.current_range.end().to_usize());
++        // This is a recovery rewrite, not a newly formed original token.
++        self.diagnostic_read_range = self.current_range;
++        self.diagnostic_warnings.clear();
++        LexerRecoveryEffect::TokenRewritten
+     }
+ 
+     /// Re-lex `r"` in a format specifier position.
+@@ -1726,7 +1846,10 @@
+     /// This function re-lexes the `r"` as `r` (an identifier token). The next `next_token` call will
+     /// return a unclosed string token for `"`, which [`Self::re_lex_string_token_in_interpolation_element`]
+     /// can then re-lex as the end of the f-string.
+-    pub(crate) fn re_lex_raw_string_in_format_spec(&mut self) {
++    pub(crate) fn re_lex_raw_string_in_format_spec(
++        &mut self,
++    ) -> crate::diagnostic_events::LexerRecoveryEffect {
++        use crate::diagnostic_events::LexerRecoveryEffect;
+         // Re-lex `r"` as `NAME r` followed by an unclosed string
+         // `f"{test!r"` -> `f"{test!`, `r`, `"`
+         if matches!(self.current_kind, TokenKind::String)
+@@ -1746,6 +1869,12 @@
+             self.current_flags = TokenFlags::empty();
+             self.cursor = Cursor::new(self.source);
+             self.cursor.skip_bytes(self.current_range.end().to_usize());
++            // This is a recovery rewrite, not a newly formed original token.
++            self.diagnostic_read_range = self.current_range;
++            self.diagnostic_warnings.clear();
++            LexerRecoveryEffect::TokenRewritten
++        } else {
++            LexerRecoveryEffect::Unchanged
+         }
+     }
+ 
+@@ -1777,6 +1906,7 @@
+             current_range: self.current_range,
+             current_flags: self.current_flags,
+             cursor_offset: self.offset(),
++            cursor_token_start: self.token_range().start(),
+             state: self.state,
+             nesting: self.nesting,
+             brackets: self.brackets.clone(),
+@@ -1784,6 +1914,29 @@
+             pending_indentation: self.pending_indentation,
+             interpolated_strings_checkpoint: self.interpolated_strings.checkpoint(),
+             errors_position: self.errors.len(),
++            discoveries_position: self.diagnostic_discoveries.len(),
++            diagnostic_read_range: self.diagnostic_read_range,
++            diagnostic_warnings: self.diagnostic_warnings.clone(),
++        }
++    }
++
++    /// Own the exact source, mode, and current lexer state for a later independent
++    /// tokenizer-only continuation. This is called lazily at an eligible header,
++    /// never for ordinary parses without that grammar diagnostic.
++    pub(crate) fn diagnostic_snapshot(
++        &self,
++        seed: crate::diagnostic_events::DiagnosticTokenRead,
++    ) -> DiagnosticLexerSnapshot {
++        let mut state = self.checkpoint();
++        // A fork starts with fresh error journals. Its seed owns the discoveries
++        // from the already-read token; old journal lengths are not portable state.
++        state.errors_position = 0;
++        state.discoveries_position = 0;
++        DiagnosticLexerSnapshot {
++            source: self.source.into(),
++            mode: self.mode,
++            state,
++            seed,
+         }
+     }
+ 
+@@ -1794,6 +1947,7 @@
+             current_range,
+             current_flags,
+             cursor_offset,
++            cursor_token_start,
+             state,
+             nesting,
+             brackets,
+@@ -1801,11 +1955,19 @@
+             pending_indentation,
+             interpolated_strings_checkpoint,
+             errors_position,
++            discoveries_position,
++            diagnostic_read_range,
++            diagnostic_warnings,
+         } = checkpoint;
+ 
+         let mut cursor = Cursor::new(self.source);
+-        // We preserve the previous char using this method.
+-        cursor.skip_bytes(cursor_offset.to_usize());
++        // Restore both cursor position and the token-start marker. A fresh
++        // cursor plus one skip would lose the current token's original extent.
++        cursor.skip_bytes(cursor_token_start.to_usize());
++        cursor.start_token();
++        if cursor_offset > cursor_token_start {
++            cursor.skip_bytes((cursor_offset - cursor_token_start).to_usize());
++        }
+ 
+         self.current_kind = current_kind;
+         self.current_range = current_range;
+@@ -1819,6 +1981,9 @@
+         self.interpolated_strings
+             .rewind(interpolated_strings_checkpoint);
+         self.errors.truncate(errors_position);
++        self.diagnostic_discoveries.truncate(discoveries_position);
++        self.diagnostic_read_range = diagnostic_read_range;
++        self.diagnostic_warnings = diagnostic_warnings;
+     }
+ 
+     pub(crate) fn finish(self) -> Vec<LexicalError> {
+@@ -1836,11 +2001,218 @@
+     }
+ }
+ 
++/// An owned, same-source/mode lexer state, captured before parser recovery.
++///
++/// The source cannot be substituted by a consumer. Resuming clones the lexical
++/// stacks but does not replay parser callbacks or consume any recovered tokens.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub struct DiagnosticLexerSnapshot {
++    source: Box<str>,
++    mode: Mode,
++    state: LexerCheckpoint,
++    seed: crate::diagnostic_events::DiagnosticTokenRead,
++}
++
++impl DiagnosticLexerSnapshot {
++    pub fn source(&self) -> &str {
++        &self.source
++    }
++
++    pub const fn mode(&self) -> Mode {
++        self.mode
++    }
++
++    /// The already-read first target, not a newly produced continuation token.
++    pub const fn seed(&self) -> &crate::diagnostic_events::DiagnosticTokenRead {
++        &self.seed
++    }
++
++    /// Bind a completed grammar action's already-filled read prefix to this
++    /// exact original lexer before exposing its unread suffix. A mismatched or
++    /// recovered prefix is unavailable evidence, never successful exhaustion.
++    pub fn resume_after(
++        &self,
++        reads: &[crate::diagnostic_events::DiagnosticTokenRead],
++        continuity: crate::diagnostic_events::DiagnosticContinuity,
++        frontier: usize,
++    ) -> Result<DiagnosticLexerFork<'_>, DiagnosticForkBindingError> {
++        use crate::diagnostic_events::{DiagnosticContinuity, DiagnosticReadOrigin};
++        let DiagnosticContinuity::SingleStream { divergence } = continuity else {
++            return Err(DiagnosticForkBindingError::IndependentStreams);
++        };
++        if let Some(divergence) = divergence.filter(|divergence| divergence.next_read <= frontier) {
++            return Err(DiagnosticForkBindingError::Diverged(divergence));
++        }
++        if self.seed.ordinal != 0 || frontier >= reads.len() {
++            return Err(DiagnosticForkBindingError::UnboundFrontier { read: frontier });
++        }
++        let Some(seed) = reads.first() else {
++            return Err(DiagnosticForkBindingError::UnboundFrontier { read: frontier });
++        };
++        if seed.origin != DiagnosticReadOrigin::FirstPass || !same_original_read(seed, &self.seed) {
++            return Err(DiagnosticForkBindingError::ReadMismatch { read: 0 });
++        }
++        let mut fork = self.resume();
++        for (ordinal, committed) in reads.iter().enumerate().take(frontier + 1).skip(1) {
++            let Some(original) = fork.next_read() else {
++                return Err(DiagnosticForkBindingError::StoppedBeforeFrontier {
++                    frontier,
++                    termination: fork.termination.expect("stopped fork has an explicit reason"),
++                });
++            };
++            if committed.ordinal != ordinal
++                || committed.origin != DiagnosticReadOrigin::FirstPass
++                || !same_original_read(committed, &original)
++            {
++                return Err(DiagnosticForkBindingError::ReadMismatch { read: ordinal });
++            }
++        }
++        if let Some(termination) = &fork.termination
++            && !matches!(termination, DiagnosticForkTermination::EndOfInput { .. })
++        {
++            return Err(DiagnosticForkBindingError::FailureAlreadyRead(termination.clone()));
++        }
++        Ok(fork)
++    }
++
++    /// Continue the original lexer only. Consumers must independently establish
++    /// CPython parser reachability and control flags; this is not a second parser.
++    pub fn resume(&self) -> DiagnosticLexerFork<'_> {
++        let mut lexer = Lexer::new(&self.source, self.mode, TextSize::new(0));
++        lexer.rewind(self.state.clone());
++        DiagnosticLexerFork {
++            lexer,
++            next_read: self.seed.ordinal + 1,
++            next_token_slot: self.seed.token_slot + 1,
++            termination: fork_termination(&self.seed),
++        }
++    }
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum DiagnosticForkBindingError {
++    IndependentStreams,
++    Diverged(crate::diagnostic_events::LexicalDivergence),
++    UnboundFrontier { read: usize },
++    ReadMismatch { read: usize },
++    StoppedBeforeFrontier {
++        frontier: usize,
++        termination: DiagnosticForkTermination,
++    },
++    FailureAlreadyRead(DiagnosticForkTermination),
++}
++
++fn same_original_read(
++    committed: &crate::diagnostic_events::DiagnosticTokenRead,
++    original: &crate::diagnostic_events::DiagnosticTokenRead,
++) -> bool {
++    // Origin differs intentionally for a fork. Every other provenance field,
++    // including warnings/discoveries and historical slot, must match exactly.
++    committed.ordinal == original.ordinal
++        && committed.token_slot == original.token_slot
++        && committed.token == original.token
++        && committed.read_range == original.read_range
++        && committed.discoveries == original.discoveries
++        && committed.warnings == original.warnings
++        && committed.type_comment == original.type_comment
++        && committed.end_of_input == original.end_of_input
++}
++
++/// Why original lexical continuation stopped. None is never used to imply EOF.
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
++pub enum DiagnosticForkTermination {
++    EndOfInput { read: usize },
++    HardStop {
++        read: usize,
++        discovery: crate::diagnostic_events::LexicalDiscovery,
++    },
++    UnclassifiedDiscovery {
++        read: usize,
++        discovery: crate::diagnostic_events::LexicalDiscovery,
++    },
++    MissingRead { read: usize },
++}
++
++/// A fork borrows only its owned snapshot's source. No parser recovery methods
++/// are exposed, and no recovered AST or caller-supplied source is consulted.
++#[derive(Debug)]
++pub struct DiagnosticLexerFork<'src> {
++    lexer: Lexer<'src>,
++    next_read: usize,
++    next_token_slot: usize,
++    termination: Option<DiagnosticForkTermination>,
++}
++
++impl DiagnosticLexerFork<'_> {
++    pub const fn termination(&self) -> Option<&DiagnosticForkTermination> {
++        self.termination.as_ref()
++    }
++
++    /// Return one original read, including a terminal failed read. Warnings and
++    /// failures within that read retain their individual observation cursors.
++    pub fn next_read(&mut self) -> Option<crate::diagnostic_events::DiagnosticTokenRead> {
++        use crate::diagnostic_events::{DiagnosticReadOrigin, DiagnosticTokenRead};
++        use ruff_python_ast::token::Token;
++        if self.termination.is_some() {
++            return None;
++        }
++        let discoveries_before = self.lexer.diagnostic_discoveries.len();
++        self.lexer.next_token();
++        let token = Token::new(
++            self.lexer.current_kind(), self.lexer.current_range(), self.lexer.current_flags(),
++        );
++        let discoveries = self.lexer.diagnostic_discoveries[discoveries_before..].to_vec();
++        let read = DiagnosticTokenRead {
++            ordinal: self.next_read,
++            // Continuation slots describe this independent stream, not the
++            // parser's buffer after it has requested recovery or truncated it.
++            token_slot: self.next_token_slot,
++            read_range: (!discoveries.iter().any(|error| error.token_range.is_none()))
++                .then(|| self.lexer.diagnostic_read_range()),
++            origin: DiagnosticReadOrigin::TokenizerContinuation,
++            discoveries,
++            warnings: self.lexer.diagnostic_warnings().to_vec(),
++            type_comment: crate::diagnostic_events::classify_type_comment(self.lexer.source, &token),
++            end_of_input: token.kind() == TokenKind::EndOfFile,
++            token,
++        };
++        self.next_read += 1;
++        self.next_token_slot += 1;
++        self.termination = fork_termination(&read);
++        Some(read)
++    }
++}
++
++fn fork_termination(
++    read: &crate::diagnostic_events::DiagnosticTokenRead,
++) -> Option<DiagnosticForkTermination> {
++    use crate::diagnostic_events::LexicalDisposition;
++    if let Some(discovery) = read.discoveries.iter().find(|discovery| {
++        !discovery.eof_cleanup && discovery.disposition != LexicalDisposition::ParserToken
++    }) {
++        return Some(match discovery.disposition {
++            LexicalDisposition::BareErrorToken | LexicalDisposition::RaisedErrorToken => {
++                DiagnosticForkTermination::HardStop { read: read.ordinal, discovery: discovery.clone() }
++            }
++            LexicalDisposition::DecoderOrUnclassified => {
++                DiagnosticForkTermination::UnclassifiedDiscovery {
++                    read: read.ordinal, discovery: discovery.clone(),
++                }
++            }
++            LexicalDisposition::ParserToken => unreachable!(),
++        });
++    }
++    if read.read_range.is_none() {
++        return Some(DiagnosticForkTermination::MissingRead { read: read.ordinal });
++    }
++    read.end_of_input.then_some(DiagnosticForkTermination::EndOfInput { read: read.ordinal })
++}
++
+ /// The maximum number of nested brackets.
+ const MAX_NESTING: u32 = 200;
+ 
+ /// An opening bracket that is not closed yet.
+-#[derive(Copy, Clone, Debug)]
++#[derive(Copy, Clone, Debug, PartialEq, Eq, get_size2::GetSize)]
+ struct OpenBracket {
+     kind: char,
+     start: TextSize,
+@@ -1855,11 +2227,13 @@
+     }
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Eq, get_size2::GetSize)]
+ pub(crate) struct LexerCheckpoint {
+     current_kind: TokenKind,
+     current_range: TextRange,
+     current_flags: TokenFlags,
+     cursor_offset: TextSize,
++    cursor_token_start: TextSize,
+     state: State,
+     nesting: u32,
+     brackets: Vec<OpenBracket>,
+@@ -1867,9 +2241,12 @@
+     pending_indentation: Option<Indentation>,
+     interpolated_strings_checkpoint: InterpolatedStringsCheckpoint,
+     errors_position: usize,
++    discoveries_position: usize,
++    diagnostic_read_range: TextRange,
++    diagnostic_warnings: Vec<crate::diagnostic_events::LexicalWarningDiscovery>,
+ }
+ 
+-#[derive(Copy, Clone, Debug)]
++#[derive(Copy, Clone, Debug, PartialEq, Eq, get_size2::GetSize)]
+ enum State {
+     /// Lexer is right at the beginning of the file or after a `Newline` token.
+     AfterNewline,
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -82,6 +82,12 @@
+ mod error;
+ pub mod lexer;
+ mod parser;
++mod relative_imports;
++mod diagnostic_events;
++mod diagnostic_continuation;
++pub use diagnostic_continuation::{original_continuation_after, ContinuationTermination, OriginalContinuation};
++pub use diagnostic_events::{ParameterTypeCommentBarrier, InvalidImportAliasDecoder, DiagnosticStatementKind, DiagnosticStatementReturn, TypeCommentOwner, TypeCommentAcceptance, classify_type_comment, DiagnosticParserPoint, DiagnosticParserFailureKind, DiagnosticParserFailure, DiagnosticNewlineConsumption, DiagnosticParserProgress,LexicalWarningKind, LexicalWarningDiscovery,DiagnosticContinuity, LexerRecoveryEffect, LexicalDivergence,DiagnosticTokenRead, DiagnosticReadOrigin, LexicalDiscovery, LexicalContext, LexicalDisposition, OpenBracketDiagnostic, TypeCommentToken, TypeCommentKind};
++pub use relative_imports::RelativeLazyImportWarning;
+ pub mod semantic_errors;
+ mod string;
+ mod token_set;
+@@ -332,6 +338,8 @@
+     let mut tokens = Vec::new();
+     let mut errors = Vec::new();
+     let mut unsupported_syntax_errors = Vec::new();
++    let mut relative_lazy_import_warnings = Vec::new();
++    let mut diagnostic_token_reads = Vec::new();
+     let mut previous_end: Option<TextSize> = None;
+ 
+     while let Some(range) = ranges.next() {
+@@ -347,15 +355,31 @@
+             tokens: cell_tokens,
+             errors: cell_errors,
+             unsupported_syntax_errors: cell_unsupported_syntax_errors,
++            relative_lazy_import_warnings: mut cell_relative_lazy_import_warnings,
++            diagnostic_token_reads: mut cell_diagnostic_token_reads,
++            diagnostic_continuity: _,
++            diagnostic_snapshot: _,
++            diagnostic_parser_progress: _,
++            type_comment_acceptances: _,
++            invalid_import_alias_decoders: _,
+         } = Parser::new_starts_at(cell_source, range.start(), options.clone())
+             .parse()
+             .try_into_module()
+             .expect("module options should parse into a module");
+ 
++        let read_base = diagnostic_token_reads.len();
++        let token_base = tokens.len();
++        for action in &mut cell_relative_lazy_import_warnings { action.tokenizer_read += read_base; }
++        for read in &mut cell_diagnostic_token_reads {
++            read.ordinal += read_base;
++            read.token_slot += token_base;
++        }
++        diagnostic_token_reads.extend(cell_diagnostic_token_reads);
+         body.extend(syntax.body);
+         tokens.extend(cell_tokens);
+         errors.extend(cell_errors);
+         unsupported_syntax_errors.extend(cell_unsupported_syntax_errors);
++        relative_lazy_import_warnings.extend(cell_relative_lazy_import_warnings);
+ 
+         // Each range excludes its trailing `\n` separator (see the doc comment above), leaving a
+         // one-byte gap in the token stream. Cover it with a `NonLogicalNewline` so token-based
+@@ -389,6 +413,13 @@
+         tokens: Tokens::new(tokens),
+         errors,
+         unsupported_syntax_errors,
++        relative_lazy_import_warnings,
++        diagnostic_token_reads,
++        diagnostic_continuity: DiagnosticContinuity::IndependentStreams,
++        diagnostic_snapshot: None,
++        diagnostic_parser_progress: None,
++        type_comment_acceptances: Vec::new(),
++        invalid_import_alias_decoders: Vec::new(),
+     }
+ }
+ 
+@@ -399,6 +430,13 @@
+     tokens: Tokens,
+     errors: Vec<ParseError>,
+     unsupported_syntax_errors: Vec<UnsupportedSyntaxError>,
++    relative_lazy_import_warnings: Vec<RelativeLazyImportWarning>,
++    diagnostic_token_reads: Vec<DiagnosticTokenRead>,
++    diagnostic_continuity: DiagnosticContinuity,
++    diagnostic_snapshot: Option<Box<lexer::DiagnosticLexerSnapshot>>,
++    diagnostic_parser_progress: Option<DiagnosticParserProgress>,
++    type_comment_acceptances: Vec<TypeCommentAcceptance>,
++    invalid_import_alias_decoders: Vec<InvalidImportAliasDecoder>,
+ }
+ 
+ impl<T> Parsed<T> {
+@@ -420,6 +458,45 @@
+     /// Returns a list of version-related syntax errors found during parsing.
+     pub fn unsupported_syntax_errors(&self) -> &[UnsupportedSyntaxError] {
+         &self.unsupported_syntax_errors
++    }
++
++    /// Relative-lazy target-production candidates from Ruff's first pass.
++    /// TYPE_COMMENTS still requires validator-backed reachability for earlier
++    /// rejected comments; these records alone do not prove CPython action reachability.
++    pub fn relative_lazy_import_warnings(&self) -> &[RelativeLazyImportWarning] {
++        &self.relative_lazy_import_warnings
++    }
++
++    /// Original reads and explicitly labelled parser-recovery observations.
++    /// Final error sorting and token-buffer recovery do not replace this history.
++    pub fn diagnostic_token_reads(&self) -> &[DiagnosticTokenRead] {
++        &self.diagnostic_token_reads
++    }
++
++    /// Original lexical lineage, distinct from parser-error provenance.
++    /// Independent cell streams are explicitly unsupported by the suffix view.
++    pub fn diagnostic_continuity(&self) -> DiagnosticContinuity {
++        self.diagnostic_continuity
++    }
++
++    /// Same-source/mode owned snapshot captured lazily at an eligible header.
++    /// It supplies original tokenizer observations, not parser reachability.
++    pub fn diagnostic_lexer_snapshot(&self) -> Option<&lexer::DiagnosticLexerSnapshot> {
++        self.diagnostic_snapshot.as_deref()
++    }
++
++    /// Original parser-site observations. They do not claim CPython PEG failure
++    /// equivalence; independent parse_cells intentionally has no single progress.
++    pub fn invalid_import_alias_decoders(&self) -> &[InvalidImportAliasDecoder] {
++        &self.invalid_import_alias_decoders
++    }
++
++    pub fn type_comment_acceptances(&self) -> &[TypeCommentAcceptance] {
++        &self.type_comment_acceptances
++    }
++
++    pub fn diagnostic_parser_progress(&self) -> Option<&DiagnosticParserProgress> {
++        self.diagnostic_parser_progress.as_ref()
+     }
+ 
+     /// Consumes the [`Parsed`] output and returns the contained syntax node.
+@@ -508,6 +585,13 @@
+                 tokens: self.tokens,
+                 errors: self.errors,
+                 unsupported_syntax_errors: self.unsupported_syntax_errors,
++                relative_lazy_import_warnings: self.relative_lazy_import_warnings,
++                diagnostic_token_reads: self.diagnostic_token_reads,
++                diagnostic_continuity: self.diagnostic_continuity,
++                diagnostic_snapshot: self.diagnostic_snapshot,
++                diagnostic_parser_progress: self.diagnostic_parser_progress,
++                type_comment_acceptances: self.type_comment_acceptances,
++                invalid_import_alias_decoders: self.invalid_import_alias_decoders,
+             }),
+             Mod::Expression(_) => None,
+         }
+@@ -528,6 +612,13 @@
+                 tokens: self.tokens,
+                 errors: self.errors,
+                 unsupported_syntax_errors: self.unsupported_syntax_errors,
++                relative_lazy_import_warnings: self.relative_lazy_import_warnings,
++                diagnostic_token_reads: self.diagnostic_token_reads,
++                diagnostic_continuity: self.diagnostic_continuity,
++                diagnostic_snapshot: self.diagnostic_snapshot,
++                diagnostic_parser_progress: self.diagnostic_parser_progress,
++                type_comment_acceptances: self.type_comment_acceptances,
++                invalid_import_alias_decoders: self.invalid_import_alias_decoders,
+             }),
+         }
+     }
+@@ -565,7 +656,7 @@
+ /// Control in the different modes by which a source file can be parsed.
+ ///
+ /// The mode argument specifies in what way code must be parsed.
+-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
++#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, get_size2::GetSize)]
+ pub enum Mode {
+     /// The code consists of a sequence of statements.
+     Module,
+--- a/src/parser/expression.rs
++++ b/src/parser/expression.rs
+@@ -1320,6 +1320,9 @@
+             // test_err args_positional_after_keyword
+             // f(a=1, b)
+             // f(**a, b, **c)
++            self.observe_parser_failure(
++                crate::diagnostic_events::DiagnosticParserFailureKind::Error(error.clone()),
++            );
+             self.errors.insert(
+                 index,
+                 ParseError {
+@@ -2269,6 +2272,11 @@
+                 self.current_token_range(),
+             ),
+         };
++        self.observe_parser_failure(
++            crate::diagnostic_events::DiagnosticParserFailureKind::Error(
++                ParseErrorType::from_interpolated_string_error(error.clone(), string_kind),
++            ),
++        );
+         self.errors.insert(
+             errors_before,
+             ParseError {
+@@ -3504,6 +3512,11 @@
+             // test_err comprehension_missing_in
+             // [x for x if y]
+             // [x for a, b y]
++            self.observe_parser_failure(
++                crate::diagnostic_events::DiagnosticParserFailureKind::Error(
++                    ParseErrorType::OtherError("'in' expected after for-loop variables".to_string()),
++                ),
++            );
+             self.errors.insert(
+                 errors_before_target,
+                 ParseError {
+@@ -3699,6 +3712,8 @@
+                 let value = self
+                     .parse_conditional_expression_without_comma_check(ExpressionContext::default());
+                 let operand_is_valid = self.errors.len() == errors_start;
++                let diagnostic_failure_before = self.diagnostic_parser_progress.first_failure.clone();
++                let diagnostic_origin_before = self.tokens.diagnostic_parser_origin();
+                 self.validate_unpacking_precedence(&value, start, false);
+                 // Generator elements use `starred_expression` (`* expression`).
+                 // Keep a display-precedence error only for an overall parse failure.
+@@ -3708,6 +3723,8 @@
+                     && self.errors.len() == errors_start + 1
+                 {
+                     let error = self.errors.pop().expect("operand precedence error exists");
++                    self.diagnostic_parser_progress.first_failure = diagnostic_failure_before;
++                    self.tokens.restore_diagnostic_parser_origin(diagnostic_origin_before);
+                     self.deferred_starred_generator_errors
+                         .push((errors_start, error));
+                 }
+--- a/src/parser/mod.rs
++++ b/src/parser/mod.rs
+@@ -88,6 +88,12 @@
+     /// the invalid grammar fallback if the overall parse fails.
+     deferred_starred_generator_errors: Vec<(usize, ParseError)>,
+ 
++    /// Eligible import headers reached before any recovery; completed after tokenization.
++    relative_lazy_import_candidates: Vec<(TextRange, u32, usize)>,
++    diagnostic_parser_progress: crate::diagnostic_events::DiagnosticParserProgress,
++    type_comment_acceptances: Vec<crate::diagnostic_events::TypeCommentAcceptance>,
++    invalid_import_alias_decoders: Vec<crate::diagnostic_events::InvalidImportAliasDecoder>,
++
+     /// Stores non-fatal syntax errors found during parsing, such as version-related errors.
+     unsupported_syntax_errors: Vec<UnsupportedSyntaxError>,
+ 
+@@ -170,6 +176,10 @@
+             source,
+             errors: Vec::new(),
+             deferred_starred_generator_errors: Vec::new(),
++            relative_lazy_import_candidates: Vec::new(),
++            diagnostic_parser_progress: crate::diagnostic_events::DiagnosticParserProgress::default(),
++            type_comment_acceptances: Vec::new(),
++            invalid_import_alias_decoders: Vec::new(),
+             unsupported_syntax_errors: Vec::new(),
+             tokens,
+             name_interner: NameInterner::default(),
+@@ -269,7 +279,24 @@
+     /// This is to be used for [`Mode::Module`] and [`Mode::Ipython`].
+     fn parse_module(&mut self) -> ModModule {
+         let body = self.parse_list_into_thin_vec(RecoveryContextKind::ModuleStatements, |p| {
+-            p.parse_statement()
++            let statement = p.parse_statement();
++            if cfg!(feature = "python315-diagnostics")
++                && p.diagnostic_parser_progress.first_statement_return.is_none()
++            {
++                use crate::diagnostic_events::{DiagnosticStatementKind, DiagnosticStatementReturn};
++                let compound = matches!(&statement,
++                    Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::If(_)
++                    | Stmt::For(_) | Stmt::While(_) | Stmt::With(_)
++                    | Stmt::Try(_) | Stmt::Match(_));
++                p.diagnostic_parser_progress.first_statement_return = Some(DiagnosticStatementReturn {
++                    kind: if compound { DiagnosticStatementKind::Compound } else { DiagnosticStatementKind::Simple },
++                    statement: statement.range(),
++                    point: p.tokens.diagnostic_parser_point(),
++                    parser_errors_absent: p.errors.is_empty()
++                        && p.diagnostic_parser_progress.first_failure.is_none(),
++                });
++            }
++            statement
+         });
+ 
+         self.bump(TokenKind::EndOfFile);
+@@ -298,7 +325,12 @@
+             // after the outer expression's later error. Semantic errors occur later.
+             parse_errors.insert(0, error);
+         }
+-        let (tokens, lex_errors) = self.tokens.finish();
++        let (tokens, lex_errors, diagnostic_token_reads, diagnostic_lexical_divergence, diagnostic_snapshot) = self.tokens.finish();
++        let relative_lazy_import_warnings = crate::relative_imports::complete(
++            self.relative_lazy_import_candidates,
++            &diagnostic_token_reads,
++            self.options.diagnostic_type_comments,
++        );
+ 
+         // Fast path for when there are no lex errors.
+         // There's no fast path for when there are no parse errors because a lex error
+@@ -316,6 +348,13 @@
+                 tokens: Tokens::new(tokens),
+                 errors: parse_errors,
+                 unsupported_syntax_errors: self.unsupported_syntax_errors,
++                relative_lazy_import_warnings,
++                diagnostic_token_reads,
++                diagnostic_continuity: crate::diagnostic_events::DiagnosticContinuity::SingleStream { divergence: diagnostic_lexical_divergence },
++                diagnostic_snapshot,
++                diagnostic_parser_progress: Some(self.diagnostic_parser_progress),
++                type_comment_acceptances: self.type_comment_acceptances,
++                invalid_import_alias_decoders: self.invalid_import_alias_decoders,
+             };
+         }
+ 
+@@ -366,6 +405,13 @@
+             tokens: Tokens::new(tokens),
+             errors: merged,
+             unsupported_syntax_errors: self.unsupported_syntax_errors,
++            relative_lazy_import_warnings,
++            diagnostic_token_reads,
++            diagnostic_continuity: crate::diagnostic_events::DiagnosticContinuity::SingleStream { divergence: diagnostic_lexical_divergence },
++            diagnostic_snapshot,
++            diagnostic_parser_progress: Some(self.diagnostic_parser_progress),
++            type_comment_acceptances: self.type_comment_acceptances,
++            invalid_import_alias_decoders: self.invalid_import_alias_decoders,
+         }
+     }
+ 
+@@ -581,8 +627,87 @@
+         TextRange::empty(self.prev_token_end)
+     }
+ 
++    fn accept_trailing_type_comment(&mut self, owner: crate::diagnostic_events::TypeCommentOwner) {
++        use crate::diagnostic_events::TypeCommentOwner;
++        if !self.at(TokenKind::Newline) { return; }
++        let Some(preceding) = self.tokens.bumped().iter().rev()
++            .find(|token| !token.kind().is_trivia()).cloned()
++        else { return; };
++        if preceding.kind() == TokenKind::Semi
++            || (!matches!(owner, TypeCommentOwner::Assignment) && preceding.kind() != TokenKind::Colon)
++        { return; }
++        self.accept_type_comment_after(owner, preceding, false);
++    }
++
++    /// Claim one exact optional TYPE_COMMENT at a grammar-owned delimiter.
++    /// This does not scan source lines, change parsing, or infer acceptance from
++    /// the old validator. Ordinary trivia/TYPE_IGNORE are ignored as pegen does.
++    fn accept_type_comment_after(
++        &mut self,
++        owner: crate::diagnostic_events::TypeCommentOwner,
++        preceding: ruff_python_ast::token::Token,
++        allow_nonlogical_newlines: bool,
++    ) {
++        let Some((comment, point)) = self.type_comment_after(&preceding, allow_nonlogical_newlines)
++        else { return; };
++        self.type_comment_acceptances.push(crate::diagnostic_events::TypeCommentAcceptance {
++            comment, owner, preceding, following: point.token, point,
++        });
++    }
++
++    fn type_comment_after(
++        &self,
++        preceding: &ruff_python_ast::token::Token,
++        allow_nonlogical_newlines: bool,
++    ) -> Option<(crate::diagnostic_events::TypeCommentToken, crate::diagnostic_events::DiagnosticParserPoint)> {
++        use crate::diagnostic_events::{classify_type_comment, TypeCommentKind};
++        if !cfg!(feature = "python315-diagnostics") || !self.options.diagnostic_type_comments
++            || !self.errors.is_empty() || self.diagnostic_parser_progress.first_failure.is_some()
++            || !self.tokens.is_first_pass()
++        { return None; }
++        let point = self.tokens.diagnostic_parser_point();
++        if !point.original_lexical_prefix { return None; }
++        let tokens = self.tokens.bumped();
++        let start = tokens.partition_point(|token| token.start() < preceding.end());
++        let trailing = &tokens[start..];
++        if trailing.iter().any(|token| token.kind() != TokenKind::Comment
++            && !(allow_nonlogical_newlines && token.kind() == TokenKind::NonLogicalNewline))
++        { return None; }
++        let mut comments = trailing.iter().filter_map(|token| classify_type_comment(self.source, token))
++            .filter(|comment| comment.kind == TypeCommentKind::Regular);
++        let comment = comments.next()?;
++        if comments.next().is_some() { return None; }
++        Some((comment, point))
++    }
++
++    fn record_parameter_type_comment_barrier(&mut self) {
++        if !self.at(TokenKind::Comma)
++            || self.diagnostic_parser_progress.parameter_type_comment_barrier.is_some()
++        { return; }
++        let Some(preceding) = self.tokens.bumped().iter().rev()
++            .find(|token| !token.kind().is_trivia()).copied()
++        else { return; };
++        let Some((comment, point)) = self.type_comment_after(&preceding, true)
++        else { return; };
++        self.diagnostic_parser_progress.parameter_type_comment_barrier = Some(
++            crate::diagnostic_events::ParameterTypeCommentBarrier { comment, preceding, point },
++        );
++    }
++
+     /// Moves the parser to the next token.
+     fn do_bump(&mut self, kind: TokenKind) {
++        if cfg!(feature = "python315-diagnostics")
++            && self.current_token_kind() == TokenKind::Newline
++            && self.diagnostic_parser_progress.first_logical_newline.is_none()
++        {
++            self.diagnostic_parser_progress.first_logical_newline = Some(
++                crate::diagnostic_events::DiagnosticNewlineConsumption {
++                    point: self.tokens.diagnostic_parser_point(),
++                    parser_errors_absent: self.errors.is_empty()
++                        && self.diagnostic_parser_progress.first_failure.is_none(),
++                },
++            );
++        }
+         if match self.current_token_kind() {
+             // TODO explore including everything up to the dedent as part of the body.
+             TokenKind::Dedent => false,
+@@ -879,10 +1004,36 @@
+     /// Re-lexes the current token in the context of a logical line to recover from an unclosed
+     /// bracket.
+     fn re_lex_logical_token(&mut self) {
++        let point = self.tokens.diagnostic_parser_point();
+         if self.errors.is_empty() && self.first_unclosed_bracket_recovery.is_none() {
+             self.first_unclosed_bracket_recovery = Some(self.current_token_range().start());
+         }
+-        self.tokens.re_lex_logical_token();
++        let effect = self.tokens.re_lex_logical_token();
++        if cfg!(feature = "python315-diagnostics")
++            && effect != crate::diagnostic_events::LexerRecoveryEffect::Unchanged
++            && self.diagnostic_parser_progress.first_failure.is_none()
++        {
++            self.diagnostic_parser_progress.first_failure = Some(
++                crate::diagnostic_events::DiagnosticParserFailure {
++                    point,
++                    kind: crate::diagnostic_events::DiagnosticParserFailureKind::LexicalRecovery,
++                },
++            );
++        }
++    }
++
++    fn observe_parser_failure(&mut self, kind: crate::diagnostic_events::DiagnosticParserFailureKind) {
++        if cfg!(feature = "python315-diagnostics")
++            && self.diagnostic_parser_progress.first_failure.is_none()
++        {
++            self.diagnostic_parser_progress.first_failure = Some(
++                crate::diagnostic_events::DiagnosticParserFailure {
++                    point: self.tokens.diagnostic_parser_point(),
++                    kind,
++                },
++            );
++        }
++        self.tokens.mark_parser_recovery();
+     }
+ 
+     fn add_error<T>(&mut self, error: ParseErrorType, ranged: T)
+@@ -924,6 +1075,9 @@
+             return;
+         }
+ 
++        self.observe_parser_failure(
++            crate::diagnostic_events::DiagnosticParserFailureKind::Error(error.clone()),
++        );
+         inner(&mut self.errors, error, ranged.range());
+     }
+ 
+@@ -1079,7 +1233,19 @@
+             progress.assert_progressing(self);
+ 
+             if recovery_context_kind.is_list_element(self) {
++                let parameter_start = (cfg!(feature = "python315-diagnostics")
++                    && self.options.diagnostic_type_comments
++                    && matches!(recovery_context_kind,
++                        RecoveryContextKind::Parameters(FunctionKind::FunctionDef)))
++                    .then(|| (self.current_token_kind(), self.current_token_range()));
+                 parse_element(self);
++                let named_parameter = parameter_start.is_some_and(|(kind, range)| {
++                    kind == TokenKind::Identifier || kind.is_soft_keyword()
++                        || (matches!(kind, TokenKind::Star | TokenKind::DoubleStar)
++                            && self.tokens.bumped().iter()
++                                .find(|token| token.start() >= range.end() && !token.kind().is_trivia())
++                                .is_some_and(|token| token.kind() == TokenKind::Identifier || token.kind().is_soft_keyword()))
++                });
+ 
+                 // Only unset this when we've completely parsed a single element. This is mainly to
+                 // raise the correct error in case the first element isn't valid and the current
+@@ -1088,9 +1254,24 @@
+                 first_element = false;
+ 
+                 let maybe_comma_range = self.current_token_range();
++                let parameter_delimiter = named_parameter.then(|| self.tokens.diagnostic_parser_point().token);
++                if named_parameter { self.record_parameter_type_comment_barrier(); }
+                 if self.eat(TokenKind::Comma) {
++                    if let Some(comma) = parameter_delimiter {
++                        self.accept_type_comment_after(
++                            crate::diagnostic_events::TypeCommentOwner::Parameter, comma, true,
++                        );
++                    }
+                     trailing_comma_range = Some(maybe_comma_range);
+                     continue;
++                }
++                if named_parameter && self.at(TokenKind::Rpar)
++                    && let Some(preceding) = self.tokens.bumped().iter().rev()
++                        .find(|token| !token.kind().is_trivia()).cloned()
++                {
++                    self.accept_type_comment_after(
++                        crate::diagnostic_events::TypeCommentOwner::Parameter, preceding, true,
++                    );
+                 }
+                 trailing_comma_range = None;
+             }
+@@ -1216,6 +1397,10 @@
+         ParserCheckpoint {
+             tokens: self.tokens.checkpoint(),
+             errors_position: self.errors.len(),
++            relative_lazy_import_candidates_position: self.relative_lazy_import_candidates.len(),
++            diagnostic_parser_progress: self.diagnostic_parser_progress.clone(),
++            type_comment_acceptances_position: self.type_comment_acceptances.len(),
++            invalid_import_alias_decoders_position: self.invalid_import_alias_decoders.len(),
+             deferred_starred_generator_errors_position: self
+                 .deferred_starred_generator_errors
+                 .len(),
+@@ -1231,6 +1416,10 @@
+         let ParserCheckpoint {
+             tokens,
+             errors_position,
++            relative_lazy_import_candidates_position,
++            diagnostic_parser_progress,
++            type_comment_acceptances_position,
++            invalid_import_alias_decoders_position,
+             deferred_starred_generator_errors_position,
+             unsupported_syntax_errors_position,
+             current_token_id,
+@@ -1239,7 +1428,12 @@
+         } = checkpoint;
+ 
+         self.tokens.rewind(tokens);
++        self.diagnostic_parser_progress = diagnostic_parser_progress;
++        self.type_comment_acceptances.truncate(type_comment_acceptances_position);
++        self.invalid_import_alias_decoders.truncate(invalid_import_alias_decoders_position);
+         self.errors.truncate(errors_position);
++        self.relative_lazy_import_candidates
++            .truncate(relative_lazy_import_candidates_position);
+         self.deferred_starred_generator_errors
+             .truncate(deferred_starred_generator_errors_position);
+         self.unsupported_syntax_errors
+@@ -1273,6 +1467,10 @@
+ struct ParserCheckpoint {
+     tokens: TokenSourceCheckpoint,
+     errors_position: usize,
++    relative_lazy_import_candidates_position: usize,
++    diagnostic_parser_progress: crate::diagnostic_events::DiagnosticParserProgress,
++    type_comment_acceptances_position: usize,
++    invalid_import_alias_decoders_position: usize,
+     deferred_starred_generator_errors_position: usize,
+     unsupported_syntax_errors_position: usize,
+     current_token_id: TokenId,
+--- a/src/parser/options.rs
++++ b/src/parser/options.rs
+@@ -26,9 +26,19 @@
+     pub(crate) mode: Mode,
+     /// Target version for detecting version-related syntax errors.
+     pub(crate) target_version: PythonVersion,
++    /// Only diagnostic target recognition; this does not enable a separate AST grammar.
++    pub(crate) diagnostic_type_comments: bool,
+ }
+ 
+ impl ParseOptions {
++    /// Select TYPE_COMMENT tokens for Python 3.15 diagnostic-action provenance.
++    /// Ordinary Ruff syntax parsing and its returned AST are unchanged.
++    #[must_use]
++    pub fn with_diagnostic_type_comments(mut self, enabled: bool) -> Self {
++        self.diagnostic_type_comments = enabled;
++        self
++    }
++
+     #[must_use]
+     pub fn with_target_version(mut self, target_version: PythonVersion) -> Self {
+         self.target_version = target_version;
+@@ -45,6 +55,7 @@
+         Self {
+             mode,
+             target_version: PythonVersion::default(),
++            diagnostic_type_comments: false,
+         }
+     }
+ }
+@@ -54,6 +65,7 @@
+         Self {
+             mode: source_type.as_mode(),
+             target_version: PythonVersion::default(),
++            diagnostic_type_comments: false,
+         }
+     }
+ }
+--- a/src/parser/statement.rs
++++ b/src/parser/statement.rs
+@@ -20,6 +20,15 @@
+ 
+ use super::Parenthesized;
+ use super::expression::ExpressionContext;
++
++/// The actual branch chosen by `parse_with_items`, before the colon/body.
++/// An inner `as` prevents the async expression-alternative fallback.
++#[derive(Clone, Copy)]
++enum DiagnosticWithItems {
++    Unparenthesized,
++    ParenthesizedExpression,
++    ParenthesizedItems { has_inner_as: bool },
++}
+ 
+ /// Tokens that represent compound statements.
+ const COMPOUND_STMT_SET: TokenSet = TokenSet::new([
+@@ -784,6 +793,7 @@
+             }
+         }
+ 
++        let dots_end = self.prev_token_end;
+         let module = if self.at_identifier_or_soft_keyword() {
+             // test_ok from_import_soft_keyword_module_name
+             // from match import pattern
+@@ -816,6 +826,29 @@
+         // from.import x
+         // from...import x
+         self.expect(TokenKind::Import);
++
++        // Record first-pass reachability before parse_alias recovers invalid targets.
++        // The tiny target-production recognizer later distinguishes consumption from
++        // tokenizer lookahead; neither the recovered Alias range nor final error
++        // ordering can reconstruct this boundary. Speculative checkpoints truncate it.
++        if cfg!(feature = "python315-diagnostics")
++            && !is_lazy
++            && leading_dots > 0
++            && self.errors.is_empty()
++            && self.tokens.is_first_pass()
++            && self.first_unclosed_bracket_recovery.is_none()
++            && !self.tokens.has_error_before_current()
++            && let Some(name) = &module
++            && name.id == "lazy"
++            && name.range.start() > dots_end
++        {
++            let target_read = self.tokens.begin_diagnostic_reads();
++            self.relative_lazy_import_candidates.push((
++                name.range,
++                leading_dots,
++                target_read,
++            ));
++        }
+ 
+         let names_start = self.node_start();
+         let names_snapshot = self.alias_scratch.snapshot();
+@@ -902,6 +935,9 @@
+         {
+             // This grammar action precedes subsequent statements and the optional-as
+             // recovery above. Keep the recovered AST and tokens unchanged.
++            self.observe_parser_failure(
++                crate::diagnostic_events::DiagnosticParserFailureKind::Error(ParseErrorType::LazyFutureImport),
++            );
+             self.errors.insert(
+                 import_errors_start,
+                 crate::ParseError {
+@@ -982,6 +1018,7 @@
+             ImportStyle::ImportFrom => self.parse_identifier(),
+         };
+ 
++        let as_keyword = self.current_token_range();
+         let asname = if self.eat(TokenKind::As) {
+             if self.at_identifier_or_soft_keyword()
+                 && matches!(
+@@ -1003,7 +1040,22 @@
+                 // test_err import_alias_invalid_asname
+                 // import x as y.z
+                 // from x import (y as z())
++                let first = (cfg!(feature = "python315-diagnostics")
++                    && matches!(style, ImportStyle::ImportFrom)
++                    && self.errors.is_empty()
++                    && self.diagnostic_parser_progress.first_failure.is_none()
++                    && self.tokens.is_first_pass())
++                    .then(|| self.tokens.diagnostic_parser_point())
++                    .filter(|point| point.original_lexical_prefix && point.read.is_some());
+                 let target = self.parse_conditional_expression_or_higher();
++                if let Some(first) = first {
++                    self.invalid_import_alias_decoders.push(
++                        crate::diagnostic_events::InvalidImportAliasDecoder {
++                            imported_name: name.range(), as_keyword, first,
++                            expression: target.range(),
++                        },
++                    );
++                }
+                 self.add_error(
+                     ParseErrorType::InvalidImportTarget(ExpressionKind::of(&target.expr)),
+                     &target,
+@@ -1580,6 +1632,8 @@
+             }
+             self.errors.extend(value_errors);
+         }
++
++        self.accept_trailing_type_comment(crate::diagnostic_events::TypeCommentOwner::Assignment);
+ 
+         ast::StmtAssign {
+             targets,
+@@ -2319,6 +2373,7 @@
+ 
+         self.expect(TokenKind::Colon);
+ 
++        self.accept_trailing_type_comment(crate::diagnostic_events::TypeCommentOwner::ForHeader);
+         let body = self.parse_body(BlockClause::For, for_start);
+ 
+         let orelse = if self.at(TokenKind::Else) {
+@@ -2510,6 +2565,7 @@
+         // def foo():
+         // def foo() -> int:
+         // x = 42
++        self.accept_trailing_type_comment(crate::diagnostic_events::TypeCommentOwner::FunctionHeader);
+         let body = self.parse_body(BlockClause::FunctionDef, def_start);
+ 
+         ast::StmtFunctionDef {
+@@ -2620,12 +2676,20 @@
+     fn parse_with_statement(&mut self, start: TextSize) -> ast::StmtWith {
+         let with_start = self.current_token_range().start();
+         self.bump(TokenKind::With);
+-
+-        let mut items = self.parse_with_items();
++        let (mut items, diagnostic_branch) = self.parse_with_items();
++        // Both synchronous alternatives accept TYPE_COMMENT. Async's explicit
++        // parenthesized alternative does not; a clean no-inner-as item list
++        // still matches its expression/tuple alternative (including a comma).
++        let diagnostic_comment_header = start == with_start || !matches!(
++            diagnostic_branch, DiagnosticWithItems::ParenthesizedItems { has_inner_as: true },
++        );
+         items.shrink_to_fit();
+ 
+         self.expect(TokenKind::Colon);
+ 
++        if diagnostic_comment_header {
++            self.accept_trailing_type_comment(crate::diagnostic_events::TypeCommentOwner::WithHeader);
++        }
+         let body = self.parse_body(BlockClause::With, with_start);
+ 
+         ast::StmtWith {
+@@ -2643,13 +2707,13 @@
+     /// Parses a list of with items.
+     ///
+     /// See: <https://docs.python.org/3/reference/compound_stmts.html#the-with-statement>
+-    fn parse_with_items(&mut self) -> Vec<WithItem> {
++    fn parse_with_items(&mut self) -> (Vec<WithItem>, DiagnosticWithItems) {
+         if !self.at_expr() {
+             self.add_error(
+                 ParseErrorType::OtherError("invalid syntax".to_string()),
+                 self.current_token_range(),
+             );
+-            return vec![];
++            return (vec![], DiagnosticWithItems::Unparenthesized);
+         }
+ 
+         let open_paren_range = self.current_token_range();
+@@ -2703,7 +2767,8 @@
+                 }
+ 
+                 self.expect(TokenKind::Rpar);
+-                items
++                let has_inner_as = items.iter().any(|item| item.optional_vars.is_some());
++                (items, DiagnosticWithItems::ParenthesizedItems { has_inner_as })
+             } else {
+                 // test_ok ambiguous_lpar_with_items_if_expr
+                 // with (x) if True else y: ...
+@@ -2722,18 +2787,18 @@
+                 // with (a | b) << c | d: ...
+                 // # Postfix should still be parsed first
+                 // with (a)[0] + b * c: ...
+-                self.parse_comma_separated_list_into_vec_with_capacity(
++                (self.parse_comma_separated_list_into_vec_with_capacity(
+                     RecoveryContextKind::WithItems(WithItemKind::ParenthesizedExpression),
+                     |p| p.parse_with_item(WithItemParsingState::Regular).item,
+                     1,
+-                )
++                ), DiagnosticWithItems::ParenthesizedExpression)
+             }
+         } else {
+-            self.parse_comma_separated_list_into_vec_with_capacity(
++            (self.parse_comma_separated_list_into_vec_with_capacity(
+                 RecoveryContextKind::WithItems(WithItemKind::Unparenthesized),
+                 |p| p.parse_with_item(WithItemParsingState::Regular).item,
+                 1,
+-            )
++            ), DiagnosticWithItems::Unparenthesized)
+         }
+     }
+ 
+@@ -3510,8 +3575,31 @@
+         // the error logic.
+ 
+         let newline_range = self.current_token_range();
++        let function_header = (cfg!(feature = "python315-diagnostics")
++            && self.options.diagnostic_type_comments && matches!(clause, BlockClause::FunctionDef)
++            && self.at(TokenKind::Newline))
++            .then(|| {
++                let colon = self.tokens.bumped().iter().rev()
++                    .find(|token| !token.kind().is_trivia());
++                let occupied = colon.is_some_and(|colon| {
++                    self.type_comment_acceptances.iter().any(|accepted| {
++                        accepted.owner == crate::diagnostic_events::TypeCommentOwner::FunctionHeader
++                            && &accepted.preceding == colon
++                    })
++                });
++                (self.tokens.diagnostic_parser_point().token, occupied)
++            });
+         if self.eat(TokenKind::Newline) {
+             if self.at(TokenKind::Indent) {
++                if let Some((header_newline, false)) = function_header {
++                    // func_type_comment: NEWLINE TYPE_COMMENT &(NEWLINE INDENT).
++                    // Ruff stores a comment-only line's physical newline as
++                    // trivia; the exact comment and following INDENT are owned.
++                    self.accept_type_comment_after(
++                        crate::diagnostic_events::TypeCommentOwner::FunctionBody,
++                        header_newline, true,
++                    );
++                }
+                 return self.parse_block();
+             }
+             // test_err clause_expect_indented_block
+--- /dev/null
++++ b/src/relative_imports.rs
+@@ -0,0 +1,164 @@
++//! CPython's first-pass `import_from_targets` action boundary.
++//!
++//! Only the three successful target forms are recognized. Consumed targets,
++//! required lookahead, TYPE_COMMENT reachability and diagnostics stay distinct.
++
++use ruff_python_ast::token::TokenKind;
++use ruff_text_size::{Ranged, TextRange, TextSize};
++use crate::diagnostic_events::{DiagnosticTokenRead, DiagnosticReadOrigin, LexicalDisposition, TypeCommentKind, TypeCommentToken};
++
++/// Target-local action provenance, not a complete canonical parser trace.
++/// A consumer must still enforce earlier TYPE_COMMENT validation and Single
++/// completion/recovery boundaries before emitting a warning.
++#[derive(Debug, PartialEq, Eq, Clone, get_size2::GetSize)]
++pub struct RelativeLazyImportWarning {
++    pub module: TextRange,
++    pub level: u32,
++    pub targets_end: TextSize,
++    /// Committed read ordinal, not a final recovered token-buffer index.
++    pub tokenizer_read: usize,
++    pub tokenizer_start: TextSize,
++    pub tokenizer_end: TextSize,
++    /// A bare-list negative-comma lookahead may read a TYPE_COMMENT while the
++    /// action still completes. Parenthesized targets cannot skip this token.
++    pub type_comment_lookahead: Option<TypeCommentToken>,
++}
++
++pub(crate) fn complete(
++    candidates: Vec<(TextRange, u32, usize)>,
++    reads: &[DiagnosticTokenRead],
++    type_comments: bool,
++) -> Vec<RelativeLazyImportWarning> {
++    let mut warnings = Vec::new();
++    for (module, level, start) in candidates {
++        let Some(first) = reads.get(start) else { continue; };
++        let Some(first_range) = first.read_range else { continue; };
++        let targets_start = first_range.start();
++        let mut targets = Targets {
++            reads: &reads[start..], type_comments, position: 0,
++            consumed_end: targets_start, read_range: TextRange::empty(targets_start),
++            read_index: 0, type_comment_lookahead: None, blocked_lookahead: false,
++        };
++        if targets.parse()
++            && !targets.blocked_lookahead
++            && !reads[start..=start + targets.read_index].iter().any(|read| {
++                read.origin != DiagnosticReadOrigin::FirstPass
++                    || read.discoveries.iter().any(|error| {
++                        !error.eof_cleanup && matches!(error.disposition,
++                            LexicalDisposition::BareErrorToken | LexicalDisposition::RaisedErrorToken)
++                    })
++            })
++        {
++            warnings.push(RelativeLazyImportWarning {
++                module, level, targets_end: targets.consumed_end,
++                tokenizer_read: start + targets.read_index,
++                tokenizer_start: targets.read_range.start(),
++                tokenizer_end: targets.read_range.end(),
++                type_comment_lookahead: targets.type_comment_lookahead,
++            });
++        }
++    }
++    warnings
++}
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++enum TargetToken { Syntax(TokenKind), TypeComment }
++
++struct Targets<'a> {
++    reads: &'a [DiagnosticTokenRead],
++    type_comments: bool,
++    position: usize,
++    consumed_end: TextSize,
++    read_range: TextRange,
++    read_index: usize,
++    type_comment_lookahead: Option<TypeCommentToken>,
++    /// Failed speculative lookahead is not undone by optional-as rollback.
++    blocked_lookahead: bool,
++}
++
++impl Targets<'_> {
++    fn peek(&mut self) -> Option<TargetToken> {
++        loop {
++            let Some(read) = self.reads.get(self.position) else {
++                self.blocked_lookahead = true;
++                return None;
++            };
++            if read.origin != DiagnosticReadOrigin::FirstPass || read.read_range.is_none() {
++                self.read_index = self.read_index.max(self.position);
++                self.blocked_lookahead = true;
++                return None;
++            }
++            let read_range = read.read_range.unwrap();
++            if self.position >= self.read_index {
++                self.read_index = self.position;
++                self.read_range = read_range;
++                self.type_comment_lookahead = None;
++            }
++            if self.type_comments
++                && let Some(comment) = read.type_comment
++                && comment.kind == TypeCommentKind::Regular
++            {
++                if self.position == self.read_index { self.type_comment_lookahead = Some(comment); }
++                return Some(TargetToken::TypeComment);
++            }
++            if read.token.kind().is_trivia() {
++                self.position += 1;
++                continue;
++            }
++            return Some(TargetToken::Syntax(read.token.kind()));
++        }
++    }
++
++    fn take(&mut self) {
++        self.consumed_end = self.reads[self.position].token.end();
++        self.position += 1;
++    }
++
++    fn eat(&mut self, kind: TokenKind) -> bool {
++        if self.peek() == Some(TargetToken::Syntax(kind)) {
++            self.take(); true
++        } else { false }
++    }
++
++    fn name(&mut self) -> bool {
++        if self.peek().is_some_and(|token| matches!(token, TargetToken::Syntax(kind)
++            if kind == TokenKind::Identifier || kind.is_soft_keyword())) {
++            self.take(); true
++        } else { false }
++    }
++
++    fn alias(&mut self) -> bool {
++        if !self.name() { return false; }
++        let checkpoint = (self.position, self.consumed_end);
++        if self.eat(TokenKind::As) && !self.name() {
++            (self.position, self.consumed_end) = checkpoint;
++        }
++        true
++    }
++
++    fn aliases(&mut self) -> bool {
++        if !self.alias() { return false; }
++        loop {
++            let checkpoint = (self.position, self.consumed_end);
++            if !self.eat(TokenKind::Comma) { return true; }
++            if !self.alias() {
++                (self.position, self.consumed_end) = checkpoint;
++                return true;
++            }
++        }
++    }
++
++    fn parse(&mut self) -> bool {
++        if self.eat(TokenKind::Lpar) {
++            if !self.aliases() { return false; }
++            self.eat(TokenKind::Comma);
++            self.eat(TokenKind::Rpar)
++        } else if self.aliases() {
++            // The negative-comma lookahead must actually be available. A
++            // recovery boundary is not proof of a successfully read token.
++            self.peek().is_some_and(|token| token != TargetToken::Syntax(TokenKind::Comma))
++        } else {
++            self.eat(TokenKind::Star)
++        }
++    }
++}
+--- a/src/token_source.rs
++++ b/src/token_source.rs
+@@ -16,14 +16,30 @@
+     /// is finished consuming all the tokens. Note that unlike the emitted tokens, this vector
+     /// holds both the trivia and non-trivia tokens.
+     tokens: Vec<Token>,
++
++    source: &'src str,
++    /// Append-only within the committed branch; recovery never rewrites history.
++    diagnostic_reads: Vec<crate::diagnostic_events::DiagnosticTokenRead>,
++    diagnostic_origin: crate::diagnostic_events::DiagnosticReadOrigin,
++    diagnostic_reads_active: bool,
++    current_discoveries_start: usize,
++    lexical_divergence: Option<crate::diagnostic_events::LexicalDivergence>,
++    diagnostic_snapshot: Option<Box<crate::lexer::DiagnosticLexerSnapshot>>,
+ }
+ 
+ impl<'src> TokenSource<'src> {
+     /// Create a new token source for the given lexer.
+-    fn new(lexer: Lexer<'src>, source: &str, start_offset: TextSize) -> Self {
++    fn new(lexer: Lexer<'src>, source: &'src str, start_offset: TextSize) -> Self {
+         TokenSource {
+             lexer,
+             tokens: allocate_tokens_vec(&source[start_offset.to_usize()..]),
++            source,
++            diagnostic_reads: Vec::new(),
++            diagnostic_origin: crate::diagnostic_events::DiagnosticReadOrigin::FirstPass,
++            diagnostic_reads_active: false,
++            current_discoveries_start: 0,
++            lexical_divergence: None,
++            diagnostic_snapshot: None,
+         }
+     }
+ 
+@@ -50,6 +66,86 @@
+     /// Returns the flags for the current token.
+     pub(crate) const fn current_flags(&self) -> TokenFlags {
+         self.lexer.current_flags()
++    }
++
++    /// Original committed discoveries before the current token remain visible even
++    /// if parser recovery later removes an error from the ordinary error vector.
++    pub(crate) fn has_error_before_current(&self) -> bool {
++        self.current_discoveries_start != 0
++    }
++
++    pub(crate) fn diagnostic_parser_point(&self) -> crate::diagnostic_events::DiagnosticParserPoint {
++        crate::diagnostic_events::DiagnosticParserPoint {
++            token: Token::new(self.current_kind(), self.current_range(), self.current_flags()),
++            read: self.diagnostic_reads.last().map(|read| read.ordinal),
++            original_lexical_prefix: self.lexer.diagnostic_discoveries().is_empty()
++                && self.lexical_divergence.is_none(),
++        }
++    }
++
++    /// A temporary parser validation error can be deferred as a valid generator
++    /// operand. Restore only its observation marker, never lexer state or reads.
++    pub(crate) fn diagnostic_parser_origin(&self) -> crate::diagnostic_events::DiagnosticReadOrigin {
++        self.diagnostic_origin
++    }
++
++    pub(crate) fn restore_diagnostic_parser_origin(
++        &mut self,
++        origin: crate::diagnostic_events::DiagnosticReadOrigin,
++    ) {
++        self.diagnostic_origin = origin;
++    }
++
++    pub(crate) fn mark_parser_recovery(&mut self) {
++        self.diagnostic_origin = crate::diagnostic_events::DiagnosticReadOrigin::ParserRecovery;
++    }
++
++    fn record_lexical_recovery(&mut self, effect: crate::diagnostic_events::LexerRecoveryEffect) {
++        use crate::diagnostic_events::{LexerRecoveryEffect, LexicalDivergence};
++        if effect != LexerRecoveryEffect::Unchanged {
++            self.mark_parser_recovery();
++            self.lexical_divergence.get_or_insert(LexicalDivergence {
++                next_read: self.diagnostic_reads.len(),
++                effect,
++            });
++        }
++    }
++
++    pub(crate) fn is_first_pass(&self) -> bool {
++        self.diagnostic_origin == crate::diagnostic_events::DiagnosticReadOrigin::FirstPass
++    }
++
++    /// Begin only when an eligible header is found, seeding its current target.
++    /// No-grammar inputs do not duplicate the token stream in a read journal.
++    pub(crate) fn begin_diagnostic_reads(&mut self) -> usize {
++        if !self.diagnostic_reads_active {
++            self.diagnostic_reads_active = true;
++            self.record_diagnostic_read(self.current_discoveries_start);
++            if let Some(seed) = self.diagnostic_reads.last() {
++                self.diagnostic_snapshot = Some(Box::new(self.lexer.diagnostic_snapshot(seed.clone())));
++            }
++        }
++        self.diagnostic_reads.len().saturating_sub(1)
++    }
++
++    fn record_diagnostic_read(&mut self, discoveries_before: usize) {
++        if cfg!(feature = "python315-diagnostics") && self.diagnostic_reads_active {
++            let token = Token::new(self.current_kind(), self.current_range(), self.current_flags());
++            let discoveries = self.lexer.diagnostic_discoveries()[discoveries_before..].to_vec();
++            let read_range = (!discoveries.iter().any(|error| error.token_range.is_none()))
++                .then(|| self.lexer.diagnostic_read_range());
++            self.diagnostic_reads.push(crate::diagnostic_events::DiagnosticTokenRead {
++                ordinal: self.diagnostic_reads.len(),
++                token_slot: self.tokens.len(),
++                read_range,
++                origin: self.diagnostic_origin,
++                discoveries,
++                warnings: self.lexer.diagnostic_warnings().to_vec(),
++                type_comment: crate::diagnostic_events::classify_type_comment(self.source, &token),
++                end_of_input: token.kind() == TokenKind::EndOfFile,
++                token,
++            });
++        }
+     }
+ 
+     /// Returns `true` if the lexer found an error that stops tokenization in `range`.
+@@ -63,7 +159,7 @@
+     /// position and updates the token vector accordingly.
+     ///
+     /// [`re_lex_logical_token`]: Lexer::re_lex_logical_token
+-    pub(crate) fn re_lex_logical_token(&mut self) {
++    pub(crate) fn re_lex_logical_token(&mut self) -> crate::diagnostic_events::LexerRecoveryEffect {
+         let mut non_logical_newline = None;
+ 
+         #[cfg(debug_assertions)]
+@@ -85,21 +181,25 @@
+             }
+         }
+ 
+-        if !self
+-            .lexer
+-            .re_lex_logical_token(non_logical_newline.map(|(_, start)| start))
+-        {
+-            return;
++        let discoveries_before = self.lexer.diagnostic_discoveries().len();
++        let effect = self.lexer.re_lex_logical_token(non_logical_newline.map(|(_, start)| start));
++        self.record_lexical_recovery(effect);
++        if effect != crate::diagnostic_events::LexerRecoveryEffect::Retokenized {
++            return effect;
+         }
+ 
+         let non_logical_line_index = non_logical_newline
+             .expect(
+-                "`re_lex_logical_token` should only return `true` if `non_logical_line` is `Some`",
++                "retokenized logical recovery requires a non-logical newline",
+             )
+             .0;
+ 
+         // Trim the already bumped logical line token (and comments coming after it) as it might now have become a logical line token
+         self.tokens.truncate(non_logical_line_index);
++        // The direct lexer.next_token inside re-lex is a new recovery-origin read.
++        // Keep earlier original reads even though final token slots are reused.
++        self.current_discoveries_start = discoveries_before;
++        self.record_diagnostic_read(discoveries_before);
+ 
+         #[cfg(debug_assertions)]
+         {
+@@ -118,18 +218,30 @@
+         if self.current_kind().is_trivia() {
+             self.bump(self.current_kind());
+         }
++        effect
+     }
+ 
+     pub(crate) fn re_lex_string_token_in_interpolation_element(
+         &mut self,
+         kind: InterpolatedStringKind,
+     ) {
+-        self.lexer
+-            .re_lex_string_token_in_interpolation_element(kind);
++        let discoveries_before = self.lexer.diagnostic_discoveries().len();
++        let effect = self.lexer.re_lex_string_token_in_interpolation_element(kind);
++        self.record_lexical_recovery(effect);
++        if effect == crate::diagnostic_events::LexerRecoveryEffect::TokenRewritten {
++            self.current_discoveries_start = discoveries_before;
++            self.record_diagnostic_read(discoveries_before);
++        }
+     }
+ 
+     pub(crate) fn re_lex_raw_string_in_format_spec(&mut self) {
+-        self.lexer.re_lex_raw_string_in_format_spec();
++        let discoveries_before = self.lexer.diagnostic_discoveries().len();
++        let effect = self.lexer.re_lex_raw_string_in_format_spec();
++        self.record_lexical_recovery(effect);
++        if effect == crate::diagnostic_events::LexerRecoveryEffect::TokenRewritten {
++            self.current_discoveries_start = discoveries_before;
++            self.record_diagnostic_read(discoveries_before);
++        }
+     }
+ 
+     /// Returns the next non-trivia token without consuming it.
+@@ -161,6 +273,7 @@
+     ///
+     /// It pushes the given kind to the token vector with the current token range.
+     pub(crate) fn bump(&mut self, kind: TokenKind) {
++        if kind == TokenKind::Unknown { self.mark_parser_recovery(); }
+         self.tokens
+             .push(Token::new(kind, self.current_range(), self.current_flags()));
+         self.do_bump();
+@@ -170,7 +283,10 @@
+     /// token vector. It does add the trivia tokens to the token vector.
+     fn do_bump(&mut self) {
+         loop {
++            let discoveries_before = self.lexer.diagnostic_discoveries().len();
+             let kind = self.lexer.next_token();
++            self.current_discoveries_start = discoveries_before;
++            self.record_diagnostic_read(discoveries_before);
+             if kind.is_trivia() {
+                 self.tokens
+                     .push(Token::new(kind, self.current_range(), self.current_flags()));
+@@ -196,6 +312,12 @@
+         TokenSourceCheckpoint {
+             lexer_checkpoint: self.lexer.checkpoint(),
+             tokens_position: self.tokens.len(),
++            discoveries_position: self.diagnostic_reads.len(),
++            diagnostic_origin: self.diagnostic_origin,
++            diagnostic_reads_active: self.diagnostic_reads_active,
++            current_discoveries_start: self.current_discoveries_start,
++            lexical_divergence: self.lexical_divergence,
++            had_diagnostic_snapshot: self.diagnostic_snapshot.is_some(),
+         }
+     }
+ 
+@@ -204,10 +326,22 @@
+         let TokenSourceCheckpoint {
+             lexer_checkpoint,
+             tokens_position,
++            discoveries_position,
++            diagnostic_origin,
++            diagnostic_reads_active,
++            current_discoveries_start,
++            lexical_divergence,
++            had_diagnostic_snapshot,
+         } = checkpoint;
+ 
+         self.lexer.rewind(lexer_checkpoint);
+         self.tokens.truncate(tokens_position);
++        self.diagnostic_reads.truncate(discoveries_position);
++        self.diagnostic_origin = diagnostic_origin;
++        self.diagnostic_reads_active = diagnostic_reads_active;
++        self.current_discoveries_start = current_discoveries_start;
++        self.lexical_divergence = lexical_divergence;
++        if !had_diagnostic_snapshot { self.diagnostic_snapshot = None; }
+     }
+ 
+     /// Returns the tokens bumped so far, including the trivia tokens.
+@@ -233,7 +367,11 @@
+     /// Consumes the token source, returning the collected tokens, comment ranges, and any errors
+     /// encountered during lexing. The token collection includes both the trivia and non-trivia
+     /// tokens.
+-    pub(crate) fn finish(mut self) -> (Vec<Token>, Vec<LexicalError>) {
++    pub(crate) fn finish(mut self) -> (
++        Vec<Token>, Vec<LexicalError>, Vec<crate::diagnostic_events::DiagnosticTokenRead>,
++        Option<crate::diagnostic_events::LexicalDivergence>,
++        Option<Box<crate::lexer::DiagnosticLexerSnapshot>>,
++    ) {
+         assert_eq!(
+             self.current_kind(),
+             TokenKind::EndOfFile,
+@@ -248,13 +386,19 @@
+ 
+         self.tokens.shrink_to_fit();
+ 
+-        (self.tokens, self.lexer.finish())
++        (self.tokens, self.lexer.finish(), self.diagnostic_reads, self.lexical_divergence, self.diagnostic_snapshot)
+     }
+ }
+ 
+ pub(crate) struct TokenSourceCheckpoint {
+     lexer_checkpoint: LexerCheckpoint,
+     tokens_position: usize,
++    discoveries_position: usize,
++    diagnostic_origin: crate::diagnostic_events::DiagnosticReadOrigin,
++    diagnostic_reads_active: bool,
++    current_discoveries_start: usize,
++    lexical_divergence: Option<crate::diagnostic_events::LexicalDivergence>,
++    had_diagnostic_snapshot: bool,
+ }
+ 
+ /// Allocates a token buffer with a capacity intended to skip early grows.

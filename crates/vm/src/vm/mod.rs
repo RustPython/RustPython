@@ -1530,7 +1530,7 @@ impl VirtualMachine {
         drop(prewarmed_memory_errors);
 
         stdlib::builtins::init_module(self, &self.builtins);
-        // Explicit lazy imports can occur in frozen startup code.
+        // Startup all-mode can reach frozen Python before importlib is installed.
         let lazy_callback = self.builtins.get_attr("__lazy_import__", self);
         let lazy_callback =
             self.expect_pyresult(lazy_callback, "failed to initialize lazy imports");
@@ -1816,7 +1816,16 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        let msg = msg.map(|msg| self.ctx.new_str(msg));
+        self.run_unraisable_with_message(e, msg.map(|msg| self.ctx.new_str(msg)), object);
+    }
+
+    #[cold]
+    pub(crate) fn run_unraisable_with_message(
+        &self,
+        e: PyBaseExceptionRef,
+        msg: Option<PyStrRef>,
+        object: PyObjectRef,
+    ) {
         let write_original = || {
             let msg = msg.as_ref().map(|msg| msg.to_string_lossy());
             self.write_unraisable_to_stderr(&e, msg.as_deref(), &object);

@@ -1046,7 +1046,7 @@ impl PyType {
                     attr.class().is(ctx.types.wrapper_descriptor_type)
                         && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
                             descr.name.as_str() == stringify!($name)
-                                && self.mro.read().iter().any(|cls| cls.is(descr.typ))
+                                && self.mro.read().iter().any(|cls| cls.is(&descr.typ))
                                 && matches!(descr.wrapped, $slot)
                         })
                 })
@@ -1319,7 +1319,7 @@ impl PyType {
                         attr.class().is(ctx.types.wrapper_descriptor_type)
                             && attr.downcast_ref::<PyWrapper>().is_some_and(|descr| {
                                 descr.name.as_str() == "__add__"
-                                    && self.mro.read().iter().any(|cls| cls.is(descr.typ))
+                                    && self.mro.read().iter().any(|cls| cls.is(&descr.typ))
                                     && matches!(descr.wrapped, SlotFunc::SeqConcat(_))
                             })
                     });
@@ -1979,7 +1979,7 @@ impl PyType {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ
-                    if is_subclass_of(for_class_mro, wrapper.typ) {
+                    if is_subclass_of(for_class_mro, &wrapper.typ) {
                         extract(&wrapper.wrapped)
                     } else {
                         None

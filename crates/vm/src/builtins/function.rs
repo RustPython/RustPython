@@ -690,7 +690,11 @@ impl Py<PyFunction> {
     }
 
     /// Create generator, coroutine, or async generator from a FrameObject.
-    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub(crate) fn make_generator_or_coro(
+        &self,
+        frame: FrameObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
         let code = frame.iframe().code();
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
