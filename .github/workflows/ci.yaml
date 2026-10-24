@@ -423,9 +423,7 @@ jobs:
           dependencies:
             gcc-mingw-w64-x86-64: true
         - os: macos-latest
-          target: aarch64-apple-ios
-        - os: macos-latest
-          target: x86_64-apple-darwin
+          target: aarch64-apple-ios x86_64-apple-darwin
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -494,11 +492,19 @@ jobs:
       #     args: --ignore-rust-version
 
       - name: Check compilation with threading
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+        env:
+          TARGETS: ${{ matrix.target }}
 
       - name: Check compilation with ssl
         if: ${{ !matrix.skip_ssl }}
-        run: cargo check --locked --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
+        run: |
+          read -ra targets <<< "$TARGETS"
+          cargo check --locked "${targets[@]/#/--target=}" ${{ env.CARGO_ARGS }}
+        env:
+          TARGETS: ${{ matrix.target }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
