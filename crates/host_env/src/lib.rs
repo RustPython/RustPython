@@ -36,6 +36,7 @@ pub mod locale;
 #[cfg(feature = "native-certs")]
 pub mod native_certs;
 pub mod readline;
+pub mod remote_debugging;
 #[cfg(feature = "ssl")]
 pub mod ssl;
 

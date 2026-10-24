@@ -7,7 +7,7 @@ mod _remote_debugging {
     use super::binary;
     use crate::vm::{
         AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyDictRef, PyList, PyTuple, PyType},
+        builtins::{PyBaseExceptionRef, PyDictRef, PyFloat, PyList, PyTuple, PyType},
         common::{lock::PyMutex, rc::PyRc},
         convert::{IntoPyException, ToPyObject},
         function::{FsPath, FuncArgs},
@@ -118,6 +118,10 @@ mod _remote_debugging {
     impl InterpreterInfo {}
 
     #[pyattr]
+    const PROCESS_VM_READV_SUPPORTED: u8 =
+        rustpython_host_env::remote_debugging::PROCESS_VM_READV_SUPPORTED;
+
+    #[pyattr]
     const THREAD_STATUS_HAS_GIL: u8 = 1;
     #[pyattr]
     const THREAD_STATUS_ON_CPU: u8 = 2;
@@ -129,6 +133,22 @@ mod _remote_debugging {
     const THREAD_STATUS_HAS_EXCEPTION: u8 = 16;
     #[pyattr]
     const THREAD_STATUS_MAIN_THREAD: u8 = 32;
+
+    #[derive(FromArgs)]
+    struct IsPythonProcessArgs {
+        #[pyarg(any)]
+        pid: PyObjectRef,
+    }
+
+    /// Check if a process is a Python process.
+    #[pyfunction]
+    fn is_python_process(args: IsPythonProcessArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        // Finish argument binding before invoking a user-defined __index__.
+        let pid: i32 = args.pid.try_into_value(vm)?;
+        Ok(rustpython_host_env::remote_debugging::is_python_process(
+            pid,
+        ))
+    }
 
     #[pyfunction]
     fn zstd_available() -> bool {
@@ -293,20 +313,36 @@ mod _remote_debugging {
 
     #[derive(FromArgs)]
     struct BinaryExitArgs {
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional)]
         exc_type: Option<PyObjectRef>,
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional, name = "exc_val")]
         _exc_value: Option<PyObjectRef>,
-        #[pyarg(positional, optional)]
+        #[pyarg(any, optional, name = "exc_tb")]
         _exc_tb: Option<PyObjectRef>,
+    }
+
+    #[derive(FromArgs)]
+    struct SampleArgs {
+        #[pyarg(any)]
+        stack_frames: PyObjectRef,
+        #[pyarg(any)]
+        timestamp_us: PyObjectRef,
+    }
+
+    fn profile_float(obj: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
+        // PyFloat_AsDouble reads float subclasses without calling __float__.
+        Ok(match obj.downcast_ref::<PyFloat>() {
+            Some(value) => value.to_f64(),
+            None => obj.try_float(vm)?.to_f64(),
+        })
     }
 
     #[derive(FromArgs)]
     struct SetStatsArgs {
         #[pyarg(any)]
-        duration_sec: f64,
+        duration_sec: PyObjectRef,
         #[pyarg(any)]
-        sample_rate: f64,
+        sample_rate: PyObjectRef,
         #[pyarg(any, optional)]
         error_rate: Option<PyObjectRef>,
         #[pyarg(any, optional)]
@@ -316,19 +352,19 @@ mod _remote_debugging {
     fn optional_float(value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Option<f64>> {
         value
             .filter(|value| !vm.is_none(value))
-            .map(|value| value.try_float(vm).map(|value| value.to_f64()))
+            .map(|value| profile_float(&value, vm))
             .transpose()
     }
 
     #[pyclass(with(Constructor, Initializer))]
     impl BinaryWriter {
         #[pymethod]
-        fn write_sample(
-            zelf: &Py<Self>,
-            stack_frames: PyObjectRef,
-            timestamp_us: u64,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn write_sample(zelf: &Py<Self>, args: SampleArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let SampleArgs {
+                stack_frames,
+                timestamp_us,
+            } = args;
+            let timestamp_us = timestamp_us.try_into_value::<u64>(vm)?;
             if zelf.state.lock().writer.is_none() {
                 return Err(vm.new_value_error("Writer is closed"));
             }
@@ -378,13 +414,15 @@ mod _remote_debugging {
 
         #[pymethod]
         fn set_stats(zelf: &Py<Self>, args: SetStatsArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let duration_sec = profile_float(&args.duration_sec, vm)?;
+            let sample_rate = profile_float(&args.sample_rate, vm)?;
             let is_open = zelf.state.lock().writer.is_some();
             if !is_open {
                 return Err(vm.new_value_error("Writer is closed"));
             }
             let profile = binary::ProfileStats {
-                duration_sec: args.duration_sec,
-                sample_rate: args.sample_rate,
+                duration_sec,
+                sample_rate,
                 error_rate: optional_float(args.error_rate, vm)?,
                 missed_samples: optional_float(args.missed_samples, vm)?,
             };
