@@ -6,7 +6,7 @@ use core::fmt;
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, PyCode, PyStr},
+    builtins::{PyBaseExceptionRef, PyCode, PyStr, PyStrRef},
     compiler::{self, CompileError, CompileOpts},
     vm::compile_mode::{CompileStart, CompilerFlags, compile_future_features_from_flags},
 };
@@ -31,6 +31,7 @@ pub enum VmCompileError {
 pub struct CompileWarningError {
     exception: PyBaseExceptionRef,
     filename: String,
+    original_filename: Option<PyStrRef>,
     lineno: usize,
     offset: usize,
     replacement: Option<SyntaxErrorReplacement>,
@@ -118,7 +119,12 @@ impl CompileWarningError {
         }
         syntax_error
             .as_object()
-            .set_attr("filename", vm.ctx.new_str(self.filename), vm)
+            .set_attr(
+                "filename",
+                self.original_filename
+                    .unwrap_or_else(|| vm.ctx.new_str(self.filename)),
+                vm,
+            )
             .unwrap();
         let text = if self.omit_source_text {
             vm.ctx.none()
@@ -460,10 +466,14 @@ impl VirtualMachine {
             self.emit_ast_parser_warnings(
                 source,
                 filename,
+                None,
                 module,
                 start,
-                future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
-                type_comments,
+                escape_warnings::AstParserWarningOptions {
+                    inherited_barry_as_flufl: future_features
+                        .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+                    type_comments,
+                },
             )
             .map_err(|warning| warning.into_pyexception(self, Some(source)))?
         } else if type_comments && start != CompileStart::FuncType {
@@ -496,6 +506,7 @@ impl VirtualMachine {
                 source,
                 escape_warnings::InvalidEscape::Char { ch, offset },
                 filename,
+                None,
                 module.map(AsObject::as_object),
                 self,
             )
@@ -582,10 +593,14 @@ impl VirtualMachine {
                     self.emit_ast_parser_warnings(
                         source,
                         filename,
+                        None,
                         module,
                         start,
-                        future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
-                        true,
+                        escape_warnings::AstParserWarningOptions {
+                            inherited_barry_as_flufl: future_features
+                                .contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+                            type_comments: true,
+                        },
                     )
                     .map_err(|warning| warning.into_pyexception(self, Some(source)))?;
                 }
@@ -679,6 +694,7 @@ impl VirtualMachine {
         source: &str,
         mode: compiler::Mode,
         filename: &str,
+        original_filename: &Py<PyStr>,
         module: Option<&Py<PyStr>>,
     ) -> Result<compiler::codegen::symboltable::SymbolTable, VmCompileError> {
         #[cfg(feature = "parser")]
@@ -690,10 +706,17 @@ impl VirtualMachine {
             };
             // A symbol table observes parser warnings, but does not compile
             // bytecode or emit code-generation and AST-preprocessing warnings.
-            self.emit_ast_parser_warnings(source, filename, module, start, false, false)?;
+            self.emit_ast_parser_warnings(
+                source,
+                filename,
+                Some(original_filename),
+                module,
+                start,
+                escape_warnings::AstParserWarningOptions::default(),
+            )?;
         }
         #[cfg(not(feature = "parser"))]
-        let _ = module;
+        let _ = (module, original_filename);
         compiler::compile_symtable(source, mode, filename).map_err(VmCompileError::Compile)
     }
 
@@ -840,11 +863,16 @@ mod escape_warnings {
     pub(super) struct WarningSource<'a> {
         source: &'a str,
         filename: &'a str,
+        original_filename: Option<&'a Py<PyStr>>,
     }
 
     impl<'a> WarningSource<'a> {
         pub(super) const fn new(source: &'a str, filename: &'a str) -> Self {
-            Self { source, filename }
+            Self {
+                source,
+                filename,
+                original_filename: None,
+            }
         }
     }
 
@@ -882,12 +910,14 @@ mod escape_warnings {
         exception: PyBaseExceptionRef,
         source: &str,
         filename: &str,
+        original_filename: Option<&Py<PyStr>>,
         offset: usize,
     ) -> CompileWarningError {
         let (lineno, offset) = tokenizer_line_offset_at(source, offset);
         CompileWarningError {
             exception,
             filename: filename.to_owned(),
+            original_filename: original_filename.map(ToOwned::to_owned),
             lineno,
             offset,
             replacement: None,
@@ -1343,16 +1373,26 @@ mod escape_warnings {
         source: &str,
         escape: InvalidEscape,
         filename: &str,
+        original_filename: Option<&Py<PyStr>>,
         module: Option<&PyObject>,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        warn_invalid_escape_sequence_at(source, escape, filename, module, None, vm)
+        warn_invalid_escape_sequence_at(
+            source,
+            escape,
+            filename,
+            original_filename,
+            module,
+            None,
+            vm,
+        )
     }
 
     fn warn_invalid_escape_sequence_at(
         source: &str,
         escape: InvalidEscape,
         filename: &str,
+        original_filename: Option<&Py<PyStr>>,
         module: Option<&PyObject>,
         diagnostic: Option<EscapeDiagnosticLocation>,
         vm: &VirtualMachine,
@@ -1366,7 +1406,8 @@ mod escape_warnings {
             .map_or(column + 2, |location| location.end_offset);
         let warning = escape.warning_message();
         let syntax_error = escape.syntax_error_message();
-        let fname = vm.ctx.new_str(filename);
+        let fname =
+            original_filename.map_or_else(|| vm.ctx.new_str(filename), |name| name.to_owned());
         warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
             vm.ctx.new_str(warning).into(),
@@ -1381,6 +1422,7 @@ mod escape_warnings {
         .map_err(|exception| CompileWarningError {
             exception,
             filename: filename.to_owned(),
+            original_filename: original_filename.map(ToOwned::to_owned),
             lineno,
             offset: column,
             replacement: Some(SyntaxErrorReplacement {
@@ -1401,13 +1443,15 @@ mod escape_warnings {
     fn warn_syntax_at_offset(
         source: &str,
         filename: &str,
+        original_filename: Option<&Py<PyStr>>,
         module: Option<&PyObject>,
         offset: usize,
         message: String,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
         let (lineno, _) = tokenizer_line_offset_at(source, offset);
-        let fname = vm.ctx.new_str(filename);
+        let fname =
+            original_filename.map_or_else(|| vm.ctx.new_str(filename), |name| name.to_owned());
         let message = vm.ctx.new_str(message);
         warn::warn_explicit(
             Some(vm.ctx.exceptions.syntax_warning.to_owned()),
@@ -1420,39 +1464,47 @@ mod escape_warnings {
             None,
             vm,
         )
-        .map_err(|err| compile_warning_error(err, source, filename, offset))
+        .map_err(|err| compile_warning_error(err, source, filename, original_filename, offset))
     }
 
     fn warn_numeric_literal(
         source: &str,
         filename: &str,
+        original_filename: Option<&Py<PyStr>>,
         module: Option<&PyObject>,
         last_offset: usize,
         message: String,
         vm: &VirtualMachine,
     ) -> Result<(), CompileWarningError> {
-        warn_syntax_at_offset(source, filename, module, last_offset, message.clone(), vm).map_err(
-            |mut error| {
-                // Tokenizer numeric warnings become a zero-width
-                // error at the literal's last character, in character
-                // columns rather than grammar-action byte columns.
-                error.replacement = Some(SyntaxErrorReplacement {
-                    message,
-                    end_offset: error.offset,
-                });
-                // helpers.c:_syntaxerror_range uses the physical
-                // tokenizer line without its terminating LF in
-                // every compile mode, not only interactive input.
-                let line_start = source[..last_offset]
-                    .rfind(['\r', '\n'])
-                    .map_or(0, |index| index + 1);
-                let line_end = source[last_offset..]
-                    .find(['\r', '\n'])
-                    .map_or(source.len(), |index| last_offset + index);
-                error.diagnostic_text = Some(source[line_start..line_end].to_owned());
-                error
-            },
+        warn_syntax_at_offset(
+            source,
+            filename,
+            original_filename,
+            module,
+            last_offset,
+            message.clone(),
+            vm,
         )
+        .map_err(|mut error| {
+            // Tokenizer numeric warnings become a zero-width
+            // error at the literal's last character, in character
+            // columns rather than grammar-action byte columns.
+            error.replacement = Some(SyntaxErrorReplacement {
+                message,
+                end_offset: error.offset,
+            });
+            // helpers.c:_syntaxerror_range uses the physical
+            // tokenizer line without its terminating LF in
+            // every compile mode, not only interactive input.
+            let line_start = source[..last_offset]
+                .rfind(['\r', '\n'])
+                .map_or(0, |index| index + 1);
+            let line_end = source[last_offset..]
+                .find(['\r', '\n'])
+                .map_or(source.len(), |index| last_offset + index);
+            error.diagnostic_text = Some(source[line_start..line_end].to_owned());
+            error
+        })
     }
 
     pub(super) fn warn_syntax_at_location(
@@ -1478,6 +1530,7 @@ mod escape_warnings {
         .map_err(|exception| CompileWarningError {
             exception,
             filename: filename.to_owned(),
+            original_filename: None,
             lineno: location.line.get(),
             offset: location.character_offset.get(),
             replacement: None,
@@ -2970,6 +3023,7 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
+            original_filename: Option<&Py<PyStr>>,
             module: Option<&PyObject>,
             action: &ruff_python_parser::RelativeLazyImportWarning,
             index: &SourceDiagnosticIndex,
@@ -2977,19 +3031,26 @@ mod escape_warnings {
             let message = relative_lazy_message(action);
             let offset = action.module.start().to_usize();
             let line = &index.lines[index.lines.partition_point(|line| line.start <= offset) - 1];
-            warn_syntax_at_offset(source, filename, module, offset, message.clone(), self).map_err(
-                |mut error| {
-                    // Grammar actions use UTF-8 byte columns and text=None,
-                    // unlike numeric/brace tokenizer character columns.
-                    error.offset = offset - line.start + 1;
-                    error.replacement = Some(SyntaxErrorReplacement {
-                        message,
-                        end_offset: action.module.end().to_usize() - line.start + 1,
-                    });
-                    error.omit_source_text = true;
-                    error
-                },
+            warn_syntax_at_offset(
+                source,
+                filename,
+                original_filename,
+                module,
+                offset,
+                message.clone(),
+                self,
             )
+            .map_err(|mut error| {
+                // Grammar actions use UTF-8 byte columns and text=None,
+                // unlike numeric/brace tokenizer character columns.
+                error.offset = offset - line.start + 1;
+                error.replacement = Some(SyntaxErrorReplacement {
+                    message,
+                    end_offset: action.module.end().to_usize() - line.start + 1,
+                });
+                error.omit_source_text = true;
+                error
+            })
         }
 
         /// Consume an already preflighted suffix only after a parser-origin
@@ -3003,7 +3064,11 @@ mod escape_warnings {
             pending: VmCompileError,
             index: &SourceDiagnosticIndex,
         ) -> VmCompileError {
-            let WarningSource { source, filename } = context;
+            let WarningSource {
+                source,
+                filename,
+                original_filename,
+            } = context;
             use ruff_python_parser::{LexicalDisposition, LexicalWarningKind};
             for (_, warning) in plan
                 .events
@@ -3015,6 +3080,7 @@ mod escape_warnings {
                     LexicalWarningKind::Numeric(kind) => warn_numeric_literal(
                         source,
                         filename,
+                        original_filename,
                         module,
                         warning.last_offset.to_usize(),
                         format!("invalid {kind} literal"),
@@ -3027,6 +3093,7 @@ mod escape_warnings {
                             offset: warning.offset.to_usize(),
                         },
                         filename,
+                        original_filename,
                         module,
                         Some(tokenizer_brace_location(
                             index,
@@ -3653,7 +3720,9 @@ mod escape_warnings {
         type_comments: bool,
         grammar: Option<&mut GrammarCollection>,
     ) -> CollectedParserWarnings {
-        let WarningSource { source, filename } = context;
+        let WarningSource {
+            source, filename, ..
+        } = context;
         let mut grammar_sorted = false;
         let mut ast_tokenizer_recovery = true;
         let mut has_valid_syntax = false;
@@ -3807,6 +3876,12 @@ mod escape_warnings {
     }
 
     #[derive(Default)]
+    pub(super) struct AstParserWarningOptions {
+        pub(super) inherited_barry_as_flufl: bool,
+        pub(super) type_comments: bool,
+    }
+
+    #[derive(Default)]
     struct ParserWarningBoundaries {
         single: Option<compiler::SingleModeStatementBoundary>,
         type_comment_error_offset: Option<usize>,
@@ -3819,6 +3894,7 @@ mod escape_warnings {
         },
         Ast {
             tokenizer_recovery: bool,
+            original_filename: Option<&'a Py<PyStr>>,
         },
         Interactive(&'a mut super::InteractiveWarnings),
     }
@@ -3827,6 +3903,7 @@ mod escape_warnings {
         fn emit_prepared_grammar_warnings(
             &self,
             module: Option<&PyObject>,
+            original_filename: Option<&Py<PyStr>>,
             prepared: PreparedGrammarWarnings,
             emitted_escapes: &[usize],
             ast_only: bool,
@@ -3860,6 +3937,7 @@ mod escape_warnings {
                 if ast_only {
                     WarningEmission::Ast {
                         tokenizer_recovery: collected.tokenizer_recovery,
+                        original_filename,
                     }
                 } else {
                     WarningEmission::Standard {
@@ -3906,6 +3984,7 @@ mod escape_warnings {
                     "internal grammar diagnostic invariant failed: {reason:?}"
                 )),
                 filename: filename.to_owned(),
+                original_filename: None,
                 lineno: 0,
                 offset: 0,
                 replacement: None,
@@ -3925,7 +4004,9 @@ mod escape_warnings {
             type_comments: bool,
             emitted_escapes: &[usize],
         ) -> Result<Option<Vec<usize>>, VmCompileError> {
-            let WarningSource { source, filename } = context;
+            let WarningSource {
+                source, filename, ..
+            } = context;
             let prepared = prepare_relative_lazy_parser_warnings(
                 source,
                 filename,
@@ -3936,7 +4017,13 @@ mod escape_warnings {
             .map_err(|reason| self.grammar_invariant_error(filename, reason))?;
             prepared
                 .map(|prepared| {
-                    self.emit_prepared_grammar_warnings(module, prepared, emitted_escapes, false)
+                    self.emit_prepared_grammar_warnings(
+                        module,
+                        None,
+                        prepared,
+                        emitted_escapes,
+                        false,
+                    )
                 })
                 .transpose()
         }
@@ -3969,7 +4056,9 @@ mod escape_warnings {
             type_comments: bool,
             emitted_escapes: &[usize],
         ) -> Result<(), VmCompileError> {
-            let WarningSource { source, filename } = context;
+            let WarningSource {
+                source, filename, ..
+            } = context;
             if self
                 .try_emit_standard_grammar_warnings(
                     WarningSource::new(source, filename),
@@ -3998,10 +4087,10 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
+            original_filename: Option<&Py<PyStr>>,
             module: Option<&Py<PyStr>>,
             start: CompileStart,
-            inherited_barry_as_flufl: bool,
-            type_comments: bool,
+            options: AstParserWarningOptions,
         ) -> Result<Vec<usize>, VmCompileError> {
             let mode = match start {
                 CompileStart::Single => Some(compiler::Mode::Single),
@@ -4014,13 +4103,14 @@ mod escape_warnings {
                     source,
                     filename,
                     mode,
-                    inherited_barry_as_flufl,
-                    type_comments,
+                    options.inherited_barry_as_flufl,
+                    options.type_comments,
                 )
                 .map_err(|reason| self.grammar_invariant_error(filename, reason))?
             {
                 return self.emit_prepared_grammar_warnings(
                     module.map(AsObject::as_object),
+                    original_filename,
                     prepared,
                     &[],
                     true,
@@ -4029,10 +4119,10 @@ mod escape_warnings {
             self.emit_legacy_ast_parser_warnings(
                 source,
                 filename,
+                original_filename,
                 module,
                 start,
-                inherited_barry_as_flufl,
-                type_comments,
+                options,
             )
             .map_err(VmCompileError::Warning)
         }
@@ -4233,10 +4323,10 @@ mod escape_warnings {
             &self,
             source: &str,
             filename: &str,
+            original_filename: Option<&Py<PyStr>>,
             module: Option<&Py<PyStr>>,
             start: CompileStart,
-            inherited_barry_as_flufl: bool,
-            type_comments: bool,
+            options: AstParserWarningOptions,
         ) -> Result<Vec<usize>, CompileWarningError> {
             let mode = match start {
                 CompileStart::Single | CompileStart::File => Some(ruff_python_parser::Mode::Module),
@@ -4247,12 +4337,12 @@ mod escape_warnings {
                 source,
                 filename,
                 mode,
-                inherited_barry_as_flufl,
+                options.inherited_barry_as_flufl,
                 InterpolatedBodyDiagnostics::TokenAnchored {
                     implicit_final_newline: matches!(start, CompileStart::File),
                 },
                 matches!(start, CompileStart::Single),
-                type_comments,
+                options.type_comments,
             );
             self.emit_parser_warning_batch(
                 source,
@@ -4280,6 +4370,7 @@ mod escape_warnings {
                             start,
                             CompileStart::File | CompileStart::Eval | CompileStart::Single
                         ),
+                    original_filename,
                 },
             )
         }
@@ -4346,14 +4437,18 @@ mod escape_warnings {
                 single: single_boundary,
                 type_comment_error_offset,
             } = boundaries;
-            let (emitted_escapes, ast_tokenizer_recovery, mut interactive) = match emission {
-                WarningEmission::Standard {
-                    emitted_escapes,
-                    tokenizer_recovery,
-                } => (emitted_escapes, tokenizer_recovery, None),
-                WarningEmission::Ast { tokenizer_recovery } => (&[][..], tokenizer_recovery, None),
-                WarningEmission::Interactive(emitted) => (&[][..], false, Some(emitted)),
-            };
+            let (emitted_escapes, ast_tokenizer_recovery, original_filename, mut interactive) =
+                match emission {
+                    WarningEmission::Standard {
+                        emitted_escapes,
+                        tokenizer_recovery,
+                    } => (emitted_escapes, tokenizer_recovery, None, None),
+                    WarningEmission::Ast {
+                        tokenizer_recovery,
+                        original_filename,
+                    } => (&[][..], tokenizer_recovery, original_filename, None),
+                    WarningEmission::Interactive(emitted) => (&[][..], false, None, Some(emitted)),
+                };
             let mut considered_escapes = alloc::collections::BTreeSet::new();
             let mut parser_error = None;
             for warning in warnings {
@@ -4425,9 +4520,14 @@ mod escape_warnings {
                         index,
                         mode,
                     } => {
-                        if let Err(error) = self
-                            .emit_relative_lazy_warning(source, filename, module, &action, &index)
-                        {
+                        if let Err(error) = self.emit_relative_lazy_warning(
+                            source,
+                            filename,
+                            original_filename,
+                            module,
+                            &action,
+                            &index,
+                        ) {
                             let syntax_warning = error
                                 .exception
                                 .fast_isinstance(self.ctx.exceptions.syntax_warning);
@@ -4440,7 +4540,11 @@ mod escape_warnings {
                                     ));
                                 };
                                 self.emit_grammar_recovery(
-                                    WarningSource::new(source, filename),
+                                    WarningSource {
+                                        source,
+                                        filename,
+                                        original_filename,
+                                    },
                                     module,
                                     mode,
                                     recovery,
@@ -4460,7 +4564,13 @@ mod escape_warnings {
                         }
                         if emitted_escapes.binary_search(&offset).is_err() {
                             let result = warn_invalid_escape_sequence_at(
-                                source, escape, filename, module, diagnostic, self,
+                                source,
+                                escape,
+                                filename,
+                                original_filename,
+                                module,
+                                diagnostic,
+                                self,
                             )
                             .map_err(|mut error| {
                                 if let Some(column) = error_column {
@@ -4508,6 +4618,7 @@ mod escape_warnings {
                         let result = warn_numeric_literal(
                             source,
                             filename,
+                            original_filename,
                             module,
                             last_offset,
                             message,
