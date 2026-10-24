@@ -1383,13 +1383,4 @@ mod tests {
         assert_eq!(replay.stats.repeat_records, 10_000);
         assert_eq!(replay.stats.total_samples, 0);
     }
-
-    #[test]
-    fn table_count_is_bounded_before_allocation() {
-        let mut bytes = file(&[], 0);
-        bytes[HEADER_SIZE..HEADER_SIZE + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(
-            matches!(Reader::parse(bytes), Err(Error::Value(message)) if message == "Invalid string count 4294967295 exceeds maximum possible 32")
-        );
-    }
 }

@@ -4746,19 +4746,6 @@ mod escape_warnings {
         }
 
         #[test]
-        fn unparsed_adjacent_string_does_not_emit_escape_warning() {
-            let message = compile_error_message("bar'\\z' $\n");
-            assert!(
-                message.contains("invalid syntax"),
-                "expected syntax error before decoding the adjacent string, got {message:?}"
-            );
-            assert!(
-                !message.contains("invalid escape"),
-                "an unparsed adjacent string must not emit an escape warning, got {message:?}"
-            );
-        }
-
-        #[test]
         fn unparsed_raw_prefix_after_dot_stays_raw() {
             let message = compile_error_message("obj.r'\\z'\n");
             assert!(

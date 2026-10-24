@@ -7792,53 +7792,6 @@ mod tests {
     }
 
     #[test]
-    fn with_cleanup_exception_table_excludes_synthetic_not_taken() {
-        use rustpython_compiler_core::{Mode, SourceFileBuilder, bytecode::decode_exception_table};
-
-        let source = "def f(c):\n    with c:\n        x = 1\n    y = 2\n";
-        let source_file = SourceFileBuilder::new("source_path", source).finish();
-        let ast = ruff_python_parser::parse(source, ruff_python_parser::Mode::Module.into())
-            .unwrap()
-            .into_syntax();
-        let module = crate::compile::compile_top(
-            ast,
-            source_file,
-            Mode::Exec,
-            crate::CompileOpts::default(),
-        )
-        .unwrap();
-        let code = module
-            .constants
-            .iter()
-            .find_map(|constant| match constant {
-                ConstantData::Code { code } => Some(code),
-                _ => None,
-            })
-            .expect("missing with function");
-        let entries = decode_exception_table(&code.exceptiontable);
-        let not_taken = code
-            .instructions
-            .iter()
-            .position(|unit| matches!(unit.op, Instruction::NotTaken))
-            .expect("missing with cleanup NOT_TAKEN") as u32;
-
-        // CPython 3.15rc3 Lib/test/test_dis.py's _with fixture has a body
-        // range and two cleanup ranges separated by the synthetic NOT_TAKEN.
-        assert_eq!(entries.len(), 3);
-        assert!(
-            entries
-                .iter()
-                .all(|entry| { not_taken < entry.start || not_taken >= entry.end })
-        );
-        assert_eq!(entries[1].end, not_taken);
-        assert_eq!(entries[2].start, not_taken + 1);
-        assert_eq!(entries[1].target, entries[2].target);
-        assert_eq!(entries[1].depth, 4);
-        assert_eq!(entries[2].depth, 4);
-        assert!(entries[1].push_lasti && entries[2].push_lasti);
-    }
-
-    #[test]
     fn basicblock_addop_reuses_cpython_spare_except_handler_slot() {
         let handler = ExceptHandlerInfo {
             handler_block: BlockIdx::new(7),

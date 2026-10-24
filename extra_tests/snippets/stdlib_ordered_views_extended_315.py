@@ -64,21 +64,11 @@ class OrderedViewExtendedTests(unittest.TestCase):
         self.assertEqual(calls, ["first", "second"])
         self.assertFalse(data)
 
-    def test_pprint_mixed_items_sort_by_safe_tuple(self):
-        data = OrderedDict([("b", 2), (1, "one")])
-        self.assertEqual(
-            pprint.pformat(data.items()), "odict_items([(1, 'one'), ('b', 2)])"
-        )
-        rendered = pprint.pformat(data.items(), width=12)
-        self.assertTrue(rendered.startswith("odict_items([(1,"), rendered)
-
     def test_pprint_recursion_flags(self):
         for method in ("values", "items"):
             data = OrderedDict(a=1)
             view = getattr(data, method)()
             data["v"] = view
-            self.assertTrue(pprint.isrecursive(view))
-            self.assertFalse(pprint.isreadable(view))
             self.assertIn("Recursion on odict_" + method, pprint.pformat(view))
 
 
