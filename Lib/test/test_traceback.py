@@ -5205,7 +5205,6 @@ class MiscTest(unittest.TestCase):
         CHECK("AttributeError", "AttributeErrorTests", 10)
         CHECK("ABA", "AAB", 4)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: crates/pylib/Lib/test/levenshtein_examples.json is missing. Run `make regen-test-levenshtein`
     @support.requires_resource('cpu')
     def test_levenshtein_distance_short_circuit(self):
         if not LEVENSHTEIN_DATA_FILE.is_file():
