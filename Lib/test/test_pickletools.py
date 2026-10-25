@@ -689,8 +689,7 @@ class CommandLineTest(unittest.TestCase):
 
 
 def load_tests(loader, tests, pattern):
-    from test.support.rustpython import DocTestChecker # TODO: RUSTPYTHON; Remove this
-    tests.addTest(doctest.DocTestSuite(pickletools, checker=DocTestChecker())) # XXX: RUSTPYTHON
+    tests.addTest(doctest.DocTestSuite(pickletools))
     return tests
 
 
