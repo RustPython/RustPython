@@ -14,12 +14,15 @@ use crate::{
         PyMemoryView, PyStr, PyStrInterned, PyTuple,
     },
     bytecode::{
-        BorrowedConstant, CodeFlags, Constant, Instruction,
+        CodeFlags, Instruction,
         oparg::{CommonConstant, OpArg, OpArgState},
     },
     protocol::PyBuffer,
 };
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    borrow::Borrow,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use num_traits::ToPrimitive;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -828,31 +831,27 @@ pub(crate) fn code_returns_only_none(code: &Py<PyCode>) -> bool {
     if !is_pure_function(code) {
         return false;
     }
-    let units = &code.instructions;
-    // Look up None in co_consts.
-    let none_index = code
-        .constants
-        .iter()
-        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None));
-    // We don't worry about EXTENDED_ARG for now.
-    for (at, op, _) in walk_instructions(code) {
-        if !matches!(op, Instruction::ReturnValue) {
+    let mut previous_loads_none = false;
+    for (_, instruction, arg) in walk_instructions(code) {
+        if matches!(instruction, Instruction::ExtendedArg) {
             continue;
         }
-        debug_assert_ne!(at, 0);
-        let prev_op = units.read_op(at - 1).deoptimize();
-        let prev_arg = u32::from(u8::from(units.read_arg(at - 1)));
-        if matches!(prev_op, Instruction::LoadCommonConstant { .. })
-            && prev_arg == u32::from(CommonConstant::None)
-        {
-            continue;
+        if matches!(instruction, Instruction::ReturnValue) && !previous_loads_none {
+            return false;
         }
-        if matches!(prev_op, Instruction::LoadConst { .. })
-            && none_index.is_some_and(|none_index| prev_arg as usize == none_index)
-        {
-            continue;
-        }
-        return false;
+        previous_loads_none = match instruction {
+            Instruction::LoadCommonConstant { idx } => {
+                matches!(idx.try_get(arg), Ok(CommonConstant::None))
+            }
+            Instruction::LoadConst { consti } => code
+                .constants
+                .get(consti.get(arg).as_usize())
+                .is_some_and(|constant| {
+                    let object: &PyObject = constant.borrow();
+                    object.is(&crate::Context::genesis().none)
+                }),
+            _ => false,
+        };
     }
     true
 }
