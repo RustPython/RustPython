@@ -1279,6 +1279,35 @@ fn first_parse_error(
     Err(error)
 }
 
+/// The first logical input accepted by the single-input grammar.
+#[derive(Clone, Copy)]
+pub enum SingleModeStatementBoundary {
+    Simple { newline_index: usize, end: TextSize },
+    Compound { end: TextSize },
+}
+
+/// Classify a logical input without changing parser diagnostics or recovery.
+#[must_use]
+pub fn single_mode_statement_boundary(
+    parsed: &parser::Parsed<ast::Mod>,
+) -> Option<SingleModeStatementBoundary> {
+    let ast::Mod::Module(module) = parsed.syntax() else {
+        return None;
+    };
+    let first = module.body.first()?;
+    if is_compound_stmt(first) {
+        return Some(SingleModeStatementBoundary::Compound { end: first.end() });
+    }
+    let newline_index = parsed
+        .tokens()
+        .iter()
+        .position(|token| token.kind() == TokenKind::Newline)?;
+    Some(SingleModeStatementBoundary::Simple {
+        newline_index,
+        end: parsed.tokens()[newline_index].end(),
+    })
+}
+
 /// Single mode reads only the first statement when it is a simple statement, so any code after
 /// its line is reported as multiple statements, ahead of errors the rest of the source has.
 #[must_use]
@@ -1289,8 +1318,8 @@ pub fn single_mode_multiple_statements_error(
     let ast::Mod::Module(module) = parsed.syntax() else {
         return None;
     };
-    let first = module.body.first()?;
-    if is_compound_stmt(first) {
+    let boundary = single_mode_statement_boundary(parsed)?;
+    if matches!(boundary, SingleModeStatementBoundary::Compound { .. }) {
         // The interactive grammar ends a compound statement with a NEWLINE,
         // so the first token of a following statement is invalid syntax.
         let next = module.body.get(1)?;
@@ -1315,9 +1344,9 @@ pub fn single_mode_multiple_statements_error(
         ));
     }
     let tokens = parsed.tokens();
-    let newline_index = tokens
-        .iter()
-        .position(|token| token.kind() == TokenKind::Newline)?;
+    let SingleModeStatementBoundary::Simple { newline_index, .. } = boundary else {
+        unreachable!()
+    };
     let newline = &tokens[newline_index];
     if parsed
         .errors()
@@ -1339,15 +1368,18 @@ pub fn single_mode_multiple_statements_error(
     let position = match newline_index.checked_sub(1).map(|index| &tokens[index]) {
         Some(comment) if comment.kind() == TokenKind::Comment => comment.start(),
         _ => newline.start(),
-    }
-    .to_usize();
-    Some(CompileError::from_source_error(
+    };
+    // Include the comment and one logical newline character. Using the token's
+    // full end would count both bytes of CRLF; position + 1 truncates comments.
+    Some(CompileError::from_ruff_parse_error(
+        parser::ParseError {
+            error: parser::ParseErrorType::OtherError(
+                "multiple statements found while compiling a single statement".to_owned(),
+            ),
+            location: ruff_text_size::TextRange::new(position, newline.start() + TextSize::new(1)),
+        },
         source_file,
-        CpythonDiagnostic::new(
-            "multiple statements found while compiling a single statement".to_owned(),
-            position,
-            position,
-        ),
+        Mode::Single,
     ))
 }
 

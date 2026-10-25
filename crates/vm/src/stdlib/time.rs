@@ -7,6 +7,7 @@
 pub use decl::time;
 
 pub(crate) use decl::module_def;
+pub(crate) use decl::perf_counter_ns as profiler_time;
 
 #[pymodule(name = "time", with(#[cfg(any(unix, windows))] platform))]
 mod decl {
@@ -18,7 +19,7 @@ mod decl {
     use crate::convert::{ToPyException, ToPyObject};
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyFloat, PyStr, PyStrRef, PyTypeRef},
         class::PyClassDef,
         common::wtf8::Wtf8Buf,
         function::{Either, FuncArgs, OptionalArg, OptionalOption},
@@ -142,7 +143,11 @@ mod decl {
                 .and_then(|seconds| seconds.checked_mul(SEC_TO_NS))
                 .ok_or_else(overflow)?
         } else {
-            let seconds = object.try_float(vm)?.to_f64();
+            // PyFloat_AsDouble reads float subclasses without calling __float__.
+            let seconds = match object.downcast_ref::<PyFloat>() {
+                Some(value) => value.to_f64(),
+                None => object.try_float(vm)?.to_f64(),
+            };
             if seconds.is_nan() {
                 return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
@@ -262,7 +267,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
+    pub(crate) fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 

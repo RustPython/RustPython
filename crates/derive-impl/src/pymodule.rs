@@ -1,4 +1,6 @@
 use crate::error::Diagnostic;
+use crate::item::ItemLike;
+use crate::metadata::{AttributeDoc, NestedMeta};
 use crate::pystructseq::PyStructSequenceMeta;
 use crate::util::{
     ALL_ALLOWED_NAMES, AttrItemMeta, AttributeExt, ClassItemMeta, ContentItem, ContentItemInner,
@@ -11,8 +13,6 @@ use quote::{ToTokens, format_ident, quote, quote_spanned};
 
 use std::collections::HashSet;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
-use syn_ext::ext::*;
-use syn_ext::types::NestedMeta;
 
 /// A `with(...)` item that may be gated by `#[cfg(...)]` attributes.
 pub struct WithItem {
@@ -171,9 +171,13 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
         explicit_name: module_meta.optional_name().is_some(),
         ..Default::default()
     };
-    let items = module_item.items_mut().ok_or_else(|| {
-        module_meta.new_meta_error("requires actual module, not a module declaration")
-    })?;
+    let items = module_item
+        .content
+        .as_mut()
+        .map(|(_, items)| items)
+        .ok_or_else(|| {
+            module_meta.new_meta_error("requires actual module, not a module declaration")
+        })?;
 
     // collect to context
     for item in items.iter_mut() {
@@ -449,7 +453,7 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        if let Some(ident) = attr.get_ident() {
+        if let Some(ident) = attr.path().get_ident() {
             let attr_name = ident.to_string();
             if attr_name == "cfg" {
                 cfgs.push(attr.clone());
@@ -464,7 +468,7 @@ where
     let mut py_attrs = Vec::new();
     for (i, attr) in iter {
         // take py items but no cfgs
-        let attr_name = if let Some(ident) = attr.get_ident() {
+        let attr_name = if let Some(ident) = attr.path().get_ident() {
             ident.to_string()
         } else {
             continue;

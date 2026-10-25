@@ -782,7 +782,7 @@ impl PyBaseException {
 
 #[pyclass(
     with(Py, PyRef, Constructor, Initializer, Representable),
-    flags(BASETYPE, HAS_DICT)
+    flags(BASETYPE, HAS_DICT, BASE_EXC_SUBCLASS)
 )]
 impl PyBaseException {}
 
@@ -2214,16 +2214,16 @@ pub(super) mod types {
     }
 
     impl Representable for PyImportError {
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let base: &Py<PyBaseException> = zelf
                 .as_object()
                 .downcast_ref()
                 .expect("ImportError is a BaseException");
             let mut has_args = !base.args().is_empty();
             if zelf.name.load_owned().is_none() && zelf.path.load_owned().is_none() {
-                return PyBaseException::repr_str(base, vm);
+                return PyBaseException::repr_wtf8(base, vm);
             }
-            let mut result = PyBaseException::repr_str(base, vm)?;
+            let mut result = PyBaseException::repr_wtf8(base, vm)?;
             result.pop();
             for (name, field) in [("name", &zelf.name), ("path", &zelf.path)] {
                 if let Some(value) = field.load_owned() {
@@ -2231,12 +2231,12 @@ pub(super) mod types {
                         result.push_str(", ");
                     }
                     result.push_str(name);
-                    result.push('=');
-                    result.push_str(&value.repr(vm)?.to_string_lossy());
+                    result.push_char('=');
+                    result.push_wtf8(value.repr(vm)?.as_wtf8());
                     has_args = true;
                 }
             }
-            result.push(')');
+            result.push_char(')');
             Ok(result)
         }
     }

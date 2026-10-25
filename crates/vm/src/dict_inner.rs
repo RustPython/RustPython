@@ -1165,6 +1165,16 @@ impl<T: Clone> Dict<T> {
         current != *old
     }
 
+    /// Inspect keys without allocating or cloning their references.
+    /// The predicate must not run Python or mutate this table.
+    pub(crate) fn any_key(&self, mut predicate: impl FnMut(&PyObject) -> bool) -> bool {
+        self.read()
+            .entries
+            .iter()
+            .flatten()
+            .any(|entry| predicate(&entry.key))
+    }
+
     pub(crate) fn keys(&self) -> Vec<PyObjectRef> {
         self.read()
             .entries

@@ -18,6 +18,8 @@ mod python_run;
 pub use python_run::InteractiveLine;
 pub mod runtime;
 mod setting;
+#[cfg(feature = "threading")]
+pub(crate) mod stop_the_world;
 pub mod thread;
 mod vm_new;
 mod vm_object;
@@ -39,7 +41,7 @@ use crate::{
     convert::ToPyObject,
     exceptions::types::{PyBaseException, PyMemoryError},
     frame::{ExecutionResult, FrameObject, FrameObjectRef},
-    frozen::FrozenModule,
+    frozen_resources::FrozenModuleRegistry,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::{PyIterIter, PyIterReturn},
@@ -57,8 +59,10 @@ use core::{
     sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(feature = "threading")]
+use std::collections::HashMap;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::{OsStr, OsString},
 };
 
@@ -182,6 +186,8 @@ unsafe impl Send for FramePtr {}
 
 #[derive(Debug)]
 struct ExceptionStack {
+    /// Pending native C API error, independent of handled `sys.exception()`.
+    raised: Option<PyBaseExceptionRef>,
     /// Linked list of handled-exception slots (`_PyErr_StackItem` chain).
     /// Bottom element is the thread's base slot; generator/coroutine resume
     /// pushes an additional slot.  Normal frame calls do **not** push/pop.
@@ -191,7 +197,10 @@ struct ExceptionStack {
 impl Default for ExceptionStack {
     fn default() -> Self {
         // Thread's base `_PyErr_StackItem` – always present.
-        Self { stack: vec![None] }
+        Self {
+            raised: None,
+            stack: vec![None],
+        }
     }
 }
 
@@ -644,9 +653,9 @@ impl StopTheWorldState {
         // Only one thread survives fork; any stop-the-world bit inherited
         // from the parent is stale.
         crate::signal::clear_stop_bit();
-        // before_fork owns the sole transaction. Release it exactly once via
-        // that state's ownership flag; resetting other interpreters must not
-        // release a later transaction. No unconditional global reset is needed.
+        // A single-state stop owns the transaction through this flag. A fork
+        // group instead retains its shared transaction through child repair;
+        // its member states do not own exclusion and must not release it here.
         self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }
@@ -868,7 +877,7 @@ pub struct PyGlobalState {
     /// `_interactive_src_count`: numbers the code filenames of interactive inputs.
     pub(crate) interactive_src_count: AtomicUsize,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
-    pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
+    pub frozen: FrozenModuleRegistry,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     /// Registered `atexit` callbacks, newest first. Shared ownership so
@@ -1422,7 +1431,7 @@ impl VirtualMachine {
             });
 
             let guide_message = if cfg!(feature = "freeze-stdlib") {
-                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::builder()`."
+                "`rustpython_pylib` may not be set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterBuilder::init_stdlib` or manually call `builder.add_frozen_modules_with_resources(rustpython_pylib::FROZEN_STDLIB, rustpython_pylib::FROZEN_STDLIB_RESOURCES)` in `rustpython_vm::Interpreter::builder()`."
             } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {
@@ -3953,17 +3962,27 @@ impl VirtualMachine {
         }
     }
 
+    /// Keep teardown callbacks from observing or replacing a pending C error.
+    /// Create this guard before callback-owned locals so they drop before restoration.
+    #[must_use]
+    pub(crate) fn preserve_raised_exception(&self) -> impl Drop + '_ {
+        scopeguard::guard(self.take_raised_exception(), |saved| {
+            self.set_raised_exception(saved);
+        })
+    }
+
+    pub fn raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        self.exceptions.borrow().raised.clone()
+    }
+
+    pub fn set_raised_exception(&self, exc: Option<PyBaseExceptionRef>) {
+        let previous = core::mem::replace(&mut self.exceptions.borrow_mut().raised, exc);
+        // Release the RefCell borrow before dropping a potentially final reference.
+        drop(previous);
+    }
+
     pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
-        let mut excs = self.exceptions.borrow_mut();
-        if let Some(top) = excs.stack.last_mut() {
-            let exc = top.take();
-            drop(excs);
-            #[cfg(feature = "threading")]
-            thread::update_thread_exception(self.topmost_exception());
-            exc
-        } else {
-            None
-        }
+        self.exceptions.borrow_mut().raised.take()
     }
 
     /// `_PyErr_ChainStackItem`: if the current `exc_info` slot is occupied,
@@ -4184,6 +4203,36 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raised_error_guards_preserve_storage_on_unwind() {
+        Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let handled = vm.new_type_error("handled");
+                let outer = vm.new_type_error("outer");
+                let inner = vm.new_type_error("inner");
+                vm.set_exception(Some(handled.clone()));
+                vm.set_raised_exception(Some(outer.clone()));
+                let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+                    let _outer_guard = vm.preserve_raised_exception();
+                    assert!(vm.raised_exception().is_none());
+                    vm.set_raised_exception(Some(inner.clone()));
+                    {
+                        let _inner_guard = vm.preserve_raised_exception();
+                        assert!(vm.raised_exception().is_none());
+                        assert!(vm.current_exception().unwrap().is(&handled));
+                    }
+                    assert!(vm.raised_exception().unwrap().is(&inner));
+                    panic!("exercise raised-error guard unwinding");
+                }));
+                assert!(result.is_err());
+                assert!(vm.take_raised_exception().unwrap().is(&outer));
+                assert!(vm.raised_exception().is_none());
+                assert!(vm.current_exception().unwrap().is(&handled));
+                vm.set_exception(None);
+            });
+    }
 
     #[cfg(not(feature = "stdio"))]
     #[test]

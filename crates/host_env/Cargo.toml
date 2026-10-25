@@ -77,7 +77,11 @@ libloading = { workspace = true, optional = true }
 libffi = { workspace = true, features = ["system"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+mach2 = { workspace = true }
 system-configuration = { workspace = true }
+
+[target.'cfg(any(all(target_os = "linux", not(target_env = "uclibc")), target_os = "macos", windows))'.dependencies]
+object = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 memchr.workspace = true
@@ -97,6 +101,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Com",
     "Win32_System_Console",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Environment",
     "Win32_System_EventLog",
     "Win32_System_Ole",

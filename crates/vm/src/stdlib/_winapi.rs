@@ -246,20 +246,25 @@ mod _winapi {
         args: CreateProcessArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(WinHandle, WinHandle, u32, u32)> {
+        // Default failed startup attribute lookups as CPython does. Keep value
+        // conversion errors separate from lookup failures.
         macro_rules! si_attr {
             ($attr:ident, $t:ty) => {{
-                <Option<$t>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0) as _
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| <Option<$t>>::try_from_object(vm, obj))
+                    .transpose()?
+                    .flatten()
+                    .unwrap_or(0) as _
             }};
             ($attr:ident) => {{
-                <Option<_>>::try_from_object(
-                    vm,
-                    args.startup_info.get_attr(stringify!($attr), vm)?,
-                )?
-                .unwrap_or(0)
+                args.startup_info
+                    .get_attr(stringify!($attr), vm)
+                    .ok()
+                    .map(|obj| TryFromObject::try_from_object(vm, obj))
+                    .transpose()?
+                    .unwrap_or(0)
             }};
         }
         let startup_info = host_winapi::StartupInfoData {
@@ -275,7 +280,13 @@ mod _winapi {
             .map(|m| getenvironment(m, vm))
             .transpose()?;
 
-        let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
+        let handle_list = args
+            .startup_info
+            .get_attr("lpAttributeList", vm)
+            .ok()
+            .map(|obj| get_handle_list(obj, vm))
+            .transpose()?
+            .flatten();
 
         // Validate no embedded null bytes in command name and command line
         // before handing the strings off; to_wide_cstring rejects interior NULs.

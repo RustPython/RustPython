@@ -15,6 +15,8 @@ pub(crate) mod _ast {
         types::{Constructor, Initializer},
         warn,
     };
+    use rustpython_common::wtf8::Wtf8Buf;
+
     #[pyattr]
     #[pyclass(module = "ast", name = "AST")]
     #[derive(Debug, PyPayload)]
@@ -166,6 +168,17 @@ pub(crate) mod _ast {
             .map_err(|_| vm.new_type_error("attribute name must be string"))?;
         obj.set_attr(&name, value, vm)
     }
+
+    pub(crate) const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
+        "__replace__",
+        |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+            ast_replace(&zelf, args, vm)
+        },
+        PyMethodFlags::METHOD,
+        crate::function::ItemDoc::static_text(
+            "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
+        ),
+    );
 
     pub(crate) fn ast_replace(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if !args.args.is_empty() {
@@ -413,68 +426,78 @@ This will become an error in Python 3.20",
                 zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
 
-            // Use _field_types to determine defaults for unset fields.
-            // Only built-in AST node classes have _field_types populated.
-            let field_types = zelf.class().get_attr(vm.ctx.intern_str("_field_types"));
-            if let Some(Ok(ft_dict)) =
-                field_types.map(|ft| ft.downcast::<crate::builtins::PyDict>())
+            // Custom AST subclasses without _field_types retain their permissive
+            // treatment of fields omitted from the constructor.
+            if !remaining_fields.elements().is_empty()
+                && let Some(field_types) = zelf.class().get_attr(vm.ctx.intern_str("_field_types"))
             {
+                let ft_dict = field_types
+                    .downcast::<PyDict>()
+                    .map_err(|_| vm.new_system_error("bad argument to internal function"))?;
                 let expr_ctx_type: PyObjectRef =
                     super::super::pyast::NodeExprContext::make_static_type().into();
+                let missing_names = PySet::default().into_ref(&vm.ctx);
 
-                let mut missing = Vec::new();
-                // Render missing arguments in their declared positional order.
-                for i in 0..numfields {
-                    let field = fields_seq.get_item(i as isize, vm)?;
-                    if !ast_replace_set_discard(&remaining_fields, &field, vm)? {
-                        continue;
-                    }
-                    if let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? {
-                        if ftype.fast_isinstance(vm.ctx.types.union_type) {
-                            // Optional field (T | None) — no default
-                        } else if ftype.fast_isinstance(vm.ctx.types.generic_alias_type) {
-                            // List field (list[T]) — default to []
-                            let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
-                            ast_set_attr(zelf, &field, empty_list, vm)?;
-                        } else if ftype.is(&expr_ctx_type) {
-                            // expr_context — default to Load()
-                            let load_type =
-                                super::super::pyast::NodeExprContextLoad::make_static_type();
-                            let load_instance = load_type
-                                .get_attr(vm.ctx.intern_str("_instance"))
-                                .unwrap_or_else(|| {
-                                    vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
-                                });
-                            ast_set_attr(zelf, &field, load_instance, vm)?;
-                        } else {
-                            missing.push(format!("'{}'", field.str(vm)?));
-                        }
-                    } else {
+                for field in remaining_fields.elements() {
+                    let Some(ftype) = ft_dict.get_item_opt(&*field, vm)? else {
                         return Err(vm.new_type_error(format!(
                             "Field {} is missing from {}._field_types",
                             field.repr(vm)?,
                             zelf.class().fully_qualified_name(vm)?
                         )));
+                    };
+                    if ftype.fast_isinstance(vm.ctx.types.union_type) {
+                        // Optional fields already have a None default on the class.
+                    } else if ftype.class().is(vm.ctx.types.generic_alias_type) {
+                        let empty_list: PyObjectRef = vm.ctx.new_list(vec![]).into();
+                        ast_set_attr(zelf, &field, empty_list, vm)?;
+                    } else if ftype.is(&expr_ctx_type) {
+                        let load_type =
+                            super::super::pyast::NodeExprContextLoad::make_static_type();
+                        let load_instance = load_type
+                            .get_attr(vm.ctx.intern_str("_instance"))
+                            .unwrap_or_else(|| {
+                                vm.ctx.new_base_object(load_type, Some(vm.ctx.new_dict()))
+                            });
+                        ast_set_attr(zelf, &field, load_instance, vm)?;
+                    } else {
+                        missing_names.add(field, vm)?;
                     }
                 }
-                if !missing.is_empty() {
-                    let count = missing.len();
-                    let names = match missing.as_slice() {
-                        [name] => name.clone(),
-                        [first, last] => format!("{first} and {last}"),
-                        names => format!(
-                            "{}, and {}",
-                            names[..count - 1].join(", "),
-                            names[count - 1]
-                        ),
-                    };
-                    return Err(vm.new_type_error(format!(
-                        "{}.__init__ missing {} required positional argument{}: {}",
+
+                let count = missing_names.elements().len();
+                if count > 0 {
+                    // Match constructor order and preserve non-UTF-8 field names.
+                    let mut message = Wtf8Buf::from(format!(
+                        "{}.__init__ missing {} required positional argument{}: ",
                         zelf.class().fully_qualified_name(vm)?,
                         count,
                         if count == 1 { "" } else { "s" },
-                        names
-                    )));
+                    ));
+                    let mut num_left = count as isize;
+                    for i in 0..numfields {
+                        let field = fields_seq.get_item(i as isize, vm)?;
+                        if missing_names.contains(&field, vm)? {
+                            let field = field
+                                .downcast::<PyStr>()
+                                .map_err(|_| vm.new_system_error("non-string AST field name"))?;
+                            message.push_wtf8("'".as_ref());
+                            message.push_wtf8(field.as_wtf8());
+                            message.push_wtf8("'".as_ref());
+                            let separator = if num_left == 1 {
+                                ""
+                            } else if count == 2 {
+                                " and "
+                            } else if num_left == 2 {
+                                ", and "
+                            } else {
+                                ", "
+                            };
+                            message.push_wtf8(separator.as_ref());
+                            num_left -= 1;
+                        }
+                    }
+                    return Err(vm.new_type_error(message));
                 }
             }
 
@@ -554,16 +577,6 @@ This will become an error in Python 3.20",
             },
             PyMethodFlags::METHOD,
             crate::function::ItemDoc::static_text("__reduce__($self, /)\n--\n\n"),
-        );
-        const AST_REPLACE: PyMethodDef = PyMethodDef::new_const(
-            "__replace__",
-            |zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                ast_replace(&zelf, args, vm)
-            },
-            PyMethodFlags::METHOD,
-            crate::function::ItemDoc::static_text(
-                "__replace__($self, /, **fields)\n--\n\nReturn a copy of the AST node with new values for the specified fields.",
-            ),
         );
         let base_type = NodeAst::static_type();
         ast_type.set_str_attr(

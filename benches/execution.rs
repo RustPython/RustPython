@@ -1,7 +1,6 @@
-#![allow(clippy::iter_over_hash_type)]
-
 extern crate alloc;
 
+use alloc::collections::BTreeMap;
 use core::hint::black_box;
 use criterion::{
     Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
@@ -10,7 +9,7 @@ use criterion::{
 use pyo3::types::{PyCode, PyCodeMethods, PyDict, PyDictMethods, code::PyCodeInput};
 use rustpython_compiler::Mode;
 use rustpython_vm::{Interpreter, PyResult, Settings};
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 /// `true` when the benchmarks are executed by the CodSpeed runner.
 ///
@@ -130,14 +129,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut benches = benchmark_dir
         .read_dir()
         .unwrap()
-        .map(|entry| {
-            let path = entry.unwrap().path();
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "py"))
+        .map(|path| {
             (
                 path.file_name().unwrap().to_str().unwrap().to_owned(),
                 std::fs::read_to_string(path).unwrap(),
             )
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
 
     // Benchmark parsing
     let mut parse_group = c.benchmark_group("parse_to_ast");

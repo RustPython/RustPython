@@ -27,8 +27,8 @@ use crate::{
     protocol::{PyIterReturn, PyNumberMethods},
     types::{
         AsNumber, Callable, Constructor, GetAttr, Initializer, NewFunc, PyTypeFlags, PyTypeSlots,
-        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot, fn_addr,
-        new_wrapper,
+        Representable, SLOT_DEFS, SetAttr, TypeDataRef, TypeDataRefMut, TypeDataSlot,
+        VectorCallFunc, fn_addr, new_wrapper,
     },
 };
 use core::{
@@ -908,6 +908,58 @@ impl PyType {
         }
     }
 
+    fn inherit_subclass_flags(slots: &mut PyTypeSlots, bases: &[PyRef<Self>]) {
+        let mut inherited = PyTypeFlags::empty();
+        for base in bases {
+            inherited |= base.slots.flags.load() & PyTypeFlags::SUBCLASS_FLAGS;
+        }
+        slots.flags |= inherited;
+    }
+
+    fn compute_subclass_flags(&self, ctx: &Context) -> PyTypeFlags {
+        let is_subclass = |base: &Py<Self>| self.mro.read().iter().any(|cls| cls.is(base));
+        let mut flags = PyTypeFlags::empty();
+        if is_subclass(ctx.types.int_type) {
+            flags.insert(PyTypeFlags::LONG_SUBCLASS);
+        }
+        if is_subclass(ctx.types.list_type) {
+            flags.insert(PyTypeFlags::LIST_SUBCLASS);
+        }
+        if is_subclass(ctx.types.tuple_type) {
+            flags.insert(PyTypeFlags::TUPLE_SUBCLASS);
+        }
+        if is_subclass(ctx.types.bytes_type) {
+            flags.insert(PyTypeFlags::BYTES_SUBCLASS);
+        }
+        if is_subclass(ctx.types.str_type) {
+            flags.insert(PyTypeFlags::UNICODE_SUBCLASS);
+        }
+        if is_subclass(ctx.types.dict_type) {
+            flags.insert(PyTypeFlags::DICT_SUBCLASS);
+        }
+        if is_subclass(ctx.exceptions.base_exception_type) {
+            flags.insert(PyTypeFlags::BASE_EXC_SUBCLASS);
+        }
+        if is_subclass(ctx.types.type_type) {
+            flags.insert(PyTypeFlags::TYPE_SUBCLASS);
+        }
+        flags
+    }
+
+    fn update_subclass_flags_recursive(&self, ctx: &Context) {
+        self.slots.flags.replace_masked(
+            PyTypeFlags::SUBCLASS_FLAGS,
+            self.compute_subclass_flags(ctx),
+        );
+        for weak_ref in self.subclasses.read().iter() {
+            if let Some(subclass) = weak_ref.upgrade()
+                && let Some(subclass) = subclass.downcast_ref::<Self>()
+            {
+                subclass.update_subclass_flags_recursive(ctx);
+            }
+        }
+    }
+
     pub fn has_patma_collection_flag(&self, flag: u8) -> bool {
         debug_assert!(flag == PyTypeFlags::SEQUENCE || flag == PyTypeFlags::MAPPING);
         self.slots.flags.has_feature(flag)
@@ -1041,6 +1093,8 @@ impl PyType {
             slots.flags |= WEAKREF_FLAGS;
         }
 
+        Self::inherit_subclass_flags(&mut slots, bases.as_slice());
+
         // Inherit SEQUENCE and MAPPING flags from base classes
         Self::inherit_patma_flags(&mut slots, bases.as_slice());
 
@@ -1113,6 +1167,7 @@ impl PyType {
         // Inherit SEQUENCE and MAPPING flags from base class
         // For static types, we only have a single base
         Self::inherit_patma_flags(&mut slots, core::slice::from_ref(&base));
+        Self::inherit_subclass_flags(&mut slots, core::slice::from_ref(&base));
 
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
@@ -1792,7 +1847,7 @@ impl PyType {
         AsNumber,
         Representable
     ),
-    flags(BASETYPE, HAS_DICT, HAS_WEAKREF)
+    flags(BASETYPE, HAS_DICT, HAS_WEAKREF, TYPE_SUBCLASS)
 )]
 impl PyType {}
 
@@ -2201,6 +2256,7 @@ impl Constructor for PyType {
         if custom_mro {
             mro_internal(&typ, vm)?;
             typ.init_slots(&vm.ctx);
+            typ.update_subclass_flags_recursive(&vm.ctx);
         }
 
         if let Some(ref slots) = heaptype_slots {
@@ -2741,6 +2797,7 @@ impl Py<PyType> {
             if core::ptr::eq(&**zelf.bases.read(), &*bases) {
                 remove_as_subclass(old_bases.as_slice(), &mut retired);
                 add_as_subclass(bases.as_slice());
+                zelf.update_subclass_flags_recursive(&vm.ctx);
                 zelf.update_all_slots(&vm.ctx);
             }
 
@@ -3433,26 +3490,15 @@ fn subtype_get_weakref(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
  * The magical type type
  */
 
-/// Vectorcall for PyType (PEP 590).
-/// Fast path: type(x) returns x.__class__ without constructing FuncArgs.
-///
-/// # Implementation note: `slots.vectorcall` dual use
-///
-/// CPython has three distinct fields on PyTypeObject:
-///   - `tp_vectorcall`: constructor fast path (e.g. `list_vectorcall`)
-///   - `tp_vectorcall_offset`: per-instance vectorcall for callables (e.g. functions)
-///   - `tp_call`: standard call slot
-///
-/// RustPython collapses the first two into a single `slots.vectorcall`. The
-/// `call.is_none()` guard below distinguishes the two uses: callable types have
-/// `slots.call` set, so their `slots.vectorcall` is for calling instances,
-/// not for construction.
-///
-/// This heuristic is correct for all current builtins but is not a general
-/// solution — `type` itself is both callable and has a constructor vectorcall,
-/// handled by the explicit `zelf.is(type_type)` check above the guard.
-/// If more such types arise, consider splitting into a dedicated
-/// `constructor_vectorcall` slot.
+// Types can be visible to custom mro/__classcell__ code during initialization.
+// A missing new slot or constructor implementation leaves ordinary call as fallback.
+fn resolve_type_vectorcall(obj: &PyObject) -> Option<VectorCallFunc> {
+    let typ = obj.downcast_ref::<PyType>()?;
+    typ.slots.new.load()?;
+    typ.slots.constructor_vectorcall.load()
+}
+
+/// Vectorcall for type's own constructor (PEP 590).
 fn vectorcall_type(
     zelf_obj: &PyObject,
     args: Vec<PyObjectRef>,
@@ -3468,12 +3514,6 @@ fn vectorcall_type(
         if nargs == 1 && no_kwargs {
             return Ok(args[0].obj_type());
         }
-    } else if zelf.slots().call.load().is_none() && zelf.slots().new.load().is_some() {
-        // Per-type constructor vectorcall for non-callable types (dict, list, int, etc.)
-        // Also guard on slots.new to avoid dispatching for DISALLOW_INSTANTIATION types.
-        if let Some(type_vc) = zelf.slots().vectorcall.load() {
-            return type_vc(zelf_obj, args, nargs, kwnames, vm);
-        }
     }
 
     // Fallback: construct FuncArgs and use standard call
@@ -3486,8 +3526,18 @@ pub(crate) fn init(ctx: &'static Context) {
     ctx.types
         .type_type
         .slots
-        .vectorcall
+        .constructor_vectorcall
         .store(Some(vectorcall_type));
+    ctx.types
+        .type_type
+        .slots
+        .vectorcall_resolver
+        .store(Some(resolve_type_vectorcall));
+    ctx.types
+        .type_type
+        .slots
+        .flags
+        .insert(PyTypeFlags::HAVE_VECTORCALL);
 }
 
 pub(crate) fn call_slot_new(

@@ -128,7 +128,9 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                             })?;
                             type_slots.flags = AtomicPyTypeFlags::from_plain(flags);
                         }
-                        PySlotType::BasicSize(size) | PySlotType::ExtraBasicSize(size) => {
+                        PySlotType::BasicSize(size)
+                        | PySlotType::ExtraBasicSize(size)
+                        | PySlotType::ItemSize(size) => {
                             if size != 0 {
                                 return Err(vm.new_not_implemented_error(
                                     "PyType_FromSlots with non-zero size is not yet supported",
@@ -323,6 +325,8 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 #[cfg(test)]
 mod tests {
     use pyo3::IntoPyObjectExt;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::ffi;
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyInt, PyList, PyString, PyType, PyTypeMethods};
 
@@ -511,5 +515,50 @@ mod tests {
                 "Some list"
             );
         });
+    }
+
+    #[test]
+    fn type_from_spec() {
+        Python::attach(|py| {
+            let mut slots = [ffi::PyType_Slot {
+                slot: 0,
+                pfunc: core::ptr::null_mut(),
+            }];
+            let mut spec = ffi::PyType_Spec {
+                name: c"somemodule.MySpecClass".as_ptr(),
+                basicsize: 0,
+                itemsize: 0,
+                flags: ffi::Py_TPFLAGS_DEFAULT as _,
+                slots: slots.as_mut_ptr(),
+            };
+
+            let type_ptr = unsafe { ffi::PyType_FromSpec(&mut spec) };
+            let type_obj = unsafe {
+                Bound::from_borrowed_ptr_or_err(py, type_ptr)
+                    .unwrap()
+                    .cast_into::<PyType>()
+                    .unwrap()
+            };
+
+            assert_eq!(type_obj.qualname().unwrap(), "somemodule.MySpecClass");
+        });
+    }
+
+    #[test]
+    fn fast_subclass_check_using_flags() {
+        Python::attach(|py| {
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyDict>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_DICT_SUBCLASS,
+                ) != 0
+            });
+            assert!(unsafe {
+                ffi::PyType_HasFeature(
+                    py.get_type::<PyValueError>().as_type_ptr(),
+                    ffi::Py_TPFLAGS_BASE_EXC_SUBCLASS,
+                ) != 0
+            });
+        })
     }
 }

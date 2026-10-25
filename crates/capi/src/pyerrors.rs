@@ -101,7 +101,7 @@ define_py_check!(fn PyExceptionInstance_Check, exceptions.base_exception_type);
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_Occurred() -> *mut PyObject {
     with_vm(|vm| {
-        vm.current_exception()
+        vm.raised_exception()
             .map(|exc| exc.class().as_object().as_raw())
             .unwrap_or_default()
     })
@@ -121,7 +121,7 @@ pub unsafe extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
     with_vm(|vm| {
         let exception =
             unsafe { exc.assume_owned_or_opt() }.map(|exc| unsafe { exc.downcast_unchecked() });
-        vm.set_exception(exception);
+        vm.set_raised_exception(exception);
     })
 }
 
@@ -131,6 +131,15 @@ pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut P
         let exc_type = unsafe { exception.assume_borrowed() }.to_owned();
         let exc_val = unsafe { value.assume_borrowed() }.to_owned();
 
+        if let Some(cls) = exc_type.downcast_ref::<PyType>()
+            && cls.fast_issubclass(vm.ctx.exceptions.base_exception_type)
+            && !exc_val
+                .downcast_ref::<PyBaseException>()
+                .is_some_and(|exc| exc.fast_isinstance(cls))
+        {
+            // Exception constructors must run without a pending C error.
+            vm.set_raised_exception(None);
+        }
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
         Err(normalized)
     })
@@ -142,6 +151,7 @@ pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *con
         let exc_type = unsafe { exception.assume_borrowed_and_cast::<PyType>(vm) }?;
         let message = unsafe { message.try_as_str(vm) }?;
 
+        vm.set_raised_exception(None);
         let exc = vm.invoke_exception(exc_type, vec![vm.ctx.new_str(message).into_object()])?;
 
         Err(exc)

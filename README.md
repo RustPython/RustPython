@@ -202,7 +202,7 @@ make cool projects:
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
 - [Robot Rumble](https://github.com/robot-rumble/logic/): an arena-based AI competition platform
-- [Ruff](https://github.com/charliermarsh/ruff/): an extremely fast Python linter, written in Rust
+- [Ruff](https://github.com/astral-sh/ruff/): an extremely fast Python linter, written in Rust
 
 ## Goals
 
