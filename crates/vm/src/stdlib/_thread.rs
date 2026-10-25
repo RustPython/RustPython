@@ -806,7 +806,7 @@ pub(crate) mod _thread {
         vm: &VirtualMachine,
     ) {
         let msg = func.as_ref().repr(vm).ok().map(|repr| {
-            let mut message = Wtf8Buf::from_str("Exception ignored in thread started by ");
+            let mut message = Wtf8Buf::from("Exception ignored in thread started by ");
             message.push_wtf8(repr.as_wtf8());
             vm.ctx.new_str(message)
         });
