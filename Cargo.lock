@@ -2369,6 +2369,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mach2"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0d28e293f2b8c9d2b2d1c0193bd3c1cbdc0d2cf396888dc01162f7cf9d6c3f3"
+
+[[package]]
 name = "malachite-base"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3450,7 +3456,7 @@ checksum = "e6b6ebd13bc009aef9cd476c1310d49ac354d36e240cf1bd753290f3dc7199a7"
 dependencies = [
  "bitflags 1.3.2",
  "libc",
- "mach2",
+ "mach2 0.4.3",
  "windows-sys 0.52.0",
 ]
 
@@ -3859,7 +3865,7 @@ dependencies = [
  "libffi",
  "libloading 0.9.0",
  "mac_address",
- "mach2",
+ "mach2 0.7.0",
  "memchr",
  "memmap2",
  "nix",
