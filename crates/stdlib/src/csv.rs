@@ -7,6 +7,7 @@ mod _csv {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyStr, PyType, PyTypeRef, PyUtf8StrRef},
+        convert::PyListOf,
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg, Param},
         protocol::{PyIter, PyIterReturn, PyNumber},
         types::{Callable, Constructor, IterNext, Iterable, SelfIter},
@@ -244,14 +245,9 @@ mod _csv {
     }
 
     #[pyfunction]
-    fn list_dialects(vm: &VirtualMachine) -> rustpython_vm::builtins::PyListRef {
+    fn list_dialects(vm: &VirtualMachine) -> PyListOf<String> {
         let names = GLOBAL_HASHMAP.lock().keys().cloned().collect_vec();
-        let t = names
-            .into_iter()
-            .map(|x| vm.ctx.new_str(x).into())
-            .collect_vec();
-        // .iter().map(|x| vm.ctx.new_str(x.clone()).into_pyobject(vm)).collect_vec();
-        vm.ctx.new_list(t)
+        PyListOf::new(names, vm)
     }
 
     #[derive(FromArgs)]
