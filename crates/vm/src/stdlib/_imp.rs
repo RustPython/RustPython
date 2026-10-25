@@ -199,21 +199,18 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock, resources::resources))]
 mod _imp {
     use crate::{
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult, VirtualMachine,
         builtins::{
             ModuleCreate, PyBytesRef, PyCode, PyDict, PyImportError, PyMemoryView, PyModule,
             PyStrRef, PyUtf8StrRef,
         },
         import, version,
     };
-    use core::ffi::c_void;
-    use core::ptr::NonNull;
     #[cfg(all(feature = "_capi", feature = "host_env", windows))]
     use rustpython_host_env::ctypes::open_library;
     #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
     use rustpython_host_env::ctypes::{
-        dlopen_mode, insert_raw_library_handle, lookup_function_symbol_addr,
-        open_library_with_mode_raw,
+        dlopen_mode, lookup_function_symbol_addr, open_library_with_mode,
     };
 
     use super::FrozenError;
@@ -349,6 +346,7 @@ mod _imp {
         Ok(vm.ctx.none())
     }
 
+    #[cfg(all(feature = "_capi", feature = "host_env", any(unix, windows)))]
     #[derive(FromArgs)]
     struct CreateDynamicArgs {
         #[pyarg(positional)]
@@ -388,7 +386,7 @@ mod _imp {
         let handle = cfg_select! {
             unix => {{
                 let mode = dlopen_mode(None);
-                open_library_with_mode_raw(origin_str, mode).map(insert_raw_library_handle)
+                open_library_with_mode(origin_str, mode)
             }},
             windows => {
                 open_library(origin_str).map_err(|err| err.to_string())

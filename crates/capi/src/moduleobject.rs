@@ -61,7 +61,7 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
             }
         }
 
-        let def = PyModuleDef::from_slots(vm.ctx.intern_str(name), doc, create, exec);
+        let def = PyModuleDef::from_c_slots(vm.ctx.intern_str(name), doc, create, exec);
 
         def.create_module_owned(vm)
     })

@@ -32,22 +32,10 @@ pub enum ModuleCreate {
     C(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
 }
 
-impl From<unsafe extern "C" fn(*mut PyObject, *mut c_void) -> *mut PyObject> for ModuleCreate {
-    fn from(func: unsafe extern "C" fn(*mut PyObject, *mut c_void) -> *mut PyObject) -> Self {
-        Self::C(func)
-    }
-}
-
 #[derive(Clone)]
 pub enum ModuleExec {
     Rust(fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>),
     C(unsafe extern "C" fn(*mut PyObject) -> c_int),
-}
-
-impl From<unsafe extern "C" fn(*mut PyObject) -> c_int> for ModuleExec {
-    fn from(func: unsafe extern "C" fn(*mut PyObject) -> c_int) -> Self {
-        Self::C(func)
-    }
 }
 
 #[derive(Default, Clone)]
@@ -151,19 +139,19 @@ impl PyModuleDef {
         Ok(())
     }
 
-    pub fn from_slots<C: Into<ModuleCreate>, E: Into<ModuleExec>>(
+    pub fn from_c_slots(
         name: &'static PyStrInterned,
         doc: Option<&'static PyStrInterned>,
-        create: Option<C>,
-        exec: Option<E>,
+        create: Option<unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject>,
+        exec: Option<unsafe extern "C" fn(*mut PyObject) -> c_int>,
     ) -> Self {
         Self {
             name,
             doc,
             methods: &[],
             slots: PyModuleSlots {
-                create: create.map(Into::into),
-                exec: exec.map(Into::into),
+                create: create.map(ModuleCreate::C),
+                exec: exec.map(ModuleExec::C),
             },
         }
     }
