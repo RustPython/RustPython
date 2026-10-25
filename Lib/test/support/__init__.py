@@ -658,6 +658,7 @@ def requires_working_socket(*, module=False):
     else:
         return unittest.skipUnless(has_socket_support, msg)
 
+
 @functools.cache
 def has_remote_subprocess_debugging():
     """Check if we have permissions to debug subprocesses remotely.
@@ -1245,7 +1246,6 @@ class _MemoryWatchdog:
         self.started = False
 
     def start(self):
-        import warnings
         try:
             f = open(self.procfile, 'r')
         except OSError as e:
@@ -1281,6 +1281,7 @@ def bigmemtest(size, memuse, dry_run=True):
     test doesn't support dummy runs when -M is not specified.
     """
     def decorator(f):
+        @functools.wraps(f)
         def wrapper(self):
             size = wrapper.size
             memuse = wrapper.memuse
@@ -1333,6 +1334,7 @@ def nomemtest(f):
 
 def bigaddrspacetest(f):
     """Decorator for tests that fill the address space."""
+    @functools.wraps(f)
     def wrapper(self):
         if max_memuse < MAX_Py_ssize_t:
             if MAX_Py_ssize_t >= 2**63 - 1 and max_memuse >= 2**31:
@@ -1414,7 +1416,7 @@ def no_tracing(func):
                 sys.settrace(original_trace)
 
     coverage_wrapper = trace_wrapper
-    if 'test.cov' in sys.modules:  # -Xpresite=test.cov used
+    if 'test.cov' in sys.modules:  # -Xpresite=test.cov:enable used
         cov = sys.monitoring.COVERAGE_ID
         @functools.wraps(func)
         def coverage_wrapper(*args, **kwargs):
@@ -1438,6 +1440,7 @@ def no_rerun(reason):
     def deco(func):
         assert not isinstance(func, type), func
         _has_run = False
+        @functools.wraps(func)
         def wrapper(self):
             nonlocal _has_run
             if _has_run:
@@ -3003,7 +3006,7 @@ def iter_builtin_types():
     # Fall back to making a best-effort guess.
     if hasattr(object, '__flags__'):
         # Look for any type object with the Py_TPFLAGS_STATIC_BUILTIN flag set.
-        import datetime
+        import datetime  # noqa: F401
         seen = set()
         for cls, subs in walk_class_hierarchy(object):
             if cls in seen:
@@ -3138,6 +3141,13 @@ def iter_slot_wrappers(cls):
 def force_color(color: bool):
     import _colorize
     from .os_helper import EnvironmentVarGuard
+
+    if color:
+        try:
+            import _pyrepl  # noqa: F401
+        except ModuleNotFoundError:
+            # Can't force enable color without _pyrepl, so just skip.
+            raise unittest.SkipTest("_pyrepl is missing")
 
     with (
         swap_attr(_colorize, "can_colorize", lambda *, file=None: color),

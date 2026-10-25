@@ -21,13 +21,16 @@ SPLITTESTDIRS: set[TestName] = {
     "test_asyncio",
     "test_concurrent_futures",
     "test_doctests",
+    "test_free_threading",
     "test_future_stmt",
     "test_gdb",
     "test_inspect",
-    "test_pydoc",
+    "test_io",
     "test_multiprocessing_fork",
     "test_multiprocessing_forkserver",
     "test_multiprocessing_spawn",
+    "test_os",
+    "test_pydoc",
 }
 
 
