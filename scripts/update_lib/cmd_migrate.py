@@ -19,6 +19,12 @@ Non-marker adaptations require reviewed blocks on each migration, for example
 Use a host Python that parses the source version (Python 3.15 for 3.15 syntax),
 as required by the existing marker extraction and application steps.
 
+For additive updates, --assignments or --functions selects contiguous canonical
+top-level definitions before an unchanged anchor. Both input SHA256 pins are
+required. --exports copies only complete selected __all__ lines. Function
+dependencies are checked without importing or executing either module; unchanged
+imports and simple assignments are supported, not arbitrary existing helpers.
+
 Canonical removals are a separate, explicit operation. JSON source metadata
 pins path (Lib/test/test_*), commit and tree; removals maps explicit relative
 filenames to sha256 and upstream_commit. The caller must first verify and
@@ -43,6 +49,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import symtable
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
@@ -55,6 +62,68 @@ def _preserve_block(old, new, canonical, local):
     if old.count(local) != 1 or new.count(canonical) != 1:
         raise ValueError("Changed or ambiguous preservation block")
     return new.replace(canonical, local, 1)
+
+
+def _single_assignment(tree, name):
+    matches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == name
+    ]
+    nodes = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == name
+    ]
+    rebound = any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.name == name
+        or isinstance(node, ast.alias)
+        and (node.asname or node.name.split(".")[0]) == name
+        for node in ast.walk(tree)
+    )
+    if len(nodes) != 1 or matches != [nodes[0].targets[0]] or rebound:
+        raise ValueError(f"Expected one top-level assignment to {name}")
+    return nodes[0]
+
+
+def _selected_export_addition(src, dst, source_lines, lines, exports):
+    src_all, dst_all = (
+        _single_assignment(src, "__all__"),
+        _single_assignment(dst, "__all__"),
+    )
+    if not isinstance(src_all.value, ast.List) or not isinstance(
+        dst_all.value, ast.List
+    ):
+        raise ValueError("__all__ must be a literal list")
+    if any(
+        not isinstance(node, ast.Constant) or not isinstance(node.value, str)
+        for node in src_all.value.elts + dst_all.value.elts
+    ):
+        raise ValueError("__all__ entries must be literal strings")
+    src_values, dst_values = (
+        ast.literal_eval(src_all.value),
+        ast.literal_eval(dst_all.value),
+    )
+    if any(src_values.count(name) != 1 or name in dst_values for name in exports):
+        raise ValueError(
+            "Exports must occur once in canonical __all__ and be absent locally"
+        )
+    export_nodes = [node for node in src_all.value.elts if node.value in exports]
+    export_lines = sorted({node.lineno - 1 for node in export_nodes})
+    fragment = "".join(source_lines[line] for line in export_lines)
+    if ast.literal_eval("[\n" + fragment + "]") != exports:
+        raise ValueError(
+            "Canonical export lines include unselected entries or differ in order"
+        )
+    if lines[dst_all.lineno - 1].strip() != "__all__ = [":
+        raise ValueError("Expected a multiline destination __all__ list")
+    return dst_all.lineno, [fragment]
 
 
 def copy_selected_assignments(source, destination, names, exports):
@@ -74,34 +143,7 @@ def copy_selected_assignments(source, destination, names, exports):
         raise ValueError("Exports must be unique selected assignment names")
     src, dst = ast.parse(source), ast.parse(destination)
 
-    def assignment(tree, name):
-        matches = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Store)
-            and node.id == name
-        ]
-        nodes = [
-            node
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ]
-        rebound = any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name == name
-            or isinstance(node, ast.alias)
-            and (node.asname or node.name.split(".")[0]) == name
-            for node in ast.walk(tree)
-        )
-        if len(nodes) != 1 or matches != [nodes[0].targets[0]] or rebound:
-            raise ValueError(f"Expected one top-level assignment to {name}")
-        return nodes[0]
-
-    selected = [assignment(src, name) for name in names]
+    selected = [_single_assignment(src, name) for name in names]
     start = src.body.index(selected[0])
     if src.body[start : start + len(names)] != selected or start + len(names) == len(
         src.body
@@ -223,34 +265,9 @@ def copy_selected_assignments(source, destination, names, exports):
         )
     ]
     if exports:
-        src_all, dst_all = assignment(src, "__all__"), assignment(dst, "__all__")
-        if not isinstance(src_all.value, ast.List) or not isinstance(
-            dst_all.value, ast.List
-        ):
-            raise ValueError("__all__ must be a literal list")
-        if any(
-            not isinstance(node, ast.Constant) or not isinstance(node.value, str)
-            for node in src_all.value.elts + dst_all.value.elts
-        ):
-            raise ValueError("__all__ entries must be literal strings")
-        src_values, dst_values = (
-            ast.literal_eval(src_all.value),
-            ast.literal_eval(dst_all.value),
+        additions.append(
+            _selected_export_addition(src, dst, source_lines, lines, exports)
         )
-        if any(src_values.count(name) != 1 or name in dst_values for name in exports):
-            raise ValueError(
-                "Exports must occur once in canonical __all__ and be absent locally"
-            )
-        export_nodes = [node for node in src_all.value.elts if node.value in exports]
-        export_lines = sorted({node.lineno - 1 for node in export_nodes})
-        fragment = "".join(source_lines[line] for line in export_lines)
-        if ast.literal_eval("[\n" + fragment + "]") != exports:
-            raise ValueError(
-                "Canonical export lines include unselected entries or differ in order"
-            )
-        if lines[dst_all.lineno - 1].strip() != "__all__ = [":
-            raise ValueError("Expected a multiline destination __all__ list")
-        additions.append((dst_all.lineno, [fragment]))
     for offset, fragment in sorted(additions, reverse=True):
         lines[offset:offset] = fragment
     result = "".join(lines)
@@ -258,10 +275,291 @@ def copy_selected_assignments(source, destination, names, exports):
     return result
 
 
-def migrate_selected_assignments(path, names, exports, source_hash, destination_hash):
+def _module_bindings(tree):
+    """Collect possible module bindings without mistaking function locals for them."""
+    bindings = collections.defaultdict(list)
+
+    def visit(node):
+        children = ast.iter_child_nodes(node)
+        names = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [node.name]
+            # A declaration in a nested scope can rebind a module dependency.
+            for child in ast.walk(node):
+                if isinstance(child, ast.Global):
+                    for name in child.names:
+                        bindings[name].append(child)
+            children = list(node.decorator_list)
+            if isinstance(node, ast.ClassDef):
+                children += node.bases + node.keywords
+            else:
+                children += node.args.defaults + [
+                    value for value in node.args.kw_defaults if value is not None
+                ]
+        elif isinstance(node, ast.Lambda):
+            children = node.args.defaults + [
+                value for value in node.args.kw_defaults if value is not None
+            ]
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names = [node.id]
+        elif isinstance(node, ast.alias):
+            names = [node.asname or node.name.split(".")[0]]
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            names = [node.name] if node.name is not None else []
+        elif isinstance(node, ast.MatchMapping) and node.rest is not None:
+            names = [node.rest]
+        for name in names:
+            bindings[name].append(node)
+        for child in children:
+            visit(child)
+
+    visit(tree)
+    return bindings
+
+
+def _function_dependencies(fragment):
+    """Find definition-time and deferred global reads without executing source."""
+    table = symtable.symtable(fragment, "<canonical function>", "exec")
+    if any(
+        symbol.is_assigned() and not symbol.is_namespace()
+        for symbol in table.get_symbols()
+    ):
+        raise ValueError("Function headers cannot bind additional module names")
+    immediate = {
+        symbol.get_name() for symbol in table.get_symbols() if symbol.is_referenced()
+    }
+    deferred = set()
+
+    def visit(scope):
+        for symbol in scope.get_symbols():
+            if symbol.is_global():
+                if symbol.is_assigned() or symbol.is_imported():
+                    raise ValueError("Selected functions cannot rebind module globals")
+                if symbol.is_referenced():
+                    deferred.add(symbol.get_name())
+        for child in scope.get_children():
+            visit(child)
+
+    for child in table.get_children():
+        visit(child)
+    if (immediate | deferred) & {"eval", "exec", "globals", "locals", "vars"}:
+        raise ValueError("Dynamic namespace dependencies require a full migration")
+    return immediate, deferred
+
+
+def copy_selected_functions(source, destination, names, exports):
+    """Add contiguous complete functions, preserving unrelated destination bytes.
+
+    Global dependencies must be builtins, selected functions, or unambiguously
+    bound identical imports/simple assignments (checked transitively). Existing
+    helper functions and dynamic namespace dependencies require a full migration.
+    Scoped expressions in definition-time headers and classes anywhere inside
+    selected functions also require a full migration. Symbol-table analysis
+    distinguishes body locals, closures and comprehensions from module
+    dependencies; it never imports or calls the selected functions.
+    """
+    if (
+        not names
+        or len(set(names)) != len(names)
+        or not all(name.isidentifier() for name in names)
+    ):
+        raise ValueError("Function names must be unique identifiers")
+    if len(set(exports)) != len(exports) or not set(exports) <= set(names):
+        raise ValueError("Exports must be unique selected function names")
+    src, dst = ast.parse(source), ast.parse(destination)
+    src_bindings, dst_bindings = _module_bindings(src), _module_bindings(dst)
+    selected = []
+    for name in names:
+        matches = src_bindings.get(name, [])
+        if (
+            len(matches) != 1
+            or not isinstance(matches[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+            or matches[0] not in src.body
+            or getattr(matches[0], "type_params", ())
+        ):
+            raise ValueError(f"Expected one top-level non-generic function: {name}")
+        if dst_bindings.get(name):
+            raise ValueError(
+                f"A selected function already exists in the destination: {name}"
+            )
+        node = matches[0]
+        headers = (
+            node.decorator_list
+            + node.args.defaults
+            + [value for value in node.args.kw_defaults if value is not None]
+        )
+        arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+        arguments += [arg for arg in (node.args.vararg, node.args.kwarg) if arg]
+        headers += [arg.annotation for arg in arguments if arg.annotation is not None]
+        if node.returns is not None:
+            headers.append(node.returns)
+        if any(
+            isinstance(
+                child,
+                (
+                    ast.Lambda,
+                    ast.ListComp,
+                    ast.SetComp,
+                    ast.DictComp,
+                    ast.GeneratorExp,
+                ),
+            )
+            for header in headers
+            for child in ast.walk(header)
+        ):
+            raise ValueError(
+                "Scoped expressions in function headers require a full migration"
+            )
+        if any(isinstance(child, ast.ClassDef) for child in ast.walk(node)):
+            raise ValueError("Classes in selected functions require a full migration")
+        selected.append(node)
+    start = src.body.index(selected[0])
+    if src.body[start : start + len(names)] != selected or start + len(names) == len(
+        src.body
+    ):
+        raise ValueError("Functions must be contiguous and followed by an anchor")
+    first_line = min(
+        [selected[0].lineno, *(node.lineno for node in selected[0].decorator_list)]
+    )
+    anchor = src.body[start + len(names)]
+    matches = [node for node in dst.body if ast.dump(node) == ast.dump(anchor)]
+    if len(matches) != 1:
+        raise ValueError("Expected one unchanged destination anchor")
+    for tree, node in ((src, anchor), (dst, matches[0])):
+        index = tree.body.index(node)
+        if (
+            getattr(node, "decorator_list", ())
+            or node.col_offset
+            or index
+            and tree.body[index - 1].end_lineno >= node.lineno
+            or index + 1 < len(tree.body)
+            and tree.body[index + 1].lineno <= node.end_lineno
+        ):
+            raise ValueError(
+                "Anchor must be undecorated and occupy complete source lines"
+            )
+    if start and src.body[start - 1].end_lineno >= first_line:
+        raise ValueError("Selected functions must occupy complete source lines")
+
+    source_lines, lines = source.splitlines(True), destination.splitlines(True)
+    futures = [
+        [
+            node
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        ]
+        for tree in (src, dst)
+    ]
+    if [ast.dump(node) for node in futures[0]] != [
+        ast.dump(node) for node in futures[1]
+    ]:
+        raise ValueError("Source and destination future imports differ")
+    prefix = "".join(
+        "".join(source_lines[node.lineno - 1 : node.end_lineno]) for node in futures[0]
+    )
+    if "*" in src_bindings or "*" in dst_bindings:
+        raise ValueError("Wildcard import makes dependency bindings ambiguous")
+
+    def dependency(name, source_boundary, destination_boundary):
+        if name in {"eval", "exec", "globals", "locals", "vars"}:
+            raise ValueError("Dynamic namespace dependencies require a full migration")
+        declarations = []
+        for tree, bindings, boundary in (
+            (src, src_bindings, source_boundary),
+            (dst, dst_bindings, destination_boundary),
+        ):
+            bound = bindings.get(name, [])
+            if not bound and name in vars(builtins):
+                declarations.append(None)
+                continue
+            if len(bound) != 1:
+                raise ValueError(f"Missing or ambiguous dependency binding: {name}")
+            candidates = [
+                node
+                for node in tree.body
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+                and bound[0] in node.names
+                or isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and node.targets[0] is bound[0]
+            ]
+            if len(candidates) != 1 or candidates[0].lineno >= boundary:
+                raise ValueError(
+                    f"Expected an earlier import or simple assignment: {name}"
+                )
+            declarations.append(candidates[0])
+        left, right = declarations
+        if left is None and right is None:
+            return
+        if left is None or right is None or ast.dump(left) != ast.dump(right):
+            raise ValueError(f"Changed dependency binding: {name}")
+        if isinstance(left, ast.Assign):
+            for child in ast.walk(left.value):
+                if isinstance(
+                    child,
+                    (
+                        ast.Lambda,
+                        ast.NamedExpr,
+                        ast.ListComp,
+                        ast.SetComp,
+                        ast.DictComp,
+                        ast.GeneratorExp,
+                    ),
+                ):
+                    raise ValueError(f"Unsupported dependency expression: {name}")
+                if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                    dependency(child.id, left.lineno, right.lineno)
+
+    earlier = set()
+    for node in selected:
+        line = min([node.lineno, *(item.lineno for item in node.decorator_list)])
+        immediate, deferred = _function_dependencies(
+            prefix + "".join(source_lines[line - 1 : node.end_lineno])
+        )
+        if (immediate & set(names)) - earlier:
+            raise ValueError("Definition-time dependency is not yet bound")
+        for name in (immediate | deferred) - set(names):
+            dependency(name, first_line, matches[0].lineno)
+        earlier.add(node.name)
+
+    # Keep a following anchor comment attached to its original statement. Only
+    # canonical function bytes and their trailing whitespace/comments are added.
+    end = anchor.lineno - 1
+    comment = next(
+        (
+            i
+            for i in range(selected[-1].end_lineno, end)
+            if source_lines[i].startswith("#")
+        ),
+        end,
+    )
+    anchor_comments = source_lines[comment:end]
+    offset = matches[0].lineno - 1 - len(anchor_comments)
+    if offset < 0 or lines[offset : matches[0].lineno - 1] != anchor_comments:
+        raise ValueError("Anchor's leading comments differ")
+    additions = [(offset, source_lines[first_line - 1 : comment])]
+    if exports:
+        for tree, bindings in ((src, src_bindings), (dst, dst_bindings)):
+            if bindings.get("__all__") != [
+                _single_assignment(tree, "__all__").targets[0]
+            ]:
+                raise ValueError("Ambiguous __all__ binding")
+        additions.append(
+            _selected_export_addition(src, dst, source_lines, lines, exports)
+        )
+    for offset, fragment in sorted(additions, reverse=True):
+        lines[offset:offset] = fragment
+    result = "".join(lines)
+    ast.parse(result)
+    return result
+
+
+def _migrate_selected(
+    path, names, exports, source_hash, destination_hash, kind, copier
+):
     target = parse_lib_path(path)
     if target.parts[:1] != ("Lib",) or ".." in target.parts or target.suffix != ".py":
-        raise ValueError("Selective assignments require an explicit Lib Python file")
+        raise ValueError("Selective imports require an explicit Lib Python file")
     source, destination = path.read_bytes(), target.read_bytes()
     for label, contents, expected in (
         ("source", source, source_hash),
@@ -269,16 +567,16 @@ def migrate_selected_assignments(path, names, exports, source_hash, destination_
     ):
         if hashlib.sha256(contents).hexdigest() != expected:
             raise ValueError(f"{label} SHA256 does not match the pinned input")
-    result = copy_selected_assignments(
+    result = copier(
         source.decode("utf-8"), destination.decode("utf-8"), names, exports
     ).encode("utf-8")
     if target.read_bytes() != destination:
-        raise ValueError("Destination changed during assignment preparation")
+        raise ValueError("Destination changed during selective import preparation")
     target.write_bytes(result)
     print(
         json.dumps(
             {
-                "assignments": names,
+                kind: names,
                 "exports": exports,
                 "source_sha256": source_hash,
                 "destination_before_sha256": destination_hash,
@@ -286,6 +584,30 @@ def migrate_selected_assignments(path, names, exports, source_hash, destination_
             },
             sort_keys=True,
         )
+    )
+
+
+def migrate_selected_assignments(path, names, exports, source_hash, destination_hash):
+    return _migrate_selected(
+        path,
+        names,
+        exports,
+        source_hash,
+        destination_hash,
+        "assignments",
+        copy_selected_assignments,
+    )
+
+
+def migrate_selected_functions(path, names, exports, source_hash, destination_hash):
+    return _migrate_selected(
+        path,
+        names,
+        exports,
+        source_hash,
+        destination_hash,
+        "functions",
+        copy_selected_functions,
     )
 
 
@@ -781,6 +1103,11 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         help="Copy selected canonical assignments",
     )
+    parser.add_argument(
+        "--functions",
+        nargs="+",
+        help="Copy complete selected canonical functions without executing them",
+    )
     parser.add_argument("--exports", nargs="+", default=[])
     parser.add_argument("--source-sha256")
     parser.add_argument("--destination-sha256")
@@ -792,6 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.legacy_map is not None
                 or args.patches is not None
                 or args.assignments
+                or args.functions
                 or args.exports
                 or args.source_sha256
                 or args.destination_sha256
@@ -808,15 +1136,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.dry_run:
             raise ValueError("--dry-run requires --canonical-removals")
-        if args.assignments:
-            if args.legacy_map is not None or args.patches is not None:
+        if args.assignments or args.functions:
+            if (
+                args.legacy_map is not None
+                or args.patches is not None
+                or args.assignments
+                and args.functions
+            ):
                 raise ValueError(
-                    "Selective imports cannot combine with --legacy-map or --patches"
+                    "Selective imports cannot combine with other migration modes"
                 )
             try:
-                migrate_selected_assignments(
+                migrate = (
+                    migrate_selected_functions
+                    if args.functions
+                    else migrate_selected_assignments
+                )
+                migrate(
                     args.path,
-                    args.assignments,
+                    args.functions or args.assignments,
                     args.exports,
                     args.source_sha256,
                     args.destination_sha256,
@@ -825,7 +1163,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(str(exc)) from exc
             return 0
         if args.exports or args.source_sha256 or args.destination_sha256:
-            raise ValueError("Selective options require --assignments")
+            raise ValueError("Selective options require --assignments or --functions")
         if args.patches is not None and (
             args.path.is_dir() or args.legacy_map is not None
         ):

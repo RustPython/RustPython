@@ -792,7 +792,7 @@ impl Reader {
         let mut footer = Cursor::new(&data[footer_start..]);
         let string_count = endian.u32(footer.fixed()?);
         let frame_count = endian.u32(footer.fixed()?);
-        let (profile_stats, tables_end) = parse_profile_stats(&data, endian, footer_start)?;
+        let (profile_stats, _) = parse_profile_stats(&data, endian, footer_start)?;
         for (name, offset) in [("string", string_offset), ("frame", frame_offset)] {
             if offset > data.len() as u64 {
                 return Err(invalid(format!(
@@ -815,15 +815,14 @@ impl Reader {
             .map_err(|_| Error::Overflow("File is too large to read"))?;
         let frame_offset = usize::try_from(frame_offset)
             .map_err(|_| Error::Overflow("File is too large to read"))?;
-        if frame_offset > tables_end {
-            return Err(invalid("Frame table overlaps file trailer"));
-        }
         if compression_type == 1 {
             return Err(Error::Runtime(
                 "File uses zstd compression but zstd support not compiled in",
             ));
         }
-        let mut string_data = Cursor::new(&data[string_offset..frame_offset]);
+        // CPython bounds table entries by the remaining file bytes, including
+        // subsequent sections. Keep the count and cursor checks anchored to EOF.
+        let mut string_data = Cursor::new(&data[string_offset..]);
         validate_count("string", string_count, string_data.remaining(), 1)?;
         let mut strings = Vec::new();
         reserve(&mut strings, string_count as usize)?;
@@ -836,7 +835,7 @@ impl Reader {
                 .map_err(|_| invalid("String table overflow"))?;
             strings.push(decode_utf8_replacing(bytes)?);
         }
-        let mut frame_data = Cursor::new(&data[frame_offset..tables_end]);
+        let mut frame_data = Cursor::new(&data[frame_offset..]);
         validate_count("frame", frame_count, frame_data.remaining(), 7)?;
         let mut frames = Vec::new();
         reserve(&mut frames, frame_count as usize)?;
