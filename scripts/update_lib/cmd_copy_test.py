@@ -98,6 +98,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--test", required=True, help="Exact ClassName.method_name")
+    parser.add_argument(
+        "--add-after", help="Append an absent method after this exact ClassName.anchor"
+    )
+    parser.add_argument(
+        "--allow-local-import",
+        action="append",
+        default=[],
+        help="Acknowledge one exact local import statement in an added method",
+    )
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--destination-sha256", required=True)
     args = parser.parse_args(argv)
@@ -110,9 +119,32 @@ def main(argv: list[str] | None = None) -> int:
         ):
             if hashlib.sha256(contents).hexdigest() != expected:
                 raise ValueError(f"{label} SHA256 does not match the pinned input")
-        result = copy_test(
-            source.decode("utf-8"), destination.decode("utf-8"), args.test
-        ).encode("utf-8")
+        receipt = {}
+        if args.add_after:
+            from update_lib.copy_test_addition import _local_imports, add_test
+
+            result_text = add_test(
+                source.decode("utf-8"),
+                destination.decode("utf-8"),
+                args.test,
+                args.add_after,
+                local_imports=args.allow_local_import,
+            )
+            method, _, first, last = _definition(source.decode("utf-8"), args.test)
+            definition = b"".join(source.splitlines(keepends=True)[first:last])
+            receipt = {
+                "mode": "add",
+                "anchor": args.add_after,
+                "definition_sha256": hashlib.sha256(definition).hexdigest(),
+                "local_imports": _local_imports(method, args.allow_local_import),
+            }
+        else:
+            if args.allow_local_import:
+                raise ValueError("Local import acknowledgment requires --add-after")
+            result_text = copy_test(
+                source.decode("utf-8"), destination.decode("utf-8"), args.test
+            )
+        result = result_text.encode("utf-8")
         # Recheck the destination immediately before writing so stale invocations
         # fail instead of overwriting an intervening edit.
         if args.destination.read_bytes() != destination:
@@ -127,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                 "source_sha256": args.source_sha256,
                 "destination_before_sha256": args.destination_sha256,
                 "destination_after_sha256": hashlib.sha256(result).hexdigest(),
+                **receipt,
             },
             sort_keys=True,
         )
