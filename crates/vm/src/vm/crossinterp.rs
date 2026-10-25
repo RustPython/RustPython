@@ -2,7 +2,7 @@
 //!
 //! Interpreters do not share `PyObject` graphs. Shareable values are converted
 //! to an interpreter-neutral payload and rebuilt in the destination.
-// cspell:ignore unpickler
+// cspell:ignore unpickler unmarshalled
 
 #[cfg(not(feature = "threading"))]
 use crate::protocol::BufferDescriptor;
@@ -351,17 +351,23 @@ impl SharedValue {
 }
 
 fn marshal_dumps(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-    let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
-    let bytes = dumps.call((obj.to_owned(),), vm)?;
-    let bytes = bytes
-        .downcast::<PyBytes>()
-        .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
-    Ok(bytes.as_bytes().to_vec())
+    let dump = || -> PyResult<Vec<u8>> {
+        let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
+        let bytes = dumps.call((obj.to_owned(),), vm)?;
+        let bytes = bytes
+            .downcast::<PyBytes>()
+            .map_err(|_| vm.new_type_error("marshal.dumps() did not return bytes"))?;
+        Ok(bytes.as_bytes().to_vec())
+    };
+    dump().map_err(|cause| not_shareable_error_from(vm, "object could not be marshalled", cause))
 }
 
 fn marshal_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
-    let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
-    loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    let load = || -> PyResult {
+        let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+        loads.call((vm.ctx.new_bytes(data.to_vec()),), vm)
+    };
+    load().map_err(|cause| not_shareable_error_from(vm, "object could not be unmarshalled", cause))
 }
 
 /// `_memoryview_from_xid`.
