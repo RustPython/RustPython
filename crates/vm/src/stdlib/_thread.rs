@@ -805,12 +805,12 @@ pub(crate) mod _thread {
         func: &ArgCallable,
         vm: &VirtualMachine,
     ) {
-        let msg = func
-            .as_ref()
-            .repr(vm)
-            .ok()
-            .map(|repr| format!("Exception ignored in thread started by {}", repr.as_wtf8()));
-        vm.run_unraisable(exc, msg, vm.ctx.none());
+        let msg = func.as_ref().repr(vm).ok().map(|repr| {
+            let mut message = Wtf8Buf::from_str("Exception ignored in thread started by ");
+            message.push_wtf8(repr.as_wtf8());
+            vm.ctx.new_str(message)
+        });
+        vm.run_unraisable_with_message(exc, msg, vm.ctx.none());
     }
 
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
