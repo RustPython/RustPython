@@ -1,7 +1,5 @@
 pub(crate) use _testinternalcapi::module_def;
 
-mod pytime;
-
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 static RARE_SET_CLASS: AtomicUsize = AtomicUsize::new(0);
@@ -28,7 +26,6 @@ pub(crate) fn note_func_modification() {
 
 #[pymodule]
 mod _testinternalcapi {
-    use super::pytime::Round;
     use super::*;
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -43,6 +40,7 @@ mod _testinternalcapi {
         function::{FuncArgs, OptionalArg, PyComparisonValue},
         object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+        stdlib::time::pytime::{self, Round},
         types::{
             AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
             SelfIter,
