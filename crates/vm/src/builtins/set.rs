@@ -8,7 +8,7 @@ use super::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
-    class::{PyClassDef, PyClassImpl},
+    class::{PyClassDef, PyClassImpl, StaticType},
     common::{
         ascii,
         hash::PyHash,
@@ -22,6 +22,7 @@ use crate::{
         ArgIterable, FuncArgs, NameOthers, OptionalArg, PosArgs, PyArithmeticValue,
         PyComparisonValue,
     },
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -40,10 +41,21 @@ use rustpython_common::{
 
 pub(crate) type SetContentType = dict_inner::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true, traverse)]
+#[pyclass(module = false, name = "set", unhashable = true, traverse = "manual")]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
+}
+
+// SAFETY: the inner table visits each exclusively owned reference once.
+unsafe impl Traverse for PySet {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear(&mut self.inner, out);
+    }
 }
 
 impl PySet {
@@ -82,10 +94,26 @@ impl PySet {
     }
 }
 
-#[pyclass(module = false, name = "frozenset", unhashable = true)]
+#[pyclass(
+    module = false,
+    name = "frozenset",
+    unhashable = true,
+    traverse = "manual"
+)]
 pub struct PyFrozenSet {
     inner: PySetInner,
     hash: PyAtomic<PyHash>,
+}
+
+// SAFETY: the inner table visits each exclusively owned reference once.
+unsafe impl Traverse for PyFrozenSet {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        self.inner.traverse(tracer);
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        Traverse::clear(&mut self.inner, out);
+    }
 }
 
 impl Default for PyFrozenSet {
@@ -161,6 +189,9 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
+    // Ordinary destruction can release the table directly after untracking.
+    const CLEAR_ON_DEALLOC: bool = false;
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.set_type
@@ -168,6 +199,22 @@ impl PyPayload for PySet {
 }
 
 impl PyPayload for PyFrozenSet {
+    const CLEAR_ON_DEALLOC: bool = false;
+
+    fn needs_gc(&self, class: &Py<PyType>) -> bool {
+        // Subclasses can acquire instance state. Shared working tables may
+        // still be mutated by another owner, so keep those tracked as well.
+        if !class.is(Self::static_type()) || PyRc::strong_count(&self.inner.content) != 1 {
+            return true;
+        }
+        self.inner.content.any_key(|key| {
+            // Exact untracked frozensets are immutable and were checked at
+            // allocation. Other untracked objects may later acquire GC edges.
+            key.gc_may_have_edges()
+                && !(key.class().is(Self::static_type()) && !key.is_gc_tracked())
+        })
+    }
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.frozenset_type
@@ -179,10 +226,22 @@ pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
 }
 
-unsafe impl crate::object::Traverse for PySetInner {
-    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
-        // FIXME(discord9): Rc means shared ref, so should it be traced?
-        self.content.traverse(tracer_fn)
+// SAFETY: a shared table owns only one reference per entry, regardless of its
+// number of owners. Only attribute those edges to an exclusive owner; otherwise
+// leave them as external roots rather than subtracting the same edges twice.
+unsafe impl Traverse for PySetInner {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        if PyRc::strong_count(&self.content) == 1 {
+            self.content.traverse(tracer);
+        }
+    }
+
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        if let Some(content) = PyRc::get_mut(&mut self.content) {
+            // Detach before releasing keys: dropping them may re-enter Python.
+            out.reserve(content.len());
+            out.extend(content.drain_entries().map(|(key, ())| key));
+        }
     }
 }
 
@@ -1652,6 +1711,13 @@ pub(crate) struct PyAnySet {
     object: PyObject,
 }
 
+// SAFETY: this owner contributes exactly one strong reference to the object.
+unsafe impl Traverse for PyRef<PyAnySet> {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
+        tracer(self.as_object());
+    }
+}
+
 impl Borrow<PyObject> for PyAnySet {
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
@@ -1747,12 +1813,14 @@ impl TryFromObject for PyRef<PyAnySet> {
     }
 }
 
-#[pyclass(module = false, name = "set_iterator")]
+#[pyclass(module = false, name = "set_iterator", traverse, clear = false)]
 pub(crate) struct PySetIterator {
+    #[pytraverse(skip)]
     size: DictSize,
     /// Whether the set was found to have changed, which `setiter_iternext()`
     /// records by writing a size no set can have. Sticky: what it makes the
     /// iterator answer, it answers from then on.
+    #[pytraverse(skip)]
     changed: PyAtomic<bool>,
     internal: PyMutex<PositionIterInternal<PyRef<PyAnySet>>>,
 }
@@ -1906,6 +1974,115 @@ pub(crate) fn init(context: &'static Context) {
 #[cfg(test)]
 mod reference_tests {
     use super::*;
+
+    #[test]
+    fn set_gc_detaches_keys_for_deferred_release() {
+        use crate::object::MaybeTraverse;
+
+        fn check(mut set: impl MaybeTraverse, key: &PyObjectRef) {
+            let mut visits = 0;
+            set.try_traverse(&mut |child| {
+                assert!(core::ptr::eq(child, &**key));
+                visits += 1;
+            });
+            assert_eq!(visits, 1);
+            let mut edges = Vec::new();
+            set.try_clear(&mut edges);
+            set.try_traverse(&mut |_| panic!("cleared set retained a key"));
+            set.try_clear(&mut edges);
+            assert_eq!(edges.len(), 1);
+            assert!(core::ptr::eq(&*edges[0], &**key));
+            assert_eq!(key.strong_count(), 2);
+            drop(edges);
+            assert_eq!(key.strong_count(), 1);
+        }
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            for frozen in [false, true] {
+                let key: PyObjectRef = vm.ctx.new_int(1000).into();
+                let inner = PySetInner::default();
+                inner.add(&key, vm).unwrap();
+                if frozen {
+                    check(
+                        PyFrozenSet {
+                            inner,
+                            ..Default::default()
+                        },
+                        &key,
+                    );
+                } else {
+                    check(PySet { inner }, &key);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn set_gc_preserves_shared_table_edges() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let key: PyObjectRef = vm.ctx.new_int(1000).into();
+            let mut inner = PySetInner::default();
+            inner.add(&key, vm).unwrap();
+            let alias = inner.clone();
+            inner.traverse(&mut |_| panic!("shared table edge counted"));
+            alias.traverse(&mut |_| panic!("shared table edge counted"));
+            let mut edges = Vec::new();
+            Traverse::clear(&mut inner, &mut edges);
+            assert!(edges.is_empty());
+            assert!(alias.contains(&key, vm).unwrap());
+            drop(alias);
+            Traverse::clear(&mut inner, &mut edges);
+            assert_eq!(inner.len(), 0);
+            assert_eq!(edges.len(), 1);
+        });
+    }
+
+    #[test]
+    fn frozenset_gc_tracking_covers_native_construction() {
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let key: PyObjectRef = vm.ctx.new_int(1000).into();
+            let atomic = PyRef::new_ref(
+                PyFrozenSet::from_iter(vm, [key.clone()]).unwrap(),
+                vm.ctx.types.frozenset_type.to_owned(),
+                None,
+            );
+            assert!(!atomic.as_object().is_gc_tracked());
+            let nested = PyFrozenSet::from_iter(vm, [atomic.into()])
+                .unwrap()
+                .into_ref(&vm.ctx);
+            assert!(!nested.as_object().is_gc_tracked());
+
+            // A traversable key must keep the frozen owner visible to GC.
+            let tuple: PyObjectRef = vm.ctx.new_tuple(vec![key.clone()]).into();
+            let owner = PyFrozenSet::from_iter(vm, [tuple])
+                .unwrap()
+                .into_ref(&vm.ctx);
+            assert!(owner.as_object().is_gc_tracked());
+
+            let subclass = vm.ctx.new_class(
+                None,
+                "FrozenSubclass",
+                vm.ctx.types.frozenset_type.to_owned(),
+                Default::default(),
+            );
+            let subclass = PyFrozenSet::default()
+                .into_ref_with_type(vm, subclass)
+                .unwrap();
+            assert!(subclass.as_object().is_gc_tracked());
+
+            // A temporary native alias can still add traversable keys.
+            let inner = PySetInner::default();
+            inner.add(&key, vm).unwrap();
+            let alias = inner.clone();
+            let owner = PyFrozenSet {
+                inner,
+                ..Default::default()
+            }
+            .into_ref(&vm.ctx);
+            assert!(owner.as_object().is_gc_tracked());
+            drop(alias);
+        });
+    }
 
     #[test]
     fn anyset_reference_layout_and_ownership() {

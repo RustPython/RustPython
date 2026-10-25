@@ -198,7 +198,9 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
+    if (T::CLEAR_ON_DEALLOC || T::HAS_FREELIST)
+        && let Some(clear_fn) = vtable.clear
+    {
         unsafe { clear_fn(obj, &mut edges) };
     }
     // Drop extracted child references - may trigger recursive destruction.
@@ -2290,6 +2292,15 @@ impl PyObject {
         GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::TRACKED)
     }
 
+    /// Whether this object's payload or instance storage can own GC edges.
+    /// Unlike is_gc_tracked, this also covers temporarily untracked objects.
+    #[inline]
+    pub(crate) fn gc_may_have_edges(&self) -> bool {
+        self.0.vtable.trace.is_some()
+            || self.class().heaptype_ext.is_some()
+            || self.0.ext_ref().is_some()
+    }
+
     /// Get the referents (objects directly referenced) of this object.
     /// Uses the full traverse including dict and slots.
     pub fn gc_get_referents(&self) -> Vec<PyObjectRef> {
@@ -2937,6 +2948,8 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
+        let track = !T::NEW_REF_UNTRACKED
+            && (has_dict || is_heaptype || (T::HAS_TRAVERSE && payload.needs_gc(&typ)));
 
         // Try to reuse from freelist (no dict, no heaptype)
         let cached = if !has_dict && !is_heaptype {
@@ -2969,14 +2982,12 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         };
 
         // Track object if:
-        // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
+        // - HAS_TRAVERSE is true and the payload needs cyclic GC, OR
         // - has instance dict (user-defined class instances), OR
         // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
         // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
         // which are tracked lazily only on escape).
-        if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
-            && !T::NEW_REF_UNTRACKED
-        {
+        if track {
             // Tracks under the interpreter running now and collects if this
             // allocation pushed gen0 past its threshold.
             unsafe {
