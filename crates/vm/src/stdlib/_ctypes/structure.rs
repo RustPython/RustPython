@@ -647,8 +647,9 @@ impl SetAttr for PyCStructType {
     module = "_ctypes",
     name = "Structure",
     base = PyCData,
-    metaclass = "PyCStructType"
-, traverse = "manual")]
+    metaclass = "PyCStructType",
+    traverse = "manual"
+)]
 #[repr(transparent)]
 pub(crate) struct PyCStructure(pub PyCData);
 

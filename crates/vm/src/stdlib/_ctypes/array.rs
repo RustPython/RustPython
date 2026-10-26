@@ -381,8 +381,9 @@ impl AsSequence for PyCArrayType {
     name = "Array",
     base = PyCData,
     metaclass = "PyCArrayType",
-    module = "_ctypes"
-, traverse = "manual")]
+    module = "_ctypes",
+    traverse = "manual"
+)]
 #[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct PyCArray(pub PyCData);

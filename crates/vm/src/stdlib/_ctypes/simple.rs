@@ -699,8 +699,9 @@ fn create_swapped_types(
     module = "_ctypes",
     name = "_SimpleCData",
     base = PyCData,
-    metaclass = "PyCSimpleType"
-, traverse = "manual")]
+    metaclass = "PyCSimpleType",
+    traverse = "manual"
+)]
 #[repr(transparent)]
 pub(crate) struct PyCSimple(pub PyCData);
 

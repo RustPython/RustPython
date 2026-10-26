@@ -234,8 +234,9 @@ impl AsSequence for PyCPointerType {
     name = "_Pointer",
     base = PyCData,
     metaclass = "PyCPointerType",
-    module = "_ctypes"
-, traverse = "manual")]
+    module = "_ctypes",
+    traverse = "manual"
+)]
 #[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct PyCPointer(pub PyCData);
