@@ -7,7 +7,7 @@
     "devDependencies": {
         "raw-loader": "1.0.0",
         "webpack": "5.112.0",
-        "webpack-cli": "^3.1.2"
+        "webpack-cli": "^7.2.3"
     },
     "scripts": {
         "build": "webpack",
