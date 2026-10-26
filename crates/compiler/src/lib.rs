@@ -1272,11 +1272,83 @@ fn first_parse_error(
         !matches!(error.error, ParseErrorType::Lexical(_))
             && error.location.start() < first.location.start()
     });
-    let mut error = CompileError::from_ruff_parse_error(first.clone(), source_file, mode);
+    let normalized = unpacking_parse_diagnostic(first, rest, parsed.tokens()).map_or_else(
+        || first.clone(),
+        |diagnostic| parser::ParseError {
+            error: ParseErrorType::OtherError(diagnostic.message),
+            location: diagnostic.range,
+        },
+    );
+    let mut error = CompileError::from_ruff_parse_error(normalized, source_file, mode);
     if after_syntax_error && let CompileError::Parse(error) = &mut error {
         error.is_unclosed_string = false;
     }
     Err(error)
+}
+
+/// Refine unpacking errors whose grammar context and operand range the parser already
+/// identified. Tokens only distinguish the unpacking operator; they do not reparse the input.
+fn unpacking_parse_diagnostic(
+    error: &parser::ParseError,
+    following_errors: &[parser::ParseError],
+    tokens: &Tokens,
+) -> Option<CpythonDiagnostic> {
+    let ParseErrorType::OtherError(message) = &error.error else {
+        return None;
+    };
+    let mut range = error.location;
+    let message = match message.as_str() {
+        "conditional expression cannot be used here" => {
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            let operator = preceding.next()?;
+            let kind = match operator.kind() {
+                TokenKind::Star => "starred",
+                // Only the first dictionary spread uses this invalid production.
+                // Dictionary values and later spreads have different error priority.
+                TokenKind::DoubleStar
+                    if preceding
+                        .next()
+                        .is_some_and(|token| token.kind() == TokenKind::Lbrace) =>
+                {
+                    "double starred"
+                }
+                _ => return None,
+            };
+            range = ruff_text_size::TextRange::new(operator.start(), range.end());
+            // Do not replace the operand error when the parser also rejected the
+            // enclosing unpacking operation, for example in a dictionary value.
+            if following_errors.iter().any(|error| {
+                error.location == range
+                    && (matches!(error.error, ParseErrorType::InvalidStarredExpressionUsage)
+                        || matches!(&error.error, ParseErrorType::OtherError(message)
+                            if message == "cannot use a starred expression in a dictionary value"))
+            }) {
+                return None;
+            }
+            format!(
+                "invalid {kind} expression. Did you forget to wrap the conditional expression in parentheses?"
+            )
+        }
+        "expected expression after 'else', but statement is given" => {
+            let operator = tokens.iter().find(|token| token.range() == range)?;
+            match operator.kind() {
+                TokenKind::Star => "cannot unpack only part of a conditional expression",
+                TokenKind::DoubleStar => {
+                    "cannot use dict unpacking on only part of a conditional expression"
+                }
+                _ => return None,
+            }
+            .to_owned()
+        }
+        _ => return None,
+    };
+    Some(CpythonDiagnostic { message, range })
 }
 
 /// The first logical input accepted by the single-input grammar.
