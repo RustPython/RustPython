@@ -1126,3 +1126,40 @@ _pointer = ctypes.cast(ctypes.byref(_small), ctypes.POINTER(_pair_type))
 for _value in (object(), object()):
     _pointer[0] = _pair_type(_value, None)
     assert _small[0] is _value
+
+
+# Independent exports share provenance without retaining the writer or value.
+_storage = bytearray(ctypes.sizeof(ctypes.py_object))
+_writer = ctypes.py_object.from_buffer(_storage)
+_reader = ctypes.py_object.from_buffer(memoryview(_storage))
+_pointer = ctypes.pointer(_writer)
+for _direct in (False, True):
+    _value = ObjectOwner()
+    if _direct:
+        _writer.value = _value
+    else:
+        _pointer[0] = _value
+    assert _reader.value is _value
+_ref = weakref.ref(_value)
+del _value, _writer, _pointer
+gc.collect()
+assert _ref() is None
+
+# Field caches on a cast pointer follow later assignments to the source array.
+_roots = [ctypes.py_object(None), ctypes.py_object(None)]
+_holders = (ObjectPointerHolder * 2)(
+    *(ObjectPointerHolder(ctypes.pointer(_root)) for _root in _roots)
+)
+_pointer = ctypes.cast(_holders, ctypes.POINTER(ObjectPointerHolder))
+for _index in range(2):
+    _pointer[_index].pointer[0] = object()
+_replacement = ctypes.py_object(None)
+_holders[1].pointer = ctypes.pointer(_replacement)
+_pointer[1].pointer[0] = _object
+assert _replacement.value is _object
+
+# A native exporter must see direct writes as well as pointer writes.
+_native = (ctypes.py_object * 1)(None)
+_view = ctypes.py_object.from_buffer(_native)
+_view.value = _object
+assert _native[0] is _object

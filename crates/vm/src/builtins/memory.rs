@@ -1553,20 +1553,22 @@ static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
 /// or from_address view can alias another object without sharing its owner.
 /// Return None for that storage so either operand forces a source snapshot.
 fn root_exporter(buffer: &PyBuffer) -> Option<PyObjectRef> {
-    let mut obj = buffer.obj.clone();
+    let obj = buffer_owner(&buffer.obj);
+    (!crate::stdlib::is_borrowed_ctypes_buffer(obj)).then(|| obj.to_owned())
+}
+
+// Follow forwarding payloads without reacquiring a buffer or invoking Python.
+pub(crate) fn buffer_owner(mut obj: &PyObject) -> &PyObject {
     loop {
-        let next = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
-            view.buffer.obj.clone()
+        obj = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
+            &view.buffer.obj
         } else if let Some(wrapper) = obj.downcast_ref::<PyBufferWrapper>() {
-            wrapper.view.obj.clone()
+            &wrapper.view.obj
         } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
-            window.source.obj.clone()
-        } else if crate::stdlib::is_borrowed_ctypes_buffer(&obj) {
-            return None;
+            &window.source.obj
         } else {
-            return Some(obj);
+            return obj;
         };
-        obj = next;
     }
 }
 

@@ -53,7 +53,7 @@ pub mod posix_unix_like;
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-mod _ctypes;
+pub(crate) mod _ctypes;
 #[cfg(all(feature = "host_env", windows))]
 pub(crate) mod msvcrt;
 

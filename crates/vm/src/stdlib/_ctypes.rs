@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub(super) use array::PyCArray;
+pub(crate) use base::BufferViewRegistry;
 pub(super) use base::{CArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
 pub(super) use pointer::PyCPointer;
 pub(super) use simple::{PyCSimple, PyCSimpleType};
