@@ -4,7 +4,7 @@
     "description": "Bindings to the RustPython library for WebAssembly",
     "main": "index.js",
     "dependencies": {
-        "codemirror": "^5.42.0",
+        "codemirror": "^6.0.2",
         "file-loader": "^6.1.0",
         "katex": "^0.12.0",
         "local-echo": "^0.2.0",
