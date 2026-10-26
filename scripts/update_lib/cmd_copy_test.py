@@ -98,8 +98,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--test", required=True, help="Exact ClassName.method_name")
-    parser.add_argument(
+    insertion = parser.add_mutually_exclusive_group()
+    insertion.add_argument(
         "--add-after", help="Append an absent method after this exact ClassName.anchor"
+    )
+    insertion.add_argument(
+        "--insert-before",
+        help="Insert an absent method before an unchanged anchor; structural checks only",
     )
     parser.add_argument(
         "--allow-local-import",
@@ -141,9 +146,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if args.allow_local_import:
                 raise ValueError("Local import acknowledgment requires --add-after")
-            result_text = copy_test(
-                source.decode("utf-8"), destination.decode("utf-8"), args.test
-            )
+            if args.insert_before:
+                from update_lib.copy_test_insertion import insert_test
+
+                result_text = insert_test(
+                    source.decode("utf-8"),
+                    destination.decode("utf-8"),
+                    args.test,
+                    args.insert_before,
+                )
+            else:
+                result_text = copy_test(
+                    source.decode("utf-8"), destination.decode("utf-8"), args.test
+                )
         result = result_text.encode("utf-8")
         # Recheck the destination immediately before writing so stale invocations
         # fail instead of overwriting an intervening edit.
