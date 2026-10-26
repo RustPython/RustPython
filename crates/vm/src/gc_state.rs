@@ -1376,7 +1376,7 @@ pub fn current_owner() -> GcOwner {
 /// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
 #[inline]
 pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
-    unsafe { track_new_object_with_collection(obj, true) };
+    unsafe { track_new_object_impl(obj, true) };
 }
 
 /// Track fresh internal storage, optionally allowing collection before its
@@ -1385,7 +1385,7 @@ pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
 /// # Safety
 /// obj must be a valid pointer to an untracked PyObject with freshly zeroed `gc_bits`.
 #[inline]
-pub(crate) unsafe fn track_new_object_with_collection(obj: NonNull<PyObject>, collect: bool) {
+pub(crate) unsafe fn track_new_object_impl(obj: NonNull<PyObject>, allow_collection: bool) {
     let state = gc_state();
     let Some(gc) = crate::vm::thread::current_gc_state() else {
         // No interpreter is running: the shared context builds its own objects
@@ -1396,7 +1396,7 @@ pub(crate) unsafe fn track_new_object_with_collection(obj: NonNull<PyObject>, co
     // SAFETY: as in `current_owner`.
     let gc = unsafe { gc.as_ref() };
     unsafe { state.track_object_fresh(obj, gc.owner) };
-    if collect {
+    if allow_collection {
         state.maybe_collect(gc);
     }
 }

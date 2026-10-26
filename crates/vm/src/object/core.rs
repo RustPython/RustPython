@@ -2946,7 +2946,7 @@ impl<T: PyPayload> PyRef<T> {
 impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
     #[inline(always)]
     pub fn new_ref(payload: T, typ: crate::builtins::PyTypeRef, dict: Option<PyDictRef>) -> Self {
-        Self::new_ref_with_collection(payload, typ, dict, true)
+        Self::new_ref_impl(payload, typ, dict, true)
     }
 
     /// Allocate and track internal storage without running collection during
@@ -2966,15 +2966,15 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         typ: crate::builtins::PyTypeRef,
         dict: Option<PyDictRef>,
     ) -> Self {
-        Self::new_ref_with_collection(payload, typ, dict, false)
+        Self::new_ref_impl(payload, typ, dict, false)
     }
 
     #[inline(always)]
-    fn new_ref_with_collection(
+    fn new_ref_impl(
         payload: T,
         typ: crate::builtins::PyTypeRef,
         dict: Option<PyDictRef>,
-        collect: bool,
+        allow_collection: bool,
     ) -> Self {
         let has_dict = dict.is_some();
         let is_heaptype = typ.heaptype_ext.is_some();
@@ -3021,7 +3021,7 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
             // Tracks under the interpreter running now and, when allowed,
             // collects if this allocation pushed gen0 past its threshold.
             unsafe {
-                crate::gc_state::track_new_object_with_collection(ptr.cast(), collect);
+                crate::gc_state::track_new_object_impl(ptr.cast(), allow_collection);
             }
         }
 
