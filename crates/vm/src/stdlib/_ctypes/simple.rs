@@ -49,6 +49,15 @@ fn new_simple_type(
         Either::B(typ) => typ.as_object(),
     };
 
+    if let Some(typ) = cls.downcast_ref::<PyType>()
+        && let Some(info) = typ.stg_info_opt()
+    {
+        return Ok(PyCSimple(PyCData::from_bytes(
+            zeroed_bytes(info.size),
+            None,
+        )));
+    }
+
     let _type_ = cls
         .get_attr("_type_", vm)
         .map_err(|_| vm.new_attribute_error("class must define a '_type_' attribute"))?;
@@ -691,9 +700,19 @@ fn create_swapped_types(
     name = "_SimpleCData",
     base = PyCData,
     metaclass = "PyCSimpleType"
-)]
+, traverse = "manual")]
 #[repr(transparent)]
 pub(crate) struct PyCSimple(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCSimple {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl Debug for PyCSimple {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1204,13 +1223,10 @@ impl Py<PyCSimple> {
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("cannot get value of instance"))?;
 
-        // Get _type_ from class
         let cls = zelf.class();
-        let type_attr = cls
-            .as_object()
-            .get_attr("_type_", vm)
-            .map_err(|_| vm.new_type_error("no _type_ attribute"))?;
-        let type_code = type_attr.str(vm)?.to_string();
+        let type_code = cls
+            .type_code(vm)
+            .ok_or_else(|| vm.new_type_error("abstract class"))?;
 
         // Special handling for c_char_p (z) and c_wchar_p (Z)
         // z_get, Z_get - dereference pointer to get string
@@ -1266,13 +1282,10 @@ impl Py<PyCSimple> {
             .downcast()
             .map_err(|_| vm.new_type_error("cannot set value of instance"))?;
 
-        // Get _type_ from class
         let cls = zelf.class();
-        let type_attr = cls
-            .as_object()
-            .get_attr("_type_", vm)
-            .map_err(|_| vm.new_type_error("no _type_ attribute"))?;
-        let type_code = type_attr.str(vm)?.to_string();
+        let type_code = cls
+            .type_code(vm)
+            .ok_or_else(|| vm.new_type_error("abstract class"))?;
 
         // Handle z/Z types with PyBytes/PyStr separately to avoid memory leak
         if type_code == "z" {

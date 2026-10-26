@@ -7,14 +7,13 @@ use crate::protocol::{
 use crate::types::{AsBuffer, AsMapping, AsNumber, AsSequence, Constructor, Initializer};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-    builtins::{PyInt, PyList, PySlice, PyStr, PyType, PyTypeRef},
+    builtins::{PyInt, PyList, PySlice, PyType, PyTypeRef},
     function::{FuncArgs, OptionalArg},
 };
 use alloc::borrow::Cow;
 use num_traits::ToPrimitive;
 use rustpython_host_env::ctypes::{
-    AddressValue, IntegerValue, pointer_item_address, read_pointer_char_slice,
-    read_pointer_wchar_slice,
+    pointer_item_address, read_pointer_char_slice, read_pointer_wchar_slice,
 };
 
 #[pyclass(name = "PyCPointerType", base = PyType, module = "_ctypes")]
@@ -73,7 +72,7 @@ impl Initializer for PyCPointerType {
             stg_info.format = Some(format!("&{shape_str}{current_format}"));
         }
 
-        let _ = new_type.init_type_data(stg_info);
+        let _ = new_type.init_traced_type_data(stg_info);
 
         // Cache: set target_type.__pointer_type__ = self (via StgInfo, not as inheritable attr)
         if let Ok(type_attr) = new_type.as_object().get_attr("_type_", vm)
@@ -81,7 +80,9 @@ impl Initializer for PyCPointerType {
             && let Some(mut target_info) = target_type.get_type_data_mut::<StgInfo>()
         {
             let zelf_obj: PyObjectRef = zelf.to_owned().into();
-            target_info.pointer_type = Some(zelf_obj);
+            let old = target_info.pointer_type.replace(zelf_obj);
+            drop(target_info);
+            drop(old);
         }
 
         Ok(())
@@ -213,7 +214,9 @@ impl PyCPointerType {
 
         // 5. Cache: set target_type.__pointer_type__ = self (via StgInfo)
         if let Some(mut target_info) = typ_type.get_type_data_mut::<StgInfo>() {
-            target_info.pointer_type = Some(zelf.into());
+            let old = target_info.pointer_type.replace(zelf.into());
+            drop(target_info);
+            drop(old);
         }
 
         Ok(())
@@ -232,10 +235,20 @@ impl AsSequence for PyCPointerType {
     base = PyCData,
     metaclass = "PyCPointerType",
     module = "_ctypes"
-)]
+, traverse = "manual")]
 #[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct PyCPointer(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCPointer {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl Constructor for PyCPointer {
     type Args = FuncArgs;
@@ -396,34 +409,26 @@ impl PyCPointer {
 
         // Direct simple types and their generated endian variants return a
         // scalar; user subclasses and aggregates return a view.
-        if super::simple::returns_scalar(proto_type)
-            && let Ok(type_attr) = proto_type.as_object().get_attr("_type_", vm)
-            && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
-        {
-            let type_code = type_str.to_string();
-            if type_code == "O" || super::simple::is_swapped(proto_type) {
-                // SAFETY: as for ordinary pointer indexing below, the caller
-                // must supply a valid address covering the element's storage.
-                let bytes = unsafe {
-                    rustpython_host_env::ctypes::borrow_memory(addr as *const u8, element_size)
-                };
-                if type_code == "O" {
-                    return zelf.0.object_at(
-                        rustpython_host_env::ctypes::read_pointer_from_buffer(bytes),
-                        Some(index as usize),
-                        vm,
-                    );
-                }
+        if super::simple::returns_scalar(proto_type) {
+            // SAFETY: pointer indexing requires valid native storage covering
+            // the element. Ownership of arbitrary addresses remains the caller's
+            // responsibility, as for the view returned below.
+            let bytes = unsafe {
+                rustpython_host_env::ctypes::borrow_memory(addr as *const u8, element_size)
+            };
+            if proto_type.stg_info(vm)?.scalar_code == Some('O') {
+                return zelf.0.object_at(
+                    rustpython_host_env::ctypes::read_pointer_from_buffer(bytes),
+                    Some(index as usize),
+                    vm,
+                );
+            }
+            if super::simple::is_swapped(proto_type) {
                 let mut bytes = bytes.to_vec();
                 bytes.reverse();
                 return Ok(super::base::bytes_to_pyobject(proto_type, &bytes, vm));
             }
-            return Ok(Self::read_value_at_address(
-                addr,
-                element_size,
-                Some(&type_code),
-                vm,
-            ));
+            return Ok(super::base::bytes_to_pyobject(proto_type, bytes, vm));
         }
 
         // Complex type: create instance that references the memory directly (not a copy)
@@ -507,12 +512,7 @@ impl PyCPointer {
         } else {
             rustpython_host_env::ctypes::pointer_size()
         };
-        let type_code = stg_info
-            .proto
-            .as_ref()
-            .and_then(|p| p.as_object().get_attr("_type_", vm).ok())
-            .and_then(|t| t.str(vm).ok())
-            .map(|s| s.to_string());
+        let type_code = stg_info.proto.as_ref().and_then(|p| p.type_code(vm));
 
         let ptr_value = zelf.get_ptr_value();
 
@@ -592,23 +592,6 @@ impl PyCPointer {
             rustpython_host_env::ctypes::copy_bytes_to_address(addr, &prepared.bytes, element_size);
         }
         prepared.keep(&zelf.0, index as usize, vm)
-    }
-
-    /// Read a value from memory address
-    fn read_value_at_address(
-        addr: usize,
-        size: usize,
-        type_code: Option<&str>,
-        vm: &VirtualMachine,
-    ) -> PyObjectRef {
-        match unsafe { rustpython_host_env::ctypes::read_value_at_address(addr, size, type_code) } {
-            AddressValue::ByteString(byte) => vm.ctx.new_bytes(vec![byte]).into(),
-            AddressValue::Integer(IntegerValue::Signed(value)) => vm.ctx.new_int(value).into(),
-            AddressValue::Integer(IntegerValue::Unsigned(value)) => vm.ctx.new_int(value).into(),
-            AddressValue::Float(value) => vm.ctx.new_float(value).into(),
-            AddressValue::Pointer(value) => vm.ctx.new_int(value).into(),
-            AddressValue::Bytes(bytes) => vm.ctx.new_bytes(bytes).into(),
-        }
     }
 }
 

@@ -306,6 +306,7 @@ unsafe impl crate::object::Traverse for PyType {
         self.attributes.traverse(tracer_fn);
         if let Some(ext) = self.heaptype_ext.as_ref() {
             ext.specialization_cache.traverse(tracer_fn);
+            ext.type_data.traverse(tracer_fn);
         }
     }
 
@@ -336,6 +337,11 @@ unsafe impl crate::object::Traverse for PyType {
         self.attributes.drain_into(out);
         if let Some(ext) = self.heaptype_ext.as_ref() {
             ext.specialization_cache.clear_into(out);
+            if let Some(mut data) = ext.type_data.try_write()
+                && let Some(data) = data.as_mut()
+            {
+                data.clear(out);
+            }
         }
     }
 }
@@ -1700,6 +1706,18 @@ impl PyType {
     /// Initialize type data for this type. Can only be called once.
     /// Returns an error if the type is not a heap type or if data is already initialized.
     pub fn init_type_data<T: Any + Send + Sync + 'static>(&self, data: T) -> Result<(), String> {
+        self.init_type_data_slot(TypeDataSlot::new(data))
+    }
+
+    /// Initialize extension storage with GC traversal and clearing callbacks.
+    pub fn init_traced_type_data<T: Any + Send + Sync + Traverse>(
+        &self,
+        data: T,
+    ) -> Result<(), String> {
+        self.init_type_data_slot(TypeDataSlot::new_traced(data))
+    }
+
+    fn init_type_data_slot(&self, data: TypeDataSlot) -> Result<(), String> {
         let ext = self
             .heaptype_ext
             .as_ref()
@@ -1709,7 +1727,7 @@ impl PyType {
         if type_data.is_some() {
             return Err("Type data already initialized".to_string());
         }
-        *type_data = Some(TypeDataSlot::new(data));
+        *type_data = Some(data);
         Ok(())
     }
 

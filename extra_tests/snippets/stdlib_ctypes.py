@@ -969,6 +969,22 @@ for _code in ("h", "q", "f"):
     MutableInt._type_ = _code
     _array[0] = -2
     assert bytes(_array) == bytes(ctypes.c_int(-2)) + bytes(ctypes.c_int(0x1234))
+    assert _array[0].value == -2
+    assert MutableInt(-3).value == -3
+
+for _scalar, _text_value in ((ctypes.c_char, b"ab"), (ctypes.c_wchar, "ab")):
+
+    class MutableChar(_scalar):
+        pass
+
+    class TextField(ctypes.Structure):
+        _fields_ = [("text", MutableChar * 4)]
+
+    _text = TextField(_text_value)
+    MutableChar._type_ = "i"
+    assert _text.text == _text_value
+    _text.text = _text_value
+    assert _text.text == _text_value
 
 if _sys.platform == "win32":
 
@@ -978,3 +994,16 @@ if _sys.platform == "win32":
     _bstr = (BSTR * 1)()
     _bstr[0] = None
     assert bytes(_bstr) == bytes(ctypes.sizeof(ctypes.c_void_p))
+
+
+# The py_object payload, not only the instance dictionary, closes this cycle.
+class ObjectOwner:
+    pass
+
+
+_owner = ObjectOwner()
+_owner.value = ctypes.py_object(_owner)
+_ref = weakref.ref(_owner)
+del _owner
+gc.collect()
+assert _ref() is None
