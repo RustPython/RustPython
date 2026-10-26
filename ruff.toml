@@ -6,6 +6,9 @@ exclude = [
     "badsyntax_*.py",
 ]
 
+# Preserve the byte-identical upstream CPython ASDL parser.
+extend-exclude = ["Parser/asdl.py"]
+
 [lint]
 select = [
     "E9", # pycodestyle (error)
