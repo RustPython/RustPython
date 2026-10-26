@@ -1957,6 +1957,7 @@ impl PyCData {
                     break;
                 };
                 let Some(root) = Self::overlapping_storage_root(&source, address, size) else {
+                    Self::register_buffer_writer(&source, pointer, vm)?;
                     continue;
                 };
                 // Resurrection may have cleared the registry's weakref even
@@ -1980,6 +1981,9 @@ impl PyCData {
                 let overlaps = root
                     .downcast_ref::<Self>()
                     .is_some_and(|root| root.overlaps_storage(address, size));
+                if !overlaps {
+                    Self::register_buffer_writer(&root, pointer, vm)?;
+                }
                 // A field needs only paths to its own destination. Retargeting
                 // invalidates these by identity/range and rediscovers the path;
                 // retaining every sibling here would create N caches of N paths.
@@ -2032,10 +2036,35 @@ impl PyCData {
                 if owned {
                     continue;
                 }
+            } else {
+                Self::register_buffer_writer(&obj, pointer, vm)?;
             }
             Self::provenance_children(&obj, &mut pending);
         }
         Ok(direct.or(target))
+    }
+
+    // A byref cast has separate ownership metadata and can write outside its
+    // source view while remaining inside the shared exporter. Let other aliases
+    // reach that writer through the source, including readers created later.
+    // This provenance link does not select or pin the write's destination.
+    fn register_buffer_writer(
+        source: &PyObject,
+        pointer: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let root = Self::find_root_object(source);
+        let registered = root.downcast_ref::<Self>().is_some_and(|storage| {
+            storage
+                .kept_refs
+                .read()
+                .as_ref()
+                .is_some_and(|refs| refs.buffer_alias.is_some())
+        });
+        if registered {
+            Self::register_writer(&root, pointer, vm)?;
+        }
+        Ok(())
     }
 
     fn register_contents_writer(

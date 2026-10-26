@@ -1179,3 +1179,10 @@ _reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object)
 _pointer = ctypes.cast(_writer, ctypes.POINTER(ctypes.py_object))
 _pointer[1] = _object
 assert _reader.value is _object
+
+# byref keeps separate metadata; later aliases must still find its writes.
+_pointer = ctypes.cast(ctypes.byref(_writer), ctypes.POINTER(ctypes.py_object))
+_pointer[1] = object()
+del _reader
+_reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object))
+assert _reader.value is _pointer[1]
