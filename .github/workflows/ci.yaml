@@ -581,6 +581,9 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
+      - name: Verify the CPython reference environment
+        run: python -c "import bz2, ctypes, lzma, pathlib, platform, sqlite3, ssl; expected = pathlib.Path('.python-version').read_text().strip(); actual = platform.python_version(); assert actual == expected, (actual, expected)"
+
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
         with:
@@ -591,7 +594,7 @@ jobs:
         run: cargo build --locked --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
       - name: run snippets
-        run: python -m pip install -r requirements.txt && pytest -v
+        run: python -m pip install -r requirements.txt && python -m pytest -v
         working-directory: ./extra_tests
 
       - name: Detect available cores
