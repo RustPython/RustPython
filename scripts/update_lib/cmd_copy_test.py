@@ -44,6 +44,39 @@ def _definition(contents: str, qualified_name: str):
     return method, guards, start, method.end_lineno
 
 
+def _class_scope_nodes(cls):
+    """Visit class bindings, not bindings inside nested lexical scopes.
+
+    Definition names and header expressions still belong to the surrounding
+    scope. Inspect annotations conservatively too, even when evaluation is
+    deferred; do not inspect nested bodies or type-parameter scopes.
+    """
+
+    def visit(node):
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            children = [node.args, *node.decorator_list]
+            if node.returns is not None:
+                children.append(node.returns)
+        elif isinstance(node, ast.Lambda):
+            children = [node.args]
+        elif isinstance(node, ast.ClassDef):
+            children = [*node.bases, *node.keywords, *node.decorator_list]
+        elif isinstance(
+            node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+        ):
+            # Only the outermost iterable is evaluated outside the implicit
+            # comprehension scope. Its iteration targets are not class bindings.
+            children = [node.generators[0].iter]
+        else:
+            children = ast.iter_child_nodes(node)
+        for child in children:
+            yield from visit(child)
+
+    for node in cls.body:
+        yield from visit(node)
+
+
 def insert_test(source: str, destination: str, qualified_name: str, before: str) -> str:
     """Insert an absent direct method before an unchanged canonical anchor.
 
@@ -74,7 +107,7 @@ def insert_test(source: str, destination: str, qualified_name: str, before: str)
     if any(
         isinstance(node, (ast.Global, ast.Nonlocal))
         for cls in (src_class, dst_class)
-        for node in ast.walk(cls)
+        for node in _class_scope_nodes(cls)
     ):
         raise ValueError("Insertion does not support scope declarations in classes")
     # Nodes come from separate parses; compare their unique source locations.
@@ -83,7 +116,7 @@ def insert_test(source: str, destination: str, qualified_name: str, before: str)
         raise ValueError("Source test must immediately precede its direct anchor")
     if not any(node.lineno == dst_anchor.lineno for node in dst_class.body):
         raise ValueError("Destination anchor must be a direct class member")
-    for node in ast.walk(dst_class):
+    for node in _class_scope_nodes(dst_class):
         if (
             (
                 isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))

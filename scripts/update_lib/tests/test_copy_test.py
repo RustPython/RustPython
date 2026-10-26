@@ -141,6 +141,54 @@ class Cases:
                 "Other.anchor",
             )
 
+    def test_unrelated_method_scopes_do_not_block_insertion(self):
+        extra = """
+    def unrelated(self):
+        global added, anchor, AssertionError
+        added = None
+        wr = None
+        e = None
+        def inner():
+            nonlocal wr, e
+            wr = e
+        return inner
+"""
+        self.assertEqual(
+            self.insert(self.source + extra, self.destination + extra),
+            self.insert() + extra,
+        )
+
+    def test_nested_class_lambda_and_comprehension_bindings_are_local(self):
+        for extra in (
+            "\n    class Nested:\n        global added, anchor\n        added = None\n",
+            "\n    callback = lambda: (added := None)\n",
+            "\n    items = [added for added in values]\n",
+        ):
+            with self.subTest(extra=extra):
+                self.assertEqual(
+                    self.insert(self.source + extra, self.destination + extra),
+                    self.insert() + extra,
+                )
+
+    def test_definition_header_bindings_still_conflict(self):
+        for extra in (
+            "\n    def unrelated(arg=(added := 1)):\n        pass\n",
+            "\n    def unrelated(arg: (added := int)):\n        pass\n",
+            "\n    @decorate(added := 1)\n    def unrelated():\n        pass\n",
+            "\n    class Nested((added := Base)):\n        pass\n",
+            "\n    callback = lambda arg=(added := 1): arg\n",
+        ):
+            with (
+                self.subTest(extra=extra),
+                self.assertRaisesRegex(ValueError, "already exists"),
+            ):
+                self.insert(destination=self.destination + extra)
+
+    def test_class_control_flow_bindings_still_conflict(self):
+        extra = "\n    if enabled:\n        added = None\n"
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            self.insert(destination=self.destination + extra)
+
     def test_comments_at_boundaries_are_not_split_or_discarded(self):
         for source, destination in (
             (
