@@ -2951,6 +2951,16 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
 
     /// Allocate and track internal storage without running collection during
     /// publication. The next ordinary tracked allocation still checks thresholds.
+    #[cfg(all(
+        feature = "host_env",
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
     pub(crate) fn new_ref_without_collection(
         payload: T,
         typ: crate::builtins::PyTypeRef,
