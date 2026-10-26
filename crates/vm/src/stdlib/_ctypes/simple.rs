@@ -1307,6 +1307,13 @@ impl Py<PyCSimple> {
             return Ok(());
         }
 
+        let _storage = if type_code == "O" {
+            let size = zelf.0.buffer.read().len();
+            zelf.0.register_pyobject_view(0, size, vm)?
+        } else {
+            None
+        };
+
         let content = set_primitive(&type_code, &value, vm)?;
 
         // Storage metadata belongs to this exact type, unlike inherited attributes.

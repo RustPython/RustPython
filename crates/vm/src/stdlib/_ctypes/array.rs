@@ -1,5 +1,5 @@
-use super::StgInfo;
 use super::base::{CDATA_BUFFER_METHODS, PyCData};
+use super::{StgInfo, StgInfoFlags};
 use crate::common::lock::LazyLock;
 use crate::sliceable::SaturatedSliceIter;
 use crate::{
@@ -620,6 +620,18 @@ impl PyCArray {
             return Err(vm.new_index_error("invalid index"));
         }
         let index = index as usize;
+        // A view's buffer already points to its element. Its base can be a
+        // pointer object, whose own buffer stores an address rather than data.
+        let _storage = if element_type
+            .stg_info(vm)?
+            .flags
+            .intersects(StgInfoFlags::TYPEFLAG_ISPOINTER | StgInfoFlags::TYPEFLAG_HASPOINTER)
+        {
+            zelf.0
+                .register_pyobject_view(index * element_size, element_size, vm)?
+        } else {
+            None
+        };
         let prepared = super::base::CDataValue::new(
             &element_type,
             value,
@@ -627,8 +639,6 @@ impl PyCArray {
             super::simple::is_swapped(&element_type),
             vm,
         )?;
-        // A view's buffer already points to its element. Its base can be a
-        // pointer object, whose own buffer stores an address rather than data.
         zelf.0
             .write_bytes_at_offset(index * element_size, &prepared.bytes);
         prepared.keep(&zelf.0, index, vm)

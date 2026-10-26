@@ -1007,3 +1007,47 @@ _ref = weakref.ref(_owner)
 del _owner
 gc.collect()
 assert _ref() is None
+
+
+# Values written through a pointer remain visible through sibling views.
+for _borrowed in (False, True):
+    _storage = bytearray(ctypes.sizeof(ctypes.py_object))
+    _value = ctypes.py_object.from_buffer(_storage) if _borrowed else ctypes.py_object()
+    _value.value = None
+    _pointer = ctypes.cast(ctypes.byref(_value), ctypes.POINTER(ctypes.py_object))
+    _sibling = ctypes.pointer(_value)
+    _object = object()
+    _pointer[0] = _object
+    assert _value.value is _object and _sibling[0] is _object
+    _pointer.contents.value = object()
+    assert _value.value is _pointer[0] is _sibling[0]
+
+# A warmed writer must follow contents changes without retaining old storage.
+_value = ctypes.py_object(None)
+_pointer = ctypes.pointer(_value)
+_pointer[0] = object()
+_ref = weakref.ref(_value)
+_value = ctypes.py_object(None)
+_pointer.contents = _value
+assert _ref() is None
+_pointer[0] = _object
+assert _value.value is _object
+
+# Different owners can describe the same address.
+_value = ctypes.py_object.from_buffer(_storage)
+_pointer = ctypes.pointer(_value)
+_pointer[0] = _object
+_other = ctypes.py_object.from_buffer(_storage)
+_pointer.contents = _other
+_pointer[0] = object()
+assert _other.value is _pointer[0]
+
+_backing = bytearray(ctypes.sizeof(ctypes.py_object))
+_value = ctypes.py_object.from_buffer(_backing)
+_value.value = None
+try:
+    _backing.extend(b"x")
+except BufferError:
+    pass
+else:
+    raise AssertionError("assigning None released the buffer export")
