@@ -5,7 +5,7 @@
         "rustpython_wasm": "0.1.0-pre-alpha.1"
     },
     "devDependencies": {
-        "raw-loader": "1.0.0",
+        "raw-loader": "4.0.2",
         "webpack": "5.112.2",
         "webpack-cli": "^7.2.3"
     },
