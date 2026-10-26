@@ -1,4 +1,4 @@
-//! Numeric conversions used by the internal PyTime test helpers.
+//! Signed nanosecond timestamps and the rounding used by Python's time APIs.
 
 #![cfg_attr(target_env = "musl", allow(deprecated))]
 
@@ -7,9 +7,9 @@ use num_traits::ToPrimitive;
 use rustpython_host_env::time::SEC_TO_NS;
 
 #[cfg(any(unix, windows))]
-pub(super) use rustpython_host_env::time::TimeT;
+pub(crate) use rustpython_host_env::time::TimeT;
 #[cfg(not(any(unix, windows)))]
-pub(super) type TimeT = i64;
+pub(crate) type TimeT = i64;
 
 const TIME_T_MIN: i64 = TimeT::MIN as _;
 const TIME_T_MAX: i64 = TimeT::MAX as _;
@@ -17,7 +17,7 @@ const PYTIME_OVERFLOW: &str = "timestamp out of range for C PyTime_t";
 const TIME_T_OVERFLOW: &str = "timestamp out of range for platform time_t";
 
 #[derive(Clone, Copy)]
-pub(super) enum Round {
+pub(crate) enum Round {
     Floor,
     Ceiling,
     HalfEven,
@@ -25,7 +25,7 @@ pub(super) enum Round {
 }
 
 impl Round {
-    pub(super) fn from_int(value: i32, vm: &VirtualMachine) -> PyResult<Self> {
+    pub(crate) fn from_int(value: i32, vm: &VirtualMachine) -> PyResult<Self> {
         match value {
             0 => Ok(Self::Floor),
             1 => Ok(Self::Ceiling),
@@ -45,7 +45,7 @@ impl Round {
         }
     }
 
-    pub(super) fn divide(self, value: i64, divisor: i64) -> i64 {
+    pub(crate) fn divide(self, value: i64, divisor: i64) -> i64 {
         debug_assert!(divisor > 1);
         let quotient = value / divisor;
         let remainder = value % divisor;
@@ -65,7 +65,7 @@ impl Round {
     }
 }
 
-pub(super) fn from_seconds(seconds: i32) -> i64 {
+pub(crate) fn from_seconds(seconds: i32) -> i64 {
     i64::from(seconds) * SEC_TO_NS
 }
 
@@ -95,7 +95,7 @@ fn float_seconds(object: &PyObject, vm: &VirtualMachine) -> PyResult<f64> {
     Ok(seconds)
 }
 
-pub(super) fn from_seconds_object(
+pub(crate) fn from_seconds_object(
     object: &PyObject,
     round: Round,
     vm: &VirtualMachine,
@@ -132,7 +132,7 @@ fn float_to_time_t(seconds: f64, vm: &VirtualMachine) -> PyResult<i64> {
     Ok(seconds as i64)
 }
 
-pub(super) fn object_to_time_t(
+pub(crate) fn object_to_time_t(
     object: &PyObject,
     round: Round,
     vm: &VirtualMachine,
@@ -144,7 +144,7 @@ pub(super) fn object_to_time_t(
     }
 }
 
-pub(super) fn object_to_denominator(
+pub(crate) fn object_to_denominator(
     object: &PyObject,
     denominator: i64,
     round: Round,
