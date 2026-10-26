@@ -1022,6 +1022,19 @@ for _borrowed in (False, True):
     _pointer.contents.value = object()
     assert _value.value is _pointer[0] is _sibling[0]
 
+if _sys.implementation.name == "rustpython":
+    _cast_value = ctypes.py_object(None)
+    _cast_ref = weakref.ref(_cast_value)
+    _cast_pointer = ctypes.cast(
+        ctypes.byref(_cast_value), ctypes.POINTER(ctypes.py_object)
+    )
+    del _cast_value
+    gc.collect()
+    assert _cast_ref() is not None
+    del _cast_pointer
+    gc.collect()
+    assert _cast_ref() is None
+
 # A warmed writer must follow contents changes without retaining old storage.
 _value = ctypes.py_object(None)
 _pointer = ctypes.pointer(_value)
@@ -1041,6 +1054,33 @@ _other = ctypes.py_object.from_buffer(_storage)
 _pointer.contents = _other
 _pointer[0] = object()
 assert _other.value is _pointer[0]
+
+_pointer = ctypes.cast(ctypes.byref(_value), ctypes.POINTER(ctypes.py_object))
+_pointer.contents = _other
+_pointer[0] = object()
+assert _other.value is _pointer[0]
+assert _value.value is _pointer[0]
+
+# A cast array view also registers its enclosing allocation, not just contents.
+_nested = ((ctypes.py_object * 1) * 1)()
+_nested[0][0] = None
+_pointer = ctypes.cast(_nested[0], ctypes.POINTER(ctypes.py_object))
+_other = ctypes.py_object.from_buffer(_nested)
+_pointer.contents = _other
+_pointer[0] = object()
+assert _nested[0][0] is _other.value is _pointer[0]
+
+# Changing the index can bring a smaller cast source back into range.
+_pair_type = ctypes.py_object * 2
+_buffer = bytearray(ctypes.sizeof(_pair_type))
+_small = (ctypes.py_object * 1).from_buffer(_buffer)
+_large = _pair_type.from_buffer(_buffer)
+_inner = ctypes.cast(ctypes.byref(_small), ctypes.POINTER(_pair_type))
+_inner.contents = _large
+_pointer = ctypes.cast(_inner.contents, ctypes.POINTER(ctypes.py_object))
+_pointer[1] = object()
+_pointer[0] = object()
+assert _small[0] is _large[0] is _pointer[0]
 
 _backing = bytearray(ctypes.sizeof(ctypes.py_object))
 _value = ctypes.py_object.from_buffer(_backing)

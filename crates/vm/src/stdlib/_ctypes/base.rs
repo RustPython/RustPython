@@ -1,7 +1,7 @@
 #![allow(unreachable_pub)]
 
 use crate::builtins::{
-    PyBytes, PyDict, PyList, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str,
+    PyBytes, PyDict, PyInt, PyList, PyMemoryView, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str,
 };
 use crate::class::StaticType;
 use crate::convert::ToPyObject;
@@ -504,25 +504,33 @@ unsafe impl Traverse for PyCData {
 struct PrivateRefs {
     writer_prune_remaining: usize,
     // A registration cache, not a backing owner; do not copy it with values.
-    writer_target: Option<PyRef<crate::object::PyWeak>>,
+    writer_paths: Option<alloc::sync::Arc<[Vec<PyRef<crate::object::PyWeak>>]>>,
     slots: std::collections::HashMap<String, Vec<usize>, rapidhash::quality::RandomState>,
     owners: std::collections::HashMap<usize, (PyObjectRef, usize), rapidhash::quality::RandomState>,
 }
 
 // SAFETY: the owner map stores one strong reference per identity; slots hold IDs.
-// The registration cache owns a weakref wrapper, not its referent.
+// The registration cache owns weakref wrappers, not their referents.
 unsafe impl Traverse for PrivateRefs {
     #[expect(clippy::iter_over_hash_type, reason = "GC edge order is irrelevant")]
     fn traverse(&self, tracer: &mut TraverseFn<'_>) {
         for (owner, _) in self.owners.values() {
             owner.traverse(tracer);
         }
-        self.writer_target.traverse(tracer);
+        if let Some(paths) = &self.writer_paths {
+            for path in paths.iter() {
+                path.traverse(tracer);
+            }
+        }
     }
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
         self.slots.clear();
         out.extend(self.owners.drain().map(|(_, (owner, _))| owner));
-        out.extend(self.writer_target.take().map(Into::into));
+        if let Some(paths) = self.writer_paths.take() {
+            for path in paths.iter() {
+                out.extend(path.iter().cloned().map(Into::into));
+            }
+        }
     }
 }
 
@@ -587,6 +595,37 @@ impl DictKey for ObjectKey<'_> {
         Ok(other
             .downcast_ref_if_exact::<PyStr>(vm)
             .is_some_and(|key| key.as_wtf8() == self.0))
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        self.0.key_as_isize(vm)
+    }
+}
+
+// cast() stores a strong source reference under id(source). Only exact int
+// keys are eligible for the cache; lookup must not invoke user equality.
+struct ObjectIdKey(usize);
+
+impl DictKey for ObjectIdKey {
+    type Owned = usize;
+
+    fn _to_owned(&self, _vm: &VirtualMachine) -> usize {
+        self.0
+    }
+
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<crate::common::hash::PyHash> {
+        self.0.key_hash(vm)
+    }
+
+    fn key_is(&self, _other: &PyObject) -> bool {
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other: &PyObject) -> PyResult<bool> {
+        Ok(other
+            .downcast_ref_if_exact::<PyInt>(vm)
+            .and_then(|key| key.as_bigint().to_usize())
+            == Some(self.0))
     }
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
@@ -1278,6 +1317,117 @@ impl PyCData {
         }
     }
 
+    // Validate a short chain of native ownership links. The public dictionary
+    // is mutable: a live weak target and matching address alone prove nothing.
+    // Exact-key lookups must not run user equality during pointer assignment.
+    fn retains_writer_source(
+        parent: &PyObject,
+        source: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let Some(cdata) = parent.downcast_ref::<Self>() else {
+            return Ok(false);
+        };
+        let base = cdata.base.read().clone();
+        if base.is_some_and(|base| base.is(source)) {
+            return Ok(true);
+        }
+        let objects = cdata.objects.read().clone();
+        if let Some(dict) = objects
+            .as_ref()
+            .and_then(|obj| obj.downcast_ref::<PyDict>())
+        {
+            for found in [
+                dict.inner_getitem_opt(&ObjectKey("1"), vm)?,
+                dict.inner_getitem_opt(&ObjectIdKey(source.get_id()), vm)?,
+            ] {
+                if found.is_some_and(|obj| obj.is(source)) {
+                    return Ok(true);
+                }
+            }
+        }
+        let cast = cdata
+            .kept_refs
+            .read()
+            .as_ref()
+            .and_then(|refs| refs.first("@cast"));
+        Ok(cast
+            .and_then(|arg| arg.downcast::<super::_ctypes::CArgObject>().ok())
+            .is_some_and(|arg| arg.obj.is(source)))
+    }
+
+    // Discover a cacheable path without copying the growing _objects graph on
+    // every write. Only native links and cast/contents dictionary entries can
+    // be cached; arbitrary containers still use the general provenance walk.
+    fn writer_paths(
+        pointer: &PyObject,
+        address: usize,
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> Vec<(PyObjectRef, Vec<PyObjectRef>)> {
+        let mut pending = vec![(pointer.to_owned(), Vec::new())];
+        let mut targets = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut visited_dicts = std::collections::HashSet::new();
+        while let Some((obj, path)) = pending.pop() {
+            if !visited.insert(obj.get_id()) {
+                continue;
+            }
+            if !path.is_empty() {
+                let root = Self::find_root_object(&obj);
+                if let Some(storage) = root.downcast_ref::<Self>() {
+                    // Keep paths for smaller overlapping views too: a later
+                    // indexed write may be inside a different set of roots.
+                    let contains = storage.contains_storage(address, size);
+                    targets.push((root, path.clone()));
+                    if contains {
+                        continue;
+                    }
+                }
+            }
+            let Some(cdata) = obj.downcast_ref::<Self>() else {
+                continue;
+            };
+            let mut children = Vec::new();
+            let objects = cdata.objects.read().clone();
+            if let Some(dict) = objects
+                .as_ref()
+                .and_then(|obj| obj.downcast_ref::<PyDict>())
+                && visited_dicts.insert(dict.get_id())
+            {
+                for (key, value) in dict.items_vec() {
+                    let is_source = key
+                        .downcast_ref_if_exact::<PyStr>(vm)
+                        .is_some_and(|key| key.as_wtf8() == "1")
+                        || key
+                            .downcast_ref_if_exact::<PyInt>(vm)
+                            .and_then(|key| key.as_bigint().to_usize())
+                            == Some(value.get_id());
+                    if is_source && value.downcast_ref::<Self>().is_some() {
+                        children.push(value);
+                    }
+                }
+            }
+            children.extend(cdata.base.read().iter().cloned());
+            let cast = cdata
+                .kept_refs
+                .read()
+                .as_ref()
+                .and_then(|refs| refs.first("@cast"));
+            if let Some(arg) =
+                cast.and_then(|arg| arg.downcast::<super::_ctypes::CArgObject>().ok())
+            {
+                children.push(arg.obj.clone());
+            }
+            for child in children {
+                let mut path = path.clone();
+                path.push(child.clone());
+                pending.push((child, path));
+            }
+        }
+        targets
+    }
+
     // Let the original storage find py_object values retained by a live writer.
     // Weak links preserve the pointer's ownership lifetime; a normal write to
     // the storage cannot leave a hidden strong reference to an obsolete value.
@@ -1288,34 +1438,95 @@ impl PyCData {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let writer = pointer.downcast_ref::<Self>();
-        // Only cache direct contents ownership. Nested _objects containers and
-        // cast provenance are mutable and still require a graph search.
-        let objects = writer.and_then(|writer| writer.objects.read().clone());
-        let direct = if let Some(dict) = objects
-            .as_ref()
-            .and_then(|obj| obj.downcast_ref::<PyDict>())
-        {
-            dict.inner_getitem_opt(&ObjectKey("1"), vm)?
-        } else {
-            None
-        };
+        // Register current contents separately: it may share the bytes with
+        // an older cast source that remains reachable through another path.
+        let direct = Self::register_contents_writer(pointer, pointer, address, size, vm)?;
         let cached = writer.and_then(|writer| {
             writer
                 .kept_refs
                 .read()
                 .as_ref()
-                .and_then(|refs| refs.writer_target.clone())
+                .and_then(|refs| refs.writer_paths.clone())
         });
-        if let Some(target) = cached.as_ref().and_then(|weak| weak.upgrade())
-            && direct.as_ref().is_some_and(|owner| owner.is(&target))
-            && target
-                .downcast_ref::<Self>()
-                .is_some_and(|target| target.contains_storage(address, size))
-        {
-            // The private registry retains this live writer's weak link.
-            // Recheck the live allocation: contents/offsets can change between
-            // writes. The weak cache must not keep a former destination alive.
-            return Ok(Some(target));
+        if let Some(paths) = cached {
+            // The common pointer(value) case has exactly one root. Its current
+            // contents and live registration were already checked above.
+            if paths.len() == 1
+                && paths[0].len() == 1
+                && let Some(root) = &direct
+                && paths[0][0].upgrade().is_some_and(|source| source.is(root))
+            {
+                return Ok(direct);
+            }
+            let mut target = None;
+            let mut valid = true;
+            for path in paths.iter() {
+                let mut source = Some(pointer.to_owned());
+                for weak in path {
+                    let parent = source.as_ref().unwrap();
+                    if !parent.is(pointer) {
+                        // A view's base pointer may change contents while its
+                        // original private byref path is still valid.
+                        Self::register_contents_writer(parent, pointer, address, size, vm)?;
+                    }
+                    let Some(next) = weak.upgrade() else {
+                        source = None;
+                        break;
+                    };
+                    if !Self::retains_writer_source(source.as_ref().unwrap(), &next, vm)? {
+                        source = None;
+                        break;
+                    }
+                    source = Some(next);
+                }
+                let Some(source) = source else {
+                    valid = false;
+                    break;
+                };
+                let Some(root) = Self::storage_root(&source, address, size) else {
+                    continue;
+                };
+                // Resurrection may have cleared the registry's weakref even
+                // though the cached source path still exists.
+                if direct.as_ref().is_none_or(|direct| !direct.is(&root)) {
+                    Self::register_writer(&root, pointer, vm)?;
+                }
+                target = Some(root);
+            }
+            if valid && (direct.is_some() || target.is_some()) {
+                return Ok(direct.or(target));
+            }
+        }
+        let targets = Self::writer_paths(pointer, address, size, vm);
+        if !targets.is_empty() {
+            let mut cache = Vec::new();
+            let mut target = None;
+            for (root, path) in targets {
+                if root
+                    .downcast_ref::<Self>()
+                    .is_some_and(|root| root.contains_storage(address, size))
+                {
+                    Self::register_writer(&root, pointer, vm)?;
+                    target = Some(root);
+                }
+                cache.push(
+                    path.iter()
+                        .map(|obj| obj.downgrade(None, vm))
+                        .collect::<PyResult<Vec<_>>>()?,
+                );
+            }
+            if let Some(writer) = writer {
+                let old = writer
+                    .kept_refs
+                    .write()
+                    .get_or_insert_with(Default::default)
+                    .writer_paths
+                    .replace(cache.into());
+                drop(old);
+            }
+            if direct.is_some() || target.is_some() {
+                return Ok(direct.or(target));
+            }
         }
         let mut pending = Vec::new();
         Self::provenance_children(pointer, &mut pending);
@@ -1324,89 +1535,117 @@ impl PyCData {
             if !visited.insert(obj.get_id()) {
                 continue;
             }
-            if let Some(cdata) = obj.downcast_ref::<Self>()
-                && cdata.contains_storage(address, size)
-            {
-                let existing = cdata
-                    .kept_refs
-                    .read()
-                    .as_ref()
-                    .and_then(|refs| refs.first("@writers")?.downcast::<PyDict>().ok());
-                let views = if let Some(views) = existing {
-                    views
-                } else {
-                    // Allocation can collect and reenter, so do it before
-                    // locking, then reuse a registry installed by reentry.
-                    let candidate = vm.ctx.new_dict();
-                    let mut refs = cdata.kept_refs.write();
-                    let refs = refs.get_or_insert_with(Default::default);
-                    let existing = refs
-                        .first("@writers")
-                        .and_then(|obj| obj.downcast::<PyDict>().ok());
-                    if let Some(views) = existing {
-                        views
-                    } else {
-                        let old =
-                            refs.replace("@writers".to_owned(), vec![candidate.clone().into()]);
-                        debug_assert!(old.is_empty());
-                        candidate
-                    }
-                };
-                let key: PyObjectRef = vm.ctx.new_int(pointer.get_id()).into();
-                let registered = views.get_item_opt(&*key, vm)?.filter(|weak| {
-                    weak.downcast_ref::<crate::object::PyWeak>()
-                        .and_then(|weak| weak.upgrade())
-                        .is_some_and(|owner| owner.is(pointer))
-                });
-                if registered.is_none() {
-                    // Amortize dead-link cleanup across new registrations;
-                    // scanning all live writers on every insert is quadratic.
-                    let interval = views.entries.len().max(64);
-                    let prune = {
-                        let mut refs = cdata.kept_refs.write();
-                        let refs = refs.as_mut().expect("registered writer dictionary");
-                        if refs.writer_prune_remaining == 0 {
-                            refs.writer_prune_remaining = interval;
-                            true
-                        } else {
-                            refs.writer_prune_remaining -= 1;
-                            false
-                        }
-                    };
-                    if prune {
-                        for (key, weak) in views.items_vec() {
-                            if weak
-                                .downcast_ref::<crate::object::PyWeak>()
-                                .is_some_and(|weak| weak.is_dead())
-                            {
-                                let hash = PyDict::hash_or_unhashable(&*key, vm)?;
-                                // Do not remove a replacement registered by another
-                                // thread after this dead weakref was observed.
-                                views
-                                    .entries
-                                    .delete_if(vm, &*key, hash, |current| Ok(current.is(&weak)))?;
-                            }
-                        }
-                    }
-                    views.set_item(&*key, pointer.downgrade(None, vm)?.into(), vm)?;
-                }
-                if let Some(writer) = writer
-                    && direct.as_ref().is_some_and(|owner| owner.is(&obj))
-                {
-                    let cache = obj.downgrade(None, vm)?;
-                    let old = writer
-                        .kept_refs
-                        .write()
-                        .get_or_insert_with(Default::default)
-                        .writer_target
-                        .replace(cache);
-                    drop(old);
-                }
-                return Ok(Some(obj));
+            if let Some(target) = Self::storage_root(&obj, address, size) {
+                Self::register_writer(&target, pointer, vm)?;
+                return Ok(direct.or(Some(target)));
             }
             Self::provenance_children(&obj, &mut pending);
         }
-        Ok(None)
+        Ok(direct)
+    }
+
+    fn register_contents_writer(
+        parent: &PyObject,
+        pointer: &PyObject,
+        address: usize,
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let objects = parent
+            .downcast_ref::<Self>()
+            .and_then(|parent| parent.objects.read().clone());
+        let target = if let Some(dict) = objects
+            .as_ref()
+            .and_then(|obj| obj.downcast_ref::<PyDict>())
+        {
+            dict.inner_getitem_opt(&ObjectKey("1"), vm)?
+                .and_then(|owner| Self::storage_root(&owner, address, size))
+        } else {
+            None
+        };
+        if let Some(root) = &target {
+            Self::register_writer(root, pointer, vm)?;
+        }
+        Ok(target)
+    }
+
+    fn register_writer(root: &PyObject, pointer: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        let cdata = root.downcast_ref::<Self>().expect("ctypes storage root");
+        let existing = cdata
+            .kept_refs
+            .read()
+            .as_ref()
+            .and_then(|refs| refs.first("@writers")?.downcast::<PyDict>().ok());
+        let views = if let Some(views) = existing {
+            views
+        } else {
+            // Allocation can collect and reenter, so do it before
+            // locking, then reuse a registry installed by reentry.
+            let candidate = vm.ctx.new_dict();
+            let mut refs = cdata.kept_refs.write();
+            let refs = refs.get_or_insert_with(Default::default);
+            let existing = refs
+                .first("@writers")
+                .and_then(|obj| obj.downcast::<PyDict>().ok());
+            if let Some(views) = existing {
+                views
+            } else {
+                let old = refs.replace("@writers".to_owned(), vec![candidate.clone().into()]);
+                debug_assert!(old.is_empty());
+                candidate
+            }
+        };
+        let registered = views
+            .inner_getitem_opt(&ObjectIdKey(pointer.get_id()), vm)?
+            .filter(|weak| {
+                weak.downcast_ref::<crate::object::PyWeak>()
+                    .and_then(|weak| weak.upgrade())
+                    .is_some_and(|owner| owner.is(pointer))
+            });
+        if registered.is_none() {
+            // Amortize dead-link cleanup across new registrations;
+            // scanning all live writers on every insert is quadratic.
+            let interval = views.entries.len().max(64);
+            let prune = {
+                let mut refs = cdata.kept_refs.write();
+                let refs = refs.as_mut().expect("registered writer dictionary");
+                if refs.writer_prune_remaining == 0 {
+                    refs.writer_prune_remaining = interval;
+                    true
+                } else {
+                    refs.writer_prune_remaining -= 1;
+                    false
+                }
+            };
+            if prune {
+                for (key, weak) in views.items_vec() {
+                    if weak
+                        .downcast_ref::<crate::object::PyWeak>()
+                        .is_some_and(|weak| weak.is_dead())
+                    {
+                        let hash = PyDict::hash_or_unhashable(&*key, vm)?;
+                        // Do not remove a replacement registered by another
+                        // thread after this dead weakref was observed.
+                        views.entries.delete_if(
+                            vm,
+                            &*key,
+                            hash,
+                            |current| Ok(current.is(&weak)),
+                        )?;
+                    }
+                }
+            }
+            let key: PyObjectRef = vm.ctx.new_int(pointer.get_id()).into();
+            views.set_item(&*key, pointer.downgrade(None, vm)?.into(), vm)?;
+        }
+        Ok(())
+    }
+
+    fn storage_root(obj: &PyObject, address: usize, size: usize) -> Option<PyObjectRef> {
+        let root = Self::find_root_object(obj);
+        root.downcast_ref::<Self>()
+            .is_some_and(|storage| storage.contains_storage(address, size))
+            .then_some(root)
     }
 
     fn contains_storage(&self, address: usize, size: usize) -> bool {
