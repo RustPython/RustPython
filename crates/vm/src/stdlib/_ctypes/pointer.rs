@@ -420,6 +420,7 @@ impl PyCPointer {
             if proto_type.stg_info(vm)?.scalar_code == Some('O') {
                 return zelf.0.object_at(
                     rustpython_host_env::ctypes::read_pointer_from_buffer(bytes),
+                    addr,
                     Some(index as usize),
                     vm,
                 );

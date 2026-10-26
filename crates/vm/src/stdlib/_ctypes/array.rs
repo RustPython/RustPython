@@ -560,8 +560,9 @@ impl PyCArray {
             let address = rustpython_host_env::ctypes::read_pointer_from_buffer(
                 &buffer[offset..offset + element_size],
             );
+            let slot = buffer.as_ptr().wrapping_add(offset) as usize;
             drop(buffer);
-            return zelf.0.object_at(address, Some(index), vm);
+            return zelf.0.object_at(address, slot, Some(index), vm);
         }
         if let Some(element_type) = stg.as_ref().and_then(|info| info.element_type.as_ref())
             && super::simple::is_swapped(element_type)

@@ -1163,3 +1163,19 @@ _native = (ctypes.py_object * 1)(None)
 _view = ctypes.py_object.from_buffer(_native)
 _view.value = _object
 assert _native[0] is _object
+
+
+# Pointer-backed exporters need the contents provenance fallback.
+_source = ctypes.py_object(None)
+_exporter = ctypes.pointer(_source)
+_view = ctypes.py_object.from_buffer(_exporter.contents)
+_view.value = _object
+assert _source.value is _object
+
+# A cast can retain a value beyond its source view's declared extent.
+_storage = bytearray(2 * ctypes.sizeof(ctypes.py_object))
+_writer = (ctypes.py_object * 1).from_buffer(_storage)
+_reader = ctypes.py_object.from_buffer(_storage, ctypes.sizeof(ctypes.py_object))
+_pointer = ctypes.cast(_writer, ctypes.POINTER(ctypes.py_object))
+_pointer[1] = _object
+assert _reader.value is _object

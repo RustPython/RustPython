@@ -600,11 +600,22 @@ impl PrivateRefs {
 // Callback-free weakrefs do not retain writers or their py_object values.
 #[derive(Debug, Default)]
 pub(crate) struct BufferViewRegistry {
-    views: PyRwLock<
-        std::collections::HashMap<
-            usize,
-            std::collections::HashMap<usize, PyRef<crate::object::PyWeak>>,
-        >,
+    views: PyRwLock<std::collections::HashMap<usize, BufferViews>>,
+}
+
+#[derive(Debug)]
+struct BufferView {
+    end: usize,
+    weak: PyRef<crate::object::PyWeak>,
+}
+
+#[derive(Debug, Default)]
+struct BufferViews {
+    // One entry per view. Size classes keep a large overlapping view from
+    // widening the search window for every small view of the same exporter.
+    ranges: alloc::collections::BTreeMap<
+        usize,
+        alloc::collections::BTreeMap<(usize, usize), BufferView>,
     >,
 }
 
@@ -613,6 +624,8 @@ struct BufferAlias {
     registry: alloc::sync::Arc<BufferViewRegistry>,
     exporter: usize,
     view: usize,
+    start: usize,
+    span: usize,
     source: PyObjectRef,
 }
 
@@ -621,8 +634,16 @@ impl Drop for BufferAlias {
         let removed = {
             let mut views = self.registry.views.write();
             if let Some(aliases) = views.get_mut(&self.exporter) {
-                let removed = aliases.remove(&self.view);
-                if aliases.is_empty() {
+                let removed = if let Some(ranges) = aliases.ranges.get_mut(&self.span) {
+                    let removed = ranges.remove(&(self.start, self.view));
+                    if ranges.is_empty() {
+                        aliases.ranges.remove(&self.span);
+                    }
+                    removed
+                } else {
+                    None
+                };
+                if aliases.ranges.is_empty() {
                     views.remove(&self.exporter);
                 }
                 removed
@@ -635,15 +656,29 @@ impl Drop for BufferAlias {
 }
 
 impl BufferViewRegistry {
-    fn owners(&self, exporter: &PyObject) -> Vec<PyObjectRef> {
+    fn owners(&self, exporter: &PyObject, slot: Option<usize>) -> Vec<PyObjectRef> {
         let exporter = buffer_owner(exporter);
-        let aliases: Vec<_> = self
-            .views
-            .read()
-            .get(&exporter.get_id())
-            .into_iter()
-            .flat_map(|views| views.values().cloned())
-            .collect();
+        let aliases = {
+            let views = self.views.read();
+            let Some(aliases) = views.get(&exporter.get_id()) else {
+                return Vec::new();
+            };
+            let mut found = Vec::new();
+            for (&span, ranges) in &aliases.ranges {
+                if let Some(slot) = slot {
+                    let first = slot.saturating_sub(span - 1);
+                    let end = slot.saturating_add(rustpython_host_env::ctypes::pointer_size());
+                    for (&(start, _), view) in ranges.range((first, 0)..(end, 0)) {
+                        if view.end > slot && view.end > start {
+                            found.push(view.weak.clone());
+                        }
+                    }
+                } else {
+                    found.extend(ranges.values().map(|view| view.weak.clone()));
+                }
+            }
+            found
+        };
         let mut owners = Vec::new();
         for weak in aliases {
             // Do not upgrade or release writers under the registry lock.
@@ -2368,9 +2403,11 @@ impl PyCData {
     // Resolve a py_object through owned references, never by turning an
     // arbitrary integer from native memory into a Rust reference. Views can
     // reach the object through nested _objects dictionaries or cast cycles.
+    // slot is the native location read, distinct from the Python object address.
     pub(super) fn object_at(
         &self,
         address: usize,
+        slot: usize,
         index: Option<usize>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -2420,7 +2457,18 @@ impl PyCData {
         }
         let mut visited = std::collections::HashSet::new();
         let mut exporters = std::collections::HashSet::new();
-        while let Some(obj) = pending.pop() {
+        let mut deferred_exporters: Vec<PyObjectRef> = Vec::new();
+        loop {
+            let Some(obj) = pending.pop() else {
+                let Some(exporter) = deferred_exporters.pop() else {
+                    break;
+                };
+                // A cast can write beyond its source view's declared extent.
+                // Preserve the full provenance search only after indexed paths
+                // miss; ordinary disjoint views never scan all sibling aliases.
+                pending.extend(vm.state.ctypes_buffer_views.owners(&exporter, None));
+                continue;
+            };
             if obj.get_id() == address {
                 return Ok(obj);
             }
@@ -2435,11 +2483,9 @@ impl PyCData {
             if let Some(view) = obj.downcast_ref::<PyMemoryView>()
                 && exporters.insert(buffer_owner(view.as_object()).get_id())
             {
-                pending.extend(
-                    vm.state
-                        .ctypes_buffer_views
-                        .owners(buffer_owner(view.as_object())),
-                );
+                let exporter = buffer_owner(view.as_object());
+                pending.extend(vm.state.ctypes_buffer_views.owners(exporter, Some(slot)));
+                deferred_exporters.push(exporter.to_owned());
             }
             Self::provenance_children(&obj, &mut pending);
         }
@@ -2580,6 +2626,7 @@ impl PyCData {
         }
 
         let buffer_data = buffer[offset..offset + size].to_vec();
+        let slot = buffer.as_ptr().wrapping_add(offset) as usize;
         drop(buffer);
 
         // Get proto as type
@@ -2594,7 +2641,7 @@ impl PyCData {
         if super::simple::returns_scalar(&proto_type) {
             if proto_type.type_code(vm).as_deref() == Some("O") {
                 let address = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer_data);
-                return self.object_at(address, Some(index), vm);
+                return self.object_at(address, slot, Some(index), vm);
             }
             // Check for byte swapping
             let needs_swap = super::simple::is_swapped(&proto_type);
@@ -2675,6 +2722,11 @@ impl Py<PyCData> {
         let exporter = buffer_owner(&source);
         let weak = cdata.as_object().downgrade(None, vm)?;
         let exporter_id = exporter.get_id();
+        let (address, size) = {
+            let buffer = cdata.buffer.read();
+            (buffer.as_ptr() as usize, buffer.len())
+        };
+        let span = size.checked_next_power_of_two().unwrap_or(usize::MAX);
         {
             let mut refs = cdata.kept_refs.write();
             let refs = refs.get_or_insert_with(Default::default);
@@ -2684,6 +2736,8 @@ impl Py<PyCData> {
                 registry: vm.state.ctypes_buffer_views.clone(),
                 exporter: exporter_id,
                 view: cdata.get_id(),
+                start: address,
+                span,
                 source,
             });
         }
@@ -2694,15 +2748,22 @@ impl Py<PyCData> {
             .write()
             .entry(exporter_id)
             .or_default()
-            .insert(cdata.get_id(), weak);
+            .ranges
+            .entry(span)
+            .or_default()
+            .insert(
+                (address, cdata.get_id()),
+                BufferView {
+                    end: address.saturating_add(size),
+                    weak,
+                },
+            );
         drop(old);
-        let (address, size) = {
-            let buffer = cdata.buffer.read();
-            (buffer.as_ptr() as usize, buffer.len())
-        };
         // A native CData exporter must also see direct scalar assignments;
         // those replace the view's _objects without going through a pointer.
-        PyCData::register_storage_writer(cdata.as_object(), address, size, vm)?;
+        if PyCData::register_storage_writer(cdata.as_object(), address, size, vm)?.is_none() {
+            PyCData::register_pyobject_writer(cdata.as_object(), address, size, vm)?;
+        }
         Ok(cdata.into())
     }
 
