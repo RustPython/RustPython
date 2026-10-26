@@ -325,6 +325,26 @@ import nonexistent
 class TestDircmpIsSame(unittest.TestCase):
     """Tests for _dircmp_is_same function."""
 
+    def test_matching_metadata(self):
+        import os
+
+        from update_lib.file_utils import compare_paths
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            left, right = (pathlib.Path(tmpdir) / name for name in ("left", "right"))
+            for directory in (left, right):
+                (directory / "nested").mkdir(parents=True)
+                (directory / "nested/module.py").write_bytes(b"x = 1\n")
+            source, destination = (p / "nested/module.py" for p in (left, right))
+            timestamp = source.stat().st_mtime_ns
+            os.utime(destination, ns=(timestamp, timestamp))
+            self.assertTrue(compare_paths(source, destination))
+            self.assertTrue(compare_paths(left, right))
+            destination.write_bytes(b"x = 2\n")
+            os.utime(destination, ns=(timestamp, timestamp))
+            self.assertFalse(compare_paths(source, destination))
+            self.assertFalse(compare_paths(left, right))
+
     def test_identical_directories(self):
         """Test that identical directories return True."""
         import filecmp
