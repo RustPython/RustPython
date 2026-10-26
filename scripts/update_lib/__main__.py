@@ -9,6 +9,7 @@ Usage:
     python scripts/update_lib patches --from Lib/test/foo.py --to cpython/Lib/test/foo.py
     python scripts/update_lib auto-mark Lib/test/test_foo.py
     python scripts/update_lib copy-test SOURCE DESTINATION --test ClassName.method_name --source-sha256 HASH --destination-sha256 HASH
+    python scripts/update_lib copy-test SOURCE DESTINATION --test ClassName.new_method --insert-before ClassName.anchor --source-sha256 HASH --destination-sha256 HASH
 """
 
 import argparse

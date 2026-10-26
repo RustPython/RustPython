@@ -44,6 +44,119 @@ def _definition(contents: str, qualified_name: str):
     return method, guards, start, method.end_lineno
 
 
+def insert_test(source: str, destination: str, qualified_name: str, before: str) -> str:
+    """Insert an absent direct method before an unchanged canonical anchor.
+
+    This intentionally excludes guarded classes/methods and non-LF inputs.
+    It copies no imports or helpers: callers must review those dependencies.
+    """
+    if any("\r" in text or not text.endswith("\n") for text in (source, destination)):
+        raise ValueError("Insertion requires LF input with a final newline")
+    method, guards, start, end = _definition(source, qualified_name)
+    anchor, anchor_guards, anchor_start, anchor_end = _definition(source, before)
+    dst_anchor, dst_guards, dst_start, dst_end = _definition(destination, before)
+    class_name, name = qualified_name.split(".")
+    if before.split(".")[0] != class_name:
+        raise ValueError("Insertion anchor must be in the same class")
+    if guards or anchor_guards or dst_guards:
+        raise ValueError("Insertion does not support guarded definitions")
+    src_tree, dst_tree = ast.parse(source), ast.parse(destination)
+    src_class = next(
+        node
+        for node in src_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    dst_class = next(
+        node
+        for node in dst_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    if any(
+        isinstance(node, (ast.Global, ast.Nonlocal))
+        for cls in (src_class, dst_class)
+        for node in ast.walk(cls)
+    ):
+        raise ValueError("Insertion does not support scope declarations in classes")
+    # Nodes come from separate parses; compare their unique source locations.
+    members = {node.lineno: index for index, node in enumerate(src_class.body)}
+    if members.get(anchor.lineno) != members.get(method.lineno, -2) + 1:
+        raise ValueError("Source test must immediately precede its direct anchor")
+    if not any(node.lineno == dst_anchor.lineno for node in dst_class.body):
+        raise ValueError("Destination anchor must be a direct class member")
+    for node in ast.walk(dst_class):
+        if (
+            (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.name == name
+            )
+            or (
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Store)
+                and node.id == name
+            )
+            or (
+                isinstance(node, ast.alias)
+                and (node.asname or node.name.split(".")[0]) == name
+            )
+            or (
+                isinstance(node, (ast.MatchAs, ast.MatchStar, ast.ExceptHandler))
+                and node.name == name
+            )
+            or (isinstance(node, ast.MatchMapping) and node.rest == name)
+        ):
+            raise ValueError("Insertion test name already exists in destination class")
+
+    # AST line numbers count LF, not Unicode separators embedded in strings.
+    def lines(text):
+        return [line + "\n" for line in text.split("\n")[:-1]]
+
+    src_lines, dst_lines = lines(source), lines(destination)
+
+    def header(cls, lines):
+        first = min([cls.lineno, *(node.lineno for node in cls.decorator_list)]) - 1
+        child = cls.body[0]
+        child_start = (
+            min(
+                [
+                    child.lineno,
+                    *(node.lineno for node in getattr(child, "decorator_list", [])),
+                ]
+            )
+            - 1
+        )
+        return lines[first:child_start]
+
+    if header(src_class, src_lines) != header(dst_class, dst_lines):
+        raise ValueError("Insertion class headers differ")
+    if src_lines[anchor_start:anchor_end] != dst_lines[dst_start:dst_end]:
+        raise ValueError("Insertion anchor text differs")
+    if (
+        method.col_offset != anchor.col_offset
+        or method.col_offset != dst_anchor.col_offset
+    ):
+        raise ValueError("Insertion indentation differs")
+    # Do not split or silently omit comments attached to either definition.
+    previous = [node.end_lineno for node in src_class.body if node.end_lineno <= start]
+    previous_end = max(previous, default=src_class.lineno)
+    dst_previous = [
+        node.end_lineno for node in dst_class.body if node.end_lineno <= dst_start
+    ]
+    dst_previous_end = max(dst_previous, default=dst_class.lineno)
+    for gap in (
+        src_lines[previous_end:start],
+        src_lines[end:anchor_start],
+        dst_lines[dst_previous_end:dst_start],
+    ):
+        if any(line.strip() for line in gap):
+            raise ValueError("Insertion requires blank definition boundaries")
+    block = src_lines[start:anchor_start]
+    result = "".join(dst_lines[:dst_start] + block + dst_lines[dst_start:])
+    _, _, result_start, result_end = _definition(result, qualified_name)
+    if lines(result)[result_start:result_end] != src_lines[start:end]:
+        raise ValueError("Inserted definition is not byte-identical to the source")
+    return result
+
+
 def copy_test(source: str, destination: str, qualified_name: str) -> str:
     """Replace an unambiguous whole definition, preserving all surrounding bytes.
 
@@ -98,6 +211,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--test", required=True, help="Exact ClassName.method_name")
+    parser.add_argument(
+        "--insert-before",
+        help="Insert an absent method before ClassName.anchor; direct unguarded classes only",
+    )
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--destination-sha256", required=True)
     args = parser.parse_args(argv)
@@ -110,8 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         ):
             if hashlib.sha256(contents).hexdigest() != expected:
                 raise ValueError(f"{label} SHA256 does not match the pinned input")
-        result = copy_test(
-            source.decode("utf-8"), destination.decode("utf-8"), args.test
+        inputs = (source.decode("utf-8"), destination.decode("utf-8"), args.test)
+        result = (
+            insert_test(*inputs, args.insert_before)
+            if args.insert_before
+            else copy_test(*inputs)
         ).encode("utf-8")
         # Recheck the destination immediately before writing so stale invocations
         # fail instead of overwriting an intervening edit.
