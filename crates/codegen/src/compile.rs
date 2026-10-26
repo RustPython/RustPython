@@ -6146,6 +6146,7 @@ impl<'warnings> Compiler<'warnings> {
         body: &[ast::Stmt],
         type_params: Option<&ast::TypeParams>,
         firstlineno: u32,
+        firstlineno_source_line: u32,
         class_span: CompilerSourceSpan,
     ) -> CompileResult<CodeObject> {
         // 1. Enter class scope
@@ -6162,7 +6163,8 @@ impl<'warnings> Compiler<'warnings> {
         // 2. Set up class namespace
         let doc_span = self.docstring_span(body);
         let (doc_str, body) = split_doc_with_range(body, &self.opts);
-        let class_body_prefix_range = self.source_line_start_range(firstlineno);
+        // The range indexes the source text; firstlineno may come from the location table.
+        let class_body_prefix_range = self.source_line_start_range(firstlineno_source_line);
         let class_body_prefix_span = CompilerSourceSpan {
             range: class_body_prefix_range,
             location: class_span.location.map(|_| SourceLocationRange {
@@ -6339,6 +6341,12 @@ impl<'warnings> Compiler<'warnings> {
                     .get()
                     .to_u32()
             });
+        let firstlineno_source_line = self
+            .source_file
+            .to_source_code()
+            .line_index(firstlineno_span.range.start())
+            .get()
+            .to_u32();
 
         // Save context before entering any scopes
         let saved_ctx = self.ctx;
@@ -6380,8 +6388,14 @@ impl<'warnings> Compiler<'warnings> {
             in_async_scope: false,
         };
         let pre_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
-        let class_code =
-            self.compile_class_body(name, body, type_params, firstlineno, class_source_span)?;
+        let class_code = self.compile_class_body(
+            name,
+            body,
+            type_params,
+            firstlineno,
+            firstlineno_source_line,
+            class_source_span,
+        )?;
         let post_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
         self.set_symbol_table_cursors(pre_class_body_symbol_table_cursors);
         self.ctx = prev_ctx;
@@ -17287,6 +17301,81 @@ def continues(xs):
             "CPython codegen_class_body() emits one explicit RETURN_VALUE before OptimizeAndAssemble(addNone=1), got instructions={:?}",
             class_code.instructions
         );
+    }
+
+    #[test]
+    fn class_body_with_table_lines_past_source_text() {
+        let source = "class C:\n    pass\n";
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
+        let ast = parsed.into_syntax();
+        let mut locations = AstLocations::default();
+        {
+            let ast::Mod::Module(module) = &ast else {
+                panic!("expected module");
+            };
+            let ast::Stmt::ClassDef(class_def) = &module.body[0] else {
+                panic!("expected ClassDef");
+            };
+            let ast::Stmt::Pass(pass) = &class_def.body[0] else {
+                panic!("expected Pass");
+            };
+
+            let module_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1001,
+                    col: 0,
+                    end_col: 8,
+                }))
+                .unwrap();
+            module.node_index.set(ast::NodeIndex::from(module_id));
+            let class_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1001,
+                    col: 0,
+                    end_col: 8,
+                }))
+                .unwrap();
+            class_def.node_index.set(ast::NodeIndex::from(class_id));
+            let name_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1000,
+                    end_line: 1000,
+                    col: 6,
+                    end_col: 7,
+                }))
+                .unwrap();
+            class_def.name.node_index.set(ast::NodeIndex::from(name_id));
+            let pass_id = locations
+                .allocate(Some(SourceLocationRange {
+                    line: 1001,
+                    end_line: 1001,
+                    col: 4,
+                    end_col: 8,
+                }))
+                .unwrap();
+            pass.node_index.set(ast::NodeIndex::from(pass_id));
+        }
+
+        let code = compile_ast_with_syntax_warning_handler(
+            AstInput {
+                ast,
+                source_file,
+                locations: Some(locations),
+            },
+            Mode::Exec,
+            CompileOpts::default(),
+            None,
+        )
+        .expect("class body with table lines past the source text should compile");
+        let class_code = find_code(&code, "C").expect("missing class code");
+        assert_eq!(class_code.first_line_number.unwrap().get(), 1000);
     }
 
     #[test]
