@@ -261,16 +261,10 @@ impl ArgumentType for PyTypeRef {
         {
             None
         } else {
-            // Use get_attr to traverse MRO (for subclasses like MyInt(c_int))
+            // Converters belong to initialized storage, not mutable _type_.
             let typ = self
-                .as_object()
-                .get_attr(vm.ctx.intern_str("_type_"), vm)
-                .ok()
+                .type_code(vm)
                 .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-            let typ = typ
-                .downcast_ref::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?
-                .to_string();
             if ffi_type_from_code(&typ).is_none() {
                 return Err(vm.new_type_error(format!("Unsupported argument type: {typ}")));
             }
@@ -643,16 +637,12 @@ fn cast_check_pointertype(ctype: &PyObject, vm: &VirtualMachine) -> bool {
         return true;
     }
 
-    // simple pointer types via StgInfo.proto (c_void_p, c_char_p, etc.)
-    if let Ok(type_attr) = ctype.get_attr("_type_", vm)
-        && let Some(s) = type_attr.downcast_ref::<PyStr>()
+    // Simple pointer types retain the representation selected at creation,
+    // even if the user later changes the Python-visible _type_ attribute.
+    if let Some(ty) = ctype.downcast_ref::<PyType>()
+        && let Some(code) = ty.type_code(vm)
     {
-        let c = s
-            .to_str()
-            .expect("_type_ is validated as ASCII at type creation");
-        if c.len() == 1 && "sPzUZXO".contains(c) {
-            return true;
-        }
+        return code.len() == 1 && "sPzUZXO".contains(code.as_str());
     }
 
     false
@@ -1119,15 +1109,12 @@ fn compute_ret_spec(
         return RetSpec::Pointer;
     }
 
-    // Simple type via its _type_ code (traversing MRO)
-    if let Ok(type_attr) = restype_type
-        .as_object()
-        .get_attr(vm.ctx.intern_str("_type_"), vm)
-        && let Some(s) = type_attr.downcast_ref::<PyStr>()
-        && let Some(code) = s.to_str()
-        && ffi_type_from_code(code).is_some()
+    // Simple type via its initialized scalar converter.
+    if let Some(code) = restype_type
+        .type_code(vm)
+        .filter(|code| ffi_type_from_code(code).is_some())
     {
-        return if simple_type_is_pointer(code) {
+        return if simple_type_is_pointer(&code) {
             RetSpec::Pointer
         } else {
             RetSpec::Code(code.chars().next().unwrap_or('i'))
@@ -1605,15 +1592,11 @@ fn convert_raw_result(
     // finalize it), which would self-deadlock against a held read guard.
     let is_pointer_type = info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER);
     let has_proto = info.proto.is_some();
+    let scalar_code = info.scalar_code;
     drop(info);
 
     // py_object: interpret return value as PyObject* and materialize it.
-    if let Ok(type_attr) = restype_type
-        .as_object()
-        .get_attr(vm.ctx.intern_str("_type_"), vm)
-        && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
-        && type_str.to_str() == Some("O")
-    {
+    if scalar_code == Some('O') {
         let ptr = NonNull::new(result_word as *mut PyObject)
             .ok_or_else(|| vm.new_value_error("PyObject is NULL"))?;
         unsafe {

@@ -1875,7 +1875,12 @@ impl GetDescriptor for PyCField {
         // Get PyCData from obj (works for both Structure and Union)
         let cdata = Self::get_cdata_from_obj(&obj, vm)?;
 
-        if zelf.bitfield_size > 0 && zelf.proto.stg_info(vm)?.scalar_code != Some('?') {
+        // CPython's c_bool bitfields read the whole byte. User scalar subclasses
+        // return storage-backed instances rather than decoded primitive values.
+        if zelf.bitfield_size > 0
+            && super::simple::returns_scalar(&zelf.proto)
+            && zelf.proto.stg_info(vm)?.scalar_code != Some('?')
+        {
             let buffer = cdata.buffer.read();
             let data = buffer
                 .get(offset..offset.saturating_add(size))
@@ -1974,6 +1979,7 @@ impl Py<PyCField> {
                 let needs_swap = super::simple::is_swapped(&zelf.proto) && size > 1;
 
                 let code = zelf.proto.stg_info(vm)?.scalar_code;
+                // Match CPython: c_bool writes the whole byte, even for bitfields.
                 if zelf.bitfield_size > 0 && code != Some('?') {
                     let code = code.ok_or_else(|| vm.new_type_error("invalid bitfield type"))?;
                     let mut encoded = [0; 4];
