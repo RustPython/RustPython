@@ -2455,7 +2455,6 @@ class SyntaxErrorTests(unittest.TestCase):
      ^^^^^
 """, err.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_encodings(self):
         self.addCleanup(unlink, TESTFN)
         source = (

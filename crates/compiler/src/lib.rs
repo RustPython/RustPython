@@ -1298,6 +1298,34 @@ fn unpacking_parse_diagnostic(
     };
     let mut range = error.location;
     let message = match message.as_str() {
+        "pattern cannot follow a double star pattern" => {
+            // A later recovery error can change which invalid production CPython
+            // selects. Leave those inputs to the existing diagnostic conversion.
+            if !following_errors.is_empty() {
+                return None;
+            }
+            let mut preceding = tokens.iter().rev().filter(|token| {
+                token.end() <= range.start()
+                    && !matches!(
+                        token.kind(),
+                        TokenKind::Comment | TokenKind::NonLogicalNewline
+                    )
+            });
+            // The parser has already recognized a mapping entry after its rest
+            // capture. CPython points at that capture, not the following entry.
+            if preceding.next()?.kind() != TokenKind::Comma {
+                return None;
+            }
+            let capture = preceding.next()?;
+            if capture.kind() != TokenKind::Identifier
+                || preceding.next()?.kind() != TokenKind::DoubleStar
+            {
+                return None;
+            }
+            range = capture.range();
+            "double star pattern must be the last (right-most) subpattern in the mapping pattern"
+                .to_owned()
+        }
         "conditional expression cannot be used here" => {
             let mut preceding = tokens.iter().rev().filter(|token| {
                 token.end() <= range.start()
