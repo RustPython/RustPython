@@ -503,6 +503,8 @@ unsafe impl Traverse for PyCData {
 #[derive(Debug, Default)]
 struct PrivateRefs {
     writer_prune_remaining: usize,
+    // Exact-key hints only: these IDs never own or reconstruct Python objects.
+    object_index: Option<Box<ObjectIndex>>,
     // A registration cache, not a backing owner; do not copy it with values.
     writer_paths: Option<WriterPaths>,
     // Views are temporary; retain their caches on the same root as KeepRef.
@@ -532,6 +534,7 @@ unsafe impl Traverse for PrivateRefs {
         }
     }
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.object_index = None;
         self.slots.clear();
         out.extend(self.owners.drain().map(|(_, (owner, _))| owner));
         for paths in self
@@ -585,7 +588,7 @@ impl PrivateRefs {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum WriterKey {
     String(String),
     Id(usize),
@@ -600,6 +603,85 @@ struct WriterLink {
     source: PyRef<crate::object::PyWeak>,
     // Empty for a native base/cast link; otherwise a path in parent's _objects.
     keys: Vec<WriterKey>,
+}
+
+// Index direct retention entries, including duplicate values, without retaining
+// their keys or values as Python objects. Native writes update a warmed index.
+#[derive(Debug)]
+struct ObjectIndex {
+    dictionary: usize,
+    slots: std::collections::HashMap<WriterKey, usize>,
+    values: std::collections::HashMap<usize, ObjectKeys>,
+}
+
+impl ObjectIndex {
+    fn set(&mut self, key: WriterKey, value: Option<usize>) {
+        if let Some(old) = self.slots.remove(&key) {
+            let keys = self.values.get_mut(&old).expect("indexed retention slot");
+            if keys.remove(&key) {
+                self.values.remove(&old);
+            }
+        }
+        if let Some(value) = value {
+            self.slots.insert(key.clone(), value);
+            match self.values.entry(value) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(key)
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(ObjectKeys::One(key));
+                }
+            }
+        }
+    }
+}
+
+// Most referents occur once. Allocate a tree only for duplicate keys, whose
+// removal must not require scanning all other references to the same object.
+#[derive(Debug)]
+enum ObjectKeys {
+    One(WriterKey),
+    Many(alloc::collections::BTreeSet<WriterKey>),
+}
+
+impl ObjectKeys {
+    fn insert(&mut self, key: WriterKey) {
+        match self {
+            Self::One(old) if *old == key => {}
+            Self::One(old) => *self = Self::Many([old.clone(), key].into()),
+            Self::Many(keys) => {
+                keys.insert(key);
+            }
+        }
+    }
+
+    // Return true when the last key was removed.
+    fn remove(&mut self, key: &WriterKey) -> bool {
+        match self {
+            Self::One(old) => old == key,
+            Self::Many(keys) => {
+                keys.remove(key);
+                if keys.len() == 1 {
+                    *self = Self::One(keys.pop_first().unwrap());
+                }
+                false
+            }
+        }
+    }
+
+    fn first(&self) -> &WriterKey {
+        match self {
+            Self::One(key) => key,
+            Self::Many(keys) => keys.first().expect("nonempty retention keys"),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::One(_) => 1,
+            Self::Many(keys) => keys.len(),
+        }
+    }
 }
 
 // Retention metadata is user-mutable. Its fast lookup must not call Python
@@ -1170,8 +1252,9 @@ impl PyCData {
         if let Some(dict_obj) = dict_obj
             && let Some(dict) = dict_obj.downcast_ref::<PyDict>()
         {
-            let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
+            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_str()).into();
             dict.set_item(&*key_obj, keep, vm)?;
+            self.update_object_index(dict, &key, vm)?;
         }
 
         Ok(())
@@ -1260,6 +1343,9 @@ impl PyCData {
         {
             let key_obj: PyObjectRef = vm.ctx.new_str(key).into();
             dict.set_item(&*key_obj, value, vm)?;
+            obj.downcast_ref::<Self>()
+                .unwrap()
+                .update_object_index(dict, key, vm)?;
         }
 
         Ok(())
@@ -1696,7 +1782,7 @@ impl PyCData {
                     valid = false;
                     break;
                 };
-                let Some(root) = Self::storage_root(&source, address, size) else {
+                let Some(root) = Self::overlapping_storage_root(&source, address, size) else {
                     continue;
                 };
                 // Resurrection may have cleared the registry's weakref even
@@ -1719,7 +1805,7 @@ impl PyCData {
             for (root, path) in targets {
                 if root
                     .downcast_ref::<Self>()
-                    .is_some_and(|root| root.contains_storage(address, size))
+                    .is_some_and(|root| root.overlaps_storage(address, size))
                 {
                     Self::register_writer(&root, pointer, vm)?;
                     target = Some(root);
@@ -1758,9 +1844,10 @@ impl PyCData {
             if !visited.insert(obj.get_id()) {
                 continue;
             }
-            if let Some(root) = Self::storage_root(&obj, address, size) {
+            if let Some(root) = Self::overlapping_storage_root(&obj, address, size) {
                 Self::register_writer(&root, pointer, vm)?;
-                let owned = !root.downcast_ref::<Self>().unwrap().is_borrowed();
+                let storage = root.downcast_ref::<Self>().unwrap();
+                let owned = !storage.is_borrowed() && storage.contains_storage(address, size);
                 target = Some(root);
                 if owned {
                     continue;
@@ -1787,7 +1874,7 @@ impl PyCData {
             .and_then(|obj| obj.downcast_ref::<PyDict>())
         {
             dict.inner_getitem_opt(&ObjectKey(key), vm)?
-                .and_then(|owner| Self::storage_root(&owner, address, size))
+                .and_then(|owner| Self::overlapping_storage_root(&owner, address, size))
         } else {
             None
         };
@@ -1875,11 +1962,33 @@ impl PyCData {
         Ok(())
     }
 
-    fn storage_root(obj: &PyObject, address: usize, size: usize) -> Option<PyObjectRef> {
+    fn overlapping_storage_root(
+        obj: &PyObject,
+        address: usize,
+        size: usize,
+    ) -> Option<PyObjectRef> {
         let root = Self::find_root_object(obj);
         root.downcast_ref::<Self>()
-            .is_some_and(|storage| storage.contains_storage(address, size))
+            .is_some_and(|storage| storage.overlaps_storage(address, size))
             .then_some(root)
+    }
+
+    // Register every affected reader, even if the assignment is wider than its
+    // view. This is provenance bookkeeping, not validation of the native write.
+    fn overlaps_storage(&self, address: usize, size: usize) -> bool {
+        let buffer = self.buffer.read();
+        let start = buffer.as_ptr() as usize;
+        self.base
+            .read()
+            .as_ref()
+            .is_none_or(|base| base.downcast_ref::<Self>().is_none())
+            && size != 0
+            && !buffer.is_empty()
+            && if address >= start {
+                address - start < buffer.len()
+            } else {
+                start - address < size
+            }
     }
 
     fn contains_storage(&self, address: usize, size: usize) -> bool {
@@ -1903,7 +2012,7 @@ impl PyCData {
         size: usize,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let Some(mut storage) = Self::storage_root(writer, address, size) else {
+        let Some(mut storage) = Self::overlapping_storage_root(writer, address, size) else {
             return Ok(None);
         };
         if !storage.downcast_ref::<Self>().unwrap().is_borrowed() {
@@ -1916,7 +2025,7 @@ impl PyCData {
                 return Ok(Some(storage));
             }
             if let Some(cdata) = source.downcast_ref::<Self>() {
-                let Some(root) = Self::storage_root(&source, address, size) else {
+                let Some(root) = Self::overlapping_storage_root(&source, address, size) else {
                     // A buffer view can be based on a pointer whose contents
                     // require the regular cast/contents provenance search.
                     return Ok(None);
@@ -1966,6 +2075,139 @@ impl PyCData {
                 return Ok(Some(storage));
             }
             return Self::register_pyobject_writer(&root, address, size, vm);
+        }
+        Ok(None)
+    }
+
+    fn update_object_index(
+        &self,
+        dict: &Py<PyDict>,
+        key: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.kept_refs.read().as_ref().is_none_or(|refs| {
+            refs.object_index
+                .as_ref()
+                .is_none_or(|index| index.dictionary != dict.get_id())
+        }) {
+            return Ok(());
+        }
+        // set_item can run a displaced owner's finalizer. Observe the value
+        // after reentry, rather than publishing the outer assignment's value.
+        let value = dict.inner_getitem_opt(&ObjectKey(key), vm)?;
+        let len = dict.entries.len();
+        let mut refs = self.kept_refs.write();
+        if let Some(refs) = refs.as_mut()
+            && let Some(index) = refs.object_index.as_mut()
+            && index.dictionary == dict.get_id()
+        {
+            index.set(
+                WriterKey::String(key.to_owned()),
+                value.as_ref().map(|v| v.get_id()),
+            );
+            // Direct user edits can remove keys without passing through KeepRef.
+            // Bound obsolete hints instead of accumulating assignment history.
+            if index.slots.len() > len.saturating_mul(2).saturating_add(64) {
+                refs.object_index = None;
+            }
+        }
+        drop(refs);
+        drop(value);
+        Ok(())
+    }
+
+    fn indexed_object(&self, address: usize, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        // Private owners already have an identity index; do not snapshot them
+        // merely to find a single retained object.
+        let private = self
+            .kept_refs
+            .read()
+            .as_ref()
+            .and_then(|refs| refs.owners.get(&address).map(|(value, _)| value.clone()));
+        if let Some(value) = private {
+            return Ok(Some(value));
+        }
+        let objects = self.objects.read().clone();
+        let Some(dict) = objects
+            .as_ref()
+            .and_then(|obj| obj.downcast_ref::<PyDict>())
+        else {
+            return Ok(None);
+        };
+        let build = self.kept_refs.read().as_ref().is_none_or(|refs| {
+            refs.object_index
+                .as_ref()
+                .is_none_or(|index| index.dictionary != dict.get_id())
+        });
+        if build {
+            let mut index = ObjectIndex {
+                dictionary: dict.get_id(),
+                slots: Default::default(),
+                values: Default::default(),
+            };
+            // No metadata lock while snapshots release Python references.
+            for (key, value) in dict.items_vec() {
+                let key = if let Some(key) = key
+                    .downcast_ref_if_exact::<PyStr>(vm)
+                    .and_then(|key| key.as_wtf8().as_str().ok())
+                {
+                    WriterKey::String(key.to_owned())
+                } else if let Some(key) = key
+                    .downcast_ref_if_exact::<PyInt>(vm)
+                    .and_then(|key| key.as_bigint().to_usize())
+                {
+                    WriterKey::Id(key)
+                } else {
+                    continue;
+                };
+                index.set(key, Some(value.get_id()));
+            }
+            self.kept_refs
+                .write()
+                .get_or_insert_with(Default::default)
+                .object_index = Some(Box::new(index));
+        }
+        let attempts = self
+            .kept_refs
+            .read()
+            .as_ref()
+            .and_then(|refs| refs.object_index.as_ref())
+            .filter(|index| index.dictionary == dict.get_id())
+            .and_then(|index| index.values.get(&address))
+            .map_or(0, ObjectKeys::len);
+        // Concurrent writers can reinsert stale hints. Bound retries and fall
+        // back to the ordinary graph search rather than spinning in the cache.
+        for _ in 0..attempts {
+            let key = self
+                .kept_refs
+                .read()
+                .as_ref()
+                .and_then(|refs| refs.object_index.as_ref())
+                .filter(|index| index.dictionary == dict.get_id())
+                .and_then(|index| index.values.get(&address).map(|keys| keys.first().clone()));
+            let Some(key) = key else { return Ok(None) };
+            let value = match &key {
+                WriterKey::String(key) => dict.inner_getitem_opt(&ObjectKey(key), vm)?,
+                WriterKey::Id(key) => dict.inner_getitem_opt(&ObjectIdKey(*key), vm)?,
+                WriterKey::Index(_) => unreachable!("dictionary retention key"),
+            };
+            // A concurrent write or direct _objects mutation may stale a hint.
+            // Only the current dictionary reference can establish ownership.
+            if value
+                .as_ref()
+                .is_some_and(|value| value.get_id() == address)
+            {
+                return Ok(value);
+            }
+            let mut refs = self.kept_refs.write();
+            if let Some(index) = refs.as_mut().and_then(|refs| refs.object_index.as_mut())
+                && index.dictionary == dict.get_id()
+                && index.slots.get(&key) == Some(&address)
+            {
+                index.set(key, value.as_ref().map(|value| value.get_id()));
+            }
+            drop(refs);
+            drop(value);
         }
         Ok(None)
     }
@@ -2029,6 +2271,11 @@ impl PyCData {
             }
             if !visited.insert(obj.get_id()) {
                 continue;
+            }
+            if let Some(cdata) = obj.downcast_ref::<Self>()
+                && let Some(value) = cdata.indexed_object(address, vm)?
+            {
+                return Ok(value);
             }
             Self::provenance_children(&obj, &mut pending);
         }

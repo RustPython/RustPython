@@ -1118,3 +1118,11 @@ except BufferError:
     pass
 else:
     raise AssertionError("assigning None released the buffer export")
+
+
+# An aggregate assignment can overlap a reader smaller than the written value.
+_small = (ctypes.py_object * 1).from_buffer(bytearray(ctypes.sizeof(_pair_type)))
+_pointer = ctypes.cast(ctypes.byref(_small), ctypes.POINTER(_pair_type))
+for _value in (object(), object()):
+    _pointer[0] = _pair_type(_value, None)
+    assert _small[0] is _value
