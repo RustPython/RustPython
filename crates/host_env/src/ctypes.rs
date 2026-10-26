@@ -1860,6 +1860,12 @@ impl<U: 'static> CallbackThunk<U> {
         }
     }
 
+    /// Borrow the userdata owned by this callback closure.
+    pub fn userdata(&self) -> &U {
+        // SAFETY: new stores Box::into_raw here; Drop owns its only reclamation.
+        unsafe { &*self.userdata_ptr }
+    }
+
     pub fn code_ptr(&self) -> CodePtr {
         self.code_ptr
     }

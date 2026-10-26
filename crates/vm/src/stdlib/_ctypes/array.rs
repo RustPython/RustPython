@@ -381,11 +381,22 @@ impl AsSequence for PyCArrayType {
     name = "Array",
     base = PyCData,
     metaclass = "PyCArrayType",
-    module = "_ctypes"
+    module = "_ctypes",
+    traverse = "manual"
 )]
 #[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct PyCArray(pub PyCData);
+
+// SAFETY: this transparent wrapper owns exactly the references in its base.
+unsafe impl crate::object::Traverse for PyCArray {
+    fn traverse(&self, tracer: &mut crate::object::TraverseFn<'_>) {
+        self.0.traverse(tracer);
+    }
+    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+        self.0.clear(out);
+    }
+}
 
 impl PyCArray {
     /// Get the type code of array element type (e.g., "c" for c_char, "u" for c_wchar)

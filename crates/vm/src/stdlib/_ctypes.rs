@@ -46,8 +46,11 @@ impl Py<PyType> {
             .filter(|info| info.initialized)
     }
 
-    /// Get _type_ attribute as String (type code like "i", "d", etc.)
+    /// Get the scalar converter selected when the storage type was initialized.
     fn type_code(&self, vm: &VirtualMachine) -> Option<String> {
+        if let Some(info) = self.stg_info_opt() {
+            return info.scalar_code.map(|code| code.to_string());
+        }
         self.as_object()
             .get_attr("_type_", vm)
             .ok()
@@ -62,7 +65,7 @@ impl Py<PyType> {
             } else {
                 let mut stg = StgInfo::default();
                 stg.flags |= StgInfoFlags::DICTFLAG_FINAL;
-                let _ = base.init_type_data(stg);
+                let _ = base.init_traced_type_data(stg);
             }
         }
     }
