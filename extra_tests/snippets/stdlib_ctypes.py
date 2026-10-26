@@ -1054,6 +1054,14 @@ del _temporary_value, _temporary_holder
 gc.collect()
 assert _temporary_ref() is None
 
+# Pointer writes through a borrowed view must remain visible to its exporter.
+_exporter_array = (ctypes.py_object * 1)(None)
+_exporter_pointer = ctypes.pointer(ctypes.py_object.from_buffer(_exporter_array))
+for _exporter_value in (object(), object()):
+    _exporter_pointer[0] = _exporter_value
+    assert _exporter_array[0] is _exporter_value
+del _exporter_pointer, _exporter_array, _exporter_value
+
 # A warmed writer must follow contents changes without retaining old storage.
 _value = ctypes.py_object(None)
 _pointer = ctypes.pointer(_value)
