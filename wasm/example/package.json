@@ -2,7 +2,7 @@
     "name": "rustpython-wasm-example",
     "version": "1.0.0",
     "dependencies": {
-        "rustpython_wasm": "0.1.0-pre-alpha.1"
+        "rustpython_wasm": "0.1.0-pre-alpha.2"
     },
     "devDependencies": {
         "raw-loader": "4.0.2",
