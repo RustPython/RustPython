@@ -1570,6 +1570,12 @@ impl PyCData {
     }
 
     fn register_writer(root: &PyObject, pointer: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        // KeepRef stores a view's values in its root. The view itself may be a
+        // temporary, so the reverse link must follow the same retention owner.
+        let pointer = Self::find_root_object(pointer);
+        if root.is(&pointer) {
+            return Ok(());
+        }
         let cdata = root.downcast_ref::<Self>().expect("ctypes storage root");
         let existing = cdata
             .kept_refs
@@ -1600,7 +1606,7 @@ impl PyCData {
             .filter(|weak| {
                 weak.downcast_ref::<crate::object::PyWeak>()
                     .and_then(|weak| weak.upgrade())
-                    .is_some_and(|owner| owner.is(pointer))
+                    .is_some_and(|owner| owner.is(&pointer))
             });
         if registered.is_none() {
             // Amortize dead-link cleanup across new registrations;
@@ -1660,6 +1666,64 @@ impl PyCData {
                 .is_some_and(|end| end <= buffer.len())
     }
 
+    // Writes into a root's own storage already retain their values there.
+    // Follow only buffer/base links for borrowed storage, without searching
+    // growing _objects dictionaries or user values for an unrelated target.
+    fn register_storage_writer(
+        writer: &PyObject,
+        address: usize,
+        size: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let Some(mut storage) = Self::storage_root(writer, address, size) else {
+            return Ok(None);
+        };
+        if !storage.downcast_ref::<Self>().unwrap().is_borrowed() {
+            return Ok(Some(storage));
+        }
+        let mut source = storage.clone();
+        let mut visited = std::collections::HashSet::new();
+        loop {
+            if !visited.insert(source.get_id()) {
+                return Ok(Some(storage));
+            }
+            if let Some(cdata) = source.downcast_ref::<Self>() {
+                let Some(root) = Self::storage_root(&source, address, size) else {
+                    // A buffer view can be based on a pointer whose contents
+                    // require the regular cast/contents provenance search.
+                    return Ok(None);
+                };
+                Self::register_writer(&root, writer, vm)?;
+                storage = root;
+                if !cdata.is_borrowed() {
+                    return Ok(Some(storage));
+                }
+                let base = cdata.base.read().clone();
+                let next = if base.is_some() {
+                    base
+                } else {
+                    let objects = cdata.objects.read().clone();
+                    if let Some(dict) = objects
+                        .as_ref()
+                        .and_then(|obj| obj.downcast_ref::<PyDict>())
+                    {
+                        dict.inner_getitem_opt(&ObjectKey("-1"), vm)?
+                    } else {
+                        None
+                    }
+                };
+                let Some(next) = next else {
+                    return Ok(Some(storage));
+                };
+                source = next;
+            } else if let Some(view) = source.downcast_ref::<PyMemoryView>() {
+                source = view.viewed_object().to_owned();
+            } else {
+                return Ok(Some(storage));
+            }
+        }
+    }
+
     pub(super) fn register_pyobject_view(
         &self,
         offset: usize,
@@ -1670,6 +1734,9 @@ impl PyCData {
         if let Some(base) = base {
             let root = Self::find_root_object(&base);
             let address = self.buffer.read().as_ptr().wrapping_add(offset) as usize;
+            if let Some(storage) = Self::register_storage_writer(&root, address, size, vm)? {
+                return Ok(Some(storage));
+            }
             return Self::register_pyobject_writer(&root, address, size, vm);
         }
         Ok(None)

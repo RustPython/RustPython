@@ -1035,6 +1035,25 @@ if _sys.implementation.name == "rustpython":
     gc.collect()
     assert _cast_ref() is None
 
+
+# A temporary pointer field writes ownership into its containing structure.
+class ObjectPointerHolder(ctypes.Structure):
+    _fields_ = [("pointer", ctypes.POINTER(ctypes.py_object))]
+
+
+_temporary_array = (ctypes.py_object * 1)(None)
+_temporary_holder = ObjectPointerHolder(
+    ctypes.cast(_temporary_array, ctypes.POINTER(ctypes.py_object))
+)
+_temporary_value = ObjectOwner()
+_temporary_ref = weakref.ref(_temporary_value)
+_temporary_holder.pointer[0] = _temporary_value
+assert _temporary_array[0] is _temporary_value
+# A weak writer registration must not extend the holder or value's lifetime.
+del _temporary_value, _temporary_holder
+gc.collect()
+assert _temporary_ref() is None
+
 # A warmed writer must follow contents changes without retaining old storage.
 _value = ctypes.py_object(None)
 _pointer = ctypes.pointer(_value)
