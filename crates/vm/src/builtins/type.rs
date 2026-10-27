@@ -1666,6 +1666,7 @@ impl PyType {
                 self.name()
             ))
         })?;
+        let previous_new = self.slots.new.load();
         let mut owned = ext.c_slots.write();
         if owned.is_some() {
             return Err(vm.new_type_error(format!("type '{}' already has C slots", self.name())));
@@ -1675,6 +1676,10 @@ impl PyType {
         self.slots.c_slots.store(Some(table.as_ptr()));
         if has_new {
             self.slots.new.store(Some(crate::types::c_new_trampoline));
+        } else if previous_new.is_some_and(crate::types::c_slots::is_c_trampoline) {
+            // Installing a table that omits tp_new must not clear an existing
+            // C tp_new trampoline this type already uses.
+            self.slots.new.store(previous_new);
         }
         *owned = Some(table);
         Ok(())
