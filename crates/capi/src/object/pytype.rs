@@ -104,15 +104,9 @@ pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) ->
         None => {
             eprintln!("PyType_GetSlot: unknown slot {slot}");
             ptr::null_mut()
-        },
+        }
     }
 }
-
-#[allow(non_camel_case_types)]
-pub type newfunc = CNewFunc;
-
-#[allow(non_upper_case_globals)]
-pub const Py_tp_new: c_int = CSlotId::TpNew as c_int;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
@@ -183,7 +177,7 @@ pub unsafe extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject
                         PySlotType::TypeSlot(TpNew, pfunc) => unsafe {
                             c_slots
                                 .new
-                                .store(Some(core::mem::transmute::<*mut c_void, newfunc>(pfunc)));
+                                .store(Some(core::mem::transmute::<*mut c_void, CNewFunc>(pfunc)));
                         },
                         PySlotType::TypeSlot(TpDealloc | TpTraverse | _, _) => {
                             // TODO

@@ -35,36 +35,27 @@ impl PyMethodDef {
     }
 }
 
-pub type PyCFunction =
-    unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
-
-pub type PyCFunctionWithKeywords = unsafe extern "C" fn(
-    slf: *mut PyObject,
-    args: *mut PyObject,
-    kwargs: *mut PyObject,
-) -> *mut PyObject;
-
-pub type PyCFunctionFast = unsafe extern "C" fn(
-    slf: *mut PyObject,
-    args: *const *mut PyObject,
-    nargs: isize,
-) -> *mut PyObject;
-
-pub type PyCFunctionFastWithKeywords = unsafe extern "C" fn(
-    slf: *mut PyObject,
-    args: *const *mut PyObject,
-    nargs: isize,
-    kwnames: *mut PyObject,
-) -> *mut PyObject;
-
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(non_snake_case)]
 pub union PyMethodPointer {
-    pub PyCFunction: PyCFunction,
-    pub PyCFunctionWithKeywords: PyCFunctionWithKeywords,
-    pub PyCFunctionFast: PyCFunctionFast,
-    pub PyCFunctionFastWithKeywords: PyCFunctionFastWithKeywords,
+    pub PyCFunction: unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject,
+    pub PyCFunctionWithKeywords: unsafe extern "C" fn(
+        slf: *mut PyObject,
+        args: *mut PyObject,
+        kwargs: *mut PyObject,
+    ) -> *mut PyObject,
+    pub PyCFunctionFast: unsafe extern "C" fn(
+        slf: *mut PyObject,
+        args: *const *mut PyObject,
+        nargs: isize,
+    ) -> *mut PyObject,
+    pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
+        slf: *mut PyObject,
+        args: *const *mut PyObject,
+        nargs: isize,
+        kwnames: *mut PyObject,
+    ) -> *mut PyObject,
 }
 
 impl Debug for PyMethodPointer {
