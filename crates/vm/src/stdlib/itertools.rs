@@ -706,7 +706,30 @@ mod decl {
         tgtkey: PyObjectRef,
     }
 
-    #[pyclass(with(IterNext, Iterable), flags(HAS_WEAKREF))]
+    #[derive(FromArgs)]
+    struct GrouperArgs {
+        #[pyarg(positional)]
+        parent: PyRef<PyItertoolsGroupBy>,
+        #[pyarg(positional)]
+        tgtkey: PyObjectRef,
+    }
+
+    impl Constructor for PyItertoolsGrouper {
+        type Args = GrouperArgs;
+
+        fn py_new(
+            _cls: &Py<PyType>,
+            Self::Args { parent, tgtkey }: Self::Args,
+            _vm: &VirtualMachine,
+        ) -> PyResult<Self> {
+            Ok(Self {
+                groupby: parent,
+                tgtkey,
+            })
+        }
+    }
+
+    #[pyclass(with(Constructor, IterNext, Iterable), flags(HAS_WEAKREF))]
     impl PyItertoolsGrouper {}
 
     impl SelfIter for PyItertoolsGrouper {}

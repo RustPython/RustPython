@@ -5078,7 +5078,6 @@ class TestScandir(unittest.TestCase):
         finally:
             os.chdir(old_dir)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; FileNotFoundError")
     @unittest.skipIf(sys.platform != 'win32', "Win32 specific test")
     def test_windows_trailing_space_path(self):
         import pathlib

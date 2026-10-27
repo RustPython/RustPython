@@ -9421,14 +9421,14 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        compiler.compile_comprehension_element(elt)?;
+                        let unpack = compiler.compile_comprehension_element(elt)?;
                         compiler.set_source_node(elt.range(), elt.node_index());
-                        emit!(
-                            compiler,
-                            Instruction::ListAppend {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        let i = collection_add_i.to_u32();
+                        if unpack {
+                            emit!(compiler, Instruction::ListExtend { i });
+                        } else {
+                            emit!(compiler, Instruction::ListAppend { i });
+                        }
                         Ok(())
                     },
                     ComprehensionType::List,
@@ -9451,14 +9451,14 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        compiler.compile_comprehension_element(elt)?;
+                        let unpack = compiler.compile_comprehension_element(elt)?;
                         compiler.set_source_node(elt.range(), elt.node_index());
-                        emit!(
-                            compiler,
-                            Instruction::SetAdd {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        let i = collection_add_i.to_u32();
+                        if unpack {
+                            emit!(compiler, Instruction::SetUpdate { i });
+                        } else {
+                            emit!(compiler, Instruction::SetAdd { i });
+                        }
                         Ok(())
                     },
                     ComprehensionType::Set,
@@ -9474,11 +9474,9 @@ impl<'warnings> Compiler<'warnings> {
                 generators,
                 ..
             }) => {
-                let Some(key) = key.as_deref() else {
-                    self.restore_source_span(expression_span);
-                    return Err(self.error(CodegenErrorType::SyntaxError(
-                        "dict unpacking cannot be used in dict comprehension".to_owned(),
-                    )));
+                let element_span = match key.as_deref() {
+                    Some(key) => self.dict_comprehension_element_span(key, value)?,
+                    None => self.node_span(value.as_ref()),
                 };
                 self.compile_comprehension(
                     "<dictcomp>",
@@ -9490,29 +9488,30 @@ impl<'warnings> Compiler<'warnings> {
                     ),
                     generators,
                     &|compiler, collection_add_i| {
-                        // changed evaluation order for Py38 named expression PEP 572
-                        compiler.compile_expression(key)?;
+                        // Keys precede values; a missing Ruff key denotes **value.
+                        if let Some(key) = key {
+                            // Changed evaluation order for Py38 named expression PEP 572.
+                            compiler.compile_expression(key)?;
+                        }
                         compiler.compile_expression(value)?;
 
-                        compiler.restore_source_span(
-                            compiler.dict_comprehension_element_span(key, value)?,
-                        );
-                        emit!(
-                            compiler,
-                            Instruction::MapAdd {
-                                i: collection_add_i.to_u32(),
-                            }
-                        );
+                        compiler.restore_source_span(element_span);
+                        let i = collection_add_i.to_u32();
+                        if key.is_some() {
+                            emit!(compiler, Instruction::MapAdd { i });
+                        } else {
+                            emit!(compiler, Instruction::DictUpdate { i });
+                        }
 
                         Ok(())
                     },
                     ComprehensionType::Dict,
-                    Self::contains_await(key)
+                    key.as_deref().is_some_and(Self::contains_await)
                         || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
                     expression_span,
-                    self.dict_comprehension_element_span(key, value)?,
-                    self.node_span(key),
+                    element_span,
+                    self.node_span(key.as_deref().unwrap_or(value)),
                 )?;
             }
             ast::Expr::Generator(ast::ExprGenerator {
@@ -10255,16 +10254,13 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
-        self.compile_expression(element).map_err(|e| {
-            if let CodegenErrorType::InvalidStarExpr = e.error {
-                self.error(CodegenErrorType::SyntaxError(
-                    "iterable unpacking cannot be used in comprehension".to_owned(),
-                ))
-            } else {
-                e
-            }
-        })
+    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<bool> {
+        let (value, unpack) = match element {
+            ast::Expr::Starred(starred) => (&*starred.value, true),
+            _ => (element, false),
+        };
+        self.compile_expression(value)?;
+        Ok(unpack)
     }
 
     fn compile_generator_expression(
@@ -10285,7 +10281,15 @@ impl<'warnings> Compiler<'warnings> {
                 // Compile the element expression
                 // Note: if element is an async comprehension, compile_expression
                 // already handles awaiting it, so we don't need to await again here
-                compiler.compile_comprehension_element(elt)?;
+                let unpack = compiler.compile_comprehension_element(elt)?;
+                let unpack_loop = unpack.then(|| (compiler.new_block(), compiler.new_block()));
+                if let Some((start, end)) = unpack_loop {
+                    // Unpacking forwards values, not send()/throw() as yield-from would.
+                    compiler.set_source_node(elt.range(), elt.node_index());
+                    emit!(compiler, Instruction::GetIter { mode: 0 });
+                    compiler.use_cpython_label_block(start);
+                    emit!(compiler, Instruction::ForIter { delta: end });
+                }
 
                 compiler.mark_generator();
                 if compiler.ctx.func == FunctionContext::AsyncFunction {
@@ -10307,6 +10311,12 @@ impl<'warnings> Compiler<'warnings> {
                     }
                 );
                 emit!(compiler, Instruction::PopTop);
+                if let Some((start, end)) = unpack_loop {
+                    emit!(compiler, PseudoInstruction::Jump { delta: start });
+                    compiler.set_no_location();
+                    compiler.use_cpython_label_block(end);
+                    compiler.emit_sync_comprehension_end_for();
+                }
 
                 Ok(())
             },

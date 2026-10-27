@@ -42,8 +42,8 @@ mod _testinternalcapi {
         protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
         stdlib::time::pytime::{self, Round},
         types::{
-            AsMapping, AsSequence, Comparable, IterNext, Iterable, PyComparisonOp, PyTypeFlags,
-            SelfIter,
+            AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable, PyComparisonOp,
+            PyTypeFlags, SelfIter,
         },
     };
     #[cfg(any(unix, windows))]
@@ -779,7 +779,18 @@ mod _testinternalcapi {
         }
     }
 
-    #[pyclass(flags(HAS_WEAKREF), with(AsMapping, AsSequence, Comparable, Iterable))]
+    impl Constructor for Hamt {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::default())
+        }
+    }
+
+    #[pyclass(
+        flags(HAS_WEAKREF),
+        with(Constructor, AsMapping, AsSequence, Comparable, Iterable)
+    )]
     impl Py<Hamt> {
         #[pymethod]
         fn set(
@@ -1122,7 +1133,16 @@ mod _testinternalcapi {
     }
 
     #[cfg(feature = "codegen")]
-    #[pyclass(with(Py))]
+    impl Constructor for PyInstructionSequence {
+        type Args = ();
+
+        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+            Ok(Self::empty())
+        }
+    }
+
+    #[cfg(feature = "codegen")]
+    #[pyclass(with(Constructor, Py))]
     impl PyInstructionSequence {}
 
     #[cfg(feature = "codegen")]

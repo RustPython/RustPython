@@ -414,9 +414,9 @@ pub fn last_error() -> u32 {
 }
 
 #[cfg(windows)]
-pub fn create_named_mapping(
+pub fn create_mapping(
     file_handle: Handle,
-    tag: &str,
+    tag: Option<&str>,
     access: AccessMode,
     offset: i64,
     map_size: usize,
@@ -432,7 +432,8 @@ pub fn create_named_mapping(
         .ok_or_else(|| io::Error::from_raw_os_error(libc::EOVERFLOW))?;
     let size_hi = (total_size >> 32) as u32;
     let size_lo = total_size as u32;
-    let tag_wide: Vec<u16> = tag.encode_utf16().chain(core::iter::once(0)).collect();
+    let tag_wide: Option<Vec<u16>> =
+        tag.map(|tag| tag.encode_utf16().chain(core::iter::once(0)).collect());
 
     let map_handle = unsafe {
         CreateFileMappingW(
@@ -441,7 +442,9 @@ pub fn create_named_mapping(
             fl_protect,
             size_hi,
             size_lo,
-            tag_wide.as_ptr(),
+            tag_wide
+                .as_ref()
+                .map_or(core::ptr::null(), |tag| tag.as_ptr()),
         )
     }
     .into_owned()

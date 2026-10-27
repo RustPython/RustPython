@@ -972,6 +972,41 @@ for _code in ("h", "q", "f"):
     assert _array[0].value == -2
     assert MutableInt(-3).value == -3
 
+# Native calls must use the same initialized converter for arguments and results.
+MutableInt._type_ = "h"
+_identity = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int)(lambda value: value)
+_identity.argtypes = [MutableInt]
+assert _identity(MutableInt(-65537)) == -65537
+_identity.argtypes = [ctypes.c_int]
+_identity.restype = MutableInt
+_result = _identity(-65537)
+assert getattr(_result, "value", _result) == -65537
+
+
+class MutablePointer(ctypes.c_void_p):
+    pass
+
+
+MutablePointer._type_ = "i"
+assert ctypes.cast(ctypes.c_void_p(123), MutablePointer).value == 123
+MutableInt._type_ = "P"
+try:
+    ctypes.cast(ctypes.c_void_p(123), MutableInt)
+except TypeError:
+    pass
+else:
+    raise AssertionError("cast accepted a scalar integer type")
+
+
+class SubclassBits(ctypes.Structure):
+    _fields_ = [("field", MutableInt, 3)]
+
+
+_bits = SubclassBits(3)
+assert isinstance(_bits.field, MutableInt)
+_bits.field.value = 2
+assert _bits.field.value == 2
+
 for _scalar, _text_value in ((ctypes.c_char, b"ab"), (ctypes.c_wchar, "ab")):
 
     class MutableChar(_scalar):
